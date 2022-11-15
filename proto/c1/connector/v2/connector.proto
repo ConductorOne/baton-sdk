@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/connector/v2";
+
+import "google/protobuf/any.proto";
+import "c1/connector/v2/asset.proto";
+import "google/protobuf/struct.proto";
+import "validate/validate.proto";
+
+service ConnectorService {
+  rpc GetMetadata(ConnectorServiceGetMetadataRequest) returns (ConnectorServiceGetMetadataResponse);
+  rpc Validate(ConnectorServiceValidateRequest) returns (ConnectorServiceValidateResponse);
+}
+
+message ConnectorMetadata {
+  string display_name = 1 [
+    (validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 1024
+    }
+  ];
+  string help_url = 2 [
+    (validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 1024
+      uri: true
+      prefix: "https://"
+      ignore_empty: true
+    }
+  ];
+  c1.connector.v2.AssetRef icon = 3;
+  c1.connector.v2.AssetRef logo = 4;
+  google.protobuf.Struct profile = 5;
+  repeated google.protobuf.Any annotations = 6;
+}
+
+message ConnectorServiceGetMetadataRequest { }
+
+message ConnectorServiceGetMetadataResponse {
+  ConnectorMetadata metadata = 1;
+}
+
+message ConnectorServiceValidateRequest { }
+
+// NOTE(morgabra) We're expecting correct grpc.Status responses
+// for things like 401/403/500, etc
+message ConnectorServiceValidateResponse {
+  repeated google.protobuf.Any annotations = 1;
+}
+

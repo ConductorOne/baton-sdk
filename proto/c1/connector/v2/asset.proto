@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/connector/v2";
+
+import "validate/validate.proto";
+
+service AssetService {
+  rpc GetAsset(AssetServiceGetAssetRequest) returns (stream AssetServiceGetAssetResponse);
+}
+
+message AssetRef {
+  string id = 1 [
+    (validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 1024
+    }
+  ];
+}
+
+message AssetServiceGetAssetRequest {
+  AssetRef asset = 1 [
+    (validate.rules).message = {
+      required: true
+    }
+  ];
+}
+
+message AssetServiceGetAssetResponse {
+  message Metadata {
+    string content_type = 1 [
+      (validate.rules).string = {
+        min_bytes: 1
+        max_bytes: 256
+      }
+    ];
+  }
+  message Data {
+    bytes data = 1 [
+      (validate.rules).bytes = {
+        min_len: 0
+        max_len: 1048576
+      }
+    ];
+  }
+  oneof msg {
+    option (validate.required) = true;
+    Metadata metadata = 1;
+    Data data = 2;
+  }
+}

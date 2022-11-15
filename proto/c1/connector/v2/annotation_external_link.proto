@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/connector/v2";
+
+import "validate/validate.proto";
+
+message ExternalLink {
+  string url = 1 [
+    (validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 1024
+      uri: true
+      prefix: "https://"
+      ignore_empty: true
+    }
+  ];
+}

@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package c1.utls.v1;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/utls/v1";
+
+message Credential {
+  bytes ca_cert = 1;
+  bytes key = 2;
+  bytes cert = 3;
+}

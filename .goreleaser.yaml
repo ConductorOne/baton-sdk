@@ -1,0 +1,86 @@
+project_name: c1-connector-sdk
+builds:
+  - binary: c1z
+    env:
+      - CGO_ENABLED=0
+    id: linux
+    main: ./cmd/c1z
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+  - binary: c1z
+    env:
+      - CGO_ENABLED=0
+    id: macos-amd64
+    main: ./cmd/c1z
+    goos:
+      - darwin
+    goarch:
+      - amd64
+    hooks:
+      post:
+        - gon .gon-amd64.json
+        - mv dist/c1z-darwin-amd64.signed.zip dist/macos-amd64_darwin_amd64_v1/c1z
+  - binary: c1z
+    env:
+      - CGO_ENABLED=0
+    id: macos-arm64
+    main: ./cmd/c1z
+    goos:
+      - darwin
+    goarch:
+      - arm64
+    hooks:
+      post:
+        - gon .gon-arm64.json
+        - mv dist/c1z-darwin-arm64.signed.zip dist/macos-arm64_darwin_arm64/c1z
+archives:
+  - id: linux-archive
+    builds:
+      - linux
+    format: tar.gz
+    name_template: "c1z-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    files:
+      - none*
+  - id: darwin-archive
+    builds:
+      - macos-amd64
+      - macos-arm64
+    format: binary
+    name_template: "c1z-v{{ .Version }}-{{ .Os }}-{{ .Arch }}.zip"
+    files:
+      - none*
+release:
+  ids:
+    - linux-archive
+    - darwin-archive
+snapshot:
+  name_template: '{{ incpatch .Version }}-dev'
+checksum:
+  ids:
+    - linux-archive
+  extra_files:
+    - glob: ./dist/*-darwin-amd64.zip
+    - glob: ./dist/*-darwin-arm64.zip
+brews:
+  - tap:
+      owner: ductone
+      name: homebrew-connectors
+    folder: Formula
+    name: c1z
+    download_strategy: GitHubPrivateRepositoryReleaseDownloadStrategy
+    custom_require: "lib/custom_download_strategy"
+    homepage: https://conductorone.com
+    test: |
+      system "#{bin}/c1z -v"
+    install: |-
+      bin.install "c1z"
+changelog:
+  filters:
+    exclude:
+      - '^docs:'
+      - typo
+      - lint
+      - Merge pull request

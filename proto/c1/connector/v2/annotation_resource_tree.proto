@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/connector/v2";
+
+message ChildResourceType {
+  string resource_type_id = 1;
+}

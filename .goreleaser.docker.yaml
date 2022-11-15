@@ -1,0 +1,54 @@
+project_name: connector-sdk
+builds:
+  - binary: c1z
+    env:
+      - CGO_ENABLED=0
+    id: linux
+    main: ./cmd/c1z
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+dockers:
+  - use: buildx
+    dockerfile: Dockerfile.c1z
+    goos: linux
+    goarch: amd64
+    image_templates:
+      - "ghcr.io/ductone/c1z:{{ .Version }}-amd64"
+      - "ghcr.io/ductone/c1z:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=c1z"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+  - use: buildx
+    goos: linux
+    dockerfile: Dockerfile.c1z
+    goarch: arm64
+    image_templates:
+      - "ghcr.io/ductone/c1z:{{ .Version }}-arm64"
+      - "ghcr.io/ductone/c1z:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64/v8"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title=c1z"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+docker_manifests:
+  - name_template: ghcr.io/ductone/c1z:{{ .Version }}
+    image_templates:
+      - ghcr.io/ductone/c1z:{{ .Version }}-amd64
+      - ghcr.io/ductone/c1z:{{ .Version }}-arm64
+  - name_template: ghcr.io/ductone/c1z:latest
+    image_templates:
+      - ghcr.io/ductone/c1z:latest-amd64
+      - ghcr.io/ductone/c1z:latest-arm64
+checksum:
+  disable: true
+release:
+  disable: true
+changelog:
+  skip: true

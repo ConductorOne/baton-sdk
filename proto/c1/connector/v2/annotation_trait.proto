@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/connector/v2";
+
+import "google/protobuf/struct.proto";
+import "validate/validate.proto";
+import "c1/connector/v2/asset.proto";
+
+message UserTrait {
+  message Email {
+    string address = 1 [
+      (validate.rules).string = {
+        email: true
+      }
+    ];
+    // Indicates if this is the user's primary email. Only one entry can be marked as primary.
+    bool is_primary = 2;
+  }
+  repeated Email emails = 1;
+
+  message Status {
+    enum Status {
+      STATUS_UNSPECIFIED = 0;
+      STATUS_ENABLED = 1;
+      STATUS_DISABLED = 2;
+      STATUS_DELETED = 3;
+    }
+    Status status = 1 [
+      (validate.rules).enum = {
+        defined_only: true
+      }
+    ];
+    string details = 2 [
+      (validate.rules).string = {
+        ignore_empty: true
+        min_bytes: 1
+        max_bytes: 1024
+      }
+    ];
+  }
+  Status status = 2 [
+    (validate.rules).message = {
+      required: true
+    }
+  ];
+  google.protobuf.Struct profile = 3;
+  c1.connector.v2.AssetRef icon = 4;
+}
+
+message GroupTrait {
+  c1.connector.v2.AssetRef icon = 1;
+  google.protobuf.Struct profile = 2;
+}
+
+message RoleTrait {
+  google.protobuf.Struct profile = 1;
+}
+
+message AppTrait {
+  string help_url = 1 [
+    (validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 1024
+      uri: true
+      prefix: "https://"
+      ignore_empty: true
+    }
+  ];
+  c1.connector.v2.AssetRef icon = 2;
+  c1.connector.v2.AssetRef logo = 3;
+  google.protobuf.Struct profile = 4;
+}
+

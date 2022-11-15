@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/connector/v2";
+
+import "google/protobuf/timestamp.proto";
+
+message RateLimitDescription {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_OK = 1;
+    STATUS_OVERLIMIT = 2;
+    STATUS_ERROR = 3;
+  }
+  Status status = 1;
+  int64 limit = 2;
+  int64 remaining = 3;
+  google.protobuf.Timestamp reset_at = 4;
+}

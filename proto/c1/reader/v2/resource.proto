@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package c1.reader.v2;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/reader/v2";
+
+import "c1/connector/v2/resource.proto";
+import "validate/validate.proto";
+
+service ResourceTypesReaderService {
+  rpc GetResourceType(ResourceTypesReaderServiceGetResourceTypeRequest) returns (c1.connector.v2.ResourceType);
+}
+
+message ResourceTypesReaderServiceGetResourceTypeRequest {
+  string resource_type_id = 1;
+}
+
+service ResourcesReaderService {
+  rpc GetResource(ResourceTypesReaderServiceGetResourceRequest) returns (c1.connector.v2.Resource);
+}
+
+message ResourceTypesReaderServiceGetResourceRequest {
+  c1.connector.v2.ResourceId resource_id = 1 [
+    (validate.rules).message = {
+      required: true
+    }
+  ];
+}

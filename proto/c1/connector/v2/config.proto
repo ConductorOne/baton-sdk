@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/connector/v2";
+
+import "validate/validate.proto";
+import "c1/connector/v2/asset.proto";
+
+service SchemaService {
+  rpc GetSchema(SchemaServiceGetSchemaRequest) returns (SchemaServiceGetSchemaResponse);
+}
+
+message SchemaServiceGetSchemaRequest {}
+
+message SchemaServiceGetSchemaResponse {
+  string version = 1;
+  ConfigSchema schema = 2;
+}
+
+message ConfigSchema {
+  repeated Field fields = 1;
+  string display_name = 2;
+  string help_url = 3;
+  c1.connector.v2.AssetRef icon = 4;
+  c1.connector.v2.AssetRef logo = 5;
+}
+
+message Field {
+  // Must not start with `C1_` and match [a-zA-Z0-9_]{2,64}.  Must be unique within a connector.
+  string name = 1;
+  // empty or https URL
+  string help_url = 2;
+  // Human readable label for this Field
+  string display_name = 3;
+  string placeholder = 4;
+  oneof field {
+    StringField str = 100;
+    SelectField select = 101;
+    RandomStringField random = 102;
+    FileField file = 103;
+  }
+}
+
+message StringField {
+  // If secret, value is write-only in UI and a password-type form is used.
+  bool secret = 1;
+  // validator rules for value. may be empty.
+  validate.StringRules value_validator = 2;
+}
+
+message SelectField {
+  message Item {
+    string display_name = 1;
+    string value = 2;
+  }
+  // list of items that are selected from
+  repeated Item items = 5;
+}
+
+message RandomStringField {
+  int32 length = 1;
+}
+
+message FileField {
+  bool secret = 1;
+  validate.StringRules value_validator = 2;
+  repeated string allowed_extensions = 3;
+}
+
+// TWO types of oauth2 flows:
+// GlobalOAuth2
+// we configure the client_id with the target saas -> an ennum?
+
+// LATER:
+// Customer providerd OAuth2 ->
+// same flow component, but client_id, client_secret, are provided as input
+// and issuer / token URL /etc

@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package c1.connector_wrapper.v1;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/connector_wrapper/v1";
+
+import "c1/utls/v1/tls.proto";
+import "c1/ratelimit/v1/ratelimit.proto";
+
+message ServerConfig {
+  utls.v1.Credential credential = 1;
+  ratelimit.v1.RateLimiterConfig rate_limiter_config = 2;
+}

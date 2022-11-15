@@ -1,0 +1,53 @@
+name: ci
+on: pull_request
+jobs:
+  go-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19.x
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Run linters
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          args: --timeout=3m
+  go-test:
+    strategy:
+      matrix:
+        go-version: [1.18.x, 1.19.x]
+        platform: [ubuntu-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Install Go
+        if: success()
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: go tests
+        run: go test -v -covermode=count -json ./... > test.json
+      - name: annotate go tests
+        if: always()
+        uses: guyarb/golang-test-annotations@v0.5.1
+        with:
+          test-results: test.json
+  buf-lint-and-breaking-change-detection:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      - name: Setup
+        uses: bufbuild/buf-setup-action@v0.5.0
+        with:
+          version: '1.7.0'
+      - name: Lint
+        uses: bufbuild/buf-lint-action@v1
+      - name: Breaking change detection against `main`
+        uses: bufbuild/buf-breaking-action@v1
+        with:
+          against: 'https://github.com/ductone/connector-sdk.git#branch=main'

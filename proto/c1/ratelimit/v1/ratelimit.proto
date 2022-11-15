@@ -1,0 +1,90 @@
+syntax = "proto3";
+
+package c1.ratelimit.v1;
+
+option go_package = "github.com/ductone/connector-sdk/pb/c1/ratelimit/v1";
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "validate/validate.proto";
+
+service RateLimiter {
+  rpc Do(DoRequest) returns (DoResponse);
+  rpc Report(ReportRequest) returns (google.protobuf.Empty);
+}
+
+// https://tools.ietf.org/html/draft-ietf-httpapi-ratelimit-headers-00#section-1.1
+// RateLimitDescription is a minimal representation of a rate limit.
+message RateLimitDescription {
+  enum Status {
+    UNKNOWN = 0;
+    OK = 1;
+    OVERLIMIT = 2;
+    ERROR = 3;
+    EMPTY = 4;
+  }
+  Status status = 1;
+  int64 limit = 2;
+  int64 remaining = 3;
+  int64 count = 5;
+  google.protobuf.Timestamp reset_at = 4;
+}
+
+message ReportRequest {
+  string request_token = 1;
+  RateLimitDescription description = 2;
+  string service = 3;
+  RateLimitDescriptors descriptors = 4;
+}
+
+message RateLimitDescriptors {
+  message Entry {
+    string key = 1 [(validate.rules).string = {
+      min_len: 1
+    }];
+    string value = 2 [(validate.rules).string = {
+      min_len: 1
+    }];
+  }
+  repeated Entry entries = 1 [(validate.rules).repeated = {
+    min_items: 1
+  }];
+}
+
+message DoRequest {
+  string request_token = 1;
+  string service = 2;
+  RateLimitDescriptors descriptors = 3;
+}
+
+message DoResponse {
+  string request_token = 1;
+  RateLimitDescription description = 2;
+}
+
+
+message DisabledLimiter {}
+
+message SlidingMemoryLimiter {
+  double use_percent = 1;
+}
+
+message FixedMemoryLimiter {
+  int64 rate = 1;
+  google.protobuf.Duration period = 2;
+}
+
+message ExternalLimiter {
+  string address = 2;
+  map<string, string> options = 1;
+}
+
+message RateLimiterConfig {
+  oneof type {
+    DisabledLimiter disabled = 100;
+    SlidingMemoryLimiter sliding_mem = 101;
+    FixedMemoryLimiter fixed_mem = 102;
+    ExternalLimiter external = 103;
+  }
+}
