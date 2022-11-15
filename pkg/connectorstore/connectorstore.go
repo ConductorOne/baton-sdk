@@ -26,6 +26,10 @@ type Reader interface {
 	// the GRPC api, but because this is defined as a streaming RPC, it isn't trivial to implement grpc streaming as part of the c1z format.
 	GetAsset(ctx context.Context, req *v2.AssetServiceGetAssetRequest) (string, io.Reader, error)
 
+	// ViewSync uses the provided syncID to change which sync generation is used for fetching results.
+	// If this is not called, the latest complete sync will be used.
+	ViewSync(ctx context.Context, syncID string) error
+
 	Close() error
 }
 
