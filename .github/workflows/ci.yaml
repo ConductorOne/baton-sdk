@@ -50,4 +50,4 @@ jobs:
       - name: Breaking change detection against `main`
         uses: bufbuild/buf-breaking-action@v1
         with:
-          against: 'https://github.com/ductone/connector-sdk.git#branch=main'
+          against: 'https://github.com/conductorone/baton-sdk.git#branch=main'
