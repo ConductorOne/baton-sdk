@@ -38,7 +38,7 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
 docker_manifests:
-  - name_template: ghcr.io/ductone/baton:{{ .Version }}
+  - name_template: ghcr.io/conductorone/baton:{{ .Version }}
     image_templates:
       - ghcr.io/conductorone/baton:{{ .Version }}-amd64
       - ghcr.io/conductorone/baton:{{ .Version }}-arm64
