@@ -10,8 +10,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	v2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
-	reader_v2 "github.com/ductone/connector-sdk/pb/c1/reader/v2"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 )
 
 var c1zTests struct {

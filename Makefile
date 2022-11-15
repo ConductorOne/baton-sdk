@@ -1,6 +1,6 @@
 .PHONY: update-deps
 update-deps:
-	GOPRIVATE=github.com/ductone/connector-sdk go get -d -u ./...
+	GOPRIVATE=github.com/conductorone/baton-sdk go get -d -u ./...
 	go mod tidy -v
 	go mod vendor
 

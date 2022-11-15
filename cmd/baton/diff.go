@@ -7,16 +7,16 @@ import (
 	"fmt"
 	"os"
 
-	v1 "github.com/ductone/connector-sdk/pb/c1/c1z/v1"
-	v2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
-	"github.com/ductone/connector-sdk/pkg/dotc1z/manager"
-	"github.com/ductone/connector-sdk/pkg/logging"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/logging"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/ductone/connector-sdk/internal/dotc1z"
+	"github.com/conductorone/baton-sdk/internal/dotc1z"
 )
 
 func diffCmd() *cobra.Command {

@@ -8,7 +8,7 @@ package v2
 
 import (
 	context "context"
-	v2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"

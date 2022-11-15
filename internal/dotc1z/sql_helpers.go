@@ -9,7 +9,7 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"google.golang.org/protobuf/proto"
 
-	v2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 const maxPageSize = 100

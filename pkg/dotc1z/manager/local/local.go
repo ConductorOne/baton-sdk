@@ -6,7 +6,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/ductone/connector-sdk/internal/dotc1z"
+	"github.com/conductorone/baton-sdk/internal/dotc1z"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )

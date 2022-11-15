@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ductone/connector-sdk/pkg/dotc1z/manager"
-	"github.com/ductone/connector-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"github.com/xuri/excelize/v2"
 
-	"github.com/ductone/connector-sdk/internal/prototools"
-	v2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/internal/prototools"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 func exportXLSX() *cobra.Command {

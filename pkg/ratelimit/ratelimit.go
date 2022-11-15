@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	ratelimitV1 "github.com/ductone/connector-sdk/pb/c1/ratelimit/v1"
+	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 )
 
 const (

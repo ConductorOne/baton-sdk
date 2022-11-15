@@ -3,7 +3,7 @@ package ratelimit
 import (
 	"context"
 
-	v1 "github.com/ductone/connector-sdk/pb/c1/ratelimit/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 

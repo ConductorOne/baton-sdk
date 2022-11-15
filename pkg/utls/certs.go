@@ -10,7 +10,7 @@ import (
 	"net"
 	"time"
 
-	v1 "github.com/ductone/connector-sdk/pb/c1/utls/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/utls/v1"
 )
 
 func serialNumber() (*big.Int, error) {

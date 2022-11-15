@@ -6,14 +6,14 @@ import (
 	"os/signal"
 	"time"
 
-	ratelimitV1 "github.com/ductone/connector-sdk/pb/c1/ratelimit/v1"
-	"github.com/ductone/connector-sdk/pkg/dotc1z/manager"
-	"github.com/ductone/connector-sdk/pkg/sync"
-	"github.com/ductone/connector-sdk/pkg/types"
+	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/sync"
+	"github.com/conductorone/baton-sdk/pkg/types"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	"github.com/ductone/connector-sdk/internal/connector"
-	"github.com/ductone/connector-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/internal/connector"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 type connectorRunner struct {

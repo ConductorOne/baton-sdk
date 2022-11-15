@@ -1,4 +1,4 @@
-module github.com/ductone/connector-sdk
+module github.com/conductorone/baton-sdk
 
 go 1.19
 

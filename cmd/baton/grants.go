@@ -5,14 +5,14 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ductone/connector-sdk/pkg/dotc1z/manager"
-	"github.com/ductone/connector-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 
-	"github.com/ductone/connector-sdk/internal/dotc1z"
-	v2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
-	reader_v2 "github.com/ductone/connector-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/internal/dotc1z"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 )
 
 func grantsCmd() *cobra.Command {

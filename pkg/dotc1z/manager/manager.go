@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/ductone/connector-sdk/internal/dotc1z"
-	"github.com/ductone/connector-sdk/pkg/dotc1z/manager/local"
-	"github.com/ductone/connector-sdk/pkg/dotc1z/manager/s3"
+	"github.com/conductorone/baton-sdk/internal/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager/local"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager/s3"
 )
 
 type Manager interface {

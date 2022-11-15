@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/ductone/connector-sdk/pkg/dotc1z/manager"
-	"github.com/ductone/connector-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )

@@ -3,8 +3,8 @@ package types
 import (
 	"context"
 
-	connectorV2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
-	connectorwrapperV1 "github.com/ductone/connector-sdk/pb/c1/connector_wrapper/v1"
+	connectorV2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 )
 
 // ConnectorServer is an interface for a single type that implements all ConnectorV2 services.
