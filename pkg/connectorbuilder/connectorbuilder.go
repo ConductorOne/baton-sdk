@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 
-	v2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
-	"github.com/ductone/connector-sdk/pkg/annotations"
-	"github.com/ductone/connector-sdk/pkg/pagination"
-	"github.com/ductone/connector-sdk/pkg/types"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
 type ResourceSyncer interface {

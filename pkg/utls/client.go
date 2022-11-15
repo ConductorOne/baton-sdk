@@ -6,7 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 
-	v1 "github.com/ductone/connector-sdk/pb/c1/utls/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/utls/v1"
 )
 
 // ClientConfig takes a credential and returns a TLS configuration that can be used to connect to a server.

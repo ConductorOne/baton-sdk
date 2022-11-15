@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
-	v2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
-	reader_v2 "github.com/ductone/connector-sdk/pb/c1/reader/v2"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 )
 
 // ConnectorStoreReader implements the ConnectorV2 API, along with getters for individual objects.

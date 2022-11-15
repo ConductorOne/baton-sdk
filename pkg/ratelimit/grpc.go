@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	connectorV2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
-	ratelimitV1 "github.com/ductone/connector-sdk/pb/c1/ratelimit/v1"
-	"github.com/ductone/connector-sdk/pkg/annotations"
+	connectorV2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/golang/protobuf/ptypes/any"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"

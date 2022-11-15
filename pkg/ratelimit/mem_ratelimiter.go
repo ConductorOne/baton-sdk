@@ -5,8 +5,8 @@ import (
 	"sync"
 	"time"
 
-	ratelimitV1 "github.com/ductone/connector-sdk/pb/c1/ratelimit/v1"
-	v1 "github.com/ductone/connector-sdk/pb/c1/ratelimit/v1"
+	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	rl "go.uber.org/ratelimit"
 	"go.uber.org/zap"

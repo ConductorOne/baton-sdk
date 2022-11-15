@@ -5,8 +5,8 @@ import (
 	"errors"
 	"io"
 
-	"github.com/ductone/connector-sdk/internal/dotc1z"
-	"github.com/ductone/connector-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/internal/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 var WithContext = dotc1z.WithContext

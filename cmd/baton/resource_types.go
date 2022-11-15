@@ -4,12 +4,12 @@ import (
 	"context"
 	"strings"
 
-	"github.com/ductone/connector-sdk/pkg/dotc1z/manager"
-	"github.com/ductone/connector-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 
-	v2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 func resourceTypesCmd() *cobra.Command {

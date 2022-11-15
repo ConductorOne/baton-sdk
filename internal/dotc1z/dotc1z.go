@@ -8,7 +8,7 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	_ "github.com/glebarez/go-sqlite"
 
-	v2 "github.com/ductone/connector-sdk/pb/c1/connector/v2"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 type C1File struct {

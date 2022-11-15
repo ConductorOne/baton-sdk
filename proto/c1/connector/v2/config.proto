@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
-option go_package = "github.com/ductone/connector-sdk/pb/c1/connector/v2";
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 import "validate/validate.proto";
 import "c1/connector/v2/asset.proto";

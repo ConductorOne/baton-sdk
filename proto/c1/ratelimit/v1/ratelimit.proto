@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package c1.ratelimit.v1;
 
-option go_package = "github.com/ductone/connector-sdk/pb/c1/ratelimit/v1";
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1";
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/empty.proto";

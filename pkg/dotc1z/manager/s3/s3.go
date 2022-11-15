@@ -8,8 +8,8 @@ import (
 	"os"
 
 	"github.com/aws/smithy-go"
-	"github.com/ductone/connector-sdk/internal/dotc1z"
-	"github.com/ductone/connector-sdk/pkg/us3"
+	"github.com/conductorone/baton-sdk/internal/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/us3"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
