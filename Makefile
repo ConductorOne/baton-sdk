@@ -2,12 +2,10 @@
 update-deps:
 	GOPRIVATE=github.com/conductorone/baton-sdk go get -d -u ./...
 	go mod tidy -v
-	go mod vendor
 
 .PHONY: add-deps
 add-dep:
 	go mod tidy -v
-	go mod vendor
 
 .PHONY: lint
 lint:
@@ -20,12 +18,3 @@ proto-gen:
 .PHONY: test
 test:
 	go test -v ./...
-
-GOOS = $(shell go env GOOS)
-GOARCH = $(shell go env GOARCH)
-BUILD_DIR = dist/${GOOS}_${GOARCH}
-.PHONY: build-baton
-build-baton:
-	rm -f ${OUTPUT_PATH}
-	mkdir -p ${BUILD_DIR}
-	go build -o ${BUILD_DIR}/baton cmd/baton/*.go
