@@ -14,12 +14,12 @@ func main() {
 	_ = context.Background()
 
 	cmd := &cobra.Command{
-		Use:     "c1z",
-		Short:   "c1z is a utility for viewing the contents of a .c1z file",
+		Use:     "baton",
+		Short:   "baton is a utility for working with the output of a baton-based connector",
 		Version: version,
 	}
 
-	cmd.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to sync with")
+	cmd.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to work with.")
 
 	cmd.AddCommand(resourcesCmd())
 	cmd.AddCommand(resourceTypesCmd())

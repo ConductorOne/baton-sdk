@@ -1,20 +1,20 @@
 project_name: c1-connector-sdk
 builds:
-  - binary: c1z
+  - binary: baton
     env:
       - CGO_ENABLED=0
     id: linux
-    main: ./cmd/c1z
+    main: ./cmd/baton
     goos:
       - linux
     goarch:
       - amd64
       - arm64
-  - binary: c1z
+  - binary: baton
     env:
       - CGO_ENABLED=0
     id: macos-amd64
-    main: ./cmd/c1z
+    main: ./cmd/baton
     goos:
       - darwin
     goarch:
@@ -22,12 +22,12 @@ builds:
     hooks:
       post:
         - gon .gon-amd64.json
-        - mv dist/c1z-darwin-amd64.signed.zip dist/macos-amd64_darwin_amd64_v1/c1z
-  - binary: c1z
+        - mv dist/baton-darwin-amd64.signed.zip dist/macos-amd64_darwin_amd64_v1/baton
+  - binary: baton
     env:
       - CGO_ENABLED=0
     id: macos-arm64
-    main: ./cmd/c1z
+    main: ./cmd/baton
     goos:
       - darwin
     goarch:
@@ -35,13 +35,13 @@ builds:
     hooks:
       post:
         - gon .gon-arm64.json
-        - mv dist/c1z-darwin-arm64.signed.zip dist/macos-arm64_darwin_arm64/c1z
+        - mv dist/baton-darwin-arm64.signed.zip dist/macos-arm64_darwin_arm64/baton
 archives:
   - id: linux-archive
     builds:
       - linux
     format: tar.gz
-    name_template: "c1z-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
+    name_template: "baton-v{{ .Version }}-{{ .Os }}-{{ .Arch }}"
     files:
       - none*
   - id: darwin-archive
@@ -49,7 +49,7 @@ archives:
       - macos-amd64
       - macos-arm64
     format: binary
-    name_template: "c1z-v{{ .Version }}-{{ .Os }}-{{ .Arch }}.zip"
+    name_template: "baton-v{{ .Version }}-{{ .Os }}-{{ .Arch }}.zip"
     files:
       - none*
 release:
@@ -66,17 +66,17 @@ checksum:
     - glob: ./dist/*-darwin-arm64.zip
 brews:
   - tap:
-      owner: ductone
-      name: homebrew-connectors
+      owner: conductorone
+      name: homebrew-baton
     folder: Formula
-    name: c1z
+    name: baton
     download_strategy: GitHubPrivateRepositoryReleaseDownloadStrategy
     custom_require: "lib/custom_download_strategy"
     homepage: https://conductorone.com
     test: |
-      system "#{bin}/c1z -v"
+      system "#{bin}/baton -v"
     install: |-
-      bin.install "c1z"
+      bin.install "baton"
 changelog:
   filters:
     exclude:

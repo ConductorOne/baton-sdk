@@ -1,1 +1,1 @@
-# connector-sdk
+# baton-sdk

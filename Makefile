@@ -23,9 +23,9 @@ test:
 
 GOOS = $(shell go env GOOS)
 GOARCH = $(shell go env GOARCH)
-BUILD_DIR = build/${GOOS}_${GOARCH}
-.PHONY: build-c1z
-build-c1z:
+BUILD_DIR = dist/${GOOS}_${GOARCH}
+.PHONY: build-baton
+build-baton:
 	rm -f ${OUTPUT_PATH}
 	mkdir -p ${BUILD_DIR}
-	go build -o ${BUILD_DIR}/c1z cmd/c1z/*.go
+	go build -o ${BUILD_DIR}/baton cmd/baton/*.go
