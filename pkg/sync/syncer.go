@@ -8,7 +8,6 @@ import (
 	"io"
 	"time"
 
-	"github.com/conductorone/baton-sdk/internal/prototools"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -504,31 +503,33 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, resourceID *v2.Resou
 		return err
 	}
 
-	ut := &v2.UserTrait{}
-	ok, err := prototools.UnmarshalFromAnys(ut, resource.Annotations)
+	rAnnos := annotations.Annotations(resource.Annotations)
+
+	userTrait := &v2.UserTrait{}
+	ok, err := rAnnos.Pick(userTrait)
 	if err != nil {
 		return err
 	}
 	if ok {
-		assetRefs = append(assetRefs, ut.Icon)
+		assetRefs = append(assetRefs, userTrait.Icon)
 	}
 
-	gt := &v2.GroupTrait{}
-	ok, err = prototools.UnmarshalFromAnys(gt, resource.Annotations)
+	grpTrait := &v2.GroupTrait{}
+	ok, err = rAnnos.Pick(grpTrait)
 	if err != nil {
 		return err
 	}
 	if ok {
-		assetRefs = append(assetRefs, gt.Icon)
+		assetRefs = append(assetRefs, grpTrait.Icon)
 	}
 
-	at := &v2.AppTrait{}
-	ok, err = prototools.UnmarshalFromAnys(at, resource.Annotations)
+	appTrait := &v2.AppTrait{}
+	ok, err = rAnnos.Pick(appTrait)
 	if err != nil {
 		return err
 	}
 	if ok {
-		assetRefs = append(assetRefs, at.Icon, at.Logo)
+		assetRefs = append(assetRefs, appTrait.Icon, appTrait.Logo)
 	}
 
 	for _, assetRef := range assetRefs {
