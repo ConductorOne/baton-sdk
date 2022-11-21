@@ -300,8 +300,6 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 
 // Close shuts down the grpc server and closes the connection.
 func (cw *wrapper) Close() error {
-	cw.mtx.Lock()
-	defer cw.mtx.Unlock()
 	var err error
 	if cw.conn != nil {
 		err = cw.conn.Close()

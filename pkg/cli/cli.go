@@ -92,14 +92,6 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			stdin, err := os.Stdin.Stat()
-			if err != nil {
-				return err
-			}
-			if stdin.Size() == 0 {
-				return fmt.Errorf("unexpected end of input")
-			}
-
 			var cfgStr string
 			scn := bufio.NewScanner(os.Stdin)
 			for scn.Scan() {
