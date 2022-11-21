@@ -213,7 +213,6 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		waitErr := cmd.Wait()
 		if waitErr != nil {
 			l.Error("connector service quit unexpectedly", zap.Error(waitErr))
-
 			waitErr = cw.Close()
 			if waitErr != nil {
 				l.Error("error closing connector wrapper", zap.Error(waitErr))
@@ -303,7 +302,6 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 func (cw *wrapper) Close() error {
 	var err error
 	if cw.conn != nil {
-		fmt.Println("Closing client")
 		err = cw.conn.Close()
 		if err != nil {
 			return fmt.Errorf("error closing client connection: %w", err)
@@ -311,7 +309,6 @@ func (cw *wrapper) Close() error {
 	}
 
 	if cw.serverStdin != nil {
-		fmt.Println("Closing server stdin")
 		err = cw.serverStdin.Close()
 		if err != nil {
 			return fmt.Errorf("error closing connector service stdin: %w", err)
