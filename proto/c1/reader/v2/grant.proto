@@ -11,6 +11,7 @@ import "validate/validate.proto";
 service GrantsReaderService {
   rpc GetGrant(GrantsReaderServiceGetGrantRequest) returns (c1.connector.v2.Grant);
   rpc ListGrantsForEntitlement(GrantsReaderServiceListGrantsForEntitlementRequest) returns (GrantsReaderServiceListGrantsForEntitlementResponse);
+  rpc ListGrantsForResourceType(GrantsReaderServiceListGrantsForResourceTypeRequest) returns (GrantsReaderServiceListGrantsForResourceTypeResponse);
 }
 
 message GrantsReaderServiceGetGrantRequest {
@@ -44,6 +45,40 @@ message GrantsReaderServiceListGrantsForEntitlementRequest {
 }
 
 message GrantsReaderServiceListGrantsForEntitlementResponse {
+  repeated c1.connector.v2.Grant list = 1;
+  string next_page_token = 2 [
+    (validate.rules).string = {
+      ignore_empty: true
+      min_bytes: 1
+      max_bytes: 2048
+    }
+  ];
+}
+
+message GrantsReaderServiceListGrantsForResourceTypeRequest {
+  string resource_type_id = 1 [
+    (validate.rules).string = {
+      ignore_empty: true
+      min_bytes: 1
+      max_bytes: 2048
+    }
+  ];
+  uint32 page_size = 2 [
+    (validate.rules).uint32 = {
+      ignore_empty: true
+      lte: 250
+    }
+  ];
+  string page_token = 3 [
+    (validate.rules).string = {
+      ignore_empty: true
+      min_bytes: 1
+      max_bytes: 2048
+    }
+  ];
+}
+
+message GrantsReaderServiceListGrantsForResourceTypeResponse {
   repeated c1.connector.v2.Grant list = 1;
   string next_page_token = 2 [
     (validate.rules).string = {

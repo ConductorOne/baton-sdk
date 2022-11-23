@@ -11,8 +11,8 @@ add-dep:
 lint:
 	golangci-lint run --timeout=3m
 
-.PHONY: proto-gen
-proto-gen:
+.PHONY: protogen
+protogen:
 	buf generate
 
 .PHONY: test
