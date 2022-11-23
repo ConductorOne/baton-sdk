@@ -41,7 +41,7 @@ func (s *s3Manager) copyToTempFile(ctx context.Context, r io.Reader) error {
 	return nil
 }
 
-// LoadRaw loads the file from S3 and returns an io.Reader for the contents
+// LoadRaw loads the file from S3 and returns an io.Reader for the contents.
 func (s *s3Manager) LoadRaw(ctx context.Context) (io.Reader, error) {
 	out, err := s.client.Get(ctx, s.fileName)
 	if err != nil {

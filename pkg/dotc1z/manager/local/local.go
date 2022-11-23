@@ -46,7 +46,7 @@ func (l *localManager) copyFileToTmp(ctx context.Context) error {
 	return nil
 }
 
-// LoadRaw returns an io.Reader for the raw c1z file
+// LoadRaw returns an io.Reader of the bytes in the c1z file.
 func (l *localManager) LoadRaw(ctx context.Context) (io.Reader, error) {
 	err := l.copyFileToTmp(ctx)
 	if err != nil {
