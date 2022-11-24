@@ -23,12 +23,6 @@ func convertIDToString(id interface{}) (string, error) {
 	return resourceID, nil
 }
 
-type ResourceOpts struct {
-	ID           interface{}
-	ResourceType string
-	DisplayName  string
-}
-
 // NewResourceID returns a new resource ID given a resource type parent ID, and arbitrary object ID.
 func NewResourceID(resourceType *v2.ResourceType, parentResourceID *v2.ResourceId, objectID interface{}) (*v2.ResourceId, error) {
 	id, err := convertIDToString(objectID)
