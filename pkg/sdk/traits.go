@@ -61,3 +61,17 @@ func NewAppTrait(icon *v2.AssetRef, logo *v2.AssetRef, helpURL string, profile m
 
 	return ut, nil
 }
+
+// NewRoleTrait creates a new `RoleTrait` with the given profile.
+func NewRoleTrait(profile map[string]interface{}) (*v2.RoleTrait, error) {
+	p, err := structpb.NewStruct(profile)
+	if err != nil {
+		return nil, err
+	}
+
+	rt := &v2.RoleTrait{
+		Profile: p,
+	}
+
+	return rt, nil
+}
