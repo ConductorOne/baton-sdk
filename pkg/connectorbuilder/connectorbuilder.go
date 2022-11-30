@@ -3,7 +3,6 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
-	"io"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -21,7 +20,6 @@ type ResourceSyncer interface {
 type ConnectorBuilder interface {
 	Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 	Validate(ctx context.Context) (annotations.Annotations, error)
-	Asset(ctx context.Context, asset *v2.AssetRef) (string, io.ReadCloser, error)
 	ResourceSyncers(ctx context.Context) []ResourceSyncer
 }
 
@@ -157,12 +155,7 @@ func (b *builderImpl) Validate(ctx context.Context, request *v2.ConnectorService
 }
 
 // GetAsset streams the asset to the client.
+// FIXME(jirwin): Asset streaming is disabled.
 func (b *builderImpl) GetAsset(request *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
-	contentType, r, err := b.cb.Asset(server.Context(), request.Asset)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-
-	return streamAsset(contentType, r, server)
+	return nil
 }

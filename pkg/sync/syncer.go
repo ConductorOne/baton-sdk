@@ -123,7 +123,8 @@ func (s *syncer) Sync(ctx context.Context) error {
 		switch stateAction.Op {
 		case InitOp:
 			s.state.FinishAction(ctx)
-			s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
+			// FIXME(jirwin): Disabling syncing assets for now
+			// s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
 			s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
 			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
