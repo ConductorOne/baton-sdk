@@ -28,7 +28,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const listenerFdEnv = "C1_CONNECTOR_SERVICE_LISTENER_FD"
+const listenerFdEnv = "BATON_CONNECTOR_SERVICE_LISTENER_FD"
 
 type connectorClient struct {
 	connectorV2.ResourceTypesServiceClient
