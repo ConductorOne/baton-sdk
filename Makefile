@@ -1,3 +1,4 @@
+.DEFAULT_GOAL := lint
 .PHONY: update-deps
 update-deps:
 	GOPRIVATE=github.com/conductorone/baton-sdk go get -d -u ./...
