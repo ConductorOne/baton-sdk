@@ -1,4 +1,7 @@
-.DEFAULT_GOAL := lint
+.PHONY: lint
+lint:
+	golangci-lint run --timeout=3m
+
 .PHONY: update-deps
 update-deps:
 	GOPRIVATE=github.com/conductorone/baton-sdk go get -d -u ./...
@@ -7,10 +10,6 @@ update-deps:
 .PHONY: add-deps
 add-dep:
 	go mod tidy -v
-
-.PHONY: lint
-lint:
-	golangci-lint run --timeout=3m
 
 .PHONY: protogen
 protogen:
