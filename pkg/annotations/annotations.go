@@ -64,6 +64,6 @@ func (a *Annotations) Pick(needle proto.Message) (bool, error) {
 
 // WithRateLimiting takes a pointer to a RateLimitDescription and appends it to the Annotations slice.
 func (a *Annotations) WithRateLimiting(rateLimit *v2.RateLimitDescription) *Annotations {
-	a.Append(rateLimit)
+	a.Update(rateLimit)
 	return a
 }

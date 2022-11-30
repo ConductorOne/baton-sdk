@@ -72,7 +72,7 @@ func NewUserResource(
 	}
 
 	var annos annotations.Annotations
-	annos.Append(userTrait)
+	annos.Update(userTrait)
 
 	ret.Annotations = annos
 
@@ -99,7 +99,7 @@ func NewGroupResource(
 	}
 
 	var annos annotations.Annotations
-	annos.Append(groupTrait)
+	annos.Update(groupTrait)
 
 	ret.Annotations = annos
 
@@ -126,7 +126,7 @@ func NewRoleResource(
 	}
 
 	var annos annotations.Annotations
-	annos.Append(roleTrait)
+	annos.Update(roleTrait)
 
 	ret.Annotations = annos
 
@@ -154,7 +154,7 @@ func NewAppResource(
 	}
 
 	var annos annotations.Annotations
-	annos.Append(appTrait)
+	annos.Update(appTrait)
 
 	ret.Annotations = annos
 
