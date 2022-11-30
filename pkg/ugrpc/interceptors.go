@@ -18,7 +18,7 @@ import (
 func StreamServerInterceptors(ctx context.Context, interceptors ...grpc.StreamServerInterceptor) []grpc.StreamServerInterceptor {
 	rv := []grpc.StreamServerInterceptor{
 		grpc_ctxtags.StreamServerInterceptor(),
-		LoggingStreamServerInterceptor(),
+		LoggingStreamServerInterceptor(ctxzap.Extract(ctx)),
 		grpc_recovery.StreamServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryHandler)),
 		grpc_validator.StreamServerInterceptor(),
 	}
@@ -32,7 +32,7 @@ func StreamServerInterceptors(ctx context.Context, interceptors ...grpc.StreamSe
 func UnaryServerInterceptor(ctx context.Context, interceptors ...grpc.UnaryServerInterceptor) []grpc.UnaryServerInterceptor {
 	rv := []grpc.UnaryServerInterceptor{
 		grpc_ctxtags.UnaryServerInterceptor(),
-		LoggingUnaryServerInterceptor(),
+		LoggingUnaryServerInterceptor(ctxzap.Extract(ctx)),
 		grpc_recovery.UnaryServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryHandler)),
 		grpc_validator.UnaryServerInterceptor(),
 	}

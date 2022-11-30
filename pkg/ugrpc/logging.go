@@ -12,19 +12,24 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 )
 
 // UnaryServerInterceptor returns a new unary server interceptors that adds zap.Logger to the context.
-func LoggingUnaryServerInterceptor() grpc.UnaryServerInterceptor {
+func LoggingUnaryServerInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		startTime := time.Now()
 
-		newCtx := newLoggerForCall(ctx, info.FullMethod, startTime)
+		newCtx := newLoggerForCall(ctx, logger, info.FullMethod, startTime)
 
 		resp, err := handler(newCtx, req)
 
 		code := grpc_logging.DefaultErrorToCode(err)
 		level := grpc_zap.DefaultCodeToLevel(code)
+		if code == codes.OK {
+			level = zap.DebugLevel
+		}
+
 		duration := grpc_zap.DefaultDurationToField(time.Since(startTime))
 
 		ctxzap.Extract(newCtx).Check(level, "finished unary call with code "+code.String()).Write(
@@ -37,16 +42,19 @@ func LoggingUnaryServerInterceptor() grpc.UnaryServerInterceptor {
 }
 
 // StreamServerInterceptor returns a new streaming server interceptor that adds zap.Logger to the context.
-func LoggingStreamServerInterceptor() grpc.StreamServerInterceptor {
+func LoggingStreamServerInterceptor(logger *zap.Logger) grpc.StreamServerInterceptor {
 	return func(srv interface{}, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		startTime := time.Now()
-		newCtx := newLoggerForCall(stream.Context(), info.FullMethod, startTime)
+		newCtx := newLoggerForCall(stream.Context(), logger, info.FullMethod, startTime)
 		wrapped := grpc_middleware.WrapServerStream(stream)
 		wrapped.WrappedContext = newCtx
 
 		err := handler(srv, wrapped)
 		code := grpc_logging.DefaultErrorToCode(err)
 		level := grpc_zap.DefaultCodeToLevel(code)
+		if code == codes.OK {
+			level = zap.DebugLevel
+		}
 		duration := grpc_zap.DefaultDurationToField(time.Since(startTime))
 
 		ctxzap.Extract(newCtx).Check(level, "finished stream call with code "+code.String()).Write(
@@ -58,8 +66,7 @@ func LoggingStreamServerInterceptor() grpc.StreamServerInterceptor {
 	}
 }
 
-func newLoggerForCall(ctx context.Context, fullMethodString string, start time.Time) context.Context {
-	logger := ctxzap.Extract(ctx)
+func newLoggerForCall(ctx context.Context, logger *zap.Logger, fullMethodString string, start time.Time) context.Context {
 	var f []zapcore.Field
 	f = append(f, zap.String("grpc.start_time", start.Format(time.RFC3339)))
 	if d, ok := ctx.Deadline(); ok {
