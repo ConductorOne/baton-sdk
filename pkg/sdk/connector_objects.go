@@ -25,14 +25,10 @@ func convertIDToString(id interface{}) (string, error) {
 }
 
 // NewResourceID returns a new resource ID given a resource type parent ID, and arbitrary object ID.
-func NewResourceID(resourceType *v2.ResourceType, parentResourceID *v2.ResourceId, objectID interface{}) (*v2.ResourceId, error) {
+func NewResourceID(resourceType *v2.ResourceType, objectID interface{}) (*v2.ResourceId, error) {
 	id, err := convertIDToString(objectID)
 	if err != nil {
 		return nil, err
-	}
-
-	if parentResourceID != nil {
-		id = fmt.Sprintf("%s:%s:%s", parentResourceID.ResourceType, parentResourceID.Resource, id)
 	}
 
 	return &v2.ResourceId{
@@ -43,7 +39,7 @@ func NewResourceID(resourceType *v2.ResourceType, parentResourceID *v2.ResourceI
 
 // NewResource returns a new resource instance with no traits.
 func NewResource(name string, resourceType *v2.ResourceType, parentResourceID *v2.ResourceId, objectID interface{}) (*v2.Resource, error) {
-	rID, err := NewResourceID(resourceType, parentResourceID, objectID)
+	rID, err := NewResourceID(resourceType, objectID)
 	if err != nil {
 		return nil, err
 	}
