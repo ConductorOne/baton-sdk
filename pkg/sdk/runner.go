@@ -10,6 +10,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
@@ -22,36 +24,50 @@ type connectorRunner struct {
 	manager manager.Manager
 }
 
+func (c *connectorRunner) shutdown(ctx context.Context) error {
+	logger := ctxzap.Extract(ctx)
+
+	err := c.Close()
+	if err != nil {
+		// Explicitly ignoring the error here as it is possible that things have already been closed.
+		logger.Error("error closing connector runner", zap.Error(err))
+	}
+
+	err = c.manager.SaveC1Z(ctx)
+	if err != nil {
+		logger.Error("error saving c1z", zap.Error(err))
+		return err
+	}
+
+	err = c.manager.Close(ctx)
+	if err != nil {
+		logger.Error("error closing c1z manager", zap.Error(err))
+		return err
+	}
+
+	return nil
+}
+
 // Run starts a connector and creates a new C1Z file.
 func (c *connectorRunner) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	defer func(c *connectorRunner, ctx context.Context) {
+		err := c.shutdown(ctx)
+		if err != nil {
+			ctxzap.Extract(ctx).Error("error shutting down", zap.Error(err))
+		}
+	}(c, ctx)
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 	go func() {
 		for range sigChan {
 			cancel()
-			_ = c.syncer.Close()
 		}
 	}()
 
 	err := c.syncer.Sync(ctx)
-	if err != nil {
-		_ = c.Close()
-		return err
-	}
-
-	err = c.Close()
-	if err != nil {
-		return err
-	}
-
-	err = c.manager.SaveC1Z(ctx)
-	if err != nil {
-		return err
-	}
-
-	err = c.manager.Close(ctx)
 	if err != nil {
 		return err
 	}
