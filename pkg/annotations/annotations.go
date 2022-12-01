@@ -39,7 +39,7 @@ func (a *Annotations) Update(msg proto.Message) {
 		}
 	}
 
-	// If we don't have any annotations, just add it.
+	// If we are trying to update a new message, just append it.
 	if !found {
 		v, err := anypb.New(msg)
 		if err != nil {
