@@ -60,6 +60,8 @@ func TestAnnotations_Update(t *testing.T) {
 	require.Len(t, annos, 2)
 	annos.Update(&v2.GroupTrait{Profile: &structpb.Struct{}})
 	require.Len(t, annos, 2)
+	annos.Update(&v2.UserTrait{})
+	require.Len(t, annos, 3)
 
 	gt := &v2.GroupTrait{}
 	ok, err := annos.Pick(gt)
