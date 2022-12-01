@@ -10,6 +10,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
@@ -26,12 +28,27 @@ type connectorRunner struct {
 func (c *connectorRunner) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	logger := ctxzap.Extract(ctx)
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
 	go func() {
 		for range sigChan {
 			cancel()
-			_ = c.syncer.Close()
+			err := c.syncer.Close()
+			if err != nil {
+				logger.Error("received sigint - error closing syncer", zap.Error(err))
+			}
+			err = c.manager.SaveC1Z(ctx)
+			if err != nil {
+				logger.Error("received sigint - error saving c1z", zap.Error(err))
+			}
+			err = c.manager.Close(ctx)
+			if err != nil {
+				logger.Error("received sigint - error closing manager", zap.Error(err))
+			}
+			os.Exit(1)
 		}
 	}()
 
