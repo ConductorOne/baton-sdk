@@ -7,6 +7,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"google.golang.org/protobuf/proto"
 )
 
 func convertIDToString(id interface{}) (string, error) {
@@ -26,12 +27,19 @@ func convertIDToString(id interface{}) (string, error) {
 }
 
 // NewResourceType returns a new *v2.ResourceType where the id is the name lowercased with spaces replaced by hyphens.
-func NewResourceType(name string, requiredTraits []v2.ResourceType_Trait) *v2.ResourceType {
+func NewResourceType(name string, requiredTraits []v2.ResourceType_Trait, msgs ...proto.Message) *v2.ResourceType {
 	id := strings.ReplaceAll(strings.ToLower(name), " ", "-")
+
+	var annos annotations.Annotations
+	for _, msg := range msgs {
+		annos.Append(msg)
+	}
+
 	return &v2.ResourceType{
 		Id:          id,
 		DisplayName: name,
 		Traits:      requiredTraits,
+		Annotations: annos,
 	}
 }
 
@@ -49,16 +57,22 @@ func NewResourceID(resourceType *v2.ResourceType, objectID interface{}) (*v2.Res
 }
 
 // NewResource returns a new resource instance with no traits.
-func NewResource(name string, resourceType *v2.ResourceType, parentResourceID *v2.ResourceId, objectID interface{}) (*v2.Resource, error) {
+func NewResource(name string, resourceType *v2.ResourceType, parentResourceID *v2.ResourceId, objectID interface{}, msgs ...proto.Message) (*v2.Resource, error) {
 	rID, err := NewResourceID(resourceType, objectID)
 	if err != nil {
 		return nil, err
+	}
+
+	annos := annotations.Annotations{}
+	for _, msg := range msgs {
+		annos.Append(msg)
 	}
 
 	return &v2.Resource{
 		Id:               rID,
 		ParentResourceId: parentResourceID,
 		DisplayName:      name,
+		Annotations:      annos,
 	}, nil
 }
 
@@ -71,8 +85,9 @@ func NewUserResource(
 	objectID interface{},
 	primaryEmail string,
 	profile map[string]interface{},
+	msgs ...proto.Message,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +97,7 @@ func NewUserResource(
 		return nil, err
 	}
 
-	var annos annotations.Annotations
+	annos := annotations.Annotations(ret.Annotations)
 	annos.Update(userTrait)
 
 	ret.Annotations = annos
@@ -98,8 +113,9 @@ func NewGroupResource(
 	parentResourceID *v2.ResourceId,
 	objectID interface{},
 	profile map[string]interface{},
+	msgs ...proto.Message,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +125,7 @@ func NewGroupResource(
 		return nil, err
 	}
 
-	var annos annotations.Annotations
+	annos := annotations.Annotations(ret.Annotations)
 	annos.Update(groupTrait)
 
 	ret.Annotations = annos
@@ -125,8 +141,9 @@ func NewRoleResource(
 	parentResourceID *v2.ResourceId,
 	objectID interface{},
 	profile map[string]interface{},
+	msgs ...proto.Message,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +153,7 @@ func NewRoleResource(
 		return nil, err
 	}
 
-	var annos annotations.Annotations
+	annos := annotations.Annotations(ret.Annotations)
 	annos.Update(roleTrait)
 
 	ret.Annotations = annos
@@ -153,8 +170,9 @@ func NewAppResource(
 	objectID interface{},
 	helpURL string,
 	profile map[string]interface{},
+	msgs ...proto.Message,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +182,7 @@ func NewAppResource(
 		return nil, err
 	}
 
-	var annos annotations.Annotations
+	annos := annotations.Annotations(ret.Annotations)
 	annos.Update(appTrait)
 
 	ret.Annotations = annos

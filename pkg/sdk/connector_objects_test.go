@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -12,11 +13,19 @@ func TestNewAppResource(t *testing.T) {
 		"app_name": "Test",
 	}
 	rt := NewResourceType("App", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_APP})
-	ar, err := NewRoleResource("test app", rt, nil, 1234, profile)
+	ar, err := NewAppResource("test app", rt, nil, 1234, "https://example.com", profile, &v2.V1Identifier{Id: "v1"})
 	require.NoError(t, err)
 	require.NotNil(t, ar)
 	require.Equal(t, rt.Id, ar.Id.ResourceType)
 	require.Equal(t, "1234", ar.Id.Resource)
+
+	require.Len(t, ar.Annotations, 2)
+	v1ID := &v2.V1Identifier{}
+	annos := annotations.Annotations(ar.Annotations)
+	ok, err := annos.Pick(v1ID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "v1", v1ID.Id)
 
 	roleTrait, err := GetRoleTrait(ar)
 	require.Error(t, err)
@@ -24,8 +33,9 @@ func TestNewAppResource(t *testing.T) {
 	appTrait, err := GetAppTrait(ar)
 	require.NoError(t, err)
 	require.NotNil(t, appTrait)
+	require.Equal(t, "https://example.com", appTrait.HelpUrl)
 	require.NotNil(t, appTrait.Profile)
-	fName, foundProfileData := GetProfileStringValue(appTrait.Profile, "role_name")
+	fName, foundProfileData := GetProfileStringValue(appTrait.Profile, "app_name")
 	require.True(t, foundProfileData)
 	require.Equal(t, "Test", fName)
 	mName, foundProfileData := GetProfileStringValue(appTrait.Profile, "first_name")
@@ -109,11 +119,19 @@ func TestNewGroupResource(t *testing.T) {
 		"group_name": "Test",
 	}
 	rt := NewResourceType("Group", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP})
-	gr, err := NewGroupResource("test group", rt, nil, 1234, profile)
+	gr, err := NewGroupResource("test group", rt, nil, 1234, profile, &v2.V1Identifier{Id: "v1"})
 	require.NoError(t, err)
 	require.NotNil(t, gr)
 	require.Equal(t, rt.Id, gr.Id.ResourceType)
 	require.Equal(t, "1234", gr.Id.Resource)
+
+	require.Len(t, gr.Annotations, 2)
+	v1ID := &v2.V1Identifier{}
+	annos := annotations.Annotations(gr.Annotations)
+	ok, err := annos.Pick(v1ID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "v1", v1ID.Id)
 
 	roleTrait, err := GetRoleTrait(gr)
 	require.Error(t, err)
@@ -152,27 +170,35 @@ func TestNewResource(t *testing.T) {
 		Resource:     "567",
 	}
 	rt := NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
-	rr, err := NewResource("test resource", rt, parentID, "1234")
+	rr, err := NewResource("test resource", rt, parentID, "1234", &v2.V1Identifier{Id: "v1"})
 	require.NoError(t, err)
 	require.NotNil(t, rr)
 	require.Equal(t, rt.Id, rr.Id.ResourceType)
 	require.Equal(t, "1234", rr.Id.Resource)
 	require.Equal(t, parentID, rr.ParentResourceId)
 
-	groupTrait, err := GetGroupTrait(rr)
+	require.Len(t, rr.Annotations, 1)
+	v1ID := &v2.V1Identifier{}
+	annos := annotations.Annotations(rr.Annotations)
+	ok, err := annos.Pick(v1ID)
 	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "v1", v1ID.Id)
+
+	groupTrait, err := GetGroupTrait(rr)
+	require.Error(t, err)
 	require.Nil(t, groupTrait)
 
 	userTrait, err := GetUserTrait(rr)
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.Nil(t, userTrait)
 
 	roleTrait, err := GetRoleTrait(rr)
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.Nil(t, roleTrait)
 
 	appTrait, err := GetAppTrait(rr)
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.Nil(t, appTrait)
 }
 
@@ -189,11 +215,19 @@ func TestNewRoleResource(t *testing.T) {
 		"role_name": "Test",
 	}
 	rt := NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
-	rr, err := NewRoleResource("test role", rt, nil, "1234", profile)
+	rr, err := NewRoleResource("test role", rt, nil, "1234", profile, &v2.V1Identifier{Id: "v1"})
 	require.NoError(t, err)
 	require.NotNil(t, rr)
 	require.Equal(t, rt.Id, rr.Id.ResourceType)
 	require.Equal(t, "1234", rr.Id.Resource)
+
+	require.Len(t, rr.Annotations, 2)
+	v1ID := &v2.V1Identifier{}
+	annos := annotations.Annotations(rr.Annotations)
+	ok, err := annos.Pick(v1ID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "v1", v1ID.Id)
 
 	groupTrait, err := GetGroupTrait(rr)
 	require.Error(t, err)
@@ -218,11 +252,19 @@ func TestNewUserResource(t *testing.T) {
 		"last_name":  "User",
 	}
 	rt := NewResourceType("User", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
-	ur, err := NewUserResource("test user", rt, nil, 1234, userEmail, profile)
+	ur, err := NewUserResource("test user", rt, nil, 1234, userEmail, profile, &v2.V1Identifier{Id: "v1"})
 	require.NoError(t, err)
 	require.NotNil(t, ur)
 	require.Equal(t, rt.Id, ur.Id.ResourceType)
 	require.Equal(t, "1234", ur.Id.Resource)
+
+	require.Len(t, ur.Annotations, 2)
+	v1ID := &v2.V1Identifier{}
+	annos := annotations.Annotations(ur.Annotations)
+	ok, err := annos.Pick(v1ID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "v1", v1ID.Id)
 
 	roleTrait, err := GetRoleTrait(ur)
 	require.Error(t, err)
