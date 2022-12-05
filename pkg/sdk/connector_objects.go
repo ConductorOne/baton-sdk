@@ -3,6 +3,7 @@ package sdk
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -22,6 +23,16 @@ func convertIDToString(id interface{}) (string, error) {
 	}
 
 	return resourceID, nil
+}
+
+// NewResourceType returns a new *v2.ResourceType where the id is the name lowercased with spaces replaced by hyphens.
+func NewResourceType(name string, requiredTraits []v2.ResourceType_Trait) *v2.ResourceType {
+	id := strings.ReplaceAll(strings.ToLower(name), " ", "-")
+	return &v2.ResourceType{
+		Id:          id,
+		DisplayName: name,
+		Traits:      requiredTraits,
+	}
 }
 
 // NewResourceID returns a new resource ID given a resource type parent ID, and arbitrary object ID.
