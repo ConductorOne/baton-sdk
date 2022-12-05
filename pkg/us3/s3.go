@@ -222,7 +222,7 @@ func NewClient(ctx context.Context, bucketName string, opts ...Option) (*S3Clien
 
 	awsOpts := []func(*awsConfig.LoadOptions) error{
 		awsConfig.WithHTTPClient(httpClient),
-		awsConfig.WithDefaultsMode(awsSdk.DefaultsModeInRegion),
+		awsConfig.WithDefaultsMode(awsSdk.DefaultsModeStandard),
 	}
 
 	if cfg.region != "" {
