@@ -26,10 +26,10 @@ const (
 )
 
 type BaseConfig struct {
-	LogLevel     string `mapstructure:"log-level"`
-	LogFormat    string `mapstructure:"log-format"`
-	C1zPath      string `mapstructure:"file"`
-	OnDemandSync bool   `mapstructure:"sync"`
+	LogLevel   string `mapstructure:"log-level"`
+	LogFormat  string `mapstructure:"log-format"`
+	C1zPath    string `mapstructure:"file"`
+	DaemonMode bool   `mapstructure:"daemonize"`
 }
 
 // NewCmd returns a new cobra command that will populate the provided config object, validate it, and run the provided run function.
@@ -67,7 +67,7 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			r, err := connectorrunner.NewConnectorRunner(ctx, v.GetString("file"), v.GetBool("sync"), c, opts...)
+			r, err := connectorrunner.NewConnectorRunner(ctx, v.GetString("file"), !v.GetBool("daemonize"), c, opts...)
 			if err != nil {
 				l.Error("error creating connector runner", zap.Error(err))
 				return err
@@ -156,7 +156,7 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("log-level", defaultLogLevel, "The log level: debug, info, warn, error ($BATON_LOG_LEVEL)")
 	cmd.PersistentFlags().String("log-format", defaultLogFormat, "The output format for logs: json, console ($BATON_LOG_FORMAT)")
 	cmd.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to sync with ($BATON_FILE)")
-	cmd.PersistentFlags().Bool("sync", false, "Trigger a single sync and exit")
+	cmd.PersistentFlags().BoolP("daemonize", "d", false, "Run in daemon mode ($BATON_DAEMONIZE).")
 
 	return cmd, nil
 }
