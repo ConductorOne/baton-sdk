@@ -4,17 +4,17 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -26,9 +26,10 @@ const (
 )
 
 type BaseConfig struct {
-	LogLevel  string `mapstructure:"log-level"`
-	LogFormat string `mapstructure:"log-format"`
-	C1zPath   string `mapstructure:"file"`
+	LogLevel     string `mapstructure:"log-level"`
+	LogFormat    string `mapstructure:"log-format"`
+	C1zPath      string `mapstructure:"file"`
+	OnDemandSync bool   `mapstructure:"sync"`
 }
 
 // NewCmd returns a new cobra command that will populate the provided config object, validate it, and run the provided run function.
@@ -38,7 +39,7 @@ func NewCmd[T any, PtrT *T](
 	cfg PtrT,
 	validateF func(ctx context.Context, cfg PtrT) error,
 	getConnector func(ctx context.Context, cfg PtrT) (types.ConnectorServer, error),
-	runF func(ctx context.Context, cfg PtrT) error,
+	opts ...connectorrunner.Option,
 ) (*cobra.Command, error) {
 	cmd := &cobra.Command{
 		Use:   name,
@@ -59,7 +60,27 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			return runF(loggerCtx, cfg)
+			l := ctxzap.Extract(loggerCtx)
+
+			c, err := getConnector(loggerCtx, cfg)
+			if err != nil {
+				return err
+			}
+
+			r, err := connectorrunner.NewConnectorRunner(ctx, v.GetString("file"), v.GetBool("sync"), c, opts...)
+			if err != nil {
+				l.Error("error creating connector runner", zap.Error(err))
+				return err
+			}
+			defer r.Close(ctx)
+
+			err = r.Run(ctx)
+			if err != nil {
+				l.Error("error running connector", zap.Error(err))
+				return err
+			}
+
+			return nil
 		},
 	}
 
@@ -135,36 +156,7 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("log-level", defaultLogLevel, "The log level: debug, info, warn, error ($BATON_LOG_LEVEL)")
 	cmd.PersistentFlags().String("log-format", defaultLogFormat, "The output format for logs: json, console ($BATON_LOG_FORMAT)")
 	cmd.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to sync with ($BATON_FILE)")
+	cmd.PersistentFlags().Bool("sync", false, "Trigger a single sync and exit")
 
 	return cmd, nil
-}
-
-// loadConfig sets viper up to parse the config into the provided configuration object.
-func loadConfig[T any, PtrT *T](name string, cmd *cobra.Command, cfg PtrT) (*viper.Viper, error) {
-	v := viper.New()
-	v.SetConfigType("yaml")
-	v.SetConfigName(fmt.Sprintf(defaultConfigFilename, name))
-	v.AddConfigPath(".")
-
-	if err := v.ReadInConfig(); err != nil {
-		if ok := !errors.Is(err, viper.ConfigFileNotFoundError{}); !ok {
-			return nil, err
-		}
-	}
-
-	v.SetEnvPrefix(envPrefix)
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	v.AutomaticEnv()
-	if err := v.BindPFlags(cmd.PersistentFlags()); err != nil {
-		return nil, err
-	}
-	if err := v.BindPFlags(cmd.Flags()); err != nil {
-		return nil, err
-	}
-
-	if err := v.Unmarshal(cfg); err != nil {
-		return nil, err
-	}
-
-	return v, nil
 }

@@ -1,63 +1,34 @@
-package sdk
+package connectorrunner
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"time"
 
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
-	"github.com/conductorone/baton-sdk/pkg/sync"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner/tasks"
+	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 type connectorRunner struct {
-	syncer  sync.Syncer
-	store   connectorstore.Writer
-	manager manager.Manager
-}
-
-func (c *connectorRunner) shutdown(ctx context.Context) error {
-	logger := ctxzap.Extract(ctx)
-
-	err := c.Close()
-	if err != nil {
-		// Explicitly ignoring the error here as it is possible that things have already been closed.
-		logger.Error("error closing connector runner", zap.Error(err))
-	}
-
-	err = c.manager.SaveC1Z(ctx)
-	if err != nil {
-		logger.Error("error saving c1z", zap.Error(err))
-		return err
-	}
-
-	err = c.manager.Close(ctx)
-	if err != nil {
-		logger.Error("error closing c1z manager", zap.Error(err))
-		return err
-	}
-
-	return nil
+	cw           types.ClientWrapper
+	dbPath       string
+	onDemandMode bool
+	tasks        tasks.Manager
 }
 
 // Run starts a connector and creates a new C1Z file.
 func (c *connectorRunner) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	defer func(c *connectorRunner, ctx context.Context) {
-		err := c.shutdown(ctx)
-		if err != nil {
-			ctxzap.Extract(ctx).Error("error shutting down", zap.Error(err))
-		}
-	}(c, ctx)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
@@ -67,7 +38,12 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		}
 	}()
 
-	err := c.syncer.Sync(ctx)
+	err := c.run(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = c.Close(ctx)
 	if err != nil {
 		return err
 	}
@@ -75,12 +51,76 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 	return nil
 }
 
-func (c *connectorRunner) Close() error {
-	err := c.syncer.Close()
-	if err != nil {
-		return err
+func (c *connectorRunner) run(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
+
+	l.Info("waiting for work....")
+
+	var done bool
+
+	for !done {
+		select {
+		case <-ctx.Done():
+			l.Info("context done - exiting.", zap.Error(ctx.Err()))
+			return ctx.Err()
+		default:
+		}
+
+		nextTask, err := c.tasks.Next(ctx)
+		if err != nil {
+			l.Error("error getting next task", zap.Error(err))
+			continue
+		}
+
+		// No work for us to do, go to sleep for a bit and try again
+		if nextTask == nil {
+			l.Debug("no available tasks, going to sleep for 5 seconds")
+			<-time.After(time.Second * 5)
+			continue
+		}
+
+		switch nextTask.(type) {
+		case *tasks.SyncTask:
+			client, err := c.cw.C(ctx)
+			if err != nil {
+				return err
+			}
+
+			syncer, err := sdkSync.NewSyncer(ctx, client, c.dbPath)
+			if err != nil {
+				return err
+			}
+
+			err = syncer.Sync(ctx)
+			if err != nil {
+				return err
+			}
+
+			err = syncer.Close(ctx)
+			if err != nil {
+				return err
+			}
+
+			err = c.tasks.Finish(ctx, nextTask.GetTaskId())
+			if err != nil {
+				return err
+			}
+
+			if c.onDemandMode {
+				done = true
+			}
+
+		default:
+			l.Debug("unknown task type, going to sleep for 10 seconds")
+			<-time.After(time.Second * 10)
+			continue
+		}
 	}
 
+	return nil
+}
+
+func (c *connectorRunner) Close(ctx context.Context) error {
 	return nil
 }
 
@@ -166,7 +206,7 @@ func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Opti
 }
 
 // NewConnectorRunner creates a new connector runner.
-func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, dbPath string, opts ...Option) (*connectorRunner, error) {
+func NewConnectorRunner(ctx context.Context, c1zPath string, onDemandSync bool, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
 	cfg := &runnerConfig{}
 
@@ -177,17 +217,24 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, dbPath str
 		}
 	}
 
-	m, err := manager.New(ctx, dbPath)
+	tm, err := tasks.NewNaiveManager(ctx)
 	if err != nil {
 		return nil, err
 	}
-	runner.manager = m
+	runner.tasks = tm
 
-	store, err := runner.manager.LoadC1Z(ctx)
-	if err != nil {
-		return nil, err
+	if c1zPath == "" {
+		return nil, fmt.Errorf("connector-runner: must provide a c1z path to sync with")
 	}
-	runner.store = store
+	runner.dbPath = c1zPath
+
+	if onDemandSync {
+		runner.onDemandMode = true
+		err = runner.tasks.Add(ctx, tasks.NewSyncTask())
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	wrapperOpts := []connector.Option{}
 	wrapperOpts = append(wrapperOpts, connector.WithRateLimiterConfig(cfg.rlCfg))
@@ -201,7 +248,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, dbPath str
 		return nil, err
 	}
 
-	runner.syncer = sync.NewSyncer(store, cw)
+	runner.cw = cw
 
 	return runner, nil
 }
