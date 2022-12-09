@@ -7,7 +7,15 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	eopt "github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	gopt "github.com/conductorone/baton-sdk/pkg/types/grant"
+	ropt "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"google.golang.org/protobuf/proto"
+)
+
+const (
+	AssignmentEntitlement = v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT
+	PermissionEntitlement = v2.Entitlement_PURPOSE_VALUE_PERMISSION
 )
 
 func convertIDToString(id interface{}) (string, error) {
@@ -57,23 +65,21 @@ func NewResourceID(resourceType *v2.ResourceType, objectID interface{}) (*v2.Res
 }
 
 // NewResource returns a new resource instance with no traits.
-func NewResource(name string, resourceType *v2.ResourceType, parentResourceID *v2.ResourceId, objectID interface{}, msgs ...proto.Message) (*v2.Resource, error) {
+func NewResource(name string, resourceType *v2.ResourceType, parentResourceID *v2.ResourceId, objectID interface{}, resourceOptions ...ropt.ResourceOption) (*v2.Resource, error) {
 	rID, err := NewResourceID(resourceType, objectID)
 	if err != nil {
 		return nil, err
 	}
 
-	annos := annotations.Annotations{}
-	for _, msg := range msgs {
-		annos.Append(msg)
-	}
-
-	return &v2.Resource{
+	resource := &v2.Resource{
 		Id:               rID,
 		ParentResourceId: parentResourceID,
 		DisplayName:      name,
-		Annotations:      annos,
-	}, nil
+	}
+	for _, resourceOption := range resourceOptions {
+		resourceOption(resource)
+	}
+	return resource, nil
 }
 
 // NewUserResource returns a new resource instance with a configured user trait.
@@ -85,9 +91,9 @@ func NewUserResource(
 	objectID interface{},
 	primaryEmail string,
 	profile map[string]interface{},
-	msgs ...proto.Message,
+	resourceOptions ...ropt.ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -113,9 +119,9 @@ func NewGroupResource(
 	parentResourceID *v2.ResourceId,
 	objectID interface{},
 	profile map[string]interface{},
-	msgs ...proto.Message,
+	resourceOptions ...ropt.ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -141,9 +147,9 @@ func NewRoleResource(
 	parentResourceID *v2.ResourceId,
 	objectID interface{},
 	profile map[string]interface{},
-	msgs ...proto.Message,
+	resourceOptions ...ropt.ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -170,9 +176,9 @@ func NewAppResource(
 	objectID interface{},
 	helpURL string,
 	profile map[string]interface{},
-	msgs ...proto.Message,
+	resourceOptions ...ropt.ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
 	if err != nil {
 		return nil, err
 	}
@@ -194,38 +200,37 @@ func NewEntitlementID(resource *v2.Resource, permission string) string {
 	return fmt.Sprintf("%s:%s:%s", resource.Id.ResourceType, resource.Id.Resource, permission)
 }
 
-func NewAssignmentEntitlement(resource *v2.Resource, name string, grantableTo ...*v2.ResourceType) *v2.Entitlement {
-	return &v2.Entitlement{
+func NewEntitlement(resource *v2.Resource, name string, purpose v2.Entitlement_PurposeValue, entitlementOptions ...eopt.EntitlementOption) *v2.Entitlement {
+	entitlement := &v2.Entitlement{
 		Id:          NewEntitlementID(resource, name),
 		DisplayName: name,
 		Slug:        name,
-		GrantableTo: grantableTo,
-		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+		Purpose:     purpose,
 		Resource:    resource,
 	}
-}
 
-func NewPermissionEntitlement(resource *v2.Resource, name string, grantableTo ...*v2.ResourceType) *v2.Entitlement {
-	return &v2.Entitlement{
-		Id:          NewEntitlementID(resource, name),
-		DisplayName: name,
-		Slug:        name,
-		GrantableTo: grantableTo,
-		Purpose:     v2.Entitlement_PURPOSE_VALUE_PERMISSION,
-		Resource:    resource,
+	for _, entitlementOption := range entitlementOptions {
+		entitlementOption(entitlement)
 	}
+	return entitlement
 }
 
 // NewGrant returns a new grant for the given entitlement on the resource for the provided principal resource ID.
-func NewGrant(resource *v2.Resource, entitlementName string, principal *v2.ResourceId) *v2.Grant {
+func NewGrant(resource *v2.Resource, entitlementName string, principal *v2.ResourceId, grantOptions ...gopt.GrantOption) *v2.Grant {
 	entitlement := &v2.Entitlement{
 		Id:       NewEntitlementID(resource, entitlementName),
 		Resource: resource,
 	}
 
-	return &v2.Grant{
+	grant := &v2.Grant{
 		Entitlement: entitlement,
 		Principal:   &v2.Resource{Id: principal},
 		Id:          fmt.Sprintf("%s:%s:%s", entitlement.Id, principal.ResourceType, principal.Resource),
 	}
+
+	for _, grantOption := range grantOptions {
+		grantOption(grant)
+	}
+
+	return grant
 }

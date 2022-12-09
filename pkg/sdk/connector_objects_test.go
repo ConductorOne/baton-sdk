@@ -5,6 +5,8 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	eopt "github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	ropt "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,7 +15,7 @@ func TestNewAppResource(t *testing.T) {
 		"app_name": "Test",
 	}
 	rt := NewResourceType("App", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_APP})
-	ar, err := NewAppResource("test app", rt, nil, 1234, "https://example.com", profile, &v2.V1Identifier{Id: "v1"})
+	ar, err := NewAppResource("test app", rt, nil, 1234, "https://example.com", profile, ropt.WithAnnotation(&v2.V1Identifier{Id: "v1"}))
 	require.NoError(t, err)
 	require.NotNil(t, ar)
 	require.Equal(t, rt.Id, ar.Id.ResourceType)
@@ -49,7 +51,7 @@ func TestNewAssignmentEntitlement(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ur)
 
-	en := NewAssignmentEntitlement(ur, "member", rt)
+	en := NewEntitlement(ur, "member", AssignmentEntitlement, eopt.WithGrantableTo(rt))
 	require.NotNil(t, en)
 	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT, en.Purpose)
 	require.Equal(t, ur, en.Resource)
@@ -98,7 +100,7 @@ func TestNewGrant(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ur)
 
-	en := NewPermissionEntitlement(ur, "admin", rt)
+	en := NewEntitlement(ur, "admin", PermissionEntitlement, eopt.WithGrantableTo(rt))
 	require.NotNil(t, en)
 
 	grant := NewGrant(ur, en.Slug, &v2.ResourceId{
@@ -119,7 +121,7 @@ func TestNewGroupResource(t *testing.T) {
 		"group_name": "Test",
 	}
 	rt := NewResourceType("Group", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP})
-	gr, err := NewGroupResource("test group", rt, nil, 1234, profile, &v2.V1Identifier{Id: "v1"})
+	gr, err := NewGroupResource("test group", rt, nil, 1234, profile, ropt.WithAnnotation(&v2.V1Identifier{Id: "v1"}))
 	require.NoError(t, err)
 	require.NotNil(t, gr)
 	require.Equal(t, rt.Id, gr.Id.ResourceType)
@@ -154,7 +156,7 @@ func TestNewPermissionEntitlement(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ur)
 
-	en := NewPermissionEntitlement(ur, "admin", rt)
+	en := NewEntitlement(ur, "admin", PermissionEntitlement, eopt.WithGrantableTo(rt))
 	require.NotNil(t, en)
 	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_PERMISSION, en.Purpose)
 	require.Equal(t, ur, en.Resource)
@@ -170,7 +172,7 @@ func TestNewResource(t *testing.T) {
 		Resource:     "567",
 	}
 	rt := NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
-	rr, err := NewResource("test resource", rt, parentID, "1234", &v2.V1Identifier{Id: "v1"})
+	rr, err := NewResource("test resource", rt, parentID, "1234", ropt.WithAnnotation(&v2.V1Identifier{Id: "v1"}))
 	require.NoError(t, err)
 	require.NotNil(t, rr)
 	require.Equal(t, rt.Id, rr.Id.ResourceType)
@@ -215,7 +217,7 @@ func TestNewRoleResource(t *testing.T) {
 		"role_name": "Test",
 	}
 	rt := NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
-	rr, err := NewRoleResource("test role", rt, nil, "1234", profile, &v2.V1Identifier{Id: "v1"})
+	rr, err := NewRoleResource("test role", rt, nil, "1234", profile, ropt.WithAnnotation(&v2.V1Identifier{Id: "v1"}))
 	require.NoError(t, err)
 	require.NotNil(t, rr)
 	require.Equal(t, rt.Id, rr.Id.ResourceType)
@@ -252,7 +254,7 @@ func TestNewUserResource(t *testing.T) {
 		"last_name":  "User",
 	}
 	rt := NewResourceType("User", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
-	ur, err := NewUserResource("test user", rt, nil, 1234, userEmail, profile, &v2.V1Identifier{Id: "v1"})
+	ur, err := NewUserResource("test user", rt, nil, 1234, userEmail, profile, ropt.WithAnnotation(&v2.V1Identifier{Id: "v1"}))
 	require.NoError(t, err)
 	require.NotNil(t, ur)
 	require.Equal(t, rt.Id, ur.Id.ResourceType)
