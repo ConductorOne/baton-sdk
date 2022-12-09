@@ -13,11 +13,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const (
-	AssignmentEntitlement = v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT
-	PermissionEntitlement = v2.Entitlement_PURPOSE_VALUE_PERMISSION
-)
-
 func convertIDToString(id interface{}) (string, error) {
 	var resourceID string
 	switch objID := id.(type) {
@@ -200,12 +195,27 @@ func NewEntitlementID(resource *v2.Resource, permission string) string {
 	return fmt.Sprintf("%s:%s:%s", resource.Id.ResourceType, resource.Id.Resource, permission)
 }
 
-func NewEntitlement(resource *v2.Resource, name string, purpose v2.Entitlement_PurposeValue, entitlementOptions ...eopt.EntitlementOption) *v2.Entitlement {
+func NewPermissionEntitlement(resource *v2.Resource, name string, entitlementOptions ...eopt.EntitlementOption) *v2.Entitlement {
 	entitlement := &v2.Entitlement{
 		Id:          NewEntitlementID(resource, name),
 		DisplayName: name,
 		Slug:        name,
-		Purpose:     purpose,
+		Purpose:     v2.Entitlement_PURPOSE_VALUE_PERMISSION,
+		Resource:    resource,
+	}
+
+	for _, entitlementOption := range entitlementOptions {
+		entitlementOption(entitlement)
+	}
+	return entitlement
+}
+
+func NewAssignmentEntitlement(resource *v2.Resource, name string, entitlementOptions ...eopt.EntitlementOption) *v2.Entitlement {
+	entitlement := &v2.Entitlement{
+		Id:          NewEntitlementID(resource, name),
+		DisplayName: name,
+		Slug:        name,
+		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
 		Resource:    resource,
 	}
 

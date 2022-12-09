@@ -51,7 +51,7 @@ func TestNewAssignmentEntitlement(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ur)
 
-	en := NewEntitlement(ur, "member", AssignmentEntitlement, eopt.WithGrantableTo(rt))
+	en := NewAssignmentEntitlement(ur, "member", eopt.WithGrantableTo(rt))
 	require.NotNil(t, en)
 	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT, en.Purpose)
 	require.Equal(t, ur, en.Resource)
@@ -100,7 +100,7 @@ func TestNewGrant(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ur)
 
-	en := NewEntitlement(ur, "admin", PermissionEntitlement, eopt.WithGrantableTo(rt))
+	en := NewPermissionEntitlement(ur, "admin", eopt.WithGrantableTo(rt))
 	require.NotNil(t, en)
 
 	grant := NewGrant(ur, en.Slug, &v2.ResourceId{
@@ -156,7 +156,7 @@ func TestNewPermissionEntitlement(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ur)
 
-	en := NewEntitlement(ur, "admin", PermissionEntitlement, eopt.WithGrantableTo(rt))
+	en := NewPermissionEntitlement(ur, "admin", eopt.WithGrantableTo(rt))
 	require.NotNil(t, en)
 	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_PERMISSION, en.Purpose)
 	require.Equal(t, ur, en.Resource)
