@@ -1,4 +1,4 @@
-package sdk
+package resource
 
 import (
 	"fmt"
@@ -7,8 +7,21 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	sdk "github.com/conductorone/baton-sdk/pkg/sdk"
 	"google.golang.org/protobuf/proto"
 )
+
+type ResourceOption func(*v2.Resource)
+
+func WithAnnotation(msgs ...proto.Message) ResourceOption {
+	return func(r *v2.Resource) {
+		annos := annotations.Annotations(r.Annotations)
+		for _, msg := range msgs {
+			annos.Append(msg)
+		}
+		r.Annotations = annos
+	}
+}
 
 func convertIDToString(id interface{}) (string, error) {
 	var resourceID string
@@ -57,23 +70,21 @@ func NewResourceID(resourceType *v2.ResourceType, objectID interface{}) (*v2.Res
 }
 
 // NewResource returns a new resource instance with no traits.
-func NewResource(name string, resourceType *v2.ResourceType, parentResourceID *v2.ResourceId, objectID interface{}, msgs ...proto.Message) (*v2.Resource, error) {
+func NewResource(name string, resourceType *v2.ResourceType, parentResourceID *v2.ResourceId, objectID interface{}, resourceOptions ...ResourceOption) (*v2.Resource, error) {
 	rID, err := NewResourceID(resourceType, objectID)
 	if err != nil {
 		return nil, err
 	}
 
-	annos := annotations.Annotations{}
-	for _, msg := range msgs {
-		annos.Append(msg)
-	}
-
-	return &v2.Resource{
+	resource := &v2.Resource{
 		Id:               rID,
 		ParentResourceId: parentResourceID,
 		DisplayName:      name,
-		Annotations:      annos,
-	}, nil
+	}
+	for _, resourceOption := range resourceOptions {
+		resourceOption(resource)
+	}
+	return resource, nil
 }
 
 // NewUserResource returns a new resource instance with a configured user trait.
@@ -85,14 +96,14 @@ func NewUserResource(
 	objectID interface{},
 	primaryEmail string,
 	profile map[string]interface{},
-	msgs ...proto.Message,
+	resourceOptions ...ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
 	if err != nil {
 		return nil, err
 	}
 
-	userTrait, err := NewUserTrait(primaryEmail, v2.UserTrait_Status_STATUS_ENABLED, profile)
+	userTrait, err := sdk.NewUserTrait(primaryEmail, v2.UserTrait_Status_STATUS_ENABLED, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -113,14 +124,14 @@ func NewGroupResource(
 	parentResourceID *v2.ResourceId,
 	objectID interface{},
 	profile map[string]interface{},
-	msgs ...proto.Message,
+	resourceOptions ...ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
 	if err != nil {
 		return nil, err
 	}
 
-	groupTrait, err := NewGroupTrait(profile)
+	groupTrait, err := sdk.NewGroupTrait(profile)
 	if err != nil {
 		return nil, err
 	}
@@ -141,14 +152,14 @@ func NewRoleResource(
 	parentResourceID *v2.ResourceId,
 	objectID interface{},
 	profile map[string]interface{},
-	msgs ...proto.Message,
+	resourceOptions ...ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
 	if err != nil {
 		return nil, err
 	}
 
-	roleTrait, err := NewRoleTrait(profile)
+	roleTrait, err := sdk.NewRoleTrait(profile)
 	if err != nil {
 		return nil, err
 	}
@@ -170,14 +181,14 @@ func NewAppResource(
 	objectID interface{},
 	helpURL string,
 	profile map[string]interface{},
-	msgs ...proto.Message,
+	resourceOptions ...ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, msgs...)
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
 	if err != nil {
 		return nil, err
 	}
 
-	appTrait, err := NewAppTrait(helpURL, profile)
+	appTrait, err := sdk.NewAppTrait(helpURL, profile)
 	if err != nil {
 		return nil, err
 	}
@@ -188,44 +199,4 @@ func NewAppResource(
 	ret.Annotations = annos
 
 	return ret, nil
-}
-
-func NewEntitlementID(resource *v2.Resource, permission string) string {
-	return fmt.Sprintf("%s:%s:%s", resource.Id.ResourceType, resource.Id.Resource, permission)
-}
-
-func NewAssignmentEntitlement(resource *v2.Resource, name string, grantableTo ...*v2.ResourceType) *v2.Entitlement {
-	return &v2.Entitlement{
-		Id:          NewEntitlementID(resource, name),
-		DisplayName: name,
-		Slug:        name,
-		GrantableTo: grantableTo,
-		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
-		Resource:    resource,
-	}
-}
-
-func NewPermissionEntitlement(resource *v2.Resource, name string, grantableTo ...*v2.ResourceType) *v2.Entitlement {
-	return &v2.Entitlement{
-		Id:          NewEntitlementID(resource, name),
-		DisplayName: name,
-		Slug:        name,
-		GrantableTo: grantableTo,
-		Purpose:     v2.Entitlement_PURPOSE_VALUE_PERMISSION,
-		Resource:    resource,
-	}
-}
-
-// NewGrant returns a new grant for the given entitlement on the resource for the provided principal resource ID.
-func NewGrant(resource *v2.Resource, entitlementName string, principal *v2.ResourceId) *v2.Grant {
-	entitlement := &v2.Entitlement{
-		Id:       NewEntitlementID(resource, entitlementName),
-		Resource: resource,
-	}
-
-	return &v2.Grant{
-		Entitlement: entitlement,
-		Principal:   &v2.Resource{Id: principal},
-		Id:          fmt.Sprintf("%s:%s:%s", entitlement.Id, principal.ResourceType, principal.Resource),
-	}
 }
