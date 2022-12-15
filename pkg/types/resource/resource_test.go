@@ -5,7 +5,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	sdk "github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,18 +27,18 @@ func TestNewAppResource(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "v1", v1ID.Id)
 
-	roleTrait, err := sdk.GetRoleTrait(ar)
+	roleTrait, err := GetRoleTrait(ar)
 	require.Error(t, err)
 	require.Nil(t, roleTrait)
-	appTrait, err := sdk.GetAppTrait(ar)
+	appTrait, err := GetAppTrait(ar)
 	require.NoError(t, err)
 	require.NotNil(t, appTrait)
 	require.Equal(t, "https://example.com", appTrait.HelpUrl)
 	require.NotNil(t, appTrait.Profile)
-	fName, foundProfileData := sdk.GetProfileStringValue(appTrait.Profile, "app_name")
+	fName, foundProfileData := GetProfileStringValue(appTrait.Profile, "app_name")
 	require.True(t, foundProfileData)
 	require.Equal(t, "Test", fName)
-	mName, foundProfileData := sdk.GetProfileStringValue(appTrait.Profile, "first_name")
+	mName, foundProfileData := GetProfileStringValue(appTrait.Profile, "first_name")
 	require.False(t, foundProfileData)
 	require.Equal(t, "", mName)
 }
@@ -63,17 +62,17 @@ func TestNewGroupResource(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "v1", v1ID.Id)
 
-	roleTrait, err := sdk.GetRoleTrait(gr)
+	roleTrait, err := GetRoleTrait(gr)
 	require.Error(t, err)
 	require.Nil(t, roleTrait)
-	groupTrait, err := sdk.GetGroupTrait(gr)
+	groupTrait, err := GetGroupTrait(gr)
 	require.NoError(t, err)
 	require.NotNil(t, groupTrait)
 	require.NotNil(t, groupTrait.Profile)
-	fName, foundProfileData := sdk.GetProfileStringValue(groupTrait.Profile, "group_name")
+	fName, foundProfileData := GetProfileStringValue(groupTrait.Profile, "group_name")
 	require.True(t, foundProfileData)
 	require.Equal(t, "Test", fName)
-	mName, foundProfileData := sdk.GetProfileStringValue(groupTrait.Profile, "first_name")
+	mName, foundProfileData := GetProfileStringValue(groupTrait.Profile, "first_name")
 	require.False(t, foundProfileData)
 	require.Equal(t, "", mName)
 }
@@ -99,19 +98,19 @@ func TestNewResource(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "v1", v1ID.Id)
 
-	groupTrait, err := sdk.GetGroupTrait(rr)
+	groupTrait, err := GetGroupTrait(rr)
 	require.Error(t, err)
 	require.Nil(t, groupTrait)
 
-	userTrait, err := sdk.GetUserTrait(rr)
+	userTrait, err := GetUserTrait(rr)
 	require.Error(t, err)
 	require.Nil(t, userTrait)
 
-	roleTrait, err := sdk.GetRoleTrait(rr)
+	roleTrait, err := GetRoleTrait(rr)
 	require.Error(t, err)
 	require.Nil(t, roleTrait)
 
-	appTrait, err := sdk.GetAppTrait(rr)
+	appTrait, err := GetAppTrait(rr)
 	require.Error(t, err)
 	require.Nil(t, appTrait)
 }
@@ -143,18 +142,18 @@ func TestNewRoleResource(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "v1", v1ID.Id)
 
-	groupTrait, err := sdk.GetGroupTrait(rr)
+	groupTrait, err := GetGroupTrait(rr)
 	require.Error(t, err)
 	require.Nil(t, groupTrait)
 
-	roleTrait, err := sdk.GetRoleTrait(rr)
+	roleTrait, err := GetRoleTrait(rr)
 	require.NoError(t, err)
 	require.NotNil(t, roleTrait)
 	require.NotNil(t, roleTrait.Profile)
-	fName, foundProfileData := sdk.GetProfileStringValue(roleTrait.Profile, "role_name")
+	fName, foundProfileData := GetProfileStringValue(roleTrait.Profile, "role_name")
 	require.True(t, foundProfileData)
 	require.Equal(t, "Test", fName)
-	mName, foundProfileData := sdk.GetProfileStringValue(roleTrait.Profile, "first_name")
+	mName, foundProfileData := GetProfileStringValue(roleTrait.Profile, "first_name")
 	require.False(t, foundProfileData)
 	require.Equal(t, "", mName)
 }
@@ -180,20 +179,20 @@ func TestNewUserResource(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "v1", v1ID.Id)
 
-	roleTrait, err := sdk.GetRoleTrait(ur)
+	roleTrait, err := GetRoleTrait(ur)
 	require.Error(t, err)
 	require.Nil(t, roleTrait)
 
-	ut, err := sdk.GetUserTrait(ur)
+	ut, err := GetUserTrait(ur)
 	require.NoError(t, err)
 	require.NotNil(t, ut)
 	require.Len(t, ut.Emails, 1)
 	require.Equal(t, userEmail, ut.Emails[0].Address)
 	require.NotNil(t, ut.Profile)
-	fName, foundProfileData := sdk.GetProfileStringValue(ut.Profile, "first_name")
+	fName, foundProfileData := GetProfileStringValue(ut.Profile, "first_name")
 	require.True(t, foundProfileData)
 	require.Equal(t, "Test", fName)
-	mName, foundProfileData := sdk.GetProfileStringValue(ut.Profile, "middle_name")
+	mName, foundProfileData := GetProfileStringValue(ut.Profile, "middle_name")
 	require.False(t, foundProfileData)
 	require.Equal(t, "", mName)
 }
