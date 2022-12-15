@@ -7,7 +7,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	sdk "github.com/conductorone/baton-sdk/pkg/sdk"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -103,7 +102,7 @@ func NewUserResource(
 		return nil, err
 	}
 
-	userTrait, err := sdk.NewUserTrait(primaryEmail, v2.UserTrait_Status_STATUS_ENABLED, profile)
+	userTrait, err := NewUserTrait(WithEmail(primaryEmail, true), WithUserProfile(profile))
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +130,7 @@ func NewGroupResource(
 		return nil, err
 	}
 
-	groupTrait, err := sdk.NewGroupTrait(profile)
+	groupTrait, err := NewGroupTrait(WithGroupProfile(profile))
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +158,7 @@ func NewRoleResource(
 		return nil, err
 	}
 
-	roleTrait, err := sdk.NewRoleTrait(profile)
+	roleTrait, err := NewRoleTrait(WithRoleProfile(profile))
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +187,7 @@ func NewAppResource(
 		return nil, err
 	}
 
-	appTrait, err := sdk.NewAppTrait(helpURL, profile)
+	appTrait, err := NewAppTrait(WithAppHelpURL(helpURL), WithAppProfile(profile))
 	if err != nil {
 		return nil, err
 	}
