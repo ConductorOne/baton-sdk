@@ -12,7 +12,7 @@ func TestRoleTrait(t *testing.T) {
 	require.Nil(t, rt.Profile)
 
 	roleProfile := make(map[string]interface{})
-	roleProfile["test"] = "profile-field"
+	roleProfile["test"] = "role-profile-field"
 
 	rt, err = NewRoleTrait(WithRoleProfile(roleProfile))
 	require.NoError(t, err)
@@ -20,5 +20,5 @@ func TestRoleTrait(t *testing.T) {
 	require.NotNil(t, rt.Profile)
 	val, ok := GetProfileStringValue(rt.Profile, "test")
 	require.True(t, ok)
-	require.Equal(t, "profile-field", val)
+	require.Equal(t, "role-profile-field", val)
 }

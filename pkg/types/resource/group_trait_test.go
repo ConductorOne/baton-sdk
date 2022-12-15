@@ -21,7 +21,7 @@ func TestGroupTrait(t *testing.T) {
 	require.Equal(t, "iconID", gt.Icon.Id)
 
 	groupProfile := make(map[string]interface{})
-	groupProfile["test"] = "profile-field"
+	groupProfile["test"] = "group-profile-field"
 
 	gt, err = NewGroupTrait(
 		WithGroupIcon(&v2.AssetRef{Id: "iconID"}),
@@ -34,5 +34,5 @@ func TestGroupTrait(t *testing.T) {
 	require.NotNil(t, gt.Profile)
 	val, ok := GetProfileStringValue(gt.Profile, "test")
 	require.True(t, ok)
-	require.Equal(t, "profile-field", val)
+	require.Equal(t, "group-profile-field", val)
 }

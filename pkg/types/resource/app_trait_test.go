@@ -46,7 +46,7 @@ func TestAppTrait(t *testing.T) {
 	require.Equal(t, "logoID", at.Logo.Id)
 
 	appProfile := make(map[string]interface{})
-	appProfile["test"] = "profile-field"
+	appProfile["test"] = "app-profile-field"
 
 	at, err = NewAppTrait(
 		WithAppHelpURL("https://example.com/help"),
@@ -59,7 +59,7 @@ func TestAppTrait(t *testing.T) {
 	require.NotNil(t, at.Profile)
 	val, ok := GetProfileStringValue(at.Profile, "test")
 	require.True(t, ok)
-	require.Equal(t, "profile-field", val)
+	require.Equal(t, "app-profile-field", val)
 	require.Equal(t, "https://example.com/help", at.HelpUrl)
 	require.NotNil(t, at.Logo)
 	require.Equal(t, "logoID", at.Logo.Id)

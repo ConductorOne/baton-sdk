@@ -29,7 +29,7 @@ func TestUserTrait(t *testing.T) {
 	require.Equal(t, "iconID", ut.Icon.Id)
 
 	userProfile := make(map[string]interface{})
-	userProfile["test"] = "profile-field"
+	userProfile["test"] = "user-profile-field"
 
 	ut, err = NewUserTrait(
 		WithUserIcon(&v2.AssetRef{Id: "iconID"}),
@@ -46,7 +46,7 @@ func TestUserTrait(t *testing.T) {
 	require.NotNil(t, ut.Profile)
 	val, ok := GetProfileStringValue(ut.Profile, "test")
 	require.True(t, ok)
-	require.Equal(t, "profile-field", val)
+	require.Equal(t, "user-profile-field", val)
 	val, ok = GetProfileStringValue(ut.Profile, "no-key")
 	require.False(t, ok)
 	require.Empty(t, val)
@@ -66,7 +66,7 @@ func TestUserTrait(t *testing.T) {
 	require.NotNil(t, ut.Profile)
 	val, ok = GetProfileStringValue(ut.Profile, "test")
 	require.True(t, ok)
-	require.Equal(t, "profile-field", val)
+	require.Equal(t, "user-profile-field", val)
 
 	ut, err = NewUserTrait(
 		WithUserIcon(&v2.AssetRef{Id: "iconID"}),
@@ -84,7 +84,7 @@ func TestUserTrait(t *testing.T) {
 	require.NotNil(t, ut.Profile)
 	val, ok = GetProfileStringValue(ut.Profile, "test")
 	require.True(t, ok)
-	require.Equal(t, "profile-field", val)
+	require.Equal(t, "user-profile-field", val)
 	require.Len(t, ut.Emails, 2)
 	require.True(t, ut.Emails[0].IsPrimary)
 	require.Equal(t, ut.Emails[0].Address, "alice@example.com")
