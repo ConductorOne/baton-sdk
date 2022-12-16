@@ -179,7 +179,7 @@ func (c *C1File) putConnectorObjectQuery(ctx context.Context, tableName string, 
 		return "", nil, err
 	}
 
-	messageBlob, err := proto.Marshal(m)
+	messageBlob, err := proto.MarshalOptions{Deterministic: true}.Marshal(m)
 	if err != nil {
 		return "", nil, err
 	}
