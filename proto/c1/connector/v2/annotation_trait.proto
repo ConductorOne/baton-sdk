@@ -47,7 +47,18 @@ message UserTrait {
   ];
   google.protobuf.Struct profile = 3;
   c1.connector.v2.AssetRef icon = 4;
-  bool is_service_account = 5;
+
+  enum AccountType {
+    ACCOUNT_TYPE_UNSPECIFIED = 0;
+    ACCOUNT_TYPE_HUMAN = 1;
+    ACCOUNT_TYPE_SERVICE = 2;
+    ACCOUNT_TYPE_SYSTEM = 3;
+  }
+  AccountType account_type = 5 [
+    (validate.rules).enum = {
+      defined_only: true
+    }
+  ];
 }
 
 message GroupTrait {
