@@ -47,6 +47,7 @@ message UserTrait {
   ];
   google.protobuf.Struct profile = 3;
   c1.connector.v2.AssetRef icon = 4;
+  bool is_service_account = 5;
 }
 
 message GroupTrait {

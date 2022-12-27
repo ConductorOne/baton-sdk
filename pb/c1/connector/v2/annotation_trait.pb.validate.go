@@ -189,6 +189,8 @@ func (m *UserTrait) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for IsServiceAccount
+
 	if len(errors) > 0 {
 		return UserTraitMultiError(errors)
 	}
