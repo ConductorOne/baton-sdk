@@ -22,6 +22,37 @@ func WithAnnotation(msgs ...proto.Message) ResourceOption {
 	}
 }
 
+func WithUserTrait(ut *v2.UserTrait) ResourceOption {
+	return func(r *v2.Resource) {
+		annos := annotations.Annotations(r.Annotations)
+		annos.Update(ut)
+		r.Annotations = annos
+	}
+}
+func WithGroupTrait(gt *v2.GroupTrait) ResourceOption {
+	return func(r *v2.Resource) {
+		annos := annotations.Annotations(r.Annotations)
+		annos.Update(gt)
+		r.Annotations = annos
+	}
+}
+
+func WithRoleTrait(rt *v2.RoleTrait) ResourceOption {
+	return func(r *v2.Resource) {
+		annos := annotations.Annotations(r.Annotations)
+		annos.Update(rt)
+		r.Annotations = annos
+	}
+}
+
+func WithAppTrait(at *v2.AppTrait) ResourceOption {
+	return func(r *v2.Resource) {
+		annos := annotations.Annotations(r.Annotations)
+		annos.Update(at)
+		r.Annotations = annos
+	}
+}
+
 func convertIDToString(id interface{}) (string, error) {
 	var resourceID string
 	switch objID := id.(type) {
@@ -97,20 +128,17 @@ func NewUserResource(
 	profile map[string]interface{},
 	resourceOptions ...ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
-	if err != nil {
-		return nil, err
-	}
-
 	userTrait, err := NewUserTrait(WithEmail(primaryEmail, true), WithUserProfile(profile))
 	if err != nil {
 		return nil, err
 	}
 
-	annos := annotations.Annotations(ret.Annotations)
-	annos.Update(userTrait)
+	resourceOptions = append(resourceOptions, WithUserTrait(userTrait))
 
-	ret.Annotations = annos
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
+	if err != nil {
+		return nil, err
+	}
 
 	return ret, nil
 }
@@ -125,20 +153,17 @@ func NewGroupResource(
 	profile map[string]interface{},
 	resourceOptions ...ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
-	if err != nil {
-		return nil, err
-	}
-
 	groupTrait, err := NewGroupTrait(WithGroupProfile(profile))
 	if err != nil {
 		return nil, err
 	}
 
-	annos := annotations.Annotations(ret.Annotations)
-	annos.Update(groupTrait)
+	resourceOptions = append(resourceOptions, WithGroupTrait(groupTrait))
 
-	ret.Annotations = annos
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
+	if err != nil {
+		return nil, err
+	}
 
 	return ret, nil
 }
@@ -153,20 +178,17 @@ func NewRoleResource(
 	profile map[string]interface{},
 	resourceOptions ...ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
-	if err != nil {
-		return nil, err
-	}
-
 	roleTrait, err := NewRoleTrait(WithRoleProfile(profile))
 	if err != nil {
 		return nil, err
 	}
 
-	annos := annotations.Annotations(ret.Annotations)
-	annos.Update(roleTrait)
+	resourceOptions = append(resourceOptions, WithRoleTrait(roleTrait))
 
-	ret.Annotations = annos
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
+	if err != nil {
+		return nil, err
+	}
 
 	return ret, nil
 }
@@ -182,20 +204,17 @@ func NewAppResource(
 	profile map[string]interface{},
 	resourceOptions ...ResourceOption,
 ) (*v2.Resource, error) {
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
-	if err != nil {
-		return nil, err
-	}
-
 	appTrait, err := NewAppTrait(WithAppHelpURL(helpURL), WithAppProfile(profile))
 	if err != nil {
 		return nil, err
 	}
 
-	annos := annotations.Annotations(ret.Annotations)
-	annos.Update(appTrait)
+	resourceOptions = append(resourceOptions, WithAppTrait(appTrait))
 
-	ret.Annotations = annos
+	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
+	if err != nil {
+		return nil, err
+	}
 
 	return ret, nil
 }
