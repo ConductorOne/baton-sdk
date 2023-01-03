@@ -75,6 +75,11 @@ func NewUserTrait(opts ...UserTraitOption) (*v2.UserTrait, error) {
 		userTrait.Status = &v2.UserTrait_Status{Status: v2.UserTrait_Status_STATUS_ENABLED}
 	}
 
+	// If account type isn't specified, default to a human user.
+	if userTrait.AccountType == v2.UserTrait_ACCOUNT_TYPE_UNSPECIFIED {
+		userTrait.AccountType = v2.UserTrait_ACCOUNT_TYPE_HUMAN
+	}
+
 	return userTrait, nil
 }
 
