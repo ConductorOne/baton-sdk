@@ -11,7 +11,7 @@ import (
 
 func TestNewGrant(t *testing.T) {
 	rt := resource.NewResourceType("Group", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP})
-	ur, err := resource.NewResource("test-group", rt, nil, 1234)
+	ur, err := resource.NewResource("test-group", rt, 1234)
 	require.NoError(t, err)
 	require.NotNil(t, ur)
 

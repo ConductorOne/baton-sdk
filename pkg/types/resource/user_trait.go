@@ -52,6 +52,13 @@ func WithUserProfile(profile map[string]interface{}) UserTraitOption {
 	}
 }
 
+func WithAccountType(accountType v2.UserTrait_AccountType) UserTraitOption {
+	return func(ut *v2.UserTrait) error {
+		ut.AccountType = accountType
+		return nil
+	}
+}
+
 // NewUserTrait creates a new `UserTrait`.
 func NewUserTrait(opts ...UserTraitOption) (*v2.UserTrait, error) {
 	userTrait := &v2.UserTrait{}

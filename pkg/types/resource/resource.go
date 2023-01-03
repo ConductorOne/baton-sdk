@@ -10,46 +10,119 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type ResourceOption func(*v2.Resource)
+type ResourceOption func(*v2.Resource) error
 
 func WithAnnotation(msgs ...proto.Message) ResourceOption {
-	return func(r *v2.Resource) {
+	return func(r *v2.Resource) error {
 		annos := annotations.Annotations(r.Annotations)
 		for _, msg := range msgs {
 			annos.Append(msg)
 		}
 		r.Annotations = annos
+
+		return nil
 	}
 }
 
-func WithUserTrait(ut *v2.UserTrait) ResourceOption {
-	return func(r *v2.Resource) {
+func WithParentResourceID(parentResourceID *v2.ResourceId) ResourceOption {
+	return func(r *v2.Resource) error {
+		r.ParentResourceId = parentResourceID
+
+		return nil
+	}
+}
+
+func WithUserTrait(opts ...UserTraitOption) ResourceOption {
+	return func(r *v2.Resource) error {
+		ut := &v2.UserTrait{}
+
 		annos := annotations.Annotations(r.Annotations)
+		_, err := annos.Pick(ut)
+		if err != nil {
+			return err
+		}
+
+		for _, o := range opts {
+			err = o(ut)
+			if err != nil {
+				return err
+			}
+		}
+
 		annos.Update(ut)
 		r.Annotations = annos
-	}
-}
-func WithGroupTrait(gt *v2.GroupTrait) ResourceOption {
-	return func(r *v2.Resource) {
-		annos := annotations.Annotations(r.Annotations)
-		annos.Update(gt)
-		r.Annotations = annos
+		return nil
 	}
 }
 
-func WithRoleTrait(rt *v2.RoleTrait) ResourceOption {
-	return func(r *v2.Resource) {
+func WithGroupTrait(opts ...GroupTraitOption) ResourceOption {
+	return func(r *v2.Resource) error {
+		ut := &v2.GroupTrait{}
+
 		annos := annotations.Annotations(r.Annotations)
+		_, err := annos.Pick(ut)
+		if err != nil {
+			return err
+		}
+
+		for _, o := range opts {
+			err = o(ut)
+			if err != nil {
+				return err
+			}
+		}
+
+		annos.Update(ut)
+		r.Annotations = annos
+		return nil
+	}
+}
+
+func WithRoleTrait(opts ...RoleTraitOption) ResourceOption {
+	return func(r *v2.Resource) error {
+		rt := &v2.RoleTrait{}
+
+		annos := annotations.Annotations(r.Annotations)
+		_, err := annos.Pick(rt)
+		if err != nil {
+			return err
+		}
+
+		for _, o := range opts {
+			err := o(rt)
+			if err != nil {
+				return err
+			}
+		}
+
 		annos.Update(rt)
 		r.Annotations = annos
+
+		return nil
 	}
 }
 
-func WithAppTrait(at *v2.AppTrait) ResourceOption {
-	return func(r *v2.Resource) {
+func WithAppTrait(opts ...AppTraitOption) ResourceOption {
+	return func(r *v2.Resource) error {
+		at := &v2.AppTrait{}
+
 		annos := annotations.Annotations(r.Annotations)
+		_, err := annos.Pick(at)
+		if err != nil {
+			return err
+		}
+
+		for _, o := range opts {
+			err := o(at)
+			if err != nil {
+				return err
+			}
+		}
+
 		annos.Update(at)
 		r.Annotations = annos
+
+		return nil
 	}
 }
 
@@ -100,19 +173,22 @@ func NewResourceID(resourceType *v2.ResourceType, objectID interface{}) (*v2.Res
 }
 
 // NewResource returns a new resource instance with no traits.
-func NewResource(name string, resourceType *v2.ResourceType, parentResourceID *v2.ResourceId, objectID interface{}, resourceOptions ...ResourceOption) (*v2.Resource, error) {
+func NewResource(name string, resourceType *v2.ResourceType, objectID interface{}, resourceOptions ...ResourceOption) (*v2.Resource, error) {
 	rID, err := NewResourceID(resourceType, objectID)
 	if err != nil {
 		return nil, err
 	}
 
 	resource := &v2.Resource{
-		Id:               rID,
-		ParentResourceId: parentResourceID,
-		DisplayName:      name,
+		Id:          rID,
+		DisplayName: name,
 	}
+
 	for _, resourceOption := range resourceOptions {
-		resourceOption(resource)
+		err = resourceOption(resource)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return resource, nil
 }
@@ -122,20 +198,13 @@ func NewResource(name string, resourceType *v2.ResourceType, parentResourceID *v
 func NewUserResource(
 	name string,
 	resourceType *v2.ResourceType,
-	parentResourceID *v2.ResourceId,
 	objectID interface{},
-	primaryEmail string,
-	profile map[string]interface{},
-	resourceOptions ...ResourceOption,
+	userTraitOpts []UserTraitOption,
+	opts ...ResourceOption,
 ) (*v2.Resource, error) {
-	userTrait, err := NewUserTrait(WithEmail(primaryEmail, true), WithUserProfile(profile))
-	if err != nil {
-		return nil, err
-	}
+	opts = append(opts, WithUserTrait(userTraitOpts...))
 
-	resourceOptions = append(resourceOptions, WithUserTrait(userTrait))
-
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
+	ret, err := NewResource(name, resourceType, objectID, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -148,19 +217,13 @@ func NewUserResource(
 func NewGroupResource(
 	name string,
 	resourceType *v2.ResourceType,
-	parentResourceID *v2.ResourceId,
 	objectID interface{},
-	profile map[string]interface{},
-	resourceOptions ...ResourceOption,
+	groupTraitOpts []GroupTraitOption,
+	opts ...ResourceOption,
 ) (*v2.Resource, error) {
-	groupTrait, err := NewGroupTrait(WithGroupProfile(profile))
-	if err != nil {
-		return nil, err
-	}
+	opts = append(opts, WithGroupTrait(groupTraitOpts...))
 
-	resourceOptions = append(resourceOptions, WithGroupTrait(groupTrait))
-
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
+	ret, err := NewResource(name, resourceType, objectID, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -173,19 +236,13 @@ func NewGroupResource(
 func NewRoleResource(
 	name string,
 	resourceType *v2.ResourceType,
-	parentResourceID *v2.ResourceId,
 	objectID interface{},
-	profile map[string]interface{},
-	resourceOptions ...ResourceOption,
+	roleTraitOpts []RoleTraitOption,
+	opts ...ResourceOption,
 ) (*v2.Resource, error) {
-	roleTrait, err := NewRoleTrait(WithRoleProfile(profile))
-	if err != nil {
-		return nil, err
-	}
+	opts = append(opts, WithRoleTrait(roleTraitOpts...))
 
-	resourceOptions = append(resourceOptions, WithRoleTrait(roleTrait))
-
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
+	ret, err := NewResource(name, resourceType, objectID, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -198,20 +255,13 @@ func NewRoleResource(
 func NewAppResource(
 	name string,
 	resourceType *v2.ResourceType,
-	parentResourceID *v2.ResourceId,
 	objectID interface{},
-	helpURL string,
-	profile map[string]interface{},
-	resourceOptions ...ResourceOption,
+	appTraitOpts []AppTraitOption,
+	opts ...ResourceOption,
 ) (*v2.Resource, error) {
-	appTrait, err := NewAppTrait(WithAppHelpURL(helpURL), WithAppProfile(profile))
-	if err != nil {
-		return nil, err
-	}
+	opts = append(opts, WithAppTrait(appTraitOpts...))
 
-	resourceOptions = append(resourceOptions, WithAppTrait(appTrait))
-
-	ret, err := NewResource(name, resourceType, parentResourceID, objectID, resourceOptions...)
+	ret, err := NewResource(name, resourceType, objectID, opts...)
 	if err != nil {
 		return nil, err
 	}
