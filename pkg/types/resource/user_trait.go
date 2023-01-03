@@ -52,6 +52,13 @@ func WithUserProfile(profile map[string]interface{}) UserTraitOption {
 	}
 }
 
+func WithAccountType(accountType v2.UserTrait_AccountType) UserTraitOption {
+	return func(ut *v2.UserTrait) error {
+		ut.AccountType = accountType
+		return nil
+	}
+}
+
 // NewUserTrait creates a new `UserTrait`.
 func NewUserTrait(opts ...UserTraitOption) (*v2.UserTrait, error) {
 	userTrait := &v2.UserTrait{}
@@ -66,6 +73,11 @@ func NewUserTrait(opts ...UserTraitOption) (*v2.UserTrait, error) {
 	// If no status was set, default to be enabled.
 	if userTrait.Status == nil {
 		userTrait.Status = &v2.UserTrait_Status{Status: v2.UserTrait_Status_STATUS_ENABLED}
+	}
+
+	// If account type isn't specified, default to a human user.
+	if userTrait.AccountType == v2.UserTrait_ACCOUNT_TYPE_UNSPECIFIED {
+		userTrait.AccountType = v2.UserTrait_ACCOUNT_TYPE_HUMAN
 	}
 
 	return userTrait, nil

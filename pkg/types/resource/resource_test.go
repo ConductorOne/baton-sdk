@@ -13,7 +13,16 @@ func TestNewAppResource(t *testing.T) {
 		"app_name": "Test",
 	}
 	rt := NewResourceType("App", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_APP})
-	ar, err := NewAppResource("test app", rt, nil, 1234, "https://example.com", profile, WithAnnotation(&v2.V1Identifier{Id: "v1"}))
+	ar, err := NewAppResource(
+		"test app",
+		rt,
+		1234,
+		[]AppTraitOption{
+			WithAppHelpURL("https://example.com"),
+			WithAppProfile(profile),
+		},
+		WithAnnotation(&v2.V1Identifier{Id: "v1"}),
+	)
 	require.NoError(t, err)
 	require.NotNil(t, ar)
 	require.Equal(t, rt.Id, ar.Id.ResourceType)
@@ -48,7 +57,15 @@ func TestNewGroupResource(t *testing.T) {
 		"group_name": "Test",
 	}
 	rt := NewResourceType("Group", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP})
-	gr, err := NewGroupResource("test group", rt, nil, 1234, profile, WithAnnotation(&v2.V1Identifier{Id: "v1"}))
+	gr, err := NewGroupResource(
+		"test group",
+		rt,
+		1234,
+		[]GroupTraitOption{
+			WithGroupProfile(profile),
+		},
+		WithAnnotation(&v2.V1Identifier{Id: "v1"}),
+	)
 	require.NoError(t, err)
 	require.NotNil(t, gr)
 	require.Equal(t, rt.Id, gr.Id.ResourceType)
@@ -83,7 +100,7 @@ func TestNewResource(t *testing.T) {
 		Resource:     "567",
 	}
 	rt := NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
-	rr, err := NewResource("test resource", rt, parentID, "1234", WithAnnotation(&v2.V1Identifier{Id: "v1"}))
+	rr, err := NewResource("test resource", rt, "1234", WithParentResourceID(parentID), WithAnnotation(&v2.V1Identifier{Id: "v1"}))
 	require.NoError(t, err)
 	require.NotNil(t, rr)
 	require.Equal(t, rt.Id, rr.Id.ResourceType)
@@ -128,7 +145,15 @@ func TestNewRoleResource(t *testing.T) {
 		"role_name": "Test",
 	}
 	rt := NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
-	rr, err := NewRoleResource("test role", rt, nil, "1234", profile, WithAnnotation(&v2.V1Identifier{Id: "v1"}))
+	rr, err := NewRoleResource(
+		"test role",
+		rt,
+		"1234",
+		[]RoleTraitOption{
+			WithRoleProfile(profile),
+		},
+		WithAnnotation(&v2.V1Identifier{Id: "v1"}),
+	)
 	require.NoError(t, err)
 	require.NotNil(t, rr)
 	require.Equal(t, rt.Id, rr.Id.ResourceType)
@@ -165,7 +190,16 @@ func TestNewUserResource(t *testing.T) {
 		"last_name":  "User",
 	}
 	rt := NewResourceType("User", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
-	ur, err := NewUserResource("test user", rt, nil, 1234, userEmail, profile, WithAnnotation(&v2.V1Identifier{Id: "v1"}))
+	ur, err := NewUserResource(
+		"test user",
+		rt,
+		1234,
+		[]UserTraitOption{
+			WithEmail(userEmail, true),
+			WithUserProfile(profile),
+		},
+		WithAnnotation(&v2.V1Identifier{Id: "v1"}),
+	)
 	require.NoError(t, err)
 	require.NotNil(t, ur)
 	require.Equal(t, rt.Id, ur.Id.ResourceType)
