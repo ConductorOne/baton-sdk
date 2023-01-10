@@ -44,6 +44,13 @@ message ResourceType {
     }
   ];
   repeated google.protobuf.Any annotations = 4;
+  string description = 5 [
+    (validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 2048
+      ignore_empty: true
+    }
+  ];
 }
 
 
@@ -107,6 +114,13 @@ message Resource {
     }
   ];
   repeated google.protobuf.Any annotations = 4;
+  string description = 5 [
+    (validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 2048
+      ignore_empty: true
+    }
+  ];
 }
 
 message ResourcesServiceListResourcesRequest {

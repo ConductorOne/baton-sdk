@@ -148,6 +148,21 @@ func (m *ResourceType) validate(all bool) error {
 
 	}
 
+	if m.GetDescription() != "" {
+
+		if l := len(m.GetDescription()); l < 1 || l > 2048 {
+			err := ResourceTypeValidationError{
+				field:  "Description",
+				reason: "value length must be between 1 and 2048 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return ResourceTypeMultiError(errors)
 	}
@@ -863,6 +878,21 @@ func (m *Resource) validate(all bool) error {
 					cause:  err,
 				}
 			}
+		}
+
+	}
+
+	if m.GetDescription() != "" {
+
+		if l := len(m.GetDescription()); l < 1 || l > 2048 {
+			err := ResourceValidationError{
+				field:  "Description",
+				reason: "value length must be between 1 and 2048 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
 		}
 
 	}
