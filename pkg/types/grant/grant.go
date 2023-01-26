@@ -21,6 +21,12 @@ func WithAnnotation(msgs ...proto.Message) GrantOption {
 	}
 }
 
+func WithPrincipal(r *v2.Resource) GrantOption {
+	return func(g *v2.Grant) {
+		g.Principal = r
+	}
+}
+
 // NewGrant returns a new grant for the given entitlement on the resource for the provided principal resource ID.
 func NewGrant(resource *v2.Resource, entitlementName string, principal *v2.ResourceId, grantOptions ...GrantOption) *v2.Grant {
 	entitlement := &v2.Entitlement{
