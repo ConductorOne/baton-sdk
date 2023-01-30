@@ -101,6 +101,7 @@ message ResourceId {
       max_bytes: 1024
     }
   ];
+  bool baton_resource = 3;
 }
 
 message Resource {
@@ -121,6 +122,7 @@ message Resource {
       ignore_empty: true
     }
   ];
+  bool baton_resource = 6;
 }
 
 message ResourcesServiceListResourcesRequest {
