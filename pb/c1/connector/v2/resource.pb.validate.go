@@ -676,6 +676,8 @@ func (m *ResourceId) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
+	// no validation rules for BatonResource
+
 	if len(errors) > 0 {
 		return ResourceIdMultiError(errors)
 	}
@@ -896,6 +898,8 @@ func (m *Resource) validate(all bool) error {
 		}
 
 	}
+
+	// no validation rules for BatonResource
 
 	if len(errors) > 0 {
 		return ResourceMultiError(errors)
