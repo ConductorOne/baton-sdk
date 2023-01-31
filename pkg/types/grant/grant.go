@@ -11,6 +11,11 @@ import (
 
 type GrantOption func(*v2.Grant)
 
+type GrantPrincipal interface {
+	proto.Message
+	GetBatonResource() bool
+}
+
 func WithAnnotation(msgs ...proto.Message) GrantOption {
 	return func(g *v2.Grant) {
 		annos := annotations.Annotations(g.Annotations)
@@ -22,7 +27,7 @@ func WithAnnotation(msgs ...proto.Message) GrantOption {
 }
 
 // NewGrant returns a new grant for the given entitlement on the resource for the provided principal resource ID.
-func NewGrant(resource *v2.Resource, entitlementName string, principal *v2.ResourceId, grantOptions ...GrantOption) *v2.Grant {
+func NewGrant(resource *v2.Resource, entitlementName string, principal GrantPrincipal, grantOptions ...GrantOption) *v2.Grant {
 	entitlement := &v2.Entitlement{
 		Id:       eopt.NewEntitlementID(resource, entitlementName),
 		Resource: resource,
@@ -30,9 +35,24 @@ func NewGrant(resource *v2.Resource, entitlementName string, principal *v2.Resou
 
 	grant := &v2.Grant{
 		Entitlement: entitlement,
-		Principal:   &v2.Resource{Id: principal},
-		Id:          fmt.Sprintf("%s:%s:%s", entitlement.Id, principal.ResourceType, principal.Resource),
 	}
+
+	var resourceID *v2.ResourceId
+	switch p := principal.(type) {
+	case *v2.ResourceId:
+		resourceID = p
+		grant.Principal = &v2.Resource{Id: p}
+	case *v2.Resource:
+		grant.Principal = p
+		resourceID = p.Id
+	default:
+		panic("unexpected principal type")
+	}
+
+	if resourceID == nil {
+		panic("principal resource must have a valid resource ID")
+	}
+	grant.Id = fmt.Sprintf("%s:%s:%s", entitlement.Id, resourceID.ResourceType, resourceID.Resource)
 
 	for _, grantOption := range grantOptions {
 		grantOption(grant)
