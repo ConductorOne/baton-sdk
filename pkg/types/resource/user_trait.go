@@ -20,6 +20,10 @@ func WithStatus(status v2.UserTrait_Status_Status) UserTraitOption {
 
 func WithEmail(email string, primary bool) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
+		if email == "" {
+			return nil
+		}
+
 		traitEmail := &v2.UserTrait_Email{
 			Address:   email,
 			IsPrimary: primary,
