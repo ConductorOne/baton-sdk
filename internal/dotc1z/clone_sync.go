@@ -10,15 +10,36 @@ import (
 	"strings"
 )
 
-func cloneTableQuery(tableName string) string {
+func cloneTableQuery(tableName string) (string, error) {
 	var sb strings.Builder
-	sb.WriteString("INSERT INTO clone.")
-	sb.WriteString(tableName)
-	sb.WriteString(" SELECT * FROM ")
-	sb.WriteString(tableName)
-	sb.WriteString(" WHERE sync_id=?")
+	var err error
 
-	return sb.String()
+	_, err = sb.WriteString("INSERT INTO clone.")
+	if err != nil {
+		return "", err
+	}
+
+	_, err = sb.WriteString(tableName)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = sb.WriteString(" SELECT * FROM ")
+	if err != nil {
+		return "", err
+	}
+
+	_, err = sb.WriteString(tableName)
+	if err != nil {
+		return "", err
+	}
+
+	_, err = sb.WriteString(" WHERE sync_id=?")
+	if err != nil {
+		return "", err
+	}
+
+	return sb.String(), nil
 }
 
 // CloneSync uses sqlite hackery to directly copy the pertinent rows into a new database.
@@ -74,7 +95,10 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) e
 	}
 
 	for _, t := range allTableDescriptors {
-		q := cloneTableQuery(t.Name())
+		q, err := cloneTableQuery(t.Name())
+		if err != nil {
+			return err
+		}
 		_, err = conn.ExecContext(qCtx, q, syncID)
 		if err != nil {
 			return err
