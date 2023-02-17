@@ -14,6 +14,15 @@ import (
 
 const maxPageSize = 100
 
+var allTableDescriptors = []tableDescriptor{
+	resourceTypes,
+	resources,
+	entitlements,
+	grants,
+	syncRuns,
+	assets,
+}
+
 type tableDescriptor interface {
 	Name() string
 	Schema() (string, []interface{})
