@@ -4,7 +4,7 @@ lint:
 
 .PHONY: update-deps
 update-deps:
-	GOPRIVATE=github.com/conductorone/baton-sdk go get -d -u ./...
+	go get -d -u ./...
 	go mod tidy -v
 
 .PHONY: add-deps
