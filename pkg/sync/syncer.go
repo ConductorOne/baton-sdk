@@ -183,6 +183,11 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	l.Info("Sync complete.")
 
+	err = s.store.Cleanup(ctx)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
