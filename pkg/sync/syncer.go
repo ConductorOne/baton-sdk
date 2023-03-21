@@ -8,14 +8,15 @@ import (
 	"io"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -34,10 +35,11 @@ type syncer struct {
 	state             State
 	runDuration       time.Duration
 	transitionHandler func(s Action)
+	progressHandler   func(p *Progress)
 }
 
 // Checkpoint marshals the current state and stores it.
-func (s *syncer) Checkpoint(ctx context.Context) error {
+func (s *syncer) Checkpoint(ctx context.Context, lastAction Action) error {
 	checkpoint, err := s.state.Marshal()
 	if err != nil {
 		return err
@@ -53,6 +55,12 @@ func (s *syncer) Checkpoint(ctx context.Context) error {
 func (s *syncer) handleInitialActionForStep(ctx context.Context, a Action) {
 	if s.transitionHandler != nil {
 		s.transitionHandler(a)
+	}
+}
+
+func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
+	if s.progressHandler != nil {
+		s.progressHandler(NewProgress(a, uint32(c)))
 	}
 }
 
@@ -106,15 +114,22 @@ func (s *syncer) Sync(ctx context.Context) error {
 	s.state = state
 
 	for s.state.Current() != nil {
-		err = s.Checkpoint(ctx)
+		err = s.Checkpoint(ctx, *s.state.Current())
 		if err != nil {
 			return err
 		}
 
 		select {
 		case <-runCtx.Done():
-			l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", syncID))
-			return ErrSyncNotComplete
+			err = context.Cause(runCtx)
+			switch {
+			case errors.Is(err, context.DeadlineExceeded):
+				l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", syncID))
+				return ErrSyncNotComplete
+			default:
+				l.Error("sync context cancelled", zap.String("sync_id", syncID), zap.Error(err))
+				return err
+			}
 		default:
 		}
 
@@ -130,7 +145,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
 			s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
 
-			err = s.Checkpoint(ctx)
+			err = s.Checkpoint(ctx, *s.state.Current())
 			if err != nil {
 				return err
 			}
@@ -216,6 +231,8 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 			return err
 		}
 	}
+
+	s.handleProgress(ctx, s.state.Current(), len(resp.List))
 
 	if resp.NextPageToken == "" {
 		s.state.FinishAction(ctx)
@@ -361,6 +378,8 @@ func (s *syncer) syncResources(ctx context.Context, resourceTypeID string, paren
 			ret = append(ret, subResources...)
 		}
 
+		s.handleProgress(ctx, s.state.Current(), len(resp.List))
+
 		if resp.NextPageToken == "" {
 			break
 		}
@@ -477,6 +496,8 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 			return err
 		}
 	}
+
+	s.handleProgress(ctx, s.state.Current(), len(resp.List))
 
 	if resp.NextPageToken != "" {
 		err = s.state.NextPage(ctx, resp.NextPageToken)
@@ -710,6 +731,8 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		}
 	}
 
+	s.handleProgress(ctx, s.state.Current(), len(resp.List))
+
 	if resp.NextPageToken != "" {
 		err = s.state.NextPage(ctx, resp.NextPageToken)
 		if err != nil {
@@ -756,6 +779,15 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 	return func(s *syncer) {
 		if f != nil {
 			s.transitionHandler = f
+		}
+	}
+}
+
+// WithProgress sets a `progressHandler` for `NewSyncer` Options.
+func WithProgressHandler(f func(s *Progress)) SyncOpt {
+	return func(s *syncer) {
+		if f != nil {
+			s.progressHandler = f
 		}
 	}
 }
