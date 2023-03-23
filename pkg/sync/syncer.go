@@ -3,6 +3,7 @@ package sync
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -247,38 +248,31 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 	return nil
 }
 
-// subResource is used to track the specific resources that have been visited to avoid infinite loops.
-type subResource struct {
-	resourceTypeId   string
-	parentResourceId *v2.ResourceId
-}
-
 // getSubResources fetches the sub resource types from a resources' annotations.
-func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) ([]subResource, error) {
-	var subResources []subResource
-
+func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
 	for _, a := range parent.Annotations {
 		if a.MessageIs((*v2.ChildResourceType)(nil)) {
 			crt := &v2.ChildResourceType{}
 			err := a.UnmarshalTo(crt)
 			if err != nil {
-				return nil, err
+				return err
 			}
 
-			subResources = append(subResources, subResource{
-				parentResourceId: parent.Id,
-				resourceTypeId:   crt.ResourceTypeId,
-			})
+			childAction := Action{
+				Op:                   SyncResourcesOp,
+				ResourceTypeID:       crt.ResourceTypeId,
+				ParentResourceID:     parent.Id.Resource,
+				ParentResourceTypeID: parent.Id.ResourceType,
+			}
+			s.state.PushAction(ctx, childAction)
 		}
 	}
 
-	return subResources, nil
+	return nil
 }
 
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
-// resource, we gather any child resource types it may emit, and traverse the resource tree. Currently this will checkpoint
-// for each root resource type. Additional work to track the history across actions is required for more fine grained
-// checkpointing.
+// resource, we gather any child resource types it may emit, and traverse the resource tree.
 func (s *syncer) SyncResources(ctx context.Context) error {
 	if s.state.Current().ResourceTypeID == "" {
 		ctxzap.Extract(ctx).Info("Syncing resources...")
@@ -307,86 +301,73 @@ func (s *syncer) SyncResources(ctx context.Context) error {
 		return nil
 	}
 
-	visited := make(map[subResource]struct{})
-	subResources := []subResource{{resourceTypeId: s.state.Current().ResourceTypeID}}
+	return s.syncResources(ctx)
+}
 
-	for len(subResources) > 0 {
-		// If the context is cancelled, bail from the loop
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+// syncResources fetches a given resource from the connector, and returns a slice of new child resources to fetch.
+func (s *syncer) syncResources(ctx context.Context) error {
+	req := &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: s.state.ResourceTypeID(ctx),
+		PageToken:      s.state.PageToken(ctx),
+	}
+	if s.state.ParentResourceTypeID(ctx) != "" && s.state.ParentResourceID(ctx) != "" {
+		req.ParentResourceId = &v2.ResourceId{
+			ResourceType: s.state.ParentResourceTypeID(ctx),
+			Resource:     s.state.ParentResourceID(ctx),
 		}
+	}
 
-		subR := subResources[0]
-		subResources = subResources[1:]
-		// If we've seen this subresource before, skip it
-		if _, ok := visited[subR]; ok {
+	c, err := s.connector.C(ctx)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.ListResources(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	s.handleProgress(ctx, s.state.Current(), len(resp.List))
+
+	if resp.NextPageToken == "" {
+		s.state.FinishAction(ctx)
+	} else {
+		err = s.state.NextPage(ctx, resp.NextPageToken)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, r := range resp.List {
+		// Check if we've already synced this resource, skip it if we have
+		_, err = s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
+			ResourceId: &v2.ResourceId{ResourceType: r.Id.ResourceType, Resource: r.Id.Resource},
+		})
+		if err == nil {
 			continue
 		}
 
-		nested, err := s.syncResources(ctx, subR.resourceTypeId, subR.parentResourceId)
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+
+		err = s.validateResourceTraits(ctx, r)
 		if err != nil {
 			return err
 		}
 
-		visited[subR] = struct{}{}
-		subResources = append(subResources, nested...)
-	}
+		err = s.store.PutResource(ctx, r)
+		if err != nil {
+			return err
+		}
 
-	s.state.FinishAction(ctx)
+		err = s.getSubResources(ctx, r)
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
-}
-
-// syncResources fetches a given resource from the connector, and returns a slice of new child resources to fetch.
-func (s *syncer) syncResources(ctx context.Context, resourceTypeID string, parentResourceID *v2.ResourceId) ([]subResource, error) {
-	var ret []subResource
-
-	pageToken := ""
-	for {
-		req := &v2.ResourcesServiceListResourcesRequest{
-			ResourceTypeId:   resourceTypeID,
-			ParentResourceId: parentResourceID,
-			PageToken:        pageToken,
-		}
-
-		c, err := s.connector.C(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		resp, err := c.ListResources(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, r := range resp.List {
-			err = s.validateResourceTraits(ctx, r)
-			if err != nil {
-				return nil, err
-			}
-
-			err = s.store.PutResource(ctx, r)
-			if err != nil {
-				return nil, err
-			}
-			subResources, err := s.getSubResources(ctx, r)
-			if err != nil {
-				return nil, err
-			}
-			ret = append(ret, subResources...)
-		}
-
-		s.handleProgress(ctx, s.state.Current(), len(resp.List))
-
-		if resp.NextPageToken == "" {
-			break
-		}
-		pageToken = resp.NextPageToken
-	}
-
-	return ret, nil
 }
 
 func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) error {
