@@ -16,6 +16,8 @@ type State interface {
 	NextPage(ctx context.Context, pageToken string) error
 	ResourceTypeID(ctx context.Context) string
 	ResourceID(ctx context.Context) string
+	ParentResourceID(ctx context.Context) string
+	ParentResourceTypeID(ctx context.Context) string
 	PageToken(ctx context.Context) string
 	Current() *Action
 	Marshal() (string, error)
@@ -95,10 +97,12 @@ const (
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
 type Action struct {
-	Op             ActionOp `json:"operation"`
-	PageToken      string   `json:"page_token"`
-	ResourceTypeID string   `json:"resource_type_id"`
-	ResourceID     string   `json:"resource_id"`
+	Op                   ActionOp `json:"operation,omitempty"`
+	PageToken            string   `json:"page_token,omitempty"`
+	ResourceTypeID       string   `json:"resource_type_id,omitempty"`
+	ResourceID           string   `json:"resource_id,omitempty"`
+	ParentResourceTypeID string   `json:"parent_resource_type_id,omitempty"`
+	ParentResourceID     string   `json:"parent_resource_id,omitempty"`
 }
 
 // state is an object used for tracking the current status of a connector sync. It operates like a stack.
@@ -260,4 +264,22 @@ func (st *state) ResourceID(ctx context.Context) string {
 	}
 
 	return c.ResourceID
+}
+
+func (st *state) ParentResourceID(ctx context.Context) string {
+	c := st.Current()
+	if c == nil {
+		panic("no current state")
+	}
+
+	return c.ParentResourceID
+}
+
+func (st *state) ParentResourceTypeID(ctx context.Context) string {
+	c := st.Current()
+	if c == nil {
+		panic("no current state")
+	}
+
+	return c.ParentResourceTypeID
 }
