@@ -39,7 +39,7 @@ type syncer struct {
 }
 
 // Checkpoint marshals the current state and stores it.
-func (s *syncer) Checkpoint(ctx context.Context, lastAction Action) error {
+func (s *syncer) Checkpoint(ctx context.Context) error {
 	checkpoint, err := s.state.Marshal()
 	if err != nil {
 		return err
@@ -114,7 +114,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	s.state = state
 
 	for s.state.Current() != nil {
-		err = s.Checkpoint(ctx, *s.state.Current())
+		err = s.Checkpoint(ctx)
 		if err != nil {
 			return err
 		}
@@ -145,7 +145,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
 			s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
 
-			err = s.Checkpoint(ctx, *s.state.Current())
+			err = s.Checkpoint(ctx)
 			if err != nil {
 				return err
 			}
