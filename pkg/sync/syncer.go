@@ -341,8 +341,12 @@ func (s *syncer) syncResources(ctx context.Context) error {
 		_, err = s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
 			ResourceId: &v2.ResourceId{ResourceType: "foo", Resource: "bar"},
 		})
-		if err == nil || !errors.Is(err, sql.ErrNoRows) {
+		if err == nil {
 			continue
+		}
+
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
 		}
 
 		err = s.validateResourceTraits(ctx, r)
