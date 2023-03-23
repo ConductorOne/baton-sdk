@@ -327,6 +327,8 @@ func (s *syncer) syncResources(ctx context.Context) error {
 		return err
 	}
 
+	s.handleProgress(ctx, s.state.Current(), len(resp.List))
+
 	if resp.NextPageToken == "" {
 		s.state.FinishAction(ctx)
 	} else {
@@ -339,7 +341,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 	for _, r := range resp.List {
 		// Check if we've already synced this resource, skip it if we have
 		_, err = s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
-			ResourceId: &v2.ResourceId{ResourceType: "foo", Resource: "bar"},
+			ResourceId: &v2.ResourceId{ResourceType: r.Id.ResourceType, Resource: r.Id.Resource},
 		})
 		if err == nil {
 			continue
@@ -364,8 +366,6 @@ func (s *syncer) syncResources(ctx context.Context) error {
 			return err
 		}
 	}
-
-	s.handleProgress(ctx, s.state.Current(), len(resp.List))
 
 	return nil
 }
