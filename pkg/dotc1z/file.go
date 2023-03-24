@@ -5,12 +5,17 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"syscall"
 
 	"github.com/klauspost/compress/zstd"
 )
 
-// TODO(morgabra) Tunable decoder options.
+const (
+	maxDecodedSizeEnvVar    = "BATON_DECODER_MAX_DECODED_SIZE_MB"
+	maxDecoderMemorySizeEnv = "BATON_DECODER_MAX_MEMORY_MB"
+)
+
 func loadC1z(filePath string) (string, error) {
 	workingDir, err := os.MkdirTemp("", "c1z")
 	if err != nil {
@@ -29,7 +34,25 @@ func loadC1z(filePath string) (string, error) {
 			return "", err
 		}
 
-		r, err := NewDecoder(c1zFile)
+		var opts []DecoderOption
+
+		maxDecodedSizeVar := os.Getenv(maxDecodedSizeEnvVar)
+		if maxDecodedSizeVar != "" {
+			maxDecodedSize, err := strconv.ParseUint(maxDecodedSizeVar, 10, 64)
+			if err == nil {
+				opts = append(opts, WithDecoderMaxDecodedSize(maxDecodedSize*1024*1024))
+			}
+		}
+
+		maxDecoderMemorySizeVar := os.Getenv(maxDecoderMemorySizeEnv)
+		if maxDecoderMemorySizeVar != "" {
+			maxDecoderMemorySize, err := strconv.ParseUint(maxDecoderMemorySizeVar, 10, 64)
+			if err == nil {
+				opts = append(opts, WithDecoderMaxMemory(maxDecoderMemorySize*1024*1024))
+			}
+		}
+
+		r, err := NewDecoder(c1zFile, opts...)
 		if err != nil {
 			return "", err
 		}
