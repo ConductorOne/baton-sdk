@@ -3,8 +3,6 @@ package us3
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
@@ -501,27 +499,12 @@ func (s *S3Client) Put(ctx context.Context, key string, r io.Reader, contentType
 		return err
 	}
 
-	// FIXME(jirwin): We can stream this
-	fBytes, err := io.ReadAll(r)
-	if err != nil {
-		return err
-	}
-
-	h := sha256.New()
-	_, err = h.Write(fBytes)
-	if err != nil {
-		return err
-	}
-	shaBytes := h.Sum(nil)
-	sha256Sum := base64.StdEncoding.EncodeToString(shaBytes)
-
 	uploader := s3manager.NewUploader(s3svc)
 	input := &s3.PutObjectInput{
 		ACL:               s3Types.ObjectCannedACLPrivate,
 		Bucket:            awsSdk.String(s.cfg.bucketName),
 		Key:               awsSdk.String(key),
-		Body:              bytes.NewBuffer(fBytes),
-		ChecksumSHA256:    awsSdk.String(sha256Sum),
+		Body:              r,
 		ChecksumAlgorithm: s3Types.ChecksumAlgorithmSha256,
 	}
 

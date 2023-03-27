@@ -83,7 +83,7 @@ func WithDecoderMaxMemory(n uint64) DecoderOption {
 
 // WithDecoderMaxDecodedSize sets the maximum size of the decoded stream.
 // This can be used to cap the resulting decoded stream size.
-// Maximum is 1 << 63 bytes. Default is 2GiB.
+// Maximum is 1 << 63 bytes. Default is 1GiB.
 func WithDecoderMaxDecodedSize(n uint64) DecoderOption {
 	return func(o *decoderOptions) error {
 		if n == 0 {
