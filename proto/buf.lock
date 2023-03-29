@@ -4,4 +4,8 @@ deps:
   - remote: buf.build
     owner: envoyproxy
     repository: protoc-gen-validate
-    commit: dc09a417d27241f7b069feae2cd74a0e
+    commit: 6607b10f00ed4a3d98f906807131c44a
+  - remote: buf.build
+    owner: googleapis
+    repository: googleapis
+    commit: 5ae7f88519b04fe1965da0f8a375a088

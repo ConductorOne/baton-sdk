@@ -140,7 +140,7 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 		Token: request.PageToken,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("error: listing entitlements failed: %w", err)
+		return nil, fmt.Errorf("error: listing grants failed: %w", err)
 	}
 
 	return &v2.GrantsServiceListGrantsResponse{

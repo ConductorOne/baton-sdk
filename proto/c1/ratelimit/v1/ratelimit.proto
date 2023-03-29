@@ -5,24 +5,23 @@ package c1.ratelimit.v1;
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1";
 
 import "google/protobuf/duration.proto";
-import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
 
-service RateLimiter {
+service RateLimiterService {
   rpc Do(DoRequest) returns (DoResponse);
-  rpc Report(ReportRequest) returns (google.protobuf.Empty);
+  rpc Report(ReportRequest) returns (ReportResponse);
 }
 
 // https://tools.ietf.org/html/draft-ietf-httpapi-ratelimit-headers-00#section-1.1
 // RateLimitDescription is a minimal representation of a rate limit.
 message RateLimitDescription {
   enum Status {
-    UNKNOWN = 0;
-    OK = 1;
-    OVERLIMIT = 2;
-    ERROR = 3;
-    EMPTY = 4;
+    STATUS_UNSPECIFIED = 0;
+    STATUS_OK = 1;
+    STATUS_OVERLIMIT = 2;
+    STATUS_ERROR = 3;
+    STATUS_EMPTY = 4;
   }
   Status status = 1;
   int64 limit = 2;
@@ -37,6 +36,8 @@ message ReportRequest {
   string service = 3;
   RateLimitDescriptors descriptors = 4;
 }
+
+message ReportResponse {}
 
 message RateLimitDescriptors {
   message Entry {
