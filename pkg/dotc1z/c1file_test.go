@@ -103,11 +103,11 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fetch the resource type we just saved
-	rt, err := f.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
+	rtResp, err := f.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
 		ResourceTypeId: resourceTypeID,
 	})
 	require.NoError(t, err)
-	require.Equal(t, resourceTypeID, rt.Id)
+	require.Equal(t, resourceTypeID, rtResp.ResourceType.Id)
 
 	err = f.Close()
 	require.NoError(t, err)
@@ -122,11 +122,11 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fetch the resource type we just saved
-	rt2, err := f.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
+	rtResp2, err := f.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
 		ResourceTypeId: resourceTypeID,
 	})
 	require.NoError(t, err)
-	require.Equal(t, resourceTypeID, rt2.Id)
+	require.Equal(t, resourceTypeID, rtResp2.ResourceType.Id)
 
 	err = f.Close()
 	require.NoError(t, err)
