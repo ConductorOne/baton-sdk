@@ -8,7 +8,7 @@ import "c1/connector/v2/entitlement.proto";
 import "validate/validate.proto";
 
 service EntitlementsReaderService {
-  rpc GetEntitlement(EntitlementsReaderServiceGetEntitlementRequest) returns (c1.connector.v2.Entitlement);
+  rpc GetEntitlement(EntitlementsReaderServiceGetEntitlementRequest) returns (EntitlementsReaderServiceGetEntitlementResponse);
 }
 
 message EntitlementsReaderServiceGetEntitlementRequest {
@@ -18,4 +18,8 @@ message EntitlementsReaderServiceGetEntitlementRequest {
       max_bytes: 1024
     }
   ];
+}
+
+message EntitlementsReaderServiceGetEntitlementResponse {
+  c1.connector.v2.Entitlement entitlement = 1;
 }
