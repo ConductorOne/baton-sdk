@@ -15,6 +15,7 @@ type ConnectorServer interface {
 	connectorV2.GrantsServiceServer
 	connectorV2.ConnectorServiceServer
 	connectorV2.AssetServiceServer
+	connectorV2.GrantManagerServiceServer
 }
 
 // ConnectorClient is an interface for a type that implements all ConnectorV2 services.
@@ -25,6 +26,7 @@ type ConnectorClient interface {
 	connectorV2.GrantsServiceClient
 	connectorV2.ConnectorServiceClient
 	connectorV2.AssetServiceClient
+	connectorV2.GrantManagerServiceClient
 }
 
 // ClientWrapper is an interface that returns a connector client.

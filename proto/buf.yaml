@@ -12,4 +12,4 @@ breaking:
     - FIELD_NO_DELETE
 lint:
   use:
-    - BASIC
+    - DEFAULT

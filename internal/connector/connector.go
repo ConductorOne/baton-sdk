@@ -38,21 +38,22 @@ type connectorClient struct {
 	connectorV2.GrantsServiceClient
 	connectorV2.ConnectorServiceClient
 	connectorV2.AssetServiceClient
-	ratelimitV1.RateLimiterClient
+	connectorV2.GrantManagerServiceClient
+	ratelimitV1.RateLimiterServiceClient
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")
 
 type wrapper struct {
-	mtx sync.Mutex
+	mtx sync.RWMutex
 
-	server types.ConnectorServer
-	client types.ConnectorClient
+	server              types.ConnectorServer
+	client              types.ConnectorClient
+	serverStdin         io.WriteCloser
+	conn                *grpc.ClientConn
+	provisioningEnabled bool
 
-	serverStdin io.WriteCloser
-	conn        *grpc.ClientConn
-
-	rateLimiter   ratelimitV1.RateLimiterServer
+	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
 	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
 
@@ -76,6 +77,14 @@ func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Opti
 		if entry != nil {
 			w.rlDescriptors = append(w.rlDescriptors, entry)
 		}
+
+		return nil
+	}
+}
+
+func WithProvisioningEnabled() Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.provisioningEnabled = true
 
 		return nil
 	}
@@ -139,6 +148,11 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	connectorV2.RegisterResourcesServiceServer(server, cw.server)
 	connectorV2.RegisterResourceTypesServiceServer(server, cw.server)
 	connectorV2.RegisterAssetServiceServer(server, cw.server)
+	if cw.provisioningEnabled {
+		connectorV2.RegisterGrantManagerServiceServer(server, cw.server)
+	} else {
+		connectorV2.RegisterGrantManagerServiceServer(server, &noopProvisioner{})
+	}
 
 	rl, err := ratelimit2.NewLimiter(ctx, cw.now, serverCfg.RateLimiterConfig)
 	if err != nil {
@@ -146,7 +160,7 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	}
 	cw.rateLimiter = rl
 
-	ratelimitV1.RegisterRateLimiterServer(server, cw.rateLimiter)
+	ratelimitV1.RegisterRateLimiterServiceServer(server, cw.rateLimiter)
 
 	return server.Serve(l)
 }
@@ -230,20 +244,25 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 
 // C returns a ConnectorClient that the caller can use to interact with a locally running connector.
 func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
+	// Check to see if we have a client already
+	cw.mtx.RLock()
 	if cw.client != nil {
+		cw.mtx.RUnlock()
 		return cw.client, nil
 	}
+	cw.mtx.RUnlock()
 
+	// No client, so lets create one
 	cw.mtx.Lock()
 	defer cw.mtx.Unlock()
 
+	// We have the write lock now, so double check someone else didn't create a client for us.
 	if cw.client != nil {
 		return cw.client, nil
 	}
 
 	// If we don't have an active client, we need to start a sub process to run the server.
 	// The subprocess will receive configuration via stdin in the form of a protobuf
-
 	clientCred, serverCred, err := utls2.GenerateClientServerCredentials(ctx)
 	if err != nil {
 		return nil, err
@@ -294,16 +313,18 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		GrantsServiceClient:        connectorV2.NewGrantsServiceClient(cw.conn),
 		ConnectorServiceClient:     connectorV2.NewConnectorServiceClient(cw.conn),
 		AssetServiceClient:         connectorV2.NewAssetServiceClient(cw.conn),
-		RateLimiterClient:          ratelimitV1.NewRateLimiterClient(cw.conn),
+		RateLimiterServiceClient:   ratelimitV1.NewRateLimiterServiceClient(cw.conn),
+		GrantManagerServiceClient:  connectorV2.NewGrantManagerServiceClient(cw.conn),
 	}
-
-	// cw.wrappedClient = newWrappedClient(ctx, cw)
 
 	return cw.client, nil
 }
 
 // Close shuts down the grpc server and closes the connection.
 func (cw *wrapper) Close() error {
+	cw.mtx.Lock()
+	defer cw.mtx.Unlock()
+
 	var err error
 	if cw.conn != nil {
 		err = cw.conn.Close()
@@ -318,6 +339,11 @@ func (cw *wrapper) Close() error {
 			return fmt.Errorf("error closing connector service stdin: %w", err)
 		}
 	}
+
+	cw.client = nil
+	cw.server = nil
+	cw.serverStdin = nil
+	cw.conn = nil
 
 	return nil
 }

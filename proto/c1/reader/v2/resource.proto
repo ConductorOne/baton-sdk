@@ -8,21 +8,29 @@ import "c1/connector/v2/resource.proto";
 import "validate/validate.proto";
 
 service ResourceTypesReaderService {
-  rpc GetResourceType(ResourceTypesReaderServiceGetResourceTypeRequest) returns (c1.connector.v2.ResourceType);
+  rpc GetResourceType(ResourceTypesReaderServiceGetResourceTypeRequest) returns (ResourceTypesReaderServiceGetResourceTypeResponse);
 }
 
 message ResourceTypesReaderServiceGetResourceTypeRequest {
   string resource_type_id = 1;
 }
 
-service ResourcesReaderService {
-  rpc GetResource(ResourceTypesReaderServiceGetResourceRequest) returns (c1.connector.v2.Resource);
+message ResourceTypesReaderServiceGetResourceTypeResponse {
+  c1.connector.v2.ResourceType resource_type = 1;
 }
 
-message ResourceTypesReaderServiceGetResourceRequest {
+service ResourcesReaderService {
+  rpc GetResource(ResourcesReaderServiceGetResourceRequest) returns (ResourcesReaderServiceGetResourceResponse);
+}
+
+message ResourcesReaderServiceGetResourceRequest {
   c1.connector.v2.ResourceId resource_id = 1 [
     (validate.rules).message = {
       required: true
     }
   ];
+}
+
+message ResourcesReaderServiceGetResourceResponse {
+  c1.connector.v2.Resource resource = 1;
 }

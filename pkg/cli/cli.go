@@ -4,18 +4,17 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -25,10 +24,16 @@ const (
 	defaultLogFormat = logging.LogFormatJSON
 )
 
-type BaseConfig struct {
-	LogLevel  string `mapstructure:"log-level"`
-	LogFormat string `mapstructure:"log-format"`
-	C1zPath   string `mapstructure:"file"`
+func DaemonMode(ctx context.Context, enabled bool) bool {
+	if enabled {
+		return true
+	}
+
+	if IsService() {
+		return true
+	}
+
+	return false
 }
 
 // NewCmd returns a new cobra command that will populate the provided config object, validate it, and run the provided run function.
@@ -38,11 +43,13 @@ func NewCmd[T any, PtrT *T](
 	cfg PtrT,
 	validateF func(ctx context.Context, cfg PtrT) error,
 	getConnector func(ctx context.Context, cfg PtrT) (types.ConnectorServer, error),
-	runF func(ctx context.Context, cfg PtrT) error,
+	opts ...connectorrunner.Option,
 ) (*cobra.Command, error) {
 	cmd := &cobra.Command{
-		Use:   name,
-		Short: name,
+		Use:           name,
+		Short:         name,
+		SilenceErrors: true,
+		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			v, err := loadConfig(cmd, cfg)
 			if err != nil {
@@ -59,7 +66,39 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			return runF(loggerCtx, cfg)
+			l := ctxzap.Extract(loggerCtx)
+
+			c, err := getConnector(loggerCtx, cfg)
+			if err != nil {
+				return err
+			}
+
+			var opts []connectorrunner.Option
+			daemonMode := DaemonMode(ctx, v.GetBool("daemon-mode"))
+			if daemonMode {
+				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
+			} else {
+				opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
+			}
+
+			if v.GetBool("provisioning") {
+				opts = append(opts, connectorrunner.WithProvisioningEnabled())
+			}
+
+			r, err := connectorrunner.NewConnectorRunner(loggerCtx, c, opts...)
+			if err != nil {
+				l.Error("error creating connector runner", zap.Error(err))
+				return err
+			}
+			defer r.Close(loggerCtx)
+
+			err = r.Run(loggerCtx)
+			if err != nil {
+				l.Error("error running connector", zap.Error(err))
+				return err
+			}
+
+			return nil
 		},
 	}
 
@@ -87,7 +126,13 @@ func NewCmd[T any, PtrT *T](
 			if err != nil {
 				return err
 			}
-			cw, err := connector.NewWrapper(ctx, c)
+
+			var copts []connector.Option
+			if v.GetBool("provisioning") {
+				copts = append(copts, connector.WithProvisioningEnabled())
+			}
+
+			cw, err := connector.NewWrapper(loggerCtx, c, copts...)
 			if err != nil {
 				return err
 			}
@@ -135,60 +180,13 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("log-level", defaultLogLevel, "The log level: debug, info, warn, error ($BATON_LOG_LEVEL)")
 	cmd.PersistentFlags().String("log-format", defaultLogFormat, "The output format for logs: json, console ($BATON_LOG_FORMAT)")
 	cmd.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to sync with ($BATON_FILE)")
-
-	return cmd, nil
-}
-
-func getConfigPath(customPath string) (string, string, error) {
-	if customPath != "" {
-		cfgDir, cfgFile := filepath.Split(filepath.Clean(customPath))
-		if cfgDir == "" {
-			cfgDir = "."
-		}
-
-		ext := filepath.Ext(cfgFile)
-		if ext == "" && ext != ".yaml" && ext != ".yml" {
-			return "", "", errors.New("expected config file to have .yaml or .yml extension")
-		}
-
-		return strings.TrimSuffix(cfgDir, string(filepath.Separator)), strings.TrimSuffix(cfgFile, ext), nil
-	}
-
-	return ".", ".baton", nil
-}
-
-// loadConfig sets viper up to parse the config into the provided configuration object.
-func loadConfig[T any, PtrT *T](cmd *cobra.Command, cfg PtrT) (*viper.Viper, error) {
-	v := viper.New()
-	v.SetConfigType("yaml")
-
-	cfgPath, cfgName, err := getConfigPath(os.Getenv("BATON_CONFIG_PATH"))
+	cmd.PersistentFlags().BoolP("daemon-mode", "d", false, "Run in daemon mode ($BATON_DAEMON_MODE)")
+	cmd.PersistentFlags().String("client-id", "", "The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)")
+	cmd.PersistentFlags().String("client-secret", "", "The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)")
+	cmd.PersistentFlags().BoolP("provisioning", "p", false, "This must be set in order for provisioning actions to be enabled. ($BATON_PROVISIONING)")
+	err := cmd.PersistentFlags().MarkHidden("daemon-mode")
 	if err != nil {
 		return nil, err
 	}
-
-	v.SetConfigName(cfgName)
-	v.AddConfigPath(cfgPath)
-
-	if err := v.ReadInConfig(); err != nil {
-		if ok := !errors.Is(err, viper.ConfigFileNotFoundError{}); !ok {
-			return nil, err
-		}
-	}
-
-	v.SetEnvPrefix(envPrefix)
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	v.AutomaticEnv()
-	if err := v.BindPFlags(cmd.PersistentFlags()); err != nil {
-		return nil, err
-	}
-	if err := v.BindPFlags(cmd.Flags()); err != nil {
-		return nil, err
-	}
-
-	if err := v.Unmarshal(cfg); err != nil {
-		return nil, err
-	}
-
-	return v, nil
+	return cmd, nil
 }
