@@ -340,7 +340,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 
 	for _, r := range resp.List {
 		// Check if we've already synced this resource, skip it if we have
-		_, err = s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
+		_, err = s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 			ResourceId: &v2.ResourceId{ResourceType: r.Id.ResourceType, Resource: r.Id.Resource},
 		})
 		if err == nil {
@@ -371,14 +371,14 @@ func (s *syncer) syncResources(ctx context.Context) error {
 }
 
 func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) error {
-	rt, err := s.store.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
+	resourceTypeResponse, err := s.store.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
 		ResourceTypeId: r.Id.ResourceType,
 	})
 	if err != nil {
 		return err
 	}
 
-	for _, t := range rt.Traits {
+	for _, t := range resourceTypeResponse.ResourceType.Traits {
 		var trait proto.Message
 		switch t {
 		case v2.ResourceType_TRAIT_APP:
@@ -453,7 +453,7 @@ func (s *syncer) SyncEntitlements(ctx context.Context) error {
 
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
 func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
-	resource, err := s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
+	resourceResponse, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 		ResourceId: resourceID,
 	})
 	if err != nil {
@@ -467,7 +467,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 		return err
 	}
 
-	resp, err := c.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{Resource: resource, PageToken: pageToken})
+	resp, err := c.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{Resource: resourceResponse.Resource, PageToken: pageToken})
 	if err != nil {
 		return err
 	}
@@ -497,7 +497,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 // Once we have the entire asset, we put it in the database.
 func (s *syncer) syncAssetsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
 	l := ctxzap.Extract(ctx)
-	resource, err := s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
+	resourceResponse, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 		ResourceId: resourceID,
 	})
 	if err != nil {
@@ -511,7 +511,7 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, resourceID *v2.Resou
 		return err
 	}
 
-	rAnnos := annotations.Annotations(resource.Annotations)
+	rAnnos := annotations.Annotations(resourceResponse.Resource.Annotations)
 
 	userTrait := &v2.UserTrait{}
 	ok, err := rAnnos.Pick(userTrait)
@@ -687,7 +687,7 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
 func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
-	resource, err := s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
+	resourceResponse, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 		ResourceId: resourceID,
 	})
 	if err != nil {
@@ -701,7 +701,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		return err
 	}
 
-	resp, err := c.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{Resource: resource, PageToken: pageToken})
+	resp, err := c.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{Resource: resourceResponse.Resource, PageToken: pageToken})
 	if err != nil {
 		return err
 	}

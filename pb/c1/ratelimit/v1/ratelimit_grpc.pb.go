@@ -11,7 +11,6 @@ import (
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
-	emptypb "google.golang.org/protobuf/types/known/emptypb"
 )
 
 // This is a compile-time assertion to ensure that this generated file
@@ -19,120 +18,120 @@ import (
 // Requires gRPC-Go v1.32.0 or later.
 const _ = grpc.SupportPackageIsVersion7
 
-// RateLimiterClient is the client API for RateLimiter service.
+// RateLimiterServiceClient is the client API for RateLimiterService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type RateLimiterClient interface {
+type RateLimiterServiceClient interface {
 	Do(ctx context.Context, in *DoRequest, opts ...grpc.CallOption) (*DoResponse, error)
-	Report(ctx context.Context, in *ReportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	Report(ctx context.Context, in *ReportRequest, opts ...grpc.CallOption) (*ReportResponse, error)
 }
 
-type rateLimiterClient struct {
+type rateLimiterServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewRateLimiterClient(cc grpc.ClientConnInterface) RateLimiterClient {
-	return &rateLimiterClient{cc}
+func NewRateLimiterServiceClient(cc grpc.ClientConnInterface) RateLimiterServiceClient {
+	return &rateLimiterServiceClient{cc}
 }
 
-func (c *rateLimiterClient) Do(ctx context.Context, in *DoRequest, opts ...grpc.CallOption) (*DoResponse, error) {
+func (c *rateLimiterServiceClient) Do(ctx context.Context, in *DoRequest, opts ...grpc.CallOption) (*DoResponse, error) {
 	out := new(DoResponse)
-	err := c.cc.Invoke(ctx, "/c1.ratelimit.v1.RateLimiter/Do", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/c1.ratelimit.v1.RateLimiterService/Do", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *rateLimiterClient) Report(ctx context.Context, in *ReportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
-	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, "/c1.ratelimit.v1.RateLimiter/Report", in, out, opts...)
+func (c *rateLimiterServiceClient) Report(ctx context.Context, in *ReportRequest, opts ...grpc.CallOption) (*ReportResponse, error) {
+	out := new(ReportResponse)
+	err := c.cc.Invoke(ctx, "/c1.ratelimit.v1.RateLimiterService/Report", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// RateLimiterServer is the server API for RateLimiter service.
-// All implementations should embed UnimplementedRateLimiterServer
+// RateLimiterServiceServer is the server API for RateLimiterService service.
+// All implementations should embed UnimplementedRateLimiterServiceServer
 // for forward compatibility
-type RateLimiterServer interface {
+type RateLimiterServiceServer interface {
 	Do(context.Context, *DoRequest) (*DoResponse, error)
-	Report(context.Context, *ReportRequest) (*emptypb.Empty, error)
+	Report(context.Context, *ReportRequest) (*ReportResponse, error)
 }
 
-// UnimplementedRateLimiterServer should be embedded to have forward compatible implementations.
-type UnimplementedRateLimiterServer struct {
+// UnimplementedRateLimiterServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedRateLimiterServiceServer struct {
 }
 
-func (UnimplementedRateLimiterServer) Do(context.Context, *DoRequest) (*DoResponse, error) {
+func (UnimplementedRateLimiterServiceServer) Do(context.Context, *DoRequest) (*DoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Do not implemented")
 }
-func (UnimplementedRateLimiterServer) Report(context.Context, *ReportRequest) (*emptypb.Empty, error) {
+func (UnimplementedRateLimiterServiceServer) Report(context.Context, *ReportRequest) (*ReportResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Report not implemented")
 }
 
-// UnsafeRateLimiterServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to RateLimiterServer will
+// UnsafeRateLimiterServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to RateLimiterServiceServer will
 // result in compilation errors.
-type UnsafeRateLimiterServer interface {
-	mustEmbedUnimplementedRateLimiterServer()
+type UnsafeRateLimiterServiceServer interface {
+	mustEmbedUnimplementedRateLimiterServiceServer()
 }
 
-func RegisterRateLimiterServer(s grpc.ServiceRegistrar, srv RateLimiterServer) {
-	s.RegisterService(&RateLimiter_ServiceDesc, srv)
+func RegisterRateLimiterServiceServer(s grpc.ServiceRegistrar, srv RateLimiterServiceServer) {
+	s.RegisterService(&RateLimiterService_ServiceDesc, srv)
 }
 
-func _RateLimiter_Do_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _RateLimiterService_Do_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DoRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RateLimiterServer).Do(ctx, in)
+		return srv.(RateLimiterServiceServer).Do(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/c1.ratelimit.v1.RateLimiter/Do",
+		FullMethod: "/c1.ratelimit.v1.RateLimiterService/Do",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RateLimiterServer).Do(ctx, req.(*DoRequest))
+		return srv.(RateLimiterServiceServer).Do(ctx, req.(*DoRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RateLimiter_Report_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _RateLimiterService_Report_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ReportRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RateLimiterServer).Report(ctx, in)
+		return srv.(RateLimiterServiceServer).Report(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/c1.ratelimit.v1.RateLimiter/Report",
+		FullMethod: "/c1.ratelimit.v1.RateLimiterService/Report",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RateLimiterServer).Report(ctx, req.(*ReportRequest))
+		return srv.(RateLimiterServiceServer).Report(ctx, req.(*ReportRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// RateLimiter_ServiceDesc is the grpc.ServiceDesc for RateLimiter service.
+// RateLimiterService_ServiceDesc is the grpc.ServiceDesc for RateLimiterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var RateLimiter_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "c1.ratelimit.v1.RateLimiter",
-	HandlerType: (*RateLimiterServer)(nil),
+var RateLimiterService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.ratelimit.v1.RateLimiterService",
+	HandlerType: (*RateLimiterServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "Do",
-			Handler:    _RateLimiter_Do_Handler,
+			Handler:    _RateLimiterService_Do_Handler,
 		},
 		{
 			MethodName: "Report",
-			Handler:    _RateLimiter_Report_Handler,
+			Handler:    _RateLimiterService_Report_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

@@ -87,13 +87,13 @@ func getRatelimitDescriptors(ctx context.Context, method string, in interface{},
 func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimitDescriptors_Entry) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		// If this is a call to the rate limit service, skip it
-		if strings.HasPrefix(method, "/c1.ratelimit.v1.RateLimiter/") {
+		if strings.HasPrefix(method, "/c1.ratelimit.v1.RateLimiterService/") {
 			return invoker(ctx, method, req, reply, cc, opts...)
 		}
 
 		l := ctxzap.Extract(ctx)
 
-		rlClient := ratelimitV1.NewRateLimiterClient(cc)
+		rlClient := ratelimitV1.NewRateLimiterServiceClient(cc)
 
 		start := now().UTC()
 		token := ""
@@ -116,7 +116,7 @@ func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimi
 			token = resp.RequestToken
 
 			switch resp.Description.Status {
-			case ratelimitV1.RateLimitDescription_OK, ratelimitV1.RateLimitDescription_EMPTY:
+			case ratelimitV1.RateLimitDescription_STATUS_OK, ratelimitV1.RateLimitDescription_STATUS_EMPTY:
 				l.Debug("ratelimit ok - calling method", zap.String("method", method))
 				err = invoker(ctx, method, req, reply, cc, opts...)
 				if err != nil {
@@ -124,7 +124,7 @@ func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimi
 						ctx,
 						rlClient,
 						rlReq.RequestToken,
-						ratelimitV1.RateLimitDescription_ERROR,
+						ratelimitV1.RateLimitDescription_STATUS_ERROR,
 						rlDescriptors,
 						nil,
 					)
@@ -138,7 +138,7 @@ func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimi
 
 				if reply != nil {
 					if resp, ok := req.(hasAnnos); ok {
-						err = reportRatelimit(ctx, rlClient, rlReq.RequestToken, ratelimitV1.RateLimitDescription_OK, rlDescriptors, resp.GetAnnotations())
+						err = reportRatelimit(ctx, rlClient, rlReq.RequestToken, ratelimitV1.RateLimitDescription_STATUS_OK, rlDescriptors, resp.GetAnnotations())
 						if err != nil {
 							l.Error("ratelimit: error reporting rate limit", zap.Error(err))
 							return nil // Explicitly not failing the request as it has already been run successfully.
@@ -148,7 +148,7 @@ func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimi
 
 				return nil
 
-			case ratelimitV1.RateLimitDescription_OVERLIMIT:
+			case ratelimitV1.RateLimitDescription_STATUS_OVERLIMIT:
 				resetAt := resp.Description.ResetAt.AsTime()
 				d, ok := wait(start, now().UTC(), resetAt)
 				if !ok {
@@ -176,7 +176,7 @@ func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimi
 
 func reportRatelimit(
 	ctx context.Context,
-	rlClient ratelimitV1.RateLimiterClient,
+	rlClient ratelimitV1.RateLimiterServiceClient,
 	token string,
 	status ratelimitV1.RateLimitDescription_Status,
 	descriptors *ratelimitV1.RateLimitDescriptors,
@@ -185,7 +185,9 @@ func reportRatelimit(
 	l := ctxzap.Extract(ctx)
 	annos := annotations.Annotations(anys)
 
-	rlAnnotation := &ratelimitV1.RateLimitDescription{}
+	rlAnnotation := &ratelimitV1.RateLimitDescription{
+		Status: status,
+	}
 
 	_, err := annos.Pick(rlAnnotation)
 	if err != nil {

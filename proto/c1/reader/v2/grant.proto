@@ -9,7 +9,7 @@ import "c1/connector/v2/entitlement.proto";
 import "validate/validate.proto";
 
 service GrantsReaderService {
-  rpc GetGrant(GrantsReaderServiceGetGrantRequest) returns (c1.connector.v2.Grant);
+  rpc GetGrant(GrantsReaderServiceGetGrantRequest) returns (GrantsReaderServiceGetGrantResponse);
   rpc ListGrantsForEntitlement(GrantsReaderServiceListGrantsForEntitlementRequest) returns (GrantsReaderServiceListGrantsForEntitlementResponse);
   rpc ListGrantsForResourceType(GrantsReaderServiceListGrantsForResourceTypeRequest) returns (GrantsReaderServiceListGrantsForResourceTypeResponse);
 }
@@ -21,6 +21,10 @@ message GrantsReaderServiceGetGrantRequest {
       max_bytes: 1024
     }
   ];
+}
+
+message GrantsReaderServiceGetGrantResponse {
+  c1.connector.v2.Grant grant = 1;
 }
 
 message GrantsReaderServiceListGrantsForEntitlementRequest {

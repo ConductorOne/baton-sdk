@@ -38,7 +38,7 @@ type connectorClient struct {
 	connectorV2.GrantsServiceClient
 	connectorV2.ConnectorServiceClient
 	connectorV2.AssetServiceClient
-	ratelimitV1.RateLimiterClient
+	ratelimitV1.RateLimiterServiceClient
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")
@@ -52,7 +52,7 @@ type wrapper struct {
 	serverStdin io.WriteCloser
 	conn        *grpc.ClientConn
 
-	rateLimiter   ratelimitV1.RateLimiterServer
+	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
 	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
 
@@ -146,7 +146,7 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	}
 	cw.rateLimiter = rl
 
-	ratelimitV1.RegisterRateLimiterServer(server, cw.rateLimiter)
+	ratelimitV1.RegisterRateLimiterServiceServer(server, cw.rateLimiter)
 
 	return server.Serve(l)
 }
@@ -294,7 +294,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		GrantsServiceClient:        connectorV2.NewGrantsServiceClient(cw.conn),
 		ConnectorServiceClient:     connectorV2.NewConnectorServiceClient(cw.conn),
 		AssetServiceClient:         connectorV2.NewAssetServiceClient(cw.conn),
-		RateLimiterClient:          ratelimitV1.NewRateLimiterClient(cw.conn),
+		RateLimiterServiceClient:   ratelimitV1.NewRateLimiterServiceClient(cw.conn),
 	}
 
 	// cw.wrappedClient = newWrappedClient(ctx, cw)

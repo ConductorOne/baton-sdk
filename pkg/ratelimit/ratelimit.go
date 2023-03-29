@@ -18,7 +18,7 @@ const (
 )
 
 // NewLimiter configures a RateLimitServer server.
-func NewLimiter(ctx context.Context, now func() time.Time, cfg *ratelimitV1.RateLimiterConfig) (ratelimitV1.RateLimiterServer, error) {
+func NewLimiter(ctx context.Context, now func() time.Time, cfg *ratelimitV1.RateLimiterConfig) (ratelimitV1.RateLimiterServiceServer, error) {
 	if cfg == nil {
 		return &NoOpRateLimiter{}, nil
 	}
