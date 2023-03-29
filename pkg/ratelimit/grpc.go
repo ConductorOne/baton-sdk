@@ -87,7 +87,7 @@ func getRatelimitDescriptors(ctx context.Context, method string, in interface{},
 func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimitDescriptors_Entry) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		// If this is a call to the rate limit service, skip it
-		if strings.HasPrefix(method, "/c1.ratelimit.v1.RateLimiter/") {
+		if strings.HasPrefix(method, "/c1.ratelimit.v1.RateLimiterService/") {
 			return invoker(ctx, method, req, reply, cc, opts...)
 		}
 
