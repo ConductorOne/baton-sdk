@@ -1,19 +1,18 @@
-package tasks
+package naive_manager
 
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
+
+	tasks2 "github.com/conductorone/baton-sdk/pkg/tasks"
 )
 
 type naiveManager struct {
-	tasks      []Task
+	tasks      []tasks2.Task
 	nextTaskID int
 }
 
-func (m *naiveManager) Next(ctx context.Context) (Task, error) {
+func (m *naiveManager) Next(ctx context.Context) (tasks2.Task, error) {
 	if len(m.tasks) == 0 {
 		return nil, nil
 	}
@@ -23,7 +22,7 @@ func (m *naiveManager) Next(ctx context.Context) (Task, error) {
 	return ret, nil
 }
 
-func (m *naiveManager) Add(ctx context.Context, tsk Task) error {
+func (m *naiveManager) Add(ctx context.Context, tsk tasks2.Task) error {
 	m.tasks = append(m.tasks, tsk)
 
 	return nil
@@ -57,17 +56,6 @@ func (m *naiveManager) Finish(ctx context.Context, taskID string) error {
 // NewNaiveManager returns a task manager that queues a sync task.
 func NewNaiveManager(ctx context.Context) (*naiveManager, error) {
 	nm := &naiveManager{}
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGUSR1)
-	go func() {
-		for range sigChan {
-			err := nm.Add(ctx, NewSyncTask())
-			if err != nil {
-				panic(err)
-			}
-		}
-	}()
 
 	return nm, nil
 }

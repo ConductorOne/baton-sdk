@@ -3,14 +3,15 @@ package connectorrunner
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/signal"
 	"time"
 
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
-	"github.com/conductorone/baton-sdk/pkg/connectorrunner/tasks"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
+	"github.com/conductorone/baton-sdk/pkg/tasks"
+	"github.com/conductorone/baton-sdk/pkg/tasks/c1_manager"
+	"github.com/conductorone/baton-sdk/pkg/tasks/naive_manager"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -21,7 +22,6 @@ import (
 
 type connectorRunner struct {
 	cw           types.ClientWrapper
-	dbPath       string
 	onDemandMode bool
 	tasks        tasks.Manager
 }
@@ -102,14 +102,14 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			continue
 		}
 
-		switch nextTask.(type) {
-		case *tasks.SyncTask:
+		switch t := nextTask.(type) {
+		case *tasks.ManualSyncTask:
 			client, err := c.cw.C(ctx)
 			if err != nil {
 				return err
 			}
 
-			syncer, err := sdkSync.NewSyncer(ctx, client, c.dbPath)
+			syncer, err := sdkSync.NewSyncer(ctx, client, t.DbPath)
 			if err != nil {
 				return err
 			}
@@ -161,6 +161,11 @@ type Option func(ctx context.Context, cfg *runnerConfig) error
 type runnerConfig struct {
 	rlCfg         *ratelimitV1.RateLimiterConfig
 	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
+	onDemandSync  bool
+	c1zPath       string
+	clientAuth    bool
+	clientID      string
+	clientSecret  string
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -237,8 +242,25 @@ func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Opti
 	}
 }
 
+func WithClientCredentials(clientID string, clientSecret string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.clientID = clientID
+		cfg.clientSecret = clientSecret
+		cfg.clientAuth = true
+		return nil
+	}
+}
+
+func WithOnDemandSync(c1zPath string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemandSync = true
+		cfg.c1zPath = c1zPath
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
-func NewConnectorRunner(ctx context.Context, c1zPath string, onDemandSync bool, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
+func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
 	cfg := &runnerConfig{}
 
@@ -249,23 +271,27 @@ func NewConnectorRunner(ctx context.Context, c1zPath string, onDemandSync bool, 
 		}
 	}
 
-	tm, err := tasks.NewNaiveManager(ctx)
-	if err != nil {
-		return nil, err
-	}
-	runner.tasks = tm
-
-	if c1zPath == "" {
-		return nil, fmt.Errorf("connector-runner: must provide a c1z path to sync with")
-	}
-	runner.dbPath = c1zPath
-
-	if onDemandSync {
-		runner.onDemandMode = true
-		err = runner.tasks.Add(ctx, tasks.NewSyncTask())
+	if cfg.onDemandSync {
+		if cfg.c1zPath == "" {
+			return nil, errors.New("c1zPath must be set when using onDemandSync")
+		}
+		tm, err := naive_manager.NewNaiveManager(ctx)
 		if err != nil {
 			return nil, err
 		}
+		runner.tasks = tm
+
+		runner.onDemandMode = true
+		err = runner.tasks.Add(ctx, tasks.NewManualSyncTask(cfg.c1zPath))
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		tm, err := c1_manager.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret)
+		if err != nil {
+			return nil, err
+		}
+		runner.tasks = tm
 	}
 
 	wrapperOpts := []connector.Option{}

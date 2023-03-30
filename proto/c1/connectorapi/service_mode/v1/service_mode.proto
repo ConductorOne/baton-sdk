@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package c1.service_mode.v1;
+package c1.connectorapi.service_mode.v1;
 
-option go_package = "github.com/conductorone/baton-sdk/pb/c1/service_mode/v1";
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1";
 
 import "c1/connector/v2/resource.proto";
 import "c1/connector/v2/entitlement.proto";

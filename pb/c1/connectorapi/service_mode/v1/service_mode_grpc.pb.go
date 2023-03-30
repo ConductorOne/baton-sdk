@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.2.0
 // - protoc             (unknown)
-// source: c1/service_mode/v1/service_mode.proto
+// source: c1/connectorapi/service_mode/v1/service_mode.proto
 
 package v1
 
@@ -42,7 +42,7 @@ func NewConnectorWorkServiceClient(cc grpc.ClientConnInterface) ConnectorWorkSer
 
 func (c *connectorWorkServiceClient) Hello(ctx context.Context, in *HelloRequest, opts ...grpc.CallOption) (*HelloResponse, error) {
 	out := new(HelloResponse)
-	err := c.cc.Invoke(ctx, "/c1.service_mode.v1.ConnectorWorkService/Hello", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/c1.connectorapi.service_mode.v1.ConnectorWorkService/Hello", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (c *connectorWorkServiceClient) Hello(ctx context.Context, in *HelloRequest
 
 func (c *connectorWorkServiceClient) GetTask(ctx context.Context, in *GetTaskRequest, opts ...grpc.CallOption) (*GetTaskResponse, error) {
 	out := new(GetTaskResponse)
-	err := c.cc.Invoke(ctx, "/c1.service_mode.v1.ConnectorWorkService/GetTask", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/c1.connectorapi.service_mode.v1.ConnectorWorkService/GetTask", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (c *connectorWorkServiceClient) GetTask(ctx context.Context, in *GetTaskReq
 
 func (c *connectorWorkServiceClient) Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error) {
 	out := new(HeartbeatResponse)
-	err := c.cc.Invoke(ctx, "/c1.service_mode.v1.ConnectorWorkService/Heartbeat", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/c1.connectorapi.service_mode.v1.ConnectorWorkService/Heartbeat", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (c *connectorWorkServiceClient) Heartbeat(ctx context.Context, in *Heartbea
 
 func (c *connectorWorkServiceClient) FinishTask(ctx context.Context, in *FinishTaskRequest, opts ...grpc.CallOption) (*FinishTaskResponse, error) {
 	out := new(FinishTaskResponse)
-	err := c.cc.Invoke(ctx, "/c1.service_mode.v1.ConnectorWorkService/FinishTask", in, out, opts...)
+	err := c.cc.Invoke(ctx, "/c1.connectorapi.service_mode.v1.ConnectorWorkService/FinishTask", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (c *connectorWorkServiceClient) FinishTask(ctx context.Context, in *FinishT
 }
 
 func (c *connectorWorkServiceClient) UploadAsset(ctx context.Context, opts ...grpc.CallOption) (ConnectorWorkService_UploadAssetClient, error) {
-	stream, err := c.cc.NewStream(ctx, &ConnectorWorkService_ServiceDesc.Streams[0], "/c1.service_mode.v1.ConnectorWorkService/UploadAsset", opts...)
+	stream, err := c.cc.NewStream(ctx, &ConnectorWorkService_ServiceDesc.Streams[0], "/c1.connectorapi.service_mode.v1.ConnectorWorkService/UploadAsset", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +165,7 @@ func _ConnectorWorkService_Hello_Handler(srv interface{}, ctx context.Context, d
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/c1.service_mode.v1.ConnectorWorkService/Hello",
+		FullMethod: "/c1.connectorapi.service_mode.v1.ConnectorWorkService/Hello",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ConnectorWorkServiceServer).Hello(ctx, req.(*HelloRequest))
@@ -183,7 +183,7 @@ func _ConnectorWorkService_GetTask_Handler(srv interface{}, ctx context.Context,
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/c1.service_mode.v1.ConnectorWorkService/GetTask",
+		FullMethod: "/c1.connectorapi.service_mode.v1.ConnectorWorkService/GetTask",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ConnectorWorkServiceServer).GetTask(ctx, req.(*GetTaskRequest))
@@ -201,7 +201,7 @@ func _ConnectorWorkService_Heartbeat_Handler(srv interface{}, ctx context.Contex
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/c1.service_mode.v1.ConnectorWorkService/Heartbeat",
+		FullMethod: "/c1.connectorapi.service_mode.v1.ConnectorWorkService/Heartbeat",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ConnectorWorkServiceServer).Heartbeat(ctx, req.(*HeartbeatRequest))
@@ -219,7 +219,7 @@ func _ConnectorWorkService_FinishTask_Handler(srv interface{}, ctx context.Conte
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/c1.service_mode.v1.ConnectorWorkService/FinishTask",
+		FullMethod: "/c1.connectorapi.service_mode.v1.ConnectorWorkService/FinishTask",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ConnectorWorkServiceServer).FinishTask(ctx, req.(*FinishTaskRequest))
@@ -257,7 +257,7 @@ func (x *connectorWorkServiceUploadAssetServer) Recv() (*UploadAssetRequest, err
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ConnectorWorkService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "c1.service_mode.v1.ConnectorWorkService",
+	ServiceName: "c1.connectorapi.service_mode.v1.ConnectorWorkService",
 	HandlerType: (*ConnectorWorkServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -284,5 +284,5 @@ var ConnectorWorkService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "c1/service_mode/v1/service_mode.proto",
+	Metadata: "c1/connectorapi/service_mode/v1/service_mode.proto",
 }
