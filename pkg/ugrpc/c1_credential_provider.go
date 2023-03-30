@@ -13,9 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/pquerna/xjwt"
-	"go.uber.org/zap"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/credentials"
 	"gopkg.in/square/go-jose.v2"
@@ -38,20 +36,21 @@ type c1TokenSource struct {
 	tokenHost    string
 }
 
-func parseClientID(input string) (string, error) {
+func parseClientID(input string) (string, string, error) {
 	// split the input into 2 parts by @
 	items := strings.SplitN(input, "@", 2)
 	if len(items) != 2 {
-		return "", ErrInvalidClientID
+		return "", "", ErrInvalidClientID
 	}
+	clientName := items[0]
 
 	// split the right part into 2 parts by /
 	items = strings.SplitN(items[1], "/", 2)
 	if len(items) != 2 {
-		return "", ErrInvalidClientID
+		return "", "", ErrInvalidClientID
 	}
 
-	return items[0], nil
+	return clientName, items[0], nil
 }
 
 func parseSecret(input []byte) (*jose.JSONWebKey, error) {
@@ -157,22 +156,22 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 	return token, nil
 }
 
-func newC1TokenSource(clientID string, clientSecret string) (oauth2.TokenSource, string, error) {
-	tokenHost, err := parseClientID(clientID)
+func newC1TokenSource(clientID string, clientSecret string) (oauth2.TokenSource, string, string, error) {
+	clientName, tokenHost, err := parseClientID(clientID)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
 	secret, err := parseSecret([]byte(clientSecret))
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
 	return oauth2.ReuseTokenSource(nil, &c1TokenSource{
 		clientID:     clientID,
 		clientSecret: secret,
 		tokenHost:    tokenHost,
-	}), tokenHost, nil
+	}), clientName, tokenHost, nil
 }
 
 type c1CredentialProvider struct {
@@ -184,8 +183,6 @@ func (c *c1CredentialProvider) GetRequestMetadata(ctx context.Context, uri ...st
 	if err != nil {
 		return nil, err
 	}
-
-	ctxzap.Extract(ctx).Debug("c1CredentialProvider.GetRequestMetadata()", zap.Strings("uri", uri), zap.String("token", token.AccessToken))
 
 	ri, _ := credentials.RequestInfoFromContext(ctx)
 	err = credentials.CheckSecurityLevel(ri.AuthInfo, credentials.PrivacyAndIntegrity)
@@ -202,13 +199,13 @@ func (c *c1CredentialProvider) RequireTransportSecurity() bool {
 	return true
 }
 
-func NewC1CredentialProvider(clientID string, clientSecret string) (credentials.PerRPCCredentials, string, error) {
-	tokenSource, tokenHost, err := newC1TokenSource(clientID, clientSecret)
+func NewC1CredentialProvider(clientID string, clientSecret string) (credentials.PerRPCCredentials, string, string, error) {
+	tokenSource, clientName, tokenHost, err := newC1TokenSource(clientID, clientSecret)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
 	return &c1CredentialProvider{
 		tokenSource: tokenSource,
-	}, tokenHost, nil
+	}, clientName, tokenHost, nil
 }
