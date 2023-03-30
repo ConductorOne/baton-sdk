@@ -8,10 +8,9 @@ import (
 	"time"
 
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
-	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/tasks/c1_manager"
-	"github.com/conductorone/baton-sdk/pkg/tasks/naive_manager"
+	"github.com/conductorone/baton-sdk/pkg/tasks/local_syncer"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -74,82 +73,43 @@ func (c *connectorRunner) handleContextCancel(ctx context.Context) error {
 func (c *connectorRunner) run(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
-	l.Info("waiting for work....")
-
-	var done bool
-
-	for !done {
+	var waitDuration time.Duration
+	var nextTask tasks.Task
+	var err error
+	for {
+		if waitDuration > 0 {
+			l.Debug("waiting for next task...", zap.Duration("wait_duration", waitDuration))
+		}
 		select {
 		case <-ctx.Done():
 			return c.handleContextCancel(ctx)
-		default:
+		case <-time.After(waitDuration):
 		}
 
-		nextTask, err := c.tasks.Next(ctx)
+		nextTask, waitDuration, err = c.tasks.Next(ctx)
 		if err != nil {
 			l.Error("error getting next task", zap.Error(err))
 			continue
 		}
 
-		// No work for us to do, go to sleep for a bit and try again
 		if nextTask == nil {
-			l.Debug("no available tasks, going to sleep for 5 seconds")
-			select {
-			case <-ctx.Done():
-				return c.handleContextCancel(ctx)
-			case <-time.After(time.Second * 5):
+			if c.onDemandMode {
+				return nil
 			}
 			continue
 		}
 
-		switch t := nextTask.(type) {
-		case *tasks.ManualSyncTask:
-			client, err := c.cw.C(ctx)
-			if err != nil {
-				return err
-			}
-
-			syncer, err := sdkSync.NewSyncer(ctx, client, t.DbPath)
-			if err != nil {
-				return err
-			}
-
-			err = syncer.Sync(ctx)
-			if err != nil {
-				return err
-			}
-
-			err = syncer.Close(ctx)
-			if err != nil {
-				return err
-			}
-
-			err = c.tasks.Finish(ctx, nextTask.GetTaskId())
-			if err != nil {
-				return err
-			}
-
-			if c.onDemandMode {
-				done = true
-			}
-
-			err = c.cw.Close()
-			if err != nil {
-				return err
-			}
-
-		default:
-			l.Debug("unknown task type, going to sleep for 10 seconds")
-			select {
-			case <-ctx.Done():
-				return c.handleContextCancel(ctx)
-			case <-time.After(time.Second * 10):
-			}
+		cc, err := c.cw.C(ctx)
+		if err != nil {
+			l.Error("error getting client", zap.Error(err))
+			continue
+		}
+		err = c.tasks.Run(ctx, nextTask, cc)
+		if err != nil {
+			l.Error("error running task", zap.Error(err))
 			continue
 		}
 	}
-
-	return nil
 }
 
 func (c *connectorRunner) Close(ctx context.Context) error {
@@ -275,17 +235,13 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		if cfg.c1zPath == "" {
 			return nil, errors.New("c1zPath must be set when using onDemandSync")
 		}
-		tm, err := naive_manager.NewNaiveManager(ctx)
+		tm, err := local_syncer.New(ctx, tasks.NewLocalFileSyncTask(cfg.c1zPath))
 		if err != nil {
 			return nil, err
 		}
 		runner.tasks = tm
 
 		runner.onDemandMode = true
-		err = runner.tasks.Add(ctx, tasks.NewManualSyncTask(cfg.c1zPath))
-		if err != nil {
-			return nil, err
-		}
 	} else {
 		tm, err := c1_manager.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret)
 		if err != nil {

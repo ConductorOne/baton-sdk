@@ -2,6 +2,9 @@ package tasks
 
 import (
 	"context"
+	"time"
+
+	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
 type Task interface {
@@ -10,7 +13,6 @@ type Task interface {
 }
 
 type Manager interface {
-	Next(ctx context.Context) (Task, error)
-	Finish(ctx context.Context, taskID string) error
-	Add(ctx context.Context, task Task) error
+	Next(ctx context.Context) (Task, time.Duration, error)
+	Run(ctx context.Context, task Task, cc types.ConnectorClient) error
 }

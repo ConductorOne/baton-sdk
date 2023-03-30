@@ -4,21 +4,21 @@ import (
 	"github.com/segmentio/ksuid"
 )
 
-type ManualSyncTask struct {
+type LocalFileSync struct {
 	taskID string
 	DbPath string
 }
 
-func (s ManualSyncTask) GetTaskType() string {
-	return "sync"
+func (s *LocalFileSync) GetTaskType() string {
+	return "local_file_sync"
 }
 
-func (s ManualSyncTask) GetTaskId() string {
+func (s *LocalFileSync) GetTaskId() string {
 	return s.taskID
 }
 
-func NewManualSyncTask(dbPath string) *ManualSyncTask {
-	return &ManualSyncTask{
+func NewLocalFileSyncTask(dbPath string) *LocalFileSync {
+	return &LocalFileSync{
 		taskID: ksuid.New().String(),
 		DbPath: dbPath,
 	}
