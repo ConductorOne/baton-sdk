@@ -28,9 +28,7 @@ func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkSe
 	if err != nil {
 		return nil, nil, err
 	}
-	fmt.Println("dialed client conn")
 	return v1.NewConnectorWorkServiceClient(cc), func() error {
-		fmt.Println("closing client conn")
 		return cc.Close()
 	}, nil
 }
