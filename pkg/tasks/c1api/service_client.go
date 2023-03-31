@@ -19,6 +19,28 @@ import (
 type c1ServiceClient struct {
 	addr     string
 	dialOpts []grpc.DialOption
+	hostID   string
+}
+
+func (c *c1ServiceClient) getHostID(ctx context.Context) (string, error) {
+	if c.hostID != "" {
+		return c.hostID, nil
+	}
+
+	hostID, err := os.Hostname()
+	if err != nil {
+		return "", err
+	}
+	if envHost, ok := os.LookupEnv("BATON_HOST_ID"); ok {
+		hostID = envHost
+	}
+
+	if hostID == "" {
+		hostID = "baton-sdk"
+	}
+
+	c.hostID = hostID
+	return c.hostID, nil
 }
 
 func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkServiceClient, func(), error) {
@@ -45,6 +67,12 @@ func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.HelloRequest, opts .
 	}
 	defer done()
 
+	hostID, err := c.getHostID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	in.HostId = hostID
+
 	return client.Hello(ctx, in, opts...)
 }
 
@@ -54,6 +82,12 @@ func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.GetTaskRequest, op
 		return nil, err
 	}
 	defer done()
+
+	hostID, err := c.getHostID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	in.HostId = hostID
 
 	return client.GetTask(ctx, in, opts...)
 }
@@ -65,6 +99,12 @@ func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.HeartbeatRequest
 	}
 	defer done()
 
+	hostID, err := c.getHostID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	in.HostId = hostID
+
 	return client.Heartbeat(ctx, in, opts...)
 }
 
@@ -74,6 +114,12 @@ func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.FinishTaskReque
 		return nil, err
 	}
 	defer done()
+
+	hostID, err := c.getHostID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	in.HostId = hostID
 
 	return client.FinishTask(ctx, in, opts...)
 }

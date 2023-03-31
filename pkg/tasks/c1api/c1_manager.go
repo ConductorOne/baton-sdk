@@ -75,13 +75,14 @@ func (c *c1ApiTaskManager) Run(ctx context.Context, task tasks.Task, cc types.Co
 			return nil
 		}
 
+		finishCtx, finishCanc := context.WithTimeout(context.Background(), time.Second*30)
+		defer finishCanc()
 		l.Error("error handling task", zap.Error(err))
-		_, rpcErr := c.serviceClient.FinishTask(ctx, &v1.FinishTaskRequest{
+		_, rpcErr := c.serviceClient.FinishTask(finishCtx, &v1.FinishTaskRequest{
 			TaskId: task.GetTaskId(),
-			FinalState: &v1.FinishTaskRequest_Error{
-				Error: &v1.Error{
+			FinalState: &v1.FinishTaskRequest_Error_{
+				Error: &v1.FinishTaskRequest_Error{
 					Error: err.Error(),
-					Fatal: fatal,
 				},
 			},
 		})
@@ -105,27 +106,33 @@ func (c *c1ApiTaskManager) Run(ctx context.Context, task tasks.Task, cc types.Co
 			l.Debug("waiting to heartbeat", zap.Duration("wait_duration", waitDuration))
 			select {
 			case <-taskCtx.Done():
+				l.Debug("bailing out of heartbeat loop as task is complete")
 				return
 			case <-time.After(waitDuration):
 				resp, err := c.serviceClient.Heartbeat(taskCtx, &v1.HeartbeatRequest{
 					TaskId: task.GetTaskId(),
 				})
 				if err != nil {
+					if errors.Is(err, context.Canceled) {
+						l.Debug("context canceled while sending heartbeat -- bailing")
+						return
+					}
 					l.Error("error sending heartbeat", zap.Error(err))
 					cancel(err)
-					continue
+					return
 				}
+
 				if resp == nil {
 					l.Debug("heartbeat response was nil, cancelling task")
 					cancel(errors.New("unexpected heartbeat response"))
-					continue
+					return
 				}
 
 				l.Debug("heartbeat successful", zap.Duration("next_deadline", resp.GetNextDeadline().AsDuration()))
 				if resp.Cancelled {
 					l.Debug("task cancelled by upstream")
 					cancel(nil)
-					continue
+					return
 				}
 				waitDuration = resp.GetNextDeadline().AsDuration()
 			}
@@ -155,10 +162,12 @@ func (c *c1ApiTaskManager) Run(ctx context.Context, task tasks.Task, cc types.Co
 	}
 
 	cancel(nil)
-	_, err := c.serviceClient.FinishTask(ctx, &v1.FinishTaskRequest{
+	finishCtx, finishCanc := context.WithTimeout(context.Background(), time.Second*30)
+	defer finishCanc()
+	_, err := c.serviceClient.FinishTask(finishCtx, &v1.FinishTaskRequest{
 		TaskId: task.GetTaskId(),
-		FinalState: &v1.FinishTaskRequest_Success{
-			Success: &v1.Success{},
+		FinalState: &v1.FinishTaskRequest_Success_{
+			Success: &v1.FinishTaskRequest_Success{},
 		},
 	})
 	if err != nil {

@@ -111,9 +111,9 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 		Issuer:    c.clientID,
 		Subject:   c.clientID,
 		Audience:  jwt.Audience{aud},
-		Expiry:    jwt.NewNumericDate(now.Add(time.Second * 15)),
+		Expiry:    jwt.NewNumericDate(now.Add(time.Minute * 2)),
 		IssuedAt:  jwt.NewNumericDate(now),
-		NotBefore: jwt.NewNumericDate(now.Add(-time.Second * 15)),
+		NotBefore: jwt.NewNumericDate(now.Add(-time.Minute * 2)),
 	}
 	b, err := json.Marshal(claims)
 	if err != nil {
