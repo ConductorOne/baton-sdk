@@ -16,6 +16,8 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+var _ = v1.ConnectorWorkServiceClient((*c1ServiceClient)(nil))
+
 type c1ServiceClient struct {
 	addr     string
 	dialOpts []grpc.DialOption
@@ -134,7 +136,26 @@ func (c *c1ServiceClient) UploadAsset(ctx context.Context, opts ...grpc.CallOpti
 	return client.UploadAsset(ctx, opts...)
 }
 
-func newServiceClient(ctx context.Context, clientID string, clientSecret string) (v1.ConnectorWorkServiceClient, error) {
+func (c *c1ServiceClient) Upload(ctx context.Context, opts ...grpc.CallOption) (v1.ConnectorWorkService_UploadAssetClient, string, func(), error) {
+	hostID, err := c.getHostID(ctx)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	client, done, err := c.getClientConn(ctx)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	uc, err := client.UploadAsset(ctx, opts...)
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return uc, hostID, done, nil
+}
+
+func newServiceClient(ctx context.Context, clientID string, clientSecret string) (*c1ServiceClient, error) {
 	credProvider, clientName, tokenHost, err := ugrpc.NewC1CredentialProvider(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, err

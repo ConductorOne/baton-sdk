@@ -99,6 +99,11 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			continue
 		}
 
+		if nextTask.GetTaskType() == "none" {
+			l.Debug("no task to run -- continuing")
+			continue
+		}
+
 		cc, err := c.cw.C(ctx)
 		if err != nil {
 			l.Error("error getting client", zap.Error(err))

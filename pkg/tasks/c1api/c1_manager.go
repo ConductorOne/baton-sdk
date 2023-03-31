@@ -30,6 +30,8 @@ func (a *apiTask) GetTaskType() string {
 		return "revoke"
 	case *v1.Task_Hello:
 		return "hello"
+	case *v1.Task_None:
+		return "none"
 	default:
 		return "unknown"
 	}
@@ -40,7 +42,43 @@ func (a *apiTask) GetTaskId() string {
 }
 
 type c1ApiTaskManager struct {
-	serviceClient v1.ConnectorWorkServiceClient
+	serviceClient *c1ServiceClient
+}
+
+func (c *c1ApiTaskManager) heartbeatTask(ctx context.Context, task tasks.Task, canc context.CancelCauseFunc) {
+	l := ctxzap.Extract(ctx)
+	var waitDuration time.Duration
+	for {
+		l.Debug("waiting to heartbeat", zap.Duration("wait_duration", waitDuration))
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-time.After(waitDuration):
+			resp, err := c.serviceClient.Heartbeat(ctx, &v1.HeartbeatRequest{
+				TaskId: task.GetTaskId(),
+			})
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
+				l.Error("error sending heartbeat", zap.Error(err))
+				return
+			}
+
+			if resp == nil {
+				l.Debug("heartbeat response was nil, cancelling task")
+				return
+			}
+
+			l.Debug("heartbeat successful", zap.Duration("next_deadline", resp.GetNextDeadline().AsDuration()))
+			if resp.Cancelled {
+				canc(errors.New("task canceled by upstream"))
+				return
+			}
+			waitDuration = resp.GetNextDeadline().AsDuration()
+		}
+	}
 }
 
 func (c *c1ApiTaskManager) Next(ctx context.Context) (tasks.Task, time.Duration, error) {
@@ -100,51 +138,15 @@ func (c *c1ApiTaskManager) Run(ctx context.Context, task tasks.Task, cc types.Co
 	l.Info("handling task")
 
 	// Begin heartbeat loop for task
-	go func() {
-		var waitDuration time.Duration
-		for {
-			l.Debug("waiting to heartbeat", zap.Duration("wait_duration", waitDuration))
-			select {
-			case <-taskCtx.Done():
-				l.Debug("bailing out of heartbeat loop as task is complete")
-				return
-			case <-time.After(waitDuration):
-				resp, err := c.serviceClient.Heartbeat(taskCtx, &v1.HeartbeatRequest{
-					TaskId: task.GetTaskId(),
-				})
-				if err != nil {
-					if errors.Is(err, context.Canceled) {
-						l.Debug("context canceled while sending heartbeat -- bailing")
-						return
-					}
-					l.Error("error sending heartbeat", zap.Error(err))
-					cancel(err)
-					return
-				}
-
-				if resp == nil {
-					l.Debug("heartbeat response was nil, cancelling task")
-					cancel(errors.New("unexpected heartbeat response"))
-					return
-				}
-
-				l.Debug("heartbeat successful", zap.Duration("next_deadline", resp.GetNextDeadline().AsDuration()))
-				if resp.Cancelled {
-					l.Debug("task cancelled by upstream")
-					cancel(nil)
-					return
-				}
-				waitDuration = resp.GetNextDeadline().AsDuration()
-			}
-		}
-	}()
+	go c.heartbeatTask(taskCtx, task, cancel)
 
 	// TODO(jirwin): Figure out how to handle task dispatching
+	// TODO(jirwin): It would be nice if the service client didn't have to be handed to as task
 	switch task.GetTaskType() {
 	case "sync_full":
-		err := c.handleLocalFileSync(taskCtx, cc, &tasks.LocalFileSync{DbPath: "sync-server.c1z"})
+		err := c.handleSyncUpload(taskCtx, c.serviceClient, cc, tasks.NewSyncUpload(task.GetTaskId()))
 		if err != nil {
-			l.Error("error handling local file sync", zap.Error(err))
+			l.Error("error handling full sync", zap.Error(err))
 			return handleErr(err, false)
 		}
 	default:
