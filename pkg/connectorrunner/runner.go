@@ -9,8 +9,8 @@ import (
 
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
-	"github.com/conductorone/baton-sdk/pkg/tasks/c1_manager"
-	"github.com/conductorone/baton-sdk/pkg/tasks/local_syncer"
+	"github.com/conductorone/baton-sdk/pkg/tasks/c1api"
+	"github.com/conductorone/baton-sdk/pkg/tasks/localsyncer"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -235,7 +235,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		if cfg.c1zPath == "" {
 			return nil, errors.New("c1zPath must be set when using onDemandSync")
 		}
-		tm, err := local_syncer.New(ctx, tasks.NewLocalFileSyncTask(cfg.c1zPath))
+		tm, err := localsyncer.New(ctx, tasks.NewLocalFileSyncTask(cfg.c1zPath))
 		if err != nil {
 			return nil, err
 		}
@@ -243,7 +243,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		runner.onDemandMode = true
 	} else {
-		tm, err := c1_manager.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret)
+		tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret)
 		if err != nil {
 			return nil, err
 		}

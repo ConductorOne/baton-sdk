@@ -1,4 +1,4 @@
-package c1_manager
+package c1api
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
-func (c *c1TaskManager) handleLocalFileSync(ctx context.Context, cc types.ConnectorClient, t *tasks.LocalFileSync) error {
+func (c *c1ApiTaskManager) handleLocalFileSync(ctx context.Context, cc types.ConnectorClient, t *tasks.LocalFileSync) error {
 	syncer, err := sdkSync.NewSyncer(ctx, cc, t.DbPath)
 	if err != nil {
 		return err

@@ -1,4 +1,4 @@
-package c1_manager
+package c1api
 
 import (
 	"context"
@@ -39,11 +39,11 @@ func (a *apiTask) GetTaskId() string {
 	return a.task.GetId()
 }
 
-type c1TaskManager struct {
+type c1ApiTaskManager struct {
 	serviceClient v1.ConnectorWorkServiceClient
 }
 
-func (c *c1TaskManager) Next(ctx context.Context) (tasks.Task, time.Duration, error) {
+func (c *c1ApiTaskManager) Next(ctx context.Context) (tasks.Task, time.Duration, error) {
 	l := ctxzap.Extract(ctx)
 	resp, err := c.serviceClient.GetTask(ctx, &v1.GetTaskRequest{})
 	if err != nil {
@@ -58,7 +58,7 @@ func (c *c1TaskManager) Next(ctx context.Context) (tasks.Task, time.Duration, er
 	return &apiTask{resp.Task}, resp.GetNextPoll().AsDuration(), nil
 }
 
-func (c *c1TaskManager) Run(ctx context.Context, task tasks.Task, cc types.ConnectorClient) error {
+func (c *c1ApiTaskManager) Run(ctx context.Context, task tasks.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx)
 	if task == nil {
 		l.Debug("no task to handle")
@@ -113,10 +113,11 @@ func (c *c1TaskManager) Run(ctx context.Context, task tasks.Task, cc types.Conne
 				if err != nil {
 					l.Error("error sending heartbeat", zap.Error(err))
 					cancel(err)
+					continue
 				}
 				if resp == nil {
-					l.Debug("heartbeat response was nil, retrying in 30 seconds")
-					waitDuration = errTimeoutDuration
+					l.Debug("heartbeat response was nil, cancelling task")
+					cancel(errors.New("unexpected heartbeat response"))
 					continue
 				}
 
@@ -124,6 +125,7 @@ func (c *c1TaskManager) Run(ctx context.Context, task tasks.Task, cc types.Conne
 				if resp.Cancelled {
 					l.Debug("task cancelled by upstream")
 					cancel(nil)
+					continue
 				}
 				waitDuration = resp.GetNextDeadline().AsDuration()
 			}
@@ -172,7 +174,7 @@ func NewC1TaskManager(ctx context.Context, clientID string, clientSecret string)
 		return nil, err
 	}
 
-	return &c1TaskManager{
+	return &c1ApiTaskManager{
 		serviceClient: serviceClient,
 	}, nil
 }

@@ -35,6 +35,267 @@ var (
 	_ = sort.Sort
 )
 
+// Validate checks the field values on Task with the rules defined in the proto
+// definition for this message. If any rules are violated, the first error
+// encountered is returned, or nil if there are no violations.
+func (m *Task) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task with the rules defined in the
+// proto definition for this message. If any rules are violated, the result is
+// a list of violation errors wrapped in TaskMultiError, or nil if none found.
+func (m *Task) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Id
+
+	// no validation rules for Status
+
+	switch m.TaskType.(type) {
+
+	case *Task_None:
+
+		if all {
+			switch v := interface{}(m.GetNone()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "None",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "None",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetNone()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "None",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *Task_Hello:
+
+		if all {
+			switch v := interface{}(m.GetHello()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "Hello",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "Hello",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetHello()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "Hello",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *Task_SyncFull:
+
+		if all {
+			switch v := interface{}(m.GetSyncFull()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "SyncFull",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "SyncFull",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetSyncFull()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "SyncFull",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *Task_Grant:
+
+		if all {
+			switch v := interface{}(m.GetGrant()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "Grant",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "Grant",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetGrant()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "Grant",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *Task_Revoke:
+
+		if all {
+			switch v := interface{}(m.GetRevoke()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "Revoke",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "Revoke",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetRevoke()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "Revoke",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return TaskMultiError(errors)
+	}
+
+	return nil
+}
+
+// TaskMultiError is an error wrapping multiple validation errors returned by
+// Task.ValidateAll() if the designated constraints aren't met.
+type TaskMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m TaskMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m TaskMultiError) AllErrors() []error { return m }
+
+// TaskValidationError is the validation error returned by Task.Validate if the
+// designated constraints aren't met.
+type TaskValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e TaskValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e TaskValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e TaskValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e TaskValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e TaskValidationError) ErrorName() string { return "TaskValidationError" }
+
+// Error satisfies the builtin error interface
+func (e TaskValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = TaskValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = TaskValidationError{}
+
 // Validate checks the field values on HelloRequest with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
@@ -56,6 +317,8 @@ func (m *HelloRequest) validate(all bool) error {
 	}
 
 	var errors []error
+
+	// no validation rules for HostId
 
 	// no validation rules for TaskId
 
@@ -333,236 +596,6 @@ var _ interface {
 	ErrorName() string
 } = HelloResponseValidationError{}
 
-// Validate checks the field values on Task with the rules defined in the proto
-// definition for this message. If any rules are violated, the first error
-// encountered is returned, or nil if there are no violations.
-func (m *Task) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on Task with the rules defined in the
-// proto definition for this message. If any rules are violated, the result is
-// a list of violation errors wrapped in TaskMultiError, or nil if none found.
-func (m *Task) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *Task) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for Id
-
-	// no validation rules for Status
-
-	switch m.TaskType.(type) {
-
-	case *Task_SyncFull:
-
-		if all {
-			switch v := interface{}(m.GetSyncFull()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "SyncFull",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "SyncFull",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetSyncFull()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return TaskValidationError{
-					field:  "SyncFull",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	case *Task_Grant:
-
-		if all {
-			switch v := interface{}(m.GetGrant()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "Grant",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "Grant",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetGrant()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return TaskValidationError{
-					field:  "Grant",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	case *Task_Revoke:
-
-		if all {
-			switch v := interface{}(m.GetRevoke()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "Revoke",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "Revoke",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetRevoke()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return TaskValidationError{
-					field:  "Revoke",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	case *Task_Hello:
-
-		if all {
-			switch v := interface{}(m.GetHello()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "Hello",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "Hello",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetHello()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return TaskValidationError{
-					field:  "Hello",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
-	if len(errors) > 0 {
-		return TaskMultiError(errors)
-	}
-
-	return nil
-}
-
-// TaskMultiError is an error wrapping multiple validation errors returned by
-// Task.ValidateAll() if the designated constraints aren't met.
-type TaskMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m TaskMultiError) Error() string {
-	var msgs []string
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m TaskMultiError) AllErrors() []error { return m }
-
-// TaskValidationError is the validation error returned by Task.Validate if the
-// designated constraints aren't met.
-type TaskValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e TaskValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e TaskValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e TaskValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e TaskValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e TaskValidationError) ErrorName() string { return "TaskValidationError" }
-
-// Error satisfies the builtin error interface
-func (e TaskValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sTask.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = TaskValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = TaskValidationError{}
-
 // Validate checks the field values on GetTaskRequest with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
@@ -584,6 +617,8 @@ func (m *GetTaskRequest) validate(all bool) error {
 	}
 
 	var errors []error
+
+	// no validation rules for HostId
 
 	if len(errors) > 0 {
 		return GetTaskRequestMultiError(errors)
@@ -772,6 +807,40 @@ func (m *GetTaskResponse) validate(all bool) error {
 		}
 	}
 
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, GetTaskResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, GetTaskResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return GetTaskResponseValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return GetTaskResponseMultiError(errors)
 	}
@@ -871,6 +940,8 @@ func (m *HeartbeatRequest) validate(all bool) error {
 	}
 
 	var errors []error
+
+	// no validation rules for HostId
 
 	// no validation rules for TaskId
 
@@ -1152,274 +1223,6 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = HeartbeatResponseValidationError{}
-
-// Validate checks the field values on Error with the rules defined in the
-// proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *Error) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on Error with the rules defined in the
-// proto definition for this message. If any rules are violated, the result is
-// a list of violation errors wrapped in ErrorMultiError, or nil if none found.
-func (m *Error) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *Error) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for Error
-
-	// no validation rules for Fatal
-
-	for idx, item := range m.GetAnnotations() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ErrorValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, ErrorValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return ErrorValidationError{
-					field:  fmt.Sprintf("Annotations[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
-	if len(errors) > 0 {
-		return ErrorMultiError(errors)
-	}
-
-	return nil
-}
-
-// ErrorMultiError is an error wrapping multiple validation errors returned by
-// Error.ValidateAll() if the designated constraints aren't met.
-type ErrorMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m ErrorMultiError) Error() string {
-	var msgs []string
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m ErrorMultiError) AllErrors() []error { return m }
-
-// ErrorValidationError is the validation error returned by Error.Validate if
-// the designated constraints aren't met.
-type ErrorValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e ErrorValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e ErrorValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e ErrorValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e ErrorValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e ErrorValidationError) ErrorName() string { return "ErrorValidationError" }
-
-// Error satisfies the builtin error interface
-func (e ErrorValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sError.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = ErrorValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = ErrorValidationError{}
-
-// Validate checks the field values on Success with the rules defined in the
-// proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *Success) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on Success with the rules defined in the
-// proto definition for this message. If any rules are violated, the result is
-// a list of violation errors wrapped in SuccessMultiError, or nil if none found.
-func (m *Success) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *Success) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	for idx, item := range m.GetAnnotations() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, SuccessValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, SuccessValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return SuccessValidationError{
-					field:  fmt.Sprintf("Annotations[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
-	if len(errors) > 0 {
-		return SuccessMultiError(errors)
-	}
-
-	return nil
-}
-
-// SuccessMultiError is an error wrapping multiple validation errors returned
-// by Success.ValidateAll() if the designated constraints aren't met.
-type SuccessMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m SuccessMultiError) Error() string {
-	var msgs []string
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m SuccessMultiError) AllErrors() []error { return m }
-
-// SuccessValidationError is the validation error returned by Success.Validate
-// if the designated constraints aren't met.
-type SuccessValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e SuccessValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e SuccessValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e SuccessValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e SuccessValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e SuccessValidationError) ErrorName() string { return "SuccessValidationError" }
-
-// Error satisfies the builtin error interface
-func (e SuccessValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sSuccess.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = SuccessValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = SuccessValidationError{}
 
 // Validate checks the field values on UploadAssetRequest with the rules
 // defined in the proto definition for this message. If any rules are
@@ -1778,11 +1581,13 @@ func (m *FinishTaskRequest) validate(all bool) error {
 
 	var errors []error
 
+	// no validation rules for HostId
+
 	// no validation rules for TaskId
 
 	switch m.FinalState.(type) {
 
-	case *FinishTaskRequest_Error:
+	case *FinishTaskRequest_Error_:
 
 		if all {
 			switch v := interface{}(m.GetError()).(type) {
@@ -1813,7 +1618,7 @@ func (m *FinishTaskRequest) validate(all bool) error {
 			}
 		}
 
-	case *FinishTaskRequest_Success:
+	case *FinishTaskRequest_Success_:
 
 		if all {
 			switch v := interface{}(m.GetSuccess()).(type) {
@@ -2062,6 +1867,274 @@ var _ interface {
 	ErrorName() string
 } = FinishTaskResponseValidationError{}
 
+// Validate checks the field values on Task_NoneTask with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *Task_NoneTask) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task_NoneTask with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in Task_NoneTaskMultiError, or
+// nil if none found.
+func (m *Task_NoneTask) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_NoneTask) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_NoneTaskValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_NoneTaskValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_NoneTaskValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return Task_NoneTaskMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_NoneTaskMultiError is an error wrapping multiple validation errors
+// returned by Task_NoneTask.ValidateAll() if the designated constraints
+// aren't met.
+type Task_NoneTaskMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_NoneTaskMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_NoneTaskMultiError) AllErrors() []error { return m }
+
+// Task_NoneTaskValidationError is the validation error returned by
+// Task_NoneTask.Validate if the designated constraints aren't met.
+type Task_NoneTaskValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_NoneTaskValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_NoneTaskValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_NoneTaskValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_NoneTaskValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_NoneTaskValidationError) ErrorName() string { return "Task_NoneTaskValidationError" }
+
+// Error satisfies the builtin error interface
+func (e Task_NoneTaskValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_NoneTask.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_NoneTaskValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_NoneTaskValidationError{}
+
+// Validate checks the field values on Task_HelloTask with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *Task_HelloTask) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task_HelloTask with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in Task_HelloTaskMultiError,
+// or nil if none found.
+func (m *Task_HelloTask) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_HelloTask) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_HelloTaskValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_HelloTaskValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_HelloTaskValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return Task_HelloTaskMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_HelloTaskMultiError is an error wrapping multiple validation errors
+// returned by Task_HelloTask.ValidateAll() if the designated constraints
+// aren't met.
+type Task_HelloTaskMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_HelloTaskMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_HelloTaskMultiError) AllErrors() []error { return m }
+
+// Task_HelloTaskValidationError is the validation error returned by
+// Task_HelloTask.Validate if the designated constraints aren't met.
+type Task_HelloTaskValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_HelloTaskValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_HelloTaskValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_HelloTaskValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_HelloTaskValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_HelloTaskValidationError) ErrorName() string { return "Task_HelloTaskValidationError" }
+
+// Error satisfies the builtin error interface
+func (e Task_HelloTaskValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_HelloTask.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_HelloTaskValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_HelloTaskValidationError{}
+
 // Validate checks the field values on Task_SyncFullTask with the rules defined
 // in the proto definition for this message. If any rules are violated, the
 // first error encountered is returned, or nil if there are no violations.
@@ -2084,7 +2157,39 @@ func (m *Task_SyncFullTask) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for UploadId
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_SyncFullTaskValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_SyncFullTaskValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_SyncFullTaskValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
 
 	if len(errors) > 0 {
 		return Task_SyncFullTaskMultiError(errors)
@@ -2165,137 +2270,6 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = Task_SyncFullTaskValidationError{}
-
-// Validate checks the field values on Task_SyncResourceTask with the rules
-// defined in the proto definition for this message. If any rules are
-// violated, the first error encountered is returned, or nil if there are no violations.
-func (m *Task_SyncResourceTask) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on Task_SyncResourceTask with the rules
-// defined in the proto definition for this message. If any rules are
-// violated, the result is a list of violation errors wrapped in
-// Task_SyncResourceTaskMultiError, or nil if none found.
-func (m *Task_SyncResourceTask) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *Task_SyncResourceTask) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	if all {
-		switch v := interface{}(m.GetResource()).(type) {
-		case interface{ ValidateAll() error }:
-			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, Task_SyncResourceTaskValidationError{
-					field:  "Resource",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		case interface{ Validate() error }:
-			if err := v.Validate(); err != nil {
-				errors = append(errors, Task_SyncResourceTaskValidationError{
-					field:  "Resource",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		}
-	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
-		if err := v.Validate(); err != nil {
-			return Task_SyncResourceTaskValidationError{
-				field:  "Resource",
-				reason: "embedded message failed validation",
-				cause:  err,
-			}
-		}
-	}
-
-	if len(errors) > 0 {
-		return Task_SyncResourceTaskMultiError(errors)
-	}
-
-	return nil
-}
-
-// Task_SyncResourceTaskMultiError is an error wrapping multiple validation
-// errors returned by Task_SyncResourceTask.ValidateAll() if the designated
-// constraints aren't met.
-type Task_SyncResourceTaskMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m Task_SyncResourceTaskMultiError) Error() string {
-	var msgs []string
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m Task_SyncResourceTaskMultiError) AllErrors() []error { return m }
-
-// Task_SyncResourceTaskValidationError is the validation error returned by
-// Task_SyncResourceTask.Validate if the designated constraints aren't met.
-type Task_SyncResourceTaskValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e Task_SyncResourceTaskValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e Task_SyncResourceTaskValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e Task_SyncResourceTaskValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e Task_SyncResourceTaskValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e Task_SyncResourceTaskValidationError) ErrorName() string {
-	return "Task_SyncResourceTaskValidationError"
-}
-
-// Error satisfies the builtin error interface
-func (e Task_SyncResourceTaskValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sTask_SyncResourceTask.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = Task_SyncResourceTaskValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = Task_SyncResourceTaskValidationError{}
 
 // Validate checks the field values on Task_GrantTask with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
@@ -2652,106 +2626,6 @@ var _ interface {
 	ErrorName() string
 } = Task_RevokeTaskValidationError{}
 
-// Validate checks the field values on Task_HelloTask with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *Task_HelloTask) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on Task_HelloTask with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in Task_HelloTaskMultiError,
-// or nil if none found.
-func (m *Task_HelloTask) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *Task_HelloTask) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	if len(errors) > 0 {
-		return Task_HelloTaskMultiError(errors)
-	}
-
-	return nil
-}
-
-// Task_HelloTaskMultiError is an error wrapping multiple validation errors
-// returned by Task_HelloTask.ValidateAll() if the designated constraints
-// aren't met.
-type Task_HelloTaskMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m Task_HelloTaskMultiError) Error() string {
-	var msgs []string
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m Task_HelloTaskMultiError) AllErrors() []error { return m }
-
-// Task_HelloTaskValidationError is the validation error returned by
-// Task_HelloTask.Validate if the designated constraints aren't met.
-type Task_HelloTaskValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e Task_HelloTaskValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e Task_HelloTaskValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e Task_HelloTaskValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e Task_HelloTaskValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e Task_HelloTaskValidationError) ErrorName() string { return "Task_HelloTaskValidationError" }
-
-// Error satisfies the builtin error interface
-func (e Task_HelloTaskValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sTask_HelloTask.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = Task_HelloTaskValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = Task_HelloTaskValidationError{}
-
 // Validate checks the field values on UploadAssetRequest_UploadMetadata with
 // the rules defined in the proto definition for this message. If any rules
 // are violated, the first error encountered is returned, or nil if there are
@@ -2775,7 +2649,9 @@ func (m *UploadAssetRequest_UploadMetadata) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for UploadId
+	// no validation rules for HostId
+
+	// no validation rules for TaskId
 
 	for idx, item := range m.GetAnnotations() {
 		_, _ = idx, item
@@ -3136,3 +3012,279 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = UploadAssetRequest_UploadEOFValidationError{}
+
+// Validate checks the field values on FinishTaskRequest_Error with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *FinishTaskRequest_Error) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on FinishTaskRequest_Error with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// FinishTaskRequest_ErrorMultiError, or nil if none found.
+func (m *FinishTaskRequest_Error) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *FinishTaskRequest_Error) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Error
+
+	// no validation rules for Fatal
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, FinishTaskRequest_ErrorValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, FinishTaskRequest_ErrorValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return FinishTaskRequest_ErrorValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return FinishTaskRequest_ErrorMultiError(errors)
+	}
+
+	return nil
+}
+
+// FinishTaskRequest_ErrorMultiError is an error wrapping multiple validation
+// errors returned by FinishTaskRequest_Error.ValidateAll() if the designated
+// constraints aren't met.
+type FinishTaskRequest_ErrorMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m FinishTaskRequest_ErrorMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m FinishTaskRequest_ErrorMultiError) AllErrors() []error { return m }
+
+// FinishTaskRequest_ErrorValidationError is the validation error returned by
+// FinishTaskRequest_Error.Validate if the designated constraints aren't met.
+type FinishTaskRequest_ErrorValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e FinishTaskRequest_ErrorValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e FinishTaskRequest_ErrorValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e FinishTaskRequest_ErrorValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e FinishTaskRequest_ErrorValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e FinishTaskRequest_ErrorValidationError) ErrorName() string {
+	return "FinishTaskRequest_ErrorValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e FinishTaskRequest_ErrorValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sFinishTaskRequest_Error.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = FinishTaskRequest_ErrorValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = FinishTaskRequest_ErrorValidationError{}
+
+// Validate checks the field values on FinishTaskRequest_Success with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *FinishTaskRequest_Success) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on FinishTaskRequest_Success with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// FinishTaskRequest_SuccessMultiError, or nil if none found.
+func (m *FinishTaskRequest_Success) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *FinishTaskRequest_Success) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, FinishTaskRequest_SuccessValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, FinishTaskRequest_SuccessValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return FinishTaskRequest_SuccessValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return FinishTaskRequest_SuccessMultiError(errors)
+	}
+
+	return nil
+}
+
+// FinishTaskRequest_SuccessMultiError is an error wrapping multiple validation
+// errors returned by FinishTaskRequest_Success.ValidateAll() if the
+// designated constraints aren't met.
+type FinishTaskRequest_SuccessMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m FinishTaskRequest_SuccessMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m FinishTaskRequest_SuccessMultiError) AllErrors() []error { return m }
+
+// FinishTaskRequest_SuccessValidationError is the validation error returned by
+// FinishTaskRequest_Success.Validate if the designated constraints aren't met.
+type FinishTaskRequest_SuccessValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e FinishTaskRequest_SuccessValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e FinishTaskRequest_SuccessValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e FinishTaskRequest_SuccessValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e FinishTaskRequest_SuccessValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e FinishTaskRequest_SuccessValidationError) ErrorName() string {
+	return "FinishTaskRequest_SuccessValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e FinishTaskRequest_SuccessValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sFinishTaskRequest_Success.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = FinishTaskRequest_SuccessValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = FinishTaskRequest_SuccessValidationError{}

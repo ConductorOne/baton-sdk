@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,6 +14,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/uhttp"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/pquerna/xjwt"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc/credentials"
@@ -34,6 +38,7 @@ type c1TokenSource struct {
 	clientID     string
 	clientSecret *jose.JSONWebKey
 	tokenHost    string
+	httpClient   *http.Client
 }
 
 func parseClientID(input string) (string, string, error) {
@@ -141,14 +146,27 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 		Host:   tokenHost,
 		Path:   "auth/v1/token",
 	}
-	resp, err := http.PostForm(tokenUrl.String(), body)
+
+	req, err := http.NewRequestWithContext(context.Background(), "POST", tokenUrl.String(), strings.NewReader(body.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	spew.Dump(string(respBody))
+
 	token := &oauth2.Token{}
-	err = json.NewDecoder(resp.Body).Decode(token)
+	err = json.NewDecoder(bytes.NewBuffer(respBody)).Decode(token)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +174,7 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 	return token, nil
 }
 
-func newC1TokenSource(clientID string, clientSecret string) (oauth2.TokenSource, string, string, error) {
+func newC1TokenSource(ctx context.Context, clientID string, clientSecret string) (oauth2.TokenSource, string, string, error) {
 	clientName, tokenHost, err := parseClientID(clientID)
 	if err != nil {
 		return nil, "", "", err
@@ -167,10 +185,15 @@ func newC1TokenSource(clientID string, clientSecret string) (oauth2.TokenSource,
 		return nil, "", "", err
 	}
 
+	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
+	if err != nil {
+		return nil, "", "", err
+	}
 	return oauth2.ReuseTokenSource(nil, &c1TokenSource{
 		clientID:     clientID,
 		clientSecret: secret,
 		tokenHost:    tokenHost,
+		httpClient:   httpClient,
 	}), clientName, tokenHost, nil
 }
 
@@ -199,8 +222,8 @@ func (c *c1CredentialProvider) RequireTransportSecurity() bool {
 	return true
 }
 
-func NewC1CredentialProvider(clientID string, clientSecret string) (credentials.PerRPCCredentials, string, string, error) {
-	tokenSource, clientName, tokenHost, err := newC1TokenSource(clientID, clientSecret)
+func NewC1CredentialProvider(ctx context.Context, clientID string, clientSecret string) (credentials.PerRPCCredentials, string, string, error) {
+	tokenSource, clientName, tokenHost, err := newC1TokenSource(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, "", "", err
 	}

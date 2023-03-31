@@ -1,4 +1,4 @@
-package c1_manager
+package c1api
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -19,7 +21,7 @@ type c1ServiceClient struct {
 	dialOpts []grpc.DialOption
 }
 
-func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkServiceClient, func() error, error) {
+func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkServiceClient, func(), error) {
 	cc, err := grpc.DialContext(
 		ctx,
 		c.addr,
@@ -28,8 +30,11 @@ func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkSe
 	if err != nil {
 		return nil, nil, err
 	}
-	return v1.NewConnectorWorkServiceClient(cc), func() error {
-		return cc.Close()
+	return v1.NewConnectorWorkServiceClient(cc), func() {
+		err = cc.Close()
+		if err != nil {
+			ctxzap.Extract(ctx).Error("failed to close client connection", zap.Error(err))
+		}
 	}, nil
 }
 
@@ -84,7 +89,7 @@ func (c *c1ServiceClient) UploadAsset(ctx context.Context, opts ...grpc.CallOpti
 }
 
 func newServiceClient(ctx context.Context, clientID string, clientSecret string) (v1.ConnectorWorkServiceClient, error) {
-	credProvider, clientName, tokenHost, err := ugrpc.NewC1CredentialProvider(clientID, clientSecret)
+	credProvider, clientName, tokenHost, err := ugrpc.NewC1CredentialProvider(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, err
 	}
