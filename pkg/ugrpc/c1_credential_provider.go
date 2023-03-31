@@ -6,7 +6,6 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"errors"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/pquerna/xjwt"
 	"golang.org/x/oauth2"
@@ -33,6 +31,12 @@ var (
 	ErrInvalidClientSecret = errors.New("invalid client secret")
 	ErrInvalidClientID     = errors.New("invalid client id")
 )
+
+type c1Token struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	Expiry      int    `json:"expires_in"`
+}
 
 type c1TokenSource struct {
 	clientID     string
@@ -158,20 +162,17 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	c1t := &c1Token{}
+	err = json.NewDecoder(resp.Body).Decode(c1t)
 	if err != nil {
 		return nil, err
 	}
 
-	spew.Dump(string(respBody))
-
-	token := &oauth2.Token{}
-	err = json.NewDecoder(bytes.NewBuffer(respBody)).Decode(token)
-	if err != nil {
-		return nil, err
-	}
-
-	return token, nil
+	return &oauth2.Token{
+		AccessToken: c1t.AccessToken,
+		TokenType:   c1t.TokenType,
+		Expiry:      time.Now().Add(time.Duration(c1t.Expiry) * time.Second),
+	}, nil
 }
 
 func newC1TokenSource(ctx context.Context, clientID string, clientSecret string) (oauth2.TokenSource, string, string, error) {
