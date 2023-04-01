@@ -83,13 +83,16 @@ func (c *c1ApiTaskManager) heartbeatTask(ctx context.Context, task tasks.Task, c
 
 func (c *c1ApiTaskManager) Next(ctx context.Context) (tasks.Task, time.Duration, error) {
 	l := ctxzap.Extract(ctx)
+
+	l.Info("Checking for new tasks...")
+
 	resp, err := c.serviceClient.GetTask(ctx, &v1.GetTaskRequest{})
 	if err != nil {
 		return nil, errTimeoutDuration, err
 	}
 
 	if resp.Task == nil {
-		l.Debug("no task to handle")
+		l.Info("No tasks. Waiting to check again", zap.Duration("wait_duration", resp.GetNextPoll().AsDuration()))
 		return nil, resp.GetNextPoll().AsDuration(), nil
 	}
 
@@ -134,8 +137,6 @@ func (c *c1ApiTaskManager) Run(ctx context.Context, task tasks.Task, cc types.Co
 
 	taskCtx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-
-	l.Info("handling task")
 
 	// Begin heartbeat loop for task
 	go c.heartbeatTask(taskCtx, task, cancel)

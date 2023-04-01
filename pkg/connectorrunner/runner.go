@@ -77,9 +77,6 @@ func (c *connectorRunner) run(ctx context.Context) error {
 	var nextTask tasks.Task
 	var err error
 	for {
-		if waitDuration > 0 {
-			l.Debug("waiting for next task...", zap.Duration("wait_duration", waitDuration))
-		}
 		select {
 		case <-ctx.Done():
 			return c.handleContextCancel(ctx)
@@ -114,6 +111,8 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			l.Error("error running task", zap.Error(err))
 			continue
 		}
+
+		l.Info("Task complete! Waiting before checking for more tasks...", zap.Duration("wait_duration", waitDuration))
 	}
 }
 

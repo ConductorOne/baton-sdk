@@ -47,6 +47,8 @@ func (c *c1ApiTaskManager) handleSyncUpload(
 ) error {
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", t.GetTaskId()), zap.String("task_type", t.GetTaskType()))
 
+	l.Info("Handling sync task.")
+
 	var syncPath string
 	assetFile, err := os.CreateTemp("", "baton-sdk-sync-upload")
 	if err != nil {
