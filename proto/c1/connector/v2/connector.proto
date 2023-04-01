@@ -34,6 +34,12 @@ message ConnectorMetadata {
   c1.connector.v2.AssetRef logo = 4;
   google.protobuf.Struct profile = 5;
   repeated google.protobuf.Any annotations = 6;
+  string description = 7 [
+    (validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 4096
+    }
+  ];
 }
 
 message ConnectorServiceGetMetadataRequest { }
