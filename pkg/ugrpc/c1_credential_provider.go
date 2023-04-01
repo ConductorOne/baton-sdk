@@ -151,7 +151,7 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 		Path:   "auth/v1/token",
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", tokenUrl.String(), strings.NewReader(body.Encode()))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, tokenUrl.String(), strings.NewReader(body.Encode()))
 	if err != nil {
 		return nil, err
 	}
