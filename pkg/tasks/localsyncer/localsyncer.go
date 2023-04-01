@@ -2,30 +2,32 @@ package localsyncer
 
 import (
 	"context"
-	"errors"
+	"sync"
 	"time"
 
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
 type localSyncer struct {
-	task tasks.Task
+	dbPath string
+	o      sync.Once
 }
 
-func (m *localSyncer) Next(ctx context.Context) (tasks.Task, time.Duration, error) {
-	return m.task, 0, nil
+func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
+	var task *v1.Task
+	m.o.Do(func() {
+		task = &v1.Task{
+			TaskType: &v1.Task_SyncFull{},
+		}
+	})
+	return task, 0, nil
 }
 
-func (m *localSyncer) Run(ctx context.Context, task tasks.Task, cc types.ConnectorClient) error {
-	t, ok := task.(*tasks.LocalFileSync)
-	if !ok {
-		return errors.New("invalid task type")
-	}
-	m.task = nil
-
-	syncer, err := sdkSync.NewSyncer(ctx, cc, t.DbPath)
+func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+	syncer, err := sdkSync.NewSyncer(ctx, cc, m.dbPath)
 	if err != nil {
 		return err
 	}
@@ -44,9 +46,9 @@ func (m *localSyncer) Run(ctx context.Context, task tasks.Task, cc types.Connect
 }
 
 // New returns a task manager that queues a sync task.
-func New(ctx context.Context, task tasks.Task) (tasks.Manager, error) {
+func New(ctx context.Context, dbPath string) (tasks.Manager, error) {
 	nm := &localSyncer{
-		task: task,
+		dbPath: dbPath,
 	}
 
 	return nm, nil

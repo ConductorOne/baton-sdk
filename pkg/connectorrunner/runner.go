@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"time"
 
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/tasks/c1api"
@@ -20,9 +21,9 @@ import (
 )
 
 type connectorRunner struct {
-	cw           types.ClientWrapper
-	onDemandMode bool
-	tasks        tasks.Manager
+	cw      types.ClientWrapper
+	oneShot bool
+	tasks   tasks.Manager
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -74,7 +75,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
 	var waitDuration time.Duration
-	var nextTask tasks.Task
+	var nextTask *v1.Task
 	var err error
 	for {
 		select {
@@ -90,25 +91,23 @@ func (c *connectorRunner) run(ctx context.Context) error {
 		}
 
 		if nextTask == nil {
-			if c.onDemandMode {
+			l.Info("No tasks available. Waiting to check again.", zap.Duration("wait_duration", waitDuration))
+			if c.oneShot {
+				l.Debug("One-shot mode enabled. Exiting.")
 				return nil
 			}
 			continue
 		}
 
-		if nextTask.GetTaskType() == "none" {
-			l.Debug("no task to run -- continuing")
+		cc, err := c.cw.C(ctx)
+		if err != nil {
+			l.Error("error getting connector client", zap.Error(err), zap.String("task_id", nextTask.GetId()))
 			continue
 		}
 
-		cc, err := c.cw.C(ctx)
+		err = c.tasks.Process(ctx, nextTask, cc)
 		if err != nil {
-			l.Error("error getting client", zap.Error(err))
-			continue
-		}
-		err = c.tasks.Run(ctx, nextTask, cc)
-		if err != nil {
-			l.Error("error running task", zap.Error(err))
+			l.Error("error processing task", zap.Error(err), zap.String("task_id", nextTask.GetId()))
 			continue
 		}
 
@@ -235,25 +234,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		}
 	}
 
-	if cfg.onDemandSync {
-		if cfg.c1zPath == "" {
-			return nil, errors.New("c1zPath must be set when using onDemandSync")
-		}
-		tm, err := localsyncer.New(ctx, tasks.NewLocalFileSyncTask(cfg.c1zPath))
-		if err != nil {
-			return nil, err
-		}
-		runner.tasks = tm
-
-		runner.onDemandMode = true
-	} else {
-		tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret)
-		if err != nil {
-			return nil, err
-		}
-		runner.tasks = tm
-	}
-
 	wrapperOpts := []connector.Option{}
 	wrapperOpts = append(wrapperOpts, connector.WithRateLimiterConfig(cfg.rlCfg))
 
@@ -267,6 +247,26 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	}
 
 	runner.cw = cw
+
+	if cfg.onDemandSync {
+		if cfg.c1zPath == "" {
+			return nil, errors.New("c1zPath must be set when using onDemandSync")
+		}
+		tm, err := localsyncer.New(ctx, cfg.c1zPath)
+		if err != nil {
+			return nil, err
+		}
+		runner.tasks = tm
+
+		runner.oneShot = true
+		return runner, nil
+	}
+
+	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret)
+	if err != nil {
+		return nil, err
+	}
+	runner.tasks = tm
 
 	return runner, nil
 }

@@ -2,8 +2,11 @@ package c1api
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"fmt"
+	"io"
+	"math"
 	"net"
 	"os"
 
@@ -16,7 +19,23 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
-var _ = v1.ConnectorWorkServiceClient((*c1ServiceClient)(nil))
+const (
+	// API allows for up to 4MB chunks, but that is also the max gRPC message size. We use 3MB to be safe.
+	fileChunkSize = 3 * 1024 * 1024 // 3MB
+)
+
+type C1ServiceClient interface {
+	c1HelloClient
+
+	GetTask(ctx context.Context, req *v1.GetTaskRequest) (*v1.GetTaskResponse, error)
+	Heartbeat(ctx context.Context, req *v1.HeartbeatRequest) (*v1.HeartbeatResponse, error)
+	FinishTask(ctx context.Context, req *v1.FinishTaskRequest) (*v1.FinishTaskResponse, error)
+	Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error
+}
+
+type c1HelloClient interface {
+	Hello(ctx context.Context, req *v1.HelloRequest) (*v1.HelloResponse, error)
+}
 
 type c1ServiceClient struct {
 	addr     string
@@ -24,15 +43,12 @@ type c1ServiceClient struct {
 	hostID   string
 }
 
-func (c *c1ServiceClient) getHostID(ctx context.Context) (string, error) {
+func (c *c1ServiceClient) getHostID() string {
 	if c.hostID != "" {
-		return c.hostID, nil
+		return c.hostID
 	}
 
-	hostID, err := os.Hostname()
-	if err != nil {
-		return "", err
-	}
+	hostID, _ := os.Hostname()
 	if envHost, ok := os.LookupEnv("BATON_HOST_ID"); ok {
 		hostID = envHost
 	}
@@ -42,7 +58,7 @@ func (c *c1ServiceClient) getHostID(ctx context.Context) (string, error) {
 	}
 
 	c.hostID = hostID
-	return c.hostID, nil
+	return c.hostID
 }
 
 func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkServiceClient, func(), error) {
@@ -62,100 +78,146 @@ func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkSe
 	}, nil
 }
 
-func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.HelloRequest, opts ...grpc.CallOption) (*v1.HelloResponse, error) {
+func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.HelloRequest) (*v1.HelloResponse, error) {
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
 
-	hostID, err := c.getHostID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	in.HostId = hostID
+	in.HostId = c.getHostID()
 
-	return client.Hello(ctx, in, opts...)
+	return client.Hello(ctx, in)
 }
 
-func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.GetTaskRequest, opts ...grpc.CallOption) (*v1.GetTaskResponse, error) {
+func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.GetTaskRequest) (*v1.GetTaskResponse, error) {
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
 
-	hostID, err := c.getHostID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	in.HostId = hostID
+	in.HostId = c.getHostID()
 
-	return client.GetTask(ctx, in, opts...)
+	return client.GetTask(ctx, in)
 }
 
-func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.HeartbeatRequest, opts ...grpc.CallOption) (*v1.HeartbeatResponse, error) {
+func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.HeartbeatRequest) (*v1.HeartbeatResponse, error) {
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
 
-	hostID, err := c.getHostID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	in.HostId = hostID
+	in.HostId = c.getHostID()
 
-	return client.Heartbeat(ctx, in, opts...)
+	return client.Heartbeat(ctx, in)
 }
 
-func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.FinishTaskRequest, opts ...grpc.CallOption) (*v1.FinishTaskResponse, error) {
+func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.FinishTaskRequest) (*v1.FinishTaskResponse, error) {
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer done()
 
-	hostID, err := c.getHostID(ctx)
-	if err != nil {
-		return nil, err
-	}
-	in.HostId = hostID
+	in.HostId = c.getHostID()
 
-	return client.FinishTask(ctx, in, opts...)
+	return client.FinishTask(ctx, in)
 }
 
-func (c *c1ServiceClient) UploadAsset(ctx context.Context, opts ...grpc.CallOption) (v1.ConnectorWorkService_UploadAssetClient, error) {
+func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error {
+	l := ctxzap.Extract(ctx)
+
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer done()
 
-	return client.UploadAsset(ctx, opts...)
+	uc, err := client.UploadAsset(ctx)
+	if err != nil {
+		return err
+	}
+
+	hasher := sha256.New()
+	rLen, err := io.Copy(hasher, r)
+	if err != nil {
+		l.Error("failed to calculate sha256 of upload asset", zap.Error(err))
+		return err
+	}
+	shaChecksum := hasher.Sum(nil)
+
+	_, err = r.Seek(0, io.SeekStart)
+	if err != nil {
+		l.Error("failed to seek to start of upload asset", zap.Error(err))
+		return err
+	}
+
+	err = uc.Send(&v1.UploadAssetRequest{
+		Msg: &v1.UploadAssetRequest_Metadata{
+			Metadata: &v1.UploadAssetRequest_UploadMetadata{
+				HostId: c.getHostID(),
+				TaskId: task.Id,
+			},
+		},
+	})
+	if err != nil {
+		l.Error("failed to send upload metadata", zap.Error(err))
+		return err
+	}
+
+	chunkCount := uint64(math.Ceil(float64(rLen) / float64(fileChunkSize)))
+	for i := uint64(0); i < chunkCount; i++ {
+		l.Debug("sending upload chunk", zap.Uint64("chunk", i), zap.Uint64("total_chunks", chunkCount))
+
+		chunkSize := fileChunkSize
+		if i == chunkCount-1 {
+			chunkSize = int(rLen) - int(i)*fileChunkSize
+		}
+
+		chunk := make([]byte, chunkSize)
+		_, err = r.Read(chunk)
+		if err != nil {
+			l.Error("failed to read upload asset", zap.Error(err))
+			return err
+		}
+
+		err = uc.Send(&v1.UploadAssetRequest{
+			Msg: &v1.UploadAssetRequest_Data{
+				Data: &v1.UploadAssetRequest_UploadData{
+					Data: chunk,
+				},
+			},
+		})
+		if err != nil {
+			l.Error("failed to send upload chunk", zap.Error(err))
+			return err
+		}
+	}
+
+	err = uc.Send(&v1.UploadAssetRequest{
+		Msg: &v1.UploadAssetRequest_Eof{
+			Eof: &v1.UploadAssetRequest_UploadEOF{
+				Sha256Checksum: shaChecksum,
+			},
+		},
+	})
+	if err != nil {
+		l.Error("failed to send upload metadata", zap.Error(err))
+		return err
+	}
+
+	_, err = uc.CloseAndRecv()
+	if err != nil {
+		l.Error("failed to close upload client", zap.Error(err))
+		return err
+	}
+
+	return nil
 }
 
-func (c *c1ServiceClient) Upload(ctx context.Context, opts ...grpc.CallOption) (v1.ConnectorWorkService_UploadAssetClient, string, func(), error) {
-	hostID, err := c.getHostID(ctx)
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	client, done, err := c.getClientConn(ctx)
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	uc, err := client.UploadAsset(ctx, opts...)
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	return uc, hostID, done, nil
-}
-
-func newServiceClient(ctx context.Context, clientID string, clientSecret string) (*c1ServiceClient, error) {
+func newServiceClient(ctx context.Context, clientID string, clientSecret string) (C1ServiceClient, error) {
 	credProvider, clientName, tokenHost, err := ugrpc.NewC1CredentialProvider(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, err
