@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package c1.service_mode.v1;
+package c1.connectorapi.service_mode.v1;
 
-option go_package = "github.com/conductorone/baton-sdk/pb/c1/service_mode/v1";
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1";
 
 import "c1/connector/v2/resource.proto";
 import "c1/connector/v2/entitlement.proto";
@@ -12,26 +12,16 @@ import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
 
 service ConnectorWorkService {
-  rpc Hello(HelloRequest) returns (HelloResponse);
-  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  rpc Hello(HelloRequest) returns (HelloResponse) {};
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse) {};
 
   // Connector calls this to inform the platform that it is still working on the task
   // If after sometime we don't hear a heartbeat, the platform should scrap the work and move it back to pending
-  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse) {};
 
   // Once the task is finished, the connector streams the results of the task
-  rpc FinishTask(FinishTaskRequest) returns (FinishTaskResponse);
-  rpc UploadAsset(stream UploadAssetRequest) returns (UploadAssetResponse);
-}
-
-message HelloRequest {
-  string task_id = 1;
-  c1.connector.v2.ConnectorMetadata connector_metadata = 2;
-  repeated google.protobuf.Any annotations = 4;
-}
-
-message HelloResponse {
-  repeated google.protobuf.Any annotations = 1;
+  rpc FinishTask(FinishTaskRequest) returns (FinishTaskResponse) {};
+  rpc UploadAsset(stream UploadAssetRequest) returns (UploadAssetResponse) {};
 }
 
 message Task {
@@ -43,12 +33,16 @@ message Task {
     STATUS_FINISHED = 4;
   }
 
-  message SyncFullTask {
-    string upload_id = 1;
+  message NoneTask {
+    repeated google.protobuf.Any annotations = 1;
   }
 
-  message SyncResourceTask {
-    connector.v2.Resource resource = 1;
+  message HelloTask {
+    repeated google.protobuf.Any annotations = 1;
+  }
+
+  message SyncFullTask {
+    repeated google.protobuf.Any annotations = 1;
   }
 
   message GrantTask {
@@ -59,32 +53,46 @@ message Task {
 
   message RevokeTask {
     connector.v2.Grant grant = 1;
-    repeated google.protobuf.Any annotations = 3;
+    repeated google.protobuf.Any annotations = 2;
   }
-
-  message HelloTask {}
 
   string id = 1;
   Status status = 2;
   oneof task_type {
-    SyncFullTask sync_full = 100;
-    GrantTask grant = 101;
-    RevokeTask revoke = 102;
-    HelloTask hello = 103;
+    NoneTask none = 100;
+    HelloTask hello = 101;
+    SyncFullTask sync_full = 102;
+    GrantTask grant = 103;
+    RevokeTask revoke = 104;
   }
 }
 
-message GetTaskRequest {}
+message HelloRequest {
+  string host_id = 1;
+  string task_id = 2; // You may say Hello anytime, but if you are responding to a task, you must provide the task_id
+  c1.connector.v2.ConnectorMetadata connector_metadata = 3;
+  repeated google.protobuf.Any annotations = 4;
+}
+
+message HelloResponse {
+  repeated google.protobuf.Any annotations = 1;
+}
+
+message GetTaskRequest {
+  string host_id = 1;
+}
 
 message GetTaskResponse {
   Task task = 1;
   google.protobuf.Duration next_poll = 2;
   google.protobuf.Duration next_deadline = 3;
+  repeated google.protobuf.Any annotations = 4;
 }
 
 message HeartbeatRequest {
-  string task_id = 1;
-  repeated google.protobuf.Any annotations = 2; // Useful for returning status updates on the task
+  string host_id = 1;
+  string task_id = 2;
+  repeated google.protobuf.Any annotations = 3; // Useful for returning status updates on the task
 }
 
 message HeartbeatResponse {
@@ -93,23 +101,15 @@ message HeartbeatResponse {
   repeated google.protobuf.Any annotations = 3;
 }
 
-message Error {
-  string error = 1;
-  bool fatal = 2;
-  repeated google.protobuf.Any annotations = 3;
-}
-
-message Success {
-  repeated google.protobuf.Any annotations = 1;
-}
-
 message UploadAssetRequest {
   message UploadMetadata {
-    string upload_id = 1;
+    string host_id = 1;
+    string task_id = 2;
     repeated google.protobuf.Any annotations = 3;
   }
 
   message UploadData {
+    // 4MB limit
     bytes data = 1;
   }
 
@@ -119,9 +119,9 @@ message UploadAssetRequest {
   }
 
   oneof msg {
-    UploadMetadata metadata = 1;
-    UploadData data = 2;
-    UploadEOF eof = 3;
+    UploadMetadata metadata = 100;
+    UploadData data = 101;
+    UploadEOF eof = 102;
   }
 }
 
@@ -131,10 +131,22 @@ message UploadAssetResponse {
 
 // Connector submits a task has been finished. It should always be removed from the queue, and if it isn't a fatal error, we should re-add it to the queue to try again.
 message FinishTaskRequest {
-  string task_id = 1;
+  string host_id = 1;
+  string task_id = 2;
+
+  message Error {
+    string error = 1;
+    bool fatal = 2;
+    repeated google.protobuf.Any annotations = 3;
+  }
+
+  message Success {
+    repeated google.protobuf.Any annotations = 3;
+  }
+
   oneof final_state {
-    Error error = 102;
-    Success  success = 103;
+    Error error = 100;
+    Success success = 101;
   }
 }
 

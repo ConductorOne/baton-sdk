@@ -69,7 +69,13 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			r, err := connectorrunner.NewConnectorRunner(loggerCtx, v.GetString("file"), !v.GetBool("daemonize"), c, opts...)
+			if !v.GetBool("daemonize") {
+				opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
+			} else {
+				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
+			}
+
+			r, err := connectorrunner.NewConnectorRunner(loggerCtx, c, opts...)
 			if err != nil {
 				l.Error("error creating connector runner", zap.Error(err))
 				return err
@@ -159,6 +165,8 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("log-format", defaultLogFormat, "The output format for logs: json, console ($BATON_LOG_FORMAT)")
 	cmd.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to sync with ($BATON_FILE)")
 	cmd.PersistentFlags().BoolP("daemonize", "d", false, "Run in daemon mode ($BATON_DAEMONIZE).")
+	cmd.PersistentFlags().String("client-id", "", "The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)")
+	cmd.PersistentFlags().String("client-secret", "", "The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)")
 	err := cmd.PersistentFlags().MarkHidden("daemonize")
 	if err != nil {
 		return nil, err

@@ -3,14 +3,15 @@ package connectorrunner
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"os/signal"
 	"time"
 
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
-	"github.com/conductorone/baton-sdk/pkg/connectorrunner/tasks"
-	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
+	"github.com/conductorone/baton-sdk/pkg/tasks"
+	"github.com/conductorone/baton-sdk/pkg/tasks/c1api"
+	"github.com/conductorone/baton-sdk/pkg/tasks/localsyncer"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -20,10 +21,9 @@ import (
 )
 
 type connectorRunner struct {
-	cw           types.ClientWrapper
-	dbPath       string
-	onDemandMode bool
-	tasks        tasks.Manager
+	cw      types.ClientWrapper
+	oneShot bool
+	tasks   tasks.Manager
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -74,82 +74,45 @@ func (c *connectorRunner) handleContextCancel(ctx context.Context) error {
 func (c *connectorRunner) run(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
-	l.Info("waiting for work....")
-
-	var done bool
-
-	for !done {
+	var waitDuration time.Duration
+	var nextTask *v1.Task
+	var err error
+	for {
 		select {
 		case <-ctx.Done():
 			return c.handleContextCancel(ctx)
-		default:
+		case <-time.After(waitDuration):
 		}
 
-		nextTask, err := c.tasks.Next(ctx)
+		nextTask, waitDuration, err = c.tasks.Next(ctx)
 		if err != nil {
 			l.Error("error getting next task", zap.Error(err))
 			continue
 		}
 
-		// No work for us to do, go to sleep for a bit and try again
 		if nextTask == nil {
-			l.Debug("no available tasks, going to sleep for 5 seconds")
-			select {
-			case <-ctx.Done():
-				return c.handleContextCancel(ctx)
-			case <-time.After(time.Second * 5):
+			l.Info("No tasks available. Waiting to check again.", zap.Duration("wait_duration", waitDuration))
+			if c.oneShot {
+				l.Debug("One-shot mode enabled. Exiting.")
+				return nil
 			}
 			continue
 		}
 
-		switch nextTask.(type) {
-		case *tasks.SyncTask:
-			client, err := c.cw.C(ctx)
-			if err != nil {
-				return err
-			}
-
-			syncer, err := sdkSync.NewSyncer(ctx, client, c.dbPath)
-			if err != nil {
-				return err
-			}
-
-			err = syncer.Sync(ctx)
-			if err != nil {
-				return err
-			}
-
-			err = syncer.Close(ctx)
-			if err != nil {
-				return err
-			}
-
-			err = c.tasks.Finish(ctx, nextTask.GetTaskId())
-			if err != nil {
-				return err
-			}
-
-			if c.onDemandMode {
-				done = true
-			}
-
-			err = c.cw.Close()
-			if err != nil {
-				return err
-			}
-
-		default:
-			l.Debug("unknown task type, going to sleep for 10 seconds")
-			select {
-			case <-ctx.Done():
-				return c.handleContextCancel(ctx)
-			case <-time.After(time.Second * 10):
-			}
+		cc, err := c.cw.C(ctx)
+		if err != nil {
+			l.Error("error getting connector client", zap.Error(err), zap.String("task_id", nextTask.GetId()))
 			continue
 		}
+
+		err = c.tasks.Process(ctx, nextTask, cc)
+		if err != nil {
+			l.Error("error processing task", zap.Error(err), zap.String("task_id", nextTask.GetId()))
+			continue
+		}
+
+		l.Info("Task complete! Waiting before checking for more tasks...", zap.Duration("wait_duration", waitDuration))
 	}
-
-	return nil
 }
 
 func (c *connectorRunner) Close(ctx context.Context) error {
@@ -161,6 +124,11 @@ type Option func(ctx context.Context, cfg *runnerConfig) error
 type runnerConfig struct {
 	rlCfg         *ratelimitV1.RateLimiterConfig
 	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
+	onDemandSync  bool
+	c1zPath       string
+	clientAuth    bool
+	clientID      string
+	clientSecret  string
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -237,32 +205,30 @@ func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Opti
 	}
 }
 
+func WithClientCredentials(clientID string, clientSecret string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.clientID = clientID
+		cfg.clientSecret = clientSecret
+		cfg.clientAuth = true
+		return nil
+	}
+}
+
+func WithOnDemandSync(c1zPath string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemandSync = true
+		cfg.c1zPath = c1zPath
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
-func NewConnectorRunner(ctx context.Context, c1zPath string, onDemandSync bool, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
+func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
 	cfg := &runnerConfig{}
 
 	for _, o := range opts {
 		err := o(ctx, cfg)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	tm, err := tasks.NewNaiveManager(ctx)
-	if err != nil {
-		return nil, err
-	}
-	runner.tasks = tm
-
-	if c1zPath == "" {
-		return nil, fmt.Errorf("connector-runner: must provide a c1z path to sync with")
-	}
-	runner.dbPath = c1zPath
-
-	if onDemandSync {
-		runner.onDemandMode = true
-		err = runner.tasks.Add(ctx, tasks.NewSyncTask())
 		if err != nil {
 			return nil, err
 		}
@@ -281,6 +247,26 @@ func NewConnectorRunner(ctx context.Context, c1zPath string, onDemandSync bool, 
 	}
 
 	runner.cw = cw
+
+	if cfg.onDemandSync {
+		if cfg.c1zPath == "" {
+			return nil, errors.New("c1zPath must be set when using onDemandSync")
+		}
+		tm, err := localsyncer.New(ctx, cfg.c1zPath)
+		if err != nil {
+			return nil, err
+		}
+		runner.tasks = tm
+
+		runner.oneShot = true
+		return runner, nil
+	}
+
+	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret)
+	if err != nil {
+		return nil, err
+	}
+	runner.tasks = tm
 
 	return runner, nil
 }
