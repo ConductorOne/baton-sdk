@@ -3,25 +3,38 @@ package c1api
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
 )
 
 var (
 	errTimeoutDuration      = time.Second * 30
 	ErrTaskHeartbeatFailure = errors.New("task heart beating failed")
+	startupHelloTaskID      = ksuid.New().String()
 )
 
 type c1ApiTaskManager struct {
+	startupHello  sync.Once
 	serviceClient C1ServiceClient
 }
 
+func (c *c1ApiTaskManager) backoffJitter(d time.Duration) time.Duration {
+	return d
+}
+
 func (c *c1ApiTaskManager) heartbeatTask(ctx context.Context, task *v1.Task) error {
+	// HACK(jirwin): We don't want to heartbeat the startup hello task, so we generate a unique ID for it and skip it here.
+	if task.GetId() == startupHelloTaskID {
+		return nil
+	}
+
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", task.GetId()), zap.Stringer("task_type", tasks.GetType(task)))
 	var waitDuration time.Duration
 
@@ -57,18 +70,33 @@ func (c *c1ApiTaskManager) heartbeatTask(ctx context.Context, task *v1.Task) err
 func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	l := ctxzap.Extract(ctx)
 
+	var task *v1.Task
+	c.startupHello.Do(func() {
+		l.Debug("queueing startup hello task")
+		task = &v1.Task{
+			Id: startupHelloTaskID,
+			TaskType: &v1.Task_Hello{
+				Hello: &v1.Task_HelloTask{},
+			},
+		}
+	})
+
+	if task != nil {
+		return task, c.backoffJitter(time.Second), nil
+	}
+
 	l.Info("Checking for new tasks...")
 
 	resp, err := c.serviceClient.GetTask(ctx, &v1.GetTaskRequest{})
 	if err != nil {
-		return nil, errTimeoutDuration, err
+		return nil, c.backoffJitter(errTimeoutDuration), err
 	}
 
 	if resp.Task == nil || tasks.Is(resp.Task, tasks.NoneType) {
-		return nil, resp.GetNextPoll().AsDuration(), nil
+		return nil, c.backoffJitter(resp.GetNextPoll().AsDuration()), nil
 	}
 
-	return resp.Task, resp.GetNextPoll().AsDuration(), nil
+	return resp.Task, c.backoffJitter(resp.GetNextPoll().AsDuration()), nil
 }
 
 func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, err error) error {
@@ -138,10 +166,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		task:          task,
 		cc:            cc,
 		serviceClient: c.serviceClient,
-		taskFinisher: func(ctx context.Context, task *v1.Task, err error) error {
-			cancelTask(err)
-			return c.finishTask(ctx, task, err)
-		},
+		taskFinisher:  c.finishTask,
 	}
 
 	// Based on the task type, call a handler to process the task.
@@ -153,7 +178,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newFullSyncTaskHandler(task, tHelpers)
 
 	case tasks.HelloType:
-		handler = newHelloTaskHandler(task, tHelpers)
+		handler = newHelloTaskHandler(task, task.GetId() != startupHelloTaskID, tHelpers)
 
 	default:
 		return c.finishTask(ctx, task, errors.New("unsupported task type"))
@@ -163,7 +188,14 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		return c.finishTask(ctx, task, errors.New("unsupported task type - no handler"))
 	}
 
-	return handler.HandleTask(ctx)
+	err := handler.HandleTask(ctx)
+	if err != nil {
+		l.Error("error while handling task", zap.Error(err))
+		cancelTask(err)
+		return err
+	}
+
+	return nil
 }
 
 func NewC1TaskManager(ctx context.Context, clientID string, clientSecret string) (tasks.Manager, error) {

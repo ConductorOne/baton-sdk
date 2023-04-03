@@ -81,7 +81,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return err
 	}
 
-	return nil
+	return c.helpers.FinishTask(ctx, nil)
 }
 
 func newFullSyncTaskHandler(task *v1.Task, helpers fullSyncHelpers) tasks.TaskHandler {

@@ -8,7 +8,6 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
@@ -16,12 +15,12 @@ import (
 type helloHelpers interface {
 	ConnectorClient() types.ConnectorClient
 	HelloClient() c1HelloClient
-	FinishTask(ctx context.Context, err error) error
 }
 
 type helloTaskHandler struct {
-	task    *v1.Task
-	helpers helloHelpers
+	task          *v1.Task
+	includeTaskID bool
+	helpers       helloHelpers
 }
 
 func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
@@ -37,25 +36,31 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 	cc := c.helpers.ConnectorClient()
 	mdResp, err := cc.GetMetadata(ctx, &v2.ConnectorServiceGetMetadataRequest{})
 	if err != nil {
-		return c.helpers.FinishTask(ctx, err)
+		return err
 	}
 
-	resp, err := c.helpers.HelloClient().Hello(ctx, &v1.HelloRequest{
-		TaskId:            c.task.GetId(),
+	// The API changes behavior based on whether the task ID is included in the request or not
+	taskID := c.task.GetId()
+	if !c.includeTaskID {
+		taskID = ""
+	}
+
+	_, err = c.helpers.HelloClient().Hello(ctx, &v1.HelloRequest{
+		TaskId:            taskID,
 		ConnectorMetadata: mdResp.GetMetadata(),
 	})
 	if err != nil {
 		l.Error("failed while sending hello", zap.Error(err))
-		return c.helpers.FinishTask(ctx, err)
+		return err
 	}
-	spew.Dump(resp)
 
-	return c.helpers.FinishTask(ctx, nil)
+	return err
 }
 
-func newHelloTaskHandler(task *v1.Task, helpers helloHelpers) *helloTaskHandler {
+func newHelloTaskHandler(task *v1.Task, includeTaskID bool, helpers helloHelpers) *helloTaskHandler {
 	return &helloTaskHandler{
-		task:    task,
-		helpers: helpers,
+		task:          task,
+		helpers:       helpers,
+		includeTaskID: includeTaskID,
 	}
 }
