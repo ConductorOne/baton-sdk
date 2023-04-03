@@ -17,6 +17,7 @@ import (
 var (
 	errTimeoutDuration      = time.Second * 30
 	ErrTaskHeartbeatFailure = errors.New("task heart beating failed")
+	ErrTaskFatality         = errors.New("task failed fatally")
 	startupHelloTaskID      = ksuid.New().String()
 )
 
@@ -127,6 +128,7 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, err er
 		FinalState: &v1.FinishTaskRequest_Error_{
 			Error: &v1.FinishTaskRequest_Error{
 				Error: err.Error(),
+				Fatal: errors.Is(err, ErrTaskFatality),
 			},
 		},
 	})
@@ -149,6 +151,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		zap.String("task_id", task.GetId()),
 		zap.Stringer("task_type", tasks.GetType(task)),
 	)
+
+	l.Debug("processing task")
 
 	taskCtx, cancelTask := context.WithCancelCause(ctx)
 	defer cancelTask(nil)
@@ -179,6 +183,12 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 
 	case tasks.HelloType:
 		handler = newHelloTaskHandler(task, task.GetId() != startupHelloTaskID, tHelpers)
+
+	case tasks.GrantType:
+		handler = newGrantTaskHandler(task, tHelpers)
+
+	case tasks.RevokeType:
+		handler = newRevokeTaskHandler(task, tHelpers)
 
 	default:
 		return c.finishTask(ctx, task, errors.New("unsupported task type"))
