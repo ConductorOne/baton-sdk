@@ -17,7 +17,9 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/pquerna/xjwt"
 	"golang.org/x/oauth2"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/status"
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/json"
 	"gopkg.in/square/go-jose.v2/jwt"
@@ -162,10 +164,18 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		return nil, status.Errorf(codes.Unauthenticated, "failed to get token: %s", resp.Status)
+	}
+
 	c1t := &c1Token{}
 	err = json.NewDecoder(resp.Body).Decode(c1t)
 	if err != nil {
 		return nil, err
+	}
+
+	if c1t.AccessToken == "" {
+		return nil, status.Errorf(codes.Unauthenticated, "failed to get token: empty access token")
 	}
 
 	return &oauth2.Token{

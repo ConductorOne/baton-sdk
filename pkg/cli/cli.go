@@ -25,6 +25,18 @@ const (
 	defaultLogFormat      = logging.LogFormatJSON
 )
 
+func DaemonMode(ctx context.Context, enabled bool) bool {
+	if enabled {
+		return true
+	}
+
+	if IsService() {
+		return true
+	}
+
+	return false
+}
+
 type BaseConfig struct {
 	LogLevel   string `mapstructure:"log-level"`
 	LogFormat  string `mapstructure:"log-format"`
@@ -69,10 +81,12 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			if !v.GetBool("daemonize") {
-				opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
-			} else {
+			var opts []connectorrunner.Option
+			daemonMode := DaemonMode(ctx, v.GetBool("daemon-mode"))
+			if daemonMode {
 				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
+			} else {
+				opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 			}
 
 			r, err := connectorrunner.NewConnectorRunner(loggerCtx, c, opts...)
@@ -164,10 +178,10 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("log-level", defaultLogLevel, "The log level: debug, info, warn, error ($BATON_LOG_LEVEL)")
 	cmd.PersistentFlags().String("log-format", defaultLogFormat, "The output format for logs: json, console ($BATON_LOG_FORMAT)")
 	cmd.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to sync with ($BATON_FILE)")
-	cmd.PersistentFlags().BoolP("daemonize", "d", false, "Run in daemon mode ($BATON_DAEMONIZE).")
+	cmd.PersistentFlags().BoolP("daemon-mode", "d", false, "Run in daemon mode ($BATON_DAEMON_MODE)")
 	cmd.PersistentFlags().String("client-id", "", "The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)")
 	cmd.PersistentFlags().String("client-secret", "", "The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)")
-	err := cmd.PersistentFlags().MarkHidden("daemonize")
+	err := cmd.PersistentFlags().MarkHidden("daemon-mode")
 	if err != nil {
 		return nil, err
 	}
