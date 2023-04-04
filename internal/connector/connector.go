@@ -47,10 +47,11 @@ var ErrConnectorNotImplemented = errors.New("client does not implement connector
 type wrapper struct {
 	mtx sync.RWMutex
 
-	server      types.ConnectorServer
-	client      types.ConnectorClient
-	serverStdin io.WriteCloser
-	conn        *grpc.ClientConn
+	server              types.ConnectorServer
+	client              types.ConnectorClient
+	serverStdin         io.WriteCloser
+	conn                *grpc.ClientConn
+	provisioningEnabled bool
 
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
@@ -76,6 +77,14 @@ func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Opti
 		if entry != nil {
 			w.rlDescriptors = append(w.rlDescriptors, entry)
 		}
+
+		return nil
+	}
+}
+
+func WithProvisioningEnabled() Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.provisioningEnabled = true
 
 		return nil
 	}
@@ -139,7 +148,11 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	connectorV2.RegisterResourcesServiceServer(server, cw.server)
 	connectorV2.RegisterResourceTypesServiceServer(server, cw.server)
 	connectorV2.RegisterAssetServiceServer(server, cw.server)
-	connectorV2.RegisterGrantManagerServiceServer(server, cw.server)
+	if cw.provisioningEnabled {
+		connectorV2.RegisterGrantManagerServiceServer(server, cw.server)
+	} else {
+		connectorV2.RegisterGrantManagerServiceServer(server, &noopProvisioner{})
+	}
 
 	rl, err := ratelimit2.NewLimiter(ctx, cw.now, serverCfg.RateLimiterConfig)
 	if err != nil {

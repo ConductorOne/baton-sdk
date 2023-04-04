@@ -89,6 +89,10 @@ func NewCmd[T any, PtrT *T](
 				opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 			}
 
+			if v.GetBool("provisioning") {
+				opts = append(opts, connectorrunner.WithProvisioningEnabled())
+			}
+
 			r, err := connectorrunner.NewConnectorRunner(loggerCtx, c, opts...)
 			if err != nil {
 				l.Error("error creating connector runner", zap.Error(err))
@@ -130,7 +134,13 @@ func NewCmd[T any, PtrT *T](
 			if err != nil {
 				return err
 			}
-			cw, err := connector.NewWrapper(loggerCtx, c)
+
+			var copts []connector.Option
+			if v.GetBool("provisioning") {
+				copts = append(copts, connector.WithProvisioningEnabled())
+			}
+
+			cw, err := connector.NewWrapper(loggerCtx, c, copts...)
 			if err != nil {
 				return err
 			}
@@ -181,6 +191,7 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().BoolP("daemon-mode", "d", false, "Run in daemon mode ($BATON_DAEMON_MODE)")
 	cmd.PersistentFlags().String("client-id", "", "The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)")
 	cmd.PersistentFlags().String("client-secret", "", "The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)")
+	cmd.PersistentFlags().BoolP("provisioning", "p", false, "This must be set in order for provisioning actions to be enabled. ($BATON_PROVISIONING)")
 	err := cmd.PersistentFlags().MarkHidden("daemon-mode")
 	if err != nil {
 		return nil, err

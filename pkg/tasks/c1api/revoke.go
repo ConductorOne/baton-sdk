@@ -25,16 +25,14 @@ type revokeTaskHandler struct {
 func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", r.task.Id), zap.Stringer("task_type", tasks.GetType(r.task)))
 
-	if r.task.GetRevoke() == nil {
-		l.Error("revoke task was nil")
+	if r.task.GetRevoke() == nil || r.task.GetRevoke().GetGrant() == nil {
+		l.Error("revoke task was nil or missing grant", zap.Any("revoke", r.task.GetRevoke()), zap.Any("grant", r.task.GetRevoke().GetGrant()))
 		return r.helpers.FinishTask(ctx, errors.Join(errors.New("invalid task type"), ErrTaskFatality))
 	}
 
-	revoke := r.task.GetRevoke()
-
 	cc := r.helpers.ConnectorClient()
 	_, err := cc.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
-		Grant: revoke.Grant,
+		Grant: r.task.GetRevoke().GetGrant(),
 	})
 	if err != nil {
 		l.Error("failed while granting entitlement", zap.Error(err))

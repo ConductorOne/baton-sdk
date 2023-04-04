@@ -122,13 +122,14 @@ func (c *connectorRunner) Close(ctx context.Context) error {
 type Option func(ctx context.Context, cfg *runnerConfig) error
 
 type runnerConfig struct {
-	rlCfg         *ratelimitV1.RateLimiterConfig
-	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
-	onDemandSync  bool
-	c1zPath       string
-	clientAuth    bool
-	clientID      string
-	clientSecret  string
+	rlCfg               *ratelimitV1.RateLimiterConfig
+	rlDescriptors       []*ratelimitV1.RateLimitDescriptors_Entry
+	onDemandSync        bool
+	c1zPath             string
+	clientAuth          bool
+	clientID            string
+	clientSecret        string
+	provisioningEnabled bool
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -222,6 +223,13 @@ func WithOnDemandSync(c1zPath string) Option {
 	}
 }
 
+func WithProvisioningEnabled() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.provisioningEnabled = true
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
@@ -239,6 +247,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 	for _, d := range cfg.rlDescriptors {
 		wrapperOpts = append(wrapperOpts, connector.WithRateLimitDescriptor(d))
+	}
+
+	if cfg.provisioningEnabled {
+		wrapperOpts = append(wrapperOpts, connector.WithProvisioningEnabled())
 	}
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)

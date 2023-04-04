@@ -25,9 +25,14 @@ type grantTaskHandler struct {
 func (g *grantTaskHandler) HandleTask(ctx context.Context) error {
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.Id), zap.Stringer("task_type", tasks.GetType(g.task)))
 
-	if g.task.GetGrant() == nil {
-		l.Error("grant task was nil")
-		return g.helpers.FinishTask(ctx, errors.Join(errors.New("invalid task type"), ErrTaskFatality))
+	if g.task.GetGrant() == nil || g.task.GetGrant().GetEntitlement() == nil || g.task.GetGrant().GetPrincipal() == nil {
+		l.Error(
+			"grant task was nil or missing entitlement or principal",
+			zap.Any("grant", g.task.GetGrant()),
+			zap.Any("entitlement", g.task.GetGrant().GetEntitlement()),
+			zap.Any("principal", g.task.GetGrant().GetPrincipal()),
+		)
+		return g.helpers.FinishTask(ctx, errors.Join(errors.New("malformed grant task"), ErrTaskFatality))
 	}
 
 	grant := g.task.GetGrant()
