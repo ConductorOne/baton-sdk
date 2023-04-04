@@ -1,5 +1,4 @@
 //go:build windows
-// +build windows
 
 package cli
 
@@ -8,5 +7,8 @@ import (
 )
 
 func IsService() bool {
-	return svc.IsWindowsService()
+	if ok, _ := svc.IsWindowsService(); ok {
+		return true
+	}
+	return false
 }
