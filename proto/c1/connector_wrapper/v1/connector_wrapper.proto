@@ -10,4 +10,5 @@ import "c1/ratelimit/v1/ratelimit.proto";
 message ServerConfig {
   utls.v1.Credential credential = 1;
   ratelimit.v1.RateLimiterConfig rate_limiter_config = 2;
+  uint32 listen_port = 3;
 }

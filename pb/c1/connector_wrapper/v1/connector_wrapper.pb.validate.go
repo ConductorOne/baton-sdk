@@ -115,6 +115,8 @@ func (m *ServerConfig) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for ListenPort
+
 	if len(errors) > 0 {
 		return ServerConfigMultiError(errors)
 	}

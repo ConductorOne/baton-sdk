@@ -242,7 +242,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		}
 	}
 
-	wrapperOpts := []connector.Option{}
+	var wrapperOpts []connector.Option
 	wrapperOpts = append(wrapperOpts, connector.WithRateLimiterConfig(cfg.rlCfg))
 
 	for _, d := range cfg.rlDescriptors {
