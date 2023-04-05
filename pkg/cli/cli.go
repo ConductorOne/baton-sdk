@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
@@ -19,10 +20,9 @@ import (
 )
 
 const (
-	defaultConfigFilename = ".baton-%s"
-	envPrefix             = "baton"
-	defaultLogLevel       = "info"
-	defaultLogFormat      = logging.LogFormatJSON
+	envPrefix        = "baton"
+	defaultLogLevel  = "info"
+	defaultLogFormat = logging.LogFormatJSON
 )
 
 type BaseConfig struct {
@@ -44,7 +44,7 @@ func NewCmd[T any, PtrT *T](
 		Use:   name,
 		Short: name,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			v, err := loadConfig(name, cmd, cfg)
+			v, err := loadConfig(cmd, cfg)
 			if err != nil {
 				return err
 			}
@@ -68,7 +68,7 @@ func NewCmd[T any, PtrT *T](
 		Short:  "Start the connector service",
 		Hidden: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			v, err := loadConfig(name, cmd, cfg)
+			v, err := loadConfig(cmd, cfg)
 			if err != nil {
 				return err
 			}
@@ -139,12 +139,36 @@ func NewCmd[T any, PtrT *T](
 	return cmd, nil
 }
 
+func getConfigPath(customPath string) (string, string, error) {
+	if customPath != "" {
+		cfgDir, cfgFile := filepath.Split(filepath.Clean(customPath))
+		if cfgDir == "" {
+			cfgDir = "."
+		}
+
+		ext := filepath.Ext(cfgFile)
+		if ext == "" && ext != ".yaml" && ext != ".yml" {
+			return "", "", errors.New("expected config file to have .yaml or .yml extension")
+		}
+
+		return strings.TrimSuffix(cfgDir, string(filepath.Separator)), strings.TrimSuffix(cfgFile, ext), nil
+	}
+
+	return ".", ".baton", nil
+}
+
 // loadConfig sets viper up to parse the config into the provided configuration object.
-func loadConfig[T any, PtrT *T](name string, cmd *cobra.Command, cfg PtrT) (*viper.Viper, error) {
+func loadConfig[T any, PtrT *T](cmd *cobra.Command, cfg PtrT) (*viper.Viper, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
-	v.SetConfigName(fmt.Sprintf(defaultConfigFilename, name))
-	v.AddConfigPath(".")
+
+	cfgPath, cfgName, err := getConfigPath(os.Getenv("BATON_CONFIG_PATH"))
+	if err != nil {
+		return nil, err
+	}
+
+	v.SetConfigName(cfgName)
+	v.AddConfigPath(cfgPath)
 
 	if err := v.ReadInConfig(); err != nil {
 		if ok := !errors.Is(err, viper.ConfigFileNotFoundError{}); !ok {
