@@ -9,9 +9,5 @@ import (
 )
 
 func IsService() bool {
-	if term.IsTerminal(int(os.Stdin.Fd())) {
-		return false
-	}
-
-	return true
+	return !term.IsTerminal(int(os.Stdin.Fd()))
 }
