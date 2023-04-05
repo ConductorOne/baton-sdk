@@ -3,6 +3,9 @@
 package cli
 
 import (
+	"context"
+
+	"github.com/spf13/cobra"
 	"golang.org/x/sys/windows/svc"
 )
 
@@ -11,4 +14,8 @@ func IsService() bool {
 		return true
 	}
 	return false
+}
+
+func additionalCommands(ctx context.Context) ([]*cobra.Command, error) {
+	return nil, nil
 }

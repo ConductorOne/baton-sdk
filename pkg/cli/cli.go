@@ -188,5 +188,14 @@ func NewCmd[T any, PtrT *T](
 	if err != nil {
 		return nil, err
 	}
+
+	// Add a hook for additional commands to be added to the root command.
+	// We use this for OS specific commands.
+	xtraCmds, err := additionalCommands(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cmd.AddCommand(xtraCmds...)
+
 	return cmd, nil
 }
