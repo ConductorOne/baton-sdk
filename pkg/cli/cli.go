@@ -24,18 +24,6 @@ const (
 	defaultLogFormat = logging.LogFormatJSON
 )
 
-func DaemonMode(ctx context.Context, enabled bool) bool {
-	if enabled {
-		return true
-	}
-
-	if IsService() {
-		return true
-	}
-
-	return false
-}
-
 // NewCmd returns a new cobra command that will populate the provided config object, validate it, and run the provided run function.
 func NewCmd[T any, PtrT *T](
 	ctx context.Context,
@@ -45,6 +33,11 @@ func NewCmd[T any, PtrT *T](
 	getConnector func(ctx context.Context, cfg PtrT) (types.ConnectorServer, error),
 	opts ...connectorrunner.Option,
 ) (*cobra.Command, error) {
+	err := setupService(name)
+	if err != nil {
+		return nil, err
+	}
+
 	cmd := &cobra.Command{
 		Use:           name,
 		Short:         name,
@@ -56,7 +49,12 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			loggerCtx, err := logging.Init(ctx, v.GetString("log-format"), v.GetString("log-level"))
+			runCtx, err := initLogger(
+				ctx,
+				name,
+				logging.WithLogFormat(v.GetString("log-format")),
+				logging.WithLogLevel(v.GetString("log-level")),
+			)
 			if err != nil {
 				return err
 			}
@@ -66,15 +64,22 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			l := ctxzap.Extract(loggerCtx)
+			l := ctxzap.Extract(runCtx)
 
-			c, err := getConnector(loggerCtx, cfg)
+			if isService() {
+				runCtx, err = runService(runCtx, name)
+				if err != nil {
+					l.Error("error running service", zap.Error(err))
+					return err
+				}
+			}
+
+			c, err := getConnector(runCtx, cfg)
 			if err != nil {
 				return err
 			}
 
-			var opts []connectorrunner.Option
-			daemonMode := DaemonMode(ctx, v.GetBool("daemon-mode"))
+			daemonMode := v.GetBool("daemon-mode") || isService()
 			if daemonMode {
 				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
 			} else {
@@ -85,14 +90,14 @@ func NewCmd[T any, PtrT *T](
 				opts = append(opts, connectorrunner.WithProvisioningEnabled())
 			}
 
-			r, err := connectorrunner.NewConnectorRunner(loggerCtx, c, opts...)
+			r, err := connectorrunner.NewConnectorRunner(runCtx, c, opts...)
 			if err != nil {
 				l.Error("error creating connector runner", zap.Error(err))
 				return err
 			}
-			defer r.Close(loggerCtx)
+			defer r.Close(runCtx)
 
-			err = r.Run(loggerCtx)
+			err = r.Run(runCtx)
 			if err != nil {
 				l.Error("error running connector", zap.Error(err))
 				return err
@@ -112,17 +117,22 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			loggerCtx, err := logging.Init(ctx, v.GetString("log-format"), v.GetString("log-level"))
+			runCtx, err := initLogger(
+				ctx,
+				name,
+				logging.WithLogFormat(v.GetString("log-format")),
+				logging.WithLogLevel(v.GetString("log-level")),
+			)
 			if err != nil {
 				return err
 			}
 
-			err = validateF(loggerCtx, cfg)
+			err = validateF(runCtx, cfg)
 			if err != nil {
 				return err
 			}
 
-			c, err := getConnector(loggerCtx, cfg)
+			c, err := getConnector(runCtx, cfg)
 			if err != nil {
 				return err
 			}
@@ -132,7 +142,7 @@ func NewCmd[T any, PtrT *T](
 				copts = append(copts, connector.WithProvisioningEnabled())
 			}
 
-			cw, err := connector.NewWrapper(loggerCtx, c, copts...)
+			cw, err := connector.NewWrapper(runCtx, c, copts...)
 			if err != nil {
 				return err
 			}
@@ -171,7 +181,7 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			return cw.Run(loggerCtx, serverCfg)
+			return cw.Run(runCtx, serverCfg)
 		},
 	}
 
@@ -184,10 +194,11 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("client-id", "", "The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)")
 	cmd.PersistentFlags().String("client-secret", "", "The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)")
 	cmd.PersistentFlags().BoolP("provisioning", "p", false, "This must be set in order for provisioning actions to be enabled. ($BATON_PROVISIONING)")
-	err := cmd.PersistentFlags().MarkHidden("daemon-mode")
+	err = cmd.PersistentFlags().MarkHidden("daemon-mode")
 	if err != nil {
 		return nil, err
 	}
+	cmd.MarkFlagsMutuallyExclusive("file", "daemon-mode")
 
 	// Add a hook for additional commands to be added to the root command.
 	// We use this for OS specific commands.

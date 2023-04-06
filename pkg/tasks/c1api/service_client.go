@@ -9,6 +9,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
@@ -62,14 +63,17 @@ func (c *c1ServiceClient) getHostID() string {
 }
 
 func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkServiceClient, func(), error) {
+	dialCtx, cancel := context.WithTimeout(ctx, time.Second*30)
+	defer cancel()
 	cc, err := grpc.DialContext(
-		ctx,
+		dialCtx,
 		c.addr,
 		c.dialOpts...,
 	)
 	if err != nil {
 		return nil, nil, err
 	}
+
 	return v1.NewConnectorWorkServiceClient(cc), func() {
 		err = cc.Close()
 		if err != nil {

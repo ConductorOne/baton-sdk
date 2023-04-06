@@ -11,10 +11,12 @@ import (
 )
 
 type BaseConfig struct {
-	LogLevel   string `mapstructure:"log-level"`
-	LogFormat  string `mapstructure:"log-format"`
-	C1zPath    string `mapstructure:"file"`
-	DaemonMode bool   `mapstructure:"daemonize"`
+	LogLevel     string `mapstructure:"log-level"`
+	LogFormat    string `mapstructure:"log-format"`
+	C1zPath      string `mapstructure:"file"`
+	DaemonMode   bool   `mapstructure:"daemonize"`
+	ClientID     string `mapstructure:"client-id"`
+	ClientSecret string `mapstructure:"client-secret"`
 }
 
 func getConfigPath(customPath string) (string, string, error) {
@@ -25,7 +27,7 @@ func getConfigPath(customPath string) (string, string, error) {
 		}
 
 		ext := filepath.Ext(cfgFile)
-		if ext == "" && ext != ".yaml" && ext != ".yml" {
+		if ext == "" || (ext != ".yaml" && ext != ".yml") {
 			return "", "", errors.New("expected config file to have .yaml or .yml extension")
 		}
 
