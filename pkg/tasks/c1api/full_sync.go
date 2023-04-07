@@ -32,7 +32,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	assetFile, err := os.CreateTemp("", "baton-sdk-sync-upload")
 	if err != nil {
 		l.Error("failed to create temp file", zap.Error(err))
-		return err
+		return c.helpers.FinishTask(ctx, err)
 	}
 	c1zPath := assetFile.Name()
 	err = assetFile.Close()
@@ -78,7 +78,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	err = c.helpers.Upload(ctx, c1zF)
 	if err != nil {
 		l.Error("failed to upload sync asset", zap.Error(err))
-		return err
+		return c.helpers.FinishTask(ctx, err)
 	}
 
 	return c.helpers.FinishTask(ctx, nil)

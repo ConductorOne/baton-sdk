@@ -54,7 +54,7 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 		return err
 	}
 
-	return err
+	return nil
 }
 
 func newHelloTaskHandler(task *v1.Task, includeTaskID bool, helpers helloHelpers) *helloTaskHandler {

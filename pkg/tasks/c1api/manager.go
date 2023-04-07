@@ -49,14 +49,14 @@ func (c *c1ApiTaskManager) heartbeatTask(ctx context.Context, task *v1.Task) err
 			resp, err := c.serviceClient.Heartbeat(ctx, &v1.HeartbeatRequest{
 				TaskId: task.GetId(),
 			})
-			if err != nil {
+			if err != nil && !errors.Is(err, context.Canceled) {
 				l.Error("error sending heartbeat", zap.Error(err))
 				return err
 			}
 
 			if resp == nil {
-				l.Debug("heartbeat response was nil, cancelling task")
-				return ErrTaskHeartbeatFailure
+				l.Debug("heartbeat response was nil")
+				return nil
 			}
 
 			l.Debug("heartbeat successful", zap.Duration("next_deadline", resp.GetNextDeadline().AsDuration()))
@@ -160,7 +160,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	// Begin heartbeat loop for task
 	go func() {
 		err := c.heartbeatTask(taskCtx, task)
-		if err != nil {
+		if err != nil && !errors.Is(err, context.Canceled) {
 			l.Debug("error while heart beating", zap.Error(err))
 			cancelTask(err)
 		}
