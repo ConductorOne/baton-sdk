@@ -138,9 +138,6 @@ func NewCmd[T any, PtrT *T](
 			}
 
 			var copts []connector.Option
-			if v.GetBool("provisioning") {
-				copts = append(copts, connector.WithProvisioningEnabled())
-			}
 
 			cw, err := connector.NewWrapper(runCtx, c, copts...)
 			if err != nil {
@@ -195,6 +192,10 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("client-secret", "", "The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)")
 	cmd.PersistentFlags().BoolP("provisioning", "p", false, "This must be set in order for provisioning actions to be enabled. ($BATON_PROVISIONING)")
 	err = cmd.PersistentFlags().MarkHidden("daemon-mode")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("provisioning")
 	if err != nil {
 		return nil, err
 	}
