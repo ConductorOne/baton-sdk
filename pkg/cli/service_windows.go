@@ -348,8 +348,8 @@ func interactiveSetup[T any, PtrT *T](ctx context.Context, outputFilePath string
 
 func installCmd[T any, PtrT *T](name string, cfg PtrT) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "install",
-		Short: fmt.Sprintf("Install and configure the %s service", name),
+		Use:   "setup",
+		Short: fmt.Sprintf("Setup and configure the %s service", name),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, err := initLogger(
 				context.Background(),
@@ -412,7 +412,7 @@ func installCmd[T any, PtrT *T](name string, cfg PtrT) *cobra.Command {
 
 func uninstallCmd(name string) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "uninstall",
+		Use:   "remove",
 		Short: fmt.Sprintf("Remove the %s service", name),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx, err := initLogger(
