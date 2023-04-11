@@ -5,13 +5,13 @@ import (
 	"errors"
 	"io"
 
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
 type taskHelpers struct {
 	task          *v1.Task
-	serviceClient C1ServiceClient
+	serviceClient BatonServiceClient
 	cc            types.ConnectorClient
 
 	taskFinisher func(ctx context.Context, task *v1.Task, err error) error
@@ -35,6 +35,6 @@ func (t *taskHelpers) FinishTask(ctx context.Context, err error) error {
 	return t.taskFinisher(ctx, t.task, err)
 }
 
-func (t *taskHelpers) HelloClient() c1HelloClient {
+func (t *taskHelpers) HelloClient() batonHelloClient {
 	return t.serviceClient
 }

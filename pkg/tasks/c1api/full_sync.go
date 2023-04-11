@@ -5,7 +5,7 @@ import (
 	"io"
 	"os"
 
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"

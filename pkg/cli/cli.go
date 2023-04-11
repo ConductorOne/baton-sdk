@@ -86,10 +86,6 @@ func NewCmd[T any, PtrT *T](
 				opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 			}
 
-			if v.GetBool("provisioning") {
-				opts = append(opts, connectorrunner.WithProvisioningEnabled())
-			}
-
 			r, err := connectorrunner.NewConnectorRunner(runCtx, c, opts...)
 			if err != nil {
 				l.Error("error creating connector runner", zap.Error(err))

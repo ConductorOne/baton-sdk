@@ -3,7 +3,7 @@ package tasks
 import (
 	"testing"
 
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 )
 
 func TestIs(t *testing.T) {

@@ -6,24 +6,27 @@ import (
 	"sync"
 	"time"
 
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
+	pbstatus "google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
 	errTimeoutDuration      = time.Second * 30
 	ErrTaskHeartbeatFailure = errors.New("task heart beating failed")
-	ErrTaskFatality         = errors.New("task failed fatally")
+	ErrTaskNonRetryable     = errors.New("task failed and is non-retryable")
 	startupHelloTaskID      = ksuid.New().String()
 )
 
 type c1ApiTaskManager struct {
 	startupHello  sync.Once
-	serviceClient C1ServiceClient
+	serviceClient BatonServiceClient
 }
 
 func (c *c1ApiTaskManager) backoffJitter(d time.Duration) time.Duration {
@@ -46,7 +49,7 @@ func (c *c1ApiTaskManager) heartbeatTask(ctx context.Context, task *v1.Task) err
 			return nil
 
 		case <-time.After(waitDuration):
-			resp, err := c.serviceClient.Heartbeat(ctx, &v1.HeartbeatRequest{
+			resp, err := c.serviceClient.Heartbeat(ctx, &v1.BatonServiceHeartbeatRequest{
 				TaskId: task.GetId(),
 			})
 			if err != nil && !errors.Is(err, context.Canceled) {
@@ -59,11 +62,11 @@ func (c *c1ApiTaskManager) heartbeatTask(ctx context.Context, task *v1.Task) err
 				return nil
 			}
 
-			l.Debug("heartbeat successful", zap.Duration("next_deadline", resp.GetNextDeadline().AsDuration()))
+			l.Debug("heartbeat successful", zap.Duration("next_deadline", resp.GetNextHeartbeat().AsDuration()))
 			if resp.Cancelled {
 				return ErrTaskHeartbeatFailure
 			}
-			waitDuration = resp.GetNextDeadline().AsDuration()
+			waitDuration = resp.GetNextHeartbeat().AsDuration()
 		}
 	}
 }
@@ -88,7 +91,7 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 
 	l.Info("Checking for new tasks...")
 
-	resp, err := c.serviceClient.GetTask(ctx, &v1.GetTaskRequest{})
+	resp, err := c.serviceClient.GetTask(ctx, &v1.BatonServiceGetTaskRequest{})
 	if err != nil {
 		return nil, c.backoffJitter(errTimeoutDuration), err
 	}
@@ -108,10 +111,10 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, err er
 
 	if err == nil {
 		l.Debug("finishing task successfully")
-		_, err = c.serviceClient.FinishTask(finishCtx, &v1.FinishTaskRequest{
+		_, err = c.serviceClient.FinishTask(finishCtx, &v1.BatonServiceFinishTaskRequest{
 			TaskId: task.GetId(),
-			FinalState: &v1.FinishTaskRequest_Success_{
-				Success: &v1.FinishTaskRequest_Success{},
+			FinalState: &v1.BatonServiceFinishTaskRequest_Success_{
+				Success: &v1.BatonServiceFinishTaskRequest_Success{},
 			},
 		})
 		if err != nil {
@@ -123,12 +126,21 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, err er
 	}
 
 	l.Error("finishing task with error", zap.Error(err))
-	_, rpcErr := c.serviceClient.FinishTask(finishCtx, &v1.FinishTaskRequest{
+
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		statusErr = status.New(codes.Unknown, err.Error())
+	}
+
+	_, rpcErr := c.serviceClient.FinishTask(finishCtx, &v1.BatonServiceFinishTaskRequest{
 		TaskId: task.GetId(),
-		FinalState: &v1.FinishTaskRequest_Error_{
-			Error: &v1.FinishTaskRequest_Error{
-				Error: err.Error(),
-				Fatal: errors.Is(err, ErrTaskFatality),
+		Status: &pbstatus.Status{
+			Code:    int32(statusErr.Code()),
+			Message: statusErr.Message(),
+		},
+		FinalState: &v1.BatonServiceFinishTaskRequest_Error_{
+			Error: &v1.BatonServiceFinishTaskRequest_Error{
+				NonRetryable: errors.Is(err, ErrTaskNonRetryable),
 			},
 		},
 	})

@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -14,7 +14,7 @@ import (
 
 type helloHelpers interface {
 	ConnectorClient() types.ConnectorClient
-	HelloClient() c1HelloClient
+	HelloClient() batonHelloClient
 }
 
 type helloTaskHandler struct {
@@ -45,7 +45,7 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 		taskID = ""
 	}
 
-	_, err = c.helpers.HelloClient().Hello(ctx, &v1.HelloRequest{
+	_, err = c.helpers.HelloClient().Hello(ctx, &v1.BatonServiceHelloRequest{
 		TaskId:            taskID,
 		ConnectorMetadata: mdResp.GetMetadata(),
 	})

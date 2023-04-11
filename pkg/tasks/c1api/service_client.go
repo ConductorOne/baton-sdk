@@ -11,7 +11,7 @@ import (
 	"os"
 	"time"
 
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -25,17 +25,17 @@ const (
 	fileChunkSize = 3 * 1024 * 1024 // 3MB
 )
 
-type C1ServiceClient interface {
-	c1HelloClient
+type BatonServiceClient interface {
+	batonHelloClient
 
-	GetTask(ctx context.Context, req *v1.GetTaskRequest) (*v1.GetTaskResponse, error)
-	Heartbeat(ctx context.Context, req *v1.HeartbeatRequest) (*v1.HeartbeatResponse, error)
-	FinishTask(ctx context.Context, req *v1.FinishTaskRequest) (*v1.FinishTaskResponse, error)
+	GetTask(ctx context.Context, req *v1.BatonServiceGetTaskRequest) (*v1.BatonServiceGetTaskResponse, error)
+	Heartbeat(ctx context.Context, req *v1.BatonServiceHeartbeatRequest) (*v1.BatonServiceHeartbeatResponse, error)
+	FinishTask(ctx context.Context, req *v1.BatonServiceFinishTaskRequest) (*v1.BatonServiceFinishTaskResponse, error)
 	Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error
 }
 
-type c1HelloClient interface {
-	Hello(ctx context.Context, req *v1.HelloRequest) (*v1.HelloResponse, error)
+type batonHelloClient interface {
+	Hello(ctx context.Context, req *v1.BatonServiceHelloRequest) (*v1.BatonServiceHelloResponse, error)
 }
 
 type c1ServiceClient struct {
@@ -62,7 +62,7 @@ func (c *c1ServiceClient) getHostID() string {
 	return c.hostID
 }
 
-func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkServiceClient, func(), error) {
+func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.BatonServiceClient, func(), error) {
 	dialCtx, cancel := context.WithTimeout(ctx, time.Second*30)
 	defer cancel()
 	cc, err := grpc.DialContext(
@@ -74,7 +74,7 @@ func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkSe
 		return nil, nil, err
 	}
 
-	return v1.NewConnectorWorkServiceClient(cc), func() {
+	return v1.NewBatonServiceClient(cc), func() {
 		err = cc.Close()
 		if err != nil {
 			ctxzap.Extract(ctx).Error("failed to close client connection", zap.Error(err))
@@ -82,7 +82,7 @@ func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.ConnectorWorkSe
 	}, nil
 }
 
-func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.HelloRequest) (*v1.HelloResponse, error) {
+func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloRequest) (*v1.BatonServiceHelloResponse, error) {
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.HelloRequest) (*v1.H
 	return client.Hello(ctx, in)
 }
 
-func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.GetTaskRequest) (*v1.GetTaskResponse, error) {
+func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTaskRequest) (*v1.BatonServiceGetTaskResponse, error) {
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -106,7 +106,7 @@ func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.GetTaskRequest) (*
 	return client.GetTask(ctx, in)
 }
 
-func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.HeartbeatRequest) (*v1.HeartbeatResponse, error) {
+func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHeartbeatRequest) (*v1.BatonServiceHeartbeatResponse, error) {
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -118,7 +118,7 @@ func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.HeartbeatRequest
 	return client.Heartbeat(ctx, in)
 }
 
-func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.FinishTaskRequest) (*v1.FinishTaskResponse, error) {
+func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFinishTaskRequest) (*v1.BatonServiceFinishTaskResponse, error) {
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -158,9 +158,9 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 		return err
 	}
 
-	err = uc.Send(&v1.UploadAssetRequest{
-		Msg: &v1.UploadAssetRequest_Metadata{
-			Metadata: &v1.UploadAssetRequest_UploadMetadata{
+	err = uc.Send(&v1.BatonServiceUploadAssetRequest{
+		Msg: &v1.BatonServiceUploadAssetRequest_Metadata{
+			Metadata: &v1.BatonServiceUploadAssetRequest_UploadMetadata{
 				HostId: c.getHostID(),
 				TaskId: task.Id,
 			},
@@ -187,9 +187,9 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 			return err
 		}
 
-		err = uc.Send(&v1.UploadAssetRequest{
-			Msg: &v1.UploadAssetRequest_Data{
-				Data: &v1.UploadAssetRequest_UploadData{
+		err = uc.Send(&v1.BatonServiceUploadAssetRequest{
+			Msg: &v1.BatonServiceUploadAssetRequest_Data{
+				Data: &v1.BatonServiceUploadAssetRequest_UploadData{
 					Data: chunk,
 				},
 			},
@@ -200,9 +200,9 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 		}
 	}
 
-	err = uc.Send(&v1.UploadAssetRequest{
-		Msg: &v1.UploadAssetRequest_Eof{
-			Eof: &v1.UploadAssetRequest_UploadEOF{
+	err = uc.Send(&v1.BatonServiceUploadAssetRequest{
+		Msg: &v1.BatonServiceUploadAssetRequest_Eof{
+			Eof: &v1.BatonServiceUploadAssetRequest_UploadEOF{
 				Sha256Checksum: shaChecksum,
 			},
 		},
@@ -221,7 +221,7 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 	return nil
 }
 
-func newServiceClient(ctx context.Context, clientID string, clientSecret string) (C1ServiceClient, error) {
+func newServiceClient(ctx context.Context, clientID string, clientSecret string) (BatonServiceClient, error) {
 	credProvider, clientName, tokenHost, err := ugrpc.NewC1CredentialProvider(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, err

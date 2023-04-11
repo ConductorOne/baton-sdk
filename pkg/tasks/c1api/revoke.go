@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -27,7 +27,7 @@ func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
 
 	if r.task.GetRevoke() == nil || r.task.GetRevoke().GetGrant() == nil {
 		l.Error("revoke task was nil or missing grant", zap.Any("revoke", r.task.GetRevoke()), zap.Any("grant", r.task.GetRevoke().GetGrant()))
-		return r.helpers.FinishTask(ctx, errors.Join(errors.New("invalid task type"), ErrTaskFatality))
+		return r.helpers.FinishTask(ctx, errors.Join(errors.New("invalid task type"), ErrTaskNonRetryable))
 	}
 
 	cc := r.helpers.ConnectorClient()
@@ -36,7 +36,7 @@ func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
 	})
 	if err != nil {
 		l.Error("failed while granting entitlement", zap.Error(err))
-		return r.helpers.FinishTask(ctx, errors.Join(err, ErrTaskFatality))
+		return r.helpers.FinishTask(ctx, errors.Join(err, ErrTaskNonRetryable))
 	}
 
 	return r.helpers.FinishTask(ctx, nil)

@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/service_mode/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -32,7 +32,7 @@ func (g *grantTaskHandler) HandleTask(ctx context.Context) error {
 			zap.Any("entitlement", g.task.GetGrant().GetEntitlement()),
 			zap.Any("principal", g.task.GetGrant().GetPrincipal()),
 		)
-		return g.helpers.FinishTask(ctx, errors.Join(errors.New("malformed grant task"), ErrTaskFatality))
+		return g.helpers.FinishTask(ctx, errors.Join(errors.New("malformed grant task"), ErrTaskNonRetryable))
 	}
 
 	grant := g.task.GetGrant()
@@ -44,7 +44,7 @@ func (g *grantTaskHandler) HandleTask(ctx context.Context) error {
 	})
 	if err != nil {
 		l.Error("failed while granting entitlement", zap.Error(err))
-		return g.helpers.FinishTask(ctx, errors.Join(err, ErrTaskFatality))
+		return g.helpers.FinishTask(ctx, errors.Join(err, ErrTaskNonRetryable))
 	}
 
 	return g.helpers.FinishTask(ctx, nil)
