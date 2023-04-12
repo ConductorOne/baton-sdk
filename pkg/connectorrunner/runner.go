@@ -130,6 +130,7 @@ type runnerConfig struct {
 	clientID            string
 	clientSecret        string
 	provisioningEnabled bool
+	logginPath          string
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -230,6 +231,13 @@ func WithProvisioningEnabled() Option {
 	}
 }
 
+func WithLoggingPath(path string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.logginPath = path
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
@@ -247,6 +255,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 	for _, d := range cfg.rlDescriptors {
 		wrapperOpts = append(wrapperOpts, connector.WithRateLimitDescriptor(d))
+	}
+	if cfg.logginPath != "" {
+		wrapperOpts = append(wrapperOpts, connector.WithLoggingPath(cfg.logginPath))
 	}
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)

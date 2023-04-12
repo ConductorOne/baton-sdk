@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/url"
+	"os"
 	"sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -93,7 +94,14 @@ func (p *pathRegistry) Register(path string) (zap.Sink, error) {
 var pr = &pathRegistry{}
 
 func WriterForPath(path string) (io.Writer, error) {
-	return pr.Register(path)
+	switch path {
+	case "stdout":
+		return os.Stdout, nil
+	case "stderr":
+		return os.Stderr, nil
+	default:
+		return pr.Register(path)
+	}
 }
 
 func init() {
