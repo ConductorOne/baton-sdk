@@ -2,7 +2,9 @@ package logging
 
 import (
 	"context"
+	"io"
 	"net/url"
+	"sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -65,18 +67,38 @@ func (z *zapSink) Sync() error {
 	return nil
 }
 
+type pathRegistry struct {
+	sync.Map
+}
+
+func (p *pathRegistry) Register(path string) (zap.Sink, error) {
+	if sink, ok := p.Load(path); ok {
+		return sink.(zap.Sink), nil
+	}
+
+	rr, err := rotatorr.New(&rotatorr.Config{
+		FileSize: 1024 * 1024 * 10, // 10 megabytes
+		Filepath: path,
+		Rotatorr: &timerotator.Layout{FileCount: 10},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sink := &zapSink{Logger: rr}
+	p.Store(path, sink)
+	return sink, nil
+}
+
+var pr = &pathRegistry{}
+
+func WriterForPath(path string) (io.Writer, error) {
+	return pr.Register(path)
+}
+
 func init() {
 	err := zap.RegisterSink(rotatorrScheme, func(u *url.URL) (zap.Sink, error) {
-		rr, err := rotatorr.New(&rotatorr.Config{
-			FileSize: 1024 * 1024 * 10, // 10 megabytes
-			Filepath: u.Path,
-			Rotatorr: &timerotator.Layout{FileCount: 10},
-		})
-		if err != nil {
-			return nil, err
-		}
-		sink := &zapSink{Logger: rr}
-		return sink, nil
+		return pr.Register(u.Path)
 	})
 
 	if err != nil {
