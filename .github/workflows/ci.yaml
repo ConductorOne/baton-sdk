@@ -5,7 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v4
         with:
           go-version: 1.20.x
       - name: Checkout code
@@ -19,18 +19,20 @@ jobs:
     strategy:
       matrix:
         go-version: [1.20.x]
-        platform: [ubuntu-latest, windows-latest]
+        platform: [ubuntu-latest]
+        go-os: [linux, windows]
+
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Install Go
         if: success()
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v4
         with:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
         uses: actions/checkout@v2
       - name: go tests
-        run: go test -v -covermode=count -json ./... > test.json
+        run: GOOS=${{ matrix.go-os }} go test -v -covermode=count -json ./... > test.json
       - name: annotate go tests
         if: always()
         uses: guyarb/golang-test-annotations@v0.5.1
