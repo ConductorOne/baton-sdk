@@ -30,7 +30,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: go tests
-        run: go test -v -covermode=count -json ./...
+        run: go test -v -covermode=count -json ./... > test.json
+      - name: annotate go tests
+        if: always()
+        uses: guyarb/golang-test-annotations@v0.5.1
+        with:
+          test-results: test.json
   buf-lint-and-breaking-change-detection:
     runs-on: ubuntu-latest
     steps:
