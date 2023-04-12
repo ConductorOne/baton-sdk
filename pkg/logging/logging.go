@@ -2,10 +2,13 @@ package logging
 
 import (
 	"context"
+	"net/url"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"golift.io/rotatorr"
+	"golift.io/rotatorr/timerotator"
 )
 
 const (
@@ -36,9 +39,48 @@ func WithLogFormat(format string) Option {
 	}
 }
 
+const rotatorrScheme = "rotatorr"
+
 func WithOutputPaths(paths []string) Option {
 	return func(c *zap.Config) {
-		c.OutputPaths = paths
+		p := make([]string, 0, len(paths))
+		for _, path := range paths {
+			switch path {
+			case "stdout", "stderr":
+				p = append(p, path)
+			default:
+				u := &url.URL{Scheme: rotatorrScheme, Path: path}
+				p = append(p, u.String())
+			}
+		}
+		c.OutputPaths = p
+	}
+}
+
+type zapSink struct {
+	*rotatorr.Logger
+}
+
+func (z *zapSink) Sync() error {
+	return nil
+}
+
+func init() {
+	err := zap.RegisterSink(rotatorrScheme, func(u *url.URL) (zap.Sink, error) {
+		rr, err := rotatorr.New(&rotatorr.Config{
+			FileSize: 1024 * 1024 * 10, // 10 megabytes
+			Filepath: u.Path,
+			Rotatorr: &timerotator.Layout{FileCount: 10},
+		})
+		if err != nil {
+			return nil, err
+		}
+		sink := &zapSink{Logger: rr}
+		return sink, nil
+	})
+
+	if err != nil {
+		panic(err)
 	}
 }
 

@@ -28,6 +28,7 @@ require (
 	golang.org/x/oauth2 v0.4.0
 	golang.org/x/sys v0.6.0
 	golang.org/x/term v0.5.0
+	golift.io/rotatorr v0.0.0-20230317103044-d974d22ee164
 	google.golang.org/genproto v0.0.0-20230221151758-ace64dc21148
 	google.golang.org/grpc v1.53.0
 	google.golang.org/protobuf v1.28.1
