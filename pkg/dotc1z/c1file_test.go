@@ -30,7 +30,6 @@ func TestMain(m *testing.M) {
 	err = teardown()
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "%s\n", err.Error())
-		os.Exit(1)
 	}
 
 	os.Exit(code)
@@ -48,7 +47,10 @@ func setup() error {
 
 func teardown() error {
 	if c1zTests.workingDir != "" {
-		return os.RemoveAll(c1zTests.workingDir)
+		err := os.RemoveAll(c1zTests.workingDir)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "error during teardown: %s\n", err.Error())
+		}
 	}
 	return nil
 }
