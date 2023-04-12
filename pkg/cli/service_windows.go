@@ -370,7 +370,7 @@ func installCmd[T any, PtrT *T](name string, cfg PtrT) *cobra.Command {
 			s, err := svcMgr.OpenService(name)
 			if err == nil {
 				s.Close()
-				return fmt.Errorf("%s is already installed as a service. Please run '%s uninstall' to remove it first.", name, os.Args[0])
+				return fmt.Errorf("%s is already installed as a service. Please run '%s remove' to remove it first.", name, os.Args[0])
 			}
 
 			err = interactiveSetup(ctx, filepath.Join(getConfigDir(name), defaultConfigFile), cfg)
