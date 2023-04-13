@@ -97,11 +97,11 @@ func initLogger(ctx context.Context, name string, isChildProcess bool, loggingOp
 	if isService() {
 		loggingOpts = []logging.Option{
 			logging.WithLogFormat(logging.LogFormatJSON),
-			logging.WithLogLevel("info"),
+			logging.WithLogLevel("debug"),
 		}
 
 		if !isChildProcess {
-			loggingOpts = append(loggingOpts, logging.WithOutputPath(filepath.Join(getConfigDir(name), "baton-debug.log")))
+			loggingOpts = append(loggingOpts, logging.WithOutputPath(filepath.Join(getConfigDir(name), "baton.log")))
 		}
 	}
 

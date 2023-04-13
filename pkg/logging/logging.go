@@ -2,9 +2,12 @@ package logging
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -50,8 +53,7 @@ func WithOutputPath(path string) Option {
 		case "stdout", "stderr":
 			c.OutputPaths = []string{path}
 		default:
-			u := &url.URL{Scheme: rotatorrScheme, Path: path}
-			c.OutputPaths = []string{u.String()}
+			c.OutputPaths = []string{fmt.Sprintf("%s://%s", rotatorrScheme, filepath.ToSlash(path))}
 		}
 	}
 }
@@ -72,6 +74,8 @@ func (p *pathRegistry) Register(path string) (zap.Sink, error) {
 	if sink, ok := p.Load(path); ok {
 		return sink.(zap.Sink), nil
 	}
+
+	path = strings.TrimPrefix(path, rotatorrScheme+"://")
 
 	rr, err := rotatorr.New(&rotatorr.Config{
 		FileSize: 1024 * 1024 * 10, // 10 megabytes
