@@ -51,7 +51,6 @@ type wrapper struct {
 	serverStdin         io.WriteCloser
 	conn                *grpc.ClientConn
 	provisioningEnabled bool
-	loggingPath         string
 
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
@@ -86,13 +85,6 @@ func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, w *wrapper) error {
 		w.provisioningEnabled = true
 
-		return nil
-	}
-}
-
-func WithLoggingPath(path string) Option {
-	return func(ctx context.Context, w *wrapper) error {
-		w.loggingPath = path
 		return nil
 	}
 }
@@ -214,8 +206,9 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		cmd.Env = append(os.Environ(), fmt.Sprintf("%s=3", listenerFdEnv))
 	}
 
-	if cw.loggingPath != "" {
-		logWritter, err := logging.WriterForPath(cw.loggingPath)
+	loggingPath := logging.ExtractLogPath(ctx)
+	if loggingPath != "" {
+		logWriter, err := logging.WriterForPath(loggingPath)
 		if err != nil {
 			return 0, err
 		}
@@ -226,7 +219,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		}
 
 		go func() {
-			_, _ = io.Copy(logWritter, stderr)
+			_, _ = io.Copy(logWriter, stderr)
 		}()
 	} else {
 		cmd.Stderr = os.Stderr

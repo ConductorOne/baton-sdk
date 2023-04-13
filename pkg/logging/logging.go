@@ -44,19 +44,15 @@ func WithLogFormat(format string) Option {
 
 const rotatorrScheme = "rotatorr"
 
-func WithOutputPaths(paths []string) Option {
+func WithOutputPath(path string) Option {
 	return func(c *zap.Config) {
-		p := make([]string, 0, len(paths))
-		for _, path := range paths {
-			switch path {
-			case "stdout", "stderr":
-				p = append(p, path)
-			default:
-				u := &url.URL{Scheme: rotatorrScheme, Path: path}
-				p = append(p, u.String())
-			}
+		switch path {
+		case "stdout", "stderr":
+			c.OutputPaths = []string{path}
+		default:
+			u := &url.URL{Scheme: rotatorrScheme, Path: path}
+			c.OutputPaths = []string{u.String()}
 		}
-		c.OutputPaths = p
 	}
 }
 
@@ -114,6 +110,17 @@ func init() {
 	}
 }
 
+type ctxLoggingPathKey struct{}
+
+var ctxLoggingPath = &ctxLoggingPathKey{}
+
+func ExtractLogPath(ctx context.Context) string {
+	if path, ok := ctx.Value(ctxLoggingPath).(string); ok {
+		return path
+	}
+	return ""
+}
+
 // Init creates a new zap logger and attaches it to the provided context.
 func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 	zc := zap.NewProductionConfig()
@@ -129,6 +136,10 @@ func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 		return nil, err
 	}
 	zap.ReplaceGlobals(l)
+
+	if len(zc.OutputPaths) > 0 {
+		ctx = context.WithValue(ctx, ctxLoggingPath, zc.OutputPaths[0])
+	}
 
 	l.Debug("Logger created!", zap.String("log_level", zc.Level.String()))
 

@@ -93,12 +93,15 @@ func getExePath() (string, error) {
 	return p, err
 }
 
-func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option) (context.Context, error) {
+func initLogger(ctx context.Context, name string, isChildProcess bool, loggingOpts ...logging.Option) (context.Context, error) {
 	if isService() {
 		loggingOpts = []logging.Option{
 			logging.WithLogFormat(logging.LogFormatJSON),
-			logging.WithLogLevel("debug"),
-			logging.WithOutputPaths([]string{filepath.Join(getConfigDir(name), "baton.log")}),
+			logging.WithLogLevel("info"),
+		}
+
+		if !isChildProcess {
+			loggingOpts = append(loggingOpts, logging.WithOutputPath(filepath.Join(getConfigDir(name), "baton-debug.log")))
 		}
 	}
 
@@ -113,8 +116,9 @@ func startCmd(name string) *cobra.Command {
 			ctx, err := initLogger(
 				context.Background(),
 				name,
+				false,
 				logging.WithLogFormat(logging.LogFormatConsole),
-				logging.WithLogLevel("info"),
+				logging.WithLogLevel("debug"),
 			)
 
 			l := ctxzap.Extract(ctx).With(zap.String("service_name", name))
@@ -147,6 +151,7 @@ func stopCmd(name string) *cobra.Command {
 			ctx, err := initLogger(
 				context.Background(),
 				name,
+				false,
 				logging.WithLogFormat(logging.LogFormatConsole),
 				logging.WithLogLevel("info"),
 			)
@@ -200,6 +205,7 @@ func statusCmd(name string) *cobra.Command {
 			ctx, err := initLogger(
 				context.Background(),
 				name,
+				false,
 				logging.WithLogFormat(logging.LogFormatConsole),
 				logging.WithLogLevel("info"),
 			)
@@ -354,6 +360,7 @@ func installCmd[T any, PtrT *T](name string, cfg PtrT) *cobra.Command {
 			ctx, err := initLogger(
 				context.Background(),
 				name,
+				false,
 				logging.WithLogFormat(logging.LogFormatConsole),
 				logging.WithLogLevel("info"),
 			)
@@ -418,6 +425,7 @@ func uninstallCmd(name string) *cobra.Command {
 			ctx, err := initLogger(
 				context.Background(),
 				name,
+				false,
 				logging.WithLogFormat(logging.LogFormatConsole),
 				logging.WithLogLevel("info"),
 			)
