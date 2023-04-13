@@ -27,6 +27,6 @@ func runService(ctx context.Context, name string) (context.Context, error) {
 	return ctx, nil
 }
 
-func initLogger(ctx context.Context, name string, opts ...logging.Option) (context.Context, error) {
+func initLogger(ctx context.Context, name string, isChildProcess bool, opts ...logging.Option) (context.Context, error) {
 	return logging.Init(ctx, opts...)
 }

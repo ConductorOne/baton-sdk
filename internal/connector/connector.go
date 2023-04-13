@@ -15,6 +15,7 @@ import (
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	tlsV1 "github.com/conductorone/baton-sdk/pb/c1/utls/v1"
+	"github.com/conductorone/baton-sdk/pkg/logging"
 	ratelimit2 "github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
@@ -187,12 +188,13 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 
 	cmd := exec.CommandContext(ctx, arg0, args...)
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+
 	// Make the server config available via stdin
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return 0, err
 	}
+
 	_, err = io.WriteString(stdin, base64.StdEncoding.EncodeToString(serverCfg)+"\n")
 	if err != nil {
 		return 0, err
@@ -202,6 +204,25 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 	if listener != nil {
 		cmd.ExtraFiles = []*os.File{listener}
 		cmd.Env = append(os.Environ(), fmt.Sprintf("%s=3", listenerFdEnv))
+	}
+
+	loggingPath := logging.ExtractLogPath(ctx)
+	if loggingPath != "" {
+		logWriter, err := logging.WriterForPath(loggingPath)
+		if err != nil {
+			return 0, err
+		}
+
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			return 0, err
+		}
+
+		go func() {
+			_, _ = io.Copy(logWriter, stderr)
+		}()
+	} else {
+		cmd.Stderr = os.Stderr
 	}
 
 	err = cmd.Start()

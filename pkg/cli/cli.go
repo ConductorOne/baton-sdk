@@ -52,6 +52,7 @@ func NewCmd[T any, PtrT *T](
 			runCtx, err := initLogger(
 				ctx,
 				name,
+				false,
 				logging.WithLogFormat(v.GetString("log-format")),
 				logging.WithLogLevel(v.GetString("log-level")),
 			)
@@ -116,6 +117,7 @@ func NewCmd[T any, PtrT *T](
 			runCtx, err := initLogger(
 				ctx,
 				name,
+				true,
 				logging.WithLogFormat(v.GetString("log-format")),
 				logging.WithLogLevel(v.GetString("log-level")),
 			)
