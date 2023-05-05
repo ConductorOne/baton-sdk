@@ -1,6 +1,7 @@
 package dotc1z
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -155,29 +156,37 @@ func TestC1ZDecoder(t *testing.T) {
 	err = f.PutResourceType(ctx, &v2.ResourceType{Id: resourceTypeID})
 	require.NoError(t, err)
 
+	dbFile, err := os.ReadFile(f.dbFilePath)
+	require.NoError(t, err)
+	require.Greater(t, len(dbFile), 40000) // arbitrary, but make sure we read some bytes
+
 	err = f.Close()
 	require.NoError(t, err)
 
 	c1zf, err := os.Open(testFilePath)
 	require.NoError(t, err)
-	defer f.Close()
+	defer c1zf.Close()
 
 	// Test basic decode
 	d, err := NewDecoder(c1zf)
 	require.NoError(t, err)
-	n, err := io.Copy(io.Discard, d)
+	b := bytes.NewBuffer(nil)
+	n, err := io.Copy(b, d)
 	require.NoError(t, err)
-	require.True(t, n >= 40000) // arbitrary but lower than the actual size
 	err = d.Close()
 	require.NoError(t, err)
+	require.Equal(t, dbFile, b.Bytes())
+	b.Reset()
 
 	// Test max size exact
 	d, err = NewDecoder(c1zf, WithDecoderMaxDecodedSize(uint64(n)))
 	require.NoError(t, err)
-	_, err = io.Copy(io.Discard, d)
+	_, err = io.Copy(b, d)
 	require.NoError(t, err)
 	err = d.Close()
 	require.NoError(t, err)
+	require.Equal(t, dbFile, b.Bytes())
+	b.Reset()
 
 	// Test max size - 1
 	d, err = NewDecoder(c1zf, WithDecoderMaxDecodedSize(uint64(n-1)))
@@ -198,19 +207,23 @@ func TestC1ZDecoder(t *testing.T) {
 	// Test lower mem usage
 	d, err = NewDecoder(c1zf, WithDecoderMaxMemory(8*1024*1024))
 	require.NoError(t, err)
-	_, err = io.Copy(io.Discard, d)
+	_, err = io.Copy(b, d)
 	require.NoError(t, err)
 	err = d.Close()
 	require.NoError(t, err)
+	require.Equal(t, dbFile, b.Bytes())
+	b.Reset()
 
 	// Test context cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	d, err = NewDecoder(c1zf, WithContext(ctx))
 	require.NoError(t, err)
-	_, err = io.Copy(io.Discard, d)
+	_, err = io.Copy(b, d)
 	require.NoError(t, err)
 	err = d.Close()
 	require.NoError(t, err)
+	require.Equal(t, dbFile, b.Bytes())
+	b.Reset()
 
 	cancel()
 	d, err = NewDecoder(c1zf, WithContext(ctx))
