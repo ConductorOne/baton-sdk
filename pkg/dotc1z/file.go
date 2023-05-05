@@ -33,6 +33,7 @@ func loadC1z(filePath string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		defer c1zFile.Close()
 
 		var opts []DecoderOption
 
@@ -57,6 +58,10 @@ func loadC1z(filePath string) (string, error) {
 			return "", err
 		}
 		_, err = io.Copy(dbFile, r)
+		if err != nil {
+			return "", err
+		}
+		err = r.Close()
 		if err != nil {
 			return "", err
 		}
@@ -95,7 +100,6 @@ func saveC1z(dbFilePath string, outputFilePath string) error {
 
 	_, err = io.Copy(c1z, dbFile)
 	if err != nil {
-		c1z.Close()
 		return err
 	}
 
@@ -104,12 +108,6 @@ func saveC1z(dbFilePath string, outputFilePath string) error {
 		return err
 	}
 	err = c1z.Close()
-	if err != nil {
-		return err
-	}
-
-	// Cleanup the databaase filepath. This shoould always be a file within a temp directory, so we remove the entire dir.
-	err = os.RemoveAll(filepath.Dir(dbFilePath))
 	if err != nil {
 		return err
 	}
