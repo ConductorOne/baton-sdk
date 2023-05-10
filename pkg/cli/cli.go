@@ -26,9 +26,13 @@ const (
 )
 
 type BaseConfig struct {
-	LogLevel  string `mapstructure:"log-level"`
-	LogFormat string `mapstructure:"log-format"`
-	C1zPath   string `mapstructure:"file"`
+	LogLevel           string `mapstructure:"log-level"`
+	LogFormat          string `mapstructure:"log-format"`
+	C1zPath            string `mapstructure:"file"`
+	GrantEntitlementID string `mapstructure:"grant-entitlement"`
+	GrantPrincipalID   string `mapstructure:"grant-principal"`
+	GrantPrincipalType string `mapstructure:"grant-principal-type"`
+	RevokeGrantID      string `mapstructure:"revoke-grant"`
 }
 
 // NewCmd returns a new cobra command that will populate the provided config object, validate it, and run the provided run function.
@@ -135,7 +139,10 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("log-level", defaultLogLevel, "The log level: debug, info, warn, error ($BATON_LOG_LEVEL)")
 	cmd.PersistentFlags().String("log-format", defaultLogFormat, "The output format for logs: json, console ($BATON_LOG_FORMAT)")
 	cmd.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to sync with ($BATON_FILE)")
-
+	cmd.PersistentFlags().String("grant-entitlement", "", "The entitlement to grant to the supplied principal ($BATON_GRANT_ENTITLEMENT)")
+	cmd.PersistentFlags().String("grant-principal", "", "The resource to grant the entitlement to ($BATON_GRANT_PRINCIPAL)")
+	cmd.PersistentFlags().String("grant-principal-type", "", "The resource type of the principal to grant the entitlement to ($BATON_GRANT_PRINCIPAL_TYPE)")
+	cmd.PersistentFlags().String("revoke-grant", "", "The grant to revoke ($BATON_REVOKE_GRANT)")
 	return cmd, nil
 }
 

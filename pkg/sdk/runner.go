@@ -8,6 +8,7 @@ import (
 
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/provisioner"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -19,9 +20,10 @@ import (
 )
 
 type connectorRunner struct {
-	syncer  sync.Syncer
-	store   connectorstore.Writer
-	manager manager.Manager
+	syncer      sync.Syncer
+	provisioner *provisioner.Provisioner
+	store       connectorstore.Writer
+	manager     manager.Manager
 }
 
 func (c *connectorRunner) shutdown(ctx context.Context) error {
@@ -67,18 +69,38 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		}
 	}()
 
-	err := c.syncer.Sync(ctx)
-	if err != nil {
-		return err
+	if c.syncer != nil {
+		err := c.syncer.Sync(ctx)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	if c.provisioner != nil {
+		err := c.provisioner.Run(ctx)
+		if err != nil {
+			return err
+		}
+
+		return nil
 	}
 
 	return nil
 }
 
 func (c *connectorRunner) Close() error {
-	err := c.syncer.Close()
-	if err != nil {
-		return err
+	if c.syncer != nil {
+		err := c.syncer.Close()
+		if err != nil {
+			return err
+		}
+	} else {
+		err := c.store.Close()
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -87,8 +109,12 @@ func (c *connectorRunner) Close() error {
 type Option func(ctx context.Context, cfg *runnerConfig) error
 
 type runnerConfig struct {
-	rlCfg         *ratelimitV1.RateLimiterConfig
-	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
+	rlCfg              *ratelimitV1.RateLimiterConfig
+	rlDescriptors      []*ratelimitV1.RateLimitDescriptors_Entry
+	grantEntitlementID string
+	grantPrincipalID   string
+	grantPrincipalType string
+	revokeGrantID      string
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -165,6 +191,23 @@ func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Opti
 	}
 }
 
+func WithGrant(entitlementID string, principalID string, principalType string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.grantEntitlementID = entitlementID
+		cfg.grantPrincipalID = principalID
+		cfg.grantPrincipalType = principalType
+		return nil
+	}
+}
+
+func WithRevoke(grantID string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.revokeGrantID = grantID
+
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, dbPath string, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
@@ -189,8 +232,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, dbPath str
 	}
 	runner.store = store
 
-	wrapperOpts := []connector.Option{}
-	wrapperOpts = append(wrapperOpts, connector.WithRateLimiterConfig(cfg.rlCfg))
+	wrapperOpts := []connector.Option{connector.WithRateLimiterConfig(cfg.rlCfg)}
 
 	for _, d := range cfg.rlDescriptors {
 		wrapperOpts = append(wrapperOpts, connector.WithRateLimitDescriptor(d))
@@ -201,7 +243,13 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, dbPath str
 		return nil, err
 	}
 
-	runner.syncer = sync.NewSyncer(store, cw)
+	if cfg.grantEntitlementID != "" && cfg.grantPrincipalID != "" && cfg.grantPrincipalType != "" {
+		runner.provisioner = provisioner.NewGranter(store, cw, cfg.grantEntitlementID, cfg.grantPrincipalID, cfg.grantPrincipalType)
+	} else if cfg.revokeGrantID != "" {
+		runner.provisioner = provisioner.NewRevoker(store, cw, cfg.revokeGrantID)
+	} else {
+		runner.syncer = sync.NewSyncer(store, cw)
+	}
 
 	return runner, nil
 }
