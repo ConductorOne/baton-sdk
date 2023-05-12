@@ -108,13 +108,21 @@ func (c *connectorRunner) Close() error {
 
 type Option func(ctx context.Context, cfg *runnerConfig) error
 
+type grantConfig struct {
+	entitlementID string
+	principalType string
+	principalID   string
+}
+
+type revokeConfig struct {
+	grantID string
+}
+
 type runnerConfig struct {
-	rlCfg              *ratelimitV1.RateLimiterConfig
-	rlDescriptors      []*ratelimitV1.RateLimitDescriptors_Entry
-	grantEntitlementID string
-	grantPrincipalID   string
-	grantPrincipalType string
-	revokeGrantID      string
+	rlCfg         *ratelimitV1.RateLimiterConfig
+	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
+	grantConfig   *grantConfig
+	revokeConfig  *revokeConfig
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -193,16 +201,20 @@ func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Opti
 
 func WithGrant(entitlementID string, principalID string, principalType string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.grantEntitlementID = entitlementID
-		cfg.grantPrincipalID = principalID
-		cfg.grantPrincipalType = principalType
+		cfg.grantConfig = &grantConfig{
+			entitlementID: entitlementID,
+			principalID:   principalID,
+			principalType: principalType,
+		}
 		return nil
 	}
 }
 
 func WithRevoke(grantID string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.revokeGrantID = grantID
+		cfg.revokeConfig = &revokeConfig{
+			grantID: grantID,
+		}
 
 		return nil
 	}
@@ -243,11 +255,20 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, dbPath str
 		return nil, err
 	}
 
-	if cfg.grantEntitlementID != "" && cfg.grantPrincipalID != "" && cfg.grantPrincipalType != "" {
-		runner.provisioner = provisioner.NewGranter(store, cw, cfg.grantEntitlementID, cfg.grantPrincipalID, cfg.grantPrincipalType)
-	} else if cfg.revokeGrantID != "" {
-		runner.provisioner = provisioner.NewRevoker(store, cw, cfg.revokeGrantID)
-	} else {
+	switch {
+	case cfg.grantConfig != nil:
+		runner.provisioner = provisioner.NewGranter(
+			store,
+			cw,
+			cfg.grantConfig.entitlementID,
+			cfg.grantConfig.principalID,
+			cfg.grantConfig.principalType,
+		)
+
+	case cfg.revokeConfig != nil:
+		runner.provisioner = provisioner.NewRevoker(store, cw, cfg.revokeConfig.grantID)
+
+	default:
 		runner.syncer = sync.NewSyncer(store, cw)
 	}
 
