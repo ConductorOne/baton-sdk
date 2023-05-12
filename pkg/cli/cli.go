@@ -142,7 +142,10 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("grant-entitlement", "", "The entitlement to grant to the supplied principal ($BATON_GRANT_ENTITLEMENT)")
 	cmd.PersistentFlags().String("grant-principal", "", "The resource to grant the entitlement to ($BATON_GRANT_PRINCIPAL)")
 	cmd.PersistentFlags().String("grant-principal-type", "", "The resource type of the principal to grant the entitlement to ($BATON_GRANT_PRINCIPAL_TYPE)")
+	cmd.MarkFlagsRequiredTogether("grant-entitlement", "grant-principal", "grant-principal-type")
+
 	cmd.PersistentFlags().String("revoke-grant", "", "The grant to revoke ($BATON_REVOKE_GRANT)")
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant")
 	return cmd, nil
 }
 
@@ -154,7 +157,7 @@ func getConfigPath(customPath string) (string, string, error) {
 		}
 
 		ext := filepath.Ext(cfgFile)
-		if ext == "" && ext != ".yaml" && ext != ".yml" {
+		if ext != ".yaml" && ext != ".yml" {
 			return "", "", errors.New("expected config file to have .yaml or .yml extension")
 		}
 
