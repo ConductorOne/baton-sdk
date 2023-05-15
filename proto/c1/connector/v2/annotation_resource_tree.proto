@@ -8,4 +8,4 @@ message ChildResourceType {
   string resource_type_id = 1;
 }
 
-message NoEntitlements {}
+message SkipEntitlementsAndGrants {}

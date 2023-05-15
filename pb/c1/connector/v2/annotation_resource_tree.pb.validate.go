@@ -139,22 +139,22 @@ var _ interface {
 	ErrorName() string
 } = ChildResourceTypeValidationError{}
 
-// Validate checks the field values on NoEntitlements with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *NoEntitlements) Validate() error {
+// Validate checks the field values on SkipEntitlementsAndGrants with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *SkipEntitlementsAndGrants) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on NoEntitlements with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in NoEntitlementsMultiError,
-// or nil if none found.
-func (m *NoEntitlements) ValidateAll() error {
+// ValidateAll checks the field values on SkipEntitlementsAndGrants with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// SkipEntitlementsAndGrantsMultiError, or nil if none found.
+func (m *SkipEntitlementsAndGrants) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *NoEntitlements) validate(all bool) error {
+func (m *SkipEntitlementsAndGrants) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -162,19 +162,19 @@ func (m *NoEntitlements) validate(all bool) error {
 	var errors []error
 
 	if len(errors) > 0 {
-		return NoEntitlementsMultiError(errors)
+		return SkipEntitlementsAndGrantsMultiError(errors)
 	}
 
 	return nil
 }
 
-// NoEntitlementsMultiError is an error wrapping multiple validation errors
-// returned by NoEntitlements.ValidateAll() if the designated constraints
-// aren't met.
-type NoEntitlementsMultiError []error
+// SkipEntitlementsAndGrantsMultiError is an error wrapping multiple validation
+// errors returned by SkipEntitlementsAndGrants.ValidateAll() if the
+// designated constraints aren't met.
+type SkipEntitlementsAndGrantsMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m NoEntitlementsMultiError) Error() string {
+func (m SkipEntitlementsAndGrantsMultiError) Error() string {
 	var msgs []string
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -183,11 +183,11 @@ func (m NoEntitlementsMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m NoEntitlementsMultiError) AllErrors() []error { return m }
+func (m SkipEntitlementsAndGrantsMultiError) AllErrors() []error { return m }
 
-// NoEntitlementsValidationError is the validation error returned by
-// NoEntitlements.Validate if the designated constraints aren't met.
-type NoEntitlementsValidationError struct {
+// SkipEntitlementsAndGrantsValidationError is the validation error returned by
+// SkipEntitlementsAndGrants.Validate if the designated constraints aren't met.
+type SkipEntitlementsAndGrantsValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -195,22 +195,24 @@ type NoEntitlementsValidationError struct {
 }
 
 // Field function returns field value.
-func (e NoEntitlementsValidationError) Field() string { return e.field }
+func (e SkipEntitlementsAndGrantsValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e NoEntitlementsValidationError) Reason() string { return e.reason }
+func (e SkipEntitlementsAndGrantsValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e NoEntitlementsValidationError) Cause() error { return e.cause }
+func (e SkipEntitlementsAndGrantsValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e NoEntitlementsValidationError) Key() bool { return e.key }
+func (e SkipEntitlementsAndGrantsValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e NoEntitlementsValidationError) ErrorName() string { return "NoEntitlementsValidationError" }
+func (e SkipEntitlementsAndGrantsValidationError) ErrorName() string {
+	return "SkipEntitlementsAndGrantsValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e NoEntitlementsValidationError) Error() string {
+func (e SkipEntitlementsAndGrantsValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -222,14 +224,14 @@ func (e NoEntitlementsValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sNoEntitlements.%s: %s%s",
+		"invalid %sSkipEntitlementsAndGrants.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = NoEntitlementsValidationError{}
+var _ error = SkipEntitlementsAndGrantsValidationError{}
 
 var _ interface {
 	Field() string
@@ -237,4 +239,4 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = NoEntitlementsValidationError{}
+} = SkipEntitlementsAndGrantsValidationError{}

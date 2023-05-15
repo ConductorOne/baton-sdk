@@ -37,6 +37,8 @@ type syncer struct {
 	runDuration       time.Duration
 	transitionHandler func(s Action)
 	progressHandler   func(p *Progress)
+
+	skipEGForResourceType map[string]bool
 }
 
 // Checkpoint marshals the current state and stores it.
@@ -409,6 +411,29 @@ func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) err
 	return nil
 }
 
+// shouldSkipEntitlementsAndGrants determines if we should sync entitlements for a given resource. We cache the
+// result of this function for each resource type to avoid constant lookups in the database.
+func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Resource) (bool, error) {
+	// We've checked this resource type, so we can return what we have cached directly.
+	if skip, ok := s.skipEGForResourceType[r.Id.ResourceType]; ok {
+		return skip, nil
+	}
+
+	rt, err := s.store.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
+		ResourceTypeId: r.Id.ResourceType,
+	})
+	if err != nil {
+		return false, err
+	}
+
+	rtAnnos := annotations.Annotations(rt.Annotations)
+
+	skipEntitlements := rtAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
+	s.skipEGForResourceType[r.Id.ResourceType] = skipEntitlements
+
+	return skipEntitlements, nil
+}
+
 // SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
 // and pushes an action to fetch the entitelments for each resource.
 func (s *syncer) SyncEntitlements(ctx context.Context) error {
@@ -434,6 +459,13 @@ func (s *syncer) SyncEntitlements(ctx context.Context) error {
 		}
 
 		for _, r := range resp.List {
+			shouldSkipEntitlements, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
+			if err != nil {
+				return err
+			}
+			if shouldSkipEntitlements {
+				continue
+			}
 			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceID: r.Id.Resource, ResourceTypeID: r.Id.ResourceType})
 		}
 
@@ -669,6 +701,14 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 		}
 
 		for _, r := range resp.List {
+			shouldSkip, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
+			if err != nil {
+				return err
+			}
+
+			if shouldSkip {
+				continue
+			}
 			s.state.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: r.Id.Resource, ResourceTypeID: r.Id.ResourceType})
 		}
 
@@ -776,8 +816,9 @@ func WithProgressHandler(f func(s *Progress)) SyncOpt {
 // NewSyncer returns a new syncer object.
 func NewSyncer(store connectorstore.Writer, c types.ClientWrapper, opts ...SyncOpt) Syncer {
 	s := &syncer{
-		store:     store,
-		connector: c,
+		store:                 store,
+		connector:             c,
+		skipEGForResourceType: make(map[string]bool),
 	}
 
 	for _, o := range opts {
