@@ -4,6 +4,12 @@ package c1.connector.v2;
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
+import "google/protobuf/timestamp.proto";
+
 message ETag {
   string value = 1;
+}
+
+message ETagLastUpdatedAt {
+  google.protobuf.Timestamp last_updated_at = 1;
 }
