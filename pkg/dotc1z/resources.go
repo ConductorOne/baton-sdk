@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -86,8 +88,15 @@ func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourceTyp
 	)
 
 	ret := &v2.Resource{}
+	annos := annotations.Annotations(request.GetAnnotations())
+	syncDetails := &c1zpb.SyncDetails{}
+	syncID := ""
 
-	err := c.getResourceObject(ctx, request.ResourceId, ret)
+	if ok, err := annos.Pick(syncDetails); err == nil && ok {
+		syncID = syncDetails.GetId()
+	}
+
+	err := c.getResourceObject(ctx, request.ResourceId, ret, syncID)
 	if err != nil {
 		return nil, err
 	}

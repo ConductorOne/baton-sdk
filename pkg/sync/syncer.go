@@ -9,6 +9,7 @@ import (
 	"io"
 	"time"
 
+	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -725,6 +726,10 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 	return nil
 }
 
+type lastestSyncFetcher interface {
+	LatestFinishedSync(ctx context.Context) (string, error)
+}
+
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
 func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
 	resource, err := s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
@@ -734,7 +739,43 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		return err
 	}
 
+	resourceAnnos := annotations.Annotations(resource.GetAnnotations())
+
+	var latestSyncID string
+
 	pageToken := s.state.PageToken(ctx)
+	// Empty page token, so we're on the first page of grants for this resource
+	if pageToken == "" {
+		if psf, ok := s.store.(lastestSyncFetcher); ok {
+			latestSyncID, err = psf.LatestFinishedSync(ctx)
+			if err != nil {
+				return err
+			}
+		}
+		var lastSyncResourceReqAnnos annotations.Annotations
+		lastSyncResourceReqAnnos.Update(&c1zpb.SyncDetails{Id: latestSyncID})
+		if latestSyncID != "" {
+			prevResource, err := s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
+				ResourceId:  resourceID,
+				Annotations: lastSyncResourceReqAnnos,
+			})
+			// FIXME(jirwin): Don't fail if this resource didn't exist in the previous sync
+			if err != nil {
+				return err
+			}
+
+			prevAnnos := annotations.Annotations(prevResource.GetAnnotations())
+			prevEtag := &v2.ETag{}
+			ok, err := prevAnnos.Pick(prevEtag)
+			if err != nil {
+				return err
+			}
+			if ok {
+				resourceAnnos.Update(prevEtag)
+				resource.Annotations = resourceAnnos
+			}
+		}
+	}
 
 	c, err := s.connector.C(ctx)
 	if err != nil {
@@ -745,22 +786,83 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	if err != nil {
 		return err
 	}
-	for _, grant := range resp.List {
+
+	nextPageToken := resp.NextPageToken
+
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	etagMatch := respAnnos.Contains(&v2.ETagMatch{})
+	if err != nil {
+		return err
+	}
+
+	var grantsRet []*v2.Grant
+
+	// The connector requested that we use the results from the previous sync.
+	if latestSyncID != "" && etagMatch {
+		nextPageToken = ""
+
+		// We have a previous sync, and the connector would like to use the previous sync results
+		var npt string
+		for {
+			// Fetch the grants for this resource from the previous sync, and store them in the current sync.
+			storeAnnos := annotations.Annotations{}
+			storeAnnos.Update(&c1zpb.SyncDetails{
+				Id: latestSyncID,
+			})
+			prevGrantsResp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
+				Resource:    resource,
+				Annotations: storeAnnos,
+				PageToken:   npt,
+				PageSize:    1000,
+			})
+			if err != nil {
+				return err
+			}
+
+			grantsRet = append(grantsRet, prevGrantsResp.List...)
+
+			if prevGrantsResp.NextPageToken == "" {
+				break
+			}
+			npt = prevGrantsResp.NextPageToken
+		}
+	}
+
+	// We want to process any grants from the previous sync first so that if there is a conflict
+	grantsRet = append(grantsRet, resp.List...)
+
+	for _, grant := range grantsRet {
 		err = s.store.PutGrant(ctx, grant)
 		if err != nil {
 			return err
 		}
 	}
 
-	s.handleProgress(ctx, s.state.Current(), len(resp.List))
+	s.handleProgress(ctx, s.state.Current(), len(grantsRet))
 
-	if resp.NextPageToken != "" {
-		err = s.state.NextPage(ctx, resp.NextPageToken)
+	if nextPageToken != "" {
+		err = s.state.NextPage(ctx, nextPageToken)
 		if err != nil {
 			return err
 		}
 	} else {
 		s.state.FinishAction(ctx)
+	}
+
+	// We don't have an etag match, and we are on the last page. Check to see if an Etag was returned, if so, update the resource with it.
+	if !etagMatch && nextPageToken == "" {
+		newEtag := &v2.ETag{}
+		_, err = respAnnos.Pick(newEtag)
+		if err != nil {
+			return err
+		}
+
+		resourceAnnos.Update(newEtag)
+		resource.Annotations = resourceAnnos
+		err = s.store.PutResource(ctx, resource)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

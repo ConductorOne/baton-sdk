@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+package c1.c1z.v1;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/c1z/v1";
+
+message SyncDetails {
+  string id = 1;
+}
