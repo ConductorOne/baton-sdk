@@ -791,9 +791,6 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	etagMatch := respAnnos.Contains(&v2.ETagMatch{})
-	if err != nil {
-		return err
-	}
 
 	var grantsRet []*v2.Grant
 
