@@ -730,6 +730,57 @@ type lastestSyncFetcher interface {
 	LatestFinishedSync(ctx context.Context) (string, error)
 }
 
+func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v2.ResourceId) (string, *v2.ETag, error) {
+	l := ctxzap.Extract(ctx)
+
+	var previousSyncID string
+	var err error
+
+	if psf, ok := s.store.(lastestSyncFetcher); ok {
+		previousSyncID, err = psf.LatestFinishedSync(ctx)
+		if err != nil {
+			return "", nil, err
+		}
+	}
+
+	if previousSyncID == "" {
+		return "", nil, nil
+	}
+
+	var lastSyncResourceReqAnnos annotations.Annotations
+	lastSyncResourceReqAnnos.Update(&c1zpb.SyncDetails{Id: previousSyncID})
+	prevResource, err := s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
+		ResourceId:  resourceID,
+		Annotations: lastSyncResourceReqAnnos,
+	})
+	// If we get an error while attempting to look up the previous sync, we should just log it and continue.
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			l.Debug(
+				"resource was not found in previous sync",
+				zap.String("resource_id", resourceID.Resource),
+				zap.String("resource_type_id", resourceID.ResourceType),
+			)
+			return "", nil, nil
+		}
+
+		l.Error("error fetching resource for previous sync", zap.Error(err))
+		return "", nil, err
+	}
+
+	pETag := &v2.ETag{}
+	prevAnnos := annotations.Annotations(prevResource.GetAnnotations())
+	ok, err := prevAnnos.Pick(pETag)
+	if err != nil {
+		return "", nil, err
+	}
+	if ok {
+		return previousSyncID, pETag, nil
+	}
+
+	return previousSyncID, nil, nil
+}
+
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
 func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
 	resource, err := s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
@@ -739,42 +790,19 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		return err
 	}
 
+	var prevSyncID string
+	var prevEtag *v2.ETag
+
 	resourceAnnos := annotations.Annotations(resource.GetAnnotations())
-
-	var latestSyncID string
-
-	prevEtag := &v2.ETag{}
 	pageToken := s.state.PageToken(ctx)
 	// Empty page token, so we're on the first page of grants for this resource
 	if pageToken == "" {
-		if psf, ok := s.store.(lastestSyncFetcher); ok {
-			latestSyncID, err = psf.LatestFinishedSync(ctx)
-			if err != nil {
-				return err
-			}
+		prevSyncID, prevEtag, err = s.fetchResourceForPreviousSync(ctx, resourceID)
+		if err != nil {
+			return err
 		}
-		var lastSyncResourceReqAnnos annotations.Annotations
-		lastSyncResourceReqAnnos.Update(&c1zpb.SyncDetails{Id: latestSyncID})
-		if latestSyncID != "" {
-			prevResource, err := s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
-				ResourceId:  resourceID,
-				Annotations: lastSyncResourceReqAnnos,
-			})
-			// FIXME(jirwin): Don't fail if this resource didn't exist in the previous sync
-			if err != nil {
-				return err
-			}
-
-			prevAnnos := annotations.Annotations(prevResource.GetAnnotations())
-			ok, err := prevAnnos.Pick(prevEtag)
-			if err != nil {
-				return err
-			}
-			if ok {
-				resourceAnnos.Update(prevEtag)
-				resource.Annotations = resourceAnnos
-			}
-		}
+		resourceAnnos.Update(prevEtag)
+		resource.Annotations = resourceAnnos
 	}
 
 	c, err := s.connector.C(ctx)
@@ -792,24 +820,23 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	etagMatch := respAnnos.Contains(&v2.ETagMatch{})
 
-	if etagMatch && prevEtag == nil {
-		return errors.New("connector returned an etag match - but there is no previous sync generation to use")
-	}
-
 	var grantsRet []*v2.Grant
 
 	// We have a previous etag, and the connector has indicated an etag match
 	if etagMatch {
-		nextPageToken = ""
+		if prevEtag == nil {
+			return errors.New("connector returned an etag match - but there is no previous sync generation to use")
+		}
 
 		// We have a previous sync, and the connector would like to use the previous sync results
 		var npt string
+		// Fetch the grants for this resource from the previous sync, and store them in the current sync.
+		storeAnnos := annotations.Annotations{}
+		storeAnnos.Update(&c1zpb.SyncDetails{
+			Id: prevSyncID,
+		})
+
 		for {
-			// Fetch the grants for this resource from the previous sync, and store them in the current sync.
-			storeAnnos := annotations.Annotations{}
-			storeAnnos.Update(&c1zpb.SyncDetails{
-				Id: latestSyncID,
-			})
 			prevGrantsResp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
 				Resource:    resource,
 				Annotations: storeAnnos,
@@ -846,28 +873,22 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		if err != nil {
 			return err
 		}
-	} else {
-		s.state.FinishAction(ctx)
+		return nil
 	}
 
-	var updatedETag *v2.ETag
+	s.state.FinishAction(ctx)
 
-	// We don't have an etag match, and we are on the last page. Check to see if an Etag was returned, if so, update the resource with it.
-	// There are no more pages, finalize work for this resource
-	if nextPageToken == "" {
-		// We have a previous etag, and the connector has indicated an etag match, so update this generations resource with the previous etag.
-		// We should have exited already if we received an etag match and there was no previous etag.
-		if etagMatch {
-			updatedETag = prevEtag
-		} else {
-			newETag := &v2.ETag{}
-			ok, err := respAnnos.Pick(newETag)
-			if err != nil {
-				return err
-			}
-			if ok {
-				updatedETag = newETag
-			}
+	var updatedETag *v2.ETag
+	if etagMatch {
+		updatedETag = prevEtag
+	} else {
+		newETag := &v2.ETag{}
+		ok, err := respAnnos.Pick(newETag)
+		if err != nil {
+			return err
+		}
+		if ok {
+			updatedETag = newETag
 		}
 	}
 
