@@ -743,6 +743,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 	var latestSyncID string
 
+	prevEtag := &v2.ETag{}
 	pageToken := s.state.PageToken(ctx)
 	// Empty page token, so we're on the first page of grants for this resource
 	if pageToken == "" {
@@ -765,7 +766,6 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 			}
 
 			prevAnnos := annotations.Annotations(prevResource.GetAnnotations())
-			prevEtag := &v2.ETag{}
 			ok, err := prevAnnos.Pick(prevEtag)
 			if err != nil {
 				return err
@@ -792,10 +792,14 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	etagMatch := respAnnos.Contains(&v2.ETagMatch{})
 
+	if etagMatch && prevEtag == nil {
+		return errors.New("connector returned an etag match - but there is no previous sync generation to use")
+	}
+
 	var grantsRet []*v2.Grant
 
-	// The connector requested that we use the results from the previous sync.
-	if latestSyncID != "" && etagMatch {
+	// We have a previous etag, and the connector has indicated an etag match
+	if etagMatch {
 		nextPageToken = ""
 
 		// We have a previous sync, and the connector would like to use the previous sync results
@@ -846,15 +850,29 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		s.state.FinishAction(ctx)
 	}
 
-	// We don't have an etag match, and we are on the last page. Check to see if an Etag was returned, if so, update the resource with it.
-	if !etagMatch && nextPageToken == "" {
-		newEtag := &v2.ETag{}
-		_, err = respAnnos.Pick(newEtag)
-		if err != nil {
-			return err
-		}
+	var updatedETag *v2.ETag
 
-		resourceAnnos.Update(newEtag)
+	// We don't have an etag match, and we are on the last page. Check to see if an Etag was returned, if so, update the resource with it.
+	// There are no more pages, finalize work for this resource
+	if nextPageToken == "" {
+		// We have a previous etag, and the connector has indicated an etag match, so update this generations resource with the previous etag.
+		// We should have exited already if we received an etag match and there was no previous etag.
+		if etagMatch {
+			updatedETag = prevEtag
+		} else {
+			newETag := &v2.ETag{}
+			ok, err := respAnnos.Pick(newETag)
+			if err != nil {
+				return err
+			}
+			if ok {
+				updatedETag = newETag
+			}
+		}
+	}
+
+	if updatedETag != nil {
+		resourceAnnos.Update(updatedETag)
 		resource.Annotations = resourceAnnos
 		err = s.store.PutResource(ctx, resource)
 		if err != nil {
