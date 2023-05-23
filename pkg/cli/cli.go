@@ -103,7 +103,6 @@ func NewCmd[T any, PtrT *T](
 				default:
 					opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 				}
-
 			}
 
 			r, err := connectorrunner.NewConnectorRunner(runCtx, c, opts...)
@@ -160,7 +159,7 @@ func NewCmd[T any, PtrT *T](
 				copts = append(copts, connector.WithProvisioningEnabled())
 			case v.GetString("revoke-grant") != "":
 				copts = append(copts, connector.WithProvisioningEnabled())
-			case v.GetBool("provisioning") == true:
+			case v.GetBool("provisioning"):
 				copts = append(copts, connector.WithProvisioningEnabled())
 			}
 

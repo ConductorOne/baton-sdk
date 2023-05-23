@@ -9,10 +9,6 @@ import (
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
-	"github.com/conductorone/baton-sdk/pkg/provisioner"
-	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/tasks/c1api"
 	"github.com/conductorone/baton-sdk/pkg/tasks/local"
@@ -25,13 +21,9 @@ import (
 )
 
 type connectorRunner struct {
-	syncer      sync.Syncer
-	provisioner *provisioner.Provisioner
-	store       connectorstore.Writer
-	manager     manager.Manager
-	cw          types.ClientWrapper
-	oneShot     bool
-	tasks       tasks.Manager
+	cw      types.ClientWrapper
+	oneShot bool
+	tasks   tasks.Manager
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
