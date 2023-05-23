@@ -15,7 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/tasks/c1api"
-	"github.com/conductorone/baton-sdk/pkg/tasks/localsyncer"
+	"github.com/conductorone/baton-sdk/pkg/tasks/local"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -142,7 +142,7 @@ type revokeConfig struct {
 type runnerConfig struct {
 	rlCfg               *ratelimitV1.RateLimiterConfig
 	rlDescriptors       []*ratelimitV1.RateLimitDescriptors_Entry
-	onDemandSync        bool
+	onDemand            bool
 	c1zPath             string
 	clientAuth          bool
 	clientID            string
@@ -226,8 +226,10 @@ func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Opti
 	}
 }
 
-func WithGrant(entitlementID string, principalID string, principalType string) Option {
+func WithOnDemandGrant(c1zPath string, entitlementID string, principalID string, principalType string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
 		cfg.grantConfig = &grantConfig{
 			entitlementID: entitlementID,
 			principalID:   principalID,
@@ -246,8 +248,10 @@ func WithClientCredentials(clientID string, clientSecret string) Option {
 	}
 }
 
-func WithRevoke(grantID string) Option {
+func WithOnDemandRevoke(c1zPath string, grantID string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
 		cfg.revokeConfig = &revokeConfig{
 			grantID: grantID,
 		}
@@ -257,7 +261,7 @@ func WithRevoke(grantID string) Option {
 
 func WithOnDemandSync(c1zPath string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemandSync = true
+		cfg.onDemand = true
 		cfg.c1zPath = c1zPath
 		return nil
 	}
@@ -296,14 +300,35 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 	runner.cw = cw
 
-	if cfg.onDemandSync {
+	if cfg.onDemand {
 		if cfg.c1zPath == "" {
-			return nil, errors.New("c1zPath must be set when using onDemandSync")
+			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
-		tm, err := localsyncer.New(ctx, cfg.c1zPath)
-		if err != nil {
-			return nil, err
+
+		var tm tasks.Manager
+		switch {
+		case cfg.grantConfig != nil:
+			tm = local.NewGranter(
+				ctx,
+				cfg.c1zPath,
+				cfg.grantConfig.entitlementID,
+				cfg.grantConfig.principalID,
+				cfg.grantConfig.principalType,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+		case cfg.revokeConfig != nil:
+			tm = local.NewRevoker(ctx, cfg.c1zPath, cfg.revokeConfig.grantID)
+
+		default:
+			tm, err = local.NewSyncer(ctx, cfg.c1zPath)
+			if err != nil {
+				return nil, err
+			}
 		}
+
 		runner.tasks = tm
 
 		runner.oneShot = true

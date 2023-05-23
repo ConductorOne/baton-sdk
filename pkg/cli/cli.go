@@ -83,7 +83,23 @@ func NewCmd[T any, PtrT *T](
 			if daemonMode {
 				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
 			} else {
-				opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
+				switch {
+				case v.GetString("grant-entitlement") != "":
+					opts = append(opts, connectorrunner.WithOnDemandGrant(
+						v.GetString("file"),
+						v.GetString("grant-entitlement"),
+						v.GetString("grant-principal"),
+						v.GetString("grant-principal-type"),
+					))
+				case v.GetString("revoke-grant") != "":
+					opts = append(opts, connectorrunner.WithOnDemandRevoke(
+						v.GetString("file"),
+						v.GetString("revoke-grant"),
+					))
+				default:
+					opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
+				}
+
 			}
 
 			r, err := connectorrunner.NewConnectorRunner(runCtx, c, opts...)
@@ -180,6 +196,7 @@ func NewCmd[T any, PtrT *T](
 
 	cmd.AddCommand(grpcServerCmd)
 
+	// Flags for logging configuration
 	cmd.PersistentFlags().String("log-level", defaultLogLevel, "The log level: debug, info, warn, error ($BATON_LOG_LEVEL)")
 	cmd.PersistentFlags().String("log-format", defaultLogFormat, "The output format for logs: json, console ($BATON_LOG_FORMAT)")
 
@@ -192,10 +209,12 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("revoke-grant", "", "The grant to revoke ($BATON_REVOKE_GRANT)")
 	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant")
 
+	// Flags for daemon mode
 	cmd.PersistentFlags().BoolP("daemon-mode", "d", false, "Run in daemon mode ($BATON_DAEMON_MODE)")
 	cmd.PersistentFlags().String("client-id", "", "The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)")
 	cmd.PersistentFlags().String("client-secret", "", "The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)")
 	cmd.PersistentFlags().BoolP("provisioning", "p", false, "This must be set in order for provisioning actions to be enabled. ($BATON_PROVISIONING)")
+	cmd.MarkFlagsRequiredTogether("client-id", "client-secret")
 	err = cmd.PersistentFlags().MarkHidden("daemon-mode")
 	if err != nil {
 		return nil, err

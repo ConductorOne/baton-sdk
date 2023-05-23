@@ -1,4 +1,4 @@
-package localsyncer
+package local
 
 import (
 	"context"
@@ -45,8 +45,8 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	return nil
 }
 
-// New returns a task manager that queues a sync task.
-func New(ctx context.Context, dbPath string) (tasks.Manager, error) {
+// NewSyncer returns a task manager that queues a sync task.
+func NewSyncer(ctx context.Context, dbPath string) (tasks.Manager, error) {
 	nm := &localSyncer{
 		dbPath: dbPath,
 	}
