@@ -41,7 +41,7 @@ func (p *Provisioner) grant(ctx context.Context) error {
 		return err
 	}
 
-	principal, err := p.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
+	principal, err := p.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 		ResourceId: &v2.ResourceId{
 			Resource:     p.grantPrincipalID,
 			ResourceType: p.grantPrincipalType,
@@ -52,8 +52,8 @@ func (p *Provisioner) grant(ctx context.Context) error {
 	}
 
 	_, err = c.Grant(ctx, &v2.GrantManagerServiceGrantRequest{
-		Entitlement: entitlement,
-		Principal:   principal,
+		Entitlement: entitlement.Entitlement,
+		Principal:   principal.Resource,
 	})
 	if err != nil {
 		return err
@@ -76,14 +76,14 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 	}
 
 	entitlement, err := p.store.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
-		EntitlementId: grant.Entitlement.Id,
+		EntitlementId: grant.Grant.Entitlement.Id,
 	})
 	if err != nil {
 		return err
 	}
 
-	principal, err := p.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
-		ResourceId: grant.Principal.Id,
+	principal, err := p.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+		ResourceId: grant.Grant.Principal.Id,
 	})
 	if err != nil {
 		return err
@@ -91,9 +91,9 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 
 	_, err = c.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
 		Grant: &v2.Grant{
-			Id:          grant.Id,
-			Entitlement: entitlement,
-			Principal:   principal,
+			Id:          grant.Grant.Id,
+			Entitlement: entitlement.Entitlement,
+			Principal:   principal.Resource,
 		},
 	})
 	if err != nil {

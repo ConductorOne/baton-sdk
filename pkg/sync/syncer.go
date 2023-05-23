@@ -425,7 +425,7 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 		return false, err
 	}
 
-	rtAnnos := annotations.Annotations(rt.Annotations)
+	rtAnnos := annotations.Annotations(rt.ResourceType.Annotations)
 
 	skipEntitlements := rtAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
 	s.skipEGForResourceType[r.Id.ResourceType] = skipEntitlements
