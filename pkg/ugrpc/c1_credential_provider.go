@@ -32,6 +32,8 @@ const (
 var (
 	ErrInvalidClientSecret = errors.New("invalid client secret")
 	ErrInvalidClientID     = errors.New("invalid client id")
+
+	v1SecretTokenIdentifier = []byte("v1")
 )
 
 type c1Token struct {
@@ -67,6 +69,10 @@ func parseClientID(input string) (string, string, error) {
 func parseSecret(input []byte) (*jose.JSONWebKey, error) {
 	items := bytes.SplitN(input, []byte(":"), 4)
 	if len(items) != 4 {
+		return nil, ErrInvalidClientSecret
+	}
+
+	if !bytes.Equal(items[2], v1SecretTokenIdentifier) {
 		return nil, ErrInvalidClientSecret
 	}
 
