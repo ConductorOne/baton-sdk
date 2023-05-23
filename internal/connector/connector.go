@@ -136,7 +136,6 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	connectorV2.RegisterResourcesServiceServer(server, cw.server)
 	connectorV2.RegisterResourceTypesServiceServer(server, cw.server)
 	connectorV2.RegisterAssetServiceServer(server, cw.server)
-	connectorV2.RegisterGrantManagerServiceServer(server, cw.server)
 
 	if cw.provisioningEnabled {
 		connectorV2.RegisterGrantManagerServiceServer(server, cw.server)
