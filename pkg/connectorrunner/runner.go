@@ -311,9 +311,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				cfg.grantConfig.principalID,
 				cfg.grantConfig.principalType,
 			)
-			if err != nil {
-				return nil, err
-			}
 
 		case cfg.revokeConfig != nil:
 			tm = local.NewRevoker(ctx, cfg.c1zPath, cfg.revokeConfig.grantID)
