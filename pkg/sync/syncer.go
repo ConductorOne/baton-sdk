@@ -740,7 +740,7 @@ func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v
 
 	var lastSyncResourceReqAnnos annotations.Annotations
 	lastSyncResourceReqAnnos.Update(&c1zpb.SyncDetails{Id: previousSyncID})
-	prevResource, err := s.store.GetResource(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceRequest{
+	prevResource, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 		ResourceId:  resourceID,
 		Annotations: lastSyncResourceReqAnnos,
 	})
@@ -760,7 +760,7 @@ func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v
 	}
 
 	pETag := &v2.ETag{}
-	prevAnnos := annotations.Annotations(prevResource.GetAnnotations())
+	prevAnnos := annotations.Annotations(prevResource.Resource.GetAnnotations())
 	ok, err := prevAnnos.Pick(pETag)
 	if err != nil {
 		return "", nil, err
@@ -780,6 +780,8 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	if err != nil {
 		return err
 	}
+
+	resource := resourceResponse.Resource
 
 	var prevSyncID string
 	var prevEtag *v2.ETag
