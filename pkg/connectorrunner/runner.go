@@ -293,6 +293,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		wrapperOpts = append(wrapperOpts, connector.WithRateLimitDescriptor(d))
 	}
 
+	if cfg.provisioningEnabled {
+		wrapperOpts = append(wrapperOpts, connector.WithProvisioningEnabled())
+	}
+
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {
 		return nil, err

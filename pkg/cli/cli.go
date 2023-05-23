@@ -79,23 +79,27 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			daemonMode := v.GetBool("daemon-mode") || isService()
+			daemonMode := v.GetBool("daemon-mode") || v.GetString("client-id") != "" || isService()
 			if daemonMode {
 				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
 			} else {
 				switch {
 				case v.GetString("grant-entitlement") != "":
-					opts = append(opts, connectorrunner.WithOnDemandGrant(
-						v.GetString("file"),
-						v.GetString("grant-entitlement"),
-						v.GetString("grant-principal"),
-						v.GetString("grant-principal-type"),
-					))
+					opts = append(opts,
+						connectorrunner.WithProvisioningEnabled(),
+						connectorrunner.WithOnDemandGrant(
+							v.GetString("file"),
+							v.GetString("grant-entitlement"),
+							v.GetString("grant-principal"),
+							v.GetString("grant-principal-type"),
+						))
 				case v.GetString("revoke-grant") != "":
-					opts = append(opts, connectorrunner.WithOnDemandRevoke(
-						v.GetString("file"),
-						v.GetString("revoke-grant"),
-					))
+					opts = append(opts,
+						connectorrunner.WithProvisioningEnabled(),
+						connectorrunner.WithOnDemandRevoke(
+							v.GetString("file"),
+							v.GetString("revoke-grant"),
+						))
 				default:
 					opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 				}
@@ -150,6 +154,15 @@ func NewCmd[T any, PtrT *T](
 			}
 
 			var copts []connector.Option
+
+			switch {
+			case v.GetString("grant-entitlement") != "":
+				copts = append(copts, connector.WithProvisioningEnabled())
+			case v.GetString("revoke-grant") != "":
+				copts = append(copts, connector.WithProvisioningEnabled())
+			case v.GetBool("provisioning") == true:
+				copts = append(copts, connector.WithProvisioningEnabled())
+			}
 
 			cw, err := connector.NewWrapper(runCtx, c, copts...)
 			if err != nil {
