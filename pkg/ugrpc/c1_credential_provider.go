@@ -164,7 +164,7 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +202,7 @@ func newC1TokenSource(ctx context.Context, clientID string, clientSecret string)
 		return nil, "", "", err
 	}
 
-	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)))
+	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)), uhttp.WithUserAgent("baton-c1-credential-provider"))
 	if err != nil {
 		return nil, "", "", err
 	}
