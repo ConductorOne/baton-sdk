@@ -981,3 +981,18 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, dbPath string, opts
 
 	return s, nil
 }
+
+// NewSyncer returns a new syncer object.
+func NewStoreSyncer(store connectorstore.Writer, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
+	s := &syncer{
+		connector:             c,
+		store:                 store,
+		skipEGForResourceType: make(map[string]bool),
+	}
+
+	for _, o := range opts {
+		o(s)
+	}
+
+	return s, nil
+}
