@@ -27,7 +27,7 @@ func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error)
 }
 
 func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
-	syncer, err := sdkSync.NewSyncer(ctx, cc, m.dbPath)
+	syncer, err := sdkSync.NewSyncer(ctx, cc, sdkSync.WithC1ZPath(m.dbPath))
 	if err != nil {
 		return err
 	}

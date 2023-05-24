@@ -40,7 +40,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, err)
 	}
 
-	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), c1zPath)
+	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), sdkSync.WithC1ZPath(c1zPath))
 	if err != nil {
 		l.Error("failed to create syncer", zap.Error(err))
 		return c.helpers.FinishTask(ctx, err)

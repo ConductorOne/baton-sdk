@@ -34,7 +34,7 @@ type Syncer interface {
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
 	c1zManager        manager.Manager
-	dbPath            string
+	c1zPath           string
 	store             connectorstore.Writer
 	connector         types.ConnectorClient
 	state             State
@@ -898,7 +898,7 @@ func (s *syncer) loadStore(ctx context.Context) error {
 	}
 
 	if s.c1zManager == nil {
-		m, err := manager.New(ctx, s.dbPath)
+		m, err := manager.New(ctx, s.c1zPath)
 		if err != nil {
 			return err
 		}
@@ -967,31 +967,31 @@ func WithProgressHandler(f func(s *Progress)) SyncOpt {
 	}
 }
 
-// NewSyncer returns a new syncer object.
-func NewSyncer(ctx context.Context, c types.ConnectorClient, dbPath string, opts ...SyncOpt) (Syncer, error) {
-	s := &syncer{
-		connector:             c,
-		dbPath:                dbPath,
-		skipEGForResourceType: make(map[string]bool),
+func WithConnectorStore(store connectorstore.Writer) SyncOpt {
+	return func(s *syncer) {
+		s.store = store
 	}
+}
 
-	for _, o := range opts {
-		o(s)
+func WithC1ZPath(path string) SyncOpt {
+	return func(s *syncer) {
+		s.c1zPath = path
 	}
-
-	return s, nil
 }
 
 // NewSyncer returns a new syncer object.
-func NewStoreSyncer(store connectorstore.Writer, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
+func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
 	s := &syncer{
 		connector:             c,
-		store:                 store,
 		skipEGForResourceType: make(map[string]bool),
 	}
 
 	for _, o := range opts {
 		o(s)
+	}
+
+	if s.store == nil && s.c1zPath == "" {
+		return nil, errors.New("a connector store writer or a db path must be provided")
 	}
 
 	return s, nil
