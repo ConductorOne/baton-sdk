@@ -7,6 +7,7 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
 import "c1/connector/v2/grant.proto";
 import "c1/connector/v2/entitlement.proto";
 import "validate/validate.proto";
+import "google/protobuf/any.proto";
 
 service GrantsReaderService {
   rpc GetGrant(GrantsReaderServiceGetGrantRequest) returns (c1.connector.v2.Grant);
@@ -42,6 +43,7 @@ message GrantsReaderServiceListGrantsForEntitlementRequest {
       max_bytes: 2048
     }
   ];
+  repeated google.protobuf.Any annotations = 4;
 }
 
 message GrantsReaderServiceListGrantsForEntitlementResponse {
@@ -76,6 +78,7 @@ message GrantsReaderServiceListGrantsForResourceTypeRequest {
       max_bytes: 2048
     }
   ];
+  repeated google.protobuf.Any annotations = 4;
 }
 
 message GrantsReaderServiceListGrantsForResourceTypeResponse {
