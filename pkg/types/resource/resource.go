@@ -32,6 +32,14 @@ func WithParentResourceID(parentResourceID *v2.ResourceId) ResourceOption {
 	}
 }
 
+func WithDescription(description string) ResourceOption {
+	return func(r *v2.Resource) error {
+		r.Description = description
+
+		return nil
+	}
+}
+
 func WithUserTrait(opts ...UserTraitOption) ResourceOption {
 	return func(r *v2.Resource) error {
 		var err error

@@ -80,7 +80,7 @@ func (c *C1File) ListResources(ctx context.Context, request *v2.ResourcesService
 	}, nil
 }
 
-func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourceTypesReaderServiceGetResourceRequest) (*v2.Resource, error) {
+func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourcesReaderServiceGetResourceRequest) (*reader_v2.ResourcesReaderServiceGetResourceResponse, error) {
 	ctxzap.Extract(ctx).Debug(
 		"fetching resource",
 		zap.String("resource_id", request.ResourceId.Resource),
@@ -101,7 +101,9 @@ func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourceTyp
 		return nil, err
 	}
 
-	return ret, nil
+	return &reader_v2.ResourcesReaderServiceGetResourceResponse{
+		Resource: ret,
+	}, nil
 }
 
 func (c *C1File) PutResource(ctx context.Context, resource *v2.Resource) error {

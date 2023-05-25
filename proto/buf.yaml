@@ -1,6 +1,7 @@
 version: v1
 deps:
   - buf.build/envoyproxy/protoc-gen-validate
+  - buf.build/googleapis/googleapis
 breaking:
   use:
     - FILE
@@ -12,4 +13,4 @@ breaking:
     - FIELD_NO_DELETE
 lint:
   use:
-    - BASIC
+    - DEFAULT

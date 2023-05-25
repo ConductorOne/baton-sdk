@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -27,32 +28,32 @@ func Test_getConfigPath(t *testing.T) {
 		{
 			name: "custom absolute path with file extension",
 			args: args{
-				customPath: "/tmp/baton.yaml",
+				customPath: filepath.FromSlash("/tmp/baton.yaml"),
 			},
-			want:    "/tmp",
+			want:    filepath.FromSlash("/tmp"),
 			want1:   "baton",
 			wantErr: false,
 		},
 		{
 			name: "custom absolute path without file extension",
 			args: args{
-				customPath: "/tmp/baton",
+				customPath: filepath.FromSlash("/tmp/baton"),
 			},
 			wantErr: true,
 		},
 		{
 			name: "custom path with file extension and trailing slash",
 			args: args{
-				customPath: "/tmp/baton.yaml/",
+				customPath: filepath.FromSlash("/tmp/baton.yaml/"),
 			},
-			want:    "/tmp",
+			want:    filepath.FromSlash("/tmp"),
 			want1:   "baton",
 			wantErr: false,
 		},
 		{
 			name: "custom path with file extension with relative path",
 			args: args{
-				customPath: "./baton.yaml",
+				customPath: filepath.FromSlash("./baton.yaml"),
 			},
 			want:    ".",
 			want1:   "baton",
@@ -61,7 +62,7 @@ func Test_getConfigPath(t *testing.T) {
 		{
 			name: "custom path with file extension with relative path, ../",
 			args: args{
-				customPath: "../cfg.yaml",
+				customPath: filepath.FromSlash("../cfg.yaml"),
 			},
 			want:    "..",
 			want1:   "cfg",
@@ -70,7 +71,7 @@ func Test_getConfigPath(t *testing.T) {
 		{
 			name: "custom path with no file extension with relative path",
 			args: args{
-				customPath: "../foo/cfg",
+				customPath: filepath.FromSlash("../foo/cfg"),
 			},
 			wantErr: true,
 		},

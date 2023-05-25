@@ -1,0 +1,227 @@
+syntax = "proto3";
+
+package c1.connectorapi.baton.v1;
+
+import "c1/connector/v2/connector.proto";
+import "c1/connector/v2/entitlement.proto";
+import "c1/connector/v2/grant.proto";
+import "c1/connector/v2/resource.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/duration.proto";
+import "google/rpc/status.proto";
+import "validate/validate.proto";
+
+option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
+
+service BatonService {
+  rpc Hello(BatonServiceHelloRequest) returns (BatonServiceHelloResponse) {}
+  rpc GetTask(BatonServiceGetTaskRequest) returns (BatonServiceGetTaskResponse) {}
+
+  rpc Heartbeat(BatonServiceHeartbeatRequest) returns (BatonServiceHeartbeatResponse) {}
+
+  rpc FinishTask(BatonServiceFinishTaskRequest) returns (BatonServiceFinishTaskResponse) {}
+  rpc UploadAsset(stream BatonServiceUploadAssetRequest) returns (BatonServiceUploadAssetResponse) {}
+}
+
+message Task {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_PENDING = 1;
+    STATUS_SCHEDULED = 2;
+    STATUS_RUNNING = 3;
+    STATUS_FINISHED = 4;
+  }
+
+  message NoneTask {
+    repeated google.protobuf.Any annotations = 1;
+  }
+
+  message HelloTask {
+    repeated google.protobuf.Any annotations = 1;
+  }
+
+  message SyncFullTask {
+    repeated google.protobuf.Any annotations = 1;
+  }
+
+  message GrantTask {
+    connector.v2.Entitlement entitlement = 1;
+    connector.v2.Resource principal = 2;
+    repeated google.protobuf.Any annotations = 3;
+  }
+
+  message RevokeTask {
+    connector.v2.Grant grant = 1;
+    repeated google.protobuf.Any annotations = 2;
+  }
+
+  string id = 1;
+  Status status = 2;
+  oneof task_type {
+    NoneTask none = 100;
+    HelloTask hello = 101;
+    SyncFullTask sync_full = 102;
+    GrantTask grant = 103;
+    RevokeTask revoke = 104;
+  }
+}
+
+message BatonServiceHelloRequest {
+  string host_id = 1 [(validate.rules).string = {
+    min_len: 1,
+    max_len: 256
+  }];
+  string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}|$"}]; // You may say Hello anytime, but if you are responding to a task, you must provide the task_id
+
+  message BuildInfo {
+    string lang_version = 1 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+    string package = 2 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+    string package_version = 3 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+  }
+  BuildInfo build_info = 3 [(validate.rules).message = {required: true}];
+
+  message OSInfo {
+    string hostname = 1 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+    string os = 2 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+    string platform = 3 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+    string platform_version = 4 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+    string platform_family = 5 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+    string kernel_version = 6 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+    string kernel_arch = 7 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+    string virtualization_system = 8 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+  }
+  OSInfo os_info = 4 [(validate.rules).message = {required: true}];
+
+  c1.connector.v2.ConnectorMetadata connector_metadata = 5 [(validate.rules).message = {required: true}];
+  repeated google.protobuf.Any annotations = 6 [(validate.rules).repeated = {max_items: 16}];
+}
+
+message BatonServiceHelloResponse {
+  repeated google.protobuf.Any annotations = 1;
+}
+
+message BatonServiceGetTaskRequest {
+  string host_id = 1 [(validate.rules).string = {
+    min_len: 1,
+    max_len: 256
+  }];
+}
+
+message BatonServiceGetTaskResponse {
+  Task task = 1;
+  google.protobuf.Duration next_poll = 2;
+  google.protobuf.Duration next_heartbeat = 3;
+  repeated google.protobuf.Any annotations = 4;
+}
+
+message BatonServiceHeartbeatRequest {
+  string host_id = 1 [(validate.rules).string = {
+    min_len: 1,
+    max_len: 256
+  }];
+  string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
+  repeated google.protobuf.Any annotations = 3 [(validate.rules).repeated = {max_items: 16}]; // Useful for returning status updates on the task
+}
+
+message BatonServiceHeartbeatResponse {
+  google.protobuf.Duration next_heartbeat = 1;
+  bool cancelled = 2; // Backend has decided that we should stop working on this
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message BatonServiceUploadAssetRequest {
+  message UploadMetadata {
+    string host_id = 1 [(validate.rules).string = {
+      min_len: 1,
+      max_len: 256
+    }];
+    string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
+    repeated google.protobuf.Any annotations = 4 [(validate.rules).repeated = {max_items: 16}];
+  }
+
+  message UploadData {
+    // 1MB limit
+    bytes data = 1 [(validate.rules).bytes = {
+      min_len: 1,
+      max_len: 1048576,
+    }];
+  }
+
+  message UploadEOF {
+    bytes sha256_checksum = 1 [(validate.rules).bytes = {len: 32}];
+    repeated google.protobuf.Any annotations = 2 [(validate.rules).repeated = {max_items: 16}];
+  }
+
+  oneof msg {
+    option (validate.required) = true;
+    UploadMetadata metadata = 100;
+    UploadData data = 101;
+    UploadEOF eof = 102;
+  }
+}
+
+message BatonServiceUploadAssetResponse {
+  repeated google.protobuf.Any annotations = 1;
+}
+
+// Connector submits a task has been finished. It should always be removed from the queue, and if it isn't a fatal error, we should re-add it to the queue to try again.
+message BatonServiceFinishTaskRequest {
+  string host_id = 1 [(validate.rules).string = {
+    min_len: 1,
+    max_len: 256
+  }];
+  string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
+  google.rpc.Status status = 3;
+
+  message Error {
+    bool non_retryable = 1;
+    repeated google.protobuf.Any annotations = 2 [(validate.rules).repeated = {max_items: 16}];
+  }
+
+  message Success {
+    repeated google.protobuf.Any annotations = 1 [(validate.rules).repeated = {max_items: 16}];
+  }
+
+  oneof final_state {
+    option (validate.required) = true;
+    Error error = 100;
+    Success success = 101;
+  }
+}
+
+message BatonServiceFinishTaskResponse {
+  repeated google.protobuf.Any annotations = 1;
+}

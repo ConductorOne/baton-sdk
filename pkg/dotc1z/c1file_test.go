@@ -31,7 +31,6 @@ func TestMain(m *testing.M) {
 	err = teardown()
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "%s\n", err.Error())
-		os.Exit(1)
 	}
 
 	os.Exit(code)
@@ -49,7 +48,10 @@ func setup() error {
 
 func teardown() error {
 	if c1zTests.workingDir != "" {
-		return os.RemoveAll(c1zTests.workingDir)
+		err := os.RemoveAll(c1zTests.workingDir)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "error during teardown: %s\n", err.Error())
+		}
 	}
 	return nil
 }
@@ -104,11 +106,11 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fetch the resource type we just saved
-	rt, err := f.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
+	rtResp, err := f.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
 		ResourceTypeId: resourceTypeID,
 	})
 	require.NoError(t, err)
-	require.Equal(t, resourceTypeID, rt.Id)
+	require.Equal(t, resourceTypeID, rtResp.ResourceType.Id)
 
 	err = f.Close()
 	require.NoError(t, err)
@@ -123,11 +125,11 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fetch the resource type we just saved
-	rt2, err := f.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
+	rtResp2, err := f.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
 		ResourceTypeId: resourceTypeID,
 	})
 	require.NoError(t, err)
-	require.Equal(t, resourceTypeID, rt2.Id)
+	require.Equal(t, resourceTypeID, rtResp2.ResourceType.Id)
 
 	err = f.Close()
 	require.NoError(t, err)
