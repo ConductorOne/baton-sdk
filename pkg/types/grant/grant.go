@@ -7,22 +7,40 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	eopt "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
-type GrantOption func(*v2.Grant)
+type GrantOption func(*v2.Grant) error
 
 type GrantPrincipal interface {
 	proto.Message
 	GetBatonResource() bool
 }
 
+func WithGrantMetadata(metadata map[string]interface{}) GrantOption {
+	return func(g *v2.Grant) error {
+		md, err := structpb.NewStruct(metadata)
+		if err != nil {
+			return err
+		}
+
+		annos := annotations.Annotations(g.Annotations)
+		annos.Update(md)
+		g.Annotations = annos
+
+		return nil
+	}
+}
+
 func WithAnnotation(msgs ...proto.Message) GrantOption {
-	return func(g *v2.Grant) {
+	return func(g *v2.Grant) error {
 		annos := annotations.Annotations(g.Annotations)
 		for _, msg := range msgs {
 			annos.Append(msg)
 		}
 		g.Annotations = annos
+
+		return nil
 	}
 }
 
