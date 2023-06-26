@@ -16,6 +16,9 @@ func WithAnnotation(msgs ...proto.Message) ResourceOption {
 	return func(r *v2.Resource) error {
 		annos := annotations.Annotations(r.Annotations)
 		for _, msg := range msgs {
+			if msg == nil {
+				continue
+			}
 			annos.Append(msg)
 		}
 		r.Annotations = annos

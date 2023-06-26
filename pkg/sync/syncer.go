@@ -772,6 +772,71 @@ func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v
 	return previousSyncID, nil, nil
 }
 
+func (s *syncer) fetchEtaggedGrantsForResource(
+	ctx context.Context,
+	resource *v2.Resource,
+	prevEtag *v2.ETag,
+	prevSyncID string,
+	grantResponse *v2.GrantsServiceListGrantsResponse,
+) ([]*v2.Grant, bool, error) {
+	respAnnos := annotations.Annotations(grantResponse.GetAnnotations())
+	etagMatch := &v2.ETagMatch{}
+	hasMatch, err := respAnnos.Pick(etagMatch)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if !hasMatch {
+		return nil, false, nil
+	}
+
+	var ret []*v2.Grant
+
+	// No previous etag, so an etag match is not possible
+	if prevEtag == nil {
+		return nil, false, errors.New("connector returned an etag match but there is no previous sync generation to use")
+	}
+
+	// The previous etag is for a different entitlement
+	if prevEtag.EntitlementId != etagMatch.EntitlementId {
+		return nil, false, errors.New("connector returned an etag match but the entitlement id does not match the previous sync")
+	}
+
+	// We have a previous sync, and the connector would like to use the previous sync results
+	var npt string
+	// Fetch the grants for this resource from the previous sync, and store them in the current sync.
+	storeAnnos := annotations.Annotations{}
+	storeAnnos.Update(&c1zpb.SyncDetails{
+		Id: prevSyncID,
+	})
+
+	for {
+		prevGrantsResp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
+			Resource:    resource,
+			Annotations: storeAnnos,
+			PageToken:   npt,
+			PageSize:    1000,
+		})
+		if err != nil {
+			return nil, false, err
+		}
+
+		for _, g := range prevGrantsResp.List {
+			if g.Entitlement.Id != etagMatch.EntitlementId {
+				continue
+			}
+			ret = append(ret, g)
+		}
+
+		if prevGrantsResp.NextPageToken == "" {
+			break
+		}
+		npt = prevGrantsResp.NextPageToken
+	}
+
+	return ret, true, nil
+}
+
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
 func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
 	resourceResponse, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
@@ -785,92 +850,53 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 	var prevSyncID string
 	var prevEtag *v2.ETag
+	var etagMatch bool
+	var grants []*v2.Grant
 
 	resourceAnnos := annotations.Annotations(resource.GetAnnotations())
 	pageToken := s.state.PageToken(ctx)
-	// Empty page token, so we're on the first page of grants for this resource
-	if pageToken == "" {
-		prevSyncID, prevEtag, err = s.fetchResourceForPreviousSync(ctx, resourceID)
-		if err != nil {
-			return err
-		}
-		resourceAnnos.Update(prevEtag)
-		resource.Annotations = resourceAnnos
-	}
 
-	resp, err := s.connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{Resource: resourceResponse.Resource, PageToken: pageToken})
+	prevSyncID, prevEtag, err = s.fetchResourceForPreviousSync(ctx, resourceID)
+	if err != nil {
+		return err
+	}
+	resourceAnnos.Update(prevEtag)
+	resource.Annotations = resourceAnnos
+
+	resp, err := s.connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{Resource: resource, PageToken: pageToken})
 	if err != nil {
 		return err
 	}
 
-	nextPageToken := resp.NextPageToken
-
-	respAnnos := annotations.Annotations(resp.GetAnnotations())
-	etagMatch := respAnnos.Contains(&v2.ETagMatch{})
-
-	var grantsRet []*v2.Grant
-
-	// We have a previous etag, and the connector has indicated an etag match
-	if etagMatch {
-		if prevEtag == nil {
-			return errors.New("connector returned an etag match - but there is no previous sync generation to use")
-		}
-
-		// We have a previous sync, and the connector would like to use the previous sync results
-		var npt string
-		// Fetch the grants for this resource from the previous sync, and store them in the current sync.
-		storeAnnos := annotations.Annotations{}
-		storeAnnos.Update(&c1zpb.SyncDetails{
-			Id: prevSyncID,
-		})
-
-		for {
-			prevGrantsResp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
-				Resource:    resource,
-				Annotations: storeAnnos,
-				PageToken:   npt,
-				PageSize:    1000,
-			})
-			if err != nil {
-				return err
-			}
-
-			grantsRet = append(grantsRet, prevGrantsResp.List...)
-
-			if prevGrantsResp.NextPageToken == "" {
-				break
-			}
-			npt = prevGrantsResp.NextPageToken
-		}
+	// Fetch any etagged grants for this resource
+	var etaggedGrants []*v2.Grant
+	etaggedGrants, etagMatch, err = s.fetchEtaggedGrantsForResource(ctx, resource, prevEtag, prevSyncID, resp)
+	if err != nil {
+		return err
 	}
+	grants = append(grants, etaggedGrants...)
 
-	// We want to process any grants from the previous sync first so that if there is a conflict
-	grantsRet = append(grantsRet, resp.List...)
+	// We want to process any grants from the previous sync first so that if there is a conflict, the newer data takes precedence
+	grants = append(grants, resp.List...)
 
-	for _, grant := range grantsRet {
+	for _, grant := range grants {
 		err = s.store.PutGrant(ctx, grant)
 		if err != nil {
 			return err
 		}
 	}
 
-	s.handleProgress(ctx, s.state.Current(), len(grantsRet))
+	s.handleProgress(ctx, s.state.Current(), len(grants))
 
-	if nextPageToken != "" {
-		err = s.state.NextPage(ctx, nextPageToken)
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
-	s.state.FinishAction(ctx)
-
+	// We may want to update the etag on the resource. If we matched a previous etag, then we should use that.
+	// Otherwise, we should use the etag from the response if provided.
 	var updatedETag *v2.ETag
+
 	if etagMatch {
 		updatedETag = prevEtag
 	} else {
 		newETag := &v2.ETag{}
+		respAnnos := annotations.Annotations(resp.GetAnnotations())
 		ok, err := respAnnos.Pick(newETag)
 		if err != nil {
 			return err
@@ -888,6 +914,16 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 			return err
 		}
 	}
+
+	if resp.NextPageToken != "" {
+		err = s.state.NextPage(ctx, resp.NextPageToken)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	s.state.FinishAction(ctx)
 
 	return nil
 }

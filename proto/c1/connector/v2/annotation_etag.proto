@@ -8,10 +8,13 @@ import "google/protobuf/struct.proto";
 
 message ETag {
   string value = 1;
+  string entitlement_id = 2;
 }
 
 message ETagMetadata {
   google.protobuf.Struct metadata = 1;
 }
 
-message ETagMatch {}
+message ETagMatch {
+  string entitlement_id = 1;
+}
