@@ -146,6 +146,7 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 			Id:          grant.Grant.Id,
 			Entitlement: entitlement.Entitlement,
 			Principal:   principal.Resource,
+			Annotations: grant.Grant.Annotations,
 		},
 	})
 	if err != nil {
