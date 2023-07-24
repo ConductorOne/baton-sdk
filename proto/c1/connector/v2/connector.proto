@@ -38,6 +38,7 @@ message ConnectorMetadata {
     (validate.rules).string = {
       min_bytes: 1
       max_bytes: 4096
+      ignore_empty: true
     }
   ];
 }

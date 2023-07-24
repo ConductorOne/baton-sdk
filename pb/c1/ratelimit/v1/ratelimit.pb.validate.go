@@ -1308,9 +1308,18 @@ func (m *RateLimiterConfig) validate(all bool) error {
 
 	var errors []error
 
-	switch m.Type.(type) {
-
+	switch v := m.Type.(type) {
 	case *RateLimiterConfig_Disabled:
+		if v == nil {
+			err := RateLimiterConfigValidationError{
+				field:  "Type",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetDisabled()).(type) {
@@ -1342,6 +1351,16 @@ func (m *RateLimiterConfig) validate(all bool) error {
 		}
 
 	case *RateLimiterConfig_SlidingMem:
+		if v == nil {
+			err := RateLimiterConfigValidationError{
+				field:  "Type",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetSlidingMem()).(type) {
@@ -1373,6 +1392,16 @@ func (m *RateLimiterConfig) validate(all bool) error {
 		}
 
 	case *RateLimiterConfig_FixedMem:
+		if v == nil {
+			err := RateLimiterConfigValidationError{
+				field:  "Type",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetFixedMem()).(type) {
@@ -1404,6 +1433,16 @@ func (m *RateLimiterConfig) validate(all bool) error {
 		}
 
 	case *RateLimiterConfig_External:
+		if v == nil {
+			err := RateLimiterConfigValidationError{
+				field:  "Type",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetExternal()).(type) {
@@ -1434,6 +1473,8 @@ func (m *RateLimiterConfig) validate(all bool) error {
 			}
 		}
 
+	default:
+		_ = v // ensures v is used
 	}
 
 	if len(errors) > 0 {
