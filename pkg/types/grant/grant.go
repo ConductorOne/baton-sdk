@@ -73,7 +73,10 @@ func NewGrant(resource *v2.Resource, entitlementName string, principal GrantPrin
 	grant.Id = fmt.Sprintf("%s:%s:%s", entitlement.Id, resourceID.ResourceType, resourceID.Resource)
 
 	for _, grantOption := range grantOptions {
-		grantOption(grant)
+		err := grantOption(grant)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	return grant
