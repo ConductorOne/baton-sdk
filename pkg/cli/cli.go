@@ -220,6 +220,22 @@ func NewCmd[T any, PtrT *T](
 	cmd.MarkFlagsRequiredTogether("grant-entitlement", "grant-principal", "grant-principal-type")
 	cmd.PersistentFlags().String("revoke-grant", "", "The grant to revoke ($BATON_REVOKE_GRANT)")
 	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant")
+	err = cmd.PersistentFlags().MarkHidden("grant-entitlement")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("grant-principal")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("grant-principal-type")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("revoke-grant")
+	if err != nil {
+		return nil, err
+	}
 
 	// Flags for daemon mode
 	cmd.PersistentFlags().BoolP("daemon-mode", "d", false, "Run in daemon mode ($BATON_DAEMON_MODE)")
