@@ -60,9 +60,18 @@ func (m *Task) validate(all bool) error {
 
 	// no validation rules for Status
 
-	switch m.TaskType.(type) {
-
+	switch v := m.TaskType.(type) {
 	case *Task_None:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetNone()).(type) {
@@ -94,6 +103,16 @@ func (m *Task) validate(all bool) error {
 		}
 
 	case *Task_Hello:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetHello()).(type) {
@@ -125,6 +144,16 @@ func (m *Task) validate(all bool) error {
 		}
 
 	case *Task_SyncFull:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetSyncFull()).(type) {
@@ -156,6 +185,16 @@ func (m *Task) validate(all bool) error {
 		}
 
 	case *Task_Grant:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetGrant()).(type) {
@@ -187,6 +226,16 @@ func (m *Task) validate(all bool) error {
 		}
 
 	case *Task_Revoke:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
 
 		if all {
 			switch v := interface{}(m.GetRevoke()).(type) {
@@ -217,6 +266,8 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
+	default:
+		_ = v // ensures v is used
 	}
 
 	if len(errors) > 0 {
@@ -1422,9 +1473,20 @@ func (m *BatonServiceUploadAssetRequest) validate(all bool) error {
 
 	var errors []error
 
-	switch m.Msg.(type) {
-
+	oneofMsgPresent := false
+	switch v := m.Msg.(type) {
 	case *BatonServiceUploadAssetRequest_Metadata:
+		if v == nil {
+			err := BatonServiceUploadAssetRequestValidationError{
+				field:  "Msg",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+		oneofMsgPresent = true
 
 		if all {
 			switch v := interface{}(m.GetMetadata()).(type) {
@@ -1456,6 +1518,17 @@ func (m *BatonServiceUploadAssetRequest) validate(all bool) error {
 		}
 
 	case *BatonServiceUploadAssetRequest_Data:
+		if v == nil {
+			err := BatonServiceUploadAssetRequestValidationError{
+				field:  "Msg",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+		oneofMsgPresent = true
 
 		if all {
 			switch v := interface{}(m.GetData()).(type) {
@@ -1487,6 +1560,17 @@ func (m *BatonServiceUploadAssetRequest) validate(all bool) error {
 		}
 
 	case *BatonServiceUploadAssetRequest_Eof:
+		if v == nil {
+			err := BatonServiceUploadAssetRequestValidationError{
+				field:  "Msg",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+		oneofMsgPresent = true
 
 		if all {
 			switch v := interface{}(m.GetEof()).(type) {
@@ -1518,6 +1602,9 @@ func (m *BatonServiceUploadAssetRequest) validate(all bool) error {
 		}
 
 	default:
+		_ = v // ensures v is used
+	}
+	if !oneofMsgPresent {
 		err := BatonServiceUploadAssetRequestValidationError{
 			field:  "Msg",
 			reason: "value is required",
@@ -1526,7 +1613,6 @@ func (m *BatonServiceUploadAssetRequest) validate(all bool) error {
 			return err
 		}
 		errors = append(errors, err)
-
 	}
 
 	if len(errors) > 0 {
@@ -1820,9 +1906,20 @@ func (m *BatonServiceFinishTaskRequest) validate(all bool) error {
 		}
 	}
 
-	switch m.FinalState.(type) {
-
+	oneofFinalStatePresent := false
+	switch v := m.FinalState.(type) {
 	case *BatonServiceFinishTaskRequest_Error_:
+		if v == nil {
+			err := BatonServiceFinishTaskRequestValidationError{
+				field:  "FinalState",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+		oneofFinalStatePresent = true
 
 		if all {
 			switch v := interface{}(m.GetError()).(type) {
@@ -1854,6 +1951,17 @@ func (m *BatonServiceFinishTaskRequest) validate(all bool) error {
 		}
 
 	case *BatonServiceFinishTaskRequest_Success_:
+		if v == nil {
+			err := BatonServiceFinishTaskRequestValidationError{
+				field:  "FinalState",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+		oneofFinalStatePresent = true
 
 		if all {
 			switch v := interface{}(m.GetSuccess()).(type) {
@@ -1885,6 +1993,9 @@ func (m *BatonServiceFinishTaskRequest) validate(all bool) error {
 		}
 
 	default:
+		_ = v // ensures v is used
+	}
+	if !oneofFinalStatePresent {
 		err := BatonServiceFinishTaskRequestValidationError{
 			field:  "FinalState",
 			reason: "value is required",
@@ -1893,7 +2004,6 @@ func (m *BatonServiceFinishTaskRequest) validate(all bool) error {
 			return err
 		}
 		errors = append(errors, err)
-
 	}
 
 	if len(errors) > 0 {
