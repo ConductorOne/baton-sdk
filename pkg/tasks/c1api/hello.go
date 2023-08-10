@@ -20,9 +20,8 @@ type helloHelpers interface {
 }
 
 type helloTaskHandler struct {
-	task          *v1.Task
-	includeTaskID bool
-	helpers       helloHelpers
+	task    *v1.Task
+	helpers helloHelpers
 }
 
 func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloRequest_OSInfo, error) {
@@ -82,11 +81,7 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 		return err
 	}
 
-	// The API changes behavior based on whether the task ID is included in the request or not
 	taskID := c.task.GetId()
-	if !c.includeTaskID {
-		taskID = ""
-	}
 
 	osInfo, err := c.osInfo(ctx)
 	if err != nil {
@@ -106,10 +101,9 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 	return nil
 }
 
-func newHelloTaskHandler(task *v1.Task, includeTaskID bool, helpers helloHelpers) *helloTaskHandler {
+func newHelloTaskHandler(task *v1.Task, helpers helloHelpers) *helloTaskHandler {
 	return &helloTaskHandler{
-		task:          task,
-		helpers:       helpers,
-		includeTaskID: includeTaskID,
+		task:    task,
+		helpers: helpers,
 	}
 }
