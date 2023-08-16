@@ -47,7 +47,7 @@ message ResourceType {
   string description = 5 [
     (validate.rules).string = {
       min_bytes: 1
-      max_bytes: 2048
+      max_bytes: 4096
       ignore_empty: true
     }
   ];
@@ -66,7 +66,7 @@ message ResourceTypesServiceListResourceTypesRequest {
     (validate.rules).string = {
       ignore_empty: true
       min_bytes: 1
-      max_bytes: 2048
+      max_bytes: 4096
     }
   ];
   repeated google.protobuf.Any annotations = 4;
@@ -78,7 +78,7 @@ message ResourceTypesServiceListResourceTypesResponse {
     (validate.rules).string = {
       ignore_empty: true
       min_bytes: 1
-      max_bytes: 2048
+      max_bytes: 4096
     }
   ];
   repeated google.protobuf.Any annotations = 3;
@@ -147,7 +147,7 @@ message ResourcesServiceListResourcesRequest {
     (validate.rules).string = {
       ignore_empty: true
       min_bytes: 1
-      max_bytes: 2048
+      max_bytes: 4096
     }
   ];
   repeated google.protobuf.Any annotations = 5;
@@ -159,7 +159,7 @@ message ResourcesServiceListResourcesResponse {
     (validate.rules).string = {
       ignore_empty: true
       min_bytes: 1
-      max_bytes: 2048
+      max_bytes: 4096
     }
   ];
   repeated google.protobuf.Any annotations = 3;
