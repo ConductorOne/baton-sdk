@@ -151,6 +151,23 @@ func (c *connectorRunner) run(ctx context.Context) error {
 
 			l.Debug("runner: got task", zap.String("task_id", nextTask.Id), zap.String("task_type", tasks.GetType(nextTask).String()))
 
+			// If we're in one-shot mode, process the task synchronously.
+			if c.oneShot {
+				l.Debug("runner: one-shot mode enabled. Performing action synchronously.")
+				err := c.processTask(ctx, nextTask)
+				sem.Release(1)
+				if err != nil {
+					l.Error(
+						"runner: error processing on-demand task",
+						zap.Error(err),
+						zap.String("task_id", nextTask.Id),
+						zap.String("task_type", tasks.GetType(nextTask).String()),
+					)
+					return err
+				}
+				continue
+			}
+
 			// We got a task, so process it concurrently.
 			go func(t *v1.Task) {
 				l.Debug("runner: starting processing task", zap.String("task_id", t.Id), zap.String("task_type", tasks.GetType(t).String()))

@@ -64,7 +64,7 @@ message EntitlementsServiceListEntitlementsRequest {
     (validate.rules).string = {
       ignore_empty: true
       min_bytes: 1
-      max_bytes: 2048
+      max_bytes: 4096
     }
   ];
   repeated google.protobuf.Any annotations = 4;
@@ -76,7 +76,7 @@ message EntitlementsServiceListEntitlementsResponse {
     (validate.rules).string = {
       ignore_empty: true
       min_bytes: 1
-      max_bytes: 2048
+      max_bytes: 4096
     }
   ];
   repeated google.protobuf.Any annotations = 3;
