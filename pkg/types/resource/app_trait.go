@@ -26,6 +26,13 @@ func WithAppLogo(assetRef *v2.AssetRef) AppTraitOption {
 	}
 }
 
+func WithAppFlags(flags ...v2.AppTrait_AppFlag) AppTraitOption {
+	return func(at *v2.AppTrait) error {
+		at.Flags = flags
+		return nil
+	}
+}
+
 func WithAppProfile(profile map[string]interface{}) AppTraitOption {
 	return func(at *v2.AppTrait) error {
 		p, err := structpb.NewStruct(profile)

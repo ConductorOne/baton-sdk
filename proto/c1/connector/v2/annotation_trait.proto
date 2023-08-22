@@ -83,5 +83,14 @@ message AppTrait {
   c1.connector.v2.AssetRef icon = 2;
   c1.connector.v2.AssetRef logo = 3;
   google.protobuf.Struct profile = 4;
+  enum AppFlag {
+    APP_FLAG_UNSPECIFIED = 0;
+    APP_FLAG_HIDDEN = 1;
+    APP_FLAG_INACTIVE = 2;
+    APP_FLAG_SAML = 3;
+    APP_FLAG_OIDC = 4;
+    APP_FLAG_BOOKMARK = 5;
+  }
+  repeated AppFlag flags = 5;
 }
 
