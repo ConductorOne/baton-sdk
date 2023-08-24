@@ -56,7 +56,6 @@ var skipServiceSetupFields = map[string]struct{}{
 	"LogFormat":  {},
 	"BaseConfig": {},
 	"C1zPath":    {},
-	"DaemonMode": {},
 }
 
 var (

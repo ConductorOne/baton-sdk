@@ -79,7 +79,7 @@ func NewCmd[T any, PtrT *T](
 				return err
 			}
 
-			daemonMode := v.GetBool("daemon-mode") || v.GetString("client-id") != "" || isService()
+			daemonMode := v.GetString("client-id") != "" || isService()
 			if daemonMode {
 				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
 			} else {
@@ -238,20 +238,11 @@ func NewCmd[T any, PtrT *T](
 	}
 
 	// Flags for daemon mode
-	cmd.PersistentFlags().BoolP("daemon-mode", "d", false, "Run in daemon mode ($BATON_DAEMON_MODE)")
 	cmd.PersistentFlags().String("client-id", "", "The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)")
 	cmd.PersistentFlags().String("client-secret", "", "The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)")
 	cmd.PersistentFlags().BoolP("provisioning", "p", false, "This must be set in order for provisioning actions to be enabled. ($BATON_PROVISIONING)")
 	cmd.MarkFlagsRequiredTogether("client-id", "client-secret")
-	err = cmd.PersistentFlags().MarkHidden("daemon-mode")
-	if err != nil {
-		return nil, err
-	}
-	err = cmd.PersistentFlags().MarkHidden("provisioning")
-	if err != nil {
-		return nil, err
-	}
-	cmd.MarkFlagsMutuallyExclusive("file", "daemon-mode")
+	cmd.MarkFlagsMutuallyExclusive("file", "client-id")
 
 	// Add a hook for additional commands to be added to the root command.
 	// We use this for OS specific commands.
