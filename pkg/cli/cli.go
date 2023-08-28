@@ -13,10 +13,10 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -238,10 +238,18 @@ func NewCmd[T any, PtrT *T](
 			}
 
 			if md.Metadata.Capabilities == nil {
-				fmt.Println("connector does not support capabilities")
+				return fmt.Errorf("connector does not support capabilities")
 			}
 
-			spew.Dump(md.Metadata.Capabilities)
+			outBytes, err := protojson.Marshal(md.Metadata.Capabilities)
+			if err != nil {
+				return err
+			}
+
+			_, err = fmt.Fprint(os.Stdout, string(outBytes))
+			if err != nil {
+				return err
+			}
 
 			return nil
 		},
