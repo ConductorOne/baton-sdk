@@ -6,6 +6,7 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 import "google/protobuf/any.proto";
 import "c1/connector/v2/asset.proto";
+import "c1/connector/v2/resource.proto";
 import "google/protobuf/struct.proto";
 import "validate/validate.proto";
 
@@ -41,6 +42,20 @@ message ConnectorMetadata {
       ignore_empty: true
     }
   ];
+  ConnectorCapabilities capabilities = 8;
+}
+
+message ConnectorCapabilities {
+  repeated ResourceTypeCapability resource_type_capabilities = 1;
+}
+
+message ResourceTypeCapability {
+  c1.connector.v2.ResourceType resource_type = 1;
+  enum Capability {
+    CAPABILITY_PROVISION = 0;
+    CAPABILITY_SYNC = 1;
+  }
+  repeated Capability capabilities = 2;
 }
 
 message ConnectorServiceGetMetadataRequest { }
