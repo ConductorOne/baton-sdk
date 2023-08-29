@@ -52,8 +52,9 @@ message ConnectorCapabilities {
 message ResourceTypeCapability {
   c1.connector.v2.ResourceType resource_type = 1;
   enum Capability {
-    CAPABILITY_PROVISION = 0;
-    CAPABILITY_SYNC = 1;
+    CAPABILITY_UNSPECIFIED = 0;
+    CAPABILITY_PROVISION = 1;
+    CAPABILITY_SYNC = 2;
   }
   repeated Capability capabilities = 2;
 }
