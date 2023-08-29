@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/logging"
@@ -15,6 +16,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -206,7 +208,55 @@ func NewCmd[T any, PtrT *T](
 		},
 	}
 
+	capabilitiesCmd := &cobra.Command{
+		Use:   "capabilities",
+		Short: "Get connector capabilities",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			v, err := loadConfig(cmd, cfg)
+			if err != nil {
+				return err
+			}
+
+			runCtx, err := initLogger(
+				ctx,
+				name,
+				logging.WithLogFormat(v.GetString("log-format")),
+				logging.WithLogLevel(v.GetString("log-level")),
+			)
+			if err != nil {
+				return err
+			}
+
+			c, err := getConnector(runCtx, cfg)
+			if err != nil {
+				return err
+			}
+
+			md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
+			if err != nil {
+				return err
+			}
+
+			if md.Metadata.Capabilities == nil {
+				return fmt.Errorf("connector does not support capabilities")
+			}
+
+			outBytes, err := protojson.Marshal(md.Metadata.Capabilities)
+			if err != nil {
+				return err
+			}
+
+			_, err = fmt.Fprint(os.Stdout, string(outBytes))
+			if err != nil {
+				return err
+			}
+
+			return nil
+		},
+	}
+
 	cmd.AddCommand(grpcServerCmd)
+	cmd.AddCommand(capabilitiesCmd)
 
 	// Flags for logging configuration
 	cmd.PersistentFlags().String("log-level", defaultLogLevel, "The log level: debug, info, warn, error ($BATON_LOG_LEVEL)")

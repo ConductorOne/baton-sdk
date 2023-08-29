@@ -157,7 +157,26 @@ func (b *builderImpl) GetMetadata(ctx context.Context, request *v2.ConnectorServ
 		return nil, err
 	}
 
+	md.Capabilities = getCapabilities(ctx, b)
+
 	return &v2.ConnectorServiceGetMetadataResponse{Metadata: md}, nil
+}
+
+// getCapabilities gets all capabilities for a connector.
+func getCapabilities(ctx context.Context, b *builderImpl) *v2.ConnectorCapabilities {
+	resourceTypeCapabilities := []*v2.ResourceTypeCapability{}
+	for _, rb := range b.resourceBuilders {
+		resourceTypeCapability := &v2.ResourceTypeCapability{
+			ResourceType: rb.ResourceType(ctx),
+			// Currently by default all resource types support sync.
+			Capabilities: []v2.ResourceTypeCapability_Capability{v2.ResourceTypeCapability_CAPABILITY_SYNC},
+		}
+		if _, ok := rb.(ResourceProvisioner); ok {
+			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.ResourceTypeCapability_CAPABILITY_PROVISION)
+		}
+		resourceTypeCapabilities = append(resourceTypeCapabilities, resourceTypeCapability)
+	}
+	return &v2.ConnectorCapabilities{ResourceTypeCapabilities: resourceTypeCapabilities}
 }
 
 // Validate validates the connector.
