@@ -14,7 +14,6 @@ type BaseConfig struct {
 	LogLevel           string `mapstructure:"log-level"`
 	LogFormat          string `mapstructure:"log-format"`
 	C1zPath            string `mapstructure:"file"`
-	DaemonMode         bool   `mapstructure:"daemonize"`
 	ClientID           string `mapstructure:"client-id"`
 	ClientSecret       string `mapstructure:"client-secret"`
 	GrantEntitlementID string `mapstructure:"grant-entitlement"`
