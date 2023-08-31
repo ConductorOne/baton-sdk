@@ -32,6 +32,15 @@ func WithGrantMetadata(metadata map[string]interface{}) GrantOption {
 	}
 }
 
+func WithExpandGrant(entitlementID string) GrantOption {
+	return func(g *v2.Grant) error {
+		expand := v2.GrantExpandResource{EntitlementId: entitlementID}
+		annos := annotations.Annotations(g.Annotations)
+		annos.Update(&expand)
+		return nil
+	}
+}
+
 func WithAnnotation(msgs ...proto.Message) GrantOption {
 	return func(g *v2.Grant) error {
 		annos := annotations.Annotations(g.Annotations)

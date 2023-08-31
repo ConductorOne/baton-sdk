@@ -4,8 +4,14 @@ package c1.connector.v2;
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
+import "c1/connector/v2/resource.proto";
 import "google/protobuf/struct.proto";
 
 message GrantMetadata {
   google.protobuf.Struct metadata = 1;
 }
+
+message GrantExpandResource {
+  string entitlement_id = 1;
+}
+

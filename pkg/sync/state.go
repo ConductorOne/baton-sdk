@@ -16,6 +16,7 @@ type State interface {
 	NextPage(ctx context.Context, pageToken string) error
 	ResourceTypeID(ctx context.Context) string
 	ResourceID(ctx context.Context) string
+	GrantID(ctx context.Context) string
 	ParentResourceID(ctx context.Context) string
 	ParentResourceTypeID(ctx context.Context) string
 	PageToken(ctx context.Context) string
@@ -42,6 +43,8 @@ func (s ActionOp) String() string {
 		return "list-grants"
 	case SyncAssetsOp:
 		return "fetch-assets"
+	case SyncGrantExpansionOp:
+		return "expand-grants"
 	default:
 		return "unknown"
 	}
@@ -79,6 +82,8 @@ func newActionOp(str string) ActionOp {
 		return SyncGrantsOp
 	case SyncAssetsOp.String():
 		return SyncAssetsOp
+	case SyncGrantExpansionOp.String():
+		return SyncGrantExpansionOp
 	default:
 		return UnknownOp
 	}
@@ -93,6 +98,7 @@ const (
 	ListResourcesForEntitlementsOp
 	SyncGrantsOp
 	SyncAssetsOp
+	SyncGrantExpansionOp
 )
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
@@ -103,6 +109,7 @@ type Action struct {
 	ResourceID           string   `json:"resource_id,omitempty"`
 	ParentResourceTypeID string   `json:"parent_resource_type_id,omitempty"`
 	ParentResourceID     string   `json:"parent_resource_id,omitempty"`
+	GrantID              string   `json:"grant_id,omitempty"`
 }
 
 // state is an object used for tracking the current status of a connector sync. It operates like a stack.
@@ -264,6 +271,16 @@ func (st *state) ResourceID(ctx context.Context) string {
 	}
 
 	return c.ResourceID
+}
+
+// GrantID returns the grant ID for the current action.
+func (st *state) GrantID(ctx context.Context) string {
+	c := st.Current()
+	if c == nil {
+		panic("no current state")
+	}
+
+	return c.GrantID
 }
 
 func (st *state) ParentResourceID(ctx context.Context) string {

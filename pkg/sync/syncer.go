@@ -147,6 +147,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			s.state.FinishAction(ctx)
 			// FIXME(jirwin): Disabling syncing assets for now
 			// s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
+			s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
 			s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
 			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
@@ -188,6 +189,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		case SyncAssetsOp:
 			err = s.SyncAssets(ctx)
+			if err != nil {
+				return err
+			}
+			continue
+
+		case SyncGrantExpansionOp:
+			err = s.SyncGrantExpansion(ctx)
 			if err != nil {
 				return err
 			}
@@ -672,7 +680,7 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 // from the datastore, and pushes a new action to sync the grants for each individual resource.
 func (s *syncer) SyncGrants(ctx context.Context) error {
 	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
-		ctxzap.Extract(ctx).Info("Syncing grants...")
+		ctxzap.Extract(ctx).Info("Syncing grants via...")
 		s.handleInitialActionForStep(ctx, *s.state.Current())
 
 		pageToken := s.state.PageToken(ctx)
@@ -710,6 +718,51 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 		ResourceType: s.state.ResourceTypeID(ctx),
 		Resource:     s.state.ResourceID(ctx),
 	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// TODO: Implement this
+func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
+	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
+		ctxzap.Extract(ctx).Info("Syncing grants via expansion...")
+		s.handleInitialActionForStep(ctx, *s.state.Current())
+
+		pageToken := s.state.PageToken(ctx)
+
+		resp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageToken: pageToken})
+		if err != nil {
+			return err
+		}
+
+		// We want to take action on the next page before we push any new actions
+		if resp.NextPageToken != "" {
+			err = s.state.NextPage(ctx, resp.NextPageToken)
+			if err != nil {
+				return err
+			}
+		} else {
+			s.state.FinishAction(ctx)
+		}
+
+		for _, r := range resp.List {
+			annos := annotations.Annotations(r.Annotations)
+			needsExpanding, err := annos.Pick(&v2.GrantExpandResource{})
+			if err != nil {
+				return err
+			}
+			if !needsExpanding {
+				continue
+			}
+			s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp, ResourceID: r.Principal.Id.Resource, ResourceTypeID: r.Principal.Id.ResourceType})
+		}
+
+		return nil
+	}
+	err := s.syncExpandGrant(ctx, s.state.GrantID(ctx))
 	if err != nil {
 		return err
 	}
@@ -921,6 +974,64 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 			return err
 		}
 		return nil
+	}
+
+	s.state.FinishAction(ctx)
+
+	return nil
+}
+
+func (s *syncer) syncExpandGrant(ctx context.Context, grantID string) error {
+	grantResponse, err := s.store.GetGrant(ctx, &reader_v2.GrantsReaderServiceGetGrantRequest{
+		GrantId: grantID,
+	})
+	if err != nil {
+		return err
+	}
+
+	grant := grantResponse.Grant
+
+	var grants []*v2.Grant
+
+	grantExpandedAnnotation := &v2.GrantExpandResource{}
+	grantAnnos := annotations.Annotations(grant.GetAnnotations())
+	needsExpanding, err := grantAnnos.Pick(grantExpandedAnnotation)
+	if err != nil {
+		return err
+	}
+	if !needsExpanding {
+		return fmt.Errorf("grant %s was marked as needing expanding, but does not need to be expanded", grant.Id)
+	}
+
+	grants = []*v2.Grant{}
+	nextPage := ""
+	for {
+		entListResp, err := s.store.ListGrantsForEntitlement(ctx,
+			&reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
+				Entitlement: &v2.Entitlement{Id: grantExpandedAnnotation.EntitlementId},
+				PageToken:   nextPage,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		// Need to iterate through the current list of grants, and create a list of new grants that have the same principal but the entitlement is the gotten grant
+		for _, g := range entListResp.List {
+			newGrant := &v2.Grant{Principal: g.Principal, Entitlement: grant.Entitlement}
+			grants = append(grants, newGrant)
+		}
+
+		if entListResp.NextPageToken == "" {
+			break
+		}
+	}
+
+	for _, grant := range grants {
+		err = s.store.PutGrant(ctx, grant)
+		if err != nil {
+			return err
+		}
 	}
 
 	s.state.FinishAction(ctx)
