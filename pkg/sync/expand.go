@@ -1,0 +1,135 @@
+package sync
+
+import (
+	"context"
+	"errors"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+)
+
+var (
+	ErrNoEntitlement = errors.New("no entitlement found")
+)
+
+type EntitlementGraphAction struct {
+	SourceEntitlementID     string `json:"source_entitlement_id"`
+	DescendantEntitlementID string `json:"descendant_entitlement_id"`
+	PageToken               string `json:"page_token"`
+}
+
+type EntitlementGraph struct {
+	Entitlements map[string]bool            `json:"entitlements"`
+	Edges        map[string]map[string]bool `json:"edges"`
+	Loaded       bool                       `json:"loaded"`
+	Depth        int                        `json:"depth"`
+	Actions      []EntitlementGraphAction   `json:"actions"`
+}
+
+func NewEntitlementGraph(ctx context.Context) *EntitlementGraph {
+	return &EntitlementGraph{
+		Entitlements: make(map[string]bool),
+		Edges:        make(map[string]map[string]bool),
+	}
+}
+
+// IsExpanded returns true if all entitlements in the graph have been expanded.
+func (d *EntitlementGraph) IsExpanded() bool {
+	for entilementID := range d.Entitlements {
+		if !d.IsEntitlementExpanded(entilementID) {
+			return false
+		}
+	}
+	return true
+}
+
+// IsEntitlementExpanded returns true if all the outgoing edges for the given entitlement have been expanded.
+func (d *EntitlementGraph) IsEntitlementExpanded(entitlementID string) bool {
+	for _, expanded := range d.Edges[entitlementID] {
+		if !expanded {
+			return false
+		}
+	}
+	return true
+}
+
+// HasUnexpandedAncestors returns true if the given entitlement has ancestors that have not been expanded yet.
+func (d *EntitlementGraph) HasUnexpandedAncestors(entitlementID string) bool {
+	for _, ancestorID := range d.GetAncestors(entitlementID) {
+		if !d.Entitlements[ancestorID] {
+			return true
+		}
+	}
+	return false
+}
+
+// Find the direct ancestors of the given entitlement. The 'all' flag returns all ancestors regardless of 'done' state.
+func (d *EntitlementGraph) GetAncestors(entitlementID string) []string {
+	_, ok := d.Entitlements[entitlementID]
+	if !ok {
+		return nil
+	}
+
+	ancestors := make([]string, 0)
+	for src, dst := range d.Edges {
+		if _, ok := dst[entitlementID]; ok {
+			ancestors = append(ancestors, src)
+		}
+	}
+	return ancestors
+}
+
+func (d *EntitlementGraph) GetDescendants(entitlementID string) map[string]bool {
+	return d.Edges[entitlementID]
+}
+
+func (d *EntitlementGraph) HasEntitlement(entitlementID string) bool {
+	_, ok := d.Entitlements[entitlementID]
+	return ok
+}
+
+func (d *EntitlementGraph) AddEntitlement(entitlement *v2.Entitlement) {
+	if _, ok := d.Entitlements[entitlement.Id]; !ok {
+		d.Entitlements[entitlement.Id] = false
+	}
+}
+
+func (d *EntitlementGraph) MarkEdgeExpanded(sourceEntitlementID string, descendantEntitlementID string) {
+	_, ok := d.Edges[sourceEntitlementID]
+	if !ok {
+		return
+	}
+	_, ok = d.Edges[sourceEntitlementID][descendantEntitlementID]
+	if !ok {
+		return
+	}
+	d.Edges[sourceEntitlementID][descendantEntitlementID] = true
+
+	// If all edges are expanded, mark the source entitlement as expanded.
+	// We shouldn't care about this value but we'll set it for consistency.
+	allExpanded := true
+	for _, expanded := range d.Edges[sourceEntitlementID] {
+		if !expanded {
+			allExpanded = false
+			break
+		}
+	}
+	if allExpanded {
+		d.Entitlements[sourceEntitlementID] = true
+	}
+}
+
+func (d *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID string) error {
+	if _, ok := d.Entitlements[srcEntitlementID]; !ok {
+		return ErrNoEntitlement
+	}
+	if _, ok := d.Entitlements[dstEntitlementID]; !ok {
+		return ErrNoEntitlement
+	}
+
+	_, ok := d.Edges[srcEntitlementID]
+	if !ok {
+		d.Edges[srcEntitlementID] = make(map[string]bool)
+	}
+	d.Edges[srcEntitlementID][dstEntitlementID] = false
+	return nil
+}
