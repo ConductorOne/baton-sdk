@@ -16,6 +16,7 @@ type State interface {
 	NextPage(ctx context.Context, pageToken string) error
 	ResourceTypeID(ctx context.Context) string
 	ResourceID(ctx context.Context) string
+	EntitlementGraph(ctx context.Context) *EntitlementGraph
 	ParentResourceID(ctx context.Context) string
 	ParentResourceTypeID(ctx context.Context) string
 	PageToken(ctx context.Context) string
@@ -42,6 +43,8 @@ func (s ActionOp) String() string {
 		return "list-grants"
 	case SyncAssetsOp:
 		return "fetch-assets"
+	case SyncGrantExpansionOp:
+		return "grant-expansion"
 	default:
 		return "unknown"
 	}
@@ -79,6 +82,8 @@ func newActionOp(str string) ActionOp {
 		return SyncGrantsOp
 	case SyncAssetsOp.String():
 		return SyncAssetsOp
+	case SyncGrantExpansionOp.String():
+		return SyncGrantExpansionOp
 	default:
 		return UnknownOp
 	}
@@ -93,6 +98,7 @@ const (
 	ListResourcesForEntitlementsOp
 	SyncGrantsOp
 	SyncAssetsOp
+	SyncGrantExpansionOp
 )
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
@@ -107,9 +113,10 @@ type Action struct {
 
 // state is an object used for tracking the current status of a connector sync. It operates like a stack.
 type state struct {
-	mtx           sync.RWMutex
-	actions       []Action
-	currentAction *Action
+	mtx              sync.RWMutex
+	actions          []Action
+	currentAction    *Action
+	entitlementGraph *EntitlementGraph
 }
 
 // serializedToken is used to serialize the token to JSON. This separate object is used to avoid having exported fields
@@ -264,6 +271,18 @@ func (st *state) ResourceID(ctx context.Context) string {
 	}
 
 	return c.ResourceID
+}
+
+// EntitlementGraph returns the entitlement graph for the current action.
+func (st *state) EntitlementGraph(ctx context.Context) *EntitlementGraph {
+	c := st.Current()
+	if c == nil {
+		panic("no current state")
+	}
+	if st.entitlementGraph == nil {
+		st.entitlementGraph = NewEntitlementGraph(ctx)
+	}
+	return st.entitlementGraph
 }
 
 func (st *state) ParentResourceID(ctx context.Context) string {

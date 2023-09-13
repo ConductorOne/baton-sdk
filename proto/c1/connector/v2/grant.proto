@@ -13,6 +13,11 @@ service GrantsService {
   rpc ListGrants(GrantsServiceListGrantsRequest) returns (GrantsServiceListGrantsResponse);
 }
 
+message GrantSources {
+  message GrantSource {}
+  map<string, GrantSource> sources = 1;
+}
+
 message Grant {
   c1.connector.v2.Entitlement entitlement = 1 [
     (validate.rules).message = {
@@ -28,6 +33,11 @@ message Grant {
     (validate.rules).string = {
       min_bytes: 1
       max_bytes: 1024
+    }
+  ];
+  GrantSources sources = 5 [
+    (validate.rules).message = {
+      required: false
     }
   ];
   repeated google.protobuf.Any annotations = 4;
