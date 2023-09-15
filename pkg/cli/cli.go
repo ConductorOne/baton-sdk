@@ -107,6 +107,10 @@ func NewCmd[T any, PtrT *T](
 				}
 			}
 
+			if v.GetBool("expand-grants") {
+				opts = append(opts, connectorrunner.WithExpandGrants())
+			}
+
 			r, err := connectorrunner.NewConnectorRunner(runCtx, c, opts...)
 			if err != nil {
 				l.Error("error creating connector runner", zap.Error(err))
@@ -261,6 +265,9 @@ func NewCmd[T any, PtrT *T](
 	// Flags for logging configuration
 	cmd.PersistentFlags().String("log-level", defaultLogLevel, "The log level: debug, info, warn, error ($BATON_LOG_LEVEL)")
 	cmd.PersistentFlags().String("log-format", defaultLogFormat, "The output format for logs: json, console ($BATON_LOG_FORMAT)")
+
+	// Flag for syncing grant expansion
+	cmd.PersistentFlags().BoolP("expand-grants", "e", false, "Enables expanding grants while syncing ($BATON_EXPAND_GRANTS)")
 
 	// Flags for direct syncing and provisioning
 	cmd.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to sync with ($BATON_FILE)")
