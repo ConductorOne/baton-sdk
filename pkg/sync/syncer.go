@@ -1130,7 +1130,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				sources.Sources = sourcesMap
 			}
 
-			if directGrant {
+			if directGrant && len(sources.Sources) == 0 {
 				// If we are already granted this entitlement, make sure to add ourselves as a source.
 				sourcesMap[descendantGrant.GetEntitlement().GetId()] = &v2.GrantSources_GrantSource{}
 			}
