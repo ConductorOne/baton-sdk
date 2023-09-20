@@ -689,6 +689,7 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 // SyncGroupExpansion
 // TODO(morgabra) Docs
 func (s *syncer) SyncGroupExpansion(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
 	entitlementGraph := s.state.EntitlementGraph(ctx)
 	if !entitlementGraph.Loaded {
 		ctxzap.Extract(ctx).Info("Starting grant expansion...")
@@ -762,6 +763,17 @@ func (s *syncer) SyncGroupExpansion(ctx context.Context) error {
 			}
 		}
 		return nil
+	}
+
+	// Once we've loaded the graph, we can check for cycles
+	// TODO(mstanbCO): we should eventually add logic to handle cycles
+	if entitlementGraph.Loaded {
+		cycles, hasCylces := entitlementGraph.GetCycles()
+		if hasCylces {
+			s.state.FinishAction(ctx)
+			l.Error("cycles detected in entitlement graph", zap.Any("cycles", cycles))
+			return fmt.Errorf("SyncGroupExpansion: %d cycle(s) detected in entitlement graph", len(cycles))
+		}
 	}
 
 	err := s.expandGrantsForEntitlements(ctx)
@@ -1185,7 +1197,6 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	graph.Depth++
 
 	// TOOD(morgabra) Yield here after some amount of work?
-	graphChanged := false
 	for sourceEntitlementID := range graph.Entitlements {
 		// We've already expanded this entitlement, so skip it.
 		if graph.IsEntitlementExpanded(sourceEntitlementID) {
@@ -1201,20 +1212,12 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 			if done {
 				continue
 			}
-			graphChanged = true
 			graph.Actions = append(graph.Actions, EntitlementGraphAction{
 				SourceEntitlementID:     sourceEntitlementID,
 				DescendantEntitlementID: descendantEntitlementID,
 				PageToken:               "",
 			})
 		}
-	}
-
-	// We know we have cycles, we can't make progress but the graph isn't complete.
-	if !graphChanged && !graph.IsExpanded() {
-		l.Debug("expandGrantsForEntitlements: graph has cycles", zap.Any("graph", graph))
-		s.state.FinishAction(ctx)
-		return fmt.Errorf("graph has cycles")
 	}
 
 	if graph.IsExpanded() {

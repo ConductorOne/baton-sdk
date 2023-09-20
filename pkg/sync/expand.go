@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"errors"
+	"reflect"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
@@ -76,6 +77,66 @@ func (d *EntitlementGraph) GetAncestors(entitlementID string) []string {
 		}
 	}
 	return ancestors
+}
+
+// Find the direct ancestors of the given entitlement. The 'all' flag returns all ancestors regardless of 'done' state.
+func (d *EntitlementGraph) GetCycles() ([][]string, bool) {
+	rv := make([][]string, 0)
+	for entitlementID := range d.Entitlements {
+		if len(d.GetDescendants(entitlementID)) == 0 {
+			continue
+		}
+		cycle, isCycle := d.getCycle([]string{entitlementID})
+		if isCycle && !isInCycle(cycle, rv) {
+			rv = append(rv, cycle)
+		}
+	}
+
+	return rv, len(rv) > 0
+}
+
+func isInCycle(newCycle []string, cycles [][]string) bool {
+	for _, cycle := range cycles {
+		if len(cycle) > 0 && reflect.DeepEqual(cycle, newCycle) {
+			return true
+		}
+	}
+	return false
+}
+
+func shift(arr []string, n int) []string {
+	for i := 0; i < n; i++ {
+		arr = append(arr[1:], arr[0])
+	}
+	return arr
+}
+
+func (d *EntitlementGraph) getCycle(visits []string) ([]string, bool) {
+	entitlementID := visits[len(visits)-1]
+	for descendantID := range d.GetDescendants(entitlementID) {
+		tempVisits := make([]string, len(visits))
+		copy(tempVisits, visits)
+		if descendantID == visits[0] {
+			// shift array so that the smallest element is first
+			smallestIndex := 0
+			for i := range tempVisits {
+				if tempVisits[i] < tempVisits[smallestIndex] {
+					smallestIndex = i
+				}
+			}
+			tempVisits = shift(tempVisits, smallestIndex)
+			return tempVisits, true
+		}
+		for _, visit := range visits {
+			if visit == descendantID {
+				return nil, false
+			}
+		}
+
+		tempVisits = append(tempVisits, descendantID)
+		return d.getCycle(tempVisits)
+	}
+	return nil, false
 }
 
 func (d *EntitlementGraph) GetDescendants(entitlementID string) map[string]bool {
