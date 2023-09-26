@@ -163,6 +163,8 @@ func (m *ResourceType) validate(all bool) error {
 
 	}
 
+	// no validation rules for SourcedExternally
+
 	if len(errors) > 0 {
 		return ResourceTypeMultiError(errors)
 	}
@@ -901,6 +903,37 @@ func (m *Resource) validate(all bool) error {
 
 	// no validation rules for BatonResource
 
+	if all {
+		switch v := interface{}(m.GetExternalId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ResourceValidationError{
+					field:  "ExternalId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ResourceValidationError{
+					field:  "ExternalId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetExternalId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ResourceValidationError{
+				field:  "ExternalId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for CreationSource
+
 	if len(errors) > 0 {
 		return ResourceMultiError(errors)
 	}
@@ -1374,3 +1407,108 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = ResourcesServiceListResourcesResponseValidationError{}
+
+// Validate checks the field values on ExternalId with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *ExternalId) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ExternalId with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in ExternalIdMultiError, or
+// nil if none found.
+func (m *ExternalId) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ExternalId) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Id
+
+	// no validation rules for Link
+
+	// no validation rules for Description
+
+	if len(errors) > 0 {
+		return ExternalIdMultiError(errors)
+	}
+
+	return nil
+}
+
+// ExternalIdMultiError is an error wrapping multiple validation errors
+// returned by ExternalId.ValidateAll() if the designated constraints aren't met.
+type ExternalIdMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ExternalIdMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ExternalIdMultiError) AllErrors() []error { return m }
+
+// ExternalIdValidationError is the validation error returned by
+// ExternalId.Validate if the designated constraints aren't met.
+type ExternalIdValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ExternalIdValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ExternalIdValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ExternalIdValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ExternalIdValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ExternalIdValidationError) ErrorName() string { return "ExternalIdValidationError" }
+
+// Error satisfies the builtin error interface
+func (e ExternalIdValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sExternalId.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ExternalIdValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ExternalIdValidationError{}
