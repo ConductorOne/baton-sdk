@@ -14,8 +14,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
-	"github.com/conductorone/baton-sdk/pkg/types/grant"
-
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -134,7 +132,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			err = context.Cause(runCtx)
 			switch {
 			case errors.Is(err, context.DeadlineExceeded):
-				l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", syncID))
+				l.Debug("sync run duration has expired, exiting sync early", zap.String("sync_id", syncID))
 				return ErrSyncNotComplete
 			default:
 				l.Error("sync context cancelled", zap.String("sync_id", syncID), zap.Error(err))
@@ -1051,7 +1049,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 
 	graph := s.state.EntitlementGraph(ctx)
 	l = l.With(zap.Int("depth", graph.Depth))
-	l.Info("runGrantExpandActions: start", zap.Any("graph", graph))
+	l.Debug("runGrantExpandActions: start", zap.Any("graph", graph))
 
 	// Peek the next action on the stack
 	if len(graph.Actions) == 0 {
@@ -1121,9 +1119,13 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			directGrant = false
 			// TODO(morgabra): This is kinda gnarly, grant ID won't have any special meaning.
 			// FIXME(morgabra): We should probably conflict check with grant id?
-			descendantGrant := grant.NewGrant(descendantEntitlement.GetEntitlement().GetResource(), descendantEntitlement.GetEntitlement().DisplayName, sourceGrant.GetPrincipal().GetId())
+			descendantGrant, err := s.newExpandedGrant(ctx, descendantEntitlement.Entitlement, sourceGrant.GetPrincipal())
+			if err != nil {
+				l.Error("runGrantExpandActions: error creating new grant", zap.Error(err))
+				return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
+			}
 			descendantGrants = append(descendantGrants, descendantGrant)
-			l.Info(
+			l.Debug(
 				"runGrantExpandActions: created new grant for expansion",
 				zap.String("grant_id", descendantGrant.GetId()),
 			)
@@ -1149,7 +1151,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			// Include the source grant as a source.
 			sourcesMap[sourceGrant.GetEntitlement().GetId()] = &v2.GrantSources_GrantSource{}
 
-			l.Info(
+			l.Debug(
 				"runGrantExpandActions: updating sources for descendant grant",
 				zap.String("grant_id", descendantGrant.GetId()),
 				zap.Any("sources", sources),
@@ -1170,6 +1172,25 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		graph.Actions = graph.Actions[1:]
 	}
 	return false, nil
+}
+
+func (s *syncer) newExpandedGrant(ctx context.Context, descEntitlement *v2.Entitlement, principal *v2.Resource) (*v2.Grant, error) {
+	enResource := descEntitlement.GetResource()
+	if enResource == nil {
+		return nil, fmt.Errorf("newExpandedGrant: entitlement has no resource")
+	}
+
+	if principal == nil {
+		return nil, fmt.Errorf("newExpandedGrant: principal is nil")
+	}
+
+	grant := &v2.Grant{
+		Id:          fmt.Sprintf("%s:%s:%s", descEntitlement.Id, enResource.Id.ResourceType, enResource.Id.Resource),
+		Entitlement: descEntitlement,
+		Principal:   principal,
+	}
+
+	return grant, nil
 }
 
 // expandGrantsForEntitlements expands grants for the given entitlement.
