@@ -41,7 +41,6 @@ type syncer struct {
 	runDuration       time.Duration
 	transitionHandler func(s Action)
 	progressHandler   func(p *Progress)
-	expandGrants      bool
 
 	skipEGForResourceType map[string]bool
 }
@@ -148,9 +147,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			s.state.FinishAction(ctx)
 			// FIXME(jirwin): Disabling syncing assets for now
 			// s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
-			if s.expandGrants {
-				s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
-			}
+			s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
 			s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
 			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
@@ -198,6 +195,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 			continue
 
 		case SyncGrantExpansionOp:
+			if !s.state.NeedsExpansion() {
+				l.Debug("skipping grant expansion, no grants to expand")
+				s.state.FinishAction(ctx)
+				continue
+			}
+
 			err = s.SyncGroupExpansion(ctx)
 			if err != nil {
 				return err
@@ -690,10 +693,12 @@ func (s *syncer) SyncGroupExpansion(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 	entitlementGraph := s.state.EntitlementGraph(ctx)
 	if !entitlementGraph.Loaded {
-		ctxzap.Extract(ctx).Info("Starting grant expansion...")
-		s.handleInitialActionForStep(ctx, *s.state.Current())
-
 		pageToken := s.state.PageToken(ctx)
+
+		if pageToken == "" {
+			ctxzap.Extract(ctx).Info("Expanding grants...")
+			s.handleInitialActionForStep(ctx, *s.state.Current())
+		}
 
 		resp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageToken: pageToken})
 		if err != nil {
@@ -728,7 +733,7 @@ func (s *syncer) SyncGroupExpansion(ctx context.Context) error {
 
 			// FIXME(morgabra) Log and skip some of the error paths here?
 			for _, srcEntitlementID := range expandable.EntitlementIds {
-				ctxzap.Extract(ctx).Info(
+				ctxzap.Extract(ctx).Debug(
 					"Expandable entitlement found",
 					zap.String("src_entitlement_id", srcEntitlementID),
 					zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
@@ -996,6 +1001,11 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	grants = append(grants, resp.List...)
 
 	for _, grant := range grants {
+		grantAnnos := annotations.Annotations(grant.GetAnnotations())
+		if grantAnnos.Contains(&v2.GrantExpandable{}) {
+			s.state.SetNeedsExpansion()
+		}
+
 		err = s.store.PutGrant(ctx, grant)
 		if err != nil {
 			return err
@@ -1336,12 +1346,6 @@ func WithConnectorStore(store connectorstore.Writer) SyncOpt {
 func WithC1ZPath(path string) SyncOpt {
 	return func(s *syncer) {
 		s.c1zPath = path
-	}
-}
-
-func WithExpandGrants(expand bool) SyncOpt {
-	return func(s *syncer) {
-		s.expandGrants = expand
 	}
 }
 
