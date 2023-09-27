@@ -1185,7 +1185,7 @@ func (s *syncer) newExpandedGrant(ctx context.Context, descEntitlement *v2.Entit
 	}
 
 	grant := &v2.Grant{
-		Id:          fmt.Sprintf("%s:%s:%s", descEntitlement.Id, enResource.Id.ResourceType, enResource.Id.Resource),
+		Id:          fmt.Sprintf("%s:%s:%s", descEntitlement.Id, principal.Id.ResourceType, principal.Id.Resource),
 		Entitlement: descEntitlement,
 		Principal:   principal,
 	}
