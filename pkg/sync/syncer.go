@@ -281,10 +281,12 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
 func (s *syncer) SyncResources(ctx context.Context) error {
 	if s.state.Current().ResourceTypeID == "" {
-		ctxzap.Extract(ctx).Info("Syncing resources...")
-		s.handleInitialActionForStep(ctx, *s.state.Current())
-
 		pageToken := s.state.PageToken(ctx)
+
+		if pageToken == "" {
+			ctxzap.Extract(ctx).Info("Syncing resources...")
+			s.handleInitialActionForStep(ctx, *s.state.Current())
+		}
 
 		resp, err := s.store.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{PageToken: pageToken})
 		if err != nil {
@@ -437,10 +439,12 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 // and pushes an action to fetch the entitelments for each resource.
 func (s *syncer) SyncEntitlements(ctx context.Context) error {
 	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
-		ctxzap.Extract(ctx).Info("Syncing entitlements...")
-		s.handleInitialActionForStep(ctx, *s.state.Current())
-
 		pageToken := s.state.PageToken(ctx)
+
+		if pageToken == "" {
+			ctxzap.Extract(ctx).Info("Syncing entitlements...")
+			s.handleInitialActionForStep(ctx, *s.state.Current())
+		}
 
 		resp, err := s.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{PageToken: pageToken})
 		if err != nil {
@@ -629,10 +633,12 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, resourceID *v2.Resou
 // SyncAssets iterates each resource in the data store, and adds an action to fetch all of the assets for that resource.
 func (s *syncer) SyncAssets(ctx context.Context) error {
 	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
-		ctxzap.Extract(ctx).Info("Syncing assets...")
-		s.handleInitialActionForStep(ctx, *s.state.Current())
-
 		pageToken := s.state.PageToken(ctx)
+
+		if pageToken == "" {
+			ctxzap.Extract(ctx).Info("Syncing assets...")
+			s.handleInitialActionForStep(ctx, *s.state.Current())
+		}
 
 		resp, err := s.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{PageToken: pageToken})
 		if err != nil {
@@ -672,10 +678,12 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 // from the datastore, and pushes a new action to sync the grants for each individual resource.
 func (s *syncer) SyncGrants(ctx context.Context) error {
 	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
-		ctxzap.Extract(ctx).Info("Syncing grants...")
-		s.handleInitialActionForStep(ctx, *s.state.Current())
-
 		pageToken := s.state.PageToken(ctx)
+
+		if pageToken == "" {
+			ctxzap.Extract(ctx).Info("Syncing grants...")
+			s.handleInitialActionForStep(ctx, *s.state.Current())
+		}
 
 		resp, err := s.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{PageToken: pageToken})
 		if err != nil {
