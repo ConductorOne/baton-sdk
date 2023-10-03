@@ -768,6 +768,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 					srcEntitlement.GetEntitlement().GetId(),
 					grant.GetEntitlement().GetId(),
 					expandable.Shallow,
+					expandable.ResourceTypeIds,
 				)
 				if err != nil {
 					return fmt.Errorf("error adding edge to graph: %w", err)
@@ -1107,6 +1108,21 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	}
 
 	for _, sourceGrant := range sourceGrants.List {
+		// Skip this grant if it is not for a resource type we care about
+		if len(action.ResourceTypeIDs) > 0 {
+			relevantResourceType := false
+			for _, resourceTypeID := range action.ResourceTypeIDs {
+				if sourceGrant.GetPrincipal().Id.ResourceType == resourceTypeID {
+					relevantResourceType = true
+					break
+				}
+			}
+
+			if !relevantResourceType {
+				continue
+			}
+		}
+
 		// If this is a shallow action, then we only want to expand grants that have no sources which indicates that it was directly assigned.
 		if action.Shallow {
 			// If we have no sources, this is a direct grant
@@ -1275,6 +1291,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 				DescendantEntitlementID: descendantEntitlementID,
 				PageToken:               "",
 				Shallow:                 edgeInfo.Shallow,
+				ResourceTypeIDs:         edgeInfo.ResourceTypeIDs,
 			})
 		}
 	}

@@ -13,15 +13,17 @@ var (
 )
 
 type EntitlementGraphAction struct {
-	SourceEntitlementID     string `json:"source_entitlement_id"`
-	DescendantEntitlementID string `json:"descendant_entitlement_id"`
-	Shallow                 bool   `json:"shallow"`
-	PageToken               string `json:"page_token"`
+	SourceEntitlementID     string   `json:"source_entitlement_id"`
+	DescendantEntitlementID string   `json:"descendant_entitlement_id"`
+	Shallow                 bool     `json:"shallow"`
+	ResourceTypeIDs         []string `json:"resource_types_ids"`
+	PageToken               string   `json:"page_token"`
 }
 
 type edgeInfo struct {
-	Expanded bool `json:"expanded"`
-	Shallow  bool `json:"shallow"`
+	Expanded        bool     `json:"expanded"`
+	Shallow         bool     `json:"shallow"`
+	ResourceTypeIDs []string `json:"resource_type_ids"`
 }
 
 type EntitlementGraph struct {
@@ -186,7 +188,7 @@ func (d *EntitlementGraph) MarkEdgeExpanded(sourceEntitlementID string, descenda
 	}
 }
 
-func (d *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID string, shallow bool) error {
+func (d *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID string, shallow bool, resourceTypeIDs []string) error {
 	if _, ok := d.Entitlements[srcEntitlementID]; !ok {
 		return ErrNoEntitlement
 	}
@@ -199,8 +201,9 @@ func (d *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID str
 		d.Edges[srcEntitlementID] = make(map[string]*edgeInfo)
 	}
 	d.Edges[srcEntitlementID][dstEntitlementID] = &edgeInfo{
-		Expanded: false,
-		Shallow:  shallow,
+		Expanded:        false,
+		Shallow:         shallow,
+		ResourceTypeIDs: resourceTypeIDs,
 	}
 	return nil
 }
