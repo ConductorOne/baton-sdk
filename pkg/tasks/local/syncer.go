@@ -12,8 +12,9 @@ import (
 )
 
 type localSyncer struct {
-	dbPath string
-	o      sync.Once
+	dbPath       string
+	o            sync.Once
+	expandGrants bool
 }
 
 func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
@@ -46,9 +47,10 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 }
 
 // NewSyncer returns a task manager that queues a sync task.
-func NewSyncer(ctx context.Context, dbPath string) (tasks.Manager, error) {
+func NewSyncer(ctx context.Context, dbPath string, expandGrants bool) (tasks.Manager, error) {
 	nm := &localSyncer{
-		dbPath: dbPath,
+		dbPath:       dbPath,
+		expandGrants: expandGrants,
 	}
 
 	return nm, nil

@@ -9,3 +9,9 @@ import "google/protobuf/struct.proto";
 message GrantMetadata {
   google.protobuf.Struct metadata = 1;
 }
+
+message GrantExpandable {
+  repeated string entitlement_ids = 1;
+  bool shallow = 2;
+  repeated string resource_type_ids = 3;
+}

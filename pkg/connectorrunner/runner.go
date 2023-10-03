@@ -211,6 +211,7 @@ type runnerConfig struct {
 	provisioningEnabled bool
 	grantConfig         *grantConfig
 	revokeConfig        *revokeConfig
+	expandGrants        bool
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -335,6 +336,13 @@ func WithProvisioningEnabled() Option {
 	}
 }
 
+func WithExpandGrants() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.expandGrants = true
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
@@ -385,7 +393,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewRevoker(ctx, cfg.c1zPath, cfg.revokeConfig.grantID)
 
 		default:
-			tm, err = local.NewSyncer(ctx, cfg.c1zPath)
+			tm, err = local.NewSyncer(ctx, cfg.c1zPath, cfg.expandGrants)
 			if err != nil {
 				return nil, err
 			}

@@ -16,12 +16,15 @@ type State interface {
 	NextPage(ctx context.Context, pageToken string) error
 	ResourceTypeID(ctx context.Context) string
 	ResourceID(ctx context.Context) string
+	EntitlementGraph(ctx context.Context) *EntitlementGraph
 	ParentResourceID(ctx context.Context) string
 	ParentResourceTypeID(ctx context.Context) string
 	PageToken(ctx context.Context) string
 	Current() *Action
 	Marshal() (string, error)
 	Unmarshal(input string) error
+	NeedsExpansion() bool
+	SetNeedsExpansion()
 }
 
 // ActionOp represents a sync operation.
@@ -42,6 +45,8 @@ func (s ActionOp) String() string {
 		return "list-grants"
 	case SyncAssetsOp:
 		return "fetch-assets"
+	case SyncGrantExpansionOp:
+		return "grant-expansion"
 	default:
 		return "unknown"
 	}
@@ -79,6 +84,8 @@ func newActionOp(str string) ActionOp {
 		return SyncGrantsOp
 	case SyncAssetsOp.String():
 		return SyncAssetsOp
+	case SyncGrantExpansionOp.String():
+		return SyncGrantExpansionOp
 	default:
 		return UnknownOp
 	}
@@ -93,6 +100,7 @@ const (
 	ListResourcesForEntitlementsOp
 	SyncGrantsOp
 	SyncAssetsOp
+	SyncGrantExpansionOp
 )
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
@@ -107,16 +115,20 @@ type Action struct {
 
 // state is an object used for tracking the current status of a connector sync. It operates like a stack.
 type state struct {
-	mtx           sync.RWMutex
-	actions       []Action
-	currentAction *Action
+	mtx              sync.RWMutex
+	actions          []Action
+	currentAction    *Action
+	entitlementGraph *EntitlementGraph
+	needsExpansion   bool
 }
 
 // serializedToken is used to serialize the token to JSON. This separate object is used to avoid having exported fields
 // on the object used externally. We should interface this, probably.
 type serializedToken struct {
-	Actions       []Action `json:"actions"`
-	CurrentAction *Action  `json:"current_action"`
+	Actions          []Action          `json:"actions"`
+	CurrentAction    *Action           `json:"current_action"`
+	NeedsExpansion   bool              `json:"needs_expansion"`
+	EntitlementGraph *EntitlementGraph `json:"entitlement_graph"`
 }
 
 // push adds a new action to the stack. If there is no current state, the action is directly set to current, else
@@ -179,13 +191,15 @@ func (st *state) Unmarshal(input string) error {
 	if input != "" {
 		err := json.Unmarshal([]byte(input), &token)
 		if err != nil {
-			return fmt.Errorf("syncer token corrust: %w", err)
+			return fmt.Errorf("syncer token corrupt: %w", err)
 		}
 
 		st.actions = token.Actions
 		st.currentAction = token.CurrentAction
+		st.needsExpansion = token.NeedsExpansion
 	} else {
 		st.actions = nil
+		st.entitlementGraph = nil
 		st.currentAction = &Action{Op: InitOp}
 	}
 
@@ -198,8 +212,10 @@ func (st *state) Marshal() (string, error) {
 	defer st.mtx.RUnlock()
 
 	data, err := json.Marshal(serializedToken{
-		Actions:       st.actions,
-		CurrentAction: st.currentAction,
+		Actions:          st.actions,
+		CurrentAction:    st.currentAction,
+		NeedsExpansion:   st.needsExpansion,
+		EntitlementGraph: st.entitlementGraph,
 	})
 	if err != nil {
 		return "", err
@@ -236,6 +252,14 @@ func (st *state) NextPage(ctx context.Context, pageToken string) error {
 	return nil
 }
 
+func (st *state) NeedsExpansion() bool {
+	return st.needsExpansion
+}
+
+func (st *state) SetNeedsExpansion() {
+	st.needsExpansion = true
+}
+
 // PageToken returns the page token for the current action.
 func (st *state) PageToken(ctx context.Context) string {
 	c := st.Current()
@@ -264,6 +288,18 @@ func (st *state) ResourceID(ctx context.Context) string {
 	}
 
 	return c.ResourceID
+}
+
+// EntitlementGraph returns the entitlement graph for the current action.
+func (st *state) EntitlementGraph(ctx context.Context) *EntitlementGraph {
+	c := st.Current()
+	if c == nil {
+		panic("no current state")
+	}
+	if st.entitlementGraph == nil {
+		st.entitlementGraph = NewEntitlementGraph(ctx)
+	}
+	return st.entitlementGraph
 }
 
 func (st *state) ParentResourceID(ctx context.Context) string {
