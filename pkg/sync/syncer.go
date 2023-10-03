@@ -201,7 +201,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 				continue
 			}
 
-			err = s.SyncGroupExpansion(ctx)
+			err = s.SyncGrantExpansion(ctx)
 			if err != nil {
 				return err
 			}
@@ -687,9 +687,9 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 	return nil
 }
 
-// SyncGroupExpansion
+// SyncGrantExpansion
 // TODO(morgabra) Docs
-func (s *syncer) SyncGroupExpansion(ctx context.Context) error {
+func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 	entitlementGraph := s.state.EntitlementGraph(ctx)
 	if !entitlementGraph.Loaded {
@@ -754,12 +754,21 @@ func (s *syncer) SyncGroupExpansion(ctx context.Context) error {
 				}
 				if principalID.ResourceType != sourceEntitlementResourceID.ResourceType ||
 					principalID.Resource != sourceEntitlementResourceID.Resource {
+					l.Error(
+						"source entitlement resource id did not match grant principal id",
+						zap.String("grant_principal_id", principalID.String()),
+						zap.String("source_entitlement_resource_id", sourceEntitlementResourceID.String()))
+
 					return fmt.Errorf("source entitlement resource id did not match grant principal id")
 				}
 
 				entitlementGraph.AddEntitlement(grant.Entitlement)
 				entitlementGraph.AddEntitlement(srcEntitlement.GetEntitlement())
-				err = entitlementGraph.AddEdge(srcEntitlement.GetEntitlement().GetId(), grant.GetEntitlement().GetId())
+				err = entitlementGraph.AddEdge(
+					srcEntitlement.GetEntitlement().GetId(),
+					grant.GetEntitlement().GetId(),
+					expandable.Shallow,
+				)
 				if err != nil {
 					return fmt.Errorf("error adding edge to graph: %w", err)
 				}
@@ -771,11 +780,11 @@ func (s *syncer) SyncGroupExpansion(ctx context.Context) error {
 	// Once we've loaded the graph, we can check for cycles
 	// TODO(mstanbCO): we should eventually add logic to handle cycles
 	if entitlementGraph.Loaded {
-		cycles, hasCylces := entitlementGraph.GetCycles()
-		if hasCylces {
+		cycles, hasCycles := entitlementGraph.GetCycles()
+		if hasCycles {
 			s.state.FinishAction(ctx)
 			l.Error("cycles detected in entitlement graph", zap.Any("cycles", cycles))
-			return fmt.Errorf("SyncGroupExpansion: %d cycle(s) detected in entitlement graph", len(cycles))
+			return fmt.Errorf("SyncGrantExpansion: %d cycle(s) detected in entitlement graph", len(cycles))
 		}
 	}
 
@@ -1098,6 +1107,24 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	}
 
 	for _, sourceGrant := range sourceGrants.List {
+		// If this is a shallow action, then we only want to expand grants that have no sources which indicates that it was directly assigned.
+		if action.Shallow {
+			// If we have no sources, this is a direct grant
+			foundDirectGrant := len(sourceGrant.GetSources().GetSources()) == 0
+			// If the source grant has sources, then we need to see if any of them are the source entitlement itself
+			for src := range sourceGrant.GetSources().GetSources() {
+				if src == sourceEntitlement.GetEntitlement().GetId() {
+					foundDirectGrant = true
+					break
+				}
+			}
+
+			// This is not a direct grant, so skip it since we are a shallow action
+			if !foundDirectGrant {
+				continue
+			}
+		}
+
 		// Unroll all grants for the principal on the descendant entitlement. This should, on average, be... 1.
 		descendantGrants := make([]*v2.Grant, 0, 1)
 		pageToken := ""
@@ -1239,14 +1266,15 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 			continue
 		}
 
-		for descendantEntitlementID, done := range graph.GetDescendants(sourceEntitlementID) {
-			if done {
+		for descendantEntitlementID, edgeInfo := range graph.GetDescendants(sourceEntitlementID) {
+			if edgeInfo.Expanded {
 				continue
 			}
 			graph.Actions = append(graph.Actions, EntitlementGraphAction{
 				SourceEntitlementID:     sourceEntitlementID,
 				DescendantEntitlementID: descendantEntitlementID,
 				PageToken:               "",
+				Shallow:                 edgeInfo.Shallow,
 			})
 		}
 	}
@@ -1257,7 +1285,6 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		return nil
 	}
 
-	// This is an error case? We should never get here?
 	l.Debug("expandGrantsForEntitlements: graph is not expanded", zap.Any("graph", graph))
 	return nil
 }

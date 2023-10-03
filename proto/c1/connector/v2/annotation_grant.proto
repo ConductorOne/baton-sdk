@@ -12,4 +12,5 @@ message GrantMetadata {
 
 message GrantExpandable {
   repeated string entitlement_ids = 1;
+  bool shallow = 2;
 }

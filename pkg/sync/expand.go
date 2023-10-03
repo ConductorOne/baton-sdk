@@ -15,21 +15,27 @@ var (
 type EntitlementGraphAction struct {
 	SourceEntitlementID     string `json:"source_entitlement_id"`
 	DescendantEntitlementID string `json:"descendant_entitlement_id"`
+	Shallow                 bool   `json:"shallow"`
 	PageToken               string `json:"page_token"`
 }
 
+type edgeInfo struct {
+	Expanded bool `json:"expanded"`
+	Shallow  bool `json:"shallow"`
+}
+
 type EntitlementGraph struct {
-	Entitlements map[string]bool            `json:"entitlements"`
-	Edges        map[string]map[string]bool `json:"edges"`
-	Loaded       bool                       `json:"loaded"`
-	Depth        int                        `json:"depth"`
-	Actions      []EntitlementGraphAction   `json:"actions"`
+	Entitlements map[string]bool                 `json:"entitlements"`
+	Edges        map[string]map[string]*edgeInfo `json:"edges"`
+	Loaded       bool                            `json:"loaded"`
+	Depth        int                             `json:"depth"`
+	Actions      []EntitlementGraphAction        `json:"actions"`
 }
 
 func NewEntitlementGraph(ctx context.Context) *EntitlementGraph {
 	return &EntitlementGraph{
 		Entitlements: make(map[string]bool),
-		Edges:        make(map[string]map[string]bool),
+		Edges:        make(map[string]map[string]*edgeInfo),
 	}
 }
 
@@ -45,8 +51,8 @@ func (d *EntitlementGraph) IsExpanded() bool {
 
 // IsEntitlementExpanded returns true if all the outgoing edges for the given entitlement have been expanded.
 func (d *EntitlementGraph) IsEntitlementExpanded(entitlementID string) bool {
-	for _, expanded := range d.Edges[entitlementID] {
-		if !expanded {
+	for _, edgeInfo := range d.Edges[entitlementID] {
+		if !edgeInfo.Expanded {
 			return false
 		}
 	}
@@ -139,7 +145,7 @@ func (d *EntitlementGraph) getCycle(visits []string) ([]string, bool) {
 	return nil, false
 }
 
-func (d *EntitlementGraph) GetDescendants(entitlementID string) map[string]bool {
+func (d *EntitlementGraph) GetDescendants(entitlementID string) map[string]*edgeInfo {
 	return d.Edges[entitlementID]
 }
 
@@ -163,13 +169,14 @@ func (d *EntitlementGraph) MarkEdgeExpanded(sourceEntitlementID string, descenda
 	if !ok {
 		return
 	}
-	d.Edges[sourceEntitlementID][descendantEntitlementID] = true
+
+	d.Edges[sourceEntitlementID][descendantEntitlementID].Expanded = true
 
 	// If all edges are expanded, mark the source entitlement as expanded.
 	// We shouldn't care about this value but we'll set it for consistency.
 	allExpanded := true
-	for _, expanded := range d.Edges[sourceEntitlementID] {
-		if !expanded {
+	for _, edgeInfo := range d.Edges[sourceEntitlementID] {
+		if !edgeInfo.Expanded {
 			allExpanded = false
 			break
 		}
@@ -179,7 +186,7 @@ func (d *EntitlementGraph) MarkEdgeExpanded(sourceEntitlementID string, descenda
 	}
 }
 
-func (d *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID string) error {
+func (d *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID string, shallow bool) error {
 	if _, ok := d.Entitlements[srcEntitlementID]; !ok {
 		return ErrNoEntitlement
 	}
@@ -189,8 +196,11 @@ func (d *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID str
 
 	_, ok := d.Edges[srcEntitlementID]
 	if !ok {
-		d.Edges[srcEntitlementID] = make(map[string]bool)
+		d.Edges[srcEntitlementID] = make(map[string]*edgeInfo)
 	}
-	d.Edges[srcEntitlementID][dstEntitlementID] = false
+	d.Edges[srcEntitlementID][dstEntitlementID] = &edgeInfo{
+		Expanded: false,
+		Shallow:  shallow,
+	}
 	return nil
 }

@@ -186,6 +186,8 @@ func (m *GrantExpandable) validate(all bool) error {
 
 	var errors []error
 
+	// no validation rules for Shallow
+
 	if len(errors) > 0 {
 		return GrantExpandableMultiError(errors)
 	}

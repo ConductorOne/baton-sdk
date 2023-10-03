@@ -14,19 +14,19 @@ func TestGetCycles(t *testing.T) {
 	graph.AddEntitlement(&v2.Entitlement{Id: "2"})
 	graph.AddEntitlement(&v2.Entitlement{Id: "3"})
 	graph.AddEntitlement(&v2.Entitlement{Id: "4"})
-	err := graph.AddEdge("1", "2")
+	err := graph.AddEdge("1", "2", false)
 	if err != nil {
 		require.Empty(t, err.Error())
 	}
-	err = graph.AddEdge("2", "3")
+	err = graph.AddEdge("2", "3", false)
 	if err != nil {
 		require.Empty(t, err.Error())
 	}
-	err = graph.AddEdge("3", "4")
+	err = graph.AddEdge("3", "4", false)
 	if err != nil {
 		require.Empty(t, err.Error())
 	}
-	err = graph.AddEdge("4", "2")
+	err = graph.AddEdge("4", "2", false)
 	if err != nil {
 		require.Empty(t, err.Error())
 	}
