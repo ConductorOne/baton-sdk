@@ -34,16 +34,14 @@ func WithEmail(email string, primary bool) UserTraitOption {
 		return nil
 	}
 }
-func WithUserLogin(login string) UserTraitOption {
+func WithUserLogin(login string, aliases ...string) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
+		if login == "" {
+			// If login is empty do nothing
+			return nil
+		}
 		ut.Login = login
-		return nil
-	}
-}
-
-func WithUserLoginAlias(login string) UserTraitOption {
-	return func(ut *v2.UserTrait) error {
-		ut.LoginAliases = append(ut.LoginAliases, login)
+		ut.LoginAliases = aliases
 		return nil
 	}
 }
