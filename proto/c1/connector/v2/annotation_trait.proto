@@ -20,6 +20,18 @@ message UserTrait {
   }
   repeated Email emails = 1;
 
+  message Username {
+    string username = 1 [
+      (validate.rules).string = {
+        min_bytes: 1,
+        max_bytes: 1024,
+      }
+    ];
+    // Indicates if this is the user's primary username. Only one entry can be marked as primary.
+    bool is_primary = 2;
+  }
+  repeated Username usernames = 6;
+
   message Status {
     enum Status {
       STATUS_UNSPECIFIED = 0;
