@@ -91,40 +91,6 @@ func (m *UserTrait) validate(all bool) error {
 
 	}
 
-	for idx, item := range m.GetUsernames() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, UserTraitValidationError{
-						field:  fmt.Sprintf("Usernames[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, UserTraitValidationError{
-						field:  fmt.Sprintf("Usernames[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return UserTraitValidationError{
-					field:  fmt.Sprintf("Usernames[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
 	if m.GetStatus() == nil {
 		err := UserTraitValidationError{
 			field:  "Status",
@@ -233,6 +199,8 @@ func (m *UserTrait) validate(all bool) error {
 		}
 		errors = append(errors, err)
 	}
+
+	// no validation rules for Login
 
 	if len(errors) > 0 {
 		return UserTraitMultiError(errors)
@@ -992,121 +960,6 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = UserTrait_EmailValidationError{}
-
-// Validate checks the field values on UserTrait_Username with the rules
-// defined in the proto definition for this message. If any rules are
-// violated, the first error encountered is returned, or nil if there are no violations.
-func (m *UserTrait_Username) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on UserTrait_Username with the rules
-// defined in the proto definition for this message. If any rules are
-// violated, the result is a list of violation errors wrapped in
-// UserTrait_UsernameMultiError, or nil if none found.
-func (m *UserTrait_Username) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *UserTrait_Username) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	if l := len(m.GetUsername()); l < 1 || l > 1024 {
-		err := UserTrait_UsernameValidationError{
-			field:  "Username",
-			reason: "value length must be between 1 and 1024 bytes, inclusive",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
-
-	// no validation rules for IsPrimary
-
-	if len(errors) > 0 {
-		return UserTrait_UsernameMultiError(errors)
-	}
-
-	return nil
-}
-
-// UserTrait_UsernameMultiError is an error wrapping multiple validation errors
-// returned by UserTrait_Username.ValidateAll() if the designated constraints
-// aren't met.
-type UserTrait_UsernameMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m UserTrait_UsernameMultiError) Error() string {
-	var msgs []string
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m UserTrait_UsernameMultiError) AllErrors() []error { return m }
-
-// UserTrait_UsernameValidationError is the validation error returned by
-// UserTrait_Username.Validate if the designated constraints aren't met.
-type UserTrait_UsernameValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e UserTrait_UsernameValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e UserTrait_UsernameValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e UserTrait_UsernameValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e UserTrait_UsernameValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e UserTrait_UsernameValidationError) ErrorName() string {
-	return "UserTrait_UsernameValidationError"
-}
-
-// Error satisfies the builtin error interface
-func (e UserTrait_UsernameValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sUserTrait_Username.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = UserTrait_UsernameValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = UserTrait_UsernameValidationError{}
 
 // Validate checks the field values on UserTrait_Status with the rules defined
 // in the proto definition for this message. If any rules are violated, the

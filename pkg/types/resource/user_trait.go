@@ -34,19 +34,16 @@ func WithEmail(email string, primary bool) UserTraitOption {
 		return nil
 	}
 }
-func WithUsername(username string, primary bool) UserTraitOption {
+func WithUserLogin(login string) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
-		if username == "" {
-			return nil
-		}
+		ut.Login = login
+		return nil
+	}
+}
 
-		traitUsername := &v2.UserTrait_Username{
-			Username:  username,
-			IsPrimary: primary,
-		}
-
-		ut.Usernames = append(ut.Usernames, traitUsername)
-
+func WithUserLoginAlias(login string) UserTraitOption {
+	return func(ut *v2.UserTrait) error {
+		ut.LoginAliases = append(ut.LoginAliases, login)
 		return nil
 	}
 }
