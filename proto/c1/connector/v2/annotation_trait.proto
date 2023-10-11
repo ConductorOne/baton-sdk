@@ -59,6 +59,11 @@ message UserTrait {
       defined_only: true
     }
   ];
+
+  // The user's login
+  string login = 6;
+  // Any additional login aliases for the user
+  repeated string login_aliases = 7;
 }
 
 message GroupTrait {
