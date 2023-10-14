@@ -108,6 +108,10 @@ func NewCmd[T any, PtrT *T](
 			}
 
 			if v.GetString("c1z-temp-dir") != "" {
+				c1zTmpDir := v.GetString("c1z-temp-dir")
+				if _, err := os.Stat(c1zTmpDir); os.IsNotExist(err) {
+					return fmt.Errorf("the specified c1z temp dir does not exist: %s", c1zTmpDir)
+				}
 				opts = append(opts, connectorrunner.WithTempDir(v.GetString("c1z-temp-dir")))
 			}
 
@@ -263,7 +267,7 @@ func NewCmd[T any, PtrT *T](
 	cmd.AddCommand(capabilitiesCmd)
 
 	// Flags for file management
-	cmd.PersistentFlags().String("c1z-temp-dir", "", "Override the OS temp directory for scratch space. Defaults to the OS tempdir. ($BATON_C1Z_TMP_DIR)")
+	cmd.PersistentFlags().String("c1z-temp-dir", "", "The directory to store temporary files in. It must exist, and write access is required. Defaults to the OS temporary directory. ($BATON_C1Z_TEMP_DIR)")
 
 	// Flags for logging configuration
 	cmd.PersistentFlags().String("log-level", defaultLogLevel, "The log level: debug, info, warn, error ($BATON_LOG_LEVEL)")
