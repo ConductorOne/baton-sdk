@@ -21,10 +21,19 @@ type C1File struct {
 	outputFilePath string
 	dbFilePath     string
 	dbUpdated      bool
+	tempDir        string
+}
+
+type C1FOption func(*C1File)
+
+func WithC1FTmpDir(tempDir string) C1FOption {
+	return func(o *C1File) {
+		o.tempDir = tempDir
+	}
 }
 
 // Returns a C1File instance for the given db filepath.
-func NewC1File(ctx context.Context, dbFilePath string) (*C1File, error) {
+func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1File, error) {
 	rawDB, err := sql.Open("sqlite", dbFilePath)
 	if err != nil {
 		return nil, err
@@ -35,6 +44,10 @@ func NewC1File(ctx context.Context, dbFilePath string) (*C1File, error) {
 		rawDb:      rawDB,
 		db:         db,
 		dbFilePath: dbFilePath,
+	}
+
+	for _, opt := range opts {
+		opt(c1File)
 	}
 
 	err = c1File.validateDb(ctx)
