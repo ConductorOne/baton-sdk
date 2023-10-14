@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"syscall"
 
@@ -12,7 +13,8 @@ import (
 )
 
 func loadC1z(filePath string) (string, error) {
-	workingDir, err := os.MkdirTemp("", "c1z")
+	tmpDir := path.Dir(filePath)
+	workingDir, err := os.MkdirTemp(tmpDir, "c1z")
 	if err != nil {
 		return "", err
 	}

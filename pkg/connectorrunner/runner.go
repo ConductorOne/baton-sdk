@@ -211,7 +211,7 @@ type runnerConfig struct {
 	provisioningEnabled bool
 	grantConfig         *grantConfig
 	revokeConfig        *revokeConfig
-	expandGrants        bool
+	tempDir             string
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -336,9 +336,9 @@ func WithProvisioningEnabled() Option {
 	}
 }
 
-func WithExpandGrants() Option {
+func WithTempDir(tempDir string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.expandGrants = true
+		cfg.tempDir = tempDir
 		return nil
 	}
 }
@@ -393,7 +393,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewRevoker(ctx, cfg.c1zPath, cfg.revokeConfig.grantID)
 
 		default:
-			tm, err = local.NewSyncer(ctx, cfg.c1zPath, cfg.expandGrants)
+			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))
 			if err != nil {
 				return nil, err
 			}

@@ -107,6 +107,10 @@ func NewCmd[T any, PtrT *T](
 				}
 			}
 
+			if v.GetString("c1z-temp-dir") != "" {
+				opts = append(opts, connectorrunner.WithTempDir(v.GetString("c1z-temp-dir")))
+			}
+
 			r, err := connectorrunner.NewConnectorRunner(runCtx, c, opts...)
 			if err != nil {
 				l.Error("error creating connector runner", zap.Error(err))
@@ -257,6 +261,9 @@ func NewCmd[T any, PtrT *T](
 
 	cmd.AddCommand(grpcServerCmd)
 	cmd.AddCommand(capabilitiesCmd)
+
+	// Flags for file management
+	cmd.PersistentFlags().String("c1z-temp-dir", "", "Override the OS temp directory for scratch space. Defaults to the OS tempdir. ($BATON_C1Z_TMP_DIR)")
 
 	// Flags for logging configuration
 	cmd.PersistentFlags().String("log-level", defaultLogLevel, "The log level: debug, info, warn, error ($BATON_LOG_LEVEL)")

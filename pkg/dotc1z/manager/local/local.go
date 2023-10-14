@@ -14,10 +14,19 @@ import (
 type localManager struct {
 	filePath string
 	tmpPath  string
+	tmpDir   string
+}
+
+type Option func(*localManager)
+
+func WithTmpDir(tmpDir string) Option {
+	return func(o *localManager) {
+		o.tmpDir = tmpDir
+	}
 }
 
 func (l *localManager) copyFileToTmp(ctx context.Context) error {
-	tmp, err := os.CreateTemp("", "sync-*.c1z")
+	tmp, err := os.CreateTemp(l.tmpDir, "sync-*.c1z")
 	if err != nil {
 		return err
 	}
@@ -126,8 +135,14 @@ func (l *localManager) Close(ctx context.Context) error {
 }
 
 // New returns a new localManager that uses the given filePath.
-func New(ctx context.Context, filePath string) (*localManager, error) {
-	return &localManager{
+func New(ctx context.Context, filePath string, opts ...Option) (*localManager, error) {
+	ret := &localManager{
 		filePath: filePath,
-	}, nil
+	}
+
+	for _, opt := range opts {
+		opt(ret)
+	}
+
+	return ret, nil
 }

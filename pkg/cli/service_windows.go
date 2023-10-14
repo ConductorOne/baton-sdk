@@ -52,10 +52,14 @@ func getConfigDir(name string) string {
 }
 
 var skipServiceSetupFields = map[string]struct{}{
-	"LogLevel":   {},
-	"LogFormat":  {},
-	"BaseConfig": {},
-	"C1zPath":    {},
+	"LogLevel":           {},
+	"LogFormat":          {},
+	"BaseConfig":         {},
+	"C1zPath":            {},
+	"GrantEntitlementID": {},
+	"GrantPrincipalID":   {},
+	"GrantPrincipalType": {},
+	"RevokeGrantID":      {},
 }
 
 var (
