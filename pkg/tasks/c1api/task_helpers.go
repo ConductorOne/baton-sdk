@@ -20,6 +20,7 @@ type taskHelpers struct {
 	task          *v1.Task
 	serviceClient BatonServiceClient
 	cc            types.ConnectorClient
+	tempDir       string
 
 	taskFinisher func(ctx context.Context, task *v1.Task, annos annotations.Annotations, err error) error
 }
@@ -44,6 +45,10 @@ func (t *taskHelpers) FinishTask(ctx context.Context, annos annotations.Annotati
 
 func (t *taskHelpers) HelloClient() batonHelloClient {
 	return t.serviceClient
+}
+
+func (t *taskHelpers) TempDir() string {
+	return t.tempDir
 }
 
 // HeartbeatTask will call the heartbeat service endpoint for the task until the context is cancelled. An initial heartbeat is

@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -43,11 +44,13 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 
 	err = syncer.Sync(ctx)
 	if err != nil {
+		if closeErr := syncer.Close(ctx); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
 		return err
 	}
 
-	err = syncer.Close(ctx)
-	if err != nil {
+	if err := syncer.Close(ctx); err != nil {
 		return err
 	}
 
