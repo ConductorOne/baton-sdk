@@ -267,7 +267,8 @@ func NewCmd[T any, PtrT *T](
 	cmd.AddCommand(capabilitiesCmd)
 
 	// Flags for file management
-	cmd.PersistentFlags().String("c1z-temp-dir", "", "The directory to store temporary files in. It must exist, and write access is required. Defaults to the OS temporary directory. ($BATON_C1Z_TEMP_DIR)")
+	cmd.PersistentFlags().String("c1z-temp-dir", "", "The directory to store temporary files in. It "+
+		"must exist, and write access is required. Defaults to the OS temporary directory. ($BATON_C1Z_TEMP_DIR)")
 	if err := cmd.PersistentFlags().MarkHidden("c1z-temp-dir"); err != nil {
 		return nil, err
 	}
