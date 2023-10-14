@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path"
 	"path/filepath"
 	"syscall"
 
@@ -12,8 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func loadC1z(filePath string) (string, error) {
-	tmpDir := path.Dir(filePath)
+func loadC1z(filePath string, tmpDir string) (string, error) {
 	workingDir, err := os.MkdirTemp(tmpDir, "c1z")
 	if err != nil {
 		return "", err
