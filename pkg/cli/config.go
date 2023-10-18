@@ -20,6 +20,7 @@ type BaseConfig struct {
 	GrantPrincipalID   string `mapstructure:"grant-principal"`
 	GrantPrincipalType string `mapstructure:"grant-principal-type"`
 	RevokeGrantID      string `mapstructure:"revoke-grant"`
+	C1zTempDir         string `mapstructure:"c1z-temp-dir"`
 }
 
 func getConfigPath(customPath string) (string, string, error) {

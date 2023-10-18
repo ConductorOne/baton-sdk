@@ -2,6 +2,7 @@ package c1api
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 
@@ -20,11 +21,42 @@ type fullSyncHelpers interface {
 	Upload(ctx context.Context, r io.ReadSeeker) error
 	FinishTask(ctx context.Context, annos annotations.Annotations, err error) error
 	HeartbeatTask(ctx context.Context, annos annotations.Annotations) (context.Context, error)
+	TempDir() string
 }
 
 type fullSyncTaskHandler struct {
 	task    *v1.Task
 	helpers fullSyncHelpers
+}
+
+func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
+	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
+	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), sdkSync.WithC1ZPath(c1zPath), sdkSync.WithTmpDir(c.helpers.TempDir()))
+	if err != nil {
+		l.Error("failed to create syncer", zap.Error(err))
+		return err
+	}
+
+	// TODO(jirwin): Should we attempt to retry at all before failing the task?
+	err = syncer.Sync(ctx)
+	if err != nil {
+		l.Error("failed to sync", zap.Error(err))
+
+		// We don't defer syncer.Close() in order to capture the error without named return values.
+		if closeErr := syncer.Close(ctx); closeErr != nil {
+			l.Error("failed to close syncer after sync error", zap.Error(err))
+			err = errors.Join(err, closeErr)
+		}
+
+		return err
+	}
+
+	if err := syncer.Close(ctx); err != nil {
+		l.Error("failed to close syncer", zap.Error(err))
+		return err
+	}
+
+	return nil
 }
 
 // TODO(morgabra) We should handle task resumption here. The task should contain at least an active sync id so we can
@@ -42,7 +74,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
 	l.Info("Handling full sync task.")
 
-	assetFile, err := os.CreateTemp("", "baton-sdk-sync-upload")
+	assetFile, err := os.CreateTemp(c.helpers.TempDir(), "baton-sdk-sync-upload")
 	if err != nil {
 		l.Error("failed to create temp file", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, err)
@@ -53,12 +85,6 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, err)
 	}
 
-	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), sdkSync.WithC1ZPath(c1zPath))
-	if err != nil {
-		l.Error("failed to create syncer", zap.Error(err))
-		return c.helpers.FinishTask(ctx, nil, err)
-	}
-
 	// TODO(morgabra) Add annotation for for sync_id, or come up with some other way to track sync state.
 	ctx, err = c.helpers.HeartbeatTask(ctx, nil)
 	if err != nil {
@@ -66,16 +92,9 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return err
 	}
 
-	// TODO(jirwin): Should we attempt to retry at all before failing the task?
-	err = syncer.Sync(ctx)
+	err = c.sync(ctx, c1zPath)
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
-		return c.helpers.FinishTask(ctx, nil, err)
-	}
-
-	err = syncer.Close(ctx)
-	if err != nil {
-		l.Error("failed to close syncer", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, err)
 	}
 

@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -12,9 +13,17 @@ import (
 )
 
 type localSyncer struct {
-	dbPath       string
-	o            sync.Once
-	expandGrants bool
+	dbPath string
+	o      sync.Once
+	tmpDir string
+}
+
+type Option func(*localSyncer)
+
+func WithTmpDir(tmpDir string) Option {
+	return func(m *localSyncer) {
+		m.tmpDir = tmpDir
+	}
 }
 
 func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
@@ -28,18 +37,20 @@ func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error)
 }
 
 func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
-	syncer, err := sdkSync.NewSyncer(ctx, cc, sdkSync.WithC1ZPath(m.dbPath))
+	syncer, err := sdkSync.NewSyncer(ctx, cc, sdkSync.WithC1ZPath(m.dbPath), sdkSync.WithTmpDir(m.tmpDir))
 	if err != nil {
 		return err
 	}
 
 	err = syncer.Sync(ctx)
 	if err != nil {
+		if closeErr := syncer.Close(ctx); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
 		return err
 	}
 
-	err = syncer.Close(ctx)
-	if err != nil {
+	if err := syncer.Close(ctx); err != nil {
 		return err
 	}
 
@@ -47,10 +58,13 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 }
 
 // NewSyncer returns a task manager that queues a sync task.
-func NewSyncer(ctx context.Context, dbPath string, expandGrants bool) (tasks.Manager, error) {
+func NewSyncer(ctx context.Context, dbPath string, opts ...Option) (tasks.Manager, error) {
 	nm := &localSyncer{
-		dbPath:       dbPath,
-		expandGrants: expandGrants,
+		dbPath: dbPath,
+	}
+
+	for _, opt := range opts {
+		opt(nm)
 	}
 
 	return nm, nil
