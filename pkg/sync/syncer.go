@@ -1016,7 +1016,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 	for _, grant := range grants {
 		// Check if the principal of the grant already exists as a resource. If the principal resource does not exist, we should create it resource.
-		err := s.ensureResourceExistence(ctx, grant.Principal)
+		err := s.ensurePrincipalExistence(ctx, grant.Principal)
 		if err != nil {
 			return err
 		}
@@ -1427,9 +1427,8 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 	return s, nil
 }
 
-// This method checks if the principal resource already exists. If it does not, we should put the resource.
-// The return value indicates if the resource was put or not by the boolean value.
-func (s *syncer) ensureResourceExistence(ctx context.Context, principal *v2.Resource) error {
+// This method checks if the principal resource already exists. If it does not, we should put the principal.
+func (s *syncer) ensurePrincipalExistence(ctx context.Context, principal *v2.Resource) error {
 	l := ctxzap.Extract(ctx)
 	// Check if the principal of the grant already exists as a resource. If it does not, we should jit the resource.
 	_, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
@@ -1438,22 +1437,20 @@ func (s *syncer) ensureResourceExistence(ctx context.Context, principal *v2.Reso
 			Resource:     principal.Id.Resource,
 		},
 	})
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			// If the principal does not have a display name, we should set it to the resource ID
-			if principal.DisplayName == "" {
-				principal.DisplayName = principal.Id.Resource
-			}
-			principal.CreationSource = v2.Resource_CREATION_SOURCE_CONNECTOR_LIST_GRANTS_PRINCIPAL_JIT
-			l.Debug("putting principal resource", zap.String("resource_id", principal.Id.Resource), zap.String("resource_type_id", principal.Id.ResourceType))
-			err = s.store.PutResource(ctx, principal)
-			if err != nil {
-				return err
-			}
-			return nil
-		} else {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		// If the principal does not have a display name, we should set it to the resource ID
+		if principal.DisplayName == "" {
+			principal.DisplayName = fmt.Sprintf("%s:%s", principal.Id.ResourceType, principal.Id.Resource)
+		}
+		principal.CreationSource = v2.Resource_CREATION_SOURCE_CONNECTOR_LIST_GRANTS_PRINCIPAL_JIT
+		l.Debug("putting principal resource", zap.String("resource_id", principal.Id.Resource), zap.String("resource_type_id", principal.Id.ResourceType))
+		err = s.store.PutResource(ctx, principal)
+		if err != nil {
 			return err
 		}
+		return nil
+	} else if err != nil {
+		return err
 	}
 	return nil
 }
