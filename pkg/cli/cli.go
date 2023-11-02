@@ -83,6 +83,12 @@ func NewCmd[T any, PtrT *T](
 
 			daemonMode := v.GetString("client-id") != "" || isService()
 			if daemonMode {
+				if v.GetString("client-id") == "" {
+					return fmt.Errorf("client-id is required in service mode")
+				}
+				if v.GetString("client-secret") == "" {
+					return fmt.Errorf("client-secret is required in service mode")
+				}
 				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
 			} else {
 				switch {

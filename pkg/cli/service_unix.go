@@ -4,15 +4,13 @@ package cli
 
 import (
 	"context"
-	"os"
 
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/spf13/cobra"
-	"golang.org/x/term"
 )
 
 func isService() bool {
-	return !term.IsTerminal(int(os.Stdin.Fd()))
+	return false
 }
 
 func setupService(name string) error {
