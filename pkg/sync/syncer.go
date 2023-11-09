@@ -150,8 +150,10 @@ func (s *syncer) Sync(ctx context.Context) error {
 			s.state.FinishAction(ctx)
 			// FIXME(jirwin): Disabling syncing assets for now
 			// s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
+			// Actions are in reverse order because it's a stack.
 			if s.partialSyncResourceId != nil {
 				s.state.PushAction(ctx, Action{Op: PartialResourceSyncOp})
+				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
 			} else {
 				s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
 				s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
@@ -412,13 +414,19 @@ func (s *syncer) syncResources(ctx context.Context) error {
 // fetch the resource via connector (done)
 // Push new actions for listing entitlement and grants for that resource (no changes required for the entitlement/grants actions)
 func (s *syncer) partialSyncResource(ctx context.Context) error {
+	_, err := s.store.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
+		ResourceTypeId: s.partialSyncResourceId.ResourceType,
+	})
+	if err != nil {
+		return fmt.Errorf("unknown resource type")
+	}
+
 	req := &v2.ResourcesServiceFetchResourceRequest{
 		ResourceId: s.partialSyncResourceId}
 
 	// Try to retrieve the ID that corresponds to the previous sync. Partial sync should NOT run if a previous full sync
 	// does not exist.
 	var previousSyncID string
-	var err error
 
 	if psf, ok := s.store.(lastestSyncFetcher); ok {
 		previousSyncID, err = psf.LatestFinishedSync(ctx)
