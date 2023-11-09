@@ -14,6 +14,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
@@ -202,17 +203,18 @@ type revokeConfig struct {
 }
 
 type runnerConfig struct {
-	rlCfg               *ratelimitV1.RateLimiterConfig
-	rlDescriptors       []*ratelimitV1.RateLimitDescriptors_Entry
-	onDemand            bool
-	c1zPath             string
-	clientAuth          bool
-	clientID            string
-	clientSecret        string
-	provisioningEnabled bool
-	grantConfig         *grantConfig
-	revokeConfig        *revokeConfig
-	tempDir             string
+	rlCfg                 *ratelimitV1.RateLimiterConfig
+	rlDescriptors         []*ratelimitV1.RateLimitDescriptors_Entry
+	onDemand              bool
+	c1zPath               string
+	clientAuth            bool
+	clientID              string
+	clientSecret          string
+	provisioningEnabled   bool
+	grantConfig           *grantConfig
+	revokeConfig          *revokeConfig
+	tempDir               string
+	partialSyncResourceId *v2.ResourceId
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -330,6 +332,15 @@ func WithOnDemandSync(c1zPath string) Option {
 	}
 }
 
+func WithOnDemandPartialSync(c1zPath string, resourceId *v2.ResourceId) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.partialSyncResourceId = resourceId
+		return nil
+	}
+}
+
 func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.provisioningEnabled = true
@@ -392,6 +403,12 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.revokeConfig != nil:
 			tm = local.NewRevoker(ctx, cfg.c1zPath, cfg.revokeConfig.grantID)
+
+		case cfg.partialSyncResourceId != nil:
+			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir), local.WithPartialSync(cfg.partialSyncResourceId))
+			if err != nil {
+				return nil, err
+			}
 
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))

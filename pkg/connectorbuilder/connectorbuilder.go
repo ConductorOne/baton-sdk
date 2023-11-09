@@ -2,6 +2,7 @@ package connectorbuilder
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -12,6 +13,9 @@ import (
 	"go.uber.org/zap"
 )
 
+type ResourceFetcher interface {
+	Fetch(ctx context.Context, resourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error)
+}
 type ResourceSyncer interface {
 	ResourceType(ctx context.Context) *v2.ResourceType
 	List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error)
@@ -104,6 +108,32 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 		NextPageToken: nextPageToken,
 		Annotations:   annos,
 	}, nil
+}
+
+func (b *builderImpl) FetchResource(ctx context.Context, request *v2.ResourcesServiceFetchResourceRequest) (*v2.ResourcesServiceFetchResourceResponse, error) {
+	rb, ok := b.resourceBuilders[request.ResourceId.ResourceType]
+	if !ok {
+		return nil, fmt.Errorf("error: list resources with unknown resource type %s", request.ResourceId.ResourceType)
+	}
+
+	/*
+		func (o *groupBuilder) Get(ctx context.Context, resourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error) {
+	*/
+
+	if rf, ok := rb.(ResourceFetcher); ok {
+		out, annos, err := rf.Fetch(ctx, request.ResourceId)
+		if err != nil {
+			return nil, fmt.Errorf("error: get resource failed: %w", err)
+		}
+
+		return &v2.ResourcesServiceFetchResourceResponse{
+			Resource:    out,
+			Annotations: annos,
+		}, nil
+	}
+
+	return nil, errors.New("not implemented")
+
 }
 
 // ListEntitlements returns all the entitlements for a given resource.

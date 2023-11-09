@@ -47,6 +47,8 @@ func (s ActionOp) String() string {
 		return "fetch-assets"
 	case SyncGrantExpansionOp:
 		return "grant-expansion"
+	case PartialResourceSyncOp:
+		return "partial-resource-sync"
 	default:
 		return "unknown"
 	}
@@ -86,6 +88,8 @@ func newActionOp(str string) ActionOp {
 		return SyncAssetsOp
 	case SyncGrantExpansionOp.String():
 		return SyncGrantExpansionOp
+	case PartialResourceSyncOp.String():
+		return PartialResourceSyncOp
 	default:
 		return UnknownOp
 	}
@@ -101,6 +105,7 @@ const (
 	SyncGrantsOp
 	SyncAssetsOp
 	SyncGrantExpansionOp
+	PartialResourceSyncOp
 )
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.

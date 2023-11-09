@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
@@ -13,12 +14,19 @@ import (
 )
 
 type localSyncer struct {
-	dbPath string
-	o      sync.Once
-	tmpDir string
+	dbPath            string
+	o                 sync.Once
+	tmpDir            string
+	partialResourceId *v2.ResourceId
 }
 
 type Option func(*localSyncer)
+
+func WithPartialSync(resourceId *v2.ResourceId) Option {
+	return func(m *localSyncer) {
+		m.partialResourceId = resourceId
+	}
+}
 
 func WithTmpDir(tmpDir string) Option {
 	return func(m *localSyncer) {
@@ -37,7 +45,15 @@ func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error)
 }
 
 func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
-	syncer, err := sdkSync.NewSyncer(ctx, cc, sdkSync.WithC1ZPath(m.dbPath), sdkSync.WithTmpDir(m.tmpDir))
+	opts := []sdkSync.SyncOpt{
+		sdkSync.WithC1ZPath(m.dbPath),
+		sdkSync.WithTmpDir(m.tmpDir),
+	}
+
+	if m.partialResourceId != nil {
+		opts = append(opts, sdkSync.WithPartialSync(m.partialResourceId))
+	}
+	syncer, err := sdkSync.NewSyncer(ctx, cc, opts...)
 	if err != nil {
 		return err
 	}

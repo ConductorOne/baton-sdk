@@ -33,15 +33,16 @@ type Syncer interface {
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
-	c1zManager        manager.Manager
-	c1zPath           string
-	store             connectorstore.Writer
-	connector         types.ConnectorClient
-	state             State
-	runDuration       time.Duration
-	transitionHandler func(s Action)
-	progressHandler   func(p *Progress)
-	tmpDir            string
+	c1zManager            manager.Manager
+	c1zPath               string
+	store                 connectorstore.Writer
+	connector             types.ConnectorClient
+	state                 State
+	runDuration           time.Duration
+	transitionHandler     func(s Action)
+	progressHandler       func(p *Progress)
+	tmpDir                string
+	partialSyncResourceId *v2.ResourceId
 
 	skipEGForResourceType map[string]bool
 }
@@ -145,14 +146,19 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		switch stateAction.Op {
 		case InitOp:
+			fmt.Printf("\n\n\n In init Op \n\n\n")
 			s.state.FinishAction(ctx)
 			// FIXME(jirwin): Disabling syncing assets for now
 			// s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
-			s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
-			s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
-			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
-			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
-			s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
+			if s.partialSyncResourceId != nil {
+				s.state.PushAction(ctx, Action{Op: PartialResourceSyncOp})
+			} else {
+				s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
+				s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
+				s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+				s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
+				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
+			}
 
 			err = s.Checkpoint(ctx)
 			if err != nil {
@@ -207,9 +213,19 @@ func (s *syncer) Sync(ctx context.Context) error {
 				return err
 			}
 			continue
+		case PartialResourceSyncOp:
+			fmt.Printf("\n\n\n In Partial Resource Sync op \n\n\n")
+			l.Info("Partial sync selected: ", zap.String("resource_type", s.partialSyncResourceId.ResourceType), zap.String("resource_id", s.partialSyncResourceId.Resource))
+			s.state.FinishAction(ctx)
+			continue
 		default:
 			return fmt.Errorf("unexpected sync step")
 		}
+	}
+
+	err = s.Checkpoint(ctx)
+	if err != nil {
+		return err
 	}
 
 	err = s.store.EndSync(ctx)
@@ -1397,6 +1413,12 @@ func WithC1ZPath(path string) SyncOpt {
 func WithTmpDir(path string) SyncOpt {
 	return func(s *syncer) {
 		s.tmpDir = path
+	}
+}
+
+func WithPartialSync(resourceId *v2.ResourceId) SyncOpt {
+	return func(s *syncer) {
+		s.partialSyncResourceId = resourceId
 	}
 }
 

@@ -38,6 +38,7 @@ type connectorClient struct {
 	connectorV2.AssetServiceClient
 	ratelimitV1.RateLimiterServiceClient
 	connectorV2.GrantManagerServiceClient
+	connectorV2.FetchResourceServiceClient
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")
@@ -297,6 +298,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		AssetServiceClient:         connectorV2.NewAssetServiceClient(cw.conn),
 		RateLimiterServiceClient:   ratelimitV1.NewRateLimiterServiceClient(cw.conn),
 		GrantManagerServiceClient:  connectorV2.NewGrantManagerServiceClient(cw.conn),
+		FetchResourceServiceClient: connectorV2.NewFetchResourceServiceClient(cw.conn),
 	}
 
 	return cw.client, nil

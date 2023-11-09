@@ -108,6 +108,12 @@ func NewCmd[T any, PtrT *T](
 							v.GetString("file"),
 							v.GetString("revoke-grant"),
 						))
+				case v.GetString("refresh-resource-id") != "" && v.GetString("refresh-resource-type") != "":
+					opts = append(opts,
+						connectorrunner.WithOnDemandPartialSync(v.GetString("file"), &v2.ResourceId{
+							ResourceType: v.GetString("refresh-resource-type"),
+							Resource:     v.GetString("refresh-resource-id")}))
+
 				default:
 					opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 				}
@@ -269,6 +275,124 @@ func NewCmd[T any, PtrT *T](
 		},
 	}
 
+	/*refreshCmd := &cobra.Command{
+		Use:   "refresh",
+		Short: "Refresh a specific resource",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			v, err := loadConfig(cmd, cfg)
+			if err != nil {
+				return err
+			}
+
+			runCtx, err := initLogger(
+				ctx,
+				name,
+				logging.WithLogFormat(v.GetString("log-format")),
+				logging.WithLogLevel(v.GetString("log-level")),
+			)
+			if err != nil {
+				return err
+			}
+
+			c, err := getConnector(runCtx, cfg)
+			if err != nil {
+				return err
+			}
+
+			// List the resouce
+			r, err := c.FetchResource(ctx, &v2.ResourcesServiceFetchResourceRequest{
+				ResourceId: &v2.ResourceId{
+					ResourceType: v.GetString("resource-type"),
+					Resource:     v.GetString("resource-id")}})
+			if err != nil {
+				return err
+			}
+
+			spew.Dump(r)
+
+			return nil
+		},
+	}*/
+
+	/*refreshCmd := &cobra.Command{
+		Use:   "refresh",
+		Short: "Refresh a specific resource",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			fmt.Printf("\n\n\n Running Refresh cmd \n\n\n")
+			v, err := loadConfig(cmd, cfg)
+			if err != nil {
+				return err
+			}
+
+			runCtx, err := initLogger(
+				ctx,
+				name,
+				logging.WithLogFormat(v.GetString("log-format")),
+				logging.WithLogLevel(v.GetString("log-level")),
+			)
+			if err != nil {
+				return err
+			}
+
+			err = validateF(ctx, cfg)
+			if err != nil {
+				return err
+			}
+
+			l := ctxzap.Extract(runCtx)
+
+			if isService() {
+				fmt.Printf("\n\n\n In isService() \n\n\n")
+				runCtx, err = runService(runCtx, name)
+				if err != nil {
+					l.Error("error running service", zap.Error(err))
+					return err
+				}
+			}
+
+			c, err := getConnector(runCtx, cfg)
+			if err != nil {
+				return err
+			}
+
+			opts = append(opts, connectorrunner.WithOnDemandPartialSync(v.GetString("file"), &v2.ResourceId{
+				ResourceType: v.GetString("resource-type"),
+				Resource:     v.GetString("resource-id")}))
+
+			fmt.Printf("\n\n\n In resource id opt added \n\n\n")
+
+			if v.GetString("c1z-temp-dir") != "" {
+				c1zTmpDir := v.GetString("c1z-temp-dir")
+				if _, err := os.Stat(c1zTmpDir); os.IsNotExist(err) {
+					return fmt.Errorf("the specified c1z temp dir does not exist: %s", c1zTmpDir)
+				}
+				opts = append(opts, connectorrunner.WithTempDir(v.GetString("c1z-temp-dir")))
+			}
+
+			r, err := connectorrunner.NewConnectorRunner(runCtx, c, opts...)
+			if err != nil {
+				l.Error("error creating connector runner", zap.Error(err))
+				return err
+			}
+
+			fmt.Printf("\n\n\n Created connector runner \n\n\n")
+			defer r.Close(runCtx)
+
+
+			fmt.Printf("\n\n\n Calling run \n\n\n")
+			err = r.Run(runCtx)
+			if err != nil {
+				l.Error("error running connector", zap.Error(err))
+				return err
+			}
+
+			fmt.Printf("\n\n\n Returning nil \n\n\n")
+			return nil
+		},
+	} */
+	cmd.PersistentFlags().String("refresh-resource-id", "", "The ID for the resource to refresh")
+	cmd.PersistentFlags().String("refresh-resource-type", "", "The type for the resource to refresh")
+	// cmd.AddCommand(refreshCmd)
 	cmd.AddCommand(grpcServerCmd)
 	cmd.AddCommand(capabilitiesCmd)
 
