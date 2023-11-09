@@ -222,7 +222,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			s.state.FinishAction(ctx)
 			continue
 		default:
 			return fmt.Errorf("unexpected sync step")
@@ -424,8 +423,8 @@ func (s *syncer) partialSyncResource(ctx context.Context) error {
 	req := &v2.ResourcesServiceFetchResourceRequest{
 		ResourceId: s.partialSyncResourceId}
 
-	// Try to retrieve the ID that corresponds to the previous sync. Partial sync should NOT run if a previous full sync
-	// does not exist.
+	// Try to retrieve the ID that corresponds to the previous sync.
+	// Partial sync should NOT run if a previous full sync does not exist.
 	var previousSyncID string
 
 	if psf, ok := s.store.(lastestSyncFetcher); ok {
@@ -434,19 +433,9 @@ func (s *syncer) partialSyncResource(ctx context.Context) error {
 			return fmt.Errorf("unable to fetch previous sync: %s", err.Error())
 		}
 	}
-
 	if previousSyncID == "" {
 		return fmt.Errorf("previous full sync file does not exist")
 	}
-
-	// Create a sync object and pre-populate it with all resources from the previous sync?
-
-	/*if s.state.ParentResourceTypeID(ctx) != "" && s.state.ParentResourceID(ctx) != "" {
-		req.ParentResourceId = &v2.ResourceId{
-			ResourceType: s.state.ParentResourceTypeID(ctx),
-			Resource:     s.state.ParentResourceID(ctx),
-		}
-	}*/
 
 	resp, err := s.connector.FetchResource(ctx, req)
 	if err != nil {
@@ -455,21 +444,10 @@ func (s *syncer) partialSyncResource(ctx context.Context) error {
 
 	s.handleProgress(ctx, s.state.Current(), 1)
 
-	/*if resp.NextPageToken == "" {
-		s.state.FinishAction(ctx)
-	} else {
-		err = s.state.NextPage(ctx, resp.NextPageToken)
-		if err != nil {
-			return err
-		}
-	}*/
-
-	// Check if we've already synced this resource, skip it if we have
-
-	/*err = s.validateResourceTraits(ctx, resp.Resource)
+	err = s.validateResourceTraits(ctx, resp.Resource)
 	if err != nil {
 		return err
-	}*/
+	}
 
 	//err = s.store.PutResourceType(ctx, resp.ResourceType)
 
@@ -478,10 +456,10 @@ func (s *syncer) partialSyncResource(ctx context.Context) error {
 		return err
 	}
 
-	// err = s.getSubResources(ctx, r)
-	// if err != nil {
-	// 	return err
-	// }
+	// We want these in order: pop off our partial sync action -> sync ent -> sync grants .
+	s.state.FinishAction(ctx)
+	s.state.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: s.partialSyncResourceId.Resource, ResourceTypeID: s.partialSyncResourceId.ResourceType})
+	s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceID: s.partialSyncResourceId.Resource, ResourceTypeID: s.partialSyncResourceId.ResourceType})
 
 	return nil
 }
