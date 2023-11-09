@@ -216,6 +216,10 @@ func (s *syncer) Sync(ctx context.Context) error {
 		case PartialResourceSyncOp:
 			fmt.Printf("\n\n\n In Partial Resource Sync op \n\n\n")
 			l.Info("Partial sync selected: ", zap.String("resource_type", s.partialSyncResourceId.ResourceType), zap.String("resource_id", s.partialSyncResourceId.Resource))
+			err := s.partialSyncResource(ctx)
+			if err != nil {
+				return err
+			}
 			s.state.FinishAction(ctx)
 			continue
 		default:
@@ -399,6 +403,77 @@ func (s *syncer) syncResources(ctx context.Context) error {
 			return err
 		}
 	}
+
+	return nil
+}
+
+// TODO: Validate that a previous full sync exists, before we fetch the resource check the previous sync for the resource type.
+// if that exists, we grab it and put it into the current sync
+// fetch the resource via connector (done)
+// Push new actions for listing entitlement and grants for that resource (no changes required for the entitlement/grants actions)
+func (s *syncer) partialSyncResource(ctx context.Context) error {
+	req := &v2.ResourcesServiceFetchResourceRequest{
+		ResourceId: s.partialSyncResourceId}
+
+	// Try to retrieve the ID that corresponds to the previous sync. Partial sync should NOT run if a previous full sync
+	// does not exist.
+	var previousSyncID string
+	var err error
+
+	if psf, ok := s.store.(lastestSyncFetcher); ok {
+		previousSyncID, err = psf.LatestFinishedSync(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to fetch previous sync: %s", err.Error())
+		}
+	}
+
+	if previousSyncID == "" {
+		return fmt.Errorf("previous full sync file does not exist")
+	}
+
+	// Create a sync object and pre-populate it with all resources from the previous sync?
+
+	/*if s.state.ParentResourceTypeID(ctx) != "" && s.state.ParentResourceID(ctx) != "" {
+		req.ParentResourceId = &v2.ResourceId{
+			ResourceType: s.state.ParentResourceTypeID(ctx),
+			Resource:     s.state.ParentResourceID(ctx),
+		}
+	}*/
+
+	resp, err := s.connector.FetchResource(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	s.handleProgress(ctx, s.state.Current(), 1)
+
+	/*if resp.NextPageToken == "" {
+		s.state.FinishAction(ctx)
+	} else {
+		err = s.state.NextPage(ctx, resp.NextPageToken)
+		if err != nil {
+			return err
+		}
+	}*/
+
+	// Check if we've already synced this resource, skip it if we have
+
+	/*err = s.validateResourceTraits(ctx, resp.Resource)
+	if err != nil {
+		return err
+	}*/
+
+	//err = s.store.PutResourceType(ctx, resp.ResourceType)
+
+	err = s.store.PutResource(ctx, resp.Resource)
+	if err != nil {
+		return err
+	}
+
+	// err = s.getSubResources(ctx, r)
+	// if err != nil {
+	// 	return err
+	// }
 
 	return nil
 }
