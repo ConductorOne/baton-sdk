@@ -9,6 +9,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -18,6 +19,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
@@ -154,6 +156,8 @@ func (s *syncer) Sync(ctx context.Context) error {
 			if s.partialSyncResourceId != nil {
 				s.state.PushAction(ctx, Action{Op: PartialResourceSyncOp})
 				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
+				// clones prev sync
+				s.state.PushAction(ctx, Action{Op: ClonePreviousSyncOp})
 			} else {
 				s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
 				s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
@@ -219,6 +223,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 			fmt.Printf("\n\n\n In Partial Resource Sync op \n\n\n")
 			l.Info("Partial sync selected: ", zap.String("resource_type", s.partialSyncResourceId.ResourceType), zap.String("resource_id", s.partialSyncResourceId.Resource))
 			err := s.partialSyncResource(ctx)
+			if err != nil {
+				return err
+			}
+			continue
+		case ClonePreviousSyncOp:
+			fmt.Printf("\n\n\n Cloning previous sync... \n\n\n")
+			err := s.clonePreviousSync(ctx)
 			if err != nil {
 				return err
 			}
@@ -425,6 +436,7 @@ func (s *syncer) partialSyncResource(ctx context.Context) error {
 
 	// Try to retrieve the ID that corresponds to the previous sync.
 	// Partial sync should NOT run if a previous full sync does not exist.
+	/*
 	var previousSyncID string
 
 	if psf, ok := s.store.(lastestSyncFetcher); ok {
@@ -436,6 +448,7 @@ func (s *syncer) partialSyncResource(ctx context.Context) error {
 	if previousSyncID == "" {
 		return fmt.Errorf("previous full sync file does not exist")
 	}
+	*/
 
 	resp, err := s.connector.FetchResource(ctx, req)
 	if err != nil {
@@ -450,6 +463,10 @@ func (s *syncer) partialSyncResource(ctx context.Context) error {
 	}
 
 	//err = s.store.PutResourceType(ctx, resp.ResourceType)
+	// Copy over all existing data
+	// Modify the corresponding res.
+	// Create if not exist
+
 
 	err = s.store.PutResource(ctx, resp.Resource)
 	if err != nil {
@@ -460,6 +477,41 @@ func (s *syncer) partialSyncResource(ctx context.Context) error {
 	s.state.FinishAction(ctx)
 	s.state.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: s.partialSyncResourceId.Resource, ResourceTypeID: s.partialSyncResourceId.ResourceType})
 	s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceID: s.partialSyncResourceId.Resource, ResourceTypeID: s.partialSyncResourceId.ResourceType})
+
+	return nil
+}
+
+func (s *syncer) clonePreviousSync(ctx context.Context) error {
+	// Try to retrieve the ID that corresponds to the previous sync.
+	// Partial sync should NOT run if a previous full sync does not exist.
+	var previousSyncID string
+	var err error
+
+	if psf, ok := s.store.(lastestSyncFetcher); ok {
+		previousSyncID, err = psf.LatestFinishedSync(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to fetch previous sync: %s", err.Error())
+		}
+	}
+	if previousSyncID == "" {
+		return fmt.Errorf("previous full sync file does not exist")
+	}
+
+	c1file, err := dotc1z.NewC1File(ctx, "./sync.txt")
+
+	spew.Dump("newc1file erro", err)
+
+	c1fileptr := *c1file
+	err = c1fileptr.CloneSync(ctx, "./bar.txt", previousSyncID)
+
+	spew.Dump("clone sync err", err)
+
+	if err != nil {
+		// fmt.Errorf(err)
+		return err
+	}
+
+	s.state.FinishAction(ctx)
 
 	return nil
 }
