@@ -8,6 +8,19 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+func TestAnnotations_New(t *testing.T) {
+	annos := New(&v2.GroupTrait{}, &v2.RoleTrait{})
+	require.Len(t, annos, 2)
+	for i, a := range annos {
+		switch i {
+		case 0:
+			require.True(t, a.MessageIs(&v2.GroupTrait{}))
+		case 1:
+			require.True(t, a.MessageIs(&v2.RoleTrait{}))
+		}
+	}
+}
+
 func TestAnnotations_Append(t *testing.T) {
 	var annos Annotations
 
