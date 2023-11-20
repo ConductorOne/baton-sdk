@@ -24,8 +24,9 @@ func WithGrantMetadata(metadata map[string]interface{}) GrantOption {
 			return err
 		}
 
+		meta := &v2.GrantMetadata{Metadata: md}
 		annos := annotations.Annotations(g.Annotations)
-		annos.Update(md)
+		annos.Update(meta)
 		g.Annotations = annos
 
 		return nil
