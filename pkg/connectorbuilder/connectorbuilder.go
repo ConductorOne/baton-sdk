@@ -69,7 +69,7 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 				ret.resourceProvisioners[rType.Id] = provisioner
 			}
 			if provisioner, ok := rb.(ResourceProvisionerV2); ok {
-				if _, ok := ret.resourceProvisioners[rType.Id]; ok {
+				if _, ok := ret.resourceProvisionersV2[rType.Id]; ok {
 					return nil, fmt.Errorf("error: duplicate resource type found %s", rType.Id)
 				}
 				ret.resourceProvisionersV2[rType.Id] = provisioner
