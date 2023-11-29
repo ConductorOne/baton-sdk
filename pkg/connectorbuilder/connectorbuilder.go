@@ -80,7 +80,6 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 					return nil, fmt.Errorf("error: duplicate resource type found %s", rType.Id)
 				}
 				ret.resourceProvisionersV2[rType.Id] = provisioner
-
 			}
 		}
 		return ret, nil
