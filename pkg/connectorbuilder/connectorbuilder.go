@@ -62,17 +62,25 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 				return nil, fmt.Errorf("error: duplicate resource type found %s", rType.Id)
 			}
 			ret.resourceBuilders[rType.Id] = rb
+
 			if provisioner, ok := rb.(ResourceProvisioner); ok {
+				if _, ok := rb.(ResourceProvisionerV2); ok {
+					return nil, fmt.Errorf("error: resource type %s implements both ResourceProvisioner and ResourceProvisionerV2", rType.Id)
+				}
 				if _, ok := ret.resourceProvisioners[rType.Id]; ok {
 					return nil, fmt.Errorf("error: duplicate resource type found %s", rType.Id)
 				}
 				ret.resourceProvisioners[rType.Id] = provisioner
 			}
 			if provisioner, ok := rb.(ResourceProvisionerV2); ok {
+				if _, ok := rb.(ResourceProvisioner); ok {
+					return nil, fmt.Errorf("error: resource type %s implements both ResourceProvisioner and ResourceProvisionerV2", rType.Id)
+				}
 				if _, ok := ret.resourceProvisionersV2[rType.Id]; ok {
 					return nil, fmt.Errorf("error: duplicate resource type found %s", rType.Id)
 				}
 				ret.resourceProvisionersV2[rType.Id] = provisioner
+
 			}
 		}
 		return ret, nil
