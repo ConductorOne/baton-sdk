@@ -246,18 +246,28 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 
 	rt := request.Grant.Entitlement.Resource.Id.ResourceType
 	provisioner, ok := b.resourceProvisioners[rt]
-	if !ok {
-		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-		return nil, fmt.Errorf("error: resource type does not have provisioner configured")
+	if ok {
+		annos, err := provisioner.Revoke(ctx, request.Grant)
+		if err != nil {
+			l.Error("error: revoke failed", zap.Error(err))
+			return nil, fmt.Errorf("error: revoke failed: %w", err)
+		}
+		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 	}
 
-	annos, err := provisioner.Revoke(ctx, request.Grant)
-	if err != nil {
-		l.Error("error: revoke failed", zap.Error(err))
-		return nil, fmt.Errorf("error: revoke failed: %w", err)
+	provisionerV2, ok := b.resourceProvisionersV2[rt]
+	if ok {
+		annos, err := provisionerV2.Revoke(ctx, request.Grant)
+		if err != nil {
+			l.Error("error: revoke failed", zap.Error(err))
+			return nil, fmt.Errorf("error: revoke failed: %w", err)
+		}
+		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 	}
 
-	return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
+	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
+	return nil, fmt.Errorf("error: resource type does not have provisioner configured")
+
 }
 
 // GetAsset streams the asset to the client.
