@@ -98,7 +98,7 @@ message GrantManagerServiceGrantRequest {
 
 message GrantManagerServiceGrantResponse {
   repeated google.protobuf.Any annotations = 1;
-  Grant grant = 2;
+  repeated Grant grant = 2;
 }
 
 message GrantManagerServiceRevokeRequest {
