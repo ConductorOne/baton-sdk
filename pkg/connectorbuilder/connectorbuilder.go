@@ -267,7 +267,6 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 
 	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
 	return nil, fmt.Errorf("error: resource type does not have provisioner configured")
-
 }
 
 // GetAsset streams the asset to the client.
