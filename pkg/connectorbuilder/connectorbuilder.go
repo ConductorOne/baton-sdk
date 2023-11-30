@@ -63,19 +63,17 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 			}
 			ret.resourceBuilders[rType.Id] = rb
 
+			if err := validateProvisionerVersion(ctx, rb); err != nil {
+				return nil, err
+			}
+
 			if provisioner, ok := rb.(ResourceProvisioner); ok {
-				if _, ok := rb.(ResourceProvisionerV2); ok {
-					return nil, fmt.Errorf("error: resource type %s implements both ResourceProvisioner and ResourceProvisionerV2", rType.Id)
-				}
 				if _, ok := ret.resourceProvisioners[rType.Id]; ok {
 					return nil, fmt.Errorf("error: duplicate resource type found %s", rType.Id)
 				}
 				ret.resourceProvisioners[rType.Id] = provisioner
 			}
 			if provisioner, ok := rb.(ResourceProvisionerV2); ok {
-				if _, ok := rb.(ResourceProvisioner); ok {
-					return nil, fmt.Errorf("error: resource type %s implements both ResourceProvisioner and ResourceProvisionerV2", rType.Id)
-				}
 				if _, ok := ret.resourceProvisionersV2[rType.Id]; ok {
 					return nil, fmt.Errorf("error: duplicate resource type found %s", rType.Id)
 				}
@@ -90,6 +88,16 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 	default:
 		return nil, fmt.Errorf("input was not a ConnectorBuilder or a ConnectorServer")
 	}
+}
+
+func validateProvisionerVersion(ctx context.Context, p ResourceSyncer) error {
+	_, ok := p.(ResourceProvisioner)
+	_, okV2 := p.(ResourceProvisionerV2)
+
+	if ok && okV2 {
+		return fmt.Errorf("error: resource type %s implements both ResourceProvisioner and ResourceProvisionerV2", p.ResourceType(ctx).Id)
+	}
+	return nil
 }
 
 // ListResourceTypes lists all available resource types.
