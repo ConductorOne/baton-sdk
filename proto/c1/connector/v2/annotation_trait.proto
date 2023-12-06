@@ -5,6 +5,7 @@ package c1.connector.v2;
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
 import "c1/connector/v2/asset.proto";
 
@@ -64,6 +65,18 @@ message UserTrait {
   string login = 6;
   // Any additional login aliases for the user
   repeated string login_aliases = 7;
+
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp last_login = 9;
+
+  message MFAStatus {
+    bool mfa_enabled = 1;
+  }
+  message SSOStatus {
+    bool sso_enabled = 1;
+  }
+  MFAStatus mfa_status = 10;
+  SSOStatus sso_status = 11;
 }
 
 message GroupTrait {
