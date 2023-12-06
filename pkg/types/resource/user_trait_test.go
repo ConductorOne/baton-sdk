@@ -2,6 +2,7 @@ package resource
 
 import (
 	"testing"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/require"
@@ -72,12 +73,17 @@ func TestUserTrait(t *testing.T) {
 	require.Equal(t, "user-profile-field", val)
 	require.Equal(t, v2.UserTrait_ACCOUNT_TYPE_HUMAN, ut.AccountType)
 
+	now := time.Now().UTC()
 	ut, err = NewUserTrait(
 		WithUserIcon(&v2.AssetRef{Id: "iconID"}),
 		WithUserProfile(userProfile),
 		WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED),
 		WithEmail("alice@example.com", true),
 		WithEmail("bob@example.com", false),
+		WithCreatedAt(now),
+		WithLastLogin(now),
+		WithMFAStatus(&v2.UserTrait_MFAStatus{MfaEnabled: true}),
+		WithSSOStatus(&v2.UserTrait_SSOStatus{SsoEnabled: true}),
 	)
 	require.NoError(t, err)
 
@@ -95,6 +101,10 @@ func TestUserTrait(t *testing.T) {
 	require.False(t, ut.Emails[1].IsPrimary)
 	require.Equal(t, ut.Emails[1].Address, "bob@example.com")
 	require.Equal(t, v2.UserTrait_ACCOUNT_TYPE_HUMAN, ut.AccountType)
+	require.Equal(t, now, ut.CreatedAt.AsTime())
+	require.Equal(t, now, ut.LastLogin.AsTime())
+	require.Equal(t, true, ut.MfaStatus.MfaEnabled)
+	require.Equal(t, true, ut.SsoStatus.SsoEnabled)
 
 	ut, err = NewUserTrait(
 		WithUserIcon(&v2.AssetRef{Id: "iconID"}),
