@@ -12,6 +12,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
@@ -45,20 +46,12 @@ type CreateAccountResponse interface {
 	GetIsCreateAccountResult() bool
 }
 
-type PlaintextCredential struct {
-	Provider    string
-	Name        string
-	Description string
-	Schema      string
-	Bytes       []byte
-}
-
 type AccountManager interface {
-	Create(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*PlaintextCredential, annotations.Annotations, error)
+	Create(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*crypto.PlaintextCredential, annotations.Annotations, error)
 }
 
 type CredentialManager interface {
-	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*PlaintextCredential, annotations.Annotations, error)
+	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*crypto.PlaintextCredential, annotations.Annotations, error)
 }
 
 type ConnectorBuilder interface {
@@ -399,15 +392,29 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 		l.Error("error: connector does not have account manager configured")
 		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
 	}
-	result, _, annos, err := b.accountManager.Create(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
+	result, plaintextCredentials, annos, err := b.accountManager.Create(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
 	if err != nil {
-		l.Error("error: rotate credentials on resource failed", zap.Error(err))
-		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
+		l.Error("error: create account failed", zap.Error(err))
+		return nil, fmt.Errorf("error: create account failed: %w", err)
+	}
+
+	pkem, err := crypto.NewPubKeyEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	if err != nil {
+		l.Error("error: creating encryption manager failed", zap.Error(err))
+		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
+	}
+
+	var encryptedDatas []*v2.EncryptedData
+	for _, plaintextCredential := range plaintextCredentials {
+		encryptedData, err := pkem.Encrypt(plaintextCredential)
+		if err != nil {
+			return nil, err
+		}
+		encryptedDatas = append(encryptedDatas, encryptedData...)
 	}
 
 	rv := &v2.CreateAccountResponse{
-		// TODO: Encrypt the plaintext creds!
-		EncryptedData: nil,
+		EncryptedData: encryptedDatas,
 		Annotations:   annos,
 	}
 
