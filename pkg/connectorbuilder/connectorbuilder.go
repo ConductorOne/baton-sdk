@@ -373,16 +373,31 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		return nil, status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
 	}
 
-	_, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
+	plaintextCredentials, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
 		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
 	}
-	// TODO: Encrypt the plaintext creds!
+
+	pkem, err := crypto.NewPubKeyEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	if err != nil {
+		l.Error("error: creating encryption manager failed", zap.Error(err))
+		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
+	}
+
+	var encryptedDatas []*v2.EncryptedData
+	for _, plaintextCredential := range plaintextCredentials {
+		encryptedData, err := pkem.Encrypt(plaintextCredential)
+		if err != nil {
+			return nil, err
+		}
+		encryptedDatas = append(encryptedDatas, encryptedData...)
+	}
+
 	return &v2.RotateCredentialResponse{
 		Annotations:   annos,
 		ResourceId:    request.GetResourceId(),
-		EncryptedData: nil,
+		EncryptedData: encryptedDatas,
 	}, nil
 }
 
