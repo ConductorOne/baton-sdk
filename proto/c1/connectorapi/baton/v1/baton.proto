@@ -55,6 +55,12 @@ message Task {
     repeated google.protobuf.Any annotations = 2;
   }
 
+  message CreateAccountTask {
+    connector.v2.AccountInfo account_info = 1;
+    connector.v2.CredentialOptions credential_options = 2;
+    repeated connector.v2.EncryptionConfig encryption_configs = 3;
+  }
+
   string id = 1;
   Status status = 2;
   oneof task_type {
@@ -63,6 +69,7 @@ message Task {
     SyncFullTask sync_full = 102;
     GrantTask grant = 103;
     RevokeTask revoke = 104;
+    CreateAccountTask create_account = 105;
   }
 }
 

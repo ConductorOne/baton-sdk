@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -47,7 +48,7 @@ type CreateAccountResponse interface {
 }
 
 type AccountManager interface {
-	Create(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*crypto.PlaintextCredential, annotations.Annotations, error)
+	CreateAccount(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*crypto.PlaintextCredential, annotations.Annotations, error)
 }
 
 type CredentialManager interface {
@@ -407,7 +408,7 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 		l.Error("error: connector does not have account manager configured")
 		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
 	}
-	result, plaintextCredentials, annos, err := b.accountManager.Create(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
+	result, plaintextCredentials, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
 		return nil, fmt.Errorf("error: create account failed: %w", err)
@@ -442,5 +443,6 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("unknown result type: %T", result))
 	}
 
+	spew.Dump(rv)
 	return rv, nil
 }

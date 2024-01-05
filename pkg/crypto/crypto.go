@@ -29,8 +29,6 @@ type PubKeyEncryptionManager struct {
 
 	keys       map[string]*jose.JSONWebKey
 	encrypters map[string]jose.Encrypter
-
-	fullSerialize bool
 }
 
 func (pkem *PubKeyEncryptionManager) Encrypt(cred *PlaintextCredential) ([]*v2.EncryptedData, error) {

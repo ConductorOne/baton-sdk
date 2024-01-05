@@ -201,6 +201,11 @@ type revokeConfig struct {
 	grantID string
 }
 
+type createAccountConfig struct {
+	login string
+	email string
+}
+
 type runnerConfig struct {
 	rlCfg               *ratelimitV1.RateLimiterConfig
 	rlDescriptors       []*ratelimitV1.RateLimitDescriptors_Entry
@@ -213,6 +218,7 @@ type runnerConfig struct {
 	grantConfig         *grantConfig
 	revokeConfig        *revokeConfig
 	tempDir             string
+	createAccountConfig *createAccountConfig
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -322,6 +328,18 @@ func WithOnDemandRevoke(c1zPath string, grantID string) Option {
 	}
 }
 
+func WithOnDemandCreateAccount(c1zPath string, login string, email string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.createAccountConfig = &createAccountConfig{
+			login: login,
+			email: email,
+		}
+		return nil
+	}
+}
+
 func WithOnDemandSync(c1zPath string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
@@ -392,6 +410,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.revokeConfig != nil:
 			tm = local.NewRevoker(ctx, cfg.c1zPath, cfg.revokeConfig.grantID)
+
+		case cfg.createAccountConfig != nil:
+			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email)
 
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))

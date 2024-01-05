@@ -2,6 +2,9 @@ package provisioner
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"errors"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -9,6 +12,9 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/go-jose/go-jose/v3"
+	"github.com/segmentio/ksuid"
 )
 
 type Provisioner struct {
@@ -23,14 +29,22 @@ type Provisioner struct {
 	grantPrincipalType string
 
 	revokeGrantID string
+
+	createAccountLogin string
+	createAccountEmail string
 }
 
 func (p *Provisioner) Run(ctx context.Context) error {
-	if p.revokeGrantID != "" {
+	switch {
+	case p.revokeGrantID != "":
 		return p.revoke(ctx)
+	case p.grantEntitlementID != "" && p.grantPrincipalID != "" && p.grantPrincipalType != "":
+		return p.grant(ctx)
+	case p.createAccountLogin != "" || p.createAccountEmail != "":
+		return p.createAccount(ctx)
+	default:
+		return errors.New("unknown provisioning action")
 	}
-
-	return p.grant(ctx)
 }
 
 func (p *Provisioner) loadStore(ctx context.Context) (connectorstore.Reader, error) {
@@ -141,7 +155,7 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 		return err
 	}
 
-	_, err = p.connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
+	result, err := p.connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
 		Grant: &v2.Grant{
 			Id:          grant.Grant.Id,
 			Entitlement: entitlement.Entitlement,
@@ -153,6 +167,70 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 		return err
 	}
 
+	spew.Dump(result)
+	return nil
+}
+
+func genKey() (*ecdsa.PrivateKey, *jose.JSONWebKey, []byte) {
+	key, _ := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+
+	kid := ksuid.New().String()
+
+	jsonPubKey := &jose.JSONWebKey{
+		Key:       key.Public(),
+		KeyID:     kid,
+		Use:       "enc",
+		Algorithm: string(jose.ECDH_ES_A256KW),
+	}
+	marshalledPubKey, _ := jsonPubKey.MarshalJSON()
+
+	return key, jsonPubKey, marshalledPubKey
+}
+
+func (p *Provisioner) createAccount(ctx context.Context) error {
+	var emails []*v2.AccountInfo_Email
+	if p.createAccountEmail != "" {
+		emails = append(emails, &v2.AccountInfo_Email{
+			Address:   p.createAccountEmail,
+			IsPrimary: true,
+		})
+	}
+
+	privKey, _, pubKeyJWKBytes := genKey()
+
+	// create an encryption manager
+	opts := &v2.CredentialOptions{}
+	config := []*v2.EncryptionConfig{
+		{
+			Config: &v2.EncryptionConfig_PublicKeyConfig_{
+				PublicKeyConfig: &v2.EncryptionConfig_PublicKeyConfig{
+					PubKey: pubKeyJWKBytes,
+				},
+			},
+		},
+	}
+
+	result, err := p.connector.CreateAccount(ctx, &v2.CreateAccountRequest{
+		AccountInfo: &v2.AccountInfo{
+			Emails: emails,
+			Login:  p.createAccountLogin,
+		},
+		CredentialOptions: opts,
+		EncryptionConfigs: config,
+	})
+	if err != nil {
+		return err
+	}
+
+	jwe, err := jose.ParseEncrypted(string(result.EncryptedData[0].EncryptedBytes))
+	if err != nil {
+		return err
+	}
+	plaintext, err := jwe.Decrypt(privKey)
+	if err != nil {
+		return err
+	}
+	spew.Dump(plaintext)
 	return nil
 }
 
@@ -171,5 +249,14 @@ func NewRevoker(c types.ConnectorClient, dbPath string, grantID string) *Provisi
 		dbPath:        dbPath,
 		connector:     c,
 		revokeGrantID: grantID,
+	}
+}
+
+func NewCreateAccountManager(c types.ConnectorClient, dbPath string, login string, email string) *Provisioner {
+	return &Provisioner{
+		dbPath:             dbPath,
+		connector:          c,
+		createAccountLogin: login,
+		createAccountEmail: email,
 	}
 }

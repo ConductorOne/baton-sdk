@@ -108,6 +108,14 @@ func NewCmd[T any, PtrT *T](
 							v.GetString("file"),
 							v.GetString("revoke-grant"),
 						))
+				case v.GetString("create-account-login") != "":
+					opts = append(opts,
+						connectorrunner.WithProvisioningEnabled(),
+						connectorrunner.WithOnDemandCreateAccount(
+							v.GetString("file"),
+							v.GetString("create-account-login"),
+							v.GetString("create-account-email"),
+						))
 				default:
 					opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 				}
@@ -174,6 +182,8 @@ func NewCmd[T any, PtrT *T](
 			case v.GetString("grant-entitlement") != "":
 				copts = append(copts, connector.WithProvisioningEnabled())
 			case v.GetString("revoke-grant") != "":
+				copts = append(copts, connector.WithProvisioningEnabled())
+			case v.GetString("create-account-login") != "" || v.GetString("create-account-email") != "":
 				copts = append(copts, connector.WithProvisioningEnabled())
 			case v.GetBool("provisioning"):
 				copts = append(copts, connector.WithProvisioningEnabled())
@@ -290,7 +300,12 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("grant-principal-type", "", "The resource type of the principal to grant the entitlement to ($BATON_GRANT_PRINCIPAL_TYPE)")
 	cmd.MarkFlagsRequiredTogether("grant-entitlement", "grant-principal", "grant-principal-type")
 	cmd.PersistentFlags().String("revoke-grant", "", "The grant to revoke ($BATON_REVOKE_GRANT)")
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant")
+
+	cmd.PersistentFlags().String("create-account-login", "", "The login of the account to create ($BATON_CREATE_ACCOUNT_LOGIN)")
+	cmd.PersistentFlags().String("create-account-email", "", "The email of the account to create ($BATON_CREATE_ACCOUNT_EMAIL)")
+
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login")
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email")
 	err = cmd.PersistentFlags().MarkHidden("grant-entitlement")
 	if err != nil {
 		return nil, err
@@ -304,6 +319,14 @@ func NewCmd[T any, PtrT *T](
 		return nil, err
 	}
 	err = cmd.PersistentFlags().MarkHidden("revoke-grant")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("create-account-login")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("create-account-email")
 	if err != nil {
 		return nil, err
 	}

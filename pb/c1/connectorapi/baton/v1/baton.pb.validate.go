@@ -266,6 +266,47 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
+	case *Task_CreateAccount:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetCreateAccount()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "CreateAccount",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "CreateAccount",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetCreateAccount()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "CreateAccount",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -2984,6 +3025,200 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = Task_RevokeTaskValidationError{}
+
+// Validate checks the field values on Task_CreateAccountTask with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *Task_CreateAccountTask) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task_CreateAccountTask with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// Task_CreateAccountTaskMultiError, or nil if none found.
+func (m *Task_CreateAccountTask) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_CreateAccountTask) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetAccountInfo()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, Task_CreateAccountTaskValidationError{
+					field:  "AccountInfo",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, Task_CreateAccountTaskValidationError{
+					field:  "AccountInfo",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetAccountInfo()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return Task_CreateAccountTaskValidationError{
+				field:  "AccountInfo",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetCredentialOptions()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, Task_CreateAccountTaskValidationError{
+					field:  "CredentialOptions",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, Task_CreateAccountTaskValidationError{
+					field:  "CredentialOptions",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCredentialOptions()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return Task_CreateAccountTaskValidationError{
+				field:  "CredentialOptions",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	for idx, item := range m.GetEncryptionConfigs() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_CreateAccountTaskValidationError{
+						field:  fmt.Sprintf("EncryptionConfigs[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_CreateAccountTaskValidationError{
+						field:  fmt.Sprintf("EncryptionConfigs[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_CreateAccountTaskValidationError{
+					field:  fmt.Sprintf("EncryptionConfigs[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return Task_CreateAccountTaskMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_CreateAccountTaskMultiError is an error wrapping multiple validation
+// errors returned by Task_CreateAccountTask.ValidateAll() if the designated
+// constraints aren't met.
+type Task_CreateAccountTaskMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_CreateAccountTaskMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_CreateAccountTaskMultiError) AllErrors() []error { return m }
+
+// Task_CreateAccountTaskValidationError is the validation error returned by
+// Task_CreateAccountTask.Validate if the designated constraints aren't met.
+type Task_CreateAccountTaskValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_CreateAccountTaskValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_CreateAccountTaskValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_CreateAccountTaskValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_CreateAccountTaskValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_CreateAccountTaskValidationError) ErrorName() string {
+	return "Task_CreateAccountTaskValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e Task_CreateAccountTaskValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_CreateAccountTask.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_CreateAccountTaskValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_CreateAccountTaskValidationError{}
 
 // Validate checks the field values on BatonServiceHelloRequest_BuildInfo with
 // the rules defined in the proto definition for this message. If any rules
