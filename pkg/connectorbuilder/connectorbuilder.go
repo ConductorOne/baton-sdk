@@ -75,6 +75,26 @@ type builderImpl struct {
 	cb                     ConnectorBuilder
 }
 
+func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (b *builderImpl) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (*v2.DeleteResourceResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (*v2.RotateCredentialResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
 // NewConnector creates a new ConnectorServer for a new resource.
 func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, error) {
 	switch c := in.(type) {
