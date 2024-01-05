@@ -1,7 +1,7 @@
 package crypto
 
 import (
-	"crypto/ed25519"
+	"crypto/ecdsa"
 	"errors"
 	"fmt"
 
@@ -13,7 +13,6 @@ import (
 var ErrInvalidPublicKey = errors.New("invalid public key")
 
 type PlaintextCredential struct {
-	Provider    string
 	Name        string
 	Description string
 	Schema      string
@@ -30,23 +29,29 @@ type PubKeyEncryptionManager struct {
 
 	keys       map[string]*jose.JSONWebKey
 	encrypters map[string]jose.Encrypter
+
+	fullSerialize bool
 }
 
 func (pkem *PubKeyEncryptionManager) Encrypt(cred *PlaintextCredential) ([]*v2.EncryptedData, error) {
-	encryptedDatas := make([]*v2.EncryptedData, len(pkem.configs))
+	encryptedDatas := make([]*v2.EncryptedData, 0, len(pkem.configs))
 
 	for keyId, encrypter := range pkem.encrypters {
 		jwe, err := encrypter.Encrypt(cred.Bytes)
 		if err != nil {
 			return nil, err
 		}
+
 		cypherText, err := jwe.CompactSerialize()
 		if err != nil {
 			return nil, err
 		}
+
 		encryptedData := &v2.EncryptedData{
-			Provider:       cred.Provider,
 			KeyId:          keyId,
+			Name:           cred.Name,
+			Description:    cred.Description,
+			Schema:         cred.Schema,
 			EncryptedBytes: []byte(cypherText),
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData)
@@ -54,7 +59,7 @@ func (pkem *PubKeyEncryptionManager) Encrypt(cred *PlaintextCredential) ([]*v2.E
 	return encryptedDatas, nil
 }
 
-// parsePublicKey parses a public ed25519 JWK, all other key types return errors.
+// parsePublicKey parses a public ecdsa JWK, all other key types return errors.
 func parsePublicKey(input []byte) (*jose.JSONWebKey, error) {
 	npk := &jose.JSONWebKey{}
 	err := npk.UnmarshalJSON(input)
@@ -62,13 +67,29 @@ func parsePublicKey(input []byte) (*jose.JSONWebKey, error) {
 		return nil, fmt.Errorf("%w: failed unmarshalling public key: %w", ErrInvalidPublicKey, err)
 	}
 
-	if !npk.Valid() || !npk.IsPublic() {
+	if npk.KeyID == "" {
+		return nil, fmt.Errorf("%w: kid is required", ErrInvalidPublicKey)
+	}
+
+	if !npk.Valid() {
 		return nil, ErrInvalidPublicKey
 	}
 
-	_, ok := npk.Key.(ed25519.PrivateKey)
+	if !npk.IsPublic() {
+		return nil, fmt.Errorf("%w: key is not public", ErrInvalidPublicKey)
+	}
+
+	if npk.Use != "enc" {
+		return nil, fmt.Errorf("%w: invalid use (%s) - 'enc' is required", ErrInvalidPublicKey, npk.Use)
+	}
+
+	if npk.Algorithm != string(jose.ECDH_ES_A256KW) {
+		return nil, fmt.Errorf("%w: invalid algorithm (%s) - 'ECDH-ES+A256KW' is required", ErrInvalidPublicKey, npk.Algorithm)
+	}
+
+	_, ok := npk.Key.(*ecdsa.PublicKey)
 	if !ok {
-		return nil, ErrInvalidPublicKey
+		return nil, fmt.Errorf("%w: invalid key type - ecdsa is required", ErrInvalidPublicKey)
 	}
 
 	return npk, nil
@@ -99,16 +120,13 @@ func NewPubKeyEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionCon
 		if err != nil {
 			return nil, fmt.Errorf("public_key_encryption_manager: failed parsing public key %w", err)
 		}
-		if key.KeyID == "" {
-			return nil, fmt.Errorf("public_key_encryption_manager: kid is required")
-		}
 		_, ok := pkem.keys[key.KeyID]
 		if ok {
 			return nil, fmt.Errorf("public_key_encryption_manager: duplicate key id %s", key.KeyID)
 		}
 		pkem.keys[key.KeyID] = key
 
-		encryptor, err := jose.NewEncrypter(jose.A256GCM, jose.Recipient{Algorithm: jose.ED25519, Key: key, KeyID: key.KeyID}, nil)
+		encryptor, err := jose.NewEncrypter(jose.A256GCM, jose.Recipient{Algorithm: jose.KeyAlgorithm(key.Algorithm), Key: key, KeyID: key.KeyID}, nil)
 		if err != nil {
 			return nil, err
 		}
