@@ -6,6 +6,8 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -40,7 +42,7 @@ type ResourceManager interface {
 
 type CreateAccountResponse interface {
 	proto.Message
-	GetIsCreateAccountResult()
+	GetIsCreateAccountResult() bool
 }
 
 type PlaintextCredential struct {
@@ -52,11 +54,11 @@ type PlaintextCredential struct {
 }
 
 type AccountManager interface {
-	Create(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (*CreateAccountResponse, []*PlaintextCredential, annotations.Annotations, error)
+	Create(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*PlaintextCredential, annotations.Annotations, error)
 }
 
 type CredentialManager interface {
-	Rotate(ctx context.Context, resource *v2.Resource, credentialOptions *v2.CredentialOptions) ([]*PlaintextCredential, annotations.Annotations, error)
+	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*PlaintextCredential, annotations.Annotations, error)
 }
 
 type ConnectorBuilder interface {
@@ -70,29 +72,9 @@ type builderImpl struct {
 	resourceProvisioners   map[string]ResourceProvisioner
 	resourceProvisionersV2 map[string]ResourceProvisionerV2
 	resourceManagers       map[string]ResourceManager
-	accountManagers        map[string]AccountManager
+	accountManager         AccountManager
 	credentialManagers     map[string]CredentialManager
 	cb                     ConnectorBuilder
-}
-
-func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (b *builderImpl) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (*v2.DeleteResourceResponse, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (*v2.RotateCredentialResponse, error) {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
-	//TODO implement me
-	panic("implement me")
 }
 
 // NewConnector creates a new ConnectorServer for a new resource.
@@ -104,7 +86,7 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 			resourceProvisioners:   make(map[string]ResourceProvisioner),
 			resourceProvisionersV2: make(map[string]ResourceProvisionerV2),
 			resourceManagers:       make(map[string]ResourceManager),
-			accountManagers:        make(map[string]AccountManager),
+			accountManager:         nil,
 			credentialManagers:     make(map[string]CredentialManager),
 			cb:                     c,
 		}
@@ -140,11 +122,11 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 				ret.resourceManagers[rType.Id] = resourceManagers
 			}
 
-			if accountManagers, ok := rb.(AccountManager); ok {
-				if _, ok := ret.accountManagers[rType.Id]; ok {
+			if accountManager, ok := rb.(AccountManager); ok {
+				if ret.accountManager != nil {
 					return nil, fmt.Errorf("error: duplicate resource type found for account manager %s", rType.Id)
 				}
-				ret.accountManagers[rType.Id] = accountManagers
+				ret.accountManager = accountManager
 			}
 
 			if credentialManagers, ok := rb.(CredentialManager); ok {
@@ -348,11 +330,95 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 	}
 
 	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-	return nil, fmt.Errorf("error: resource type does not have provisioner configured")
+	return nil, status.Error(codes.Unimplemented, "resource type does not have provisioner configured")
 }
 
 // GetAsset streams the asset to the client.
 // FIXME(jirwin): Asset streaming is disabled.
 func (b *builderImpl) GetAsset(request *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
 	return nil
+}
+
+func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
+	l := ctxzap.Extract(ctx)
+	rt := request.GetResource().GetId().GetResourceType()
+	manager, ok := b.resourceManagers[rt]
+	if ok {
+		resource, annos, err := manager.Create(ctx, request.Resource)
+		if err != nil {
+			l.Error("error: create resource failed", zap.Error(err))
+			return nil, fmt.Errorf("error: create resource failed: %w", err)
+		}
+		return &v2.CreateResourceResponse{Created: resource, Annotations: annos}, nil
+	}
+	l.Error("error: resource type does not have resource manager configured", zap.String("resource_type", rt))
+	return nil, status.Error(codes.Unimplemented, "resource type does not have resource manager configured")
+}
+
+func (b *builderImpl) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (*v2.DeleteResourceResponse, error) {
+	l := ctxzap.Extract(ctx)
+	rt := request.GetResourceId().GetResourceType()
+	manager, ok := b.resourceManagers[rt]
+	if ok {
+		annos, err := manager.Delete(ctx, request.GetResourceId())
+		if err != nil {
+			l.Error("error: delete resource failed", zap.Error(err))
+			return nil, fmt.Errorf("error: delete resource failed: %w", err)
+		}
+		return &v2.DeleteResourceResponse{Annotations: annos}, nil
+	}
+	l.Error("error: resource type does not have resource manager configured", zap.String("resource_type", rt))
+	return nil, status.Error(codes.Unimplemented, "resource type does not have resource manager configured")
+}
+
+func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (*v2.RotateCredentialResponse, error) {
+	l := ctxzap.Extract(ctx)
+	rt := request.GetResourceId().GetResourceType()
+	manager, ok := b.credentialManagers[rt]
+	if !ok {
+		l.Error("error: resource type does not have credential manager configured", zap.String("resource_type", rt))
+		return nil, status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
+	}
+
+	_, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
+	if err != nil {
+		l.Error("error: rotate credentials on resource failed", zap.Error(err))
+		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
+	}
+	// TODO: Encrypt the plaintext creds!
+	return &v2.RotateCredentialResponse{
+		Annotations:   annos,
+		ResourceId:    request.GetResourceId(),
+		EncryptedData: nil,
+	}, nil
+}
+
+func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
+	l := ctxzap.Extract(ctx)
+	if b.accountManager == nil {
+		l.Error("error: connector does not have account manager configured")
+		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
+	}
+	result, _, annos, err := b.accountManager.Create(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
+	if err != nil {
+		l.Error("error: rotate credentials on resource failed", zap.Error(err))
+		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
+	}
+
+	rv := &v2.CreateAccountResponse{
+		// TODO: Encrypt the plaintext creds!
+		EncryptedData: nil,
+		Annotations:   annos,
+	}
+
+	switch r := result.(type) {
+	case *v2.CreateAccountResponse_SuccessResult:
+		rv.Result = &v2.CreateAccountResponse_Success{Success: r}
+	case *v2.CreateAccountResponse_ActionRequiredResult:
+		rv.Result = &v2.CreateAccountResponse_ActionRequired{ActionRequired: r}
+	default:
+		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("unknown result type: %T", result))
+	}
+
+	return rv, nil
 }

@@ -109,22 +109,27 @@ message CreateResourceRequest {
 
 message CreateResourceResponse {
   Resource created = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
 
 message DeleteResourceRequest {
   ResourceId resource_id = 1;
 }
 
-message DeleteResourceResponse {}
+message DeleteResourceResponse {
+  repeated google.protobuf.Any annotations = 1;
+}
 
 message RotateCredentialRequest {
-  repeated EncryptionConfig encryption_configs = 1;
-  ResourceId resource_id = 2;
+  ResourceId resource_id = 1;
+  CredentialOptions credential_options = 2;
+  repeated EncryptionConfig encryption_configs = 3;
 }
 
 message RotateCredentialResponse {
   repeated EncryptedData encrypted_data = 1;
   ResourceId resource_id = 2;
+  repeated google.protobuf.Any annotations = 3;
 }
 
 message AccountInfo {
@@ -181,6 +186,7 @@ message CreateAccountResponse {
     ActionRequiredResult action_required = 101;
   }
   repeated EncryptedData encrypted_data = 2;
+  repeated google.protobuf.Any annotations = 3;
 }
 
 message EncryptedData {
