@@ -10,8 +10,9 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/go-jose/go-jose/v3"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 type Provisioner struct {
@@ -152,7 +153,7 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 		return err
 	}
 
-	result, err := p.connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
+	_, err = p.connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
 		Grant: &v2.Grant{
 			Id:          grant.Grant.Id,
 			Entitlement: entitlement.Entitlement,
@@ -164,11 +165,11 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 		return err
 	}
 
-	spew.Dump(result)
 	return nil
 }
 
 func (p *Provisioner) createAccount(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
 	var emails []*v2.AccountInfo_Email
 	if p.createAccountEmail != "" {
 		emails = append(emails, &v2.AccountInfo_Email{
@@ -221,7 +222,8 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	spew.Dump(plaintext)
+	l.Info("account created", zap.String("login", p.createAccountLogin), zap.String("email", p.createAccountEmail), zap.String("password", string(plaintext)))
+
 	return nil
 }
 
