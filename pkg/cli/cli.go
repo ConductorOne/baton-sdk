@@ -116,6 +116,14 @@ func NewCmd[T any, PtrT *T](
 							v.GetString("create-account-login"),
 							v.GetString("create-account-email"),
 						))
+				case v.GetString("delete-resource") != "":
+					opts = append(opts,
+						connectorrunner.WithProvisioningEnabled(),
+						connectorrunner.WithOnDemandDeleteResource(
+							v.GetString("file"),
+							v.GetString("delete-resource"),
+							v.GetString("delete-resource-type"),
+						))
 				default:
 					opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 				}
@@ -184,6 +192,8 @@ func NewCmd[T any, PtrT *T](
 			case v.GetString("revoke-grant") != "":
 				copts = append(copts, connector.WithProvisioningEnabled())
 			case v.GetString("create-account-login") != "" || v.GetString("create-account-email") != "":
+				copts = append(copts, connector.WithProvisioningEnabled())
+			case v.GetString("delete-resource") != "" || v.GetString("delete-resource-type") != "":
 				copts = append(copts, connector.WithProvisioningEnabled())
 			case v.GetBool("provisioning"):
 				copts = append(copts, connector.WithProvisioningEnabled())
@@ -304,8 +314,11 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("create-account-login", "", "The login of the account to create ($BATON_CREATE_ACCOUNT_LOGIN)")
 	cmd.PersistentFlags().String("create-account-email", "", "The email of the account to create ($BATON_CREATE_ACCOUNT_EMAIL)")
 
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login")
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email")
+	cmd.PersistentFlags().String("delete-resource", "", "The id of the resource to delete ($BATON_DELETE_RESOURCE)")
+	cmd.PersistentFlags().String("delete-resource-type", "", "The type of the resource to delete ($BATON_DELETE_RESOURCE_TYPE)")
+
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login", "delete-resource")
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email", "delete-resource-type")
 	err = cmd.PersistentFlags().MarkHidden("grant-entitlement")
 	if err != nil {
 		return nil, err
@@ -327,6 +340,14 @@ func NewCmd[T any, PtrT *T](
 		return nil, err
 	}
 	err = cmd.PersistentFlags().MarkHidden("create-account-email")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("delete-resource")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("delete-resource-type")
 	if err != nil {
 		return nil, err
 	}

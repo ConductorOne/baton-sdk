@@ -206,19 +206,25 @@ type createAccountConfig struct {
 	email string
 }
 
+type deleteResourceConfig struct {
+	resourceId   string
+	resourceType string
+}
+
 type runnerConfig struct {
-	rlCfg               *ratelimitV1.RateLimiterConfig
-	rlDescriptors       []*ratelimitV1.RateLimitDescriptors_Entry
-	onDemand            bool
-	c1zPath             string
-	clientAuth          bool
-	clientID            string
-	clientSecret        string
-	provisioningEnabled bool
-	grantConfig         *grantConfig
-	revokeConfig        *revokeConfig
-	tempDir             string
-	createAccountConfig *createAccountConfig
+	rlCfg                *ratelimitV1.RateLimiterConfig
+	rlDescriptors        []*ratelimitV1.RateLimitDescriptors_Entry
+	onDemand             bool
+	c1zPath              string
+	clientAuth           bool
+	clientID             string
+	clientSecret         string
+	provisioningEnabled  bool
+	grantConfig          *grantConfig
+	revokeConfig         *revokeConfig
+	tempDir              string
+	createAccountConfig  *createAccountConfig
+	deleteResourceConfig *deleteResourceConfig
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -340,6 +346,17 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string) Optio
 	}
 }
 
+func WithOnDemandDeleteResource(c1zPath string, resourceId string, resourceType string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.deleteResourceConfig = &deleteResourceConfig{
+			resourceId:   resourceId,
+			resourceType: resourceType,
+		}
+		return nil
+	}
+}
 func WithOnDemandSync(c1zPath string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
@@ -413,6 +430,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.createAccountConfig != nil:
 			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email)
+
+		case cfg.deleteResourceConfig != nil:
+			tm = local.NewResourceDeleter(ctx, cfg.c1zPath, cfg.deleteResourceConfig.resourceId, cfg.deleteResourceConfig.resourceType)
 
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))

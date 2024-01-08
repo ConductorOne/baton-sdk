@@ -30,6 +30,9 @@ type Provisioner struct {
 
 	createAccountLogin string
 	createAccountEmail string
+
+	deleteResourceID   string
+	deleteResourceType string
 }
 
 func (p *Provisioner) Run(ctx context.Context) error {
@@ -40,6 +43,8 @@ func (p *Provisioner) Run(ctx context.Context) error {
 		return p.grant(ctx)
 	case p.createAccountLogin != "" || p.createAccountEmail != "":
 		return p.createAccount(ctx)
+	case p.deleteResourceID != "" && p.deleteResourceType != "":
+		return p.deleteResource(ctx)
 	default:
 		return errors.New("unknown provisioning action")
 	}
@@ -222,8 +227,22 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// TODO FIXME: do better
 	l.Info("account created", zap.String("login", p.createAccountLogin), zap.String("email", p.createAccountEmail), zap.String("password", string(plaintext)))
 
+	return nil
+}
+
+func (p *Provisioner) deleteResource(ctx context.Context) error {
+	_, err := p.connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
+		ResourceId: &v2.ResourceId{
+			Resource:     p.deleteResourceID,
+			ResourceType: p.deleteResourceType,
+		},
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -242,6 +261,15 @@ func NewRevoker(c types.ConnectorClient, dbPath string, grantID string) *Provisi
 		dbPath:        dbPath,
 		connector:     c,
 		revokeGrantID: grantID,
+	}
+}
+
+func NewResourceDeleter(c types.ConnectorClient, dbPath string, resourceId string, resourceType string) *Provisioner {
+	return &Provisioner{
+		dbPath:             dbPath,
+		connector:          c,
+		deleteResourceID:   resourceId,
+		deleteResourceType: resourceType,
 	}
 }
 
