@@ -1,42 +1,20 @@
 package crypto
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"testing"
 
 	"github.com/go-jose/go-jose/v3"
-	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-// genKey generates a new ECDSA key and returns the private *ecdsa.PrivateKey, the *ecdsa.PublicKey as a JWK,
-// and the marshalled public key JWK.
-func genKey(t *testing.T) (*ecdsa.PrivateKey, *jose.JSONWebKey, []byte) {
-	key, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
-	require.NoError(t, err)
-
-	kid := ksuid.New().String()
-
-	jsonPubKey := &jose.JSONWebKey{
-		Key:       key.Public(),
-		KeyID:     kid,
-		Use:       "enc",
-		Algorithm: string(jose.ECDH_ES_A256KW),
-	}
-	marshalledPubKey, err := jsonPubKey.MarshalJSON()
-	require.NoError(t, err)
-
-	return key, jsonPubKey, marshalledPubKey
-}
-
 func TestNewPubKeyEncryptionManager(t *testing.T) {
 	// generate a keypair to encrypt to
-	privKey, pubKeyJWK, pubKeyJWKBytes := genKey(t)
+	privKey, pubKeyJWK := GenKey()
 
+	pubKeyJWKBytes, err := pubKeyJWK.MarshalJSON()
+	require.NoError(t, err)
 	// create an encryption manager
 	opts := &v2.CredentialOptions{}
 	config := []*v2.EncryptionConfig{
@@ -79,7 +57,7 @@ func TestNewPubKeyEncryptionManager(t *testing.T) {
 	require.Equal(t, []byte("hunter2"), plaintext)
 
 	// assert a different private key cannot decrypt
-	privKey2, _, _ := genKey(t)
+	privKey2, _ := GenKey()
 	_, err = jwe.Decrypt(privKey2)
 	require.ErrorContains(t, err, "go-jose/go-jose: error in cryptographic primitive")
 }

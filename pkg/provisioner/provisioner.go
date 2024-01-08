@@ -2,19 +2,16 @@ package provisioner
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"errors"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-jose/go-jose/v3"
-	"github.com/segmentio/ksuid"
 )
 
 type Provisioner struct {
@@ -171,22 +168,6 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 	return nil
 }
 
-func genKey() (*ecdsa.PrivateKey, *jose.JSONWebKey, []byte) {
-	key, _ := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
-
-	kid := ksuid.New().String()
-
-	jsonPubKey := &jose.JSONWebKey{
-		Key:       key.Public(),
-		KeyID:     kid,
-		Use:       "enc",
-		Algorithm: string(jose.ECDH_ES_A256KW),
-	}
-	marshalledPubKey, _ := jsonPubKey.MarshalJSON()
-
-	return key, jsonPubKey, marshalledPubKey
-}
-
 func (p *Provisioner) createAccount(ctx context.Context) error {
 	var emails []*v2.AccountInfo_Email
 	if p.createAccountEmail != "" {
@@ -196,10 +177,20 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 		})
 	}
 
-	privKey, _, pubKeyJWKBytes := genKey()
-
-	// create an encryption manager
-	opts := &v2.CredentialOptions{}
+	// Default to generating a random key and random password that is 12 characters long
+	privKey, pubKey := crypto.GenKey()
+	pubKeyJWKBytes, err := pubKey.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	opts := &v2.CredentialOptions{
+		Create: true,
+		Options: &v2.CredentialOptions_RandomPassword_{
+			RandomPassword: &v2.CredentialOptions_RandomPassword{
+				Length: 12,
+			},
+		},
+	}
 	config := []*v2.EncryptionConfig{
 		{
 			Config: &v2.EncryptionConfig_PublicKeyConfig_{
