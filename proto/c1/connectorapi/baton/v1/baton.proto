@@ -61,6 +61,16 @@ message Task {
     repeated connector.v2.EncryptionConfig encryption_configs = 3;
   }
 
+  message DeleteResourceTask {
+    connector.v2.ResourceId resource_id = 1;
+  }
+
+  message RotateCredentialsTask {
+    connector.v2.ResourceId resource_id = 1;
+    connector.v2.CredentialOptions credential_options = 2;
+    repeated connector.v2.EncryptionConfig encryption_configs = 3;
+  }
+
   string id = 1;
   Status status = 2;
   oneof task_type {
@@ -70,6 +80,8 @@ message Task {
     GrantTask grant = 103;
     RevokeTask revoke = 104;
     CreateAccountTask create_account = 105;
+    DeleteResourceTask delete_resource = 106;
+    RotateCredentialsTask rotate_credentials = 107;
   }
 }
 

@@ -23,7 +23,7 @@ func (m *localResourceDeleter) Next(ctx context.Context) (*v1.Task, time.Duratio
 	var task *v1.Task
 	m.o.Do(func() {
 		task = &v1.Task{
-			TaskType: &v1.Task_CreateAccount{},
+			TaskType: &v1.Task_DeleteResource{},
 		}
 	})
 	return task, 0, nil
