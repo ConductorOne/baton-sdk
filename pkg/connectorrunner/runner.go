@@ -211,20 +211,26 @@ type deleteResourceConfig struct {
 	resourceType string
 }
 
+type rotateCredentialsConfig struct {
+	resourceId   string
+	resourceType string
+}
+
 type runnerConfig struct {
-	rlCfg                *ratelimitV1.RateLimiterConfig
-	rlDescriptors        []*ratelimitV1.RateLimitDescriptors_Entry
-	onDemand             bool
-	c1zPath              string
-	clientAuth           bool
-	clientID             string
-	clientSecret         string
-	provisioningEnabled  bool
-	grantConfig          *grantConfig
-	revokeConfig         *revokeConfig
-	tempDir              string
-	createAccountConfig  *createAccountConfig
-	deleteResourceConfig *deleteResourceConfig
+	rlCfg                   *ratelimitV1.RateLimiterConfig
+	rlDescriptors           []*ratelimitV1.RateLimitDescriptors_Entry
+	onDemand                bool
+	c1zPath                 string
+	clientAuth              bool
+	clientID                string
+	clientSecret            string
+	provisioningEnabled     bool
+	grantConfig             *grantConfig
+	revokeConfig            *revokeConfig
+	tempDir                 string
+	createAccountConfig     *createAccountConfig
+	deleteResourceConfig    *deleteResourceConfig
+	rotateCredentialsConfig *rotateCredentialsConfig
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -357,6 +363,19 @@ func WithOnDemandDeleteResource(c1zPath string, resourceId string, resourceType 
 		return nil
 	}
 }
+
+func WithOnDemandRotateCredentials(c1zPath string, resourceId string, resourceType string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.rotateCredentialsConfig = &rotateCredentialsConfig{
+			resourceId:   resourceId,
+			resourceType: resourceType,
+		}
+		return nil
+	}
+}
+
 func WithOnDemandSync(c1zPath string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
@@ -433,6 +452,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.deleteResourceConfig != nil:
 			tm = local.NewResourceDeleter(ctx, cfg.c1zPath, cfg.deleteResourceConfig.resourceId, cfg.deleteResourceConfig.resourceType)
+
+		case cfg.rotateCredentialsConfig != nil:
+			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
 
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))

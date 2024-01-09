@@ -124,6 +124,14 @@ func NewCmd[T any, PtrT *T](
 							v.GetString("delete-resource"),
 							v.GetString("delete-resource-type"),
 						))
+				case v.GetString("rotate-credentials") != "":
+					opts = append(opts,
+						connectorrunner.WithProvisioningEnabled(),
+						connectorrunner.WithOnDemandRotateCredentials(
+							v.GetString("file"),
+							v.GetString("rotate-credentials"),
+							v.GetString("rotate-credentials-type"),
+						))
 				default:
 					opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 				}
@@ -194,6 +202,8 @@ func NewCmd[T any, PtrT *T](
 			case v.GetString("create-account-login") != "" || v.GetString("create-account-email") != "":
 				copts = append(copts, connector.WithProvisioningEnabled())
 			case v.GetString("delete-resource") != "" || v.GetString("delete-resource-type") != "":
+				copts = append(copts, connector.WithProvisioningEnabled())
+			case v.GetString("rotate-credentials") != "" || v.GetString("rotate-credentials-type") != "":
 				copts = append(copts, connector.WithProvisioningEnabled())
 			case v.GetBool("provisioning"):
 				copts = append(copts, connector.WithProvisioningEnabled())
@@ -317,8 +327,11 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("delete-resource", "", "The id of the resource to delete ($BATON_DELETE_RESOURCE)")
 	cmd.PersistentFlags().String("delete-resource-type", "", "The type of the resource to delete ($BATON_DELETE_RESOURCE_TYPE)")
 
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login", "delete-resource")
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email", "delete-resource-type")
+	cmd.PersistentFlags().String("rotate-credentials", "", "The id of the resource to rotate credentials on ($BATON_ROTATE_CREDENTIALS)")
+	cmd.PersistentFlags().String("rotate-credentials-type", "", "The type of the resource to rotate credentials on ($BATON_ROTATE_CREDENTIALS_TYPE)")
+
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login", "delete-resource", "rotate-credentials")
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email", "delete-resource-type", "rotate-credentials-type")
 	err = cmd.PersistentFlags().MarkHidden("grant-entitlement")
 	if err != nil {
 		return nil, err
@@ -348,6 +361,14 @@ func NewCmd[T any, PtrT *T](
 		return nil, err
 	}
 	err = cmd.PersistentFlags().MarkHidden("delete-resource-type")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("rotate-credentials")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("rotate-credentials-type")
 	if err != nil {
 		return nil, err
 	}
