@@ -22,11 +22,6 @@ var ErrInvalidCredentialOptions = errors.New("unknown credential options")
 var ErrInvalidPasswordLength = errors.New("invalid password length")
 
 func GeneratePassword(credentialOptions *v2.CredentialOptions) (string, error) {
-	literal := credentialOptions.GetLiteralPassword()
-	if literal != nil {
-		return literal.GetPassword(), nil
-	}
-
 	randomPassword := credentialOptions.GetRandomPassword()
 	if randomPassword != nil {
 		return GenerateRandomPassword(randomPassword)
@@ -37,7 +32,7 @@ func GeneratePassword(credentialOptions *v2.CredentialOptions) (string, error) {
 
 func GenerateRandomPassword(randomPassword *v2.CredentialOptions_RandomPassword) (string, error) {
 	passwordLength := randomPassword.GetLength()
-	if passwordLength == 0 {
+	if passwordLength < 8 {
 		return "", ErrInvalidPasswordLength
 	}
 	var password strings.Builder

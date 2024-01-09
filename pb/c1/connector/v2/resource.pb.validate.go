@@ -1779,47 +1779,6 @@ func (m *CredentialOptions) validate(all bool) error {
 	// no validation rules for Create
 
 	switch v := m.Options.(type) {
-	case *CredentialOptions_LiteralPassword_:
-		if v == nil {
-			err := CredentialOptionsValidationError{
-				field:  "Options",
-				reason: "oneof value cannot be a typed-nil",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-		if all {
-			switch v := interface{}(m.GetLiteralPassword()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, CredentialOptionsValidationError{
-						field:  "LiteralPassword",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, CredentialOptionsValidationError{
-						field:  "LiteralPassword",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetLiteralPassword()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return CredentialOptionsValidationError{
-					field:  "LiteralPassword",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
 	case *CredentialOptions_RandomPassword_:
 		if v == nil {
 			err := CredentialOptionsValidationError{
@@ -3728,113 +3687,6 @@ var _ interface {
 	ErrorName() string
 } = AccountInfo_EmailValidationError{}
 
-// Validate checks the field values on CredentialOptions_LiteralPassword with
-// the rules defined in the proto definition for this message. If any rules
-// are violated, the first error encountered is returned, or nil if there are
-// no violations.
-func (m *CredentialOptions_LiteralPassword) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on CredentialOptions_LiteralPassword
-// with the rules defined in the proto definition for this message. If any
-// rules are violated, the result is a list of violation errors wrapped in
-// CredentialOptions_LiteralPasswordMultiError, or nil if none found.
-func (m *CredentialOptions_LiteralPassword) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *CredentialOptions_LiteralPassword) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for Password
-
-	if len(errors) > 0 {
-		return CredentialOptions_LiteralPasswordMultiError(errors)
-	}
-
-	return nil
-}
-
-// CredentialOptions_LiteralPasswordMultiError is an error wrapping multiple
-// validation errors returned by
-// CredentialOptions_LiteralPassword.ValidateAll() if the designated
-// constraints aren't met.
-type CredentialOptions_LiteralPasswordMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m CredentialOptions_LiteralPasswordMultiError) Error() string {
-	var msgs []string
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m CredentialOptions_LiteralPasswordMultiError) AllErrors() []error { return m }
-
-// CredentialOptions_LiteralPasswordValidationError is the validation error
-// returned by CredentialOptions_LiteralPassword.Validate if the designated
-// constraints aren't met.
-type CredentialOptions_LiteralPasswordValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e CredentialOptions_LiteralPasswordValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e CredentialOptions_LiteralPasswordValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e CredentialOptions_LiteralPasswordValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e CredentialOptions_LiteralPasswordValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e CredentialOptions_LiteralPasswordValidationError) ErrorName() string {
-	return "CredentialOptions_LiteralPasswordValidationError"
-}
-
-// Error satisfies the builtin error interface
-func (e CredentialOptions_LiteralPasswordValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sCredentialOptions_LiteralPassword.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = CredentialOptions_LiteralPasswordValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = CredentialOptions_LiteralPasswordValidationError{}
-
 // Validate checks the field values on CredentialOptions_RandomPassword with
 // the rules defined in the proto definition for this message. If any rules
 // are violated, the first error encountered is returned, or nil if there are
@@ -3858,7 +3710,16 @@ func (m *CredentialOptions_RandomPassword) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for Length
+	if val := m.GetLength(); val < 8 || val > 64 {
+		err := CredentialOptions_RandomPasswordValidationError{
+			field:  "Length",
+			reason: "value must be inside range [8, 64]",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
 	if len(errors) > 0 {
 		return CredentialOptions_RandomPasswordMultiError(errors)

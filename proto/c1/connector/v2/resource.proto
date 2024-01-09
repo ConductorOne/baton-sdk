@@ -153,15 +153,11 @@ message AccountInfo {
 
 message CredentialOptions {
   bool create = 1;
-  message LiteralPassword {
-    string password = 1;
-  }
   message RandomPassword {
-    int64 length = 1;
+    int64 length = 1 [(validate.rules).int64 = {gte: 8, lte: 64}];
   }
   oneof options {
-    LiteralPassword literal_password = 100;
-    RandomPassword random_password = 101;
+    RandomPassword random_password = 100;
   };
 }
 
