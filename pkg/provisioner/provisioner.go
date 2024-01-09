@@ -48,7 +48,6 @@ func makeCrypto(ctx context.Context) (*ecdsa.PrivateKey, *v2.CredentialOptions, 
 		return nil, nil, nil, err
 	}
 	opts := &v2.CredentialOptions{
-		Create: true,
 		Options: &v2.CredentialOptions_RandomPassword_{
 			RandomPassword: &v2.CredentialOptions_RandomPassword{
 				Length: 20,

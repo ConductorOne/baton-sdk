@@ -1776,8 +1776,6 @@ func (m *CredentialOptions) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for Create
-
 	switch v := m.Options.(type) {
 	case *CredentialOptions_RandomPassword_:
 		if v == nil {
