@@ -2,11 +2,11 @@ syntax = "proto3";
 
 package c1.reader.v2;
 
-option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
-
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
 
 service ResourceTypesReaderService {
   rpc GetResourceType(ResourceTypesReaderServiceGetResourceTypeRequest) returns (ResourceTypesReaderServiceGetResourceTypeResponse);
@@ -25,11 +25,7 @@ service ResourcesReaderService {
 }
 
 message ResourcesReaderServiceGetResourceRequest {
-  c1.connector.v2.ResourceId resource_id = 1 [
-    (validate.rules).message = {
-      required: true
-    }
-  ];
+  c1.connector.v2.ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
   repeated google.protobuf.Any annotations = 2;
 }
 

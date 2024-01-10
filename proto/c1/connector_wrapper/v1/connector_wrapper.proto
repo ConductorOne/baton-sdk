@@ -2,10 +2,10 @@ syntax = "proto3";
 
 package c1.connector_wrapper.v1;
 
-option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1";
-
-import "c1/utls/v1/tls.proto";
 import "c1/ratelimit/v1/ratelimit.proto";
+import "c1/utls/v1/tls.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1";
 
 message ServerConfig {
   utls.v1.Credential credential = 1;

@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "c1/connector/v2/entitlement.proto";
+import "c1/connector/v2/grant.proto";
+import "c1/connector/v2/resource.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+service EventService {
+  rpc ListEvents(ListEventsRequest) returns (ListEventsResponse);
+}
+
+message ListEventsRequest {
+  // Can function like a page token but also can be arbitrary to resume a feed at any point
+  string page_token = 1;
+  StartingPosition starting_position = 2;
+  uint32 page_size = 3;
+  repeated google.protobuf.Any annotations = 4;
+}
+
+message StartingPosition {
+  oneof starting_position {
+    google.protobuf.Empty earliest = 1;
+    google.protobuf.Empty latest = 2;
+    google.protobut.Timestamp start_from = 3;
+  }
+}
+
+message ListEventsResponse {
+  repeated Event events = 1;
+  string next_page_token = 2;
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message Event {
+  string id = 1;
+  google.protobuf.Timestamp occurred_at = 2;
+
+  // Each event has structs that will usually be mostly empty.
+  // Stream consumer must be defensive about what it's reading
+  oneof event {
+    UsageEvent login_event = 100;
+    GrantEvent grant_event = 101;
+    RevokeEvent revoke_event = 102;
+  }
+
+  // May contain resources for targets, actor, or items referenced in events
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message UsageEvent {
+  c1.connector.v2.Resource target_resource_id = 1;
+  c1.connector.v2.Resource actor_resource_id = 2;
+}
+
+// Unrelated to this effort, but valuable for other projects
+message GrantEvent {
+  c1.connector.v2.Grant grant = 1;
+}
+
+message RevokeEvent {
+  c1.connector.v2.Entitlement entitlement = 1;
+  c1.connector.v2.Resource principal = 2;
+}

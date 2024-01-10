@@ -2,11 +2,11 @@ syntax = "proto3";
 
 package c1.c1z.v1;
 
-option go_package = "github.com/conductorone/baton-sdk/pb/c1/c1z/v1";
-
-import "c1/connector/v2/resource.proto";
 import "c1/connector/v2/entitlement.proto";
 import "c1/connector/v2/grant.proto";
+import "c1/connector/v2/resource.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/c1z/v1";
 
 message ResourceDiff {
   repeated c1.connector.v2.Resource created = 1;
