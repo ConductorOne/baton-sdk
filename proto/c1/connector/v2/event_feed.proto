@@ -55,8 +55,8 @@ message Event {
 }
 
 message UsageEvent {
-  c1.connector.v2.Resource target_resource_id = 1;
-  c1.connector.v2.Resource actor_resource_id = 2;
+  c1.connector.v2.Resource target_resource = 1;
+  c1.connector.v2.Resource actor_resource = 2;
 }
 
 // Unrelated to this effort, but valuable for other projects

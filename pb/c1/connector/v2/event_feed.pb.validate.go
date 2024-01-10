@@ -918,11 +918,11 @@ func (m *UsageEvent) validate(all bool) error {
 	var errors []error
 
 	if all {
-		switch v := interface{}(m.GetTargetResourceId()).(type) {
+		switch v := interface{}(m.GetTargetResource()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, UsageEventValidationError{
-					field:  "TargetResourceId",
+					field:  "TargetResource",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -930,16 +930,16 @@ func (m *UsageEvent) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, UsageEventValidationError{
-					field:  "TargetResourceId",
+					field:  "TargetResource",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetTargetResourceId()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetTargetResource()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return UsageEventValidationError{
-				field:  "TargetResourceId",
+				field:  "TargetResource",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -947,11 +947,11 @@ func (m *UsageEvent) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetActorResourceId()).(type) {
+		switch v := interface{}(m.GetActorResource()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, UsageEventValidationError{
-					field:  "ActorResourceId",
+					field:  "ActorResource",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -959,16 +959,16 @@ func (m *UsageEvent) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, UsageEventValidationError{
-					field:  "ActorResourceId",
+					field:  "ActorResource",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetActorResourceId()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetActorResource()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return UsageEventValidationError{
-				field:  "ActorResourceId",
+				field:  "ActorResource",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
