@@ -54,6 +54,10 @@ type CredentialManager interface {
 	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*crypto.PlaintextCredential, annotations.Annotations, error)
 }
 
+type EventProvider interface {
+	ListEvents(ctx context.Context, pageToken string, startingPosition *v2.StartingPosition) ([]*v2.Event, string, annotations.Annotations, error)
+}
+
 type ConnectorBuilder interface {
 	Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 	Validate(ctx context.Context) (annotations.Annotations, error)
@@ -67,6 +71,7 @@ type builderImpl struct {
 	resourceManagers       map[string]ResourceManager
 	accountManager         AccountManager
 	credentialManagers     map[string]CredentialManager
+	eventFeed              EventProvider
 	cb                     ConnectorBuilder
 }
 
@@ -330,6 +335,21 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 // FIXME(jirwin): Asset streaming is disabled.
 func (b *builderImpl) GetAsset(request *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
 	return nil
+}
+
+func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (*v2.ListEventsResponse, error) {
+	if b.eventFeed != nil {
+		return nil, fmt.Errorf("error: event feed not implemented")
+	}
+	events, nextPage, annotations, err := b.eventFeed.ListEvents(ctx, request.PageToken, request.StartingPosition)
+	if err != nil {
+		return nil, fmt.Errorf("error: listing events failed: %w", err)
+	}
+	return &v2.ListEventsResponse{
+		Events:        events,
+		NextPageToken: nextPage,
+		Annotations:   annotations,
+	}, nil
 }
 
 func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
