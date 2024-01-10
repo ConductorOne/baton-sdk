@@ -6,6 +6,7 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -16,7 +17,7 @@ import (
 
 type grantHelpers interface {
 	ConnectorClient() types.ConnectorClient
-	FinishTask(ctx context.Context, annos annotations.Annotations, err error) error
+	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
 }
 
 type grantTaskHandler struct {
@@ -34,7 +35,7 @@ func (g *grantTaskHandler) HandleTask(ctx context.Context) error {
 			zap.Any("entitlement", g.task.GetGrant().GetEntitlement()),
 			zap.Any("principal", g.task.GetGrant().GetPrincipal()),
 		)
-		return g.helpers.FinishTask(ctx, nil, errors.Join(errors.New("malformed grant task"), ErrTaskNonRetryable))
+		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed grant task"), ErrTaskNonRetryable))
 	}
 
 	grant := g.task.GetGrant()
@@ -46,10 +47,10 @@ func (g *grantTaskHandler) HandleTask(ctx context.Context) error {
 	})
 	if err != nil {
 		l.Error("failed while granting entitlement", zap.Error(err))
-		return g.helpers.FinishTask(ctx, nil, errors.Join(err, ErrTaskNonRetryable))
+		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
 	}
 
-	return g.helpers.FinishTask(ctx, resp.GetAnnotations(), nil)
+	return g.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
 }
 
 func newGrantTaskHandler(task *v1.Task, helpers grantHelpers) tasks.TaskHandler {

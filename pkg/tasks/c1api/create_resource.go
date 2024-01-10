@@ -6,6 +6,7 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -16,7 +17,7 @@ import (
 
 type createResourceHelpers interface {
 	ConnectorClient() types.ConnectorClient
-	FinishTask(ctx context.Context, annos annotations.Annotations, err error) error
+	FinishTask(ctx context.Context, response proto.Message, annos annotations.Annotations, err error) error
 }
 
 type createResourceTaskHandler struct {
@@ -33,7 +34,7 @@ func (g *createResourceTaskHandler) HandleTask(ctx context.Context) error {
 			"create resource task was nil or missing resource",
 			zap.Any("create_resource_task", t),
 		)
-		return g.helpers.FinishTask(ctx, nil, errors.Join(errors.New("malformed create resource task"), ErrTaskNonRetryable))
+		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed create resource task"), ErrTaskNonRetryable))
 	}
 
 	cc := g.helpers.ConnectorClient()
@@ -42,10 +43,10 @@ func (g *createResourceTaskHandler) HandleTask(ctx context.Context) error {
 	})
 	if err != nil {
 		l.Error("failed create resource task", zap.Error(err))
-		return g.helpers.FinishTask(ctx, nil, errors.Join(err, ErrTaskNonRetryable))
+		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
 	}
 
-	return g.helpers.FinishTask(ctx, resp.GetAnnotations(), nil)
+	return g.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
 }
 
 func newCreateResourceTaskHandler(task *v1.Task, helpers createResourceHelpers) tasks.TaskHandler {

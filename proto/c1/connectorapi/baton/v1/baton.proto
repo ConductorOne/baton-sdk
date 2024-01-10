@@ -233,10 +233,14 @@ message BatonServiceFinishTaskRequest {
   message Error {
     bool non_retryable = 1;
     repeated google.protobuf.Any annotations = 2 [(validate.rules).repeated = {max_items: 16}];
+    // The response from the connector, if any.
+    google.protobuf.Any response = 3;
   }
 
   message Success {
     repeated google.protobuf.Any annotations = 1 [(validate.rules).repeated = {max_items: 16}];
+    // The response from the connector, if any.
+    google.protobuf.Any response = 2;
   }
 
   oneof final_state {

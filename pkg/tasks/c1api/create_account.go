@@ -6,6 +6,7 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -16,7 +17,7 @@ import (
 
 type createAccountHelpers interface {
 	ConnectorClient() types.ConnectorClient
-	FinishTask(ctx context.Context, annos annotations.Annotations, err error) error
+	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
 }
 
 type createAccountTaskHandler struct {
@@ -33,7 +34,7 @@ func (g *createAccountTaskHandler) HandleTask(ctx context.Context) error {
 			"account task was nil or missing account info",
 			zap.Any("create_account_task", t),
 		)
-		return g.helpers.FinishTask(ctx, nil, errors.Join(errors.New("malformed create account task"), ErrTaskNonRetryable))
+		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed create account task"), ErrTaskNonRetryable))
 	}
 
 	cc := g.helpers.ConnectorClient()
@@ -44,14 +45,14 @@ func (g *createAccountTaskHandler) HandleTask(ctx context.Context) error {
 	})
 	if err != nil {
 		l.Error("failed creating account", zap.Error(err))
-		return g.helpers.FinishTask(ctx, nil, errors.Join(err, ErrTaskNonRetryable))
+		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
 	}
 
 	// TODO(morgabra/ggreer): This kinda sucks as an API. We should have a spot to return values instead of stuffing them
 	// into annotations.
 	annos := annotations.Annotations(resp.GetAnnotations())
 	annos.Append(resp)
-	return g.helpers.FinishTask(ctx, annos, nil)
+	return g.helpers.FinishTask(ctx, resp, annos, nil)
 }
 
 func newCreateAccountTaskHandler(task *v1.Task, helpers createAccountHelpers) tasks.TaskHandler {

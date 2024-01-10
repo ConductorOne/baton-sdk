@@ -11,13 +11,14 @@ import (
 	"os"
 	"time"
 
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	"github.com/conductorone/baton-sdk/pkg/sdk"
-	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
+	"github.com/conductorone/baton-sdk/pkg/sdk"
+	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 )
 
 const (
