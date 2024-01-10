@@ -230,7 +230,7 @@ type runnerConfig struct {
 	provisioningEnabled     bool
 	grantConfig             *grantConfig
 	revokeConfig            *revokeConfig
-	eventStreamConfig   *eventStreamConfig
+	eventFeedConfig         *eventStreamConfig
 	tempDir                 string
 	createAccountConfig     *createAccountConfig
 	deleteResourceConfig    *deleteResourceConfig
@@ -390,7 +390,7 @@ func WithOnDemandSync(c1zPath string) Option {
 func WithOnDemandEventStream() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
-		cfg.eventStreamConfig = &eventStreamConfig{}
+		cfg.eventFeedConfig = &eventStreamConfig{}
 		return nil
 	}
 }
@@ -440,7 +440,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	runner.cw = cw
 
 	if cfg.onDemand {
-		if cfg.c1zPath == "" {
+		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -467,7 +467,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		case cfg.rotateCredentialsConfig != nil:
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
 
-		case cfg.eventStreamConfig != nil:
+		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx)
 
 		default:
