@@ -10,7 +10,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
@@ -30,14 +29,9 @@ func (m *localEventFeed) Next(ctx context.Context) (*v1.Task, time.Duration, err
 }
 
 func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
-	server, err := connectorbuilder.NewConnector(ctx, cc)
-	if err != nil {
-		return err
-	}
-
 	var pageToken string
 	for {
-		resp, err := server.ListEvents(ctx, &v2.ListEventsRequest{
+		resp, err := cc.ListEvents(ctx, &v2.ListEventsRequest{
 			PageSize:         100,
 			PageToken:        pageToken,
 			StartingPosition: task.GetEventFeed().GetStartingPosition(),
