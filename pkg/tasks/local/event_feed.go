@@ -6,12 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"google.golang.org/protobuf/encoding/protojson"
 )
 
 type localEventFeed struct {
@@ -62,6 +63,6 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 }
 
 // NewEventFeed returns a task manager that queues a sync task.
-func NewEventFeed(ctx context.Context, dbPath string) tasks.Manager {
+func NewEventFeed(ctx context.Context) tasks.Manager {
 	return &localEventFeed{}
 }

@@ -7,17 +7,18 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/spf13/cobra"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"github.com/spf13/cobra"
-	"go.uber.org/zap"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -108,6 +109,8 @@ func NewCmd[T any, PtrT *T](
 							v.GetString("file"),
 							v.GetString("revoke-grant"),
 						))
+				case v.GetBool("event-feed"):
+					opts = append(opts, connectorrunner.WithOnDemandEventStream())
 				case v.GetString("create-account-login") != "":
 					opts = append(opts,
 						connectorrunner.WithProvisioningEnabled(),
@@ -326,6 +329,8 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("grant-entitlement", "", "The id of the entitlement to grant to the supplied principal ($BATON_GRANT_ENTITLEMENT)")
 	cmd.PersistentFlags().String("grant-principal", "", "The id of the resource to grant the entitlement to ($BATON_GRANT_PRINCIPAL)")
 	cmd.PersistentFlags().String("grant-principal-type", "", "The resource type of the principal to grant the entitlement to ($BATON_GRANT_PRINCIPAL_TYPE)")
+	cmd.PersistentFlags().String("revoke-grant", "", "The grant to revoke ($BATON_REVOKE_GRANT)")
+	cmd.PersistentFlags().String("event-feed", "", "Read feed events to stdout ($BATON_EVENT_FEED)")
 	cmd.MarkFlagsRequiredTogether("grant-entitlement", "grant-principal", "grant-principal-type")
 	cmd.PersistentFlags().String("revoke-grant", "", "The id of the grant to revoke ($BATON_REVOKE_GRANT)")
 
@@ -338,8 +343,8 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("rotate-credentials", "", "The id of the resource to rotate credentials on ($BATON_ROTATE_CREDENTIALS)")
 	cmd.PersistentFlags().String("rotate-credentials-type", "", "The type of the resource to rotate credentials on ($BATON_ROTATE_CREDENTIALS_TYPE)")
 
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login", "delete-resource", "rotate-credentials")
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email", "delete-resource-type", "rotate-credentials-type")
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login", "delete-resource", "rotate-credentials", "event-feed")
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email", "delete-resource-type", "rotate-credentials-type", "event-feed")
 	err = cmd.PersistentFlags().MarkHidden("grant-entitlement")
 	if err != nil {
 		return nil, err
@@ -353,6 +358,10 @@ func NewCmd[T any, PtrT *T](
 		return nil, err
 	}
 	err = cmd.PersistentFlags().MarkHidden("revoke-grant")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("event-feed")
 	if err != nil {
 		return nil, err
 	}
