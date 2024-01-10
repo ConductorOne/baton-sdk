@@ -45,7 +45,7 @@ message Event {
   // Each event has structs that will usually be mostly empty.
   // Stream consumer must be defensive about what it's reading
   oneof event {
-    UsageEvent login_event = 100;
+    UsageEvent usage_event = 100;
     GrantEvent grant_event = 101;
     RevokeEvent revoke_event = 102;
   }

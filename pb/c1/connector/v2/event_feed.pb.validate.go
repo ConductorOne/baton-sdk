@@ -691,7 +691,7 @@ func (m *Event) validate(all bool) error {
 	}
 
 	switch v := m.Event.(type) {
-	case *Event_LoginEvent:
+	case *Event_UsageEvent:
 		if v == nil {
 			err := EventValidationError{
 				field:  "Event",
@@ -704,11 +704,11 @@ func (m *Event) validate(all bool) error {
 		}
 
 		if all {
-			switch v := interface{}(m.GetLoginEvent()).(type) {
+			switch v := interface{}(m.GetUsageEvent()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
 					errors = append(errors, EventValidationError{
-						field:  "LoginEvent",
+						field:  "UsageEvent",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -716,16 +716,16 @@ func (m *Event) validate(all bool) error {
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
 					errors = append(errors, EventValidationError{
-						field:  "LoginEvent",
+						field:  "UsageEvent",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
 				}
 			}
-		} else if v, ok := interface{}(m.GetLoginEvent()).(interface{ Validate() error }); ok {
+		} else if v, ok := interface{}(m.GetUsageEvent()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
 				return EventValidationError{
-					field:  "LoginEvent",
+					field:  "UsageEvent",
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
