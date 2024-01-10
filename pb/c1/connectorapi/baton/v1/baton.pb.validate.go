@@ -307,6 +307,47 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
+	case *Task_CreateResource:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetCreateResource()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "CreateResource",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "CreateResource",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetCreateResource()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "CreateResource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	case *Task_DeleteResource:
 		if v == nil {
 			err := TaskValidationError{
@@ -3301,6 +3342,137 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = Task_CreateAccountTaskValidationError{}
+
+// Validate checks the field values on Task_CreateResourceTask with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *Task_CreateResourceTask) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task_CreateResourceTask with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// Task_CreateResourceTaskMultiError, or nil if none found.
+func (m *Task_CreateResourceTask) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_CreateResourceTask) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetResource()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, Task_CreateResourceTaskValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, Task_CreateResourceTaskValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return Task_CreateResourceTaskValidationError{
+				field:  "Resource",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return Task_CreateResourceTaskMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_CreateResourceTaskMultiError is an error wrapping multiple validation
+// errors returned by Task_CreateResourceTask.ValidateAll() if the designated
+// constraints aren't met.
+type Task_CreateResourceTaskMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_CreateResourceTaskMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_CreateResourceTaskMultiError) AllErrors() []error { return m }
+
+// Task_CreateResourceTaskValidationError is the validation error returned by
+// Task_CreateResourceTask.Validate if the designated constraints aren't met.
+type Task_CreateResourceTaskValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_CreateResourceTaskValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_CreateResourceTaskValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_CreateResourceTaskValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_CreateResourceTaskValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_CreateResourceTaskValidationError) ErrorName() string {
+	return "Task_CreateResourceTaskValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e Task_CreateResourceTaskValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_CreateResourceTask.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_CreateResourceTaskValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_CreateResourceTaskValidationError{}
 
 // Validate checks the field values on Task_DeleteResourceTask with the rules
 // defined in the proto definition for this message. If any rules are

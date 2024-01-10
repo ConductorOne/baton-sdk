@@ -219,6 +219,18 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	case tasks.RevokeType:
 		handler = newRevokeTaskHandler(task, tHelpers)
 
+	case tasks.CreateAccountType:
+		handler = newCreateAccountTaskHandler(task, tHelpers)
+
+	case tasks.CreateResourceType:
+		handler = newCreateResourceTaskHandler(task, tHelpers)
+
+	case tasks.DeleteResourceType:
+		handler = newDeleteResourceTaskHandler(task, tHelpers)
+
+	case tasks.RotateCredentialsType:
+		handler = newRotateCredentialsTaskHandler(task, tHelpers)
+
 	default:
 		return c.finishTask(ctx, task, nil, errors.New("unsupported task type"))
 	}

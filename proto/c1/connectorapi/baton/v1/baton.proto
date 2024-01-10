@@ -61,6 +61,10 @@ message Task {
     repeated connector.v2.EncryptionConfig encryption_configs = 3;
   }
 
+  message CreateResourceTask {
+    connector.v2.Resource resource = 1;
+  }
+
   message DeleteResourceTask {
     connector.v2.ResourceId resource_id = 1;
   }
@@ -80,8 +84,9 @@ message Task {
     GrantTask grant = 103;
     RevokeTask revoke = 104;
     CreateAccountTask create_account = 105;
-    DeleteResourceTask delete_resource = 106;
-    RotateCredentialsTask rotate_credentials = 107;
+    CreateResourceTask create_resource = 106;
+    DeleteResourceTask delete_resource = 107;
+    RotateCredentialsTask rotate_credentials = 108;
   }
 }
 
