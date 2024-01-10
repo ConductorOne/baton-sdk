@@ -342,7 +342,7 @@ func (b *builderImpl) GetAsset(request *v2.AssetServiceGetAssetRequest, server v
 }
 
 func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (*v2.ListEventsResponse, error) {
-	if b.eventFeed != nil {
+	if b.eventFeed == nil {
 		return nil, fmt.Errorf("error: event feed not implemented")
 	}
 	events, nextPage, annotations, err := b.eventFeed.ListEvents(ctx, request.PageToken, request.StartingPosition)
