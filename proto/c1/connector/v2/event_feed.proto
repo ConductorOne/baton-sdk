@@ -28,7 +28,7 @@ message StartingPosition {
   oneof starting_position {
     google.protobuf.Empty earliest = 1;
     google.protobuf.Empty latest = 2;
-    google.protobut.Timestamp start_from = 3;
+    google.protobuf.Timestamp start_from = 3;
   }
 }
 
