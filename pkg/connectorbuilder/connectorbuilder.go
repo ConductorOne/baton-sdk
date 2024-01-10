@@ -89,6 +89,10 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 			cb:                     c,
 		}
 
+		if b, ok := c.(EventProvider); ok {
+			ret.eventFeed = b
+		}
+
 		for _, rb := range c.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)
 			if _, ok := ret.resourceBuilders[rType.Id]; ok {
