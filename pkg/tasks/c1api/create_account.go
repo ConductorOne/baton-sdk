@@ -48,11 +48,7 @@ func (g *createAccountTaskHandler) HandleTask(ctx context.Context) error {
 		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
 	}
 
-	// TODO(morgabra/ggreer): This kinda sucks as an API. We should have a spot to return values instead of stuffing them
-	// into annotations.
-	annos := annotations.Annotations(resp.GetAnnotations())
-	annos.Append(resp)
-	return g.helpers.FinishTask(ctx, resp, annos, nil)
+	return g.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
 }
 
 func newCreateAccountTaskHandler(task *v1.Task, helpers createAccountHelpers) tasks.TaskHandler {
