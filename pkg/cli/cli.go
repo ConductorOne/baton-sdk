@@ -330,7 +330,7 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("grant-principal", "", "The id of the resource to grant the entitlement to ($BATON_GRANT_PRINCIPAL)")
 	cmd.PersistentFlags().String("grant-principal-type", "", "The resource type of the principal to grant the entitlement to ($BATON_GRANT_PRINCIPAL_TYPE)")
 	cmd.PersistentFlags().String("revoke-grant", "", "The grant to revoke ($BATON_REVOKE_GRANT)")
-	cmd.PersistentFlags().String("event-feed", "", "Read feed events to stdout ($BATON_EVENT_FEED)")
+	cmd.PersistentFlags().Bool("event-feed", false, "Read feed events to stdout ($BATON_EVENT_FEED)")
 	cmd.MarkFlagsRequiredTogether("grant-entitlement", "grant-principal", "grant-principal-type")
 	cmd.PersistentFlags().String("revoke-grant", "", "The id of the grant to revoke ($BATON_REVOKE_GRANT)")
 
