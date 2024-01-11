@@ -57,7 +57,20 @@ func (m *ListEventsRequest) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for PageToken
+	if m.GetPageToken() != "" {
+
+		if l := len(m.GetPageToken()); l < 1 || l > 4096 {
+			err := ListEventsRequestValidationError{
+				field:  "PageToken",
+				reason: "value length must be between 1 and 4096 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
 
 	if all {
 		switch v := interface{}(m.GetStartingPosition()).(type) {
@@ -88,7 +101,20 @@ func (m *ListEventsRequest) validate(all bool) error {
 		}
 	}
 
-	// no validation rules for PageSize
+	if m.GetPageSize() != 0 {
+
+		if m.GetPageSize() > 250 {
+			err := ListEventsRequestValidationError{
+				field:  "PageSize",
+				reason: "value must be less than or equal to 250",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
 
 	for idx, item := range m.GetAnnotations() {
 		_, _ = idx, item
@@ -488,7 +514,20 @@ func (m *ListEventsResponse) validate(all bool) error {
 
 	}
 
-	// no validation rules for NextPageToken
+	if m.GetNextPageToken() != "" {
+
+		if l := len(m.GetNextPageToken()); l < 1 || l > 4096 {
+			err := ListEventsResponseValidationError{
+				field:  "NextPageToken",
+				reason: "value length must be between 1 and 4096 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
 
 	for idx, item := range m.GetAnnotations() {
 		_, _ = idx, item
