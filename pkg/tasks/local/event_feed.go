@@ -56,7 +56,7 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 	return nil
 }
 
-// NewEventFeed returns a task manager that queues a sync task.
+// NewEventFeed returns a task manager that queues an event feed task
 func NewEventFeed(ctx context.Context) tasks.Manager {
 	return &localEventFeed{}
 }

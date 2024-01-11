@@ -46,7 +46,7 @@ func (m *localGranter) Process(ctx context.Context, task *v1.Task, cc types.Conn
 	return nil
 }
 
-// NewGranter returns a task manager that queues a sync task.
+// NewGranter returns a task manager that queues a grant task.
 func NewGranter(ctx context.Context, dbPath string, entitlementID string, principalID string, principalType string) tasks.Manager {
 	return &localGranter{
 		dbPath:        dbPath,
