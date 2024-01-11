@@ -55,7 +55,7 @@ type CredentialManager interface {
 }
 
 type EventProvider interface {
-	ListEvents(ctx context.Context, pageToken string, startingPosition *v2.StartingPosition) ([]*v2.Event, string, annotations.Annotations, error)
+	ListEvents(ctx context.Context, startingPosition *v2.StartingPosition, pToken *pagination.Token) ([]*v2.Event, string, annotations.Annotations, error)
 }
 
 type ConnectorBuilder interface {
@@ -345,7 +345,10 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 	if b.eventFeed == nil {
 		return nil, fmt.Errorf("error: event feed not implemented")
 	}
-	events, nextPage, annotations, err := b.eventFeed.ListEvents(ctx, request.PageToken, request.StartingPosition)
+	events, nextPage, annotations, err := b.eventFeed.ListEvents(ctx, request.StartingPosition, &pagination.Token{
+		Size:  int(request.PageSize),
+		Token: request.PageToken,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("error: listing events failed: %w", err)
 	}
