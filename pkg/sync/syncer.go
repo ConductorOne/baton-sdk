@@ -9,6 +9,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
@@ -18,6 +19,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
@@ -33,15 +35,16 @@ type Syncer interface {
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
-	c1zManager        manager.Manager
-	c1zPath           string
-	store             connectorstore.Writer
-	connector         types.ConnectorClient
-	state             State
-	runDuration       time.Duration
-	transitionHandler func(s Action)
-	progressHandler   func(p *Progress)
-	tmpDir            string
+	c1zManager            manager.Manager
+	c1zPath               string
+	store                 connectorstore.Writer
+	connector             types.ConnectorClient
+	state                 State
+	runDuration           time.Duration
+	transitionHandler     func(s Action)
+	progressHandler       func(p *Progress)
+	tmpDir                string
+	partialSyncResourceId *v2.ResourceId
 
 	skipEGForResourceType map[string]bool
 }
@@ -145,14 +148,23 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		switch stateAction.Op {
 		case InitOp:
+			fmt.Printf("\n\n\n In init Op \n\n\n")
 			s.state.FinishAction(ctx)
 			// FIXME(jirwin): Disabling syncing assets for now
 			// s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
-			s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
-			s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
-			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
-			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
-			s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
+			// Actions are in reverse order because it's a stack.
+			if s.partialSyncResourceId != nil {
+				s.state.PushAction(ctx, Action{Op: PartialResourceSyncOp})
+				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
+				// clones prev sync
+				s.state.PushAction(ctx, Action{Op: ClonePreviousSyncOp})
+			} else {
+				s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
+				s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
+				s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+				s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
+				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
+			}
 
 			err = s.Checkpoint(ctx)
 			if err != nil {
@@ -207,9 +219,29 @@ func (s *syncer) Sync(ctx context.Context) error {
 				return err
 			}
 			continue
+		case PartialResourceSyncOp:
+			fmt.Printf("\n\n\n In Partial Resource Sync op \n\n\n")
+			l.Info("Partial sync selected: ", zap.String("resource_type", s.partialSyncResourceId.ResourceType), zap.String("resource_id", s.partialSyncResourceId.Resource))
+			err := s.partialSyncResource(ctx)
+			if err != nil {
+				return err
+			}
+			continue
+		case ClonePreviousSyncOp:
+			fmt.Printf("\n\n\n Cloning previous sync... \n\n\n")
+			err := s.clonePreviousSync(ctx)
+			if err != nil {
+				return err
+			}
+			continue
 		default:
 			return fmt.Errorf("unexpected sync step")
 		}
+	}
+
+	err = s.Checkpoint(ctx)
+	if err != nil {
+		return err
 	}
 
 	err = s.store.EndSync(ctx)
@@ -383,6 +415,103 @@ func (s *syncer) syncResources(ctx context.Context) error {
 			return err
 		}
 	}
+
+	return nil
+}
+
+// TODO: Validate that a previous full sync exists, before we fetch the resource check the previous sync for the resource type.
+// if that exists, we grab it and put it into the current sync
+// fetch the resource via connector (done)
+// Push new actions for listing entitlement and grants for that resource (no changes required for the entitlement/grants actions)
+func (s *syncer) partialSyncResource(ctx context.Context) error {
+	_, err := s.store.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
+		ResourceTypeId: s.partialSyncResourceId.ResourceType,
+	})
+	if err != nil {
+		return fmt.Errorf("unknown resource type")
+	}
+
+	req := &v2.ResourcesServiceFetchResourceRequest{
+		ResourceId: s.partialSyncResourceId}
+
+	// Try to retrieve the ID that corresponds to the previous sync.
+	// Partial sync should NOT run if a previous full sync does not exist.
+	/*
+	var previousSyncID string
+
+	if psf, ok := s.store.(lastestSyncFetcher); ok {
+		previousSyncID, err = psf.LatestFinishedSync(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to fetch previous sync: %s", err.Error())
+		}
+	}
+	if previousSyncID == "" {
+		return fmt.Errorf("previous full sync file does not exist")
+	}
+	*/
+
+	resp, err := s.connector.FetchResource(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	s.handleProgress(ctx, s.state.Current(), 1)
+
+	err = s.validateResourceTraits(ctx, resp.Resource)
+	if err != nil {
+		return err
+	}
+
+	//err = s.store.PutResourceType(ctx, resp.ResourceType)
+	// Copy over all existing data
+	// Modify the corresponding res.
+	// Create if not exist
+
+
+	err = s.store.PutResource(ctx, resp.Resource)
+	if err != nil {
+		return err
+	}
+
+	// We want these in order: pop off our partial sync action -> sync ent -> sync grants .
+	s.state.FinishAction(ctx)
+	s.state.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: s.partialSyncResourceId.Resource, ResourceTypeID: s.partialSyncResourceId.ResourceType})
+	s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceID: s.partialSyncResourceId.Resource, ResourceTypeID: s.partialSyncResourceId.ResourceType})
+
+	return nil
+}
+
+func (s *syncer) clonePreviousSync(ctx context.Context) error {
+	// Try to retrieve the ID that corresponds to the previous sync.
+	// Partial sync should NOT run if a previous full sync does not exist.
+	var previousSyncID string
+	var err error
+
+	if psf, ok := s.store.(lastestSyncFetcher); ok {
+		previousSyncID, err = psf.LatestFinishedSync(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to fetch previous sync: %s", err.Error())
+		}
+	}
+	if previousSyncID == "" {
+		return fmt.Errorf("previous full sync file does not exist")
+	}
+
+	c1file, err := dotc1z.NewC1File(ctx, "./sync.txt")
+
+	spew.Dump("newc1file erro", err)
+
+	c1fileptr := *c1file
+	err = c1fileptr.CloneSync(ctx, "./bar.txt", previousSyncID)
+
+	spew.Dump("clone sync err", err)
+
+	if err != nil {
+		// fmt.Errorf(err)
+		return err
+	}
+
+	s.state.FinishAction(ctx)
 
 	return nil
 }
@@ -1397,6 +1526,12 @@ func WithC1ZPath(path string) SyncOpt {
 func WithTmpDir(path string) SyncOpt {
 	return func(s *syncer) {
 		s.tmpDir = path
+	}
+}
+
+func WithPartialSync(resourceId *v2.ResourceId) SyncOpt {
+	return func(s *syncer) {
+		s.partialSyncResourceId = resourceId
 	}
 }
 

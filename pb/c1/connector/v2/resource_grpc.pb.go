@@ -185,3 +185,87 @@ var ResourcesService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "c1/connector/v2/resource.proto",
 }
+
+// FetchResourceServiceClient is the client API for FetchResourceService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type FetchResourceServiceClient interface {
+	FetchResource(ctx context.Context, in *ResourcesServiceFetchResourceRequest, opts ...grpc.CallOption) (*ResourcesServiceFetchResourceResponse, error)
+}
+
+type fetchResourceServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewFetchResourceServiceClient(cc grpc.ClientConnInterface) FetchResourceServiceClient {
+	return &fetchResourceServiceClient{cc}
+}
+
+func (c *fetchResourceServiceClient) FetchResource(ctx context.Context, in *ResourcesServiceFetchResourceRequest, opts ...grpc.CallOption) (*ResourcesServiceFetchResourceResponse, error) {
+	out := new(ResourcesServiceFetchResourceResponse)
+	err := c.cc.Invoke(ctx, "/c1.connector.v2.FetchResourceService/FetchResource", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// FetchResourceServiceServer is the server API for FetchResourceService service.
+// All implementations should embed UnimplementedFetchResourceServiceServer
+// for forward compatibility
+type FetchResourceServiceServer interface {
+	FetchResource(context.Context, *ResourcesServiceFetchResourceRequest) (*ResourcesServiceFetchResourceResponse, error)
+}
+
+// UnimplementedFetchResourceServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedFetchResourceServiceServer struct {
+}
+
+func (UnimplementedFetchResourceServiceServer) FetchResource(context.Context, *ResourcesServiceFetchResourceRequest) (*ResourcesServiceFetchResourceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FetchResource not implemented")
+}
+
+// UnsafeFetchResourceServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to FetchResourceServiceServer will
+// result in compilation errors.
+type UnsafeFetchResourceServiceServer interface {
+	mustEmbedUnimplementedFetchResourceServiceServer()
+}
+
+func RegisterFetchResourceServiceServer(s grpc.ServiceRegistrar, srv FetchResourceServiceServer) {
+	s.RegisterService(&FetchResourceService_ServiceDesc, srv)
+}
+
+func _FetchResourceService_FetchResource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResourcesServiceFetchResourceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FetchResourceServiceServer).FetchResource(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/c1.connector.v2.FetchResourceService/FetchResource",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FetchResourceServiceServer).FetchResource(ctx, req.(*ResourcesServiceFetchResourceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// FetchResourceService_ServiceDesc is the grpc.ServiceDesc for FetchResourceService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var FetchResourceService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.connector.v2.FetchResourceService",
+	HandlerType: (*FetchResourceServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "FetchResource",
+			Handler:    _FetchResourceService_FetchResource_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "c1/connector/v2/resource.proto",
+}

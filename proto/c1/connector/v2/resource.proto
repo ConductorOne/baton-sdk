@@ -164,3 +164,26 @@ message ResourcesServiceListResourcesResponse {
   ];
   repeated google.protobuf.Any annotations = 3;
 }
+
+service FetchResourceService {
+  rpc FetchResource(ResourcesServiceFetchResourceRequest) returns (ResourcesServiceFetchResourceResponse);
+}
+
+message ResourcesServiceFetchResourceRequest {
+  ResourceId resource_id = 1 [
+    (validate.rules).message = {
+      required: true
+    }
+  ];
+  ResourceId parent_resource_id = 2 [
+    (validate.rules).message = {
+      required: false
+    }
+  ];
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message ResourcesServiceFetchResourceResponse {
+  Resource resource = 1;
+  repeated google.protobuf.Any annotations = 2;
+}
