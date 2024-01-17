@@ -194,16 +194,16 @@ message EncryptedData {
 }
 
 message EncryptionConfig {
-  Resource prinicpal = 1;
+  Resource principal = 1;
+  string provider = 2;
+  string key_id = 3;
 
-  message PublicKeyConfig {
-    string provider = 1;
-    string key_id = 2;
-    bytes pub_key = 3;
+  message JWKPublicKeyConfig {
+    bytes pub_key = 1;
   }
 
   oneof config {
-    PublicKeyConfig public_key_config = 100;
+    JWKPublicKeyConfig jwk_public_key_config = 100;
   }
 }
 

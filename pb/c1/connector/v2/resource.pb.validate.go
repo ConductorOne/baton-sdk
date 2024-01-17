@@ -2488,11 +2488,11 @@ func (m *EncryptionConfig) validate(all bool) error {
 	var errors []error
 
 	if all {
-		switch v := interface{}(m.GetPrinicpal()).(type) {
+		switch v := interface{}(m.GetPrincipal()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, EncryptionConfigValidationError{
-					field:  "Prinicpal",
+					field:  "Principal",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -2500,24 +2500,28 @@ func (m *EncryptionConfig) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, EncryptionConfigValidationError{
-					field:  "Prinicpal",
+					field:  "Principal",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetPrinicpal()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetPrincipal()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return EncryptionConfigValidationError{
-				field:  "Prinicpal",
+				field:  "Principal",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
 		}
 	}
 
+	// no validation rules for Provider
+
+	// no validation rules for KeyId
+
 	switch v := m.Config.(type) {
-	case *EncryptionConfig_PublicKeyConfig_:
+	case *EncryptionConfig_JwkPublicKeyConfig:
 		if v == nil {
 			err := EncryptionConfigValidationError{
 				field:  "Config",
@@ -2530,11 +2534,11 @@ func (m *EncryptionConfig) validate(all bool) error {
 		}
 
 		if all {
-			switch v := interface{}(m.GetPublicKeyConfig()).(type) {
+			switch v := interface{}(m.GetJwkPublicKeyConfig()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
 					errors = append(errors, EncryptionConfigValidationError{
-						field:  "PublicKeyConfig",
+						field:  "JwkPublicKeyConfig",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -2542,16 +2546,16 @@ func (m *EncryptionConfig) validate(all bool) error {
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
 					errors = append(errors, EncryptionConfigValidationError{
-						field:  "PublicKeyConfig",
+						field:  "JwkPublicKeyConfig",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
 				}
 			}
-		} else if v, ok := interface{}(m.GetPublicKeyConfig()).(interface{ Validate() error }); ok {
+		} else if v, ok := interface{}(m.GetJwkPublicKeyConfig()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
 				return EncryptionConfigValidationError{
-					field:  "PublicKeyConfig",
+					field:  "JwkPublicKeyConfig",
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
@@ -4076,50 +4080,46 @@ var _ interface {
 	ErrorName() string
 } = CreateAccountResponse_ActionRequiredResultValidationError{}
 
-// Validate checks the field values on EncryptionConfig_PublicKeyConfig with
+// Validate checks the field values on EncryptionConfig_JWKPublicKeyConfig with
 // the rules defined in the proto definition for this message. If any rules
 // are violated, the first error encountered is returned, or nil if there are
 // no violations.
-func (m *EncryptionConfig_PublicKeyConfig) Validate() error {
+func (m *EncryptionConfig_JWKPublicKeyConfig) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on EncryptionConfig_PublicKeyConfig with
-// the rules defined in the proto definition for this message. If any rules
-// are violated, the result is a list of violation errors wrapped in
-// EncryptionConfig_PublicKeyConfigMultiError, or nil if none found.
-func (m *EncryptionConfig_PublicKeyConfig) ValidateAll() error {
+// ValidateAll checks the field values on EncryptionConfig_JWKPublicKeyConfig
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// EncryptionConfig_JWKPublicKeyConfigMultiError, or nil if none found.
+func (m *EncryptionConfig_JWKPublicKeyConfig) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *EncryptionConfig_PublicKeyConfig) validate(all bool) error {
+func (m *EncryptionConfig_JWKPublicKeyConfig) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	// no validation rules for Provider
-
-	// no validation rules for KeyId
-
 	// no validation rules for PubKey
 
 	if len(errors) > 0 {
-		return EncryptionConfig_PublicKeyConfigMultiError(errors)
+		return EncryptionConfig_JWKPublicKeyConfigMultiError(errors)
 	}
 
 	return nil
 }
 
-// EncryptionConfig_PublicKeyConfigMultiError is an error wrapping multiple
+// EncryptionConfig_JWKPublicKeyConfigMultiError is an error wrapping multiple
 // validation errors returned by
-// EncryptionConfig_PublicKeyConfig.ValidateAll() if the designated
+// EncryptionConfig_JWKPublicKeyConfig.ValidateAll() if the designated
 // constraints aren't met.
-type EncryptionConfig_PublicKeyConfigMultiError []error
+type EncryptionConfig_JWKPublicKeyConfigMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m EncryptionConfig_PublicKeyConfigMultiError) Error() string {
+func (m EncryptionConfig_JWKPublicKeyConfigMultiError) Error() string {
 	var msgs []string
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -4128,12 +4128,12 @@ func (m EncryptionConfig_PublicKeyConfigMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m EncryptionConfig_PublicKeyConfigMultiError) AllErrors() []error { return m }
+func (m EncryptionConfig_JWKPublicKeyConfigMultiError) AllErrors() []error { return m }
 
-// EncryptionConfig_PublicKeyConfigValidationError is the validation error
-// returned by EncryptionConfig_PublicKeyConfig.Validate if the designated
+// EncryptionConfig_JWKPublicKeyConfigValidationError is the validation error
+// returned by EncryptionConfig_JWKPublicKeyConfig.Validate if the designated
 // constraints aren't met.
-type EncryptionConfig_PublicKeyConfigValidationError struct {
+type EncryptionConfig_JWKPublicKeyConfigValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -4141,24 +4141,24 @@ type EncryptionConfig_PublicKeyConfigValidationError struct {
 }
 
 // Field function returns field value.
-func (e EncryptionConfig_PublicKeyConfigValidationError) Field() string { return e.field }
+func (e EncryptionConfig_JWKPublicKeyConfigValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e EncryptionConfig_PublicKeyConfigValidationError) Reason() string { return e.reason }
+func (e EncryptionConfig_JWKPublicKeyConfigValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e EncryptionConfig_PublicKeyConfigValidationError) Cause() error { return e.cause }
+func (e EncryptionConfig_JWKPublicKeyConfigValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e EncryptionConfig_PublicKeyConfigValidationError) Key() bool { return e.key }
+func (e EncryptionConfig_JWKPublicKeyConfigValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e EncryptionConfig_PublicKeyConfigValidationError) ErrorName() string {
-	return "EncryptionConfig_PublicKeyConfigValidationError"
+func (e EncryptionConfig_JWKPublicKeyConfigValidationError) ErrorName() string {
+	return "EncryptionConfig_JWKPublicKeyConfigValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e EncryptionConfig_PublicKeyConfigValidationError) Error() string {
+func (e EncryptionConfig_JWKPublicKeyConfigValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -4170,14 +4170,14 @@ func (e EncryptionConfig_PublicKeyConfigValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sEncryptionConfig_PublicKeyConfig.%s: %s%s",
+		"invalid %sEncryptionConfig_JWKPublicKeyConfig.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = EncryptionConfig_PublicKeyConfigValidationError{}
+var _ error = EncryptionConfig_JWKPublicKeyConfigValidationError{}
 
 var _ interface {
 	Field() string
@@ -4185,4 +4185,4 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = EncryptionConfig_PublicKeyConfigValidationError{}
+} = EncryptionConfig_JWKPublicKeyConfigValidationError{}

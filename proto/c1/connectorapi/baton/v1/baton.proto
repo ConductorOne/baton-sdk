@@ -48,6 +48,7 @@ message Task {
     connector.v2.Entitlement entitlement = 1;
     connector.v2.Resource principal = 2;
     repeated google.protobuf.Any annotations = 3;
+    google.protobuf.Duration duration = 4;
   }
 
   message RevokeTask {

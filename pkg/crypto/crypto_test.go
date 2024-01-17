@@ -19,8 +19,8 @@ func TestNewPubKeyEncryptionManager(t *testing.T) {
 	opts := &v2.CredentialOptions{}
 	config := []*v2.EncryptionConfig{
 		{
-			Config: &v2.EncryptionConfig_PublicKeyConfig_{
-				PublicKeyConfig: &v2.EncryptionConfig_PublicKeyConfig{
+			Config: &v2.EncryptionConfig_JwkPublicKeyConfig{
+				JwkPublicKeyConfig: &v2.EncryptionConfig_JWKPublicKeyConfig{
 					PubKey: pubKeyJWKBytes,
 				},
 			},

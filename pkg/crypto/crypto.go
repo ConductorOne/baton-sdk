@@ -66,12 +66,12 @@ func NewPubKeyEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionCon
 		encrypters: make(map[string]jose.Encrypter),
 	}
 	for _, conf := range ec {
-		pkconf := conf.GetPublicKeyConfig()
+		pkconf := conf.GetJwkPublicKeyConfig()
 		if pkconf == nil {
 			return nil, errors.New("public_key_encryption_manager: public key config is required")
 		}
 
-		if pkconf.Provider != "" || pkconf.KeyId != "" {
+		if conf.Provider != "" || conf.KeyId != "" {
 			return nil, errors.New("public_key_encryption_manager: provider and key_id are not supported")
 		}
 
