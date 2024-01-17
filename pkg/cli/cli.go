@@ -315,11 +315,19 @@ func NewCmd[T any, PtrT *T](
 
 	// Flags for direct syncing and provisioning
 	cmd.PersistentFlags().StringP("file", "f", "sync.c1z", "The path to the c1z file to sync with ($BATON_FILE)")
-	cmd.PersistentFlags().String("grant-entitlement", "", "The entitlement to grant to the supplied principal ($BATON_GRANT_ENTITLEMENT)")
-	cmd.PersistentFlags().String("grant-principal", "", "The resource to grant the entitlement to ($BATON_GRANT_PRINCIPAL)")
+
+	// TODO (ggreer): simplify command line flags. make one action and reuse entitlement, resource, etc.
+	// baton-connector --provision-action=grant --entitlement=entitlement_id --resource=resource_id --resource-type=resource_type
+	// baton-connector --provision-action=revoke --grant=grant_id
+	// baton-connector --provision-action=delete --resource-id=resource_id --resource-type=resource_type
+	// baton-connector --provision-action=create-account --login=login --email=email
+	// baton-connector --provision-action=rotate-credentials --resource-id=resource_id --resource-type=resource_type
+
+	cmd.PersistentFlags().String("grant-entitlement", "", "The id of the entitlement to grant to the supplied principal ($BATON_GRANT_ENTITLEMENT)")
+	cmd.PersistentFlags().String("grant-principal", "", "The id of the resource to grant the entitlement to ($BATON_GRANT_PRINCIPAL)")
 	cmd.PersistentFlags().String("grant-principal-type", "", "The resource type of the principal to grant the entitlement to ($BATON_GRANT_PRINCIPAL_TYPE)")
 	cmd.MarkFlagsRequiredTogether("grant-entitlement", "grant-principal", "grant-principal-type")
-	cmd.PersistentFlags().String("revoke-grant", "", "The grant to revoke ($BATON_REVOKE_GRANT)")
+	cmd.PersistentFlags().String("revoke-grant", "", "The id of the grant to revoke ($BATON_REVOKE_GRANT)")
 
 	cmd.PersistentFlags().String("create-account-login", "", "The login of the account to create ($BATON_CREATE_ACCOUNT_LOGIN)")
 	cmd.PersistentFlags().String("create-account-email", "", "The email of the account to create ($BATON_CREATE_ACCOUNT_EMAIL)")
