@@ -73,11 +73,11 @@ func (m *ListEventsRequest) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetStartingPosition()).(type) {
+		switch v := interface{}(m.GetEarliestEvent()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, ListEventsRequestValidationError{
-					field:  "StartingPosition",
+					field:  "EarliestEvent",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -85,16 +85,16 @@ func (m *ListEventsRequest) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, ListEventsRequestValidationError{
-					field:  "StartingPosition",
+					field:  "EarliestEvent",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetStartingPosition()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetEarliestEvent()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return ListEventsRequestValidationError{
-				field:  "StartingPosition",
+				field:  "EarliestEvent",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -230,234 +230,6 @@ var _ interface {
 	ErrorName() string
 } = ListEventsRequestValidationError{}
 
-// Validate checks the field values on StartingPosition with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// first error encountered is returned, or nil if there are no violations.
-func (m *StartingPosition) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on StartingPosition with the rules
-// defined in the proto definition for this message. If any rules are
-// violated, the result is a list of violation errors wrapped in
-// StartingPositionMultiError, or nil if none found.
-func (m *StartingPosition) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *StartingPosition) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	switch v := m.StartingPosition.(type) {
-	case *StartingPosition_Earliest:
-		if v == nil {
-			err := StartingPositionValidationError{
-				field:  "StartingPosition",
-				reason: "oneof value cannot be a typed-nil",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-		if all {
-			switch v := interface{}(m.GetEarliest()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, StartingPositionValidationError{
-						field:  "Earliest",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, StartingPositionValidationError{
-						field:  "Earliest",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetEarliest()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return StartingPositionValidationError{
-					field:  "Earliest",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	case *StartingPosition_Latest:
-		if v == nil {
-			err := StartingPositionValidationError{
-				field:  "StartingPosition",
-				reason: "oneof value cannot be a typed-nil",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-		if all {
-			switch v := interface{}(m.GetLatest()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, StartingPositionValidationError{
-						field:  "Latest",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, StartingPositionValidationError{
-						field:  "Latest",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetLatest()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return StartingPositionValidationError{
-					field:  "Latest",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	case *StartingPosition_StartFrom:
-		if v == nil {
-			err := StartingPositionValidationError{
-				field:  "StartingPosition",
-				reason: "oneof value cannot be a typed-nil",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-		if all {
-			switch v := interface{}(m.GetStartFrom()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, StartingPositionValidationError{
-						field:  "StartFrom",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, StartingPositionValidationError{
-						field:  "StartFrom",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetStartFrom()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return StartingPositionValidationError{
-					field:  "StartFrom",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	default:
-		_ = v // ensures v is used
-	}
-
-	if len(errors) > 0 {
-		return StartingPositionMultiError(errors)
-	}
-
-	return nil
-}
-
-// StartingPositionMultiError is an error wrapping multiple validation errors
-// returned by StartingPosition.ValidateAll() if the designated constraints
-// aren't met.
-type StartingPositionMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m StartingPositionMultiError) Error() string {
-	var msgs []string
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m StartingPositionMultiError) AllErrors() []error { return m }
-
-// StartingPositionValidationError is the validation error returned by
-// StartingPosition.Validate if the designated constraints aren't met.
-type StartingPositionValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e StartingPositionValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e StartingPositionValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e StartingPositionValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e StartingPositionValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e StartingPositionValidationError) ErrorName() string { return "StartingPositionValidationError" }
-
-// Error satisfies the builtin error interface
-func (e StartingPositionValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sStartingPosition.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = StartingPositionValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = StartingPositionValidationError{}
-
 // Validate checks the field values on ListEventsResponse with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
@@ -528,6 +300,8 @@ func (m *ListEventsResponse) validate(all bool) error {
 		}
 
 	}
+
+	// no validation rules for HasMore
 
 	for idx, item := range m.GetAnnotations() {
 		_, _ = idx, item

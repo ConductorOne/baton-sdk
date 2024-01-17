@@ -32,9 +32,9 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 	var pageToken string
 	for {
 		resp, err := cc.ListEvents(ctx, &v2.ListEventsRequest{
-			PageSize:         100,
-			PageToken:        pageToken,
-			StartingPosition: task.GetEventFeed().GetStartingPosition(),
+			PageSize:      100,
+			PageToken:     pageToken,
+			EarliestEvent: task.GetEventFeed().GetEarliestEvent(),
 		})
 		if err != nil {
 			return err
@@ -48,7 +48,7 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 			fmt.Println(string(bytes))
 		}
 		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
+		if !resp.GetHasMore() {
 			break
 		}
 	}
@@ -56,7 +56,7 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 	return nil
 }
 
-// NewEventFeed returns a task manager that queues an event feed task
+// NewEventFeed returns a task manager that queues an event feed task.
 func NewEventFeed(ctx context.Context) tasks.Manager {
 	return &localEventFeed{}
 }

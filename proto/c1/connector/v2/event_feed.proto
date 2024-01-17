@@ -23,7 +23,8 @@ message ListEventsRequest {
     min_bytes: 1
     max_bytes: 4096
   }];
-  StartingPosition starting_position = 2;
+  // StartingPosition starting_position = 2;
+  google.protobuf.Timestamp earliest_event = 2;
   uint32 page_size = 3 [(validate.rules).uint32 = {
     ignore_empty: true
     lte: 250
@@ -31,13 +32,15 @@ message ListEventsRequest {
   repeated google.protobuf.Any annotations = 4;
 }
 
-message StartingPosition {
-  oneof starting_position {
-    google.protobuf.Empty earliest = 1;
-    google.protobuf.Empty latest = 2;
-    google.protobuf.Timestamp start_from = 3;
-  }
-}
+// message StartingPosition {
+//   oneof starting_position {
+//     google.protobuf.Empty earliest = 1;
+//     google.protobuf.Empty latest = 2;
+//     google.protobuf.Timestamp start_from = 3;
+//   }
+// }
+
+
 
 message ListEventsResponse {
   repeated Event events = 1;
@@ -46,7 +49,8 @@ message ListEventsResponse {
     min_bytes: 1
     max_bytes: 4096
   }];
-  repeated google.protobuf.Any annotations = 3;
+  bool has_more = 3;
+  repeated google.protobuf.Any annotations = 4;
 }
 
 message Event {
