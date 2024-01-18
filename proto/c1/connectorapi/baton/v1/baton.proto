@@ -49,7 +49,7 @@ message Task {
 
   message EventFeedTask {
     repeated google.protobuf.Any annotations = 1;
-    google.protobuf.Timestamp earliest_event = 2;
+    google.protobuf.Timestamp start_at = 2;
   }
 
   message GrantTask {

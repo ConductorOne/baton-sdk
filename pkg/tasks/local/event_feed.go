@@ -32,9 +32,9 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 	var pageToken string
 	for {
 		resp, err := cc.ListEvents(ctx, &v2.ListEventsRequest{
-			PageSize:      100,
-			PageToken:     pageToken,
-			EarliestEvent: task.GetEventFeed().GetEarliestEvent(),
+			PageSize: 100,
+			Cursor:   pageToken,
+			StartAt:  task.GetEventFeed().GetStartAt(),
 		})
 		if err != nil {
 			return err
@@ -47,7 +47,7 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 			//nolint:forbidigo
 			fmt.Println(string(bytes))
 		}
-		pageToken = resp.GetNextPageToken()
+		pageToken = resp.GetCursor()
 		if !resp.GetHasMore() {
 			break
 		}

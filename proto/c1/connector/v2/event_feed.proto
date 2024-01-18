@@ -18,13 +18,12 @@ service EventService {
 
 message ListEventsRequest {
   // Can function like a page token but also can be arbitrary to resume a feed at any point
-  string page_token = 1 [(validate.rules).string = {
+  string cursor = 1 [(validate.rules).string = {
     ignore_empty: true
     min_bytes: 1
     max_bytes: 4096
   }];
-  // StartingPosition starting_position = 2;
-  google.protobuf.Timestamp earliest_event = 2;
+  google.protobuf.Timestamp start_at = 2;
   uint32 page_size = 3 [(validate.rules).uint32 = {
     ignore_empty: true
     lte: 250
@@ -32,19 +31,9 @@ message ListEventsRequest {
   repeated google.protobuf.Any annotations = 4;
 }
 
-// message StartingPosition {
-//   oneof starting_position {
-//     google.protobuf.Empty earliest = 1;
-//     google.protobuf.Empty latest = 2;
-//     google.protobuf.Timestamp start_from = 3;
-//   }
-// }
-
-
-
 message ListEventsResponse {
   repeated Event events = 1;
-  string next_page_token = 2 [(validate.rules).string = {
+  string cursor = 2 [(validate.rules).string = {
     ignore_empty: true
     min_bytes: 1
     max_bytes: 4096

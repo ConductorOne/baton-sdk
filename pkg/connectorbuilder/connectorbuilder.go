@@ -346,18 +346,18 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 	if b.eventFeed == nil {
 		return nil, fmt.Errorf("error: event feed not implemented")
 	}
-	events, streamState, annotations, err := b.eventFeed.ListEvents(ctx, request.EarliestEvent, &pagination.StreamToken{
-		Size:  int(request.PageSize),
-		Token: request.PageToken,
+	events, streamState, annotations, err := b.eventFeed.ListEvents(ctx, request.StartAt, &pagination.StreamToken{
+		Size:   int(request.PageSize),
+		Cursor: request.Cursor,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error: listing events failed: %w", err)
 	}
 	return &v2.ListEventsResponse{
-		Events:        events,
-		NextPageToken: streamState.NextPageToken,
-		HasMore:       streamState.HasMore,
-		Annotations:   annotations,
+		Events:      events,
+		Cursor:      streamState.Cursor,
+		HasMore:     streamState.HasMore,
+		Annotations: annotations,
 	}, nil
 }
 

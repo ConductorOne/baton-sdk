@@ -6,13 +6,13 @@ import (
 )
 
 type StreamToken struct {
-	Size  int
-	Token string
+	Size   int
+	Cursor string
 }
 
 type StreamState struct {
-	NextPageToken string `json:"next_page_token"`
-	HasMore       bool   `json:"done"`
+	Cursor  string `json:"cursor"`
+	HasMore bool   `json:"done"`
 }
 
 type Token struct {

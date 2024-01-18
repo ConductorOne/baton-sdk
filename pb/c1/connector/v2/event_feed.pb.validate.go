@@ -57,11 +57,11 @@ func (m *ListEventsRequest) validate(all bool) error {
 
 	var errors []error
 
-	if m.GetPageToken() != "" {
+	if m.GetCursor() != "" {
 
-		if l := len(m.GetPageToken()); l < 1 || l > 4096 {
+		if l := len(m.GetCursor()); l < 1 || l > 4096 {
 			err := ListEventsRequestValidationError{
-				field:  "PageToken",
+				field:  "Cursor",
 				reason: "value length must be between 1 and 4096 bytes, inclusive",
 			}
 			if !all {
@@ -73,11 +73,11 @@ func (m *ListEventsRequest) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetEarliestEvent()).(type) {
+		switch v := interface{}(m.GetStartAt()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, ListEventsRequestValidationError{
-					field:  "EarliestEvent",
+					field:  "StartAt",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -85,16 +85,16 @@ func (m *ListEventsRequest) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, ListEventsRequestValidationError{
-					field:  "EarliestEvent",
+					field:  "StartAt",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetEarliestEvent()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetStartAt()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return ListEventsRequestValidationError{
-				field:  "EarliestEvent",
+				field:  "StartAt",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -286,11 +286,11 @@ func (m *ListEventsResponse) validate(all bool) error {
 
 	}
 
-	if m.GetNextPageToken() != "" {
+	if m.GetCursor() != "" {
 
-		if l := len(m.GetNextPageToken()); l < 1 || l > 4096 {
+		if l := len(m.GetCursor()); l < 1 || l > 4096 {
 			err := ListEventsResponseValidationError{
-				field:  "NextPageToken",
+				field:  "Cursor",
 				reason: "value length must be between 1 and 4096 bytes, inclusive",
 			}
 			if !all {
