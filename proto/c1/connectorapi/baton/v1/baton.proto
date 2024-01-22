@@ -4,7 +4,6 @@ package c1.connectorapi.baton.v1;
 
 import "c1/connector/v2/connector.proto";
 import "c1/connector/v2/entitlement.proto";
-import "c1/connector/v2/event_feed.proto";
 import "c1/connector/v2/grant.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
