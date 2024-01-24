@@ -27,6 +27,13 @@ func WithAnnotation(msgs ...proto.Message) ResourceOption {
 	}
 }
 
+func WithExternalID(externalID *v2.ExternalId) ResourceOption {
+	return func(r *v2.Resource) error {
+		r.ExternalId = externalID
+		return nil
+	}
+}
+
 func WithParentResourceID(parentResourceID *v2.ResourceId) ResourceOption {
 	return func(r *v2.Resource) error {
 		r.ParentResourceId = parentResourceID

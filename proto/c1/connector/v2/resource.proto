@@ -51,6 +51,7 @@ message ResourceType {
       ignore_empty: true
     }
   ];
+  bool sourced_externally = 6;
 }
 
 
@@ -123,6 +124,15 @@ message Resource {
     }
   ];
   bool baton_resource = 6;
+  ExternalId external_id = 7;
+  CreationSource creation_source = 8;
+
+  // FIXME(mstanbCO): call this something else? Should it just be a bool? Possibly just use an annotation?
+  enum CreationSource {
+    CREATION_SOURCE_UNSPECIFIED = 0;
+    CREATION_SOURCE_CONNECTOR_LIST_RESOURCES = 1;
+    CREATION_SOURCE_CONNECTOR_LIST_GRANTS_PRINCIPAL_JIT = 2;
+  }
 }
 
 message ResourcesServiceListResourcesRequest {
@@ -163,4 +173,10 @@ message ResourcesServiceListResourcesResponse {
     }
   ];
   repeated google.protobuf.Any annotations = 3;
+}
+
+message ExternalId {
+  string id = 1;
+  string link = 2;
+  string description = 3;
 }

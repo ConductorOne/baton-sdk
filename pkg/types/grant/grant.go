@@ -33,6 +33,13 @@ func WithGrantMetadata(metadata map[string]interface{}) GrantOption {
 	}
 }
 
+func WithExternalPrincipalID(externalID *v2.ExternalId) GrantOption {
+	return func(g *v2.Grant) error {
+		g.Principal.ExternalId = externalID
+		return nil
+	}
+}
+
 func WithAnnotation(msgs ...proto.Message) GrantOption {
 	return func(g *v2.Grant) error {
 		annos := annotations.Annotations(g.Annotations)
