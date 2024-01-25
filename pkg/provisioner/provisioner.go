@@ -233,16 +233,21 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 		return err
 	}
 
+	if len(result.EncryptedData) == 0 {
+		return errors.New("create-account: no encrypted data returned")
+	}
+
 	jwe, err := jose.ParseEncrypted(string(result.EncryptedData[0].EncryptedBytes))
 	if err != nil {
 		return err
 	}
-	plaintext, err := jwe.Decrypt(privKey)
+	// Make sure we can decrypt before saying everything is ok
+	_, err = jwe.Decrypt(privKey)
 	if err != nil {
 		return err
 	}
-	// TODO FIXME: do better
-	l.Info("account created", zap.String("login", p.createAccountLogin), zap.String("email", p.createAccountEmail), zap.String("password", string(plaintext)))
+
+	l.Debug("account created", zap.String("login", p.createAccountLogin), zap.String("email", p.createAccountEmail))
 
 	return nil
 }
@@ -280,16 +285,20 @@ func (p *Provisioner) rotateCredentials(ctx context.Context) error {
 		return err
 	}
 
+	if len(result.EncryptedData) == 0 {
+		return errors.New("rotate-credentials: no encrypted data returned")
+	}
+
 	jwe, err := jose.ParseEncrypted(string(result.EncryptedData[0].EncryptedBytes))
 	if err != nil {
 		return err
 	}
-	plaintext, err := jwe.Decrypt(privKey)
+	// Make sure we can decrypt before saying everything is ok
+	_, err = jwe.Decrypt(privKey)
 	if err != nil {
 		return err
 	}
-	// TODO FIXME: do better
-	l.Info("credentials rotated", zap.String("resource", p.rotateCredentialsId), zap.String("resource type", p.rotateCredentialsType), zap.String("password", string(plaintext)))
+	l.Debug("credentials rotated", zap.String("resource", p.rotateCredentialsId), zap.String("resource type", p.rotateCredentialsType))
 
 	return nil
 }
