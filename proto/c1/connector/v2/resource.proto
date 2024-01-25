@@ -3,6 +3,7 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "google/protobuf/any.proto";
+import "google/protobuf/struct.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
@@ -70,6 +71,123 @@ message ResourceTypesServiceListResourceTypesResponse {
 
 service ResourcesService {
   rpc ListResources(ResourcesServiceListResourcesRequest) returns (ResourcesServiceListResourcesResponse);
+}
+
+service ResourceManagerService {
+  rpc CreateResource(CreateResourceRequest) returns (CreateResourceResponse);
+  rpc DeleteResource(DeleteResourceRequest) returns (DeleteResourceResponse);
+}
+
+service CredentialManagerService {
+  rpc RotateCredential(RotateCredentialRequest) returns (RotateCredentialResponse);
+}
+
+service AccountManagerService {
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+}
+
+message CreateResourceRequest {
+  Resource resource = 1;
+}
+
+message CreateResourceResponse {
+  Resource created = 1;
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message DeleteResourceRequest {
+  ResourceId resource_id = 1;
+}
+
+message DeleteResourceResponse {
+  repeated google.protobuf.Any annotations = 1;
+}
+
+message RotateCredentialRequest {
+  ResourceId resource_id = 1;
+  CredentialOptions credential_options = 2;
+  repeated EncryptionConfig encryption_configs = 3;
+}
+
+message RotateCredentialResponse {
+  repeated EncryptedData encrypted_data = 1;
+  ResourceId resource_id = 2;
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message AccountInfo {
+  message Email {
+    string address = 1 [
+      (validate.rules).string = {
+        email: true
+      }
+    ];
+    // Indicates if this is the user's primary email. Only one entry can be marked as primary.
+    bool is_primary = 2;
+  }
+  repeated Email emails = 1;
+
+  // The user's login
+  string login = 2;
+  // Any additional login aliases for the user
+  repeated string login_aliases = 3;
+  google.protobuf.Struct profile = 4;
+}
+
+message CredentialOptions {
+  message RandomPassword {
+    int64 length = 1 [(validate.rules).int64 = {gte: 8, lte: 64}];
+  }
+  oneof options {
+    RandomPassword random_password = 100;
+  };
+}
+
+message CreateAccountRequest {
+  AccountInfo account_info = 1;
+  CredentialOptions credential_options = 2;
+  repeated EncryptionConfig encryption_configs = 3;
+}
+
+message CreateAccountResponse {
+  message SuccessResult {
+    Resource resource = 1;
+    bool is_create_account_result = 2;
+  }
+  message ActionRequiredResult {
+    Resource resource = 1;
+    string message = 2;
+    bool is_create_account_result = 3;
+  }
+  oneof result {
+    SuccessResult success = 100;
+    ActionRequiredResult action_required = 101;
+  }
+  repeated EncryptedData encrypted_data = 2;
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message EncryptedData {
+  string provider = 1;
+  string key_id = 2;
+  string name = 3;
+  string description = 4;
+  string schema = 5; // optional
+  bytes encrypted_bytes = 6; // This should decrypt to json so we can store username & password separately
+}
+
+message EncryptionConfig {
+  Resource principal = 1;
+  string provider = 2;
+  string key_id = 3;
+
+  message JWKPublicKeyConfig {
+    bytes pub_key = 1;
+  }
+
+  oneof config {
+    JWKPublicKeyConfig jwk_public_key_config = 100;
+  }
 }
 
 message ResourceId {
