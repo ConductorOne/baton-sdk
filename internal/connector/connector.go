@@ -313,7 +313,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		ResourceManagerServiceClient:   connectorV2.NewResourceManagerServiceClient(cw.conn),
 		AccountManagerServiceClient:    connectorV2.NewAccountManagerServiceClient(cw.conn),
 		CredentialManagerServiceClient: connectorV2.NewCredentialManagerServiceClient(cw.conn),
-		EventServiceClient:         connectorV2.NewEventServiceClient(cw.conn),
+		EventServiceClient:             connectorV2.NewEventServiceClient(cw.conn),
 	}
 
 	return cw.client, nil

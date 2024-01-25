@@ -18,6 +18,8 @@ type localEventFeed struct {
 	o sync.Once
 }
 
+const EventsPerPageLocally = 100
+
 func (m *localEventFeed) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
@@ -32,7 +34,7 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 	var pageToken string
 	for {
 		resp, err := cc.ListEvents(ctx, &v2.ListEventsRequest{
-			PageSize: 100,
+			PageSize: EventsPerPageLocally,
 			Cursor:   pageToken,
 			StartAt:  task.GetEventFeed().GetStartAt(),
 		})
