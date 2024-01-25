@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -443,6 +442,5 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("unknown result type: %T", result))
 	}
 
-	spew.Dump(rv)
 	return rv, nil
 }
