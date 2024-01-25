@@ -137,3 +137,9 @@ message ResourcesServiceListResourcesResponse {
   }];
   repeated google.protobuf.Any annotations = 3;
 }
+
+message ExternalId {
+  string id = 1;
+  string link = 2;
+  string description = 3;
+}

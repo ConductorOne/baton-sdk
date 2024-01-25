@@ -8,10 +8,9 @@ import "c1/connector/v2/grant.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
 import "google/rpc/status.proto";
 import "validate/validate.proto";
-import "google/protobuf/timestamp.proto";
-
 
 option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
 
