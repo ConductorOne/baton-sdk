@@ -2,13 +2,18 @@ package provisioner
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"errors"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/go-jose/go-jose/v3"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 type Provisioner struct {
@@ -23,14 +28,59 @@ type Provisioner struct {
 	grantPrincipalType string
 
 	revokeGrantID string
+
+	createAccountLogin string
+	createAccountEmail string
+
+	deleteResourceID   string
+	deleteResourceType string
+
+	rotateCredentialsId   string
+	rotateCredentialsType string
+}
+
+// makeCrypto is used by rotateCredentials and createAccount.
+func makeCrypto(ctx context.Context) (*ecdsa.PrivateKey, *v2.CredentialOptions, []*v2.EncryptionConfig, error) {
+	// Default to generating a random key and random password that is 12 characters long
+	privKey, pubKey := crypto.GenKey()
+	pubKeyJWKBytes, err := pubKey.MarshalJSON()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	opts := &v2.CredentialOptions{
+		Options: &v2.CredentialOptions_RandomPassword_{
+			RandomPassword: &v2.CredentialOptions_RandomPassword{
+				Length: 20,
+			},
+		},
+	}
+	config := []*v2.EncryptionConfig{
+		{
+			Config: &v2.EncryptionConfig_JwkPublicKeyConfig{
+				JwkPublicKeyConfig: &v2.EncryptionConfig_JWKPublicKeyConfig{
+					PubKey: pubKeyJWKBytes,
+				},
+			},
+		},
+	}
+	return privKey, opts, config, nil
 }
 
 func (p *Provisioner) Run(ctx context.Context) error {
-	if p.revokeGrantID != "" {
+	switch {
+	case p.revokeGrantID != "":
 		return p.revoke(ctx)
+	case p.grantEntitlementID != "" && p.grantPrincipalID != "" && p.grantPrincipalType != "":
+		return p.grant(ctx)
+	case p.createAccountLogin != "" || p.createAccountEmail != "":
+		return p.createAccount(ctx)
+	case p.deleteResourceID != "" && p.deleteResourceType != "":
+		return p.deleteResource(ctx)
+	case p.rotateCredentialsId != "" && p.rotateCredentialsType != "":
+		return p.rotateCredentials(ctx)
+	default:
+		return errors.New("unknown provisioning action")
 	}
-
-	return p.grant(ctx)
 }
 
 func (p *Provisioner) loadStore(ctx context.Context) (connectorstore.Reader, error) {
@@ -156,6 +206,103 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 	return nil
 }
 
+func (p *Provisioner) createAccount(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
+	var emails []*v2.AccountInfo_Email
+	if p.createAccountEmail != "" {
+		emails = append(emails, &v2.AccountInfo_Email{
+			Address:   p.createAccountEmail,
+			IsPrimary: true,
+		})
+	}
+
+	privKey, opts, config, err := makeCrypto(ctx)
+	if err != nil {
+		return err
+	}
+
+	result, err := p.connector.CreateAccount(ctx, &v2.CreateAccountRequest{
+		AccountInfo: &v2.AccountInfo{
+			Emails: emails,
+			Login:  p.createAccountLogin,
+		},
+		CredentialOptions: opts,
+		EncryptionConfigs: config,
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(result.EncryptedData) == 0 {
+		return errors.New("create-account: no encrypted data returned")
+	}
+
+	jwe, err := jose.ParseEncrypted(string(result.EncryptedData[0].EncryptedBytes))
+	if err != nil {
+		return err
+	}
+	// Make sure we can decrypt before saying everything is ok
+	_, err = jwe.Decrypt(privKey)
+	if err != nil {
+		return err
+	}
+
+	l.Debug("account created", zap.String("login", p.createAccountLogin), zap.String("email", p.createAccountEmail))
+
+	return nil
+}
+
+func (p *Provisioner) deleteResource(ctx context.Context) error {
+	_, err := p.connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
+		ResourceId: &v2.ResourceId{
+			Resource:     p.deleteResourceID,
+			ResourceType: p.deleteResourceType,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (p *Provisioner) rotateCredentials(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
+
+	privKey, opts, config, err := makeCrypto(ctx)
+	if err != nil {
+		return err
+	}
+
+	result, err := p.connector.RotateCredential(ctx, &v2.RotateCredentialRequest{
+		ResourceId: &v2.ResourceId{
+			Resource:     p.rotateCredentialsId,
+			ResourceType: p.rotateCredentialsType,
+		},
+		CredentialOptions: opts,
+		EncryptionConfigs: config,
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(result.EncryptedData) == 0 {
+		return errors.New("rotate-credentials: no encrypted data returned")
+	}
+
+	jwe, err := jose.ParseEncrypted(string(result.EncryptedData[0].EncryptedBytes))
+	if err != nil {
+		return err
+	}
+	// Make sure we can decrypt before saying everything is ok
+	_, err = jwe.Decrypt(privKey)
+	if err != nil {
+		return err
+	}
+	l.Debug("credentials rotated", zap.String("resource", p.rotateCredentialsId), zap.String("resource type", p.rotateCredentialsType))
+
+	return nil
+}
+
 func NewGranter(c types.ConnectorClient, dbPath string, entitlementID string, principalID string, principalType string) *Provisioner {
 	return &Provisioner{
 		dbPath:             dbPath,
@@ -171,5 +318,32 @@ func NewRevoker(c types.ConnectorClient, dbPath string, grantID string) *Provisi
 		dbPath:        dbPath,
 		connector:     c,
 		revokeGrantID: grantID,
+	}
+}
+
+func NewResourceDeleter(c types.ConnectorClient, dbPath string, resourceId string, resourceType string) *Provisioner {
+	return &Provisioner{
+		dbPath:             dbPath,
+		connector:          c,
+		deleteResourceID:   resourceId,
+		deleteResourceType: resourceType,
+	}
+}
+
+func NewCreateAccountManager(c types.ConnectorClient, dbPath string, login string, email string) *Provisioner {
+	return &Provisioner{
+		dbPath:             dbPath,
+		connector:          c,
+		createAccountLogin: login,
+		createAccountEmail: email,
+	}
+}
+
+func NewCredentialRotator(c types.ConnectorClient, dbPath string, resourceId string, resourceType string) *Provisioner {
+	return &Provisioner{
+		dbPath:                dbPath,
+		connector:             c,
+		rotateCredentialsId:   resourceId,
+		rotateCredentialsType: resourceType,
 	}
 }

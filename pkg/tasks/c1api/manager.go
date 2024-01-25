@@ -6,6 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -123,7 +126,7 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 	return resp.GetTask(), nextPoll, nil
 }
 
-func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, annos annotations.Annotations, err error) error {
+func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, err error) error {
 	l := ctxzap.Extract(ctx)
 	l = l.With(
 		zap.String("task_id", task.GetId()),
@@ -133,6 +136,15 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, annos 
 	finishCtx, finishCanc := context.WithTimeout(context.Background(), time.Second*30)
 	defer finishCanc()
 
+	var marshalledResp *anypb.Any
+	if resp != nil {
+		marshalledResp, err = anypb.New(resp)
+		if err != nil {
+			l.Error("c1_api_task_manager.finishTask(): error while attempting to marshal response", zap.Error(err))
+			return err
+		}
+	}
+
 	if err == nil {
 		l.Info("c1_api_task_manager.finishTask(): finishing task successfully")
 		_, err = c.serviceClient.FinishTask(finishCtx, &v1.BatonServiceFinishTaskRequest{
@@ -141,6 +153,7 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, annos 
 			FinalState: &v1.BatonServiceFinishTaskRequest_Success_{
 				Success: &v1.BatonServiceFinishTaskRequest_Success{
 					Annotations: annos,
+					Response:    marshalledResp,
 				},
 			},
 		})
@@ -219,8 +232,20 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	case tasks.RevokeType:
 		handler = newRevokeTaskHandler(task, tHelpers)
 
+	case tasks.CreateAccountType:
+		handler = newCreateAccountTaskHandler(task, tHelpers)
+
+	case tasks.CreateResourceType:
+		handler = newCreateResourceTaskHandler(task, tHelpers)
+
+	case tasks.DeleteResourceType:
+		handler = newDeleteResourceTaskHandler(task, tHelpers)
+
+	case tasks.RotateCredentialsType:
+		handler = newRotateCredentialsTaskHandler(task, tHelpers)
+
 	default:
-		return c.finishTask(ctx, task, nil, errors.New("unsupported task type"))
+		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
 	}
 
 	err := handler.HandleTask(ctx)

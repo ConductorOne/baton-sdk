@@ -15,46 +15,44 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
-type grantHelpers interface {
+type createAccountHelpers interface {
 	ConnectorClient() types.ConnectorClient
 	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
 }
 
-type grantTaskHandler struct {
+type createAccountTaskHandler struct {
 	task    *v1.Task
-	helpers grantHelpers
+	helpers createAccountHelpers
 }
 
-func (g *grantTaskHandler) HandleTask(ctx context.Context) error {
+func (g *createAccountTaskHandler) HandleTask(ctx context.Context) error {
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.Id), zap.Stringer("task_type", tasks.GetType(g.task)))
 
-	if g.task.GetGrant() == nil || g.task.GetGrant().GetEntitlement() == nil || g.task.GetGrant().GetPrincipal() == nil {
+	t := g.task.GetCreateAccount()
+	if t == nil || t.GetAccountInfo() == nil {
 		l.Error(
-			"grant task was nil or missing entitlement or principal",
-			zap.Any("grant", g.task.GetGrant()),
-			zap.Any("entitlement", g.task.GetGrant().GetEntitlement()),
-			zap.Any("principal", g.task.GetGrant().GetPrincipal()),
+			"account task was nil or missing account info",
+			zap.Any("create_account_task", t),
 		)
-		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed grant task"), ErrTaskNonRetryable))
+		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed create account task"), ErrTaskNonRetryable))
 	}
 
-	grant := g.task.GetGrant()
-
 	cc := g.helpers.ConnectorClient()
-	resp, err := cc.Grant(ctx, &v2.GrantManagerServiceGrantRequest{
-		Entitlement: grant.Entitlement,
-		Principal:   grant.Principal,
+	resp, err := cc.CreateAccount(ctx, &v2.CreateAccountRequest{
+		AccountInfo:       t.GetAccountInfo(),
+		CredentialOptions: t.GetCredentialOptions(),
+		EncryptionConfigs: t.GetEncryptionConfigs(),
 	})
 	if err != nil {
-		l.Error("failed while granting entitlement", zap.Error(err))
+		l.Error("failed creating account", zap.Error(err))
 		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
 	}
 
 	return g.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
 }
 
-func newGrantTaskHandler(task *v1.Task, helpers grantHelpers) tasks.TaskHandler {
-	return &grantTaskHandler{
+func newCreateAccountTaskHandler(task *v1.Task, helpers createAccountHelpers) tasks.TaskHandler {
+	return &createAccountTaskHandler{
 		task:    task,
 		helpers: helpers,
 	}

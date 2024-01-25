@@ -48,11 +48,32 @@ message Task {
     connector.v2.Entitlement entitlement = 1;
     connector.v2.Resource principal = 2;
     repeated google.protobuf.Any annotations = 3;
+    google.protobuf.Duration duration = 4;
   }
 
   message RevokeTask {
     connector.v2.Grant grant = 1;
     repeated google.protobuf.Any annotations = 2;
+  }
+
+  message CreateAccountTask {
+    connector.v2.AccountInfo account_info = 1;
+    connector.v2.CredentialOptions credential_options = 2;
+    repeated connector.v2.EncryptionConfig encryption_configs = 3;
+  }
+
+  message CreateResourceTask {
+    connector.v2.Resource resource = 1;
+  }
+
+  message DeleteResourceTask {
+    connector.v2.ResourceId resource_id = 1;
+  }
+
+  message RotateCredentialsTask {
+    connector.v2.ResourceId resource_id = 1;
+    connector.v2.CredentialOptions credential_options = 2;
+    repeated connector.v2.EncryptionConfig encryption_configs = 3;
   }
 
   string id = 1;
@@ -63,6 +84,10 @@ message Task {
     SyncFullTask sync_full = 102;
     GrantTask grant = 103;
     RevokeTask revoke = 104;
+    CreateAccountTask create_account = 105;
+    CreateResourceTask create_resource = 106;
+    DeleteResourceTask delete_resource = 107;
+    RotateCredentialsTask rotate_credentials = 108;
   }
 }
 
@@ -209,10 +234,14 @@ message BatonServiceFinishTaskRequest {
   message Error {
     bool non_retryable = 1;
     repeated google.protobuf.Any annotations = 2 [(validate.rules).repeated = {max_items: 16}];
+    // The response from the connector, if any.
+    google.protobuf.Any response = 3;
   }
 
   message Success {
     repeated google.protobuf.Any annotations = 1 [(validate.rules).repeated = {max_items: 16}];
+    // The response from the connector, if any.
+    google.protobuf.Any response = 2;
   }
 
   oneof final_state {

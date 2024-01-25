@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -17,7 +19,7 @@ import (
 
 type revokeHelpers interface {
 	ConnectorClient() types.ConnectorClient
-	FinishTask(ctx context.Context, annos annotations.Annotations, err error) error
+	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
 }
 
 type revokeTaskHandler struct {
@@ -30,7 +32,7 @@ func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
 
 	if r.task.GetRevoke() == nil || r.task.GetRevoke().GetGrant() == nil {
 		l.Error("revoke task was nil or missing grant", zap.Any("revoke", r.task.GetRevoke()), zap.Any("grant", r.task.GetRevoke().GetGrant()))
-		return r.helpers.FinishTask(ctx, nil, errors.Join(errors.New("invalid task type"), ErrTaskNonRetryable))
+		return r.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("invalid task type"), ErrTaskNonRetryable))
 	}
 
 	cc := r.helpers.ConnectorClient()
@@ -39,10 +41,10 @@ func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
 	})
 	if err != nil {
 		l.Error("failed while granting entitlement", zap.Error(err))
-		return r.helpers.FinishTask(ctx, nil, errors.Join(err, ErrTaskNonRetryable))
+		return r.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
 	}
 
-	return r.helpers.FinishTask(ctx, resp.GetAnnotations(), nil)
+	return r.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
 }
 
 func newRevokeTaskHandler(task *v1.Task, helpers revokeHelpers) tasks.TaskHandler {

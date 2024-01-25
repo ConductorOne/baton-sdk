@@ -8,6 +8,7 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -19,7 +20,7 @@ import (
 type fullSyncHelpers interface {
 	ConnectorClient() types.ConnectorClient
 	Upload(ctx context.Context, r io.ReadSeeker) error
-	FinishTask(ctx context.Context, annos annotations.Annotations, err error) error
+	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
 	HeartbeatTask(ctx context.Context, annos annotations.Annotations) (context.Context, error)
 	TempDir() string
 }
@@ -77,12 +78,12 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	assetFile, err := os.CreateTemp(c.helpers.TempDir(), "baton-sdk-sync-upload")
 	if err != nil {
 		l.Error("failed to create temp file", zap.Error(err))
-		return c.helpers.FinishTask(ctx, nil, err)
+		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 	c1zPath := assetFile.Name()
 	err = assetFile.Close()
 	if err != nil {
-		return c.helpers.FinishTask(ctx, nil, err)
+		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
 	// TODO(morgabra) Add annotation for for sync_id, or come up with some other way to track sync state.
@@ -95,13 +96,13 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	err = c.sync(ctx, c1zPath)
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
-		return c.helpers.FinishTask(ctx, nil, err)
+		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
 	c1zF, err := os.Open(c1zPath)
 	if err != nil {
 		l.Error("failed to open sync asset prior to upload", zap.Error(err))
-		return c.helpers.FinishTask(ctx, nil, err)
+		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 	defer func(f *os.File) {
 		err = f.Close()
@@ -117,10 +118,10 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	err = c.helpers.Upload(ctx, c1zF)
 	if err != nil {
 		l.Error("failed to upload sync asset", zap.Error(err))
-		return c.helpers.FinishTask(ctx, nil, err)
+		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
-	return c.helpers.FinishTask(ctx, nil, nil)
+	return c.helpers.FinishTask(ctx, nil, nil, nil)
 }
 
 func newFullSyncTaskHandler(task *v1.Task, helpers fullSyncHelpers) tasks.TaskHandler {
