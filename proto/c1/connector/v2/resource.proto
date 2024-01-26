@@ -2,30 +2,26 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
-option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
-
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
 import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 service ResourceTypesService {
   rpc ListResourceTypes(ResourceTypesServiceListResourceTypesRequest) returns (ResourceTypesServiceListResourceTypesResponse);
 }
 
 message ResourceType {
-  string id = 1 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 1024
-    }
-  ];
-  string display_name = 2 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 1024
-      ignore_empty: true
-    }
-  ];
+  string id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  string display_name = 2 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+    ignore_empty: true
+  }];
 
   enum Trait {
     TRAIT_UNSPECIFIED = 0;
@@ -34,55 +30,42 @@ message ResourceType {
     TRAIT_ROLE = 3;
     TRAIT_APP = 4;
   }
-  repeated Trait traits = 3 [
-    (validate.rules).repeated = {
-      unique: true
-      items: {
-        enum: {
-          defined_only: true
-        }
-      }
+  repeated Trait traits = 3 [(validate.rules).repeated = {
+    unique: true
+    items: {
+      enum: {defined_only: true}
     }
-  ];
+  }];
   repeated google.protobuf.Any annotations = 4;
-  string description = 5 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 4096
-      ignore_empty: true
-    }
-  ];
+  string description = 5 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 4096
+    ignore_empty: true
+  }];
   bool sourced_externally = 6;
 }
 
-
 message ResourceTypesServiceListResourceTypesRequest {
   Resource parent = 1;
-  uint32 page_size = 2 [
-    (validate.rules).uint32 = {
-      ignore_empty: true
-      lte: 250
-    }
-  ];
-  string page_token = 3 [
-    (validate.rules).string = {
-      ignore_empty: true
-      min_bytes: 1
-      max_bytes: 4096
-    }
-  ];
+  uint32 page_size = 2 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 250
+  }];
+  string page_token = 3 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
   repeated google.protobuf.Any annotations = 4;
 }
 
 message ResourceTypesServiceListResourceTypesResponse {
   repeated ResourceType list = 1;
-  string next_page_token = 2 [
-    (validate.rules).string = {
-      ignore_empty: true
-      min_bytes: 1
-      max_bytes: 4096
-    }
-  ];
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
   repeated google.protobuf.Any annotations = 3;
 }
 
@@ -208,39 +191,31 @@ message EncryptionConfig {
 }
 
 message ResourceId {
-  string resource_type = 1 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 1024
-    }
-  ];
-  string resource = 2 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 1024
-    }
-  ];
+  string resource_type = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  string resource = 2 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
   bool baton_resource = 3;
 }
 
 message Resource {
   ResourceId id = 1;
   ResourceId parent_resource_id = 2;
-  string display_name = 3 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 1024
-      ignore_empty: true
-    }
-  ];
+  string display_name = 3 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+    ignore_empty: true
+  }];
   repeated google.protobuf.Any annotations = 4;
-  string description = 5 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 2048
-      ignore_empty: true
-    }
-  ];
+  string description = 5 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 2048
+    ignore_empty: true
+  }];
   bool baton_resource = 6;
   ExternalId external_id = 7;
   CreationSource creation_source = 8;
@@ -254,42 +229,30 @@ message Resource {
 }
 
 message ResourcesServiceListResourcesRequest {
-  string resource_type_id = 1 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 1024
-    }
-  ];
-  ResourceId parent_resource_id = 2 [
-    (validate.rules).message = {
-      required: false
-    }
-  ];
-  uint32 page_size = 3 [
-    (validate.rules).uint32 = {
-      ignore_empty: true
-      lte: 250
-    }
-  ];
-  string page_token = 4 [
-    (validate.rules).string = {
-      ignore_empty: true
-      min_bytes: 1
-      max_bytes: 4096
-    }
-  ];
+  string resource_type_id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  ResourceId parent_resource_id = 2 [(validate.rules).message = {required: false}];
+  uint32 page_size = 3 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 250
+  }];
+  string page_token = 4 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
   repeated google.protobuf.Any annotations = 5;
 }
 
 message ResourcesServiceListResourcesResponse {
   repeated Resource list = 1;
-  string next_page_token = 2 [
-    (validate.rules).string = {
-      ignore_empty: true
-      min_bytes: 1
-      max_bytes: 4096
-    }
-  ];
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
   repeated google.protobuf.Any annotations = 3;
 }
 

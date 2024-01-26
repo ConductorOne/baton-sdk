@@ -44,7 +44,7 @@ func (m *localRevoker) Process(ctx context.Context, task *v1.Task, cc types.Conn
 	return nil
 }
 
-// NewGranter returns a task manager that queues a sync task.
+// NewRevoker returns a task manager that queues a revoke task.
 func NewRevoker(ctx context.Context, dbPath string, grantID string) tasks.Manager {
 	return &localRevoker{
 		dbPath:  dbPath,

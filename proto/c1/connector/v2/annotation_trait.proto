@@ -2,20 +2,16 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
-option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
-
+import "c1/connector/v2/asset.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
-import "c1/connector/v2/asset.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 message UserTrait {
   message Email {
-    string address = 1 [
-      (validate.rules).string = {
-        email: true
-      }
-    ];
+    string address = 1 [(validate.rules).string = {email: true}];
     // Indicates if this is the user's primary email. Only one entry can be marked as primary.
     bool is_primary = 2;
   }
@@ -28,24 +24,14 @@ message UserTrait {
       STATUS_DISABLED = 2;
       STATUS_DELETED = 3;
     }
-    Status status = 1 [
-      (validate.rules).enum = {
-        defined_only: true
-      }
-    ];
-    string details = 2 [
-      (validate.rules).string = {
-        ignore_empty: true
-        min_bytes: 1
-        max_bytes: 1024
-      }
-    ];
+    Status status = 1 [(validate.rules).enum = {defined_only: true}];
+    string details = 2 [(validate.rules).string = {
+      ignore_empty: true
+      min_bytes: 1
+      max_bytes: 1024
+    }];
   }
-  Status status = 2 [
-    (validate.rules).message = {
-      required: true
-    }
-  ];
+  Status status = 2 [(validate.rules).message = {required: true}];
   google.protobuf.Struct profile = 3;
   c1.connector.v2.AssetRef icon = 4;
 
@@ -55,11 +41,7 @@ message UserTrait {
     ACCOUNT_TYPE_SERVICE = 2;
     ACCOUNT_TYPE_SYSTEM = 3;
   }
-  AccountType account_type = 5 [
-    (validate.rules).enum = {
-      defined_only: true
-    }
-  ];
+  AccountType account_type = 5 [(validate.rules).enum = {defined_only: true}];
 
   // The user's login
   string login = 6;
@@ -89,15 +71,13 @@ message RoleTrait {
 }
 
 message AppTrait {
-  string help_url = 1 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 1024
-      uri: true
-      prefix: "https://"
-      ignore_empty: true
-    }
-  ];
+  string help_url = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+    uri: true
+    prefix: "https://"
+    ignore_empty: true
+  }];
   c1.connector.v2.AssetRef icon = 2;
   c1.connector.v2.AssetRef logo = 3;
   google.protobuf.Struct profile = 4;
@@ -111,4 +91,3 @@ message AppTrait {
   }
   repeated AppFlag flags = 5;
 }
-

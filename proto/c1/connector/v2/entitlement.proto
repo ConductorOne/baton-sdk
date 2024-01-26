@@ -2,11 +2,11 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
-option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
-
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 service EntitlementsService {
   rpc ListEntitlements(EntitlementsServiceListEntitlementsRequest) returns (EntitlementsServiceListEntitlementsResponse);
@@ -19,65 +19,47 @@ message Entitlement {
     PURPOSE_VALUE_PERMISSION = 2;
   }
 
-  c1.connector.v2.Resource resource = 1 [
-    (validate.rules).message = {
-      required: true
-    }
-  ];
-  string id = 2 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 1024
-    }
-  ];
-  string display_name = 3 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 1024
-      ignore_empty: true
-    }
-  ];
-  string description = 4 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 2048
-      ignore_empty: true
-    }
-  ];
+  c1.connector.v2.Resource resource = 1 [(validate.rules).message = {required: true}];
+  string id = 2 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  string display_name = 3 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+    ignore_empty: true
+  }];
+  string description = 4 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 2048
+    ignore_empty: true
+  }];
   repeated c1.connector.v2.ResourceType grantable_to = 5;
   repeated google.protobuf.Any annotations = 6;
-  PurposeValue purpose = 7 [(validate.rules).enum = {
-    defined_only: true
-  }];
+  PurposeValue purpose = 7 [(validate.rules).enum = {defined_only: true}];
   string slug = 8;
 }
 
 message EntitlementsServiceListEntitlementsRequest {
   c1.connector.v2.Resource resource = 1;
-  uint32 page_size = 2 [
-    (validate.rules).uint32 = {
-      ignore_empty: true
-      lte: 250
-    }
-  ];
-  string page_token = 3 [
-    (validate.rules).string = {
-      ignore_empty: true
-      min_bytes: 1
-      max_bytes: 4096
-    }
-  ];
+  uint32 page_size = 2 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 250
+  }];
+  string page_token = 3 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
   repeated google.protobuf.Any annotations = 4;
 }
 
 message EntitlementsServiceListEntitlementsResponse {
   repeated Entitlement list = 1;
-  string next_page_token = 2 [
-    (validate.rules).string = {
-      ignore_empty: true
-      min_bytes: 1
-      max_bytes: 4096
-    }
-  ];
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
   repeated google.protobuf.Any annotations = 3;
 }

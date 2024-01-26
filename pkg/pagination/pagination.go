@@ -5,6 +5,16 @@ import (
 	"fmt"
 )
 
+type StreamToken struct {
+	Size   int
+	Cursor string
+}
+
+type StreamState struct {
+	Cursor  string `json:"cursor"`
+	HasMore bool   `json:"done"`
+}
+
 type Token struct {
 	Size  int
 	Token string

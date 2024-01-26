@@ -2,22 +2,20 @@ syntax = "proto3";
 
 package c1.reader.v2;
 
-option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
-
 import "c1/connector/v2/entitlement.proto";
 import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
 
 service EntitlementsReaderService {
   rpc GetEntitlement(EntitlementsReaderServiceGetEntitlementRequest) returns (EntitlementsReaderServiceGetEntitlementResponse);
 }
 
 message EntitlementsReaderServiceGetEntitlementRequest {
-  string entitlement_id = 1 [
-    (validate.rules).string = {
-      min_bytes: 1
-      max_bytes: 1024
-    }
-  ];
+  string entitlement_id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
 }
 
 message EntitlementsReaderServiceGetEntitlementResponse {

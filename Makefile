@@ -15,6 +15,10 @@ add-dep:
 protogen:
 	buf generate
 
+.PHONY: protofmt
+protofmt:
+	buf format -w
+
 .PHONY: test
 test:
 	go test -v ./...

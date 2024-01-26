@@ -216,6 +216,9 @@ type rotateCredentialsConfig struct {
 	resourceType string
 }
 
+type eventStreamConfig struct {
+}
+
 type runnerConfig struct {
 	rlCfg                   *ratelimitV1.RateLimiterConfig
 	rlDescriptors           []*ratelimitV1.RateLimitDescriptors_Entry
@@ -227,6 +230,7 @@ type runnerConfig struct {
 	provisioningEnabled     bool
 	grantConfig             *grantConfig
 	revokeConfig            *revokeConfig
+	eventFeedConfig         *eventStreamConfig
 	tempDir                 string
 	createAccountConfig     *createAccountConfig
 	deleteResourceConfig    *deleteResourceConfig
@@ -383,6 +387,13 @@ func WithOnDemandSync(c1zPath string) Option {
 		return nil
 	}
 }
+func WithOnDemandEventStream() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.eventFeedConfig = &eventStreamConfig{}
+		return nil
+	}
+}
 
 func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
@@ -429,7 +440,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	runner.cw = cw
 
 	if cfg.onDemand {
-		if cfg.c1zPath == "" {
+		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -455,6 +466,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.rotateCredentialsConfig != nil:
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
+
+		case cfg.eventFeedConfig != nil:
+			tm = local.NewEventFeed(ctx)
 
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))

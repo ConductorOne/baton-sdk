@@ -8,6 +8,7 @@ import "c1/connector/v2/grant.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
 import "google/rpc/status.proto";
 import "validate/validate.proto";
 
@@ -42,6 +43,11 @@ message Task {
 
   message SyncFullTask {
     repeated google.protobuf.Any annotations = 1;
+  }
+
+  message EventFeedTask {
+    repeated google.protobuf.Any annotations = 1;
+    google.protobuf.Timestamp start_at = 2;
   }
 
   message GrantTask {
@@ -88,6 +94,7 @@ message Task {
     CreateResourceTask create_resource = 106;
     DeleteResourceTask delete_resource = 107;
     RotateCredentialsTask rotate_credentials = 108;
+    EventFeedTask event_feed = 109;
   }
 }
 

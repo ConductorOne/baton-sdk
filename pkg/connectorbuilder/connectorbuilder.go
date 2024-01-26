@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -54,6 +55,10 @@ type CredentialManager interface {
 	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*crypto.PlaintextCredential, annotations.Annotations, error)
 }
 
+type EventProvider interface {
+	ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
+}
+
 type ConnectorBuilder interface {
 	Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 	Validate(ctx context.Context) (annotations.Annotations, error)
@@ -67,6 +72,7 @@ type builderImpl struct {
 	resourceManagers       map[string]ResourceManager
 	accountManager         AccountManager
 	credentialManagers     map[string]CredentialManager
+	eventFeed              EventProvider
 	cb                     ConnectorBuilder
 }
 
@@ -82,6 +88,10 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 			accountManager:         nil,
 			credentialManagers:     make(map[string]CredentialManager),
 			cb:                     c,
+		}
+
+		if b, ok := c.(EventProvider); ok {
+			ret.eventFeed = b
 		}
 
 		for _, rb := range c.ResourceSyncers(ctx) {
@@ -330,6 +340,25 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 // FIXME(jirwin): Asset streaming is disabled.
 func (b *builderImpl) GetAsset(request *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
 	return nil
+}
+
+func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (*v2.ListEventsResponse, error) {
+	if b.eventFeed == nil {
+		return nil, fmt.Errorf("error: event feed not implemented")
+	}
+	events, streamState, annotations, err := b.eventFeed.ListEvents(ctx, request.StartAt, &pagination.StreamToken{
+		Size:   int(request.PageSize),
+		Cursor: request.Cursor,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error: listing events failed: %w", err)
+	}
+	return &v2.ListEventsResponse{
+		Events:      events,
+		Cursor:      streamState.Cursor,
+		HasMore:     streamState.HasMore,
+		Annotations: annotations,
+	}, nil
 }
 
 func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
