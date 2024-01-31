@@ -332,7 +332,6 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("revoke-grant", "", "The grant to revoke ($BATON_REVOKE_GRANT)")
 	cmd.PersistentFlags().Bool("event-feed", false, "Read feed events to stdout ($BATON_EVENT_FEED)")
 	cmd.MarkFlagsRequiredTogether("grant-entitlement", "grant-principal", "grant-principal-type")
-	cmd.PersistentFlags().String("revoke-grant", "", "The id of the grant to revoke ($BATON_REVOKE_GRANT)")
 
 	cmd.PersistentFlags().String("create-account-login", "", "The login of the account to create ($BATON_CREATE_ACCOUNT_LOGIN)")
 	cmd.PersistentFlags().String("create-account-email", "", "The email of the account to create ($BATON_CREATE_ACCOUNT_EMAIL)")
