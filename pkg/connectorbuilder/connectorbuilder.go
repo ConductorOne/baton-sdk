@@ -3,6 +3,7 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -265,6 +266,9 @@ func getCapabilities(ctx context.Context, b *builderImpl) *v2.ConnectorCapabilit
 		}
 		resourceTypeCapabilities = append(resourceTypeCapabilities, resourceTypeCapability)
 	}
+	sort.Slice(resourceTypeCapabilities, func(i, j int) bool {
+		return resourceTypeCapabilities[i].ResourceType.GetId() < resourceTypeCapabilities[j].ResourceType.GetId()
+	})
 	return &v2.ConnectorCapabilities{ResourceTypeCapabilities: resourceTypeCapabilities}
 }
 
