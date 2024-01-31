@@ -4,13 +4,13 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
@@ -288,7 +288,7 @@ func NewCmd[T any, PtrT *T](
 				return fmt.Errorf("connector does not support capabilities")
 			}
 
-			outBytes, err := protojson.Marshal(md.Metadata.Capabilities)
+			outBytes, err := json.MarshalIndent(md.Metadata.Capabilities, "", "  ")
 			if err != nil {
 				return err
 			}
