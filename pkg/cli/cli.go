@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -288,7 +289,18 @@ func NewCmd[T any, PtrT *T](
 				return fmt.Errorf("connector does not support capabilities")
 			}
 
-			outBytes, err := protojson.Marshal(md.Metadata.Capabilities)
+			protoMarshaller := protojson.MarshalOptions{
+				Multiline: true,
+				Indent:    "  ",
+			}
+
+			a := &anypb.Any{}
+			err = anypb.MarshalFrom(a, md.Metadata.Capabilities, proto.MarshalOptions{Deterministic: true})
+			if err != nil {
+				return err
+			}
+
+			outBytes, err := protoMarshaller.Marshal(a)
 			if err != nil {
 				return err
 			}
@@ -332,7 +344,6 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("revoke-grant", "", "The grant to revoke ($BATON_REVOKE_GRANT)")
 	cmd.PersistentFlags().Bool("event-feed", false, "Read feed events to stdout ($BATON_EVENT_FEED)")
 	cmd.MarkFlagsRequiredTogether("grant-entitlement", "grant-principal", "grant-principal-type")
-	cmd.PersistentFlags().String("revoke-grant", "", "The id of the grant to revoke ($BATON_REVOKE_GRANT)")
 
 	cmd.PersistentFlags().String("create-account-login", "", "The login of the account to create ($BATON_CREATE_ACCOUNT_LOGIN)")
 	cmd.PersistentFlags().String("create-account-email", "", "The email of the account to create ($BATON_CREATE_ACCOUNT_EMAIL)")
