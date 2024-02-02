@@ -49,11 +49,11 @@ type CreateAccountResponse interface {
 }
 
 type AccountManager interface {
-	CreateAccount(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*crypto.PlaintextCredential, annotations.Annotations, error)
+	CreateAccount(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
 }
 
 type CredentialManager interface {
-	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*crypto.PlaintextCredential, annotations.Annotations, error)
+	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
 }
 
 type EventProvider interface {
@@ -406,21 +406,21 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		return nil, status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
 	}
 
-	plaintextCredentials, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
+	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
 		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
 	}
 
-	pkem, err := crypto.NewPubKeyEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
 	var encryptedDatas []*v2.EncryptedData
-	for _, plaintextCredential := range plaintextCredentials {
-		encryptedData, err := pkem.Encrypt(plaintextCredential)
+	for _, plaintextCredential := range plaintexts {
+		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
 			return nil, err
 		}
@@ -440,21 +440,21 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 		l.Error("error: connector does not have account manager configured")
 		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
 	}
-	result, plaintextCredentials, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
+	result, plaintexts, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
 		return nil, fmt.Errorf("error: create account failed: %w", err)
 	}
 
-	pkem, err := crypto.NewPubKeyEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
 	var encryptedDatas []*v2.EncryptedData
-	for _, plaintextCredential := range plaintextCredentials {
-		encryptedData, err := pkem.Encrypt(plaintextCredential)
+	for _, plaintextCredential := range plaintexts {
+		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
 			return nil, err
 		}

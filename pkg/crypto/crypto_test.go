@@ -1,63 +1,144 @@
 package crypto
 
 import (
+	"context"
+	"crypto/ecdsa"
+	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/rsa"
 	"testing"
 
 	"github.com/go-jose/go-jose/v3"
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 )
 
-func TestNewPubKeyEncryptionManager(t *testing.T) {
-	// generate a keypair to encrypt to
-	privKey, pubKeyJWK := GenKey()
-
-	pubKeyJWKBytes, err := pubKeyJWK.MarshalJSON()
+func marshalJWK(t *testing.T, privKey interface{}) (*v2.EncryptionConfig, []byte) {
+	privJWK := &jose.JSONWebKey{Key: privKey}
+	privJWKBytes, err := privJWK.MarshalJSON()
 	require.NoError(t, err)
-	// create an encryption manager
-	opts := &v2.CredentialOptions{}
-	config := []*v2.EncryptionConfig{
-		{
-			Config: &v2.EncryptionConfig_JwkPublicKeyConfig{
-				JwkPublicKeyConfig: &v2.EncryptionConfig_JWKPublicKeyConfig{
-					PubKey: pubKeyJWKBytes,
-				},
+	pubJWK := privJWK.Public()
+	pubJWKBytes, err := pubJWK.MarshalJSON()
+	require.NoError(t, err)
+
+	config := &v2.EncryptionConfig{
+		Provider: jwk.EncryptionProviderJwk,
+		Config: &v2.EncryptionConfig_JwkPublicKeyConfig{
+			JwkPublicKeyConfig: &v2.EncryptionConfig_JWKPublicKeyConfig{
+				PubKey: pubJWKBytes,
 			},
 		},
 	}
-	pkem, err := NewPubKeyEncryptionManager(opts, config)
+
+	return config, privJWKBytes
+}
+
+func testEncryptionProvider(t *testing.T, ctx context.Context, config *v2.EncryptionConfig, privKey []byte) {
+	provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwk)
 	require.NoError(t, err)
 
-	// encrypt a plaintext credential
-	cred := &PlaintextCredential{
+	plainText := &v2.PlaintextData{
 		Name:        "password",
 		Description: "this is the password",
-		Schema:      "string",
+		Schema:      "",
 		Bytes:       []byte("hunter2"),
 	}
-	encryptedValues, err := pkem.Encrypt(cred)
+	cipherText, err := provider.Encrypt(ctx, config, plainText)
 	require.NoError(t, err)
 
-	// assert encrypt
-	require.Len(t, encryptedValues, 1)
-	encryptedValue := encryptedValues[0]
-	require.Equal(t, encryptedValue.Name, cred.Name)
-	require.Equal(t, encryptedValue.Description, cred.Description)
-	require.Equal(t, encryptedValue.Schema, cred.Schema)
+	require.Equal(t, plainText.Name, cipherText.Name)
+	require.Equal(t, plainText.Description, cipherText.Description)
+	require.Equal(t, plainText.Schema, cipherText.Schema)
+	require.NotEqual(t, plainText.Bytes, cipherText.EncryptedBytes)
+	require.Greater(t, len(cipherText.EncryptedBytes), len(plainText.Bytes))
 
-	require.Equal(t, encryptedValue.KeyId, pubKeyJWK.KeyID)
-	require.NotEmpty(t, encryptedValue.EncryptedBytes)
-
-	// assert we can decrypt with our private key
-	jwe, err := jose.ParseEncrypted(string(encryptedValue.EncryptedBytes))
+	decryptedText, err := provider.Decrypt(ctx, cipherText, privKey)
 	require.NoError(t, err)
-	plaintext, err := jwe.Decrypt(privKey)
-	require.NoError(t, err)
-	require.Equal(t, []byte("hunter2"), plaintext)
+	require.Equal(t, plainText.Name, decryptedText.Name)
+	require.Equal(t, plainText.Description, decryptedText.Description)
+	require.Equal(t, plainText.Schema, decryptedText.Schema)
+	require.Equal(t, plainText.Bytes, decryptedText.Bytes)
+}
 
-	// assert a different private key cannot decrypt
-	privKey2, _ := GenKey()
-	_, err = jwe.Decrypt(privKey2)
-	require.ErrorContains(t, err, "go-jose/go-jose: error in cryptographic primitive")
+// Test with the default GenerateKey().
+func TestEncryptionProviderJWKDefault(t *testing.T) {
+	ctx := context.Background()
+	provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwk)
+	require.NoError(t, err)
+	config, privateKey, err := provider.GenerateKey(ctx)
+	require.NoError(t, err)
+	testEncryptionProvider(t, ctx, config, privateKey)
+}
+
+// Test with a byo ecdsa key.
+func TestEncryptionProviderJWKECDSA(t *testing.T) {
+	ctx := context.Background()
+
+	privKey, err := ecdsa.GenerateKey(elliptic.P521(), rand.Reader)
+	require.NoError(t, err)
+
+	config, marshalledPrivKey := marshalJWK(t, privKey)
+	testEncryptionProvider(t, ctx, config, marshalledPrivKey)
+}
+
+// Test with a byo rsa key.
+func TestEncryptionProviderJWKRSA(t *testing.T) {
+	ctx := context.Background()
+
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+
+	config, marshalledPrivKey := marshalJWK(t, privKey)
+
+	testEncryptionProvider(t, ctx, config, marshalledPrivKey)
+}
+
+// Test with a byo ed25519 key.
+func TestEncryptionProviderJWKED25519(t *testing.T) {
+	ctx := context.Background()
+
+	_, privKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+
+	config, marshalledPrivKey := marshalJWK(t, privKey)
+	testEncryptionProvider(t, ctx, config, marshalledPrivKey)
+}
+
+// Test with a byo symmetric key - this is disallowed.
+func TestEncryptionProviderJWKSymmetric(t *testing.T) {
+	ctx := context.Background()
+
+	privKey := make([]byte, 32)
+	_, err := rand.Read(privKey)
+	require.NoError(t, err)
+
+	privJWK := &jose.JSONWebKey{Key: privKey}
+	privJWKBytes, err := privJWK.MarshalJSON()
+	require.NoError(t, err)
+
+	config := &v2.EncryptionConfig{
+		Provider: jwk.EncryptionProviderJwk,
+		Config: &v2.EncryptionConfig_JwkPublicKeyConfig{
+			JwkPublicKeyConfig: &v2.EncryptionConfig_JWKPublicKeyConfig{
+				PubKey: privJWKBytes,
+			},
+		},
+	}
+
+	provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwk)
+	require.NoError(t, err)
+
+	plainText := &v2.PlaintextData{
+		Name:        "password",
+		Description: "this is the password",
+		Schema:      "",
+		Bytes:       []byte("hunter2"),
+	}
+	cipherText, err := provider.Encrypt(ctx, config, plainText)
+	require.ErrorIs(t, err, jwk.JWKUnsupportedKeyTypeError)
+	require.Nil(t, cipherText)
 }

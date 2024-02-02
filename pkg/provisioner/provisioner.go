@@ -2,18 +2,18 @@ package provisioner
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"errors"
+
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
-	"github.com/conductorone/baton-sdk/pkg/crypto"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/go-jose/go-jose/v3"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 )
 
 type Provisioner struct {
@@ -40,13 +40,19 @@ type Provisioner struct {
 }
 
 // makeCrypto is used by rotateCredentials and createAccount.
-func makeCrypto(ctx context.Context) (*ecdsa.PrivateKey, *v2.CredentialOptions, []*v2.EncryptionConfig, error) {
+// FIXME(morgabra/ggreer): Huge hack for testing.
+func makeCrypto(ctx context.Context) ([]byte, *v2.CredentialOptions, []*v2.EncryptionConfig, error) {
 	// Default to generating a random key and random password that is 12 characters long
-	privKey, pubKey := crypto.GenKey()
-	pubKeyJWKBytes, err := pubKey.MarshalJSON()
+	provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwk)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
+	config, privateKey, err := provider.GenerateKey(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	opts := &v2.CredentialOptions{
 		Options: &v2.CredentialOptions_RandomPassword_{
 			RandomPassword: &v2.CredentialOptions_RandomPassword{
@@ -54,16 +60,7 @@ func makeCrypto(ctx context.Context) (*ecdsa.PrivateKey, *v2.CredentialOptions, 
 			},
 		},
 	}
-	config := []*v2.EncryptionConfig{
-		{
-			Config: &v2.EncryptionConfig_JwkPublicKeyConfig{
-				JwkPublicKeyConfig: &v2.EncryptionConfig_JWKPublicKeyConfig{
-					PubKey: pubKeyJWKBytes,
-				},
-			},
-		},
-	}
-	return privKey, opts, config, nil
+	return privateKey, opts, []*v2.EncryptionConfig{config}, nil
 }
 
 func (p *Provisioner) Run(ctx context.Context) error {
@@ -216,12 +213,12 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 		})
 	}
 
-	privKey, opts, config, err := makeCrypto(ctx)
+	_, opts, config, err := makeCrypto(ctx)
 	if err != nil {
 		return err
 	}
 
-	result, err := p.connector.CreateAccount(ctx, &v2.CreateAccountRequest{
+	_, err = p.connector.CreateAccount(ctx, &v2.CreateAccountRequest{
 		AccountInfo: &v2.AccountInfo{
 			Emails: emails,
 			Login:  p.createAccountLogin,
@@ -229,20 +226,6 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 		CredentialOptions: opts,
 		EncryptionConfigs: config,
 	})
-	if err != nil {
-		return err
-	}
-
-	if len(result.EncryptedData) == 0 {
-		return errors.New("create-account: no encrypted data returned")
-	}
-
-	jwe, err := jose.ParseEncrypted(string(result.EncryptedData[0].EncryptedBytes))
-	if err != nil {
-		return err
-	}
-	// Make sure we can decrypt before saying everything is ok
-	_, err = jwe.Decrypt(privKey)
 	if err != nil {
 		return err
 	}
@@ -268,12 +251,12 @@ func (p *Provisioner) deleteResource(ctx context.Context) error {
 func (p *Provisioner) rotateCredentials(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
-	privKey, opts, config, err := makeCrypto(ctx)
+	_, opts, config, err := makeCrypto(ctx)
 	if err != nil {
 		return err
 	}
 
-	result, err := p.connector.RotateCredential(ctx, &v2.RotateCredentialRequest{
+	_, err = p.connector.RotateCredential(ctx, &v2.RotateCredentialRequest{
 		ResourceId: &v2.ResourceId{
 			Resource:     p.rotateCredentialsId,
 			ResourceType: p.rotateCredentialsType,
@@ -285,19 +268,6 @@ func (p *Provisioner) rotateCredentials(ctx context.Context) error {
 		return err
 	}
 
-	if len(result.EncryptedData) == 0 {
-		return errors.New("rotate-credentials: no encrypted data returned")
-	}
-
-	jwe, err := jose.ParseEncrypted(string(result.EncryptedData[0].EncryptedBytes))
-	if err != nil {
-		return err
-	}
-	// Make sure we can decrypt before saying everything is ok
-	_, err = jwe.Decrypt(privKey)
-	if err != nil {
-		return err
-	}
 	l.Debug("credentials rotated", zap.String("resource", p.rotateCredentialsId), zap.String("resource type", p.rotateCredentialsType))
 
 	return nil

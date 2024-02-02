@@ -2465,6 +2465,114 @@ var _ interface {
 	ErrorName() string
 } = EncryptedDataValidationError{}
 
+// Validate checks the field values on PlaintextData with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *PlaintextData) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on PlaintextData with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in PlaintextDataMultiError, or
+// nil if none found.
+func (m *PlaintextData) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *PlaintextData) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Name
+
+	// no validation rules for Description
+
+	// no validation rules for Schema
+
+	// no validation rules for Bytes
+
+	if len(errors) > 0 {
+		return PlaintextDataMultiError(errors)
+	}
+
+	return nil
+}
+
+// PlaintextDataMultiError is an error wrapping multiple validation errors
+// returned by PlaintextData.ValidateAll() if the designated constraints
+// aren't met.
+type PlaintextDataMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m PlaintextDataMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m PlaintextDataMultiError) AllErrors() []error { return m }
+
+// PlaintextDataValidationError is the validation error returned by
+// PlaintextData.Validate if the designated constraints aren't met.
+type PlaintextDataValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e PlaintextDataValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e PlaintextDataValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e PlaintextDataValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e PlaintextDataValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e PlaintextDataValidationError) ErrorName() string { return "PlaintextDataValidationError" }
+
+// Error satisfies the builtin error interface
+func (e PlaintextDataValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sPlaintextData.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = PlaintextDataValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = PlaintextDataValidationError{}
+
 // Validate checks the field values on EncryptionConfig with the rules defined
 // in the proto definition for this message. If any rules are violated, the
 // first error encountered is returned, or nil if there are no violations.
