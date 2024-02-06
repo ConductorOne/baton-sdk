@@ -1015,12 +1015,6 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	grants = append(grants, resp.List...)
 
 	for _, grant := range grants {
-		// Check if the principal of the grant already exists as a resource. If the principal resource does not exist, we should create it resource.
-		err := s.ensurePrincipalExistence(ctx, grant.Principal)
-		if err != nil {
-			return err
-		}
-
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
 			s.state.SetNeedsExpansion()
