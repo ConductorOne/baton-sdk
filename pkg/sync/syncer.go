@@ -1437,7 +1437,7 @@ func (s *syncer) ensurePrincipalExistence(ctx context.Context, principal *v2.Res
 			Resource:     principal.Id.Resource,
 		},
 	})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err != nil && errors.Is(err, sql.ErrNoRows) {
 		// If the principal does not have a display name, we should set it to the resource ID
 		if principal.DisplayName == "" {
 			principal.DisplayName = fmt.Sprintf("%s:%s", principal.Id.ResourceType, principal.Id.Resource)
