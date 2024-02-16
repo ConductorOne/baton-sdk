@@ -39,6 +39,10 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		return nil, err
 	}
 	db := goqu.New("sqlite3", rawDB)
+	_, err = db.Exec("PRAGMA synchronous = OFF")
+	if err != nil {
+		return nil, err
+	}
 
 	c1File := &C1File{
 		rawDb:      rawDB,
