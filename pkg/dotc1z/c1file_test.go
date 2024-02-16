@@ -60,8 +60,11 @@ func TestC1Z(t *testing.T) {
 	ctx := context.Background()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test.c1z")
 
+	var opts []C1ZOption
+	opts = append(opts, WithPragma("synchronous", "OFF"))
+
 	// Open file
-	f, err := NewC1ZFile(ctx, testFilePath)
+	f, err := NewC1ZFile(ctx, testFilePath, opts...)
 	require.NoError(t, err)
 
 	// Close file without taking action
