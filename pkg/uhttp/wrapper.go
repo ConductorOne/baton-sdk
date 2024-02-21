@@ -13,7 +13,7 @@ type (
 	HttpClient interface {
 		HttpClient() *http.Client
 		Do(req *http.Request, options ...DoOption) (*http.Response, error)
-		NewJSONRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error)
+		NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error)
 	}
 	BaseHttpClient struct {
 		httpClient *http.Client
@@ -23,7 +23,7 @@ type (
 	RequestOption func() (io.ReadWriter, map[string]string, error)
 )
 
-func WithResponse(response interface{}) DoOption {
+func WithJSONResponse(response interface{}) DoOption {
 	return func(resp *http.Response) {
 		defer resp.Body.Close()
 		json.NewDecoder(resp.Body).Decode(response)
@@ -43,7 +43,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	return resp, err
 }
 
-func WithBody(body interface{}) RequestOption {
+func WithJSONBody(body interface{}) RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		buffer := new(bytes.Buffer)
 		err := json.NewEncoder(buffer).Encode(body)
@@ -51,7 +51,12 @@ func WithBody(body interface{}) RequestOption {
 			return nil, nil, err
 		}
 
-		return buffer, nil, nil
+		_, headers, err := WithContentTypeJSONHeader()()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return buffer, headers, nil
 	}
 }
 
@@ -71,7 +76,7 @@ func WithContentTypeJSONHeader() RequestOption {
 	}
 }
 
-func (c *BaseHttpClient) NewJSONRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error) {
+func (c *BaseHttpClient) NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error) {
 	var buffer io.ReadWriter
 	var headers map[string]string = make(map[string]string)
 	for _, option := range options {
@@ -92,6 +97,10 @@ func (c *BaseHttpClient) NewJSONRequest(ctx context.Context, method string, url 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), buffer)
 	if err != nil {
 		return nil, err
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
 	}
 
 	return req, nil
