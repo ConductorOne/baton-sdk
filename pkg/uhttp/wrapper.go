@@ -19,14 +19,14 @@ type (
 		httpClient *http.Client
 	}
 
-	DoOption      func(*http.Response)
+	DoOption      func(*http.Response) error
 	RequestOption func() (io.ReadWriter, map[string]string, error)
 )
 
 func WithJSONResponse(response interface{}) DoOption {
-	return func(resp *http.Response) {
+	return func(resp *http.Response) error {
 		defer resp.Body.Close()
-		json.NewDecoder(resp.Body).Decode(response)
+		return json.NewDecoder(resp.Body).Decode(response)
 	}
 }
 
@@ -37,7 +37,10 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	for _, option := range options {
-		option(resp)
+		err = option(resp)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return resp, err

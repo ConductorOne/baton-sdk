@@ -72,8 +72,9 @@ func TestWrapper_WithJSONResponse(t *testing.T) {
 
 	responseBody := example{}
 	option := WithJSONResponse(&responseBody)
-	option(&resp)
+	err = option(&resp)
 
+	require.Nil(t, err)
 	require.Equal(t, exampleResponse, responseBody)
 }
 
