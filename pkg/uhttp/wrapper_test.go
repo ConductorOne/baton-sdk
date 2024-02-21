@@ -17,6 +17,13 @@ type example struct {
 	Age  int    `json:"age"`
 }
 
+func TestWrapper_NewBaseHttpClient(t *testing.T) {
+	httpClient := http.DefaultClient
+	client := NewBaseHttpClient(httpClient)
+
+	require.Equal(t, httpClient, client.HttpClient)
+}
+
 func TestWrapper_WithJSONBody(t *testing.T) {
 	exampleBody := example{
 		Name: "John",
