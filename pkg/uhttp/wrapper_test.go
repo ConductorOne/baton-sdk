@@ -137,7 +137,7 @@ func TestWrapper_NewRequest(t *testing.T) {
 			}
 
 			client := BaseHttpClient{
-				httpClient: http.DefaultClient,
+				HttpClient: http.DefaultClient,
 			}
 
 			req, err := client.NewRequest(context.Background(), tc.method, u, tc.options...)
