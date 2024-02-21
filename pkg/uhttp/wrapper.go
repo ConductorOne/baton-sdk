@@ -23,6 +23,12 @@ type (
 	RequestOption func() (io.ReadWriter, map[string]string, error)
 )
 
+func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
+	return &BaseHttpClient{
+		HttpClient: httpClient,
+	}
+}
+
 func WithJSONResponse(response interface{}) DoOption {
 	return func(resp *http.Response) error {
 		defer resp.Body.Close()
