@@ -1,4 +1,4 @@
-package httpclient
+package uhttp
 
 import (
 	"bytes"
