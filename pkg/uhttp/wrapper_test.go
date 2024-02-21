@@ -143,9 +143,7 @@ func TestWrapper_NewRequest(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			client := BaseHttpClient{
-				HttpClient: http.DefaultClient,
-			}
+			client := NewBaseHttpClient(http.DefaultClient)
 
 			req, err := client.NewRequest(context.Background(), tc.method, u, tc.options...)
 			require.Equal(t, tc.expected.err, err)
