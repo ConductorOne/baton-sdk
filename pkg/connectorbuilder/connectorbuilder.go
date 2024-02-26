@@ -188,6 +188,9 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 	if err != nil {
 		return nil, fmt.Errorf("error: listing resources failed: %w", err)
 	}
+	if request.PageToken != "" && request.PageToken == nextPageToken {
+		return nil, fmt.Errorf("error: listing resources failed: next page token is the same as the current page token. this is most likely a connector bug")
+	}
 
 	return &v2.ResourcesServiceListResourcesResponse{
 		List:          out,
@@ -210,6 +213,9 @@ func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.Entitlem
 	if err != nil {
 		return nil, fmt.Errorf("error: listing entitlements failed: %w", err)
 	}
+	if request.PageToken != "" && request.PageToken == nextPageToken {
+		return nil, fmt.Errorf("error: listing entitlements failed: next page token is the same as the current page token. this is most likely a connector bug")
+	}
 
 	return &v2.EntitlementsServiceListEntitlementsResponse{
 		List:          out,
@@ -231,6 +237,9 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error: listing grants failed: %w", err)
+	}
+	if request.PageToken != "" && request.PageToken == nextPageToken {
+		return nil, fmt.Errorf("error: listing grants failed: next page token is the same as the current page token. this is most likely a connector bug")
 	}
 
 	return &v2.GrantsServiceListGrantsResponse{
