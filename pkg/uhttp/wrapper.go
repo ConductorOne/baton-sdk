@@ -43,6 +43,8 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return nil, err
 	}
 
+	defer resp.Body.Close()
+
 	for _, option := range options {
 		err = option(resp)
 		if err != nil {
