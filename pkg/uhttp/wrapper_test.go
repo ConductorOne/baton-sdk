@@ -73,13 +73,11 @@ func TestWrapper_WithJSONResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp := http.Response{
-		Body: io.NopCloser(exampleResponseBuffer),
-	}
+	resp := http.Response{}
 
 	responseBody := example{}
 	option := WithJSONResponse(&responseBody)
-	err = option(&resp)
+	err = option(&resp.Header, exampleResponseBuffer.Bytes())
 
 	require.Nil(t, err)
 	require.Equal(t, exampleResponse, responseBody)

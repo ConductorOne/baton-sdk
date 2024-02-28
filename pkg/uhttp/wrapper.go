@@ -20,7 +20,7 @@ type (
 		HttpClient *http.Client
 	}
 
-	DoOption      func(*http.Response) error
+	DoOption      func(*http.Header, []byte) error
 	RequestOption func() (io.ReadWriter, map[string]string, error)
 )
 
@@ -31,9 +31,8 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 }
 
 func WithJSONResponse(response interface{}) DoOption {
-	return func(resp *http.Response) error {
-		defer resp.Body.Close()
-		return json.NewDecoder(resp.Body).Decode(response)
+	return func(resp *http.Header, body []byte) error {
+		return json.Unmarshal(body, response)
 	}
 }
 
@@ -43,10 +42,20 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return nil, err
 	}
 
-	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	err = resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	// Replace resp.Body with a no-op closer so nobody has to worry about closing the reader.
+	resp.Body = io.NopCloser(bytes.NewBuffer(body))
 
 	for _, option := range options {
-		err = option(resp)
+		err = option(&resp.Header, body)
 		if err != nil {
 			return nil, err
 		}
