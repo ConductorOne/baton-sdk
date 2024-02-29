@@ -57,7 +57,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	for _, option := range options {
 		err = option(&resp.Header, body)
 		if err != nil {
-			return nil, err
+			return resp, err
 		}
 	}
 
