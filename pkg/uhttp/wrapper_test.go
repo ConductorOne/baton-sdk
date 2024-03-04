@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"testing"
+	"time"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -87,6 +90,49 @@ func TestWrapper_WithJSONResponse(t *testing.T) {
 
 	require.Nil(t, err)
 	require.Equal(t, exampleResponse, responseBody)
+}
+
+type ErrResponse struct {
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
+}
+
+func (e *ErrResponse) Message() string {
+	return fmt.Sprintf("%s: %s", e.Title, e.Detail)
+}
+
+func TestWrapper_WithErrorResponse(t *testing.T) {
+	resp := http.Response{
+		StatusCode: http.StatusNotFound,
+		Body:       io.NopCloser(bytes.NewBufferString(`{"title": "not found", "detail": "resource not found"}`)),
+	}
+
+	var errResp ErrResponse
+	err := WithErrorResponse(&errResp)(&resp)
+
+	require.NotNil(t, err)
+	require.Contains(t, errResp.Message(), "not found")
+	require.Contains(t, err.Error(), "not found")
+}
+
+func TestWrapper_WithRateLimitData(t *testing.T) {
+	n := time.Now()
+	resp := &http.Response{
+		Header: map[string][]string{
+			"X-Ratelimit-Limit":     {"100"},
+			"X-Ratelimit-Remaining": {"50"},
+			"X-Ratelimit-Reset":     {"60"},
+		},
+	}
+
+	rldata := &v2.RateLimitDescription{}
+	option := WithRatelimitData(rldata)
+	err := option(resp)
+
+	require.Nil(t, err)
+	require.Equal(t, int64(100), rldata.Limit)
+	require.Equal(t, int64(50), rldata.Remaining)
+	require.Equal(t, n.Add(time.Second*60).Unix(), rldata.ResetAt.AsTime().Unix())
 }
 
 func TestWrapper_NewRequest(t *testing.T) {
