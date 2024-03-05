@@ -102,7 +102,10 @@ func (e *ErrResponse) Message() string {
 }
 
 func TestWrapper_WithErrorResponse(t *testing.T) {
+	header := http.Header{}
+	header.Add("Content-Type", "application/json")
 	resp := http.Response{
+		Header:     header,
 		StatusCode: http.StatusNotFound,
 		Body:       io.NopCloser(bytes.NewBufferString(`{"title": "not found", "detail": "resource not found"}`)),
 	}
