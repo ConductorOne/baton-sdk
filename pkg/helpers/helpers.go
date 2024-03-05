@@ -25,14 +25,14 @@ func SplitFullName(name string) (string, string) {
 	return firstName, lastName
 }
 
-func ExtractRateLimitData(resp *http.Response) (*v2.RateLimitDescription, error) {
-	if resp == nil {
+func ExtractRateLimitData(header *http.Header) (*v2.RateLimitDescription, error) {
+	if header == nil {
 		return nil, nil
 	}
 
 	var l int64
 	var err error
-	limit := resp.Header.Get("X-Ratelimit-Limit")
+	limit := header.Get("X-Ratelimit-Limit")
 	if limit != "" {
 		l, err = strconv.ParseInt(limit, 10, 64)
 		if err != nil {
@@ -41,7 +41,7 @@ func ExtractRateLimitData(resp *http.Response) (*v2.RateLimitDescription, error)
 	}
 
 	var r int64
-	remaining := resp.Header.Get("X-Ratelimit-Remaining")
+	remaining := header.Get("X-Ratelimit-Remaining")
 	if remaining != "" {
 		r, err = strconv.ParseInt(remaining, 10, 64)
 		if err != nil {
@@ -50,7 +50,7 @@ func ExtractRateLimitData(resp *http.Response) (*v2.RateLimitDescription, error)
 	}
 
 	var resetAt time.Time
-	reset := resp.Header.Get("X-Ratelimit-Reset")
+	reset := header.Get("X-Ratelimit-Reset")
 	if reset != "" {
 		res, err := strconv.ParseInt(reset, 10, 64)
 		if err != nil {

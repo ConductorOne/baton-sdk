@@ -104,10 +104,10 @@ func (e *ErrResponse) Message() string {
 func TestWrapper_WithErrorResponse(t *testing.T) {
 	header := http.Header{}
 	header.Add("Content-Type", "application/json")
-	resp := http.Response{
+	resp := WrapperResponse{
 		Header:     header,
 		StatusCode: http.StatusNotFound,
-		Body:       io.NopCloser(bytes.NewBufferString(`{"title": "not found", "detail": "resource not found"}`)),
+		Body:       bytes.NewBufferString(`{"title": "not found", "detail": "resource not found"}`).Bytes(),
 	}
 
 	var errResp ErrResponse
@@ -120,7 +120,7 @@ func TestWrapper_WithErrorResponse(t *testing.T) {
 
 func TestWrapper_WithRateLimitData(t *testing.T) {
 	n := time.Now()
-	resp := &http.Response{
+	resp := &WrapperResponse{
 		Header: map[string][]string{
 			"X-Ratelimit-Limit":     {"100"},
 			"X-Ratelimit-Remaining": {"50"},

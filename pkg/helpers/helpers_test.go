@@ -33,7 +33,7 @@ func TestHelpers_ExtractRateLimitData(t *testing.T) {
 		},
 	}
 
-	rl, err := ExtractRateLimitData(resp)
+	rl, err := ExtractRateLimitData(&resp.Header)
 	require.NoError(t, err)
 	require.Equal(t, int64(100), rl.Limit)
 	require.Equal(t, int64(50), rl.Remaining)

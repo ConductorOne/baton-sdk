@@ -53,35 +53,30 @@ type ErrorResponse interface {
 }
 
 func WithErrorResponse(resource ErrorResponse) DoOption {
-	return func(resp *http.Response) error {
-		if resp.StatusCode >= 300 {
-			if !helpers.IsJSONContentType(resp.Header.Get("Content-Type")) {
-				r, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return fmt.Errorf("error reading response body: %w", err)
-				}
-
-				return fmt.Errorf("%v", string(r))
-			}
-
-			// Decode the JSON response body into the ErrorResponse
-			if err := json.NewDecoder(resp.Body).Decode(&resource); err != nil {
-				return status.Error(codes.Unknown, "Request failed with unknown error")
-			}
-
-			// Construct a more detailed error message
-			errMsg := fmt.Sprintf("Request failed with status %d: %s", resp.StatusCode, resource.Message())
-
-			return status.Error(codes.Unknown, errMsg)
+	return func(resp *WrapperResponse) error {
+		if resp.StatusCode < 300 {
+			return nil
 		}
 
-		return nil
+		if !helpers.IsJSONContentType(resp.Header.Get("Content-Type")) {
+			return fmt.Errorf("%v", string(resp.Body))
+		}
+
+		// Decode the JSON response body into the ErrorResponse
+		if err := json.Unmarshal(resp.Body, &resource); err != nil {
+			return status.Error(codes.Unknown, "Request failed with unknown error")
+		}
+
+		// Construct a more detailed error message
+		errMsg := fmt.Sprintf("Request failed with status %d: %s", resp.StatusCode, resource.Message())
+
+		return status.Error(codes.Unknown, errMsg)
 	}
 }
 
 func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
-	return func(resp *http.Response) error {
-		rl, err := helpers.ExtractRateLimitData(resp)
+	return func(resp *WrapperResponse) error {
+		rl, err := helpers.ExtractRateLimitData(&resp.Header)
 		if err != nil {
 			return err
 		}
