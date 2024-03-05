@@ -10,6 +10,13 @@ import (
 	"net/url"
 )
 
+type WrapperResponse struct {
+	Header     http.Header
+	Body       []byte
+	Status     string
+	StatusCode int
+}
+
 type (
 	HttpClient interface {
 		HttpClient() *http.Client
@@ -20,7 +27,7 @@ type (
 		HttpClient *http.Client
 	}
 
-	DoOption      func(*http.Response) error
+	DoOption      func(resp *WrapperResponse) error
 	RequestOption func() (io.ReadWriter, map[string]string, error)
 )
 
@@ -31,9 +38,8 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 }
 
 func WithJSONResponse(response interface{}) DoOption {
-	return func(resp *http.Response) error {
-		defer resp.Body.Close()
-		return json.NewDecoder(resp.Body).Decode(response)
+	return func(resp *WrapperResponse) error {
+		return json.Unmarshal(resp.Body, response)
 	}
 }
 
@@ -43,10 +49,28 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return nil, err
 	}
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	err = resp.Body.Close()
+	if err != nil {
+		return nil, err
+	}
+
+	// Replace resp.Body with a no-op closer so nobody has to worry about closing the reader.
+	resp.Body = io.NopCloser(bytes.NewBuffer(body))
+
+	wresp := WrapperResponse{
+		Header:     resp.Header,
+		Status:     resp.Status,
+		StatusCode: resp.StatusCode,
+		Body:       body,
+	}
 	for _, option := range options {
-		err = option(resp)
+		err = option(&wresp)
 		if err != nil {
-			return nil, err
+			return resp, err
 		}
 	}
 
