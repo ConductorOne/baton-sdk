@@ -8,6 +8,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/helpers"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type WrapperResponse struct {
@@ -40,6 +45,47 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 func WithJSONResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
 		return json.Unmarshal(resp.Body, response)
+	}
+}
+
+type ErrorResponse interface {
+	Message() string
+}
+
+func WithErrorResponse(resource ErrorResponse) DoOption {
+	return func(resp *WrapperResponse) error {
+		if resp.StatusCode < 300 {
+			return nil
+		}
+
+		if !helpers.IsJSONContentType(resp.Header.Get("Content-Type")) {
+			return fmt.Errorf("%v", string(resp.Body))
+		}
+
+		// Decode the JSON response body into the ErrorResponse
+		if err := json.Unmarshal(resp.Body, &resource); err != nil {
+			return status.Error(codes.Unknown, "Request failed with unknown error")
+		}
+
+		// Construct a more detailed error message
+		errMsg := fmt.Sprintf("Request failed with status %d: %s", resp.StatusCode, resource.Message())
+
+		return status.Error(codes.Unknown, errMsg)
+	}
+}
+
+func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
+	return func(resp *WrapperResponse) error {
+		rl, err := helpers.ExtractRateLimitData(&resp.Header)
+		if err != nil {
+			return err
+		}
+
+		resource.Limit = rl.Limit
+		resource.Remaining = rl.Remaining
+		resource.ResetAt = rl.ResetAt
+
+		return nil
 	}
 }
 
