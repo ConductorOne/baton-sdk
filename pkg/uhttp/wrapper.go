@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -89,6 +90,12 @@ func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 	}
 }
 
+func WithXMLResponse(response interface{}) DoOption {
+	return func(resp *WrapperResponse) error {
+		return xml.Unmarshal(resp.Body, response)
+	}
+}
+
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
@@ -156,6 +163,14 @@ func WithContentTypeJSONHeader() RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		return nil, map[string]string{
 			"Content-Type": "application/json",
+		}, nil
+	}
+}
+
+func WithAcceptXMLHeader() RequestOption {
+	return func() (io.ReadWriter, map[string]string, error) {
+		return nil, map[string]string{
+			"Accept": "application/xml",
 		}, nil
 	}
 }

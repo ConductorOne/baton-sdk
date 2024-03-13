@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,6 +56,16 @@ func TestWrapper_WithAcceptJSONHeader(t *testing.T) {
 	require.Equal(t, "application/json", headers["Accept"])
 }
 
+func TestWrapper_WithAcceptXMLHeader(t *testing.T) {
+	option := WithAcceptXMLHeader()
+	buffer, headers, err := option()
+
+	require.Nil(t, err)
+	require.Nil(t, buffer)
+	require.Contains(t, headers, "Accept")
+	require.Equal(t, "application/xml", headers["Accept"])
+}
+
 func TestWrapper_WithContentTypeJSONHeader(t *testing.T) {
 	option := WithContentTypeJSONHeader()
 	buffer, headers, err := option()
@@ -80,6 +91,33 @@ func TestWrapper_WithJSONResponse(t *testing.T) {
 
 	responseBody := example{}
 	option := WithJSONResponse(&responseBody)
+	wrapperResp := WrapperResponse{
+		Header:     resp.Header,
+		Body:       exampleResponseBuffer.Bytes(),
+		StatusCode: 200,
+		Status:     "200 OK",
+	}
+	err = option(&wrapperResp)
+
+	require.Nil(t, err)
+	require.Equal(t, exampleResponse, responseBody)
+}
+
+func TestWrapper_WithXMLResponse(t *testing.T) {
+	exampleResponse := example{
+		Name: "John",
+		Age:  30,
+	}
+	exampleResponseBuffer := new(bytes.Buffer)
+	err := xml.NewEncoder(exampleResponseBuffer).Encode(exampleResponse)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := http.Response{}
+
+	responseBody := example{}
+	option := WithXMLResponse(&responseBody)
 	wrapperResp := WrapperResponse{
 		Header:     resp.Header,
 		Body:       exampleResponseBuffer.Bytes(),
