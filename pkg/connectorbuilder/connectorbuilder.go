@@ -317,8 +317,8 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
 	}
 
-	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-	return nil, fmt.Errorf("error: resource type does not have provisioner configured")
+	l.Error("error: provisioning is not enabled. try running with --provisioning", zap.String("resource_type", rt))
+	return nil, fmt.Errorf("error: provisioning is not enabled. try running with --provisioning")
 }
 
 func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (*v2.GrantManagerServiceRevokeResponse, error) {
@@ -345,8 +345,8 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 	}
 
-	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-	return nil, status.Error(codes.Unimplemented, "resource type does not have provisioner configured")
+	l.Error("error: provisioning is not enabled. try running with --provisioning", zap.String("resource_type", rt))
+	return nil, status.Error(codes.Unimplemented, "provisioning is not enabled. try running with --provisioning")
 }
 
 // GetAsset streams the asset to the client.
