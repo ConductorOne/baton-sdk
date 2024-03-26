@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 
@@ -84,6 +85,7 @@ func NewCmd[T any, PtrT *T](
 			}
 
 			daemonMode := v.GetString("client-id") != "" || isService()
+			isProvisioning := v.GetString("grant-entitlement") != "" || v.GetString("revoke-grant") != ""
 			if daemonMode {
 				if v.GetString("client-id") == "" {
 					return fmt.Errorf("client-id is required in service mode")
@@ -93,6 +95,9 @@ func NewCmd[T any, PtrT *T](
 				}
 				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
 			} else {
+				if isProvisioning && !v.GetBool("provisioning") {
+					return errors.New("error: provisioning is not enabled. try running with --provisioning")
+				}
 				switch {
 				case v.GetString("grant-entitlement") != "":
 					opts = append(opts,
@@ -104,6 +109,7 @@ func NewCmd[T any, PtrT *T](
 							v.GetString("grant-principal-type"),
 						))
 				case v.GetString("revoke-grant") != "":
+					l.Error("revoke-grant running service xxx-xx-xxx")
 					opts = append(opts,
 						connectorrunner.WithProvisioningEnabled(),
 						connectorrunner.WithOnDemandRevoke(
