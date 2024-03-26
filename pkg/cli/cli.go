@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"os"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -96,7 +97,7 @@ func NewCmd[T any, PtrT *T](
 				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
 			} else {
 				if isProvisioning && !v.GetBool("provisioning") {
-					return errors.New("error: provisioning is not enabled. try running with --provisioning")
+					return status.Error(codes.Unimplemented, "provisioning is not enabled. try running with --provisioning")
 				}
 				switch {
 				case v.GetString("grant-entitlement") != "":
