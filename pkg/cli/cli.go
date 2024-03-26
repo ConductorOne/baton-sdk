@@ -110,7 +110,6 @@ func NewCmd[T any, PtrT *T](
 							v.GetString("grant-principal-type"),
 						))
 				case v.GetString("revoke-grant") != "":
-					l.Error("revoke-grant running service xxx-xx-xxx")
 					opts = append(opts,
 						connectorrunner.WithProvisioningEnabled(),
 						connectorrunner.WithOnDemandRevoke(
