@@ -295,8 +295,7 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 	l := ctxzap.Extract(ctx)
 
 	rt := request.Entitlement.Resource.Id.ResourceType
-	provisioner, ok := b.resourceProvisioners[rt]
-	if ok {
+	if provisioner, ok := b.resourceProvisioners[rt]; ok {
 		annos, err := provisioner.Grant(ctx, request.Principal, request.Entitlement)
 		if err != nil {
 			l.Error("error: grant failed", zap.Error(err))
@@ -306,8 +305,7 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		return &v2.GrantManagerServiceGrantResponse{Annotations: annos}, nil
 	}
 
-	provisionerV2, ok := b.resourceProvisionersV2[rt]
-	if ok {
+	if provisionerV2, ok := b.resourceProvisionersV2[rt]; ok {
 		grants, annos, err := provisionerV2.Grant(ctx, request.Principal, request.Entitlement)
 		if err != nil {
 			l.Error("error: grant failed", zap.Error(err))
@@ -325,8 +323,7 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 	l := ctxzap.Extract(ctx)
 
 	rt := request.Grant.Entitlement.Resource.Id.ResourceType
-	provisioner, ok := b.resourceProvisioners[rt]
-	if ok {
+	if provisioner, ok := b.resourceProvisioners[rt]; ok {
 		annos, err := provisioner.Revoke(ctx, request.Grant)
 		if err != nil {
 			l.Error("error: revoke failed", zap.Error(err))
@@ -335,8 +332,7 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 	}
 
-	provisionerV2, ok := b.resourceProvisionersV2[rt]
-	if ok {
+	if provisionerV2, ok := b.resourceProvisionersV2[rt]; ok {
 		annos, err := provisionerV2.Revoke(ctx, request.Grant)
 		if err != nil {
 			l.Error("error: revoke failed", zap.Error(err))
@@ -377,15 +373,16 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
 	l := ctxzap.Extract(ctx)
 	rt := request.GetResource().GetId().GetResourceType()
-	manager, ok := b.resourceManagers[rt]
-	if ok {
+	if manager, ok := b.resourceManagers[rt]; ok {
 		resource, annos, err := manager.Create(ctx, request.Resource)
 		if err != nil {
 			l.Error("error: create resource failed", zap.Error(err))
 			return nil, fmt.Errorf("error: create resource failed: %w", err)
 		}
+
 		return &v2.CreateResourceResponse{Created: resource, Annotations: annos}, nil
 	}
+
 	l.Error("error: resource type does not have resource manager configured", zap.String("resource_type", rt))
 	return nil, status.Error(codes.Unimplemented, "resource type does not have resource manager configured")
 }
@@ -393,15 +390,16 @@ func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateReso
 func (b *builderImpl) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (*v2.DeleteResourceResponse, error) {
 	l := ctxzap.Extract(ctx)
 	rt := request.GetResourceId().GetResourceType()
-	manager, ok := b.resourceManagers[rt]
-	if ok {
+	if manager, ok := b.resourceManagers[rt]; ok {
 		annos, err := manager.Delete(ctx, request.GetResourceId())
 		if err != nil {
 			l.Error("error: delete resource failed", zap.Error(err))
 			return nil, fmt.Errorf("error: delete resource failed: %w", err)
 		}
+
 		return &v2.DeleteResourceResponse{Annotations: annos}, nil
 	}
+
 	l.Error("error: resource type does not have resource manager configured", zap.String("resource_type", rt))
 	return nil, status.Error(codes.Unimplemented, "resource type does not have resource manager configured")
 }
