@@ -18,6 +18,8 @@ type AuthCredentials interface {
 
 type NoAuth struct{}
 
+var _ AuthCredentials = (*NoAuth)(nil)
+
 func (n *NoAuth) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
 	return getHttpClient(ctx, options...)
 }
@@ -25,6 +27,8 @@ func (n *NoAuth) GetClient(ctx context.Context, options ...Option) (*http.Client
 type BearerAuth struct {
 	Token string
 }
+
+var _ AuthCredentials = (*BearerAuth)(nil)
 
 func NewBearerAuth(token string) *BearerAuth {
 	return &BearerAuth{
@@ -50,6 +54,8 @@ type BasicAuth struct {
 	Username string
 	Password string
 }
+
+var _ AuthCredentials = (*BasicAuth)(nil)
 
 func NewBasicAuth(username, password string) *BasicAuth {
 	return &BasicAuth{
@@ -77,6 +83,8 @@ func (b *BasicAuth) GetClient(ctx context.Context, options ...Option) (*http.Cli
 type OAuth2ClientCredentials struct {
 	cfg *clientcredentials.Config
 }
+
+var _ AuthCredentials = (*OAuth2ClientCredentials)(nil)
 
 func NewOAuth2ClientCredentials(clientId, clientSecret string, tokenURL *url.URL, scopes []string) *OAuth2ClientCredentials {
 	return &OAuth2ClientCredentials{
@@ -108,6 +116,8 @@ type OAuth2JWT struct {
 	Scopes          []string
 	CreateJWTConfig CreateJWTConfig
 }
+
+var _ AuthCredentials = (*OAuth2JWT)(nil)
 
 func NewOAuth2JWT(credentials []byte, scopes []string, createfn CreateJWTConfig) *OAuth2JWT {
 	return &OAuth2JWT{
