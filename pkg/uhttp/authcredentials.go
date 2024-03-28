@@ -13,13 +13,13 @@ import (
 )
 
 type AuthCredentials interface {
-	GetClient(ctx context.Context) (*http.Client, error)
+	GetClient(ctx context.Context, options ...Option) (*http.Client, error)
 }
 
 type NoAuth struct{}
 
-func (n *NoAuth) GetClient(ctx context.Context) (*http.Client, error) {
-	return http.DefaultClient, nil
+func (n *NoAuth) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
+	return getHttpClient(ctx, options...)
 }
 
 type BearerAuth struct {
