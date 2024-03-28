@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,10 +14,14 @@ import (
 
 func TestHelpers_NoAuth_GetClient(t *testing.T) {
 	n := &NoAuth{}
-	client, err := n.GetClient(context.Background())
+	ctx := context.Background()
+	client, err := n.GetClient(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, client)
-	require.Equal(t, http.DefaultClient, client)
+
+	expectedClient, err := getHttpClient(ctx)
+	require.NoError(t, err)
+	require.EqualExportedValues(t, *expectedClient, *client)
 }
 
 func TestHelpers_BearerAuth_GetClient(t *testing.T) {
