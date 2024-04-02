@@ -104,6 +104,19 @@ func WithXMLResponse(response interface{}) DoOption {
 	}
 }
 
+func WithResponse(response interface{}) DoOption {
+	return func(resp *WrapperResponse) error {
+		if helpers.IsJSONContentType(resp.Header.Get(ContentType)) {
+			return WithJSONResponse(response)(resp)
+		}
+		if helpers.IsXMLContentType(resp.Header.Get(ContentType)) {
+			return WithXMLResponse(response)(resp)
+		}
+
+		return status.Error(codes.Unknown, "unsupported content type")
+	}
+}
+
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {

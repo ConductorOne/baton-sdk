@@ -138,6 +138,60 @@ func TestWrapper_WithXMLResponse(t *testing.T) {
 	require.Equal(t, exampleResponse, responseBody)
 }
 
+func TestWrapper_WithResponse(t *testing.T) {
+	exampleResponse := example{
+		Name: "John",
+		Age:  30,
+	}
+	exampleResponseBuffer := new(bytes.Buffer)
+	err := xml.NewEncoder(exampleResponseBuffer).Encode(exampleResponse)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp := http.Response{
+		Header: map[string][]string{
+			"Content-Type": {"application/xml"},
+		},
+	}
+
+	responseBody := example{}
+	option := WithResponse(&responseBody)
+	wrapperResp := WrapperResponse{
+		Header:     resp.Header,
+		Body:       exampleResponseBuffer.Bytes(),
+		StatusCode: 200,
+		Status:     "200 OK",
+	}
+	err = option(&wrapperResp)
+
+	require.Nil(t, err)
+	require.Equal(t, exampleResponse, responseBody)
+
+	exampleResponseBuffer = new(bytes.Buffer)
+	err = json.NewEncoder(exampleResponseBuffer).Encode(exampleResponse)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp.Header = map[string][]string{
+		"Content-Type": {"application/json"},
+	}
+
+	responseBody = example{}
+	option = WithResponse(&responseBody)
+	wrapperResp = WrapperResponse{
+		Header:     resp.Header,
+		Body:       exampleResponseBuffer.Bytes(),
+		StatusCode: 200,
+		Status:     "200 OK",
+	}
+	err = option(&wrapperResp)
+
+	require.Nil(t, err)
+	require.Equal(t, exampleResponse, responseBody)
+}
+
 type ErrResponse struct {
 	Title  string `json:"title"`
 	Detail string `json:"detail"`
