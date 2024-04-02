@@ -16,6 +16,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const ContentType = "Content-Type"
+
 type WrapperResponse struct {
 	Header     http.Header
 	Body       []byte
@@ -45,8 +47,8 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 
 func WithJSONResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
-		if !helpers.IsJSONContentType(resp.Header.Get("Content-Type")) {
-			return fmt.Errorf("unexpected content type for json response: %s", resp.Header.Get("Content-Type"))
+		if !helpers.IsJSONContentType(resp.Header.Get(ContentType)) {
+			return fmt.Errorf("unexpected content type for json response: %s", resp.Header.Get(ContentType))
 		}
 		return json.Unmarshal(resp.Body, response)
 	}
@@ -62,7 +64,7 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 			return nil
 		}
 
-		if !helpers.IsJSONContentType(resp.Header.Get("Content-Type")) {
+		if !helpers.IsJSONContentType(resp.Header.Get(ContentType)) {
 			return fmt.Errorf("%v", string(resp.Body))
 		}
 
@@ -95,8 +97,8 @@ func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 
 func WithXMLResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
-		if !helpers.IsXMLContentType(resp.Header.Get("Content-Type")) {
-			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get("Content-Type"))
+		if !helpers.IsXMLContentType(resp.Header.Get(ContentType)) {
+			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get(ContentType))
 		}
 		return xml.Unmarshal(resp.Body, response)
 	}
@@ -168,7 +170,7 @@ func WithAcceptJSONHeader() RequestOption {
 func WithContentTypeJSONHeader() RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		return nil, map[string]string{
-			"Content-Type": "application/json",
+			ContentType: "application/json",
 		}, nil
 	}
 }
