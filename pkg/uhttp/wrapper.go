@@ -45,6 +45,9 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 
 func WithJSONResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
+		if !helpers.IsJSONContentType(resp.Header.Get("Content-Type")) {
+			return fmt.Errorf("unexpected content type for json response: %s", resp.Header.Get("Content-Type"))
+		}
 		return json.Unmarshal(resp.Body, response)
 	}
 }
@@ -77,7 +80,7 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 
 func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 	return func(resp *WrapperResponse) error {
-		rl, err := helpers.ExtractRateLimitData(&resp.Header)
+		rl, err := helpers.ExtractRateLimitData(resp.StatusCode, &resp.Header)
 		if err != nil {
 			return err
 		}
@@ -92,6 +95,9 @@ func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 
 func WithXMLResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
+		if !helpers.IsXMLContentType(resp.Header.Get("Content-Type")) {
+			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get("Content-Type"))
+		}
 		return xml.Unmarshal(resp.Body, response)
 	}
 }

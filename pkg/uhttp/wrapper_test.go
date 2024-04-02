@@ -87,7 +87,11 @@ func TestWrapper_WithJSONResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp := http.Response{}
+	resp := http.Response{
+		Header: map[string][]string{
+			"Content-Type": {"application/json"},
+		},
+	}
 
 	responseBody := example{}
 	option := WithJSONResponse(&responseBody)
@@ -114,7 +118,11 @@ func TestWrapper_WithXMLResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp := http.Response{}
+	resp := http.Response{
+		Header: map[string][]string{
+			"Content-Type": {"application/xml"},
+		},
+	}
 
 	responseBody := example{}
 	option := WithXMLResponse(&responseBody)

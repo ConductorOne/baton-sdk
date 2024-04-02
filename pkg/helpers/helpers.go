@@ -25,7 +25,7 @@ func SplitFullName(name string) (string, string) {
 	return firstName, lastName
 }
 
-func ExtractRateLimitData(header *http.Header) (*v2.RateLimitDescription, error) {
+func ExtractRateLimitData(statusCode int, header *http.Header) (*v2.RateLimitDescription, error) {
 	if header == nil {
 		return nil, nil
 	}
@@ -60,6 +60,13 @@ func ExtractRateLimitData(header *http.Header) (*v2.RateLimitDescription, error)
 		resetAt = time.Now().Add(time.Second * time.Duration(res))
 	}
 
+	// If we didn't get any rate limit headers and status code is 429, return some sane defaults
+	if l == 0 && r == 0 && resetAt.IsZero() && statusCode == http.StatusTooManyRequests {
+		l = 1
+		r = 0
+		resetAt = time.Now().Add(time.Second * 60)
+	}
+
 	return &v2.RateLimitDescription{
 		Limit:     l,
 		Remaining: r,
@@ -77,4 +84,21 @@ func IsJSONContentType(contentType string) bool {
 	}
 
 	return true
+}
+
+var xmlContentTypes []string = []string{
+	"text/xml",
+	"application/xml",
+}
+
+func IsXMLContentType(contentType string) bool {
+	// there are some janky APIs out there
+	normalizedContentType := strings.TrimSpace(strings.ToLower(contentType))
+
+	for _, xmlContentType := range xmlContentTypes {
+		if normalizedContentType == xmlContentType {
+			return true
+		}
+	}
+	return false
 }
