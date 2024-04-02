@@ -90,6 +90,7 @@ func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 		resource.Limit = rl.Limit
 		resource.Remaining = rl.Remaining
 		resource.ResetAt = rl.ResetAt
+		resource.Status = rl.Status
 
 		return nil
 	}
