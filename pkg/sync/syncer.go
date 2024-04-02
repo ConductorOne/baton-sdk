@@ -11,6 +11,8 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
 	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
@@ -70,6 +72,20 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 	if s.progressHandler != nil {
 		s.progressHandler(NewProgress(a, uint32(c)))
 	}
+}
+
+func shouldWaitAndRetry(ctx context.Context, err error) bool {
+	if status.Code(err) != codes.Unavailable {
+		return false
+	}
+
+	l := ctxzap.Extract(ctx)
+	l.Error("retrying operation", zap.Error(err))
+
+	// TODO: this should back off based on error counts
+	time.Sleep(1 * time.Second)
+
+	return true
 }
 
 // Sync starts the syncing process. The sync process is driven by the action stack that is part of the state object.
@@ -162,28 +178,28 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		case SyncResourceTypesOp:
 			err = s.SyncResourceTypes(ctx)
-			if err != nil {
+			if err != nil && !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
 
 		case SyncResourcesOp:
 			err = s.SyncResources(ctx)
-			if err != nil {
+			if err != nil && !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
 
 		case SyncEntitlementsOp:
 			err = s.SyncEntitlements(ctx)
-			if err != nil {
+			if err != nil && !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
 
 		case SyncGrantsOp:
 			err = s.SyncGrants(ctx)
-			if err != nil {
+			if err != nil && !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
@@ -203,7 +219,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			}
 
 			err = s.SyncGrantExpansion(ctx)
-			if err != nil {
+			if err != nil && !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue

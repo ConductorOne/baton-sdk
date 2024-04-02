@@ -148,8 +148,21 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		}
 	}
 
+	switch resp.StatusCode {
+	case http.StatusTooManyRequests:
+		return resp, status.Error(codes.Unavailable, resp.Status)
+	case http.StatusNotFound:
+		return resp, status.Error(codes.NotFound, resp.Status)
+	case http.StatusUnauthorized:
+		return resp, status.Error(codes.Unauthenticated, resp.Status)
+	case http.StatusForbidden:
+		return resp, status.Error(codes.PermissionDenied, resp.Status)
+	case http.StatusNotImplemented:
+		return resp, status.Error(codes.Unimplemented, resp.Status)
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		return resp, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
 	}
 
 	return resp, err
