@@ -155,6 +155,14 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	return resp, err
 }
 
+func WithHeader(key, value string) RequestOption {
+	return func() (io.ReadWriter, map[string]string, error) {
+		return nil, map[string]string{
+			key: value,
+		}, nil
+	}
+}
+
 func WithJSONBody(body interface{}) RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		buffer := new(bytes.Buffer)
@@ -173,27 +181,15 @@ func WithJSONBody(body interface{}) RequestOption {
 }
 
 func WithAcceptJSONHeader() RequestOption {
-	return func() (io.ReadWriter, map[string]string, error) {
-		return nil, map[string]string{
-			"Accept": "application/json",
-		}, nil
-	}
+	return WithHeader("Accept", "application/json")
 }
 
 func WithContentTypeJSONHeader() RequestOption {
-	return func() (io.ReadWriter, map[string]string, error) {
-		return nil, map[string]string{
-			ContentType: "application/json",
-		}, nil
-	}
+	return WithHeader("Content-Type", "application/json")
 }
 
 func WithAcceptXMLHeader() RequestOption {
-	return func() (io.ReadWriter, map[string]string, error) {
-		return nil, map[string]string{
-			"Accept": "application/xml",
-		}, nil
-	}
+	return WithHeader("Accept", "application/xml")
 }
 
 func (c *BaseHttpClient) NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error) {
