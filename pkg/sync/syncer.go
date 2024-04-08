@@ -82,10 +82,15 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 	l := ctxzap.Extract(ctx)
 	l.Error("retrying operation", zap.Error(err))
 
-	// TODO: this should back off based on error counts
-	time.Sleep(1 * time.Second)
-
-	return true
+	for {
+		select {
+		// TODO: this should back off based on error counts
+		case <-time.After(1 * time.Second):
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
 }
 
 // Sync starts the syncing process. The sync process is driven by the action stack that is part of the state object.
