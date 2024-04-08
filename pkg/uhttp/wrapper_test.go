@@ -105,6 +105,15 @@ func TestWrapper_WithJSONResponse(t *testing.T) {
 
 	require.Nil(t, err)
 	require.Equal(t, exampleResponse, responseBody)
+
+	wrapperResp.Header = map[string][]string{
+		"Content-Type": {"application/xml"},
+	}
+	responseBody = example{}
+	option = WithJSONResponse(&responseBody)
+	err = option(&wrapperResp)
+
+	require.NotNil(t, err)
 }
 
 func TestWrapper_WithXMLResponse(t *testing.T) {
@@ -216,6 +225,10 @@ func TestWrapper_WithErrorResponse(t *testing.T) {
 	require.NotNil(t, err)
 	require.Contains(t, errResp.Message(), "not found")
 	require.Contains(t, err.Error(), "not found")
+
+	resp.StatusCode = http.StatusOK
+	err = WithErrorResponse(&errResp)(&resp)
+	require.Nil(t, err)
 }
 
 func TestWrapper_WithRateLimitData(t *testing.T) {
