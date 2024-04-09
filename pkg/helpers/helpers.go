@@ -30,22 +30,27 @@ func ExtractRateLimitData(statusCode int, header *http.Header) (*v2.RateLimitDes
 		return nil, nil
 	}
 
-	var l int64
+	var rlstatus v2.RateLimitDescription_Status
+
+	var limit int64
 	var err error
-	limit := header.Get("X-Ratelimit-Limit")
-	if limit != "" {
-		l, err = strconv.ParseInt(limit, 10, 64)
+	limitStr := header.Get("X-Ratelimit-Limit")
+	if limitStr != "" {
+		limit, err = strconv.ParseInt(limitStr, 10, 64)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	var r int64
-	remaining := header.Get("X-Ratelimit-Remaining")
-	if remaining != "" {
-		r, err = strconv.ParseInt(remaining, 10, 64)
+	var remaining int64
+	remainingStr := header.Get("X-Ratelimit-Remaining")
+	if remainingStr != "" {
+		remaining, err = strconv.ParseInt(remainingStr, 10, 64)
 		if err != nil {
 			return nil, err
+		}
+		if remaining > 0 {
+			rlstatus = v2.RateLimitDescription_STATUS_OK
 		}
 	}
 
@@ -61,15 +66,17 @@ func ExtractRateLimitData(statusCode int, header *http.Header) (*v2.RateLimitDes
 	}
 
 	// If we didn't get any rate limit headers and status code is 429, return some sane defaults
-	if l == 0 && r == 0 && resetAt.IsZero() && statusCode == http.StatusTooManyRequests {
-		l = 1
-		r = 0
+	if limit == 0 && remaining == 0 && resetAt.IsZero() && statusCode == http.StatusTooManyRequests {
+		limit = 1
+		remaining = 0
 		resetAt = time.Now().Add(time.Second * 60)
+		rlstatus = v2.RateLimitDescription_STATUS_OVERLIMIT
 	}
 
 	return &v2.RateLimitDescription{
-		Limit:     l,
-		Remaining: r,
+		Status:    rlstatus,
+		Limit:     limit,
+		Remaining: remaining,
 		ResetAt:   timestamppb.New(resetAt),
 	}, nil
 }
