@@ -10,6 +10,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -84,6 +86,7 @@ func NewCmd[T any, PtrT *T](
 			}
 
 			daemonMode := v.GetString("client-id") != "" || isService()
+			isProvisioning := v.GetString("grant-entitlement") != "" || v.GetString("revoke-grant") != ""
 			if daemonMode {
 				if v.GetString("client-id") == "" {
 					return fmt.Errorf("client-id is required in service mode")
@@ -93,6 +96,9 @@ func NewCmd[T any, PtrT *T](
 				}
 				opts = append(opts, connectorrunner.WithClientCredentials(v.GetString("client-id"), v.GetString("client-secret")))
 			} else {
+				if isProvisioning && !v.GetBool("provisioning") {
+					return status.Error(codes.Unimplemented, "provisioning is not enabled. try running with --provisioning")
+				}
 				switch {
 				case v.GetString("grant-entitlement") != "":
 					opts = append(opts,
