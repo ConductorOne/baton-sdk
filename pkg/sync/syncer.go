@@ -24,6 +24,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
+const maxDepth = 8
+
 var (
 	ErrSyncNotComplete = fmt.Errorf("sync exited without finishing")
 )
@@ -803,14 +805,10 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		return nil
 	}
 
-	// Once we've loaded the graph, we can check for cycles
-	// TODO(mstanbCO): we should eventually add logic to handle cycles
 	if entitlementGraph.Loaded {
 		cycles, hasCycles := entitlementGraph.GetCycles()
 		if hasCycles {
-			s.state.FinishAction(ctx)
-			l.Error("cycles detected in entitlement graph", zap.Any("cycles", cycles))
-			return fmt.Errorf("SyncGrantExpansion: %d cycle(s) detected in entitlement graph", len(cycles))
+			l.Warn("cycles detected in entitlement graph", zap.Any("cycles", cycles))
 		}
 	}
 
@@ -1098,6 +1096,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 
 	// Peek the next action on the stack
 	if len(graph.Actions) == 0 {
+		l.Debug("runGrantExpandActions: no actions", zap.Any("graph", graph))
 		return true, nil
 	}
 	action := graph.Actions[0]
@@ -1288,12 +1287,11 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		return nil
 	}
 
-	if graph.Depth > 8 {
-		l.Error("expandGrantsForEntitlements: exceeded max depth", zap.Any("graph", graph))
+	if graph.Depth > maxDepth {
+		l.Error("expandGrantsForEntitlements: exceeded max depth", zap.Any("graph", graph), zap.Int("max_depth", maxDepth))
 		s.state.FinishAction(ctx)
 		return fmt.Errorf("exceeded max depth")
 	}
-	graph.Depth++
 
 	// TOOD(morgabra) Yield here after some amount of work?
 	for sourceEntitlementID := range graph.Entitlements {
@@ -1303,7 +1301,8 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		}
 
 		// We have ancestors who have not been expanded yet, so we can't expand ourselves.
-		if graph.HasUnexpandedAncestors(sourceEntitlementID) {
+		if graph.Depth > 0 && graph.HasUnexpandedAncestors(sourceEntitlementID) {
+			l.Debug("expandGrantsForEntitlements: skipping source entitlement because it has unexpanded ancestors", zap.String("source_entitlement_id", sourceEntitlementID))
 			continue
 		}
 
@@ -1327,6 +1326,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		return nil
 	}
 
+	graph.Depth++
 	l.Debug("expandGrantsForEntitlements: graph is not expanded", zap.Any("graph", graph))
 	return nil
 }

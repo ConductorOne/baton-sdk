@@ -200,10 +200,13 @@ func (d *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID str
 	if !ok {
 		d.Edges[srcEntitlementID] = make(map[string]*edgeInfo)
 	}
-	d.Edges[srcEntitlementID][dstEntitlementID] = &edgeInfo{
-		Expanded:        false,
-		Shallow:         shallow,
-		ResourceTypeIDs: resourceTypeIDs,
+	_, ok = d.Edges[srcEntitlementID][dstEntitlementID]
+	if !ok {
+		d.Edges[srcEntitlementID][dstEntitlementID] = &edgeInfo{
+			Expanded:        false,
+			Shallow:         shallow,
+			ResourceTypeIDs: resourceTypeIDs,
+		}
 	}
 	return nil
 }
