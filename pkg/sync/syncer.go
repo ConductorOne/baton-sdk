@@ -810,6 +810,11 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		if hasCycles {
 			l.Warn("cycles detected in entitlement graph", zap.Any("cycles", cycles))
 		}
+		// TODO: expand cycles by merging cycles into one big node
+		// for _, cycle := range cycles {
+		// 	l.Info("expanding cycle", zap.Any("cycle", cycle))
+
+		// }
 	}
 
 	err := s.expandGrantsForEntitlements(ctx)
@@ -1294,28 +1299,29 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	}
 
 	// TOOD(morgabra) Yield here after some amount of work?
-	for sourceEntitlementID := range graph.Entitlements {
+	// traverse edges or call some sort of getentitlements
+	for _, sourceEntitlementID := range graph.GetEntitlements() {
 		// We've already expanded this entitlement, so skip it.
 		if graph.IsEntitlementExpanded(sourceEntitlementID) {
 			continue
 		}
 
 		// We have ancestors who have not been expanded yet, so we can't expand ourselves.
-		if graph.Depth > 0 && graph.HasUnexpandedAncestors(sourceEntitlementID) {
+		if graph.HasUnexpandedAncestors(sourceEntitlementID) {
 			l.Debug("expandGrantsForEntitlements: skipping source entitlement because it has unexpanded ancestors", zap.String("source_entitlement_id", sourceEntitlementID))
 			continue
 		}
 
-		for descendantEntitlementID, edgeInfo := range graph.GetDescendants(sourceEntitlementID) {
-			if edgeInfo.Expanded {
+		for descendantEntitlementID, grantInfo := range graph.GetDescendantEntitlements(sourceEntitlementID) {
+			if grantInfo.Expanded {
 				continue
 			}
 			graph.Actions = append(graph.Actions, EntitlementGraphAction{
 				SourceEntitlementID:     sourceEntitlementID,
 				DescendantEntitlementID: descendantEntitlementID,
 				PageToken:               "",
-				Shallow:                 edgeInfo.Shallow,
-				ResourceTypeIDs:         edgeInfo.ResourceTypeIDs,
+				Shallow:                 grantInfo.Shallow,
+				ResourceTypeIDs:         grantInfo.ResourceTypeIDs,
 			})
 		}
 	}
