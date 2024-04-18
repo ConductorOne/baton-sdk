@@ -150,9 +150,19 @@ func (p *Provisioner) grant(ctx context.Context) error {
 		return err
 	}
 
+	resource := &v2.Resource{
+		Id:          principal.Resource.Id,
+		DisplayName: principal.Resource.DisplayName,
+		Annotations: principal.Resource.Annotations,
+		Description: principal.Resource.Description,
+		ExternalId:  principal.Resource.ExternalId,
+		// Omit parent resource ID so that behavior is the same as ConductorOne's provisioning mode
+		ParentResourceId: nil,
+	}
+
 	_, err = p.connector.Grant(ctx, &v2.GrantManagerServiceGrantRequest{
 		Entitlement: entitlement.Entitlement,
-		Principal:   principal.Resource,
+		Principal:   resource,
 	})
 	if err != nil {
 		return err
@@ -187,12 +197,21 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	resource := &v2.Resource{
+		Id:          principal.Resource.Id,
+		DisplayName: principal.Resource.DisplayName,
+		Annotations: principal.Resource.Annotations,
+		Description: principal.Resource.Description,
+		ExternalId:  principal.Resource.ExternalId,
+		// Omit parent resource ID so that behavior is the same as ConductorOne's provisioning mode
+		ParentResourceId: nil,
+	}
 
 	_, err = p.connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
 		Grant: &v2.Grant{
 			Id:          grant.Grant.Id,
 			Entitlement: entitlement.Entitlement,
-			Principal:   principal.Resource,
+			Principal:   resource,
 			Annotations: grant.Grant.Annotations,
 		},
 	})
