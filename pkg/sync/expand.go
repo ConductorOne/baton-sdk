@@ -284,19 +284,6 @@ func (d *EntitlementGraph) MarkEdgeExpanded(sourceEntitlementID string, descenda
 	}
 
 	d.Edges[srcNode.Id][dstNode.Id].Expanded = true
-
-	// If all edges are expanded, mark the source entitlement as expanded.
-	// We shouldn't care about this value but we'll set it for consistency.
-	// allExpanded := true
-	// for _, edgeInfo := range d.Edges[sourceEntitlementID] {
-	// 	if !edgeInfo.Expanded {
-	// 		allExpanded = false
-	// 		break
-	// 	}
-	// }
-	// if allExpanded {
-	// 	d.Entitlements[sourceEntitlementID] = true
-	// }
 }
 
 func (d *EntitlementGraph) GetNode(entitlementId string) *Node {
@@ -335,7 +322,57 @@ func (d *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID str
 		}
 	} else {
 		// TODO: just do nothing? it's probably a mistake if we're adding the same edge twice
-		panic("edge already exists")
+		return fmt.Errorf("edge already exists")
 	}
+	d.FixCycles()
 	return nil
+}
+
+func (d *EntitlementGraph) RemoveNode(nodeID int) {
+	delete(d.Nodes, nodeID)
+	delete(d.Edges, nodeID)
+	for id := range d.Edges {
+		delete(d.Edges[id], nodeID)
+	}
+}
+
+// Merge all the nodes in a cycle
+func (d *EntitlementGraph) FixCycle(cycle []int) {
+	if len(cycle) == 0 {
+		return
+	}
+	firstNode := d.Nodes[cycle[0]]
+	firstEdges := d.Edges[cycle[0]]
+	for _, nodeID := range cycle[1:] {
+		edges := d.Edges[nodeID]
+		for dstNodeID, edgeInfo := range edges {
+			if dstNodeID == firstNode.Id {
+				continue
+			}
+			dstNode := d.Nodes[dstNodeID]
+			// Put node's entitlements on first node
+			firstNode.Entitlements = append(firstNode.Entitlements, dstNode.Entitlements...)
+			// Set outgoing edges on first node
+			for id := range d.Edges[dstNode.Id] {
+				d.Edges[firstNode.Id][id] = d.Edges[dstNode.Id][id]
+			}
+			// Set incoming edges on first node
+			for node := range d.Node {
+				d.GetDescendants(node)
+				d.Edges[id][nodeID] = nil
+			}
+			// Delete node
+			d.RemoveNode(dstNodeID)
+		}
+	}
+}
+
+func (d *EntitlementGraph) FixCycles() {
+	cycles, hasCycles := d.GetCycles()
+	if !hasCycles {
+		return
+	}
+	for _, cycle := range cycles {
+		d.FixCycle(cycle)
+	}
 }
