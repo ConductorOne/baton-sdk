@@ -43,6 +43,21 @@ func TestGetDescendants(t *testing.T) {
 	require.ElementsMatch(t, expected, descendants)
 }
 
+func TestRemoveNode(t *testing.T) {
+	graph := NewEntitlementGraph(context.Background())
+	graph.AddEntitlement(&v2.Entitlement{Id: "1"})
+	err := graph.Validate()
+	require.NoError(t, err)
+
+	node := graph.GetNode("1")
+	require.NotNil(t, node)
+
+	graph.RemoveNode(1)
+
+	node = graph.GetNode("1")
+	require.Nil(t, node)
+}
+
 func cyclicGraph(t *testing.T) (*EntitlementGraph, error) {
 	graph := NewEntitlementGraph(context.Background())
 	graph.AddEntitlement(&v2.Entitlement{Id: "1"})
@@ -74,6 +89,8 @@ func TestHandleCycle(t *testing.T) {
 	graph, err := cyclicGraph(t)
 	require.NoError(t, err)
 	graph.FixCycles()
+	err = graph.Validate()
+	require.NoError(t, err)
 	cycles, isCycle := graph.GetCycles()
 	require.False(t, isCycle)
 	require.Empty(t, cycles)
