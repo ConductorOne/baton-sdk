@@ -70,8 +70,11 @@ func TestGetCycles(t *testing.T) {
 	require.Equal(t, [][]int{{2, 3, 4}}, cycles)
 }
 
-// func TestHandleCycle(t *testing.T) {
-// 	graph, err := cyclicGraph(t)
-// 	require.NoError(t, err)
-
-// }
+func TestHandleCycle(t *testing.T) {
+	graph, err := cyclicGraph(t)
+	require.NoError(t, err)
+	graph.FixCycles()
+	cycles, isCycle := graph.GetCycles()
+	require.False(t, isCycle)
+	require.Empty(t, cycles)
+}
