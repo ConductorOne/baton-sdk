@@ -98,3 +98,35 @@ func TestHelpers_OAuth2_JWT_GetClient(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, client)
 }
+
+func TestHelpers_OAuth2_RefreshToken_GetClient(t *testing.T) {
+	rt := &OAuth2RefreshToken{
+		cfg: &oauth2.Config{
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+			Endpoint: oauth2.Endpoint{
+				TokenURL: "https://test-token-url",
+			},
+		},
+		accessToken:  "test-access-token",
+		refreshToken: "test-refresh-token",
+	}
+
+	ctx := context.Background()
+	client, err := rt.GetClient(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+
+	// check that the token is set
+	oauthTransport := client.Transport.(*oauth2.Transport)
+	token, err := oauthTransport.Source.Token()
+	require.NoError(t, err)
+	require.NotEmpty(t, token.AccessToken)
+	require.NotEmpty(t, token.RefreshToken)
+	require.NotEmpty(t, token.TokenType)
+
+	// check if access token and refresh token are what we set them up in the config
+	require.Equal(t, "test-access-token", token.AccessToken)
+	require.Equal(t, "test-refresh-token", token.RefreshToken)
+	require.Equal(t, "Bearer", token.TokenType)
+}

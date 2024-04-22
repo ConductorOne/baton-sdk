@@ -155,3 +155,44 @@ func getHttpClient(ctx context.Context, options ...Option) (*http.Client, error)
 
 	return httpClient, nil
 }
+
+type OAuth2RefreshToken struct {
+	cfg          *oauth2.Config
+	accessToken  string
+	refreshToken string
+}
+
+var _ AuthCredentials = (*OAuth2RefreshToken)(nil)
+
+func NewOAuth2RefreshToken(clientID, clientSecret, redirectURI, tokenURL, accessToken, refreshToken string, scopes []string) *OAuth2RefreshToken {
+	return &OAuth2RefreshToken{
+		cfg: &oauth2.Config{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			Scopes:       scopes,
+			RedirectURL:  redirectURI,
+			Endpoint: oauth2.Endpoint{
+				TokenURL: tokenURL,
+			},
+		},
+		accessToken:  accessToken,
+		refreshToken: refreshToken,
+	}
+}
+
+func (o *OAuth2RefreshToken) GetClient(ctx context.Context, options ...Option) (*http.Client, error) {
+	httpClient, err := getHttpClient(ctx, options...)
+	if err != nil {
+		return nil, err
+	}
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
+
+	token := &oauth2.Token{
+		AccessToken:  o.accessToken,
+		RefreshToken: o.refreshToken,
+		TokenType:    "Bearer",
+	}
+	httpClient = o.cfg.Client(ctx, token)
+
+	return httpClient, nil
+}
