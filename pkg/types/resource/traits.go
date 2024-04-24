@@ -41,3 +41,60 @@ func GetProfileInt64Value(profile *structpb.Struct, k string) (int64, bool) {
 
 	return int64(s.NumberValue), true
 }
+
+// GetProfileBoolValue returns a bool and true if the value is found.
+func GetProfileBoolValue(profile *structpb.Struct, k string) (bool, bool) {
+	if profile == nil {
+		return false, false
+	}
+
+	v, ok := profile.Fields[k]
+	if !ok {
+		return false, false
+	}
+
+	s, ok := v.Kind.(*structpb.Value_BoolValue)
+	if !ok {
+		return false, false
+	}
+
+	return s.BoolValue, true
+}
+
+// GetProfileListValue returns a list of pointers to structpb.Value and true if the value is found.
+func GetProfileListValue(profile *structpb.Struct, k string) ([]*structpb.Value, bool) {
+	if profile == nil {
+		return nil, false
+	}
+
+	v, ok := profile.Fields[k]
+	if !ok {
+		return nil, false
+	}
+
+	s, ok := v.Kind.(*structpb.Value_ListValue)
+	if !ok {
+		return nil, false
+	}
+
+	return s.ListValue.Values, true
+}
+
+// GetProfileStructValue returns a pointer to structpb.Struct and true if the value is found.
+func GetProfileStructValue(profile *structpb.Struct, k string) (*structpb.Struct, bool) {
+	if profile == nil {
+		return nil, false
+	}
+
+	v, ok := profile.Fields[k]
+	if !ok {
+		return nil, false
+	}
+
+	s, ok := v.Kind.(*structpb.Value_StructValue)
+	if !ok {
+		return nil, false
+	}
+
+	return s.StructValue, true
+}
