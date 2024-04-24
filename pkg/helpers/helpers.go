@@ -1,12 +1,14 @@
 package helpers
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -108,4 +110,21 @@ func IsXMLContentType(contentType string) bool {
 		}
 	}
 	return false
+}
+
+func ToProtoValue(val interface{}) (*structpb.Value, error) {
+	switch v := val.(type) {
+	case string, bool, float64:
+		return structpb.NewValue(val)
+	case int:
+		return structpb.NewNumberValue(float64(v)), nil
+	case *structpb.Value:
+		return v, nil
+	case *structpb.Struct:
+		return structpb.NewStructValue(v), nil
+	case *structpb.ListValue:
+		return structpb.NewListValue(v), nil
+	default:
+		return nil, fmt.Errorf("type %T is not supported", val)
+	}
 }

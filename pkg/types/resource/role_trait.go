@@ -5,6 +5,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/helpers"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -12,9 +13,15 @@ type RoleTraitOption func(gt *v2.RoleTrait) error
 
 func WithRoleProfile(profile map[string]interface{}) RoleTraitOption {
 	return func(rt *v2.RoleTrait) error {
-		p, err := structpb.NewStruct(profile)
-		if err != nil {
-			return err
+		p := &structpb.Struct{Fields: make(map[string]*structpb.Value, len(profile))}
+
+		for key, val := range profile {
+			pv, err := helpers.ToProtoValue(val)
+			if err != nil {
+				return fmt.Errorf("error converting profile data: %w", err)
+			}
+
+			p.Fields[key] = pv
 		}
 
 		rt.Profile = p
