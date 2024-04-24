@@ -8,6 +8,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 type ResourceOption func(*v2.Resource) error
@@ -336,4 +337,21 @@ func NewSecretResource(
 	}
 
 	return ret, nil
+}
+
+func ToProtoValue(val interface{}) (*structpb.Value, error) {
+	switch v := val.(type) {
+	case string, bool, float64:
+		return structpb.NewValue(val)
+	case int:
+		return structpb.NewNumberValue(float64(v)), nil
+	case *structpb.Value:
+		return v, nil
+	case *structpb.Struct:
+		return structpb.NewStructValue(v), nil
+	case *structpb.ListValue:
+		return structpb.NewListValue(v), nil
+	default:
+		return nil, fmt.Errorf("type %T is not supported", val)
+	}
 }
