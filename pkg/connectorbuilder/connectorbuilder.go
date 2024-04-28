@@ -43,6 +43,9 @@ type ResourceManager interface {
 	Delete(ctx context.Context, resourceId *v2.ResourceId) (annotations.Annotations, error)
 }
 
+type IssueManager interface {
+}
+
 type CreateAccountResponse interface {
 	proto.Message
 	GetIsCreateAccountResult() bool

@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "c1/connector/v2/resource.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+service TicketsService {
+  rpc CreateTicket(CreateTicketRequest) returns (CreateTicketResponse);
+  rpc GetTicket(GetTicketRequest) returns (GetTicketResponse);
+}
+
+message Ticket {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string status = 5;
+  repeated TicketComment comments = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message TicketComment {
+  string id = 1;
+  string author = 2;
+  string content = 3;
+
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message CreateTicketRequest {
+  string name = 1;
+  string description = 2;
+}
+
+message CreateTicketResponse {
+  Ticket ticket = 1;
+}
+
+message GetTicketRequest {
+  string id = 1;
+}
+
+message GetTicketResponse {
+  Ticket ticket = 1;
+}
