@@ -15,8 +15,8 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-func CustomFieldForSchemaField(id string, fields map[string]*v2.TicketCustomField, value interface{}) (*v2.TicketCustomField, error) {
-	field, ok := fields[id]
+func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interface{}) (*v2.TicketCustomField, error) {
+	field, ok := schema.GetCustomFields()[id]
 	if !ok {
 		return nil, fmt.Errorf("error: id(%s) not found in schema", id)
 	}
@@ -113,12 +113,11 @@ func CustomFieldForSchemaField(id string, fields map[string]*v2.TicketCustomFiel
 	}
 }
 
-func GetCustomFieldValue(id string, fields map[string]*v2.TicketCustomField) (interface{}, error) {
-	field, ok := fields[id]
-	if !ok {
+// GetCustomFieldValue returns the interface{} of the value set on a given custom field.
+func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
+	if field == nil {
 		return nil, nil
 	}
-
 	switch v := field.GetValue().(type) {
 	case *v2.TicketCustomField_StringValue:
 		return v.StringValue.GetValue(), nil
@@ -149,6 +148,7 @@ func GetCustomFieldValue(id string, fields map[string]*v2.TicketCustomField) (in
 	}
 }
 
+// ValidateTicket takes a ticket schema and ensures that the supplied ticket conforms.
 func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Ticket) (bool, error) {
 	l := ctxzap.Extract(ctx)
 

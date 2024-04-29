@@ -213,7 +213,7 @@ func ticketingCmd[T any, PtrT *T](
 
 			cfs := make(map[string]*v2.TicketCustomField)
 			for k, v := range template.CustomFields {
-				newCfs, err := sdkTicket.CustomFieldForSchemaField(k, schema.Schema.GetCustomFields(), v)
+				newCfs, err := sdkTicket.CustomFieldForSchemaField(k, schema.Schema, v)
 				if err != nil {
 					return err
 				}
