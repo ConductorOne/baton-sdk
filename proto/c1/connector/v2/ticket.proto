@@ -4,46 +4,147 @@ package c1.connector.v2;
 
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/any.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 service TicketsService {
-  rpc CreateTicket(CreateTicketRequest) returns (CreateTicketResponse);
-  rpc GetTicket(GetTicketRequest) returns (GetTicketResponse);
+  rpc CreateTicket(TicketsServiceCreateTicketRequest) returns (TicketsServiceCreateTicketResponse);
+  rpc GetTicket(TicketsServiceGetTicketRequest) returns (TicketsServiceGetTicketResponse);
+  rpc GetTicketSchema(TicketsServiceGetTicketSchemaRequest) returns (TicketsServiceGetTicketSchemaResponse);
+}
+
+message TicketSchema {
+  repeated TicketType types = 1;
+  repeated TicketStatus statuses = 2;
+  repeated TicketCustomField custom_fields = 3;
+}
+
+message TicketCustomField {
+  string id = 1;
+  string display_name = 2;
+  bool required = 3;
+  oneof value {
+    TicketCustomFieldStringValue string_value = 100;
+    TicketCustomFieldStringValues string_values = 101;
+    TicketCustomFieldBoolValue bool_value = 102;
+    TicketCustomFieldTimestampValue timestamp_value = 103;
+    TicketCustomFieldPickStringValue pick_string_value = 104;
+    TicketCustomFieldPickMultipleStringValues pick_multiple_string_values = 105;
+    TicketCustomFieldPickObjectValue pick_object_value = 106;
+    TicketCustomFieldPickMultipleObjectValues pick_multiple_object_values = 107;
+  }
+}
+
+message TicketCustomFieldStringValue {
+  string value = 1;
+}
+
+message TicketCustomFieldStringValues {
+  repeated string values = 1;
+}
+
+message TicketCustomFieldBoolValue {
+  bool value = 1;
+}
+
+message TicketCustomFieldTimestampValue {
+  google.protobuf.Timestamp value = 1;
+}
+
+message TicketCustomFieldPickStringValue {
+  string value = 1;
+  repeated string allowed_values = 2;
+}
+
+message TicketCustomFieldPickMultipleStringValues {
+  repeated string values = 1;
+  repeated string allowed_values = 2;
+}
+
+message TicketCustomFieldPickObjectValue {
+  TicketCustomFieldObjectValue value = 1;
+  repeated TicketCustomFieldObjectValue allowed_values = 2;
+}
+
+message TicketCustomFieldPickMultipleObjectValues {
+  repeated TicketCustomFieldObjectValue values = 1;
+  repeated TicketCustomFieldObjectValue allowed_values = 2;
+}
+
+message TicketCustomFieldObjectValue {
+  string id = 1;
+  string display_name = 2;
+}
+
+message TicketStatus {
+  string id = 1;
+  string display_name = 2;
+}
+
+message TicketsServiceGetTicketSchemaRequest {
+  repeated google.protobuf.Any annotations = 1;
+}
+
+message TicketsServiceGetTicketSchemaResponse {
+  TicketSchema schema = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
 
 message Ticket {
   string id = 1;
-  string name = 2;
+  string display_name = 2;
   string description = 3;
-  string status = 5;
-  repeated TicketComment comments = 6;
-  google.protobuf.Timestamp created_at = 7;
-  google.protobuf.Timestamp updated_at = 8;
+  repeated c1.connector.v2.Resource assignees = 4;
+  c1.connector.v2.Resource reporter = 5;
+  TicketStatus status = 7;
+  repeated TicketComment comments = 8;
+  TicketType ticket_type = 9;
+  repeated string labels = 10;
+  string url = 11;
+  repeated TicketCustomField custom_fields = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+  google.protobuf.Timestamp completed_at = 15;
+}
+
+message TicketType {
+  string id = 1;
+  string display_name = 2;
 }
 
 message TicketComment {
   string id = 1;
-  string author = 2;
-  string content = 3;
+  c1.connector.v2.Resource created_by = 2;
+  c1.connector.v2.Resource last_updated_by = 3;
+  string original_content = 4;
+  string updated_content = 5;
 
-  google.protobuf.Timestamp created_at = 4;
-  google.protobuf.Timestamp updated_at = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
 }
 
-message CreateTicketRequest {
-  string name = 1;
+message TicketsServiceCreateTicketRequest {
+  string display_name = 1;
   string description = 2;
+  TicketStatus status = 3;
+  TicketType ticket_type = 4;
+  repeated string labels = 5;
+  repeated TicketCustomField custom_fields = 6;
+  repeated google.protobuf.Any annotations = 7;
 }
 
-message CreateTicketResponse {
+message TicketsServiceCreateTicketResponse {
   Ticket ticket = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
 
-message GetTicketRequest {
+message TicketsServiceGetTicketRequest {
   string id = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
 
-message GetTicketResponse {
+message TicketsServiceGetTicketResponse {
   Ticket ticket = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
