@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -177,29 +178,47 @@ func ticketingCmd[T any, PtrT *T](
 				return err
 			}
 
-			ticketReq := &v2.TicketsServiceCreateTicketRequest{
-				DisplayName: "a test ticket made from baton",
-				Description: `a test ticket made from baton -- this is a longer description
-maybe newlines work`,
-				Status: &v2.TicketStatus{
-					Id: "10000",
-				},
-				TicketType: &v2.TicketType{
-					Id: "10002",
-				},
-				Labels: []string{"baton", "test"},
-			}
-			cfs := []*v2.TicketCustomField{
-				sdkTicket.PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{
-					Id: "10000",
-				}),
-				sdkTicket.PickMultipleObjectValuesField("components", []*v2.TicketCustomFieldObjectValue{
-					{
-						Id: "10000",
-					},
-				}),
+			schema, err := c.GetTicketSchema(runCtx, &v2.TicketsServiceGetTicketSchemaRequest{})
+			if err != nil {
+				return err
 			}
 
+			ticketTemplate := v.GetString("template")
+			if ticketTemplate == "" {
+				return fmt.Errorf("template is required")
+			}
+
+			tbytes, err := os.ReadFile(ticketTemplate)
+			if err != nil {
+				return err
+			}
+
+			template := &TicketTemplate{}
+			err = json.Unmarshal(tbytes, template)
+			if err != nil {
+				return err
+			}
+
+			ticketReq := &v2.TicketsServiceCreateTicketRequest{
+				DisplayName: template.DisplayName,
+				Description: template.Description,
+				Status: &v2.TicketStatus{
+					Id: template.StatusId,
+				},
+				Type: &v2.TicketType{
+					Id: template.TypeId,
+				},
+				Labels: template.Labels,
+			}
+
+			var cfs []*v2.TicketCustomField
+			for k, v := range template.CustomFields {
+				newCfs, err := sdkTicket.CustomFieldForSchemaField(k, schema.Schema.GetCustomFields(), v)
+				if err != nil {
+					return err
+				}
+				cfs = append(cfs, newCfs)
+			}
 			ticketReq.CustomFields = cfs
 
 			ticket, err := c.CreateTicket(runCtx, ticketReq)
@@ -208,7 +227,7 @@ maybe newlines work`,
 			}
 
 			if ticket.GetTicket() == nil {
-				return fmt.Errorf("connector returned empt ticket schema")
+				return fmt.Errorf("connector returned empty ticket")
 			}
 
 			protoMarshaller := protojson.MarshalOptions{
@@ -235,9 +254,19 @@ maybe newlines work`,
 			return nil
 		},
 	}
+	createCmd.Flags().String("template", "", "Path to JSON template for ticket creation")
 
 	cmd.AddCommand(schemaCmd)
 	cmd.AddCommand(getCmd)
 	cmd.AddCommand(createCmd)
 	return cmd
+}
+
+type TicketTemplate struct {
+	StatusId     string                 `json:"status_id"`
+	TypeId       string                 `json:"type_id"`
+	DisplayName  string                 `json:"display_name"`
+	Description  string                 `json:"description"`
+	Labels       []string               `json:"labels"`
+	CustomFields map[string]interface{} `json:"custom_fields"`
 }

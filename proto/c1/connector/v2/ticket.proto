@@ -99,7 +99,7 @@ message Ticket {
   c1.connector.v2.Resource reporter = 5;
   TicketStatus status = 7;
   repeated TicketComment comments = 8;
-  TicketType ticket_type = 9;
+  TicketType type = 9;
   repeated string labels = 10;
   string url = 11;
   repeated TicketCustomField custom_fields = 12;
@@ -128,7 +128,7 @@ message TicketsServiceCreateTicketRequest {
   string display_name = 1;
   string description = 2;
   TicketStatus status = 3;
-  TicketType ticket_type = 4;
+  TicketType type = 4;
   repeated string labels = 5;
   repeated TicketCustomField custom_fields = 6;
   repeated google.protobuf.Any annotations = 7;

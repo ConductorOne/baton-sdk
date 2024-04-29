@@ -2347,11 +2347,11 @@ func (m *Ticket) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetTicketType()).(type) {
+		switch v := interface{}(m.GetType()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, TicketValidationError{
-					field:  "TicketType",
+					field:  "Type",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -2359,16 +2359,16 @@ func (m *Ticket) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, TicketValidationError{
-					field:  "TicketType",
+					field:  "Type",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetTicketType()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetType()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return TicketValidationError{
-				field:  "TicketType",
+				field:  "Type",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -2957,11 +2957,11 @@ func (m *TicketsServiceCreateTicketRequest) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetTicketType()).(type) {
+		switch v := interface{}(m.GetType()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, TicketsServiceCreateTicketRequestValidationError{
-					field:  "TicketType",
+					field:  "Type",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -2969,16 +2969,16 @@ func (m *TicketsServiceCreateTicketRequest) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, TicketsServiceCreateTicketRequestValidationError{
-					field:  "TicketType",
+					field:  "Type",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetTicketType()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetType()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return TicketsServiceCreateTicketRequestValidationError{
-				field:  "TicketType",
+				field:  "Type",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}

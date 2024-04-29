@@ -93,7 +93,7 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 		DisplayName:  request.GetDisplayName(),
 		Description:  request.GetDescription(),
 		Status:       request.GetStatus(),
-		TicketType:   request.GetTicketType(),
+		Type:         request.GetType(),
 		Labels:       request.GetLabels(),
 		CustomFields: request.GetCustomFields(),
 	}
