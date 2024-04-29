@@ -17,7 +17,7 @@ service TicketsService {
 message TicketSchema {
   repeated TicketType types = 1;
   repeated TicketStatus statuses = 2;
-  repeated TicketCustomField custom_fields = 3;
+  map<string, TicketCustomField> custom_fields = 3;
 }
 
 message TicketCustomField {
@@ -102,7 +102,7 @@ message Ticket {
   TicketType type = 9;
   repeated string labels = 10;
   string url = 11;
-  repeated TicketCustomField custom_fields = 12;
+  map<string, TicketCustomField> custom_fields = 12;
   google.protobuf.Timestamp created_at = 13;
   google.protobuf.Timestamp updated_at = 14;
   google.protobuf.Timestamp completed_at = 15;
@@ -130,7 +130,7 @@ message TicketsServiceCreateTicketRequest {
   TicketStatus status = 3;
   TicketType type = 4;
   repeated string labels = 5;
-  repeated TicketCustomField custom_fields = 6;
+  map<string, TicketCustomField> custom_fields = 6;
   repeated google.protobuf.Any annotations = 7;
 }
 

@@ -15,26 +15,8 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-func mapCustomFields(fields []*v2.TicketCustomField) (map[string]*v2.TicketCustomField, error) {
-	customFields := make(map[string]*v2.TicketCustomField)
-	for _, cf := range fields {
-		if _, ok := customFields[cf.Id]; ok {
-			return nil, fmt.Errorf("error: duplicate key found in custom fields: %s", cf.Id)
-		}
-
-		customFields[cf.Id] = cf
-	}
-
-	return customFields, nil
-}
-
-func CustomFieldForSchemaField(id string, fields []*v2.TicketCustomField, value interface{}) (*v2.TicketCustomField, error) {
-	m, err := mapCustomFields(fields)
-	if err != nil {
-		return nil, err
-	}
-
-	field, ok := m[id]
+func CustomFieldForSchemaField(id string, fields map[string]*v2.TicketCustomField, value interface{}) (*v2.TicketCustomField, error) {
+	field, ok := fields[id]
 	if !ok {
 		return nil, fmt.Errorf("error: id(%s) not found in schema", id)
 	}
@@ -131,13 +113,8 @@ func CustomFieldForSchemaField(id string, fields []*v2.TicketCustomField, value 
 	}
 }
 
-func GetCustomFieldValue(id string, fields []*v2.TicketCustomField) (interface{}, error) {
-	m, err := mapCustomFields(fields)
-	if err != nil {
-		return nil, err
-	}
-
-	field, ok := m[id]
+func GetCustomFieldValue(id string, fields map[string]*v2.TicketCustomField) (interface{}, error) {
+	field, ok := fields[id]
 	if !ok {
 		return nil, nil
 	}
@@ -211,15 +188,8 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 		return false, nil
 	}
 
-	schemaCustomFields, err := mapCustomFields(schema.GetCustomFields())
-	if err != nil {
-		return false, err
-	}
-
-	ticketCustomFields, err := mapCustomFields(ticket.GetCustomFields())
-	if err != nil {
-		return false, err
-	}
+	schemaCustomFields := schema.GetCustomFields()
+	ticketCustomFields := ticket.GetCustomFields()
 
 	for id, cf := range schemaCustomFields {
 		ticketCf, ok := ticketCustomFields[id]

@@ -125,38 +125,50 @@ func (m *TicketSchema) validate(all bool) error {
 
 	}
 
-	for idx, item := range m.GetCustomFields() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, TicketSchemaValidationError{
-						field:  fmt.Sprintf("CustomFields[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, TicketSchemaValidationError{
-						field:  fmt.Sprintf("CustomFields[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return TicketSchemaValidationError{
-					field:  fmt.Sprintf("CustomFields[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
+	{
+		sorted_keys := make([]string, len(m.GetCustomFields()))
+		i := 0
+		for key := range m.GetCustomFields() {
+			sorted_keys[i] = key
+			i++
 		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetCustomFields()[key]
+			_ = val
 
+			// no validation rules for CustomFields[key]
+
+			if all {
+				switch v := interface{}(val).(type) {
+				case interface{ ValidateAll() error }:
+					if err := v.ValidateAll(); err != nil {
+						errors = append(errors, TicketSchemaValidationError{
+							field:  fmt.Sprintf("CustomFields[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				case interface{ Validate() error }:
+					if err := v.Validate(); err != nil {
+						errors = append(errors, TicketSchemaValidationError{
+							field:  fmt.Sprintf("CustomFields[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				}
+			} else if v, ok := interface{}(val).(interface{ Validate() error }); ok {
+				if err := v.Validate(); err != nil {
+					return TicketSchemaValidationError{
+						field:  fmt.Sprintf("CustomFields[%v]", key),
+						reason: "embedded message failed validation",
+						cause:  err,
+					}
+				}
+			}
+
+		}
 	}
 
 	if len(errors) > 0 {
@@ -2377,38 +2389,50 @@ func (m *Ticket) validate(all bool) error {
 
 	// no validation rules for Url
 
-	for idx, item := range m.GetCustomFields() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, TicketValidationError{
-						field:  fmt.Sprintf("CustomFields[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, TicketValidationError{
-						field:  fmt.Sprintf("CustomFields[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return TicketValidationError{
-					field:  fmt.Sprintf("CustomFields[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
+	{
+		sorted_keys := make([]string, len(m.GetCustomFields()))
+		i := 0
+		for key := range m.GetCustomFields() {
+			sorted_keys[i] = key
+			i++
 		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetCustomFields()[key]
+			_ = val
 
+			// no validation rules for CustomFields[key]
+
+			if all {
+				switch v := interface{}(val).(type) {
+				case interface{ ValidateAll() error }:
+					if err := v.ValidateAll(); err != nil {
+						errors = append(errors, TicketValidationError{
+							field:  fmt.Sprintf("CustomFields[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				case interface{ Validate() error }:
+					if err := v.Validate(); err != nil {
+						errors = append(errors, TicketValidationError{
+							field:  fmt.Sprintf("CustomFields[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				}
+			} else if v, ok := interface{}(val).(interface{ Validate() error }); ok {
+				if err := v.Validate(); err != nil {
+					return TicketValidationError{
+						field:  fmt.Sprintf("CustomFields[%v]", key),
+						reason: "embedded message failed validation",
+						cause:  err,
+					}
+				}
+			}
+
+		}
 	}
 
 	if all {
@@ -2985,38 +3009,50 @@ func (m *TicketsServiceCreateTicketRequest) validate(all bool) error {
 		}
 	}
 
-	for idx, item := range m.GetCustomFields() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, TicketsServiceCreateTicketRequestValidationError{
-						field:  fmt.Sprintf("CustomFields[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, TicketsServiceCreateTicketRequestValidationError{
-						field:  fmt.Sprintf("CustomFields[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return TicketsServiceCreateTicketRequestValidationError{
-					field:  fmt.Sprintf("CustomFields[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
+	{
+		sorted_keys := make([]string, len(m.GetCustomFields()))
+		i := 0
+		for key := range m.GetCustomFields() {
+			sorted_keys[i] = key
+			i++
 		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetCustomFields()[key]
+			_ = val
 
+			// no validation rules for CustomFields[key]
+
+			if all {
+				switch v := interface{}(val).(type) {
+				case interface{ ValidateAll() error }:
+					if err := v.ValidateAll(); err != nil {
+						errors = append(errors, TicketsServiceCreateTicketRequestValidationError{
+							field:  fmt.Sprintf("CustomFields[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				case interface{ Validate() error }:
+					if err := v.Validate(); err != nil {
+						errors = append(errors, TicketsServiceCreateTicketRequestValidationError{
+							field:  fmt.Sprintf("CustomFields[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				}
+			} else if v, ok := interface{}(val).(interface{ Validate() error }); ok {
+				if err := v.Validate(); err != nil {
+					return TicketsServiceCreateTicketRequestValidationError{
+						field:  fmt.Sprintf("CustomFields[%v]", key),
+						reason: "embedded message failed validation",
+						cause:  err,
+					}
+				}
+			}
+
+		}
 	}
 
 	for idx, item := range m.GetAnnotations() {

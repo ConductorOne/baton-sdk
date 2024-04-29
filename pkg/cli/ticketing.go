@@ -211,13 +211,13 @@ func ticketingCmd[T any, PtrT *T](
 				Labels: template.Labels,
 			}
 
-			var cfs []*v2.TicketCustomField
+			cfs := make(map[string]*v2.TicketCustomField)
 			for k, v := range template.CustomFields {
 				newCfs, err := sdkTicket.CustomFieldForSchemaField(k, schema.Schema.GetCustomFields(), v)
 				if err != nil {
 					return err
 				}
-				cfs = append(cfs, newCfs)
+				cfs[k] = newCfs
 			}
 			ticketReq.CustomFields = cfs
 
