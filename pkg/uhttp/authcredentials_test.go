@@ -108,7 +108,7 @@ func TestHelpers_OAuth2_ClientCredentials_GetClient(t *testing.T) {
 			require.Equal(t, tt.wanted.authHeader, r.Header.Get("Authorization"))
 
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(tt.tokenResponseJSON))
+			_, _ = w.Write([]byte(tt.tokenResponseJSON))
 			w.WriteHeader(http.StatusOK)
 
 			hitServer = true
@@ -122,8 +122,8 @@ func TestHelpers_OAuth2_ClientCredentials_GetClient(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, client)
 
-		// Invoke token request
-		client.Head("https://test-url")
+		// To invoke token request
+		client.Get("https://test-url") //nolint:errcheck,revive,bodyclose,noctx //nolint
 
 		require.True(t, hitServer)
 	}
@@ -176,7 +176,7 @@ func TestHelpers_OAuth2_JWT_GetClient(t *testing.T) {
 			require.True(t, matched)
 
 			w.Header().Set("Content-Type", "application/json")
-			w.Write([]byte(tt.tokenResponseJSON))
+			_, _ = w.Write([]byte(tt.tokenResponseJSON))
 			w.WriteHeader(http.StatusOK)
 
 			hitServer = true
@@ -189,15 +189,14 @@ func TestHelpers_OAuth2_JWT_GetClient(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, client)
 
-		// Invoke token request
-		client.Head("https://test-url")
-
+		// To invoke token request
+		client.Get("https://test-url") //nolint:errcheck,revive,bodyclose,noctx //nolint
 		require.True(t, hitServer)
 	}
 }
 
 func getDummyPrivateKey() []byte {
-	privateKeyPEM := `-----BEGIN RSA PRIVATE KEY-----
+	privateKeyPEM := `-----BEGIN RSA PRIVATE KEY----- 
 MIIJKAIBAAKCAgEAqG0F83TRfJpjArs0uT8J9IzwMZfYXJXsiVeIPHoGfok6tqPy
 lRk/zAi1r6xxTheRBtSmVgBkM1NQKG6eabMCStNzVhjWGlpgxmL0yVz4FstDTpZZ
 ypLJHcsuEXIVIrb0sZEi03iBv18itgOp3ezmiG+gVOE25FwQNOyY6nleBxYMwdV+
@@ -247,7 +246,7 @@ XJ4b9qJFgjdxZzltUm8vbLBEVxkOBNefWgaw793g0hddeHfkjob4tZ8oNGi82IVN
 +JN/EEfezgJTx4NSKWnGY67bTeyKPFUjv20zC99D+y9ZWuSb25O18aPpLLsJi/SV
 qLhnRdCtHDwYE3k2hCsWJWhWCSoeGUMTOYaqK6PaFnkHkHXylJfALL2YtODJ9l9x
 ggaUBAZeX6eTg5Y7BwekkD3cIOQxTH0gCsG74431o9lcUNFk8U+FSIEGPMc=
------END RSA PRIVATE KEY-----`
+-----END RSA PRIVATE KEY-----` //#nosec G101
 
 	return []byte(privateKeyPEM)
 }
