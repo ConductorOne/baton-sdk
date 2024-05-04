@@ -809,12 +809,10 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		cycles, hasCycles := entitlementGraph.GetCycles()
 		if hasCycles {
 			l.Warn("cycles detected in entitlement graph", zap.Any("cycles", cycles))
+			entitlementGraph.FixCycles()
+			cycles, _ := entitlementGraph.GetCycles()
+			l.Warn("fixed cycles", zap.Any("cycles", cycles))
 		}
-		// TODO: expand cycles by merging cycles into one big node
-		// for _, cycle := range cycles {
-		// 	l.Info("expanding cycle", zap.Any("cycle", cycle))
-
-		// }
 	}
 
 	err := s.expandGrantsForEntitlements(ctx)

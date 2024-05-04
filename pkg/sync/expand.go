@@ -28,35 +28,42 @@ type grantInfo struct {
 	ResourceTypeIDs []string `json:"resource_type_ids"`
 }
 
-// TODO: this can probably go away and just be a string
-type Entitlement struct {
-	Id string `json:"id"`
-	// Expanded bool   `json:"expanded"`
-}
-
 type Node struct {
-	Id           int           `json:"id"`
-	Entitlements []Entitlement `json:"entitlements"` // List of entitlements.
-	// Expanded     bool          `json:"expanded"`     // If all edges and entitlements are expanded.
+	Id             int      `json:"id"`
+	EntitlementIDs []string `json:"entitlementIds"` // List of entitlements.
 }
 
 type EntitlementGraph struct {
-	NodeCount int          `json:"node_count"`
-	Nodes     map[int]Node `json:"nodes"`
-	// Entitlements map[string]bool           `json:"entitlements"` // Bool is whether entitlement is expanded or not
-	Edges   map[int]map[int]*grantInfo `json:"edges"` // Adjacency list. Source node -> destination node
-	Loaded  bool                       `json:"loaded"`
-	Depth   int                        `json:"depth"`
-	Actions []EntitlementGraphAction   `json:"actions"`
+	NodeCount int                        `json:"node_count"`
+	Nodes     map[int]Node               `json:"nodes"`
+	Edges     map[int]map[int]*grantInfo `json:"edges"` // Adjacency list. Source node -> destination node
+	Loaded    bool                       `json:"loaded"`
+	Depth     int                        `json:"depth"`
+	Actions   []EntitlementGraphAction   `json:"actions"`
 }
 
 func NewEntitlementGraph(ctx context.Context) *EntitlementGraph {
 	return &EntitlementGraph{
 		NodeCount: 1, // Start at 1 in case we don't initialize something and try to get node 0
 		Nodes:     make(map[int]Node),
+		// TODO: probably want this for efficiency
 		// EntitlementsToNodes: make(map[string]int),
 		Edges: make(map[int]map[int]*grantInfo),
 	}
+}
+
+func (g *EntitlementGraph) Str() string {
+	str := "\n"
+	for id, node := range g.Nodes {
+		str += fmt.Sprintf("node %v entitlement IDs: %v\n", id, node.EntitlementIDs)
+	}
+	str += "edges:\n"
+	for src, dsts := range g.Edges {
+		for dst, gi := range dsts {
+			str += fmt.Sprintf("%v -> %v grantInfo %v\n", src, dst, gi)
+		}
+	}
+	return str
 }
 
 func (g *EntitlementGraph) Validate() error {
@@ -65,7 +72,7 @@ func (g *EntitlementGraph) Validate() error {
 		if !ok {
 			return ErrNoEntitlement
 		}
-		if len(node.Entitlements) == 0 {
+		if len(node.EntitlementIDs) == 0 {
 			return fmt.Errorf("empty node")
 		}
 		for dstNodeId, grantInfo := range dstNodeIDs {
@@ -73,7 +80,7 @@ func (g *EntitlementGraph) Validate() error {
 			if !ok {
 				return ErrNoEntitlement
 			}
-			if len(node.Entitlements) == 0 {
+			if len(node.EntitlementIDs) == 0 {
 				return fmt.Errorf("empty node")
 			}
 			if grantInfo == nil {
@@ -81,11 +88,20 @@ func (g *EntitlementGraph) Validate() error {
 			}
 		}
 	}
-	// TODO: check for entitlement ids that are in multiple nodes
+	// check for entitlement ids that are in multiple nodes
+	seenEntitlements := make(map[string]int)
+	for nodeID, node := range g.Nodes {
+		for _, entID := range node.EntitlementIDs {
+			if _, ok := seenEntitlements[entID]; ok {
+				return fmt.Errorf("entitlement %v is in multiple nodes: %v %v", entID, nodeID, seenEntitlements[entID])
+			}
+			seenEntitlements[entID] = nodeID
+		}
+	}
 	return nil
 }
 
-func (g *EntitlementGraph) IsNodeExpanded(nodeID int) bool {
+func (g *EntitlementGraph) isNodeExpanded(nodeID int) bool {
 	dstNodeIDs := g.Edges[nodeID]
 	for _, edgeInfo := range dstNodeIDs {
 		if !edgeInfo.Expanded {
@@ -98,7 +114,7 @@ func (g *EntitlementGraph) IsNodeExpanded(nodeID int) bool {
 // IsExpanded returns true if all entitlements in the graph have been expanded.
 func (g *EntitlementGraph) IsExpanded() bool {
 	for srcNodeID := range g.Edges {
-		if !g.IsNodeExpanded(srcNodeID) {
+		if !g.isNodeExpanded(srcNodeID) {
 			return false
 		}
 	}
@@ -112,7 +128,7 @@ func (g *EntitlementGraph) IsEntitlementExpanded(entitlementID string) bool {
 		// TODO: log error? return error?
 		return false
 	}
-	if !g.IsNodeExpanded(node.Id) {
+	if !g.isNodeExpanded(node.Id) {
 		return false
 	}
 	return true
@@ -126,7 +142,7 @@ func (g *EntitlementGraph) HasUnexpandedAncestors(entitlementID string) bool {
 	}
 
 	for _, ancestorId := range g.getAncestors(entitlementID) {
-		if !g.IsNodeExpanded(ancestorId) {
+		if !g.isNodeExpanded(ancestorId) {
 			return true
 		}
 	}
@@ -153,7 +169,7 @@ func (g *EntitlementGraph) getAncestors(entitlementID string) []int {
 func (g *EntitlementGraph) GetCycles() ([][]int, bool) {
 	rv := make([][]int, 0)
 	for nodeID := range g.Nodes {
-		if len(g.GetDescendants(nodeID)) == 0 {
+		if len(g.getDescendants(nodeID)) == 0 {
 			continue
 		}
 		cycle, isCycle := g.getCycle([]int{nodeID})
@@ -183,7 +199,7 @@ func shift(arr []int, n int) []int {
 
 func (g *EntitlementGraph) getCycle(visits []int) ([]int, bool) {
 	nodeId := visits[len(visits)-1]
-	for _, descendant := range g.GetDescendants(nodeId) {
+	for _, descendant := range g.getDescendants(nodeId) {
 		tempVisits := make([]int, len(visits))
 		copy(tempVisits, visits)
 		if descendant.Id == visits[0] {
@@ -209,7 +225,7 @@ func (g *EntitlementGraph) getCycle(visits []int) ([]int, bool) {
 	return nil, false
 }
 
-func (g *EntitlementGraph) GetDescendants(nodeID int) []Node {
+func (g *EntitlementGraph) getDescendants(nodeID int) []Node {
 	node, ok := g.Nodes[nodeID]
 	if !ok {
 		return nil
@@ -230,8 +246,8 @@ func (g *EntitlementGraph) GetDescendantEntitlements(entitlementID string) map[s
 	entsToGrants := make(map[string]*grantInfo)
 	for dstNodeId, edgeInfo := range g.Edges[node.Id] {
 		dstNode := g.Nodes[dstNodeId]
-		for _, ent := range dstNode.Entitlements {
-			entsToGrants[ent.Id] = edgeInfo
+		for _, entId := range dstNode.EntitlementIDs {
+			entsToGrants[entId] = edgeInfo
 		}
 	}
 	return entsToGrants
@@ -248,8 +264,8 @@ func (g *EntitlementGraph) AddEntitlement(entitlement *v2.Entitlement) {
 	}
 
 	g.Nodes[g.NodeCount] = Node{
-		Id:           g.NodeCount,
-		Entitlements: []Entitlement{{Id: entitlement.Id}},
+		Id:             g.NodeCount,
+		EntitlementIDs: []string{entitlement.Id},
 	}
 	g.NodeCount++
 	// if _, ok := d.Entitlements[entitlement.Id]; !ok {
@@ -260,9 +276,7 @@ func (g *EntitlementGraph) AddEntitlement(entitlement *v2.Entitlement) {
 func (g *EntitlementGraph) GetEntitlements() []string {
 	var entitlements []string
 	for _, node := range g.Nodes {
-		for _, entitlement := range node.Entitlements {
-			entitlements = append(entitlements, entitlement.Id)
-		}
+		entitlements = append(entitlements, node.EntitlementIDs...)
 	}
 	return entitlements
 }
@@ -289,8 +303,8 @@ func (g *EntitlementGraph) MarkEdgeExpanded(sourceEntitlementID string, descenda
 func (g *EntitlementGraph) GetNode(entitlementId string) *Node {
 	// TODO: add an EntitlementToNode map for efficiency
 	for _, node := range g.Nodes {
-		for _, ent := range node.Entitlements {
-			if ent.Id == entitlementId {
+		for _, entId := range node.EntitlementIDs {
+			if entId == entitlementId {
 				return &node
 			}
 		}
@@ -327,7 +341,7 @@ func (g *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID str
 	return nil
 }
 
-func (g *EntitlementGraph) RemoveNode(nodeID int) {
+func (g *EntitlementGraph) removeNode(nodeID int) {
 	delete(g.Nodes, nodeID)
 	delete(g.Edges, nodeID)
 	for id := range g.Edges {
@@ -335,42 +349,41 @@ func (g *EntitlementGraph) RemoveNode(nodeID int) {
 	}
 }
 
-// Merge all the nodes in a cycle.
-func (g *EntitlementGraph) FixCycle(cycle []int) {
-	if len(cycle) == 0 {
-		return
-	}
-	firstNode := g.Nodes[cycle[0]]
+func (g *EntitlementGraph) mergeNodes(node1ID int, node2ID int) {
+	node1 := g.Nodes[node1ID]
+	node2 := g.Nodes[node2ID]
 
-	for i := 1; i < len(cycle); i++ {
-		nodeID := cycle[i]
-		edges := g.Edges[nodeID]
-		for dstNodeID := range edges {
-			if dstNodeID == firstNode.Id {
-				continue
+	// Put node's entitlements on first node
+	node1.EntitlementIDs = append(node1.EntitlementIDs, node2.EntitlementIDs...)
+
+	// TODO: Merge grant info?
+
+	for dstNodeID := range g.Edges[node2ID] {
+		dstNode := g.Nodes[dstNodeID]
+		if dstNodeID == node1ID {
+			continue
+		}
+
+		// Set outgoing edges on first node
+		for id := range g.Edges[dstNodeID] {
+			if id != node1.Id {
+				g.Edges[node1.Id][id] = g.Edges[dstNode.Id][id]
 			}
-			dstNode := g.Nodes[dstNodeID]
-			// Put node's entitlements on first node
-			firstNode.Entitlements = append(firstNode.Entitlements, dstNode.Entitlements...)
-			// Set outgoing edges on first node
-			for id := range g.Edges[dstNode.Id] {
-				if id != firstNode.Id {
-					g.Edges[firstNode.Id][id] = g.Edges[dstNode.Id][id]
-				}
-			}
-			// Set incoming edges on first node
-			for id := range g.Nodes {
-				descendants := g.GetDescendants(id)
-				for _, dNode := range descendants {
-					if dNode.Id == nodeID {
-						delete(g.Edges[id], nodeID)
-					}
-				}
-			}
-			// Delete node
-			g.RemoveNode(dstNodeID)
 		}
 	}
+
+	// Set incoming edges on first node
+	for srcID, edges := range g.Edges {
+		for dstID, gi := range edges {
+			if dstID == node2ID && srcID != node1ID {
+				g.Edges[srcID][node1ID] = gi
+				delete(g.Edges[srcID], dstID)
+			}
+		}
+	}
+
+	// Delete node
+	g.removeNode(node2ID)
 }
 
 func (g *EntitlementGraph) FixCycles() {
@@ -379,6 +392,10 @@ func (g *EntitlementGraph) FixCycles() {
 		if !hasCycles {
 			return
 		}
-		g.FixCycle(cycles[0])
+
+		// Merge all the nodes in a cycle.
+		for i := 1; i < len(cycles[0]); i++ {
+			g.mergeNodes(cycles[0][0], cycles[0][i])
+		}
 	}
 }
