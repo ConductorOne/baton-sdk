@@ -316,6 +316,7 @@ func NewCmd[T any, PtrT *T](
 
 	cmd.AddCommand(grpcServerCmd)
 	cmd.AddCommand(capabilitiesCmd)
+	cmd.AddCommand(ticketingCmd(ctx, name, cfg, validateF, getConnector, opts...))
 
 	// Flags for file management
 	cmd.PersistentFlags().String("c1z-temp-dir", "", "The directory to store temporary files in. It "+
