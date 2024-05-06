@@ -228,6 +228,7 @@ type runnerConfig struct {
 	clientID                string
 	clientSecret            string
 	provisioningEnabled     bool
+	ticketingEnabled        bool
 	grantConfig             *grantConfig
 	revokeConfig            *revokeConfig
 	eventFeedConfig         *eventStreamConfig
@@ -402,6 +403,13 @@ func WithProvisioningEnabled() Option {
 	}
 }
 
+func WithTicketingEnabled() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.ticketingEnabled = true
+		return nil
+	}
+}
+
 func WithTempDir(tempDir string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.tempDir = tempDir
@@ -430,6 +438,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 	if cfg.provisioningEnabled {
 		wrapperOpts = append(wrapperOpts, connector.WithProvisioningEnabled())
+	}
+
+	if cfg.ticketingEnabled {
+		wrapperOpts = append(wrapperOpts, connector.WithTicketingEnabled())
 	}
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)

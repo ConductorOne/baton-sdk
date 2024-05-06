@@ -60,6 +60,12 @@ type EventProvider interface {
 	ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
 }
 
+type TicketManager interface {
+	GetTicket(ctx context.Context, ticketId string) (*v2.Ticket, annotations.Annotations, error)
+	CreateTicket(ctx context.Context, ticket *v2.Ticket) (*v2.Ticket, annotations.Annotations, error)
+	GetTicketSchema(ctx context.Context) (*v2.TicketSchema, annotations.Annotations, error)
+}
+
 type ConnectorBuilder interface {
 	Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 	Validate(ctx context.Context) (annotations.Annotations, error)
@@ -75,6 +81,64 @@ type builderImpl struct {
 	credentialManagers     map[string]CredentialManager
 	eventFeed              EventProvider
 	cb                     ConnectorBuilder
+	ticketManager          TicketManager
+}
+
+func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServiceCreateTicketRequest) (*v2.TicketsServiceCreateTicketResponse, error) {
+	if b.ticketManager == nil {
+		return nil, fmt.Errorf("error: ticket manager not implemented")
+	}
+
+	cTicket := &v2.Ticket{
+		DisplayName:  request.GetDisplayName(),
+		Description:  request.GetDescription(),
+		Status:       request.GetStatus(),
+		Type:         request.GetType(),
+		Labels:       request.GetLabels(),
+		CustomFields: request.GetCustomFields(),
+	}
+
+	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket)
+	if err != nil {
+		return nil, fmt.Errorf("error: creating ticket failed: %w", err)
+	}
+
+	return &v2.TicketsServiceCreateTicketResponse{
+		Ticket:      ticket,
+		Annotations: annos,
+	}, nil
+}
+
+func (b *builderImpl) GetTicket(ctx context.Context, request *v2.TicketsServiceGetTicketRequest) (*v2.TicketsServiceGetTicketResponse, error) {
+	if b.ticketManager == nil {
+		return nil, fmt.Errorf("error: ticket manager not implemented")
+	}
+
+	ticket, annos, err := b.ticketManager.GetTicket(ctx, request.GetId())
+	if err != nil {
+		return nil, fmt.Errorf("error: getting ticket failed: %w", err)
+	}
+
+	return &v2.TicketsServiceGetTicketResponse{
+		Ticket:      ticket,
+		Annotations: annos,
+	}, nil
+}
+
+func (b *builderImpl) GetTicketSchema(ctx context.Context, request *v2.TicketsServiceGetTicketSchemaRequest) (*v2.TicketsServiceGetTicketSchemaResponse, error) {
+	if b.ticketManager == nil {
+		return nil, fmt.Errorf("error: ticket manager not implemented")
+	}
+
+	ticketSchema, annos, err := b.ticketManager.GetTicketSchema(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error: getting ticket metadata failed: %w", err)
+	}
+
+	return &v2.TicketsServiceGetTicketSchemaResponse{
+		Schema:      ticketSchema,
+		Annotations: annos,
+	}, nil
 }
 
 // NewConnector creates a new ConnectorServer for a new resource.
@@ -89,10 +153,18 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 			accountManager:         nil,
 			credentialManagers:     make(map[string]CredentialManager),
 			cb:                     c,
+			ticketManager:          nil,
 		}
 
 		if b, ok := c.(EventProvider); ok {
 			ret.eventFeed = b
+		}
+
+		if ticketManager, ok := c.(TicketManager); ok {
+			if ret.ticketManager != nil {
+				return nil, fmt.Errorf("error: cannot set multiple ticket managers")
+			}
+			ret.ticketManager = ticketManager
 		}
 
 		for _, rb := range c.ResourceSyncers(ctx) {
