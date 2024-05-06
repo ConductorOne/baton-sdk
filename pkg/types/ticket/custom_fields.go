@@ -65,12 +65,7 @@ func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interfa
 		return PickMultipleStringsField(id, v), nil
 
 	case *v2.TicketCustomField_PickObjectValue:
-		v, ok := value.(interface{})
-		if !ok {
-			return nil, fmt.Errorf("unexpected value type for custom field: %s %T", id, v)
-		}
-
-		rawBytes, err := json.Marshal(v)
+		rawBytes, err := json.Marshal(value)
 		if err != nil {
 			return nil, err
 		}
