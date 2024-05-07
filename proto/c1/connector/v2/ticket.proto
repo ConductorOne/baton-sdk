@@ -3,8 +3,8 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "c1/connector/v2/resource.proto";
-import "google/protobuf/timestamp.proto";
 import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
@@ -152,7 +152,7 @@ message TicketComment {
   google.protobuf.Timestamp updated_at = 7;
 }
 
-message TicketsServiceCreateTicketRequest {
+message TicketRequest {
   string display_name = 1;
   string description = 2;
   TicketStatus status = 3;
@@ -161,6 +161,10 @@ message TicketsServiceCreateTicketRequest {
   map<string, TicketCustomField> custom_fields = 6;
   string schema_id = 7;
   repeated google.protobuf.Any annotations = 8;
+}
+
+message TicketsServiceCreateTicketRequest {
+  TicketRequest request = 1;
 }
 
 message TicketsServiceCreateTicketResponse {
