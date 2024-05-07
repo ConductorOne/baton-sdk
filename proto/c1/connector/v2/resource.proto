@@ -117,11 +117,7 @@ message RotateCredentialResponse {
 
 message AccountInfo {
   message Email {
-    string address = 1 [
-      (validate.rules).string = {
-        email: true
-      }
-    ];
+    string address = 1 [(validate.rules).string = {email: true}];
     // Indicates if this is the user's primary email. Only one entry can be marked as primary.
     bool is_primary = 2;
   }
@@ -136,11 +132,14 @@ message AccountInfo {
 
 message CredentialOptions {
   message RandomPassword {
-    int64 length = 1 [(validate.rules).int64 = {gte: 8, lte: 64}];
+    int64 length = 1 [(validate.rules).int64 = {
+      gte: 8,
+      lte: 64
+    }];
   }
   oneof options {
     RandomPassword random_password = 100;
-  };
+  }
 }
 
 message CreateAccountRequest {
