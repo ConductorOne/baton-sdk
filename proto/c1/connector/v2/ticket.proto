@@ -13,6 +13,7 @@ service TicketsService {
   rpc CreateTicket(TicketsServiceCreateTicketRequest) returns (TicketsServiceCreateTicketResponse);
   rpc GetTicket(TicketsServiceGetTicketRequest) returns (TicketsServiceGetTicketResponse);
   rpc ListTicketSchemas(TicketsServiceListTicketSchemasRequest) returns (TicketsServiceListTicketSchemasResponse);
+  rpc GetTicketSchema(TicketsServiceGetTicketSchemaRequest) returns (TicketsServiceGetTicketSchemaResponse);
 }
 
 message TicketSchema {
@@ -82,6 +83,16 @@ message TicketCustomFieldObjectValue {
 message TicketStatus {
   string id = 1;
   string display_name = 2;
+}
+
+message TicketsServiceGetTicketSchemaRequest {
+  string id = 1;
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message TicketsServiceGetTicketSchemaResponse {
+  TicketSchema schema = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
 
 message TicketsServiceListTicketSchemasRequest {

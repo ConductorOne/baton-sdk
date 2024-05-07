@@ -25,6 +25,7 @@ type TicketsServiceClient interface {
 	CreateTicket(ctx context.Context, in *TicketsServiceCreateTicketRequest, opts ...grpc.CallOption) (*TicketsServiceCreateTicketResponse, error)
 	GetTicket(ctx context.Context, in *TicketsServiceGetTicketRequest, opts ...grpc.CallOption) (*TicketsServiceGetTicketResponse, error)
 	ListTicketSchemas(ctx context.Context, in *TicketsServiceListTicketSchemasRequest, opts ...grpc.CallOption) (*TicketsServiceListTicketSchemasResponse, error)
+	GetTicketSchema(ctx context.Context, in *TicketsServiceGetTicketSchemaRequest, opts ...grpc.CallOption) (*TicketsServiceGetTicketSchemaResponse, error)
 }
 
 type ticketsServiceClient struct {
@@ -62,6 +63,15 @@ func (c *ticketsServiceClient) ListTicketSchemas(ctx context.Context, in *Ticket
 	return out, nil
 }
 
+func (c *ticketsServiceClient) GetTicketSchema(ctx context.Context, in *TicketsServiceGetTicketSchemaRequest, opts ...grpc.CallOption) (*TicketsServiceGetTicketSchemaResponse, error) {
+	out := new(TicketsServiceGetTicketSchemaResponse)
+	err := c.cc.Invoke(ctx, "/c1.connector.v2.TicketsService/GetTicketSchema", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TicketsServiceServer is the server API for TicketsService service.
 // All implementations should embed UnimplementedTicketsServiceServer
 // for forward compatibility
@@ -69,6 +79,7 @@ type TicketsServiceServer interface {
 	CreateTicket(context.Context, *TicketsServiceCreateTicketRequest) (*TicketsServiceCreateTicketResponse, error)
 	GetTicket(context.Context, *TicketsServiceGetTicketRequest) (*TicketsServiceGetTicketResponse, error)
 	ListTicketSchemas(context.Context, *TicketsServiceListTicketSchemasRequest) (*TicketsServiceListTicketSchemasResponse, error)
+	GetTicketSchema(context.Context, *TicketsServiceGetTicketSchemaRequest) (*TicketsServiceGetTicketSchemaResponse, error)
 }
 
 // UnimplementedTicketsServiceServer should be embedded to have forward compatible implementations.
@@ -83,6 +94,9 @@ func (UnimplementedTicketsServiceServer) GetTicket(context.Context, *TicketsServ
 }
 func (UnimplementedTicketsServiceServer) ListTicketSchemas(context.Context, *TicketsServiceListTicketSchemasRequest) (*TicketsServiceListTicketSchemasResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTicketSchemas not implemented")
+}
+func (UnimplementedTicketsServiceServer) GetTicketSchema(context.Context, *TicketsServiceGetTicketSchemaRequest) (*TicketsServiceGetTicketSchemaResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetTicketSchema not implemented")
 }
 
 // UnsafeTicketsServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -150,6 +164,24 @@ func _TicketsService_ListTicketSchemas_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TicketsService_GetTicketSchema_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TicketsServiceGetTicketSchemaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TicketsServiceServer).GetTicketSchema(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/c1.connector.v2.TicketsService/GetTicketSchema",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TicketsServiceServer).GetTicketSchema(ctx, req.(*TicketsServiceGetTicketSchemaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TicketsService_ServiceDesc is the grpc.ServiceDesc for TicketsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -168,6 +200,10 @@ var TicketsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListTicketSchemas",
 			Handler:    _TicketsService_ListTicketSchemas_Handler,
+		},
+		{
+			MethodName: "GetTicketSchema",
+			Handler:    _TicketsService_GetTicketSchema_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

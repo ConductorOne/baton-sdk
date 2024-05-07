@@ -1900,6 +1900,315 @@ var _ interface {
 	ErrorName() string
 } = TicketStatusValidationError{}
 
+// Validate checks the field values on TicketsServiceGetTicketSchemaRequest
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the first error encountered is returned, or nil if
+// there are no violations.
+func (m *TicketsServiceGetTicketSchemaRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on TicketsServiceGetTicketSchemaRequest
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// TicketsServiceGetTicketSchemaRequestMultiError, or nil if none found.
+func (m *TicketsServiceGetTicketSchemaRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *TicketsServiceGetTicketSchemaRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Id
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TicketsServiceGetTicketSchemaRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TicketsServiceGetTicketSchemaRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TicketsServiceGetTicketSchemaRequestValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return TicketsServiceGetTicketSchemaRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// TicketsServiceGetTicketSchemaRequestMultiError is an error wrapping multiple
+// validation errors returned by
+// TicketsServiceGetTicketSchemaRequest.ValidateAll() if the designated
+// constraints aren't met.
+type TicketsServiceGetTicketSchemaRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m TicketsServiceGetTicketSchemaRequestMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m TicketsServiceGetTicketSchemaRequestMultiError) AllErrors() []error { return m }
+
+// TicketsServiceGetTicketSchemaRequestValidationError is the validation error
+// returned by TicketsServiceGetTicketSchemaRequest.Validate if the designated
+// constraints aren't met.
+type TicketsServiceGetTicketSchemaRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e TicketsServiceGetTicketSchemaRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e TicketsServiceGetTicketSchemaRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e TicketsServiceGetTicketSchemaRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e TicketsServiceGetTicketSchemaRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e TicketsServiceGetTicketSchemaRequestValidationError) ErrorName() string {
+	return "TicketsServiceGetTicketSchemaRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e TicketsServiceGetTicketSchemaRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTicketsServiceGetTicketSchemaRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = TicketsServiceGetTicketSchemaRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = TicketsServiceGetTicketSchemaRequestValidationError{}
+
+// Validate checks the field values on TicketsServiceGetTicketSchemaResponse
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the first error encountered is returned, or nil if
+// there are no violations.
+func (m *TicketsServiceGetTicketSchemaResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on TicketsServiceGetTicketSchemaResponse
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// TicketsServiceGetTicketSchemaResponseMultiError, or nil if none found.
+func (m *TicketsServiceGetTicketSchemaResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *TicketsServiceGetTicketSchemaResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetSchema()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, TicketsServiceGetTicketSchemaResponseValidationError{
+					field:  "Schema",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, TicketsServiceGetTicketSchemaResponseValidationError{
+					field:  "Schema",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetSchema()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return TicketsServiceGetTicketSchemaResponseValidationError{
+				field:  "Schema",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TicketsServiceGetTicketSchemaResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TicketsServiceGetTicketSchemaResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TicketsServiceGetTicketSchemaResponseValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return TicketsServiceGetTicketSchemaResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// TicketsServiceGetTicketSchemaResponseMultiError is an error wrapping
+// multiple validation errors returned by
+// TicketsServiceGetTicketSchemaResponse.ValidateAll() if the designated
+// constraints aren't met.
+type TicketsServiceGetTicketSchemaResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m TicketsServiceGetTicketSchemaResponseMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m TicketsServiceGetTicketSchemaResponseMultiError) AllErrors() []error { return m }
+
+// TicketsServiceGetTicketSchemaResponseValidationError is the validation error
+// returned by TicketsServiceGetTicketSchemaResponse.Validate if the
+// designated constraints aren't met.
+type TicketsServiceGetTicketSchemaResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e TicketsServiceGetTicketSchemaResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e TicketsServiceGetTicketSchemaResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e TicketsServiceGetTicketSchemaResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e TicketsServiceGetTicketSchemaResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e TicketsServiceGetTicketSchemaResponseValidationError) ErrorName() string {
+	return "TicketsServiceGetTicketSchemaResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e TicketsServiceGetTicketSchemaResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTicketsServiceGetTicketSchemaResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = TicketsServiceGetTicketSchemaResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = TicketsServiceGetTicketSchemaResponseValidationError{}
+
 // Validate checks the field values on TicketsServiceListTicketSchemasRequest
 // with the rules defined in the proto definition for this message. If any
 // rules are violated, the first error encountered is returned, or nil if
