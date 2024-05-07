@@ -24,6 +24,7 @@ const _ = grpc.SupportPackageIsVersion7
 type TicketsServiceClient interface {
 	CreateTicket(ctx context.Context, in *TicketsServiceCreateTicketRequest, opts ...grpc.CallOption) (*TicketsServiceCreateTicketResponse, error)
 	GetTicket(ctx context.Context, in *TicketsServiceGetTicketRequest, opts ...grpc.CallOption) (*TicketsServiceGetTicketResponse, error)
+	ListTicketSchemas(ctx context.Context, in *TicketsServiceListTicketSchemasRequest, opts ...grpc.CallOption) (*TicketsServiceListTicketSchemasResponse, error)
 	GetTicketSchema(ctx context.Context, in *TicketsServiceGetTicketSchemaRequest, opts ...grpc.CallOption) (*TicketsServiceGetTicketSchemaResponse, error)
 }
 
@@ -53,6 +54,15 @@ func (c *ticketsServiceClient) GetTicket(ctx context.Context, in *TicketsService
 	return out, nil
 }
 
+func (c *ticketsServiceClient) ListTicketSchemas(ctx context.Context, in *TicketsServiceListTicketSchemasRequest, opts ...grpc.CallOption) (*TicketsServiceListTicketSchemasResponse, error) {
+	out := new(TicketsServiceListTicketSchemasResponse)
+	err := c.cc.Invoke(ctx, "/c1.connector.v2.TicketsService/ListTicketSchemas", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *ticketsServiceClient) GetTicketSchema(ctx context.Context, in *TicketsServiceGetTicketSchemaRequest, opts ...grpc.CallOption) (*TicketsServiceGetTicketSchemaResponse, error) {
 	out := new(TicketsServiceGetTicketSchemaResponse)
 	err := c.cc.Invoke(ctx, "/c1.connector.v2.TicketsService/GetTicketSchema", in, out, opts...)
@@ -68,6 +78,7 @@ func (c *ticketsServiceClient) GetTicketSchema(ctx context.Context, in *TicketsS
 type TicketsServiceServer interface {
 	CreateTicket(context.Context, *TicketsServiceCreateTicketRequest) (*TicketsServiceCreateTicketResponse, error)
 	GetTicket(context.Context, *TicketsServiceGetTicketRequest) (*TicketsServiceGetTicketResponse, error)
+	ListTicketSchemas(context.Context, *TicketsServiceListTicketSchemasRequest) (*TicketsServiceListTicketSchemasResponse, error)
 	GetTicketSchema(context.Context, *TicketsServiceGetTicketSchemaRequest) (*TicketsServiceGetTicketSchemaResponse, error)
 }
 
@@ -80,6 +91,9 @@ func (UnimplementedTicketsServiceServer) CreateTicket(context.Context, *TicketsS
 }
 func (UnimplementedTicketsServiceServer) GetTicket(context.Context, *TicketsServiceGetTicketRequest) (*TicketsServiceGetTicketResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTicket not implemented")
+}
+func (UnimplementedTicketsServiceServer) ListTicketSchemas(context.Context, *TicketsServiceListTicketSchemasRequest) (*TicketsServiceListTicketSchemasResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListTicketSchemas not implemented")
 }
 func (UnimplementedTicketsServiceServer) GetTicketSchema(context.Context, *TicketsServiceGetTicketSchemaRequest) (*TicketsServiceGetTicketSchemaResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTicketSchema not implemented")
@@ -132,6 +146,24 @@ func _TicketsService_GetTicket_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TicketsService_ListTicketSchemas_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TicketsServiceListTicketSchemasRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TicketsServiceServer).ListTicketSchemas(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/c1.connector.v2.TicketsService/ListTicketSchemas",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TicketsServiceServer).ListTicketSchemas(ctx, req.(*TicketsServiceListTicketSchemasRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TicketsService_GetTicketSchema_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(TicketsServiceGetTicketSchemaRequest)
 	if err := dec(in); err != nil {
@@ -164,6 +196,10 @@ var TicketsService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetTicket",
 			Handler:    _TicketsService_GetTicket_Handler,
+		},
+		{
+			MethodName: "ListTicketSchemas",
+			Handler:    _TicketsService_ListTicketSchemas_Handler,
 		},
 		{
 			MethodName: "GetTicketSchema",
