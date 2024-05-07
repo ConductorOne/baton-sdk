@@ -160,11 +160,11 @@ message TicketRequest {
   repeated string labels = 5;
   map<string, TicketCustomField> custom_fields = 6;
   string schema_id = 7;
-  repeated google.protobuf.Any annotations = 8;
 }
 
 message TicketsServiceCreateTicketRequest {
   TicketRequest request = 1;
+  repeated google.protobuf.Any annotations = 8;
 }
 
 message TicketsServiceCreateTicketResponse {
