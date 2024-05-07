@@ -55,13 +55,26 @@ func ticketingCmd[T any, PtrT *T](
 				return err
 			}
 
-			md, err := c.GetTicketSchema(runCtx, &v2.TicketsServiceGetTicketSchemaRequest{})
-			if err != nil {
-				return err
+			var ticketSchemas []*v2.TicketSchema
+			pageToken := ""
+			for {
+				schemas, err := c.ListTicketSchemas(ctx, &v2.TicketsServiceListTicketSchemasRequest{
+					PageToken: pageToken,
+				})
+				if err != nil {
+					return err
+				}
+
+				ticketSchemas = append(ticketSchemas, schemas.GetList()...)
+
+				if schemas.GetNextPageToken() == "" {
+					break
+				}
+				pageToken = schemas.GetNextPageToken()
 			}
 
-			if md.Schema == nil {
-				return fmt.Errorf("connector returned empt ticket schema")
+			if len(ticketSchemas) == 0 {
+				return fmt.Errorf("connector returned empty ticket schema")
 			}
 
 			protoMarshaller := protojson.MarshalOptions{
@@ -69,13 +82,16 @@ func ticketingCmd[T any, PtrT *T](
 				Indent:    "  ",
 			}
 
-			a := &anypb.Any{}
-			err = anypb.MarshalFrom(a, md.Schema, proto.MarshalOptions{Deterministic: true})
-			if err != nil {
-				return err
+			raw := make([]json.RawMessage, 0, len(ticketSchemas))
+			for _, schema := range ticketSchemas {
+				b, err := protoMarshaller.Marshal(schema)
+				if err != nil {
+					return err
+				}
+				raw = append(raw, b)
 			}
 
-			outBytes, err := protoMarshaller.Marshal(a)
+			outBytes, err := json.Marshal(raw)
 			if err != nil {
 				return err
 			}
@@ -88,6 +104,7 @@ func ticketingCmd[T any, PtrT *T](
 			return nil
 		},
 	}
+	cmd.AddCommand(schemaCmd)
 
 	getCmd := &cobra.Command{
 		Use:   "get",
@@ -153,6 +170,7 @@ func ticketingCmd[T any, PtrT *T](
 		},
 	}
 	getCmd.Flags().String("ticket-id", "", "Ticket ID to fetch")
+	cmd.AddCommand(getCmd)
 
 	createCmd := &cobra.Command{
 		Use:   "create",
@@ -173,12 +191,19 @@ func ticketingCmd[T any, PtrT *T](
 				return err
 			}
 
+			schemaID := v.GetString("schema-id")
+			if schemaID == "" {
+				return fmt.Errorf("--schema-id is required")
+			}
+
 			c, err := getConnector(runCtx, cfg)
 			if err != nil {
 				return err
 			}
 
-			schema, err := c.GetTicketSchema(runCtx, &v2.TicketsServiceGetTicketSchemaRequest{})
+			schema, err := c.GetTicketSchema(runCtx, &v2.TicketsServiceGetTicketSchemaRequest{
+				Id: schemaID,
+			})
 			if err != nil {
 				return err
 			}
@@ -208,7 +233,8 @@ func ticketingCmd[T any, PtrT *T](
 				Type: &v2.TicketType{
 					Id: template.TypeId,
 				},
-				Labels: template.Labels,
+				Labels:   template.Labels,
+				SchemaId: schema.Schema.GetId(),
 			}
 
 			cfs := make(map[string]*v2.TicketCustomField)
@@ -255,9 +281,7 @@ func ticketingCmd[T any, PtrT *T](
 		},
 	}
 	createCmd.Flags().String("template", "", "Path to JSON template for ticket creation")
-
-	cmd.AddCommand(schemaCmd)
-	cmd.AddCommand(getCmd)
+	createCmd.Flags().String("schema-id", "", "Schema ID to use for ticket creation")
 	cmd.AddCommand(createCmd)
 	return cmd
 }
