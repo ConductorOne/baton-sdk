@@ -5,19 +5,21 @@ package c1.connector.v2;
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/any.proto";
+import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 service TicketsService {
   rpc CreateTicket(TicketsServiceCreateTicketRequest) returns (TicketsServiceCreateTicketResponse);
   rpc GetTicket(TicketsServiceGetTicketRequest) returns (TicketsServiceGetTicketResponse);
-  rpc GetTicketSchema(TicketsServiceGetTicketSchemaRequest) returns (TicketsServiceGetTicketSchemaResponse);
+  rpc ListTicketSchemas(TicketsServiceListTicketSchemasRequest) returns (TicketsServiceListTicketSchemasResponse);
 }
 
 message TicketSchema {
-  repeated TicketType types = 1;
-  repeated TicketStatus statuses = 2;
-  map<string, TicketCustomField> custom_fields = 3;
+  string id = 1;
+  repeated TicketType types = 2;
+  repeated TicketStatus statuses = 3;
+  map<string, TicketCustomField> custom_fields = 4;
 }
 
 message TicketCustomField {
@@ -82,13 +84,27 @@ message TicketStatus {
   string display_name = 2;
 }
 
-message TicketsServiceGetTicketSchemaRequest {
-  repeated google.protobuf.Any annotations = 1;
+message TicketsServiceListTicketSchemasRequest {
+  uint32 page_size = 1 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 250
+  }];
+  string page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
+  repeated google.protobuf.Any annotations = 3;
 }
 
-message TicketsServiceGetTicketSchemaResponse {
-  TicketSchema schema = 1;
-  repeated google.protobuf.Any annotations = 2;
+message TicketsServiceListTicketSchemasResponse {
+  repeated TicketSchema list = 1;
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 4096
+  }];
+  repeated google.protobuf.Any annotations = 3;
 }
 
 message Ticket {
