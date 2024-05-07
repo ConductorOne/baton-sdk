@@ -18,9 +18,10 @@ service TicketsService {
 
 message TicketSchema {
   string id = 1;
-  repeated TicketType types = 2;
-  repeated TicketStatus statuses = 3;
-  map<string, TicketCustomField> custom_fields = 4;
+  string display_name = 2;
+  repeated TicketType types = 3;
+  repeated TicketStatus statuses = 4;
+  map<string, TicketCustomField> custom_fields = 5;
 }
 
 message TicketCustomField {
@@ -158,7 +159,8 @@ message TicketsServiceCreateTicketRequest {
   TicketType type = 4;
   repeated string labels = 5;
   map<string, TicketCustomField> custom_fields = 6;
-  repeated google.protobuf.Any annotations = 7;
+  string schema_id = 7;
+  repeated google.protobuf.Any annotations = 8;
 }
 
 message TicketsServiceCreateTicketResponse {

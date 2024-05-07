@@ -233,7 +233,8 @@ func ticketingCmd[T any, PtrT *T](
 				Type: &v2.TicketType{
 					Id: template.TypeId,
 				},
-				Labels: template.Labels,
+				Labels:   template.Labels,
+				SchemaId: schema.Schema.GetId(),
 			}
 
 			cfs := make(map[string]*v2.TicketCustomField)

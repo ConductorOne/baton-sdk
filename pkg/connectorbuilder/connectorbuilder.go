@@ -62,7 +62,7 @@ type EventProvider interface {
 
 type TicketManager interface {
 	GetTicket(ctx context.Context, ticketId string) (*v2.Ticket, annotations.Annotations, error)
-	CreateTicket(ctx context.Context, ticket *v2.Ticket) (*v2.Ticket, annotations.Annotations, error)
+	CreateTicket(ctx context.Context, ticket *v2.Ticket, schemaID string) (*v2.Ticket, annotations.Annotations, error)
 	GetTicketSchema(ctx context.Context, schemaID string) (*v2.TicketSchema, annotations.Annotations, error)
 	ListTicketSchemas(ctx context.Context, pToken *pagination.Token) ([]*v2.TicketSchema, string, annotations.Annotations, error)
 }
@@ -122,7 +122,7 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 		CustomFields: request.GetCustomFields(),
 	}
 
-	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket)
+	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, request.GetSchemaId())
 	if err != nil {
 		return nil, fmt.Errorf("error: creating ticket failed: %w", err)
 	}

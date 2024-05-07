@@ -59,6 +59,8 @@ func (m *TicketSchema) validate(all bool) error {
 
 	// no validation rules for Id
 
+	// no validation rules for DisplayName
+
 	for idx, item := range m.GetTypes() {
 		_, _ = idx, item
 
@@ -3417,6 +3419,8 @@ func (m *TicketsServiceCreateTicketRequest) validate(all bool) error {
 
 		}
 	}
+
+	// no validation rules for SchemaId
 
 	for idx, item := range m.GetAnnotations() {
 		_, _ = idx, item
