@@ -62,8 +62,9 @@ type EventProvider interface {
 
 type TicketManager interface {
 	GetTicket(ctx context.Context, ticketId string) (*v2.Ticket, annotations.Annotations, error)
-	CreateTicket(ctx context.Context, ticket *v2.Ticket) (*v2.Ticket, annotations.Annotations, error)
-	GetTicketSchema(ctx context.Context) (*v2.TicketSchema, annotations.Annotations, error)
+	CreateTicket(ctx context.Context, ticket *v2.Ticket, schemaID string) (*v2.Ticket, annotations.Annotations, error)
+	GetTicketSchema(ctx context.Context, schemaID string) (*v2.TicketSchema, annotations.Annotations, error)
+	ListTicketSchemas(ctx context.Context, pToken *pagination.Token) ([]*v2.TicketSchema, string, annotations.Annotations, error)
 }
 
 type ConnectorBuilder interface {
@@ -84,6 +85,29 @@ type builderImpl struct {
 	ticketManager          TicketManager
 }
 
+func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.TicketsServiceListTicketSchemasRequest) (*v2.TicketsServiceListTicketSchemasResponse, error) {
+	if b.ticketManager == nil {
+		return nil, fmt.Errorf("error: ticket manager not implemented")
+	}
+
+	out, nextPageToken, annos, err := b.ticketManager.ListTicketSchemas(ctx, &pagination.Token{
+		Size:  int(request.PageSize),
+		Token: request.PageToken,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error: listing ticket schemas failed: %w", err)
+	}
+	if request.PageToken != "" && request.PageToken == nextPageToken {
+		return nil, fmt.Errorf("error: listing ticket schemas failed: next page token is the same as the current page token. this is most likely a connector bug")
+	}
+
+	return &v2.TicketsServiceListTicketSchemasResponse{
+		List:          out,
+		NextPageToken: nextPageToken,
+		Annotations:   annos,
+	}, nil
+}
+
 func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServiceCreateTicketRequest) (*v2.TicketsServiceCreateTicketResponse, error) {
 	if b.ticketManager == nil {
 		return nil, fmt.Errorf("error: ticket manager not implemented")
@@ -98,7 +122,7 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 		CustomFields: request.GetCustomFields(),
 	}
 
-	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket)
+	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, request.GetSchemaId())
 	if err != nil {
 		return nil, fmt.Errorf("error: creating ticket failed: %w", err)
 	}
@@ -130,7 +154,7 @@ func (b *builderImpl) GetTicketSchema(ctx context.Context, request *v2.TicketsSe
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
-	ticketSchema, annos, err := b.ticketManager.GetTicketSchema(ctx)
+	ticketSchema, annos, err := b.ticketManager.GetTicketSchema(ctx, request.GetId())
 	if err != nil {
 		return nil, fmt.Errorf("error: getting ticket metadata failed: %w", err)
 	}
