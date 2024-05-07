@@ -2,8 +2,9 @@
 // Use of this source code is governed by a BSD-style
 // license that can be found in the LICENSE file.
 
+//go:build !(linux && (amd64 || loong64))
+
 //go.generate echo package libc > ccgo.go
-//go:generate go run generate.go
 //go:generate go fmt ./...
 
 // Package libc provides run time support for ccgo generated programs and
@@ -957,6 +958,18 @@ func Xabs(t *TLS, j int32) int32 {
 	return -j
 }
 
+// long abs(long j);
+func Xlabs(t *TLS, j long) long {
+	if __ccgo_strace {
+		trc("t=%v j=%v, (%v:)", t, j, origin(2))
+	}
+	if j >= 0 {
+		return j
+	}
+
+	return -j
+}
+
 func Xllabs(tls *TLS, a int64) int64 {
 	if __ccgo_strace {
 		trc("tls=%v a=%v, (%v:)", tls, a, origin(2))
@@ -1162,6 +1175,10 @@ func Xlog10(t *TLS, x float64) float64 {
 		trc("t=%v x=%v, (%v:)", t, x, origin(2))
 	}
 	return math.Log10(x)
+}
+
+func X__builtin_log2(t *TLS, x float64) float64 {
+	return Xlog2(t, x)
 }
 
 func Xlog2(t *TLS, x float64) float64 {
@@ -1448,39 +1465,91 @@ func Xstrrchr(t *TLS, s uintptr, c int32) (r uintptr) {
 }
 
 // void *memset(void *s, int c, size_t n)
-func Xmemset(t *TLS, s uintptr, c int32, n types.Size_t) uintptr {
+func Xmemset(t *TLS, dest uintptr, c int32, n types.Size_t) uintptr {
 	if __ccgo_strace {
-		trc("t=%v s=%v c=%v n=%v, (%v:)", t, s, c, n, origin(2))
+		trc("t=%v s=%v c=%v n=%v, (%v:)", t, dest, c, n, origin(2))
 	}
-	if n != 0 {
-		c := byte(c & 0xff)
+	var c8 uint8
+	var c32 uint32
+	var c64 uint64
+	var k types.Size_t
+	var s uintptr
 
-		// This will make sure that on platforms where they are not equally aligned we
-		// clear out the first few bytes until allignment
-		bytesBeforeAllignment := s % unsafe.Alignof(uint64(0))
-		if bytesBeforeAllignment > uintptr(n) {
-			bytesBeforeAllignment = uintptr(n)
-		}
-		b := (*RawMem)(unsafe.Pointer(s))[:bytesBeforeAllignment:bytesBeforeAllignment]
-		n -= types.Size_t(bytesBeforeAllignment)
-		for i := range b {
-			b[i] = c
-		}
-		if n >= 8 {
-			i64 := uint64(c) + uint64(c)<<8 + uint64(c)<<16 + uint64(c)<<24 + uint64(c)<<32 + uint64(c)<<40 + uint64(c)<<48 + uint64(c)<<56
-			b8 := (*RawMem64)(unsafe.Pointer(s + bytesBeforeAllignment))[: n/8 : n/8]
-			for i := range b8 {
-				b8[i] = i64
-			}
-		}
-		if n%8 != 0 {
-			b = (*RawMem)(unsafe.Pointer(s + bytesBeforeAllignment + uintptr(n-n%8)))[: n%8 : n%8]
-			for i := range b {
-				b[i] = c
-			}
-		}
+	s = dest
+	/* Fill head and tail with minimal branching. Each
+	 * conditional ensures that all the subsequently used
+	 * offsets are well-defined and in the dest region. */
+	if n == 0 {
+		return dest
 	}
-	return s
+	c8 = uint8(c)
+	*(*uint8)(unsafe.Pointer(s)) = c8
+	*(*uint8)(unsafe.Pointer(s + uintptr(n-1))) = c8
+	if n <= types.Size_t(2) {
+		return dest
+	}
+	*(*uint8)(unsafe.Pointer(s + 1)) = c8
+	*(*uint8)(unsafe.Pointer(s + 2)) = c8
+	*(*uint8)(unsafe.Pointer(s + uintptr(n-2))) = c8
+	*(*uint8)(unsafe.Pointer(s + uintptr(n-3))) = c8
+	if n <= types.Size_t(6) {
+		return dest
+	}
+	*(*uint8)(unsafe.Pointer(s + 3)) = c8
+	*(*uint8)(unsafe.Pointer(s + uintptr(n-4))) = c8
+	if n <= types.Size_t(8) {
+		return dest
+	}
+	/* Advance pointer to align it at a 4-byte boundary,
+	 * and truncate n to a multiple of 4. The previous code
+	 * already took care of any head/tail that get cut off
+	 * by the alignment. */
+	k = -types.Size_t(s) & types.Size_t(3)
+	s += uintptr(k)
+	n -= k
+	n &= types.Size_t(-Int32FromInt32(4))
+	c32 = uint32(0x01010101) * uint32(c8)
+	/* In preparation to copy 32 bytes at a time, aligned on
+	 * an 8-byte bounary, fill head/tail up to 28 bytes each.
+	 * As in the initial byte-based head/tail fill, each
+	 * conditional below ensures that the subsequent offsets
+	 * are valid (e.g. !(n<=24) implies n>=28). */
+	*(*uint32)(unsafe.Pointer(s + uintptr(0))) = c32
+	*(*uint32)(unsafe.Pointer(s + uintptr(n-4))) = c32
+	if n <= types.Size_t(8) {
+		return dest
+	}
+	c64 = uint64(c32) | (uint64(c32) << 32)
+	*(*uint64)(unsafe.Pointer(s + uintptr(4))) = c64
+	*(*uint64)(unsafe.Pointer(s + uintptr(n-12))) = c64
+	if n <= types.Size_t(24) {
+		return dest
+	}
+	*(*uint64)(unsafe.Pointer(s + uintptr(12))) = c64
+	*(*uint64)(unsafe.Pointer(s + uintptr(20))) = c64
+	*(*uint64)(unsafe.Pointer(s + uintptr(n-28))) = c64
+	*(*uint64)(unsafe.Pointer(s + uintptr(n-20))) = c64
+	/* Align to a multiple of 8 so we can fill 64 bits at a time,
+	 * and avoid writing the same bytes twice as much as is
+	 * practical without introducing additional branching. */
+	k = types.Size_t(24) + types.Size_t(s)&types.Size_t(4)
+	s += uintptr(k)
+	n -= k
+	/* If this loop is reached, 28 tail bytes have already been
+	 * filled, so any remainder when n drops below 32 can be
+	 * safely ignored. */
+	for {
+		if !(n >= types.Size_t(32)) {
+			break
+		}
+		*(*uint64)(unsafe.Pointer(s + uintptr(0))) = c64
+		*(*uint64)(unsafe.Pointer(s + uintptr(8))) = c64
+		*(*uint64)(unsafe.Pointer(s + uintptr(16))) = c64
+		*(*uint64)(unsafe.Pointer(s + uintptr(24))) = c64
+		n -= types.Size_t(32)
+		s += uintptr(32)
+	}
+	return dest
 }
 
 // void *memcpy(void *dest, const void *src, size_t n);
@@ -2318,4 +2387,78 @@ func Xffs(tls *TLS, i int32) (r int32) {
 	}
 
 	return int32(mbits.TrailingZeros32(uint32(i))) + 1
+}
+
+var _toint5 = Float32FromInt32(1) / Float32FromFloat32(1.1920928955078125e-07)
+
+func X__builtin_rintf(tls *TLS, x float32) (r float32) {
+	return Xrintf(tls, x)
+}
+
+func Xrintf(tls *TLS, x float32) (r float32) {
+	if __ccgo_strace {
+		trc("tls=%v x=%v, (%v:)", tls, x, origin(2))
+		defer func() { trc("-> %v", r) }()
+	}
+	bp := tls.Alloc(16)
+	defer tls.Free(16)
+	var e, s int32
+	var y float32
+	var v1 float32
+	var _ /* u at bp+0 */ struct {
+		Fi [0]uint32
+		Ff float32
+	}
+	_, _, _, _ = e, s, y, v1
+	*(*struct {
+		Fi [0]uint32
+		Ff float32
+	})(unsafe.Pointer(bp)) = struct {
+		Fi [0]uint32
+		Ff float32
+	}{}
+	*(*float32)(unsafe.Pointer(bp)) = x
+	e = int32(*(*uint32)(unsafe.Pointer(bp)) >> int32(23) & uint32(0xff))
+	s = int32(*(*uint32)(unsafe.Pointer(bp)) >> int32(31))
+	if e >= Int32FromInt32(0x7f)+Int32FromInt32(23) {
+		return x
+	}
+	if s != 0 {
+		y = x - _toint5 + _toint5
+	} else {
+		y = x + _toint5 - _toint5
+	}
+	if y == Float32FromInt32(0) {
+		if s != 0 {
+			v1 = -Float32FromFloat32(0)
+		} else {
+			v1 = Float32FromFloat32(0)
+		}
+		return v1
+	}
+	return y
+}
+
+func X__builtin_lrintf(tls *TLS, x float32) (r long) {
+	return Xlrintf(tls, x)
+}
+
+func Xlrintf(tls *TLS, x float32) (r long) {
+	if __ccgo_strace {
+		trc("tls=%v x=%v, (%v:)", tls, x, origin(2))
+		defer func() { trc("-> %v", r) }()
+	}
+	return long(Xrintf(tls, x))
+}
+
+func X__builtin_lrint(tls *TLS, x float64) (r long) {
+	return Xlrint(tls, x)
+}
+
+func Xlrint(tls *TLS, x float64) (r long) {
+	if __ccgo_strace {
+		trc("tls=%v x=%v, (%v:)", tls, x, origin(2))
+		defer func() { trc("-> %v", r) }()
+	}
+	return long(Xrint(tls, x))
 }

@@ -1,3 +1,150 @@
+# v1.16.15 (2024-04-05)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.14 (2024-03-29)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.13 (2024-03-21)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.12 (2024-03-18)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.11 (2024-03-15)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.10 (2024-03-13)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.9 (2024-03-07)
+
+* **Bug Fix**: Remove dependency on go-cmp.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.8 (2024-03-05)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.7 (2024-03-04)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.6 (2024-02-23)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.5 (2024-02-22)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.4 (2024-02-21)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.3 (2024-02-20)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.2 (2024-02-19)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.1 (2024-02-16)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.16.0 (2024-02-13)
+
+* **Feature**: Bump minimum Go version to 1.20 per our language support policy.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.15 (2024-01-24)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.14 (2024-01-22)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.13 (2024-01-18)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.12 (2024-01-16)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.11 (2024-01-05)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.10 (2024-01-04)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.9 (2023-12-20)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.8 (2023-12-18)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.7 (2023-12-08)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.6 (2023-12-07)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.5 (2023-12-06)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.4 (2023-12-01)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.3 (2023-11-30)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.2 (2023-11-29)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.1 (2023-11-28.3)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.15.0 (2023-11-28.2)
+
+* **Feature**: Add S3Express support.
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.4 (2023-11-28)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.3 (2023-11-27)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.2 (2023-11-21)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.14.1 (2023-11-20)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
 # v1.14.0 (2023-11-17)
 
 * **Feature**: **BREAKING CHANGE** Correct nullability of a large number of S3 structure fields. See https://github.com/aws/aws-sdk-go-v2/issues/2162.
