@@ -88,10 +88,15 @@ func TestGetCycles(t *testing.T) {
 func TestHandleCycle(t *testing.T) {
 	graph, err := cyclicGraph(t)
 	require.NoError(t, err)
+
+	cycles, isCycle := graph.GetCycles()
+	require.True(t, isCycle)
+	require.Equal(t, [][]int{{2, 3, 4}}, cycles)
+
 	graph.FixCycles()
 	err = graph.Validate()
 	require.NoError(t, err)
-	cycles, isCycle := graph.GetCycles()
+	cycles, isCycle = graph.GetCycles()
 	require.False(t, isCycle)
 	require.Empty(t, cycles)
 
