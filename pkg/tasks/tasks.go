@@ -41,6 +41,8 @@ func (tt TaskType) String() string {
 		return "delete_resource"
 	case RotateCredentialsType:
 		return "rotate_credential"
+	case CreateTicketType:
+		return "create_ticket"
 	default:
 		return "unknown"
 	}
@@ -58,6 +60,7 @@ const (
 	DeleteResourceType
 	RotateCredentialsType
 	EventFeedType
+	CreateTicketType
 )
 
 func Is(task *v1.Task, target TaskType) bool {
@@ -88,6 +91,8 @@ func Is(task *v1.Task, target TaskType) bool {
 		_, ok = task.GetTaskType().(*v1.Task_DeleteResource)
 	case RotateCredentialsType:
 		_, ok = task.GetTaskType().(*v1.Task_RotateCredentials)
+	case CreateTicketType:
+		_, ok = task.GetTaskType().(*v1.Task_CreateTicketTask_)
 	default:
 		return false
 	}
@@ -121,6 +126,8 @@ func GetType(task *v1.Task) TaskType {
 		return DeleteResourceType
 	case *v1.Task_RotateCredentials:
 		return RotateCredentialsType
+	case *v1.Task_CreateTicketTask_:
+		return CreateTicketType
 	default:
 		return UnknownType
 	}

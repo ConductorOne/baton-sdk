@@ -328,6 +328,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		AccountManagerServiceClient:    connectorV2.NewAccountManagerServiceClient(cw.conn),
 		CredentialManagerServiceClient: connectorV2.NewCredentialManagerServiceClient(cw.conn),
 		EventServiceClient:             connectorV2.NewEventServiceClient(cw.conn),
+		TicketsServiceClient:           connectorV2.NewTicketsServiceClient(cw.conn),
 	}
 
 	return cw.client, nil

@@ -191,6 +191,10 @@ func (c *connectorRunner) Close(ctx context.Context) error {
 
 type Option func(ctx context.Context, cfg *runnerConfig) error
 
+type createTicketConfig struct {
+	templatePath string
+}
+
 type grantConfig struct {
 	entitlementID string
 	principalType string
@@ -236,6 +240,7 @@ type runnerConfig struct {
 	createAccountConfig     *createAccountConfig
 	deleteResourceConfig    *deleteResourceConfig
 	rotateCredentialsConfig *rotateCredentialsConfig
+	createTicketConfig      *createTicketConfig
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -410,6 +415,16 @@ func WithTicketingEnabled() Option {
 	}
 }
 
+func WithCreateTicket(templatePath string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.createTicketConfig = &createTicketConfig{
+			templatePath: templatePath,
+		}
+		return nil
+	}
+}
+
 func WithTempDir(tempDir string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.tempDir = tempDir
@@ -452,7 +467,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	runner.cw = cw
 
 	if cfg.onDemand {
-		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil {
+		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -481,7 +496,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx)
-
+		case cfg.createTicketConfig != nil:
+			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))
 			if err != nil {

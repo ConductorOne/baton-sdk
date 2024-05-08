@@ -113,16 +113,17 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
+	reqBody := request.GetRequest()
 	cTicket := &v2.Ticket{
-		DisplayName:  request.GetDisplayName(),
-		Description:  request.GetDescription(),
-		Status:       request.GetStatus(),
-		Type:         request.GetType(),
-		Labels:       request.GetLabels(),
-		CustomFields: request.GetCustomFields(),
+		DisplayName:  reqBody.GetDisplayName(),
+		Description:  reqBody.GetDescription(),
+		Status:       reqBody.GetStatus(),
+		Type:         reqBody.GetType(),
+		Labels:       reqBody.GetLabels(),
+		CustomFields: reqBody.GetCustomFields(),
 	}
 
-	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, request.GetSchemaId())
+	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, reqBody.GetSchemaId())
 	if err != nil {
 		return nil, fmt.Errorf("error: creating ticket failed: %w", err)
 	}
