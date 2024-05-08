@@ -70,7 +70,8 @@ linters:
     - bodyclose # checks whether HTTP response body is closed successfully
     - durationcheck # check for two durations multiplied together
     - errorlint # errorlint is a linter for that can be used to find code that will cause problems with the error wrapping scheme introduced in Go 1.13.
-    - execinquery # execinquery is a linter about query string checker in Query function which reads your Go src files and warning it finds
+    # https://github.com/1uf3/execinquery is archived so golangci-lint warns/errors about it
+    # - execinquery # execinquery is a linter about query string checker in Query function which reads your Go src files and warning it finds
     - exhaustive # check exhaustiveness of enum switch statements
     - exportloopref # checks for pointers to enclosing loop variables
     - forbidigo # Forbids identifiers
