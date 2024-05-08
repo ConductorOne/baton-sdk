@@ -111,7 +111,7 @@ func (m *localTicket) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	return nil
 }
 
-// NewTicket returns a task manager that queues an event feed task.
+// NewTicket returns a task manager that queues a create ticket task.
 func NewTicket(ctx context.Context, templatePath string) tasks.Manager {
 	return &localTicket{
 		templatePath: templatePath,
