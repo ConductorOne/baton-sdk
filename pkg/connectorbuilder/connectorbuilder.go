@@ -82,7 +82,7 @@ type builderImpl struct {
 	credentialManagers     map[string]CredentialManager
 	eventFeed              EventProvider
 	cb                     ConnectorBuilder
-	ticketManager          TicketManager //here
+	ticketManager          TicketManager
 }
 
 func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.TicketsServiceListTicketSchemasRequest) (*v2.TicketsServiceListTicketSchemasResponse, error) {

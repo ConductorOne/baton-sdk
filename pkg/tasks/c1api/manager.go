@@ -75,7 +75,6 @@ func getNextPoll(d time.Duration) time.Duration {
 	}
 }
 
-//here
 func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	l := ctxzap.Extract(ctx)
 

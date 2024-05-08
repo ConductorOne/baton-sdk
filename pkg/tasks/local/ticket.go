@@ -44,24 +44,13 @@ func (m *localTicket) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		Id: "10000",
 		//DisplayName: "",
 	})
-	//cfs["project"] = &v2.TicketCustomField{
-	//	Id:          "",
-	//	DisplayName: "",
-	//	Required:    false,
-	//	Value:       sdkTicket.PickObjectValueField(cf.GetId(), &v2.TicketCustomFieldObjectValue{
-	//		Id:          issue.Fields.Project.ID,
-	//		DisplayName: issue.Fields.Project.Name,
-	//	},
-	//}
 	var newAnnotations []*anypb.Any
 	resp, err := cc.CreateTicket(ctx, &v2.TicketsServiceCreateTicketRequest{
 		Request: &v2.TicketRequest{
-			DisplayName: "yo",
-			Description: "test desc",
-			Status:      &v2.TicketStatus{Id: "10001", DisplayName: "idk what status this is"},
-			Type:        &v2.TicketType{Id: "10001", DisplayName: "idk what type this is"},
-			//Status:      &v2.TicketStatus{Id: "10001", DisplayName: "idk what status this is"},
-			//Type:        &v2.TicketType{Id: "10001", DisplayName: "idk what type this is"},
+			DisplayName:  "yo",
+			Description:  "test desc",
+			Status:       &v2.TicketStatus{Id: "10001", DisplayName: "idk what status this is"},
+			Type:         &v2.TicketType{Id: "10001", DisplayName: "idk what type this is"},
 			Labels:       []string{},
 			CustomFields: cfs,
 			SchemaId:     "schemaId",
