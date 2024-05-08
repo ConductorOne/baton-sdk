@@ -198,6 +198,9 @@ func shift(arr []int, n int) []int {
 }
 
 func (g *EntitlementGraph) getCycle(visits []int) ([]int, bool) {
+	if len(visits) == 0 {
+		return nil, false
+	}
 	nodeId := visits[len(visits)-1]
 	for _, descendant := range g.getDescendants(nodeId) {
 		tempVisits := make([]int, len(visits))
@@ -268,9 +271,6 @@ func (g *EntitlementGraph) AddEntitlement(entitlement *v2.Entitlement) {
 		EntitlementIDs: []string{entitlement.Id},
 	}
 	g.NodeCount++
-	// if _, ok := d.Entitlements[entitlement.Id]; !ok {
-	// 	d.Entitlements[entitlement.Id] = false
-	// }
 }
 
 func (g *EntitlementGraph) GetEntitlements() []string {
