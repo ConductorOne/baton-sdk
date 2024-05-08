@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -17,23 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	sdkTicket "github.com/conductorone/baton-sdk/pkg/types/ticket"
 )
-
-func loadTicketTemplate(templatePath string) (*TicketTemplate, error) {
-	tbytes, err := os.ReadFile(templatePath)
-	if err != nil {
-		return nil, err
-	}
-
-	template := &TicketTemplate{}
-	err = json.Unmarshal(tbytes, template)
-	if err != nil {
-		return nil, err
-	}
-
-	return template, nil
-}
 
 func ticketingCmd[T any, PtrT *T](
 	ctx context.Context,
@@ -189,120 +171,5 @@ func ticketingCmd[T any, PtrT *T](
 	getCmd.Flags().String("ticket-id", "", "Ticket ID to fetch")
 	cmd.AddCommand(getCmd)
 
-	createCmd := &cobra.Command{
-		Use:   "create",
-		Short: "Create a ticket",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			v, err := loadConfig(cmd, cfg)
-			if err != nil {
-				return err
-			}
-
-			runCtx, err := initLogger(
-				ctx,
-				name,
-				logging.WithLogFormat(v.GetString("log-format")),
-				logging.WithLogLevel(v.GetString("log-level")),
-			)
-			if err != nil {
-				return err
-			}
-
-			c, err := getConnector(runCtx, cfg)
-			if err != nil {
-				return err
-			}
-
-			l := ctxzap.Extract(ctx)
-			l.Info("******************** create", zap.Any("c", c), zap.Any("cfg", cfg))
-
-			ticketTemplate := v.GetString("template")
-			if ticketTemplate == "" {
-				return fmt.Errorf("template is required")
-			}
-
-			template, err := loadTicketTemplate(ticketTemplate)
-			if err != nil {
-				return err
-			}
-
-			schema, err := c.GetTicketSchema(runCtx, &v2.TicketsServiceGetTicketSchemaRequest{
-				Id: template.SchemaID,
-			})
-			if err != nil {
-				return err
-			}
-
-			ticketRequestBody := &v2.TicketRequest{
-				DisplayName: template.DisplayName,
-				Description: template.Description,
-				Status: &v2.TicketStatus{
-					Id: template.StatusId,
-				},
-				Type: &v2.TicketType{
-					Id: template.TypeId,
-				},
-				Labels:   template.Labels,
-				SchemaId: schema.Schema.GetId(),
-			}
-
-			cfs := make(map[string]*v2.TicketCustomField)
-			for k, v := range template.CustomFields {
-				newCfs, err := sdkTicket.CustomFieldForSchemaField(k, schema.Schema, v)
-				if err != nil {
-					return err
-				}
-				cfs[k] = newCfs
-			}
-			ticketRequestBody.CustomFields = cfs
-			ticketReq := &v2.TicketsServiceCreateTicketRequest{
-				Request: ticketRequestBody,
-			}
-
-			ticket, err := c.CreateTicket(runCtx, ticketReq)
-			if err != nil {
-				return err
-			}
-
-			if ticket.GetTicket() == nil {
-				return fmt.Errorf("connector returned empty ticket")
-			}
-
-			protoMarshaller := protojson.MarshalOptions{
-				Multiline: true,
-				Indent:    "  ",
-			}
-
-			a := &anypb.Any{}
-			err = anypb.MarshalFrom(a, ticket.GetTicket(), proto.MarshalOptions{Deterministic: true})
-			if err != nil {
-				return err
-			}
-
-			outBytes, err := protoMarshaller.Marshal(a)
-			if err != nil {
-				return err
-			}
-
-			_, err = fmt.Fprint(os.Stdout, string(outBytes))
-			if err != nil {
-				return err
-			}
-
-			return nil
-		},
-	}
-	createCmd.Flags().String("template", "", "Path to JSON template for ticket creation")
-	cmd.AddCommand(createCmd)
 	return cmd
-}
-
-type TicketTemplate struct {
-	SchemaID     string                 `json:"schema_id"`
-	StatusId     string                 `json:"status_id"`
-	TypeId       string                 `json:"type_id"`
-	DisplayName  string                 `json:"display_name"`
-	Description  string                 `json:"description"`
-	Labels       []string               `json:"labels"`
-	CustomFields map[string]interface{} `json:"custom_fields"`
 }

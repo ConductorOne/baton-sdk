@@ -195,12 +195,7 @@ func (c *connectorRunner) Close(ctx context.Context) error {
 type Option func(ctx context.Context, cfg *runnerConfig) error
 
 type createTicketConfig struct {
-	statusId     string
-	typeId       string
-	displayName  string
-	labels       []string
-	description  string
-	customFields map[string]interface{}
+	templatePath string
 }
 
 type grantConfig struct {
@@ -423,31 +418,16 @@ func WithTicketingEnabled() Option {
 	}
 }
 
-func WithCreateTicket() Option {
+func WithCreateTicket(templatePath string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
 		//cfg.ticketingEnabled = true
-		//cfg.c1zPath = c1zPath
-		cfg.createTicketConfig = &createTicketConfig{}
-		return nil
-	}
-}
-
-/*func WithCreateTicket(displayName string, typeId string, statusId string, description string, labels []string, customFields map[string]interface{}) Option {
-	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		//cfg.c1zPath = c1zPath
 		cfg.createTicketConfig = &createTicketConfig{
-			displayName:  displayName,
-			typeId:       typeId,
-			statusId:     statusId,
-			description:  description,
-			labels:       labels,
-			customFields: customFields,
+			templatePath: templatePath,
 		}
 		return nil
 	}
-}*/
+}
 
 func WithTempDir(tempDir string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
@@ -457,7 +437,7 @@ func WithTempDir(tempDir string) Option {
 }
 
 // NewConnectorRunner creates a new connector runner.
-//jrtr
+// jrtr
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -486,7 +466,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	cfg.ticketingEnabled = true
 	if cfg.ticketingEnabled {
 		wrapperOpts = append(wrapperOpts, connector.WithTicketingEnabled())
-		//wrapperOpts = append(wrapperOpts, connector.())
 	}
 
 	l.Info("************** ", zap.Any("c", c), zap.Any("cfg", cfg))
@@ -530,7 +509,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx)
 		case cfg.createTicketConfig != nil:
-			tm = local.NewTicket(ctx)
+			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))
 			if err != nil {

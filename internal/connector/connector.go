@@ -103,13 +103,6 @@ func WithTicketingEnabled() Option {
 	}
 }
 
-/*func WithCreateTicket() Option {
-	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.createTicketConfig = &createTicketConfig{}
-		return nil
-	}
-}*/
-
 // NewConnectorWrapper returns a connector wrapper for running connector services locally.
 func NewWrapper(ctx context.Context, server interface{}, opts ...Option) (*wrapper, error) {
 	connectorServer, isServer := server.(types.ConnectorServer)
