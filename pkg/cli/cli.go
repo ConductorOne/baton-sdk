@@ -366,7 +366,6 @@ func NewCmd[T any, PtrT *T](
 	// Will either hide or remove, just for debugging development
 	cmd.PersistentFlags().Bool("create-ticket", true, "Create ticket ($BATON_CREATE_TICKET)")
 	cmd.PersistentFlags().String("ticket-template-path", "", "A JSON file describing the ticket to create ($BATON_TICKET_TEMPLATE_PATH)")
-	//cmd.PersistentFlags().BoolP("create-ticket2", "ct", false, "Create ticket ($BATON_CREATE_TICKET)")
 
 	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login", "delete-resource", "rotate-credentials", "event-feed", "create-ticket")
 	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email", "delete-resource-type", "rotate-credentials-type", "event-feed", "create-ticket")
