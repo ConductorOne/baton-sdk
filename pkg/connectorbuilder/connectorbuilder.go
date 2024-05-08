@@ -82,7 +82,7 @@ type builderImpl struct {
 	credentialManagers     map[string]CredentialManager
 	eventFeed              EventProvider
 	cb                     ConnectorBuilder
-	ticketManager          TicketManager
+	ticketManager          TicketManager //here
 }
 
 func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.TicketsServiceListTicketSchemasRequest) (*v2.TicketsServiceListTicketSchemasResponse, error) {
@@ -109,21 +109,26 @@ func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.Tickets
 }
 
 func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServiceCreateTicketRequest) (*v2.TicketsServiceCreateTicketResponse, error) {
+	l := ctxzap.Extract(ctx)
+	l.Info("********  (b *builderImpl) CreateTicket(c")
 	if b.ticketManager == nil {
+		l.Info("********  (b *builderImpl) ticket manage nil")
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
+	reqBody := request.GetRequest()
 	cTicket := &v2.Ticket{
-		DisplayName:  request.GetDisplayName(),
-		Description:  request.GetDescription(),
-		Status:       request.GetStatus(),
-		Type:         request.GetType(),
-		Labels:       request.GetLabels(),
-		CustomFields: request.GetCustomFields(),
+		DisplayName:  reqBody.GetDisplayName(),
+		Description:  reqBody.GetDescription(),
+		Status:       reqBody.GetStatus(),
+		Type:         reqBody.GetType(),
+		Labels:       reqBody.GetLabels(),
+		CustomFields: reqBody.GetCustomFields(),
 	}
 
-	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, request.GetSchemaId())
+	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, reqBody.GetSchemaId())
 	if err != nil {
+		l.Info("ERRRR CREATE TOCLET")
 		return nil, fmt.Errorf("error: creating ticket failed: %w", err)
 	}
 
@@ -167,6 +172,8 @@ func (b *builderImpl) GetTicketSchema(ctx context.Context, request *v2.TicketsSe
 
 // NewConnector creates a new ConnectorServer for a new resource.
 func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, error) {
+	l := ctxzap.Extract(ctx)
+	l.Info("*****in", zap.Any("in", in))
 	switch c := in.(type) {
 	case ConnectorBuilder:
 		ret := &builderImpl{
@@ -177,19 +184,36 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 			accountManager:         nil,
 			credentialManagers:     make(map[string]CredentialManager),
 			cb:                     c,
-			ticketManager:          nil,
+			//ticketManager:          nil,
 		}
 
 		if b, ok := c.(EventProvider); ok {
 			ret.eventFeed = b
 		}
 
-		if ticketManager, ok := c.(TicketManager); ok {
+		/*if ticketManager, ok := c.(TicketManager); ok {
 			if ret.ticketManager != nil {
+				l.Error("*************** not nil")
 				return nil, fmt.Errorf("error: cannot set multiple ticket managers")
 			}
 			ret.ticketManager = ticketManager
+		}*/
+
+		if ticketManager, ok := c.(TicketManager); ok {
+			l.Info("***************ok")
+			ret.ticketManager = ticketManager
+		} else {
+			l.Info("************** not ok")
 		}
+
+		/*
+			if ticketManager, ok := rb.(TicketManager); ok {
+						if ret.ticketManager != nil {
+							return nil, fmt.Errorf("error: duplicate resource type found for account manager %s", rType.Id)
+						}
+						ret.ticketManager = ticketManager
+					}
+		*/
 
 		for _, rb := range c.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)

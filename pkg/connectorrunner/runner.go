@@ -75,6 +75,8 @@ func (c *connectorRunner) handleContextCancel(ctx context.Context) error {
 	return err
 }
 func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error {
+	l := ctxzap.Extract(ctx)
+	l.Info("******** processTask", zap.Any("task", task))
 	cc, err := c.cw.C(ctx)
 	if err != nil {
 		return fmt.Errorf("runner: error creating connector client: %w", err)
@@ -152,6 +154,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				err := c.processTask(ctx, nextTask)
 				sem.Release(1)
 				if err != nil {
+					///h,
 					l.Error(
 						"runner: error processing on-demand task",
 						zap.Error(err),
@@ -190,6 +193,15 @@ func (c *connectorRunner) Close(ctx context.Context) error {
 }
 
 type Option func(ctx context.Context, cfg *runnerConfig) error
+
+type createTicketConfig struct {
+	statusId     string
+	typeId       string
+	displayName  string
+	labels       []string
+	description  string
+	customFields map[string]interface{}
+}
 
 type grantConfig struct {
 	entitlementID string
@@ -236,6 +248,7 @@ type runnerConfig struct {
 	createAccountConfig     *createAccountConfig
 	deleteResourceConfig    *deleteResourceConfig
 	rotateCredentialsConfig *rotateCredentialsConfig
+	createTicketConfig      *createTicketConfig
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -410,6 +423,32 @@ func WithTicketingEnabled() Option {
 	}
 }
 
+func WithCreateTicket() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		//cfg.ticketingEnabled = true
+		//cfg.c1zPath = c1zPath
+		cfg.createTicketConfig = &createTicketConfig{}
+		return nil
+	}
+}
+
+/*func WithCreateTicket(displayName string, typeId string, statusId string, description string, labels []string, customFields map[string]interface{}) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		//cfg.c1zPath = c1zPath
+		cfg.createTicketConfig = &createTicketConfig{
+			displayName:  displayName,
+			typeId:       typeId,
+			statusId:     statusId,
+			description:  description,
+			labels:       labels,
+			customFields: customFields,
+		}
+		return nil
+	}
+}*/
+
 func WithTempDir(tempDir string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.tempDir = tempDir
@@ -418,7 +457,10 @@ func WithTempDir(tempDir string) Option {
 }
 
 // NewConnectorRunner creates a new connector runner.
+//jrtr
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
+	l := ctxzap.Extract(ctx)
+
 	runner := &connectorRunner{}
 	cfg := &runnerConfig{}
 
@@ -430,6 +472,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	}
 
 	var wrapperOpts []connector.Option
+	// TIODO add cfg here
 	wrapperOpts = append(wrapperOpts, connector.WithRateLimiterConfig(cfg.rlCfg))
 
 	for _, d := range cfg.rlDescriptors {
@@ -440,9 +483,13 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		wrapperOpts = append(wrapperOpts, connector.WithProvisioningEnabled())
 	}
 
+	cfg.ticketingEnabled = true
 	if cfg.ticketingEnabled {
 		wrapperOpts = append(wrapperOpts, connector.WithTicketingEnabled())
+		//wrapperOpts = append(wrapperOpts, connector.())
 	}
+
+	l.Info("************** ", zap.Any("c", c), zap.Any("cfg", cfg))
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {
@@ -452,7 +499,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	runner.cw = cw
 
 	if cfg.onDemand {
-		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil {
+
+		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -481,7 +529,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx)
-
+		case cfg.createTicketConfig != nil:
+			tm = local.NewTicket(ctx)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))
 			if err != nil {

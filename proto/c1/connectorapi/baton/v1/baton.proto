@@ -82,6 +82,11 @@ message Task {
     repeated connector.v2.EncryptionConfig encryption_configs = 3;
   }
 
+  message CreateTicketTask {
+    repeated google.protobuf.Any annotations = 1;
+    // TODO(lauren) add TicketsServiceCreateTicketRequest?
+  }
+
   string id = 1;
   Status status = 2;
   oneof task_type {
@@ -95,6 +100,7 @@ message Task {
     DeleteResourceTask delete_resource = 107;
     RotateCredentialsTask rotate_credentials = 108;
     EventFeedTask event_feed = 109;
+    CreateTicketTask create_ticket_task = 110;
   }
 }
 

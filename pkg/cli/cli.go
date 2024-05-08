@@ -136,6 +136,18 @@ func NewCmd[T any, PtrT *T](
 							v.GetString("rotate-credentials"),
 							v.GetString("rotate-credentials-type"),
 						))
+				case v.GetBool("create-ticket"):
+					ctxzap.Extract(ctx).Info("******* WE WARE HERE")
+					opts = append(opts,
+						connectorrunner.WithTicketingEnabled(),
+						connectorrunner.WithCreateTicket())
+					/*connectorrunner.WithCreateTicket(
+					v.GetString("display-name"),
+					v.GetString("type-id"),
+					v.GetString("status-id"),
+					v.GetString("description"),
+					v.GetStringSlice("labels"),
+					v.GetStringMap("custom-fields")))*/
 				default:
 					opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 				}
@@ -197,6 +209,7 @@ func NewCmd[T any, PtrT *T](
 			}
 
 			var copts []connector.Option
+			ctxzap.Extract(ctx).Info("******* WE WARE actaia;y HERE")
 
 			switch {
 			case v.GetString("grant-entitlement") != "":
@@ -211,6 +224,8 @@ func NewCmd[T any, PtrT *T](
 				copts = append(copts, connector.WithProvisioningEnabled())
 			case v.GetBool("provisioning"):
 				copts = append(copts, connector.WithProvisioningEnabled())
+			case v.GetBool("create-ticket"):
+				copts = append(copts, connector.WithTicketingEnabled())
 			}
 
 			cw, err := connector.NewWrapper(runCtx, c, copts...)
@@ -355,8 +370,12 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("rotate-credentials", "", "The id of the resource to rotate credentials on ($BATON_ROTATE_CREDENTIALS)")
 	cmd.PersistentFlags().String("rotate-credentials-type", "", "The type of the resource to rotate credentials on ($BATON_ROTATE_CREDENTIALS_TYPE)")
 
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login", "delete-resource", "rotate-credentials", "event-feed")
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email", "delete-resource-type", "rotate-credentials-type", "event-feed")
+	// Will either hide or remove, just for debugging development
+	cmd.PersistentFlags().Bool("create-ticket", true, "Create ticket ($BATON_CREATE_TICKET)")
+	//cmd.PersistentFlags().BoolP("create-ticket2", "ct", false, "Create ticket ($BATON_CREATE_TICKET)")
+
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login", "delete-resource", "rotate-credentials", "event-feed", "create-ticket")
+	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email", "delete-resource-type", "rotate-credentials-type", "event-feed", "create-ticket")
 	err = cmd.PersistentFlags().MarkHidden("grant-entitlement")
 	if err != nil {
 		return nil, err
@@ -374,6 +393,10 @@ func NewCmd[T any, PtrT *T](
 		return nil, err
 	}
 	err = cmd.PersistentFlags().MarkHidden("event-feed")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("create-ticket")
 	if err != nil {
 		return nil, err
 	}

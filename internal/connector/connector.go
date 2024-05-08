@@ -103,6 +103,13 @@ func WithTicketingEnabled() Option {
 	}
 }
 
+/*func WithCreateTicket() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.createTicketConfig = &createTicketConfig{}
+		return nil
+	}
+}*/
+
 // NewConnectorWrapper returns a connector wrapper for running connector services locally.
 func NewWrapper(ctx context.Context, server interface{}, opts ...Option) (*wrapper, error) {
 	connectorServer, isServer := server.(types.ConnectorServer)
@@ -152,10 +159,12 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	connectorV2.RegisterResourceTypesServiceServer(server, cw.server)
 	connectorV2.RegisterAssetServiceServer(server, cw.server)
 	connectorV2.RegisterEventServiceServer(server, cw.server)
+	connectorV2.RegisterTicketsServiceServer(server, cw.server)
 
-	if cw.ticketingEnabled {
+	// TODO(lauren) do we need check
+	/*if cw.ticketingEnabled {
 		connectorV2.RegisterTicketsServiceServer(server, cw.server)
-	}
+	}*/
 
 	if cw.provisioningEnabled {
 		connectorV2.RegisterGrantManagerServiceServer(server, cw.server)
@@ -328,6 +337,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		AccountManagerServiceClient:    connectorV2.NewAccountManagerServiceClient(cw.conn),
 		CredentialManagerServiceClient: connectorV2.NewCredentialManagerServiceClient(cw.conn),
 		EventServiceClient:             connectorV2.NewEventServiceClient(cw.conn),
+		TicketsServiceClient:           connectorV2.NewTicketsServiceClient(cw.conn),
 	}
 
 	return cw.client, nil

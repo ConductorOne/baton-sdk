@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -201,6 +203,9 @@ func ticketingCmd[T any, PtrT *T](
 				return err
 			}
 
+			l := ctxzap.Extract(ctx)
+			l.Info("******************** create", zap.Any("c", c), zap.Any("cfg", cfg))
+
 			schema, err := c.GetTicketSchema(runCtx, &v2.TicketsServiceGetTicketSchemaRequest{
 				Id: schemaID,
 			})
@@ -224,7 +229,7 @@ func ticketingCmd[T any, PtrT *T](
 				return err
 			}
 
-			ticketReq := &v2.TicketsServiceCreateTicketRequest{
+			ticketRequestBody := &v2.TicketRequest{
 				DisplayName: template.DisplayName,
 				Description: template.Description,
 				Status: &v2.TicketStatus{
@@ -245,7 +250,10 @@ func ticketingCmd[T any, PtrT *T](
 				}
 				cfs[k] = newCfs
 			}
-			ticketReq.CustomFields = cfs
+			ticketRequestBody.CustomFields = cfs
+			ticketReq := &v2.TicketsServiceCreateTicketRequest{
+				Request: ticketRequestBody,
+			}
 
 			ticket, err := c.CreateTicket(runCtx, ticketReq)
 			if err != nil {

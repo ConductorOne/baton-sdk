@@ -75,6 +75,7 @@ func getNextPoll(d time.Duration) time.Duration {
 	}
 }
 
+//here
 func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -243,6 +244,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 
 	case tasks.RotateCredentialsType:
 		handler = newRotateCredentialsTaskHandler(task, tHelpers)
+	case tasks.CreateTicketType:
+		handler = newCreateTicketTaskHandler(task, tHelpers)
 
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
