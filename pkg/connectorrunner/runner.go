@@ -75,8 +75,6 @@ func (c *connectorRunner) handleContextCancel(ctx context.Context) error {
 	return err
 }
 func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error {
-	l := ctxzap.Extract(ctx)
-	l.Info("******** processTask", zap.Any("task", task))
 	cc, err := c.cw.C(ctx)
 	if err != nil {
 		return fmt.Errorf("runner: error creating connector client: %w", err)
@@ -421,7 +419,6 @@ func WithTicketingEnabled() Option {
 func WithCreateTicket(templatePath string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
-		//cfg.ticketingEnabled = true
 		cfg.createTicketConfig = &createTicketConfig{
 			templatePath: templatePath,
 		}
@@ -437,10 +434,7 @@ func WithTempDir(tempDir string) Option {
 }
 
 // NewConnectorRunner creates a new connector runner.
-// jrtr
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
-	l := ctxzap.Extract(ctx)
-
 	runner := &connectorRunner{}
 	cfg := &runnerConfig{}
 
@@ -452,7 +446,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	}
 
 	var wrapperOpts []connector.Option
-	// TIODO add cfg here
 	wrapperOpts = append(wrapperOpts, connector.WithRateLimiterConfig(cfg.rlCfg))
 
 	for _, d := range cfg.rlDescriptors {
@@ -463,12 +456,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		wrapperOpts = append(wrapperOpts, connector.WithProvisioningEnabled())
 	}
 
-	cfg.ticketingEnabled = true
 	if cfg.ticketingEnabled {
 		wrapperOpts = append(wrapperOpts, connector.WithTicketingEnabled())
 	}
-
-	l.Info("************** ", zap.Any("c", c), zap.Any("cfg", cfg))
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {

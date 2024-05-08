@@ -137,7 +137,6 @@ func NewCmd[T any, PtrT *T](
 							v.GetString("rotate-credentials-type"),
 						))
 				case v.GetBool("create-ticket"):
-					ctxzap.Extract(ctx).Info("******* WE WARE HERE")
 					opts = append(opts,
 						connectorrunner.WithTicketingEnabled(),
 						connectorrunner.WithCreateTicket(v.GetString("ticket-template-path")))
@@ -202,7 +201,6 @@ func NewCmd[T any, PtrT *T](
 			}
 
 			var copts []connector.Option
-			ctxzap.Extract(ctx).Info("******* WE WARE actaia;y HERE")
 
 			switch {
 			case v.GetString("grant-entitlement") != "":

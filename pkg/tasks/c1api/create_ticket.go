@@ -25,10 +25,18 @@ type createTicketTaskHandler struct {
 
 func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
-	l.Info("******* HandleTask create ticket here")
+
+	t := c.task.GetCreateTicketTask()
+	if t == nil || t.GetTicketRequest() == nil {
+		l.Error("create ticket task was nil or missing ticket request", zap.Any("create_resource_task", t))
+		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed create ticket task"), ErrTaskNonRetryable))
+	}
 
 	cc := c.helpers.ConnectorClient()
-	resp, err := cc.CreateTicket(ctx, &v2.TicketsServiceCreateTicketRequest{})
+	resp, err := cc.CreateTicket(ctx, &v2.TicketsServiceCreateTicketRequest{
+		Request:     t.GetTicketRequest(),
+		Annotations: t.GetAnnotations(),
+	})
 	if err != nil {
 		l.Error("failed creating ticket", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))

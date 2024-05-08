@@ -65,7 +65,6 @@ func (m *localTicket) Next(ctx context.Context) (*v1.Task, time.Duration, error)
 
 func (m *localTicket) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx)
-	l.Info("******** PROCESSSSSS")
 
 	template, err := m.loadTicketTemplate(ctx)
 	if err != nil {
@@ -107,10 +106,10 @@ func (m *localTicket) Process(ctx context.Context, task *v1.Task, cc types.Conne
 
 	resp, err := cc.CreateTicket(ctx, ticketReq)
 	if err != nil {
-		l.Error("****************  cc.CreateTickee ", zap.Error(err))
 		return err
 	}
-	l.Info("**************** resp", zap.Any("resp", resp))
+
+	l.Info("created ticket", zap.Any("resp", resp))
 
 	return nil
 }

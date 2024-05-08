@@ -6,6 +6,7 @@ import "c1/connector/v2/connector.proto";
 import "c1/connector/v2/entitlement.proto";
 import "c1/connector/v2/grant.proto";
 import "c1/connector/v2/resource.proto";
+import "c1/connector/v2/ticket.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
@@ -83,8 +84,8 @@ message Task {
   }
 
   message CreateTicketTask {
-    repeated google.protobuf.Any annotations = 1;
-    // TODO(lauren) add TicketsServiceCreateTicketRequest?
+    connector.v2.TicketRequest ticket_request = 1;
+    repeated google.protobuf.Any annotations = 2;
   }
 
   string id = 1;

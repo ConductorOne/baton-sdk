@@ -152,12 +152,10 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	connectorV2.RegisterResourceTypesServiceServer(server, cw.server)
 	connectorV2.RegisterAssetServiceServer(server, cw.server)
 	connectorV2.RegisterEventServiceServer(server, cw.server)
-	connectorV2.RegisterTicketsServiceServer(server, cw.server)
 
-	// TODO(lauren) do we need check
-	/*if cw.ticketingEnabled {
+	if cw.ticketingEnabled {
 		connectorV2.RegisterTicketsServiceServer(server, cw.server)
-	}*/
+	}
 
 	if cw.provisioningEnabled {
 		connectorV2.RegisterGrantManagerServiceServer(server, cw.server)
