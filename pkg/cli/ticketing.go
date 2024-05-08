@@ -20,6 +20,21 @@ import (
 	sdkTicket "github.com/conductorone/baton-sdk/pkg/types/ticket"
 )
 
+func loadTicketTemplate(templatePath string) (*TicketTemplate, error) {
+	tbytes, err := os.ReadFile(templatePath)
+	if err != nil {
+		return nil, err
+	}
+
+	template := &TicketTemplate{}
+	err = json.Unmarshal(tbytes, template)
+	if err != nil {
+		return nil, err
+	}
+
+	return template, nil
+}
+
 func ticketingCmd[T any, PtrT *T](
 	ctx context.Context,
 	name string,
@@ -193,11 +208,6 @@ func ticketingCmd[T any, PtrT *T](
 				return err
 			}
 
-			schemaID := v.GetString("schema-id")
-			if schemaID == "" {
-				return fmt.Errorf("--schema-id is required")
-			}
-
 			c, err := getConnector(runCtx, cfg)
 			if err != nil {
 				return err
@@ -206,25 +216,19 @@ func ticketingCmd[T any, PtrT *T](
 			l := ctxzap.Extract(ctx)
 			l.Info("******************** create", zap.Any("c", c), zap.Any("cfg", cfg))
 
-			schema, err := c.GetTicketSchema(runCtx, &v2.TicketsServiceGetTicketSchemaRequest{
-				Id: schemaID,
-			})
-			if err != nil {
-				return err
-			}
-
 			ticketTemplate := v.GetString("template")
 			if ticketTemplate == "" {
 				return fmt.Errorf("template is required")
 			}
 
-			tbytes, err := os.ReadFile(ticketTemplate)
+			template, err := loadTicketTemplate(ticketTemplate)
 			if err != nil {
 				return err
 			}
 
-			template := &TicketTemplate{}
-			err = json.Unmarshal(tbytes, template)
+			schema, err := c.GetTicketSchema(runCtx, &v2.TicketsServiceGetTicketSchemaRequest{
+				Id: template.SchemaID,
+			})
 			if err != nil {
 				return err
 			}
@@ -289,12 +293,12 @@ func ticketingCmd[T any, PtrT *T](
 		},
 	}
 	createCmd.Flags().String("template", "", "Path to JSON template for ticket creation")
-	createCmd.Flags().String("schema-id", "", "Schema ID to use for ticket creation")
 	cmd.AddCommand(createCmd)
 	return cmd
 }
 
 type TicketTemplate struct {
+	SchemaID     string                 `json:"schema_id"`
 	StatusId     string                 `json:"status_id"`
 	TypeId       string                 `json:"type_id"`
 	DisplayName  string                 `json:"display_name"`
