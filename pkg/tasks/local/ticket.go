@@ -18,10 +18,7 @@ import (
 )
 
 type localTicket struct {
-	dbPath string
-	o      sync.Once
-
-	taskId string
+	o sync.Once
 
 	templatePath string
 }
