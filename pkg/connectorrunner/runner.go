@@ -152,7 +152,6 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				err := c.processTask(ctx, nextTask)
 				sem.Release(1)
 				if err != nil {
-					///h,
 					l.Error(
 						"runner: error processing on-demand task",
 						zap.Error(err),
