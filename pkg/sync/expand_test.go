@@ -25,10 +25,6 @@ func TestGetDescendants(t *testing.T) {
 	err = graph.Validate()
 	require.NoError(t, err)
 
-	descendants := graph.getDescendants(node.Id)
-	expected := []int{2, 3, 4}
-	require.ElementsMatch(t, expected, descendants)
-
 	descendantEntitlements := graph.GetDescendantEntitlements("1")
 	expectedEntitlements := map[string]*grantInfo{
 		"2": {

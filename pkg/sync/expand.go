@@ -169,7 +169,8 @@ func (g *EntitlementGraph) getAncestors(entitlementID string) []int {
 func (g *EntitlementGraph) GetCycles() ([][]int, bool) {
 	rv := make([][]int, 0)
 	for nodeID := range g.Nodes {
-		if len(g.getDescendants(nodeID)) == 0 {
+		edges, ok := g.Edges[nodeID]
+		if !ok || len(edges) == 0 {
 			continue
 		}
 		cycle, isCycle := g.getCycle([]int{nodeID})
@@ -202,7 +203,7 @@ func (g *EntitlementGraph) getCycle(visits []int) ([]int, bool) {
 		return nil, false
 	}
 	nodeId := visits[len(visits)-1]
-	for _, descendantId := range g.getDescendants(nodeId) {
+	for descendantId := range g.Edges[nodeId] {
 		tempVisits := make([]int, len(visits))
 		copy(tempVisits, visits)
 		if descendantId == visits[0] {
@@ -226,18 +227,6 @@ func (g *EntitlementGraph) getCycle(visits []int) ([]int, bool) {
 		return g.getCycle(tempVisits) //nolint:staticcheck // false positive
 	}
 	return nil, false
-}
-
-func (g *EntitlementGraph) getDescendants(nodeID int) []int {
-	_, ok := g.Nodes[nodeID]
-	if !ok {
-		return nil
-	}
-	nodeIDs := make([]int, 0, len(g.Edges[nodeID]))
-	for dstNodeID := range g.Edges[nodeID] {
-		nodeIDs = append(nodeIDs, dstNodeID)
-	}
-	return nodeIDs
 }
 
 func (g *EntitlementGraph) GetDescendantEntitlements(entitlementID string) map[string]*grantInfo {
