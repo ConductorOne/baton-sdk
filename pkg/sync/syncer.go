@@ -28,6 +28,8 @@ import (
 
 const maxDepth = 8
 
+var dontFixCycles, _ = strconv.ParseBool(os.Getenv("BATON_DONT_FIX_CYCLES"))
+
 var (
 	ErrSyncNotComplete = fmt.Errorf("sync exited without finishing")
 )
@@ -48,7 +50,6 @@ type syncer struct {
 	transitionHandler func(s Action)
 	progressHandler   func(p *Progress)
 	tmpDir            string
-	fixCycles         bool
 
 	skipEGForResourceType map[string]bool
 }
@@ -812,7 +813,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		cycles, hasCycles := entitlementGraph.GetCycles()
 		if hasCycles {
 			l.Warn("cycles detected in entitlement graph", zap.Any("cycles", cycles))
-			if !s.fixCycles {
+			if dontFixCycles {
 				return fmt.Errorf("cycles detected in entitlement graph")
 			}
 
@@ -1438,20 +1439,9 @@ func WithTmpDir(path string) SyncOpt {
 
 // NewSyncer returns a new syncer object.
 func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
-	l := ctxzap.Extract(ctx)
 	s := &syncer{
 		connector:             c,
 		skipEGForResourceType: make(map[string]bool),
-		fixCycles:             true,
-	}
-
-	if fixCycles, ok := os.LookupEnv("BATON_DONT_FIX_CYCLES"); ok {
-		b, err := strconv.ParseBool(fixCycles)
-		if err == nil {
-			s.fixCycles = !b
-		} else {
-			l.Warn("NewSyncer: failed to parse BATON_DONT_FIX_CYCLES env var", zap.Error(err))
-		}
 	}
 
 	for _, o := range opts {
