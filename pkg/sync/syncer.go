@@ -809,9 +809,10 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		cycles, hasCycles := entitlementGraph.GetCycles()
 		if hasCycles {
 			l.Warn("cycles detected in entitlement graph", zap.Any("cycles", cycles))
-			entitlementGraph.FixCycles()
-			cycles, _ := entitlementGraph.GetCycles()
-			l.Warn("fixed cycles", zap.Any("cycles", cycles))
+			err := entitlementGraph.FixCycles()
+			if err != nil {
+				return err
+			}
 		}
 	}
 

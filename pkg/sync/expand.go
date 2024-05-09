@@ -386,11 +386,13 @@ func (g *EntitlementGraph) mergeNodes(node1ID int, node2ID int) {
 	g.removeNode(node2ID)
 }
 
-func (g *EntitlementGraph) FixCycles() {
-	for {
+func (g *EntitlementGraph) FixCycles() error {
+	// If we can't fix the cycles in 10 tries, just give up
+	const maxTries = 10
+	for i := 0; i < maxTries; i++ {
 		cycles, hasCycles := g.GetCycles()
 		if !hasCycles {
-			return
+			return nil
 		}
 
 		// Merge all the nodes in a cycle.
@@ -398,4 +400,5 @@ func (g *EntitlementGraph) FixCycles() {
 			g.mergeNodes(cycles[0][0], cycles[0][i])
 		}
 	}
+	return fmt.Errorf("could not fix cycles after %v tries", maxTries)
 }
