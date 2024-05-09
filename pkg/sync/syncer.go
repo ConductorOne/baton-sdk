@@ -105,16 +105,6 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 func (s *syncer) Sync(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
-	s.fixCycles = true
-	if fixCycles, ok := os.LookupEnv("BATON_DONT_FIX_CYCLES"); ok {
-		b, err := strconv.ParseBool(fixCycles)
-		if err == nil {
-			s.fixCycles = !b
-		} else {
-			l.Warn("failed to parse BATON_DONT_FIX_CYCLES env var", zap.Error(err))
-		}
-	}
-
 	runCtx := ctx
 	var runCanc context.CancelFunc
 	if s.runDuration > 0 {
@@ -1448,9 +1438,20 @@ func WithTmpDir(path string) SyncOpt {
 
 // NewSyncer returns a new syncer object.
 func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
+	l := ctxzap.Extract(ctx)
 	s := &syncer{
 		connector:             c,
 		skipEGForResourceType: make(map[string]bool),
+		fixCycles:             true,
+	}
+
+	if fixCycles, ok := os.LookupEnv("BATON_DONT_FIX_CYCLES"); ok {
+		b, err := strconv.ParseBool(fixCycles)
+		if err == nil {
+			s.fixCycles = !b
+		} else {
+			l.Warn("NewSyncer: failed to parse BATON_DONT_FIX_CYCLES env var", zap.Error(err))
+		}
 	}
 
 	for _, o := range opts {
