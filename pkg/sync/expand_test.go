@@ -93,7 +93,8 @@ func TestHandleCycle(t *testing.T) {
 	require.True(t, isCycle)
 	require.Equal(t, [][]int{{2, 3, 4}}, cycles)
 
-	graph.FixCycles()
+	err = graph.FixCycles()
+	require.NoError(t, err)
 	err = graph.Validate()
 	require.NoError(t, err)
 	cycles, isCycle = graph.GetCycles()
@@ -120,7 +121,8 @@ func TestHandleCycle(t *testing.T) {
 	err = graph.Validate()
 	require.NoError(t, err)
 
-	graph.FixCycles()
+	err = graph.FixCycles()
+	require.NoError(t, err)
 	err = graph.Validate()
 	require.NoError(t, err)
 

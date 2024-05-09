@@ -233,7 +233,7 @@ func (g *EntitlementGraph) getDescendants(nodeID int) []Node {
 	if !ok {
 		return nil
 	}
-	nodes := make([]Node, len(g.Edges[nodeID]))
+	nodes := make([]Node, 0, len(g.Edges[nodeID]))
 	for dstNodeId := range g.Edges[nodeID] {
 		dstNode := g.Nodes[dstNodeId]
 		nodes = append(nodes, dstNode)
