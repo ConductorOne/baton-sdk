@@ -25,22 +25,25 @@ func TestGetDescendants(t *testing.T) {
 	err = graph.Validate()
 	require.NoError(t, err)
 
-	descendants := graph.getDescendants(node.Id)
-	expected := []Node{
-		{
-			Id:             2,
-			EntitlementIDs: []string{"2"},
+	descendantEntitlements := graph.GetDescendantEntitlements("1")
+	expectedEntitlements := map[string]*grantInfo{
+		"2": {
+			Expanded:        false,
+			Shallow:         false,
+			ResourceTypeIDs: nil,
 		},
-		{
-			Id:             3,
-			EntitlementIDs: []string{"3"},
+		"3": {
+			Expanded:        false,
+			Shallow:         false,
+			ResourceTypeIDs: nil,
 		},
-		{
-			Id:             4,
-			EntitlementIDs: []string{"4"},
+		"4": {
+			Expanded:        false,
+			Shallow:         false,
+			ResourceTypeIDs: nil,
 		},
 	}
-	require.ElementsMatch(t, expected, descendants)
+	require.EqualValues(t, expectedEntitlements, descendantEntitlements)
 }
 
 func TestRemoveNode(t *testing.T) {
@@ -93,7 +96,8 @@ func TestHandleCycle(t *testing.T) {
 	require.True(t, isCycle)
 	require.Equal(t, [][]int{{2, 3, 4}}, cycles)
 
-	graph.FixCycles()
+	err = graph.FixCycles()
+	require.NoError(t, err)
 	err = graph.Validate()
 	require.NoError(t, err)
 	cycles, isCycle = graph.GetCycles()
@@ -120,7 +124,8 @@ func TestHandleCycle(t *testing.T) {
 	err = graph.Validate()
 	require.NoError(t, err)
 
-	graph.FixCycles()
+	err = graph.FixCycles()
+	require.NoError(t, err)
 	err = graph.Validate()
 	require.NoError(t, err)
 

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -25,6 +27,8 @@ import (
 )
 
 const maxDepth = 8
+
+var dontFixCycles, _ = strconv.ParseBool(os.Getenv("BATON_DONT_FIX_CYCLES"))
 
 var (
 	ErrSyncNotComplete = fmt.Errorf("sync exited without finishing")
@@ -809,9 +813,14 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		cycles, hasCycles := entitlementGraph.GetCycles()
 		if hasCycles {
 			l.Warn("cycles detected in entitlement graph", zap.Any("cycles", cycles))
-			entitlementGraph.FixCycles()
-			cycles, _ := entitlementGraph.GetCycles()
-			l.Warn("fixed cycles", zap.Any("cycles", cycles))
+			if dontFixCycles {
+				return fmt.Errorf("cycles detected in entitlement graph")
+			}
+
+			err := entitlementGraph.FixCycles()
+			if err != nil {
+				return err
+			}
 		}
 	}
 
