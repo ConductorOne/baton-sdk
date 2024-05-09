@@ -26,21 +26,28 @@ func TestGetDescendants(t *testing.T) {
 	require.NoError(t, err)
 
 	descendants := graph.getDescendants(node.Id)
-	expected := []Node{
-		{
-			Id:             2,
-			EntitlementIDs: []string{"2"},
+	expected := []int{2, 3, 4}
+	require.ElementsMatch(t, expected, descendants)
+
+	descendantEntitlements := graph.GetDescendantEntitlements("1")
+	expectedEntitlements := map[string]*grantInfo{
+		"2": {
+			Expanded:        false,
+			Shallow:         false,
+			ResourceTypeIDs: nil,
 		},
-		{
-			Id:             3,
-			EntitlementIDs: []string{"3"},
+		"3": {
+			Expanded:        false,
+			Shallow:         false,
+			ResourceTypeIDs: nil,
 		},
-		{
-			Id:             4,
-			EntitlementIDs: []string{"4"},
+		"4": {
+			Expanded:        false,
+			Shallow:         false,
+			ResourceTypeIDs: nil,
 		},
 	}
-	require.ElementsMatch(t, expected, descendants)
+	require.EqualValues(t, expectedEntitlements, descendantEntitlements)
 }
 
 func TestRemoveNode(t *testing.T) {

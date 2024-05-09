@@ -202,10 +202,10 @@ func (g *EntitlementGraph) getCycle(visits []int) ([]int, bool) {
 		return nil, false
 	}
 	nodeId := visits[len(visits)-1]
-	for _, descendant := range g.getDescendants(nodeId) {
+	for _, descendantId := range g.getDescendants(nodeId) {
 		tempVisits := make([]int, len(visits))
 		copy(tempVisits, visits)
-		if descendant.Id == visits[0] {
+		if descendantId == visits[0] {
 			// shift array so that the smallest element is first
 			smallestIndex := 0
 			for i := range tempVisits {
@@ -217,28 +217,27 @@ func (g *EntitlementGraph) getCycle(visits []int) ([]int, bool) {
 			return tempVisits, true
 		}
 		for _, visit := range visits {
-			if visit == descendant.Id {
+			if visit == descendantId {
 				return nil, false
 			}
 		}
 
-		tempVisits = append(tempVisits, descendant.Id)
+		tempVisits = append(tempVisits, descendantId)
 		return g.getCycle(tempVisits) //nolint:staticcheck // false positive
 	}
 	return nil, false
 }
 
-func (g *EntitlementGraph) getDescendants(nodeID int) []Node {
+func (g *EntitlementGraph) getDescendants(nodeID int) []int {
 	_, ok := g.Nodes[nodeID]
 	if !ok {
 		return nil
 	}
-	nodes := make([]Node, 0, len(g.Edges[nodeID]))
-	for dstNodeId := range g.Edges[nodeID] {
-		dstNode := g.Nodes[dstNodeId]
-		nodes = append(nodes, dstNode)
+	nodeIDs := make([]int, 0, len(g.Edges[nodeID]))
+	for dstNodeID := range g.Edges[nodeID] {
+		nodeIDs = append(nodeIDs, dstNodeID)
 	}
-	return nodes
+	return nodeIDs
 }
 
 func (g *EntitlementGraph) GetDescendantEntitlements(entitlementID string) map[string]*grantInfo {
