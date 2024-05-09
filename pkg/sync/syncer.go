@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"strconv"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -46,6 +48,7 @@ type syncer struct {
 	transitionHandler func(s Action)
 	progressHandler   func(p *Progress)
 	tmpDir            string
+	fixCycles         bool
 
 	skipEGForResourceType map[string]bool
 }
@@ -101,6 +104,16 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 // into the datasouce. This allows for graceful resumes if a sync is interrupted.
 func (s *syncer) Sync(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
+
+	s.fixCycles = true
+	if fixCycles, ok := os.LookupEnv("BATON_DONT_FIX_CYCLES"); ok {
+		b, err := strconv.ParseBool(fixCycles)
+		if err == nil {
+			s.fixCycles = !b
+		} else {
+			l.Warn("failed to parse BATON_DONT_FIX_CYCLES env var", zap.Error(err))
+		}
+	}
 
 	runCtx := ctx
 	var runCanc context.CancelFunc
@@ -809,6 +822,10 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		cycles, hasCycles := entitlementGraph.GetCycles()
 		if hasCycles {
 			l.Warn("cycles detected in entitlement graph", zap.Any("cycles", cycles))
+			if !s.fixCycles {
+				return fmt.Errorf("cycles detected in entitlement graph")
+			}
+
 			err := entitlementGraph.FixCycles()
 			if err != nil {
 				return err
