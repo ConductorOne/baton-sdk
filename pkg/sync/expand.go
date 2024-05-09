@@ -229,12 +229,12 @@ func (g *EntitlementGraph) getCycle(visits []int) ([]int, bool) {
 }
 
 func (g *EntitlementGraph) getDescendants(nodeID int) []Node {
-	node, ok := g.Nodes[nodeID]
+	_, ok := g.Nodes[nodeID]
 	if !ok {
 		return nil
 	}
-	var nodes []Node
-	for dstNodeId := range g.Edges[node.Id] {
+	nodes := make([]Node, len(g.Edges[nodeID]))
+	for dstNodeId := range g.Edges[nodeID] {
 		dstNode := g.Nodes[dstNodeId]
 		nodes = append(nodes, dstNode)
 	}
