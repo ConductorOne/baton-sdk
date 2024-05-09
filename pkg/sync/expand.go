@@ -224,7 +224,7 @@ func (g *EntitlementGraph) getCycle(visits []int) ([]int, bool) {
 		}
 
 		tempVisits = append(tempVisits, descendantId)
-		return g.getCycle(tempVisits) //nolint:staticcheck // false positive
+		return g.getCycle(tempVisits)
 	}
 	return nil, false
 }
