@@ -275,6 +275,9 @@ func getCapabilities(ctx context.Context, b *builderImpl) *v2.ConnectorCapabilit
 		if _, ok := rb.(ResourceProvisioner); ok {
 			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_PROVISION)
 			connectorCaps[v2.Capability_CAPABILITY_PROVISION] = struct{}{}
+		} else if _, ok = rb.(ResourceProvisionerV2); ok {
+			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_PROVISION)
+			connectorCaps[v2.Capability_CAPABILITY_PROVISION] = struct{}{}
 		}
 		resourceTypeCapabilities = append(resourceTypeCapabilities, resourceTypeCapability)
 	}
