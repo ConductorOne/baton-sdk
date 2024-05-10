@@ -41,15 +41,19 @@ message ConnectorMetadata {
 
 message ConnectorCapabilities {
   repeated ResourceTypeCapability resource_type_capabilities = 1;
+  repeated Capability connector_capabilities = 2;
+}
+
+enum Capability {
+  CAPABILITY_UNSPECIFIED = 0;
+  CAPABILITY_PROVISION = 1;
+  CAPABILITY_SYNC = 2;
+  CAPABILITY_TICKETING = 3;
+  CAPABILITY_EVENT_FEED = 4;
 }
 
 message ResourceTypeCapability {
   c1.connector.v2.ResourceType resource_type = 1;
-  enum Capability {
-    CAPABILITY_UNSPECIFIED = 0;
-    CAPABILITY_PROVISION = 1;
-    CAPABILITY_SYNC = 2;
-  }
   repeated Capability capabilities = 2;
 }
 
