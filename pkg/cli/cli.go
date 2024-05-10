@@ -202,6 +202,14 @@ func NewCmd[T any, PtrT *T](
 
 			var copts []connector.Option
 
+			if v.GetBool("provisioning") {
+				copts = append(copts, connector.WithProvisioningEnabled())
+			}
+
+			if v.GetBool("ticketing") {
+				copts = append(copts, connector.WithTicketingEnabled())
+			}
+
 			switch {
 			case v.GetString("grant-entitlement") != "":
 				copts = append(copts, connector.WithProvisioningEnabled())
@@ -213,10 +221,6 @@ func NewCmd[T any, PtrT *T](
 				copts = append(copts, connector.WithProvisioningEnabled())
 			case v.GetString("rotate-credentials") != "" || v.GetString("rotate-credentials-type") != "":
 				copts = append(copts, connector.WithProvisioningEnabled())
-			case v.GetBool("provisioning"):
-				copts = append(copts, connector.WithProvisioningEnabled())
-			case v.GetBool("create-ticket"):
-				copts = append(copts, connector.WithTicketingEnabled())
 			}
 
 			cw, err := connector.NewWrapper(runCtx, c, copts...)
@@ -361,7 +365,7 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("rotate-credentials", "", "The id of the resource to rotate credentials on ($BATON_ROTATE_CREDENTIALS)")
 	cmd.PersistentFlags().String("rotate-credentials-type", "", "The type of the resource to rotate credentials on ($BATON_ROTATE_CREDENTIALS_TYPE)")
 
-	// Will either hide or remove, just for debugging development
+	cmd.PersistentFlags().Bool("ticketing", false, "This must be set to enable ticketing support ($BATON_TICKETING)")
 	cmd.PersistentFlags().Bool("create-ticket", true, "Create ticket ($BATON_CREATE_TICKET)")
 	cmd.PersistentFlags().String("ticket-template-path", "", "A JSON file describing the ticket to create ($BATON_TICKET_TEMPLATE_PATH)")
 
