@@ -360,22 +360,42 @@ func (b *builderImpl) GetMetadata(ctx context.Context, request *v2.ConnectorServ
 
 // getCapabilities gets all capabilities for a connector.
 func getCapabilities(ctx context.Context, b *builderImpl) *v2.ConnectorCapabilities {
+	connectorCapabilities := make(map[v2.Capability]struct{})
 	resourceTypeCapabilities := []*v2.ResourceTypeCapability{}
 	for _, rb := range b.resourceBuilders {
+		connectorCapabilities[v2.Capability_CAPABILITY_SYNC] = struct{}{}
 		resourceTypeCapability := &v2.ResourceTypeCapability{
 			ResourceType: rb.ResourceType(ctx),
 			// Currently by default all resource types support sync.
-			Capabilities: []v2.ResourceTypeCapability_Capability{v2.ResourceTypeCapability_CAPABILITY_SYNC},
+			Capabilities: []v2.Capability{v2.Capability_CAPABILITY_SYNC},
 		}
 		if _, ok := rb.(ResourceProvisioner); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.ResourceTypeCapability_CAPABILITY_PROVISION)
+			connectorCapabilities[v2.Capability_CAPABILITY_PROVISION] = struct{}{}
+			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_PROVISION)
 		}
 		resourceTypeCapabilities = append(resourceTypeCapabilities, resourceTypeCapability)
 	}
 	sort.Slice(resourceTypeCapabilities, func(i, j int) bool {
 		return resourceTypeCapabilities[i].ResourceType.GetId() < resourceTypeCapabilities[j].ResourceType.GetId()
 	})
-	return &v2.ConnectorCapabilities{ResourceTypeCapabilities: resourceTypeCapabilities}
+
+	if b.ticketManager != nil {
+		connectorCapabilities[v2.Capability_CAPABILITY_TICKETING] = struct{}{}
+	}
+
+	if b.eventFeed != nil {
+		connectorCapabilities[v2.Capability_CAPABILITY_EVENT_FEED] = struct{}{}
+	}
+
+	connectorCaps := make([]v2.Capability, 0, len(connectorCapabilities))
+	for c := range connectorCapabilities {
+		connectorCaps = append(connectorCaps, c)
+	}
+
+	return &v2.ConnectorCapabilities{
+		ConnectorCapabilities:    connectorCaps,
+		ResourceTypeCapabilities: resourceTypeCapabilities,
+	}
 }
 
 // Validate validates the connector.
