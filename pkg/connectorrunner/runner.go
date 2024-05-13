@@ -449,7 +449,6 @@ func WithGetTicket(ticketID string) Option {
 		}
 		return nil
 	}
-
 }
 
 func WithTempDir(tempDir string) Option {
