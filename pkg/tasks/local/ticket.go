@@ -118,7 +118,7 @@ func NewTicket(ctx context.Context, templatePath string) tasks.Manager {
 	}
 }
 
-// Get ticket task
+// Get ticket task.
 type localGetTicket struct {
 	o        sync.Once
 	ticketId string

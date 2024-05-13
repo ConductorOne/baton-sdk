@@ -382,8 +382,28 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().Bool("get-ticket", false, "Get ticket ($BATON_GET_TICKET)")
 	cmd.PersistentFlags().String("ticket-id", "", "The ID of the ticket to get ($BATON_TICKET_ID)")
 
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login", "delete-resource", "rotate-credentials", "event-feed", "create-ticket", "get-ticket", "list-schemas")
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email", "delete-resource-type", "rotate-credentials-type", "event-feed", "create-ticket", "get-ticket", "list-schemas")
+	cmd.MarkFlagsMutuallyExclusive(
+		"grant-entitlement",
+		"revoke-grant",
+		"create-account-login",
+		"delete-resource",
+		"rotate-credentials",
+		"event-feed",
+		"create-ticket",
+		"get-ticket",
+		"list-schemas",
+	)
+	cmd.MarkFlagsMutuallyExclusive(
+		"grant-entitlement",
+		"revoke-grant",
+		"create-account-email",
+		"delete-resource-type",
+		"rotate-credentials-type",
+		"event-feed",
+		"create-ticket",
+		"get-ticket",
+		"list-schemas",
+	)
 	err = cmd.PersistentFlags().MarkHidden("grant-entitlement")
 	if err != nil {
 		return nil, err

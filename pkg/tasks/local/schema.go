@@ -38,7 +38,6 @@ func (m *localSchema) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	l.Info("Schemas", zap.Any("resp", resp))
 
 	return nil
-
 }
 
 // NewSchema returns a task manager that queues a list schema task.
