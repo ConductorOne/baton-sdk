@@ -191,6 +191,12 @@ func (c *connectorRunner) Close(ctx context.Context) error {
 
 type Option func(ctx context.Context, cfg *runnerConfig) error
 
+type getTicketConfig struct {
+	ticketID string
+}
+
+type listSchemasConfig struct{}
+
 type createTicketConfig struct {
 	templatePath string
 }
@@ -241,6 +247,8 @@ type runnerConfig struct {
 	deleteResourceConfig    *deleteResourceConfig
 	rotateCredentialsConfig *rotateCredentialsConfig
 	createTicketConfig      *createTicketConfig
+	listSchemasConfig       *listSchemasConfig
+	getTicketConfig         *getTicketConfig
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -425,6 +433,25 @@ func WithCreateTicket(templatePath string) Option {
 	}
 }
 
+func WithListSchemas() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.listSchemasConfig = &listSchemasConfig{}
+		return nil
+	}
+}
+
+func WithGetTicket(ticketID string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.getTicketConfig = &getTicketConfig{
+			ticketID: ticketID,
+		}
+		return nil
+	}
+
+}
+
 func WithTempDir(tempDir string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.tempDir = tempDir
@@ -467,7 +494,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	runner.cw = cw
 
 	if cfg.onDemand {
-		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil {
+		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listSchemasConfig == nil && cfg.getTicketConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -498,6 +525,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewEventFeed(ctx)
 		case cfg.createTicketConfig != nil:
 			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
+		case cfg.listSchemasConfig != nil:
+			tm = local.NewListSchema(ctx)
+		case cfg.getTicketConfig != nil:
+			tm = local.NewGetTicket(ctx, cfg.getTicketConfig.ticketID)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))
 			if err != nil {

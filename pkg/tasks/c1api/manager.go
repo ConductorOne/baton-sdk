@@ -245,7 +245,10 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newRotateCredentialsTaskHandler(task, tHelpers)
 	case tasks.CreateTicketType:
 		handler = newCreateTicketTaskHandler(task, tHelpers)
-
+	case tasks.ListSchemasType:
+		handler = newListSchemasTaskHandler(task, tHelpers)
+	case tasks.GetTicketType:
+		handler = newGetTicketTaskHandler(task, tHelpers)
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
 	}
