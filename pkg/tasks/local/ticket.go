@@ -117,3 +117,45 @@ func NewTicket(ctx context.Context, templatePath string) tasks.Manager {
 		templatePath: templatePath,
 	}
 }
+
+// Get ticket task.
+type localGetTicket struct {
+	o        sync.Once
+	ticketId string
+}
+
+func (m *localGetTicket) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
+	var task *v1.Task
+	m.o.Do(func() {
+		task = &v1.Task{
+			TaskType: &v1.Task_GetTicket{
+				GetTicket: &v1.Task_GetTicketTask{
+					TicketId: m.ticketId,
+				},
+			},
+		}
+	})
+	return task, 0, nil
+}
+
+func (m *localGetTicket) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+	l := ctxzap.Extract(ctx)
+
+	resp, err := cc.GetTicket(ctx, &v2.TicketsServiceGetTicketRequest{
+		Id: m.ticketId,
+	})
+	if err != nil {
+		return err
+	}
+
+	l.Info("ticket", zap.Any("resp", resp))
+
+	return nil
+}
+
+// NewGetTicket returns a task manager that queues a get ticket task.
+func NewGetTicket(ctx context.Context, ticketId string) tasks.Manager {
+	return &localGetTicket{
+		ticketId: ticketId,
+	}
+}

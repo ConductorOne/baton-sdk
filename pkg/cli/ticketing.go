@@ -2,18 +2,10 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
-	"google.golang.org/protobuf/encoding/protojson"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
-	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
@@ -29,147 +21,6 @@ func ticketingCmd[T any, PtrT *T](
 		Use:   "ticketing",
 		Short: "Interact with ticketing systems",
 	}
-
-	schemaCmd := &cobra.Command{
-		Use:   "schema",
-		Short: "Get ticket schema for authorization context",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			v, err := loadConfig(cmd, cfg)
-			if err != nil {
-				return err
-			}
-
-			runCtx, err := initLogger(
-				ctx,
-				name,
-				logging.WithLogFormat(v.GetString("log-format")),
-				logging.WithLogLevel(v.GetString("log-level")),
-			)
-			if err != nil {
-				return err
-			}
-
-			c, err := getConnector(runCtx, cfg)
-			if err != nil {
-				return err
-			}
-
-			var ticketSchemas []*v2.TicketSchema
-			pageToken := ""
-			for {
-				schemas, err := c.ListTicketSchemas(ctx, &v2.TicketsServiceListTicketSchemasRequest{
-					PageToken: pageToken,
-				})
-				if err != nil {
-					return err
-				}
-
-				ticketSchemas = append(ticketSchemas, schemas.GetList()...)
-
-				if schemas.GetNextPageToken() == "" {
-					break
-				}
-				pageToken = schemas.GetNextPageToken()
-			}
-
-			if len(ticketSchemas) == 0 {
-				return fmt.Errorf("connector returned empty ticket schema")
-			}
-
-			protoMarshaller := protojson.MarshalOptions{
-				Multiline: true,
-				Indent:    "  ",
-			}
-
-			raw := make([]json.RawMessage, 0, len(ticketSchemas))
-			for _, schema := range ticketSchemas {
-				b, err := protoMarshaller.Marshal(schema)
-				if err != nil {
-					return err
-				}
-				raw = append(raw, b)
-			}
-
-			outBytes, err := json.Marshal(raw)
-			if err != nil {
-				return err
-			}
-
-			_, err = fmt.Fprint(os.Stdout, string(outBytes))
-			if err != nil {
-				return err
-			}
-
-			return nil
-		},
-	}
-	cmd.AddCommand(schemaCmd)
-
-	getCmd := &cobra.Command{
-		Use:   "get",
-		Short: "Get ticket details",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			v, err := loadConfig(cmd, cfg)
-			if err != nil {
-				return err
-			}
-
-			runCtx, err := initLogger(
-				ctx,
-				name,
-				logging.WithLogFormat(v.GetString("log-format")),
-				logging.WithLogLevel(v.GetString("log-level")),
-			)
-			if err != nil {
-				return err
-			}
-
-			c, err := getConnector(runCtx, cfg)
-			if err != nil {
-				return err
-			}
-
-			ticketID := v.GetString("ticket-id")
-			if ticketID == "" {
-				return fmt.Errorf("ticket-id is required")
-			}
-			ticket, err := c.GetTicket(runCtx, &v2.TicketsServiceGetTicketRequest{
-				Id: ticketID,
-			})
-			if err != nil {
-				return err
-			}
-
-			if ticket.GetTicket() == nil {
-				return fmt.Errorf("connector returned empt ticket schema")
-			}
-
-			protoMarshaller := protojson.MarshalOptions{
-				Multiline: true,
-				Indent:    "  ",
-			}
-
-			a := &anypb.Any{}
-			err = anypb.MarshalFrom(a, ticket.GetTicket(), proto.MarshalOptions{Deterministic: true})
-			if err != nil {
-				return err
-			}
-
-			outBytes, err := protoMarshaller.Marshal(a)
-			if err != nil {
-				return err
-			}
-
-			_, err = fmt.Fprint(os.Stdout, string(outBytes))
-			if err != nil {
-				return err
-			}
-
-			return nil
-		},
-	}
-	getCmd.Flags().String("ticket-id", "", "Ticket ID to fetch")
-	cmd.AddCommand(getCmd)
 
 	return cmd
 }
