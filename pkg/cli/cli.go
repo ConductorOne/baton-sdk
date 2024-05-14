@@ -140,6 +140,14 @@ func NewCmd[T any, PtrT *T](
 					opts = append(opts,
 						connectorrunner.WithTicketingEnabled(),
 						connectorrunner.WithCreateTicket(v.GetString("ticket-template-path")))
+				case v.GetBool("list-schemas"):
+					opts = append(opts,
+						connectorrunner.WithTicketingEnabled(),
+						connectorrunner.WithListSchemas())
+				case v.GetBool("get-ticket"):
+					opts = append(opts,
+						connectorrunner.WithTicketingEnabled(),
+						connectorrunner.WithGetTicket(v.GetString("ticket-id")))
 				default:
 					opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 				}
@@ -366,11 +374,36 @@ func NewCmd[T any, PtrT *T](
 	cmd.PersistentFlags().String("rotate-credentials-type", "", "The type of the resource to rotate credentials on ($BATON_ROTATE_CREDENTIALS_TYPE)")
 
 	cmd.PersistentFlags().Bool("ticketing", false, "This must be set to enable ticketing support ($BATON_TICKETING)")
-	cmd.PersistentFlags().Bool("create-ticket", true, "Create ticket ($BATON_CREATE_TICKET)")
+	cmd.PersistentFlags().Bool("create-ticket", false, "Create ticket ($BATON_CREATE_TICKET)")
 	cmd.PersistentFlags().String("ticket-template-path", "", "A JSON file describing the ticket to create ($BATON_TICKET_TEMPLATE_PATH)")
 
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-login", "delete-resource", "rotate-credentials", "event-feed", "create-ticket")
-	cmd.MarkFlagsMutuallyExclusive("grant-entitlement", "revoke-grant", "create-account-email", "delete-resource-type", "rotate-credentials-type", "event-feed", "create-ticket")
+	cmd.PersistentFlags().Bool("list-schemas", false, "List ticket schemas ($BATON_LIST_SCHEMAS)")
+
+	cmd.PersistentFlags().Bool("get-ticket", false, "Get ticket ($BATON_GET_TICKET)")
+	cmd.PersistentFlags().String("ticket-id", "", "The ID of the ticket to get ($BATON_TICKET_ID)")
+
+	cmd.MarkFlagsMutuallyExclusive(
+		"grant-entitlement",
+		"revoke-grant",
+		"create-account-login",
+		"delete-resource",
+		"rotate-credentials",
+		"event-feed",
+		"create-ticket",
+		"get-ticket",
+		"list-schemas",
+	)
+	cmd.MarkFlagsMutuallyExclusive(
+		"grant-entitlement",
+		"revoke-grant",
+		"create-account-email",
+		"delete-resource-type",
+		"rotate-credentials-type",
+		"event-feed",
+		"create-ticket",
+		"get-ticket",
+		"list-schemas",
+	)
 	err = cmd.PersistentFlags().MarkHidden("grant-entitlement")
 	if err != nil {
 		return nil, err
@@ -396,6 +429,18 @@ func NewCmd[T any, PtrT *T](
 		return nil, err
 	}
 	err = cmd.PersistentFlags().MarkHidden("ticket-template-path")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("list-schemas")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("get-ticket")
+	if err != nil {
+		return nil, err
+	}
+	err = cmd.PersistentFlags().MarkHidden("ticket-id")
 	if err != nil {
 		return nil, err
 	}
@@ -431,6 +476,7 @@ func NewCmd[T any, PtrT *T](
 	cmd.MarkFlagsRequiredTogether("client-id", "client-secret")
 	cmd.MarkFlagsMutuallyExclusive("file", "client-id")
 	cmd.MarkFlagsRequiredTogether("create-ticket", "ticket-template-path")
+	cmd.MarkFlagsRequiredTogether("get-ticket", "ticket-id")
 	// Add a hook for additional commands to be added to the root command.
 	// We use this for OS specific commands.
 	cmd.AddCommand(additionalCommands(name, cfg)...)

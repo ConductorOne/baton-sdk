@@ -88,6 +88,15 @@ message Task {
     repeated google.protobuf.Any annotations = 2;
   }
 
+  message ListTicketSchemasTask {
+    repeated google.protobuf.Any annotations = 1;
+  }
+
+  message GetTicketTask {
+    string ticket_id = 1;
+    repeated google.protobuf.Any annotations = 2;
+  }
+
   string id = 1;
   Status status = 2;
   oneof task_type {
@@ -102,6 +111,8 @@ message Task {
     RotateCredentialsTask rotate_credentials = 108;
     EventFeedTask event_feed = 109;
     CreateTicketTask create_ticket_task = 110;
+    ListTicketSchemasTask list_schemas = 111;
+    GetTicketTask get_ticket = 112;
   }
 }
 
