@@ -126,30 +126,18 @@ message Ticket {
   repeated c1.connector.v2.Resource assignees = 4;
   c1.connector.v2.Resource reporter = 5;
   TicketStatus status = 7;
-  repeated TicketComment comments = 8;
-  TicketType type = 9;
-  repeated string labels = 10;
-  string url = 11;
-  map<string, TicketCustomField> custom_fields = 12;
-  google.protobuf.Timestamp created_at = 13;
-  google.protobuf.Timestamp updated_at = 14;
-  google.protobuf.Timestamp completed_at = 15;
+  TicketType type = 8;
+  repeated string labels = 9;
+  string url = 10;
+  map<string, TicketCustomField> custom_fields = 11;
+  google.protobuf.Timestamp created_at = 12;
+  google.protobuf.Timestamp updated_at = 13;
+  google.protobuf.Timestamp completed_at = 14;
 }
 
 message TicketType {
   string id = 1;
   string display_name = 2;
-}
-
-message TicketComment {
-  string id = 1;
-  c1.connector.v2.Resource created_by = 2;
-  c1.connector.v2.Resource last_updated_by = 3;
-  string original_content = 4;
-  string updated_content = 5;
-
-  google.protobuf.Timestamp created_at = 6;
-  google.protobuf.Timestamp updated_at = 7;
 }
 
 message TicketRequest {
