@@ -143,6 +143,7 @@ func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 	}
 }
 
+// TODO(lauren) doesn't validate fields on ticket that are not in the schema
 // ValidateTicket takes a ticket schema and ensures that the supplied ticket conforms.
 func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Ticket) (bool, error) {
 	l := ctxzap.Extract(ctx)
@@ -188,9 +189,15 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 
 	for id, cf := range schemaCustomFields {
 		ticketCf, ok := ticketCustomFields[id]
-		if !ok && cf.Required {
-			l.Debug("error: invalid ticket: missing custom field", zap.String("custom_field_id", cf.Id))
-			return false, nil
+		if !ok {
+			if cf.Required {
+				fmt.Println("error: invalid ticket: missing custom field")
+				l.Debug("error: invalid ticket: missing custom field", zap.String("custom_field_id", cf.Id))
+				return false, nil
+			} else {
+				// field not present but not required, so skip it
+				continue
+			}
 		}
 
 		switch v := cf.GetValue().(type) {
@@ -214,6 +221,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			}
 
 			if cf.Required && len(tv.StringValues.Values) == 0 {
+				fmt.Println("error: invalid ticket: string values is required but was empty")
 				l.Debug("error: invalid ticket: string values is required but was empty", zap.String("custom_field_id", cf.Id))
 				return false, nil
 			}
@@ -323,6 +331,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			allowedValues := v.PickObjectValue.GetAllowedValues()
 
 			if cf.Required && ticketValue == nil || ticketValue.GetId() == "" {
+				fmt.Println("error: invalid ticket: expected object value for field but was nil")
 				l.Debug("error: invalid ticket: expected object value for field but was nil", zap.String("custom_field_id", cf.Id))
 				return false, nil
 			}
