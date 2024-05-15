@@ -111,7 +111,7 @@ message Task {
     RotateCredentialsTask rotate_credentials = 108;
     EventFeedTask event_feed = 109;
     CreateTicketTask create_ticket_task = 110;
-    ListTicketSchemasTask list_schemas = 111;
+    ListTicketSchemasTask list_ticket_schemas = 111;
     GetTicketTask get_ticket = 112;
   }
 }

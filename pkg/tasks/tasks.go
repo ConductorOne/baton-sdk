@@ -43,8 +43,8 @@ func (tt TaskType) String() string {
 		return "rotate_credential"
 	case CreateTicketType:
 		return "create_ticket"
-	case ListSchemasType:
-		return "list_schemas"
+	case ListTicketSchemasType:
+		return "list_ticket_schemas"
 	case GetTicketType:
 		return "get_ticket"
 	default:
@@ -65,7 +65,7 @@ const (
 	RotateCredentialsType
 	EventFeedType
 	CreateTicketType
-	ListSchemasType
+	ListTicketSchemasType
 	GetTicketType
 )
 
@@ -99,8 +99,8 @@ func Is(task *v1.Task, target TaskType) bool {
 		_, ok = task.GetTaskType().(*v1.Task_RotateCredentials)
 	case CreateTicketType:
 		_, ok = task.GetTaskType().(*v1.Task_CreateTicketTask_)
-	case ListSchemasType:
-		_, ok = task.GetTaskType().(*v1.Task_ListSchemas)
+	case ListTicketSchemasType:
+		_, ok = task.GetTaskType().(*v1.Task_ListTicketSchemas)
 	case GetTicketType:
 		_, ok = task.GetTaskType().(*v1.Task_GetTicket)
 	default:
@@ -138,8 +138,8 @@ func GetType(task *v1.Task) TaskType {
 		return RotateCredentialsType
 	case *v1.Task_CreateTicketTask_:
 		return CreateTicketType
-	case *v1.Task_ListSchemas:
-		return ListSchemasType
+	case *v1.Task_ListTicketSchemas:
+		return ListTicketSchemasType
 	case *v1.Task_GetTicket:
 		return GetTicketType
 	default:

@@ -5,32 +5,33 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 )
 
-type listSchemasTaskHelpers interface {
+type listTicketSchemasTaskHelpers interface {
 	ConnectorClient() types.ConnectorClient
 	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
 }
 
-type listSchemasTaskHandler struct {
+type listTicketSchemasTaskHandler struct {
 	task    *v1.Task
-	helpers listSchemasTaskHelpers
+	helpers listTicketSchemasTaskHelpers
 }
 
-func (c *listSchemasTaskHandler) HandleTask(ctx context.Context) error {
+func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
-	t := c.task.GetListSchemas()
+	t := c.task.GetListTicketSchemas()
 	if t == nil {
-		l.Error("list schemas was nil", zap.Any("list_schemas_task", t))
-		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed list schemas task"), ErrTaskNonRetryable))
+		l.Error("list ticket schemas was nil", zap.Any("list_ticket_schemas_task", t))
+		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed list ticket schemas task"), ErrTaskNonRetryable))
 	}
 
 	cc := c.helpers.ConnectorClient()
@@ -58,7 +59,7 @@ func (c *listSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	if err != nil {
-		l.Error("failed listing schemas", zap.Error(err))
+		l.Error("failed listing ticket schemas", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
 	}
 
@@ -70,8 +71,8 @@ func (c *listSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	return c.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
 }
 
-func newListSchemasTaskHandler(task *v1.Task, helpers listSchemasTaskHelpers) *listSchemasTaskHandler {
-	return &listSchemasTaskHandler{
+func newListSchemasTaskHandler(task *v1.Task, helpers listTicketSchemasTaskHelpers) *listTicketSchemasTaskHandler {
+	return &listTicketSchemasTaskHandler{
 		task:    task,
 		helpers: helpers,
 	}
