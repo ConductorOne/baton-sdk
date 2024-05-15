@@ -512,7 +512,7 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
-	case *Task_ListSchemas:
+	case *Task_ListTicketSchemas:
 		if v == nil {
 			err := TaskValidationError{
 				field:  "TaskType",
@@ -525,11 +525,11 @@ func (m *Task) validate(all bool) error {
 		}
 
 		if all {
-			switch v := interface{}(m.GetListSchemas()).(type) {
+			switch v := interface{}(m.GetListTicketSchemas()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
 					errors = append(errors, TaskValidationError{
-						field:  "ListSchemas",
+						field:  "ListTicketSchemas",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -537,16 +537,16 @@ func (m *Task) validate(all bool) error {
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
 					errors = append(errors, TaskValidationError{
-						field:  "ListSchemas",
+						field:  "ListTicketSchemas",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
 				}
 			}
-		} else if v, ok := interface{}(m.GetListSchemas()).(interface{ Validate() error }); ok {
+		} else if v, ok := interface{}(m.GetListTicketSchemas()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
 				return TaskValidationError{
-					field:  "ListSchemas",
+					field:  "ListTicketSchemas",
 					reason: "embedded message failed validation",
 					cause:  err,
 				}

@@ -195,7 +195,7 @@ type getTicketConfig struct {
 	ticketID string
 }
 
-type listSchemasConfig struct{}
+type listTicketSchemasConfig struct{}
 
 type createTicketConfig struct {
 	templatePath string
@@ -247,7 +247,7 @@ type runnerConfig struct {
 	deleteResourceConfig    *deleteResourceConfig
 	rotateCredentialsConfig *rotateCredentialsConfig
 	createTicketConfig      *createTicketConfig
-	listSchemasConfig       *listSchemasConfig
+	listTicketSchemasConfig *listTicketSchemasConfig
 	getTicketConfig         *getTicketConfig
 }
 
@@ -433,10 +433,10 @@ func WithCreateTicket(templatePath string) Option {
 	}
 }
 
-func WithListSchemas() Option {
+func WithListTicketSchemas() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
-		cfg.listSchemasConfig = &listSchemasConfig{}
+		cfg.listTicketSchemasConfig = &listTicketSchemasConfig{}
 		return nil
 	}
 }
@@ -493,7 +493,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	runner.cw = cw
 
 	if cfg.onDemand {
-		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listSchemasConfig == nil && cfg.getTicketConfig == nil {
+		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -524,8 +524,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewEventFeed(ctx)
 		case cfg.createTicketConfig != nil:
 			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
-		case cfg.listSchemasConfig != nil:
-			tm = local.NewListSchema(ctx)
+		case cfg.listTicketSchemasConfig != nil:
+			tm = local.NewListTicketSchema(ctx)
 		case cfg.getTicketConfig != nil:
 			tm = local.NewGetTicket(ctx, cfg.getTicketConfig.ticketID)
 		default:
