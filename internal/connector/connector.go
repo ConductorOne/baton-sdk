@@ -155,6 +155,9 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 
 	if cw.ticketingEnabled {
 		connectorV2.RegisterTicketsServiceServer(server, cw.server)
+	} else {
+		noop := &noopTicketing{}
+		connectorV2.RegisterTicketsServiceServer(server, noop)
 	}
 
 	if cw.provisioningEnabled {
