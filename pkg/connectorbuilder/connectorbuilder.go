@@ -62,7 +62,7 @@ type EventProvider interface {
 
 type TicketManager interface {
 	GetTicket(ctx context.Context, ticketId string) (*v2.Ticket, annotations.Annotations, error)
-	CreateTicket(ctx context.Context, ticket *v2.Ticket, schemaID string) (*v2.Ticket, annotations.Annotations, error)
+	CreateTicket(ctx context.Context, ticket *v2.Ticket, schema *v2.TicketSchema) (*v2.Ticket, annotations.Annotations, error)
 	GetTicketSchema(ctx context.Context, schemaID string) (*v2.TicketSchema, annotations.Annotations, error)
 	ListTicketSchemas(ctx context.Context, pToken *pagination.Token) ([]*v2.TicketSchema, string, annotations.Annotations, error)
 }
@@ -114,6 +114,9 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 	}
 
 	reqBody := request.GetRequest()
+	if reqBody == nil {
+		return nil, fmt.Errorf("error: request body is nil")
+	}
 	cTicket := &v2.Ticket{
 		DisplayName:  reqBody.GetDisplayName(),
 		Description:  reqBody.GetDescription(),
@@ -123,7 +126,7 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 		CustomFields: reqBody.GetCustomFields(),
 	}
 
-	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, reqBody.GetSchemaId())
+	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, request.GetSchema())
 	if err != nil {
 		return nil, fmt.Errorf("error: creating ticket failed: %w", err)
 	}
