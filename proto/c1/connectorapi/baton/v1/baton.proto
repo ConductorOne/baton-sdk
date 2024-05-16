@@ -85,7 +85,8 @@ message Task {
 
   message CreateTicketTask {
     connector.v2.TicketRequest ticket_request = 1;
-    repeated google.protobuf.Any annotations = 2;
+    connector.v2.TicketSchema ticket_schema = 2;
+    repeated google.protobuf.Any annotations = 3;
   }
 
   message ListTicketSchemasTask {

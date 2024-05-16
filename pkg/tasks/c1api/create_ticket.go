@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 )
 
 type createTicketTaskHelpers interface {
@@ -35,6 +36,7 @@ func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
 	cc := c.helpers.ConnectorClient()
 	resp, err := cc.CreateTicket(ctx, &v2.TicketsServiceCreateTicketRequest{
 		Request:     t.GetTicketRequest(),
+		Schema:      t.GetTicketSchema(),
 		Annotations: t.GetAnnotations(),
 	})
 	if err != nil {
