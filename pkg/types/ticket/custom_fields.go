@@ -15,6 +15,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+// CustomFieldForSchemaField returns a typed custom field for a given schema field.
 func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interface{}) (*v2.TicketCustomField, error) {
 	field, ok := schema.GetCustomFields()[id]
 	if !ok {
@@ -79,14 +80,19 @@ func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interfa
 		return PickObjectValueField(id, ov), nil
 
 	case *v2.TicketCustomField_PickMultipleObjectValues:
-		vs, ok := value.([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("unexpected value type for custom field: %s %T", id, vs)
+		rawValue, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
 		}
 
+		var vals []interface{}
+		err = json.Unmarshal(rawValue, &vals)
+		if err != nil {
+			return nil, err
+		}
 		var ret []*v2.TicketCustomFieldObjectValue
 
-		for _, v := range vs {
+		for _, v := range vals {
 			rawBytes, err := json.Marshal(v)
 			if err != nil {
 				return nil, err
@@ -106,6 +112,94 @@ func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interfa
 	default:
 		return nil, errors.New("error: unknown custom field type")
 	}
+}
+
+func GetStringValue(field *v2.TicketCustomField) (string, error) {
+	if field == nil {
+		return "", errors.New("error: field is nil")
+	}
+	v, ok := field.GetValue().(*v2.TicketCustomField_StringValue)
+	if !ok {
+		return "", errors.New("error: expected string value")
+	}
+	return v.StringValue.Value, nil
+}
+
+func GetStringsValue(field *v2.TicketCustomField) ([]string, error) {
+	if field == nil {
+		return nil, errors.New("error: field is nil")
+	}
+	v, ok := field.GetValue().(*v2.TicketCustomField_StringValues)
+	if !ok {
+		return nil, errors.New("error: expected string values")
+	}
+	return v.StringValues.Values, nil
+}
+
+func GetBoolValue(field *v2.TicketCustomField) (bool, error) {
+	if field == nil {
+		return false, errors.New("error: field is nil")
+	}
+	v, ok := field.GetValue().(*v2.TicketCustomField_BoolValue)
+	if !ok {
+		return false, errors.New("error: expected bool value")
+	}
+	return v.BoolValue.Value, nil
+}
+
+func GetTimestampValue(field *v2.TicketCustomField) (time.Time, error) {
+	if field == nil {
+		return time.Time{}, errors.New("error: field is nil")
+	}
+	v, ok := field.GetValue().(*v2.TicketCustomField_TimestampValue)
+	if !ok {
+		return time.Time{}, errors.New("error: expected timestamp value")
+	}
+	return v.TimestampValue.Value.AsTime(), nil
+}
+
+func GetPickStringValue(field *v2.TicketCustomField) (string, error) {
+	if field == nil {
+		return "", errors.New("error: field is nil")
+	}
+	v, ok := field.GetValue().(*v2.TicketCustomField_PickStringValue)
+	if !ok {
+		return "", errors.New("error: expected pick string value")
+	}
+	return v.PickStringValue.Value, nil
+}
+
+func GetPickMultipleStringValues(field *v2.TicketCustomField) ([]string, error) {
+	if field == nil {
+		return nil, errors.New("error: field is nil")
+	}
+	v, ok := field.GetValue().(*v2.TicketCustomField_PickMultipleStringValues)
+	if !ok {
+		return nil, errors.New("error: expected pick multiple string values")
+	}
+	return v.PickMultipleStringValues.Values, nil
+}
+
+func GetPickObjectValue(field *v2.TicketCustomField) (*v2.TicketCustomFieldObjectValue, error) {
+	if field == nil {
+		return nil, errors.New("error: field is nil")
+	}
+	v, ok := field.GetValue().(*v2.TicketCustomField_PickObjectValue)
+	if !ok {
+		return nil, errors.New("error: expected pick object value")
+	}
+	return v.PickObjectValue.Value, nil
+}
+
+func GetPickMultipleObjectValues(field *v2.TicketCustomField) ([]*v2.TicketCustomFieldObjectValue, error) {
+	if field == nil {
+		return nil, errors.New("error: field is nil")
+	}
+	v, ok := field.GetValue().(*v2.TicketCustomField_PickMultipleObjectValues)
+	if !ok {
+		return nil, errors.New("error: expected pick multiple object values")
+	}
+	return v.PickMultipleObjectValues.Values, nil
 }
 
 // GetCustomFieldValue returns the interface{} of the value set on a given custom field.

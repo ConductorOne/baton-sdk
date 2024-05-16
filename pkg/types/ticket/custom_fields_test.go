@@ -2,17 +2,19 @@ package ticket
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 func TestValidateTicket(t *testing.T) {
-	now := time.Now()
+	now := time.Now().UTC()
 	type args struct {
 		ctx    context.Context
 		schema *v2.TicketSchema
@@ -1773,7 +1775,7 @@ func TestTimestampFieldSchema(t *testing.T) {
 }
 
 func TestTimestampField(t *testing.T) {
-	now := time.Now()
+	now := time.Now().UTC()
 	type args struct {
 		id    string
 		value time.Time
@@ -2167,7 +2169,7 @@ func TestPickMultipleObjectValuesField(t *testing.T) {
 }
 
 func TestGetCustomFieldValue(t *testing.T) {
-	now := time.Now()
+	now := time.Now().UTC()
 	type args struct {
 		field *v2.TicketCustomField
 	}
@@ -2284,6 +2286,614 @@ func TestGetCustomFieldValue(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("GetCustomFieldValue() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCustomFieldForSchemaField(t *testing.T) {
+	type args struct {
+		id     string
+		schema *v2.TicketSchema
+		value  interface{}
+	}
+
+	now := time.Now().UTC()
+
+	schema := newCustomSchema(
+		StringFieldSchema("custom_string", "", true),
+		StringsFieldSchema("custom_strings", "", true),
+		BoolFieldSchema("custom_bool", "", true),
+		TimestampFieldSchema("custom_timestamp", "", true),
+		PickStringFieldSchema("custom_pick_string", "", true, []string{"test1", "test2"}),
+		PickMultipleStringsFieldSchema("custom_pick_strings", "", true, []string{"test1", "test2"}),
+		PickObjectValueFieldSchema("custom_pick_object", "", true, []*v2.TicketCustomFieldObjectValue{
+			{Id: "1"},
+			{Id: "2"},
+		}),
+		PickMultipleObjectValuesFieldSchema("custom_pick_objects", "", true, []*v2.TicketCustomFieldObjectValue{
+			{Id: "1"},
+		}),
+	)
+
+	tests := []struct {
+		name    string
+		args    args
+		want    *v2.TicketCustomField
+		wantErr bool
+	}{
+		{
+			name: "TestCustomFieldForSchemaFieldString",
+			args: args{
+				id:     "custom_string",
+				schema: schema,
+				value:  "test string",
+			},
+			want: StringField("custom_string", "test string"),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldStrings",
+			args: args{
+				id:     "custom_strings",
+				schema: schema,
+
+				value: []string{"test1", "test2"},
+			},
+			want: StringsField("custom_strings", []string{"test1", "test2"}),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldBool true",
+			args: args{
+				id:     "custom_bool",
+				schema: schema,
+				value:  true,
+			},
+			want: BoolField("custom_bool", true),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldBool false",
+			args: args{
+				id:     "custom_bool",
+				schema: schema,
+				value:  false,
+			},
+			want: BoolField("custom_bool", false),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldTimestamp",
+			args: args{
+				id:     "custom_timestamp",
+				schema: schema,
+				value:  timestamppb.New(now),
+			},
+			want: TimestampField("custom_timestamp", now),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldPickString",
+			args: args{
+				id:     "custom_pick_string",
+				schema: schema,
+				value:  "test1",
+			},
+			want: PickStringField("custom_pick_string", "test1"),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldPickMultipleStrings",
+			args: args{
+				id:     "custom_pick_strings",
+				schema: schema,
+				value:  []string{"test1", "test2"},
+			},
+			want: PickMultipleStringsField("custom_pick_strings", []string{"test1", "test2"}),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldPickObjectValue proto",
+			args: args{
+				id:     "custom_pick_object",
+				schema: schema,
+				value: &v2.TicketCustomFieldObjectValue{
+					Id: "1",
+				},
+			},
+			want: PickObjectValueField("custom_pick_object", &v2.TicketCustomFieldObjectValue{
+				Id: "1",
+			}),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldPickObjectValue json",
+			args: args{
+				id:     "custom_pick_object",
+				schema: schema,
+				value: func() interface{} {
+					var ret interface{}
+					err := json.Unmarshal([]byte(`{"id":"1"}`), &ret)
+					if err != nil {
+						panic(err)
+					}
+					return ret
+				}(),
+			},
+			want: PickObjectValueField("custom_pick_object", &v2.TicketCustomFieldObjectValue{
+				Id: "1",
+			}),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldPickObjectValue json",
+			args: args{
+				id:     "custom_pick_object",
+				schema: schema,
+				value:  "test",
+			},
+			wantErr: true,
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldPickMultipleObjectValues proto",
+			args: args{
+				id:     "custom_pick_objects",
+				schema: schema,
+				value: []*v2.TicketCustomFieldObjectValue{
+					{
+						Id: "1",
+					},
+				},
+			},
+			want: PickMultipleObjectValuesField("custom_pick_objects", []*v2.TicketCustomFieldObjectValue{
+				{
+					Id: "1",
+				},
+			}),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldPickMultipleObjectValues json",
+			args: args{
+				id:     "custom_pick_objects",
+				schema: schema,
+				value: func() []interface{} {
+					var ret []interface{}
+					err := json.Unmarshal([]byte(`[{"id":"1"}]`), &ret)
+					if err != nil {
+						panic(err)
+					}
+					return ret
+				}(),
+			},
+			want: PickMultipleObjectValuesField("custom_pick_objects", []*v2.TicketCustomFieldObjectValue{
+				{
+					Id: "1",
+				},
+			}),
+		},
+		{
+			name: "TestCustomFieldForSchemaFieldPickMultipleObjectValues bad json",
+			args: args{
+				id:     "custom_pick_objects",
+				schema: schema,
+				value: func() interface{} {
+					var ret interface{}
+					err := json.Unmarshal([]byte(`{"id":"1"}`), &ret)
+					if err != nil {
+						panic(err)
+					}
+					return ret
+				}(),
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := CustomFieldForSchemaField(tt.args.id, tt.args.schema, tt.args.value)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("CustomFieldForSchemaField() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !proto.Equal(got, tt.want) {
+				t.Errorf("CustomFieldForSchemaField() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func newCustomSchema(customFields ...*v2.TicketCustomField) *v2.TicketSchema {
+	cfs := make(map[string]*v2.TicketCustomField)
+	for _, cf := range customFields {
+		cfs[cf.Id] = cf
+	}
+
+	return &v2.TicketSchema{
+		CustomFields: cfs,
+	}
+}
+
+func TestGetStringValue(t *testing.T) {
+	type args struct {
+		field *v2.TicketCustomField
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "TestGetStringValue",
+			args: args{
+				field: StringField("severity", "high"),
+			},
+			want: "high",
+		},
+		{
+			name: "TestGetStringValue wrong type",
+			args: args{
+				field: BoolField("severity", true),
+			},
+			wantErr: true,
+		},
+		{
+			name: "TestGetStringValue nil",
+			args: args{
+				field: nil,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetStringValue(tt.args.field)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetStringValue() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("GetStringValue() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetStringsValue(t *testing.T) {
+	type args struct {
+		field *v2.TicketCustomField
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []string
+		wantErr bool
+	}{
+		{
+			name: "TestGetStringsValue",
+			args: args{
+				field: StringsField("components", []string{"frontend", "backend"}),
+			},
+			want: []string{"frontend", "backend"},
+		},
+		{
+			name: "TestGetStringsValue wrong type",
+			args: args{
+				field: BoolField("components", true),
+			},
+			wantErr: true,
+		},
+		{
+			name: "TestGetStringsValue nil",
+			args: args{
+				field: nil,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetStringsValue(tt.args.field)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetStringsValue() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetStringsValue() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetBoolValue(t *testing.T) {
+	type args struct {
+		field *v2.TicketCustomField
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    bool
+		wantErr bool
+	}{
+		{
+			name: "TestGetBoolValue true",
+			args: args{
+				field: BoolField("is_active", true),
+			},
+			want: true,
+		},
+		{
+			name: "TestGetBoolValue false",
+			args: args{
+				field: BoolField("is_active", false),
+			},
+			want: false,
+		},
+		{
+			name: "TestGetBoolValue wrong type",
+			args: args{
+				field: StringField("is_active", "true"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "TestGetBoolValue nil",
+			args: args{
+				field: nil,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetBoolValue(tt.args.field)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetBoolValue() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("GetBoolValue() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetTimestampValue(t *testing.T) {
+	now := time.Now().UTC()
+	type args struct {
+		field *v2.TicketCustomField
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    time.Time
+		wantErr bool
+	}{
+		{
+			name: "TestGetTimestampValue",
+			args: args{
+				field: TimestampField("created_at", now),
+			},
+			want: now,
+		},
+		{
+			name: "TestGetTimestampValue wrong type",
+			args: args{
+				field: StringField("created_at", now.String()),
+			},
+			wantErr: true,
+		},
+		{
+			name: "TestGetTimestampValue nil",
+			args: args{
+				field: nil,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetTimestampValue(tt.args.field)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetTimestampValue() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetTimestampValue() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPickStringValue(t *testing.T) {
+	type args struct {
+		field *v2.TicketCustomField
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "TestGetPickStringValue",
+			args: args{
+				field: PickStringField("priority", "high"),
+			},
+			want: "high",
+		},
+		{
+			name: "TestGetPickStringValue wrong type",
+			args: args{
+				field: StringField("priority", "high"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "TestGetPickStringValue nil",
+			args: args{
+				field: nil,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetPickStringValue(tt.args.field)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetPickStringValue() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if got != tt.want {
+				t.Errorf("GetPickStringValue() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPickMultipleStringValues(t *testing.T) {
+	type args struct {
+		field *v2.TicketCustomField
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []string
+		wantErr bool
+	}{
+		{
+			name: "TestGetPickMultipleStringValues",
+			args: args{
+				field: PickMultipleStringsField("pets", []string{"dog", "cat"}),
+			},
+			want: []string{"dog", "cat"},
+		},
+		{
+			name: "TestGetPickMultipleStringValues wrong type",
+			args: args{
+				field: StringField("pets", "dog"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "TestGetPickMultipleStringValues nil",
+			args: args{
+				field: nil,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetPickMultipleStringValues(tt.args.field)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetPickMultipleStringValues() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetPickMultipleStringValues() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPickObjectValue(t *testing.T) {
+	type args struct {
+		field *v2.TicketCustomField
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    *v2.TicketCustomFieldObjectValue
+		wantErr bool
+	}{
+		{
+			name: "TestGetPickObjectValue",
+			args: args{
+				field: PickObjectValueField("component", &v2.TicketCustomFieldObjectValue{
+					Id: "1",
+				}),
+			},
+			want: &v2.TicketCustomFieldObjectValue{
+				Id: "1",
+			},
+		},
+		{
+			name: "TestGetPickObjectValue wrong type",
+			args: args{
+				field: StringField("component", "1"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "TestGetPickObjectValue nil",
+			args: args{
+				field: nil,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetPickObjectValue(tt.args.field)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetPickObjectValue() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetPickObjectValue() got = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGetPickMultipleObjectValues(t *testing.T) {
+	type args struct {
+		field *v2.TicketCustomField
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    []*v2.TicketCustomFieldObjectValue
+		wantErr bool
+	}{
+		{
+			name: "TestGetPickMultipleObjectValues",
+			args: args{
+				field: PickMultipleObjectValuesField("components", []*v2.TicketCustomFieldObjectValue{
+					{
+						Id: "1",
+					},
+					{
+						Id: "2",
+					},
+				}),
+			},
+			want: []*v2.TicketCustomFieldObjectValue{
+				{
+					Id: "1",
+				},
+				{
+					Id: "2",
+				},
+			},
+		},
+		{
+			name: "TestGetPickMultipleObjectValues wrong type",
+			args: args{
+				field: StringField("components", "1"),
+			},
+			wantErr: true,
+		},
+		{
+			name: "TestGetPickMultipleObjectValues nil",
+			args: args{
+				field: nil,
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GetPickMultipleObjectValues(tt.args.field)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetPickMultipleObjectValues() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("GetPickMultipleObjectValues() got = %v, want %v", got, tt.want)
 			}
 		})
 	}
