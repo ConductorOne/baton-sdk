@@ -147,11 +147,11 @@ message TicketRequest {
   TicketType type = 4;
   repeated string labels = 5;
   map<string, TicketCustomField> custom_fields = 6;
-  string schema_id = 7;
 }
 
 message TicketsServiceCreateTicketRequest {
   TicketRequest request = 1;
+  TicketSchema schema = 2;
   repeated google.protobuf.Any annotations = 8;
 }
 

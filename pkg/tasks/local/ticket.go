@@ -84,8 +84,7 @@ func (m *localCreateTicket) Process(ctx context.Context, task *v1.Task, cc types
 		Type: &v2.TicketType{
 			Id: template.TypeId,
 		},
-		Labels:   template.Labels,
-		SchemaId: schema.Schema.GetId(),
+		Labels: template.Labels,
 	}
 
 	cfs := make(map[string]*v2.TicketCustomField)
@@ -99,6 +98,7 @@ func (m *localCreateTicket) Process(ctx context.Context, task *v1.Task, cc types
 	ticketRequestBody.CustomFields = cfs
 	ticketReq := &v2.TicketsServiceCreateTicketRequest{
 		Request: ticketRequestBody,
+		Schema:  schema.GetSchema(),
 	}
 
 	resp, err := cc.CreateTicket(ctx, ticketReq)
