@@ -389,6 +389,10 @@ func getCapabilities(ctx context.Context, b *builderImpl) *v2.ConnectorCapabilit
 		connectorCaps[v2.Capability_CAPABILITY_EVENT_FEED] = struct{}{}
 	}
 
+	if b.ticketManager != nil {
+		connectorCaps[v2.Capability_CAPABILITY_TICKETING] = struct{}{}
+	}
+
 	var caps []v2.Capability
 	for c := range connectorCaps {
 		caps = append(caps, c)

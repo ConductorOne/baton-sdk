@@ -44,6 +44,7 @@ enum Capability {
   CAPABILITY_PROVISION = 1;
   CAPABILITY_SYNC = 2;
   CAPABILITY_EVENT_FEED = 3;
+  CAPABILITY_TICKETING = 4;
 }
 
 message ConnectorCapabilities {
