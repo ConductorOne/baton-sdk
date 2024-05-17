@@ -191,6 +191,16 @@ func (c *connectorRunner) Close(ctx context.Context) error {
 
 type Option func(ctx context.Context, cfg *runnerConfig) error
 
+type getTicketConfig struct {
+	ticketID string
+}
+
+type listTicketSchemasConfig struct{}
+
+type createTicketConfig struct {
+	templatePath string
+}
+
 type grantConfig struct {
 	entitlementID string
 	principalType string
@@ -228,6 +238,7 @@ type runnerConfig struct {
 	clientID                string
 	clientSecret            string
 	provisioningEnabled     bool
+	ticketingEnabled        bool
 	grantConfig             *grantConfig
 	revokeConfig            *revokeConfig
 	eventFeedConfig         *eventStreamConfig
@@ -235,6 +246,9 @@ type runnerConfig struct {
 	createAccountConfig     *createAccountConfig
 	deleteResourceConfig    *deleteResourceConfig
 	rotateCredentialsConfig *rotateCredentialsConfig
+	createTicketConfig      *createTicketConfig
+	listTicketSchemasConfig *listTicketSchemasConfig
+	getTicketConfig         *getTicketConfig
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -402,6 +416,41 @@ func WithProvisioningEnabled() Option {
 	}
 }
 
+func WithTicketingEnabled() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.ticketingEnabled = true
+		return nil
+	}
+}
+
+func WithCreateTicket(templatePath string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.createTicketConfig = &createTicketConfig{
+			templatePath: templatePath,
+		}
+		return nil
+	}
+}
+
+func WithListTicketSchemas() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.listTicketSchemasConfig = &listTicketSchemasConfig{}
+		return nil
+	}
+}
+
+func WithGetTicket(ticketID string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.getTicketConfig = &getTicketConfig{
+			ticketID: ticketID,
+		}
+		return nil
+	}
+}
+
 func WithTempDir(tempDir string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.tempDir = tempDir
@@ -432,6 +481,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		wrapperOpts = append(wrapperOpts, connector.WithProvisioningEnabled())
 	}
 
+	if cfg.ticketingEnabled {
+		wrapperOpts = append(wrapperOpts, connector.WithTicketingEnabled())
+	}
+
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {
 		return nil, err
@@ -440,7 +493,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	runner.cw = cw
 
 	if cfg.onDemand {
-		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil {
+		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -469,7 +522,12 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx)
-
+		case cfg.createTicketConfig != nil:
+			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
+		case cfg.listTicketSchemasConfig != nil:
+			tm = local.NewListTicketSchema(ctx)
+		case cfg.getTicketConfig != nil:
+			tm = local.NewGetTicket(ctx, cfg.getTicketConfig.ticketID)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))
 			if err != nil {

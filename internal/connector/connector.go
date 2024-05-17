@@ -43,6 +43,7 @@ type connectorClient struct {
 	connectorV2.AccountManagerServiceClient
 	connectorV2.CredentialManagerServiceClient
 	connectorV2.EventServiceClient
+	connectorV2.TicketsServiceClient
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")
@@ -55,6 +56,7 @@ type wrapper struct {
 	serverStdin         io.WriteCloser
 	conn                *grpc.ClientConn
 	provisioningEnabled bool
+	ticketingEnabled    bool
 
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
@@ -88,6 +90,14 @@ func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Opti
 func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, w *wrapper) error {
 		w.provisioningEnabled = true
+
+		return nil
+	}
+}
+
+func WithTicketingEnabled() Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.ticketingEnabled = true
 
 		return nil
 	}
@@ -142,6 +152,13 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	connectorV2.RegisterResourceTypesServiceServer(server, cw.server)
 	connectorV2.RegisterAssetServiceServer(server, cw.server)
 	connectorV2.RegisterEventServiceServer(server, cw.server)
+
+	if cw.ticketingEnabled {
+		connectorV2.RegisterTicketsServiceServer(server, cw.server)
+	} else {
+		noop := &noopTicketing{}
+		connectorV2.RegisterTicketsServiceServer(server, noop)
+	}
 
 	if cw.provisioningEnabled {
 		connectorV2.RegisterGrantManagerServiceServer(server, cw.server)
@@ -314,6 +331,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		AccountManagerServiceClient:    connectorV2.NewAccountManagerServiceClient(cw.conn),
 		CredentialManagerServiceClient: connectorV2.NewCredentialManagerServiceClient(cw.conn),
 		EventServiceClient:             connectorV2.NewEventServiceClient(cw.conn),
+		TicketsServiceClient:           connectorV2.NewTicketsServiceClient(cw.conn),
 	}
 
 	return cw.client, nil

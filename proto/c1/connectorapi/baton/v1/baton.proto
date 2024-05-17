@@ -6,6 +6,7 @@ import "c1/connector/v2/connector.proto";
 import "c1/connector/v2/entitlement.proto";
 import "c1/connector/v2/grant.proto";
 import "c1/connector/v2/resource.proto";
+import "c1/connector/v2/ticket.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
@@ -82,6 +83,21 @@ message Task {
     repeated connector.v2.EncryptionConfig encryption_configs = 3;
   }
 
+  message CreateTicketTask {
+    connector.v2.TicketRequest ticket_request = 1;
+    connector.v2.TicketSchema ticket_schema = 2;
+    repeated google.protobuf.Any annotations = 3;
+  }
+
+  message ListTicketSchemasTask {
+    repeated google.protobuf.Any annotations = 1;
+  }
+
+  message GetTicketTask {
+    string ticket_id = 1;
+    repeated google.protobuf.Any annotations = 2;
+  }
+
   string id = 1;
   Status status = 2;
   oneof task_type {
@@ -95,6 +111,9 @@ message Task {
     DeleteResourceTask delete_resource = 107;
     RotateCredentialsTask rotate_credentials = 108;
     EventFeedTask event_feed = 109;
+    CreateTicketTask create_ticket_task = 110;
+    ListTicketSchemasTask list_ticket_schemas = 111;
+    GetTicketTask get_ticket = 112;
   }
 }
 
