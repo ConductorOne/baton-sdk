@@ -30,49 +30,17 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketValidProject1",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"project": PickObjectValueFieldSchema("project",
-							"",
-							true, []*v2.TicketCustomFieldObjectValue{
-								{
-									Id: "10000",
-								},
-								{
-									Id: "10001",
-								},
-							},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"project": PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10000"}),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(
+						PickObjectValueFieldSchema("project", "", true, []*v2.TicketCustomFieldObjectValue{
+							{Id: "10000"},
+							{Id: "10001"},
+						}),
+					),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10000"}))),
 			},
 			want:    true,
 			wantErr: false,
@@ -81,49 +49,17 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketValidProject2",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"project": PickObjectValueFieldSchema("project",
-							"",
-							true, []*v2.TicketCustomFieldObjectValue{
-								{
-									Id: "10000",
-								},
-								{
-									Id: "10001",
-								},
-							},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"project": PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10001"}),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(
+						PickObjectValueFieldSchema("project", "", true, []*v2.TicketCustomFieldObjectValue{
+							{Id: "10000"},
+							{Id: "10001"},
+						}),
+					),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10001"}))),
 			},
 			want:    true,
 			wantErr: false,
@@ -132,49 +68,17 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketInvalidProject",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"project": PickObjectValueFieldSchema("project",
-							"",
-							true, []*v2.TicketCustomFieldObjectValue{
-								{
-									Id: "10000",
-								},
-								{
-									Id: "10001",
-								},
-							},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"project": PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10002"}),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(
+						PickObjectValueFieldSchema("project", "", true, []*v2.TicketCustomFieldObjectValue{
+							{Id: "10000"},
+							{Id: "10001"},
+						}),
+					),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10002"}))),
 			},
 			want:    false,
 			wantErr: false,
@@ -183,49 +87,21 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketPickObjectNotRequiredInvalid",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"pick_object": PickObjectValueFieldSchema("pick_object",
-							"",
-							false, []*v2.TicketCustomFieldObjectValue{
-								{
-									Id: "10000",
-								},
-								{
-									Id: "10001",
-								},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(
+						PickObjectValueFieldSchema("pick_object", "", false, []*v2.TicketCustomFieldObjectValue{
+							{
+								Id: "10000",
 							},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"pick_object": PickObjectValueField("pick_object", &v2.TicketCustomFieldObjectValue{Id: "10002"}),
-					},
-				},
+							{
+								Id: "10001",
+							},
+						},
+						)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickObjectValueField("pick_object", &v2.TicketCustomFieldObjectValue{Id: "10002"}))),
 			},
 			want:    false,
 			wantErr: false,
@@ -234,57 +110,24 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketInvalidType",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"project": PickObjectValueFieldSchema("project",
-							"",
-							true, []*v2.TicketCustomFieldObjectValue{
-								{
-									Id: "10000",
-								},
-								{
-									Id: "10001",
-								},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10000"}, &v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10000"}, &v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickObjectValueFieldSchema("project",
+						"",
+						true, []*v2.TicketCustomFieldObjectValue{
+							{
+								Id: "10000",
 							},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10002"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"project": PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10001"}),
-					},
-				},
+							{
+								Id: "10001",
+							},
+						},
+					))),
+				ticket: createTicketFixture(
+					WithTicketType(&v2.TicketType{Id: "10002"}),
+					WithTicketCustomFields(PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10002"})),
+				),
 			},
 			want:    false,
 			wantErr: false,
@@ -293,57 +136,21 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketInvalidStatus",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"project": PickObjectValueFieldSchema("project",
-							"",
-							true, []*v2.TicketCustomFieldObjectValue{
-								{
-									Id: "10000",
-								},
-								{
-									Id: "10001",
-								},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10000"}, &v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10000"}, &v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickObjectValueFieldSchema("project",
+						"",
+						true, []*v2.TicketCustomFieldObjectValue{
+							{
+								Id: "10000",
 							},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10002"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"project": PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10001"}),
-					},
-				},
+							{
+								Id: "10001",
+							},
+						})),
+				),
+				ticket: createTicketFixture(WithTicketStatus(&v2.TicketStatus{Id: "10002"})),
 			},
 			want:    false,
 			wantErr: false,
@@ -352,60 +159,34 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketValidMultiple",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom": PickMultipleObjectValuesFieldSchema("custom",
-							"",
-							true, []*v2.TicketCustomFieldObjectValue{
-								{
-									Id: "10000",
-								},
-								{
-									Id: "10001",
-								},
-								{
-									Id: "10003",
-								},
-							},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom": PickMultipleObjectValuesField("custom", []*v2.TicketCustomFieldObjectValue{
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickMultipleObjectValuesFieldSchema("custom",
+						"",
+						true, []*v2.TicketCustomFieldObjectValue{
 							{
 								Id: "10000",
 							},
 							{
 								Id: "10001",
 							},
+							{
+								Id: "10003",
+							},
 						},
-						),
+					))),
+				ticket: createTicketFixture(WithTicketCustomFields(
+					PickMultipleObjectValuesField("custom", []*v2.TicketCustomFieldObjectValue{
+						{
+							Id: "10000",
+						},
+						{
+							Id: "10001",
+						},
 					},
-				},
+					)),
+				),
 			},
 			want:    true,
 			wantErr: false,
@@ -414,23 +195,11 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketInvalidMultiple",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom": PickMultipleObjectValuesFieldSchema("custom",
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(
+						PickMultipleObjectValuesFieldSchema("custom",
 							"",
 							true, []*v2.TicketCustomFieldObjectValue{
 								{
@@ -443,31 +212,18 @@ func TestValidateTicket(t *testing.T) {
 									Id: "10003",
 								},
 							},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom": PickMultipleObjectValuesField("custom", []*v2.TicketCustomFieldObjectValue{
-							{
-								Id: "10000",
-							},
-							{
-								Id: "10004",
-							},
+						)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(
+					PickMultipleObjectValuesField("custom", []*v2.TicketCustomFieldObjectValue{
+						{
+							Id: "10000",
 						},
-						),
+						{
+							Id: "10004",
+						},
 					},
-				},
+					))),
 			},
 			want:    false,
 			wantErr: false,
@@ -476,23 +232,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketMultipleCustomInvalidMultipleValidString",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom": PickMultipleObjectValuesFieldSchema("custom",
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(
+						PickMultipleObjectValuesFieldSchema(
+							"custom",
 							"",
 							true, []*v2.TicketCustomFieldObjectValue{
 								{
@@ -506,32 +251,20 @@ func TestValidateTicket(t *testing.T) {
 								},
 							},
 						),
-						"custom_string": StringsFieldSchema("custom", "", true),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom": PickMultipleObjectValuesField("custom", []*v2.TicketCustomFieldObjectValue{
-							{
-								Id: "10000",
-							},
-							{
-								Id: "10004",
-							},
+						StringsFieldSchema("custom", "", true),
+					),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(
+					PickMultipleObjectValuesField("custom", []*v2.TicketCustomFieldObjectValue{
+						{
+							Id: "10000",
 						},
-						),
-						"custom_string": StringField("custom_string", "somestring"),
+						{
+							Id: "10004",
+						},
 					},
-				},
+					),
+					StringField("custom_string", "somestring"))),
 			},
 			want:    false,
 			wantErr: false,
@@ -540,23 +273,11 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketMultipleCustomValidMultipleRequiredStringNotPresent",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom": PickMultipleObjectValuesFieldSchema("custom",
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(
+						PickMultipleObjectValuesFieldSchema("custom",
 							"",
 							true, []*v2.TicketCustomFieldObjectValue{
 								{
@@ -570,31 +291,18 @@ func TestValidateTicket(t *testing.T) {
 								},
 							},
 						),
-						"custom_string": StringsFieldSchema("custom", "", true),
+						StringsFieldSchema("custom", "", true),
+					),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickMultipleObjectValuesField("custom", []*v2.TicketCustomFieldObjectValue{
+					{
+						Id: "10000",
+					},
+					{
+						Id: "10001",
 					},
 				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom": PickMultipleObjectValuesField("custom", []*v2.TicketCustomFieldObjectValue{
-							{
-								Id: "10000",
-							},
-							{
-								Id: "10001",
-							},
-						},
-						),
-					},
-				},
+				))),
 			},
 			want:    false,
 			wantErr: false,
@@ -603,42 +311,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketValidBool",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_bool": BoolFieldSchema("custom_bool",
-							"",
-							true,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_bool": BoolField("custom_bool", true),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(BoolFieldSchema("custom_bool", "", true)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(BoolField("custom_bool", true))),
 			},
 			want:    true,
 			wantErr: false,
@@ -647,40 +325,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketBoolNotRequired",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_bool": BoolFieldSchema("custom_bool",
-							"",
-							false,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:           "10043",
-					DisplayName:  "Test Ticket",
-					Description:  "",
-					Assignees:    nil,
-					Reporter:     nil,
-					Status:       &v2.TicketStatus{Id: "10001"},
-					Type:         &v2.TicketType{Id: "10001"},
-					Labels:       []string{"test", "baton", "api"},
-					Url:          "",
-					CustomFields: map[string]*v2.TicketCustomField{},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(BoolFieldSchema("custom_bool", "", false)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields()),
 			},
 			want:    true,
 			wantErr: false,
@@ -689,42 +339,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketValidString",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": StringFieldSchema("custom_string",
-							"",
-							true,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": StringField("custom_string", "somestring"),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(StringFieldSchema("custom_string", "", true)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(StringField("custom_string", "somestring"))),
 			},
 			want:    true,
 			wantErr: false,
@@ -733,40 +353,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketStringRequiredNotPresent",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": StringFieldSchema("custom_string",
-							"",
-							true,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:           "10043",
-					DisplayName:  "Test Ticket",
-					Description:  "",
-					Assignees:    nil,
-					Reporter:     nil,
-					Status:       &v2.TicketStatus{Id: "10001"},
-					Type:         &v2.TicketType{Id: "10001"},
-					Labels:       []string{"test", "baton", "api"},
-					Url:          "",
-					CustomFields: map[string]*v2.TicketCustomField{},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(StringFieldSchema("custom_string", "", true)),
+				),
+				ticket: createTicketFixture(),
 			},
 			want:    false,
 			wantErr: false,
@@ -775,42 +367,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketStringNotRequired",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": StringFieldSchema("custom_string",
-							"",
-							false,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": StringField("custom_string", "somestring"),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(StringFieldSchema("custom_string", "", false)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(StringField("custom_string", "somestring"))),
 			},
 			want:    true,
 			wantErr: false,
@@ -819,42 +381,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketStrings",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_strings": StringsFieldSchema("custom_strings",
-							"",
-							true,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_strings": StringsField("custom_strings", []string{"somestring", "somestring2"}),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(StringsFieldSchema("custom_strings", "", true)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(StringsField("custom_strings", []string{"somestring", "somestring2"}))),
 			},
 			want:    true,
 			wantErr: false,
@@ -863,40 +395,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketStringsRequiredNotPresent",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_strings": StringsFieldSchema("custom_strings",
-							"",
-							true,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:           "10043",
-					DisplayName:  "Test Ticket",
-					Description:  "",
-					Assignees:    nil,
-					Reporter:     nil,
-					Status:       &v2.TicketStatus{Id: "10001"},
-					Type:         &v2.TicketType{Id: "10001"},
-					Labels:       []string{"test", "baton", "api"},
-					Url:          "",
-					CustomFields: map[string]*v2.TicketCustomField{},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(StringsFieldSchema("custom_strings", "", true)),
+				),
+				ticket: createTicketFixture(),
 			},
 			want:    false,
 			wantErr: false,
@@ -905,42 +409,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketStringsNotRequired",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_strings": StringsFieldSchema("custom_strings",
-							"",
-							false,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_strings": StringsField("custom_strings", []string{"somestring", "somestring2"}),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(StringsFieldSchema("custom_strings", "", false)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(StringsField("custom_strings", []string{"somestring", "somestring2"}))),
 			},
 			want:    true,
 			wantErr: false,
@@ -949,42 +423,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketTimeRequired",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_time": TimestampFieldSchema("custom_time",
-							"",
-							true,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_time": TimestampField("10000", now),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(TimestampFieldSchema("custom_time", "", true)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(TimestampField("custom_time", now))),
 			},
 			want:    true,
 			wantErr: false,
@@ -993,40 +437,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketTimeRequiredNotPresent",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_time": TimestampFieldSchema("custom_time",
-							"",
-							true,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:           "10043",
-					DisplayName:  "Test Ticket",
-					Description:  "",
-					Assignees:    nil,
-					Reporter:     nil,
-					Status:       &v2.TicketStatus{Id: "10001"},
-					Type:         &v2.TicketType{Id: "10001"},
-					Labels:       []string{"test", "baton", "api"},
-					Url:          "",
-					CustomFields: map[string]*v2.TicketCustomField{},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(TimestampFieldSchema("custom_time", "", true)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields()),
 			},
 			want:    false,
 			wantErr: false,
@@ -1035,42 +451,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketTimeNotRequired",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_time": TimestampFieldSchema("custom_time",
-							"",
-							false,
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_time": TimestampField("10000", now),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(TimestampFieldSchema("custom_time", "", false)),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(TimestampField("10000", now))),
 			},
 			want:    true,
 			wantErr: false,
@@ -1079,50 +465,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketPickString",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickStringFieldSchema("custom_string",
-							"",
-							true, []string{"allowed1", "allowed2", "allowed3"},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickStringField("custom_string", "allowed1"),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10000"}, &v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10000"}, &v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickStringFieldSchema("custom_string", "", true, []string{"allowed1", "allowed2", "allowed3"})),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickStringField("custom_string", "allowed1"))),
 			},
 			want:    true,
 			wantErr: false,
@@ -1131,50 +479,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketPickStringInvalid",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickStringFieldSchema("custom_string",
-							"",
-							true, []string{"allowed1", "allowed2", "allowed3"},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickStringField("custom_string", "notallowed"),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10000"}, &v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10000"}, &v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickStringFieldSchema("custom_string", "", true, []string{"allowed1", "allowed2", "allowed3"})),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickStringField("custom_string", "notallowed"))),
 			},
 			want:    false,
 			wantErr: false,
@@ -1183,50 +493,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketPickStringNotRequired",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickStringFieldSchema("custom_string",
-							"",
-							false, []string{"allowed1", "allowed2", "allowed3"},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickStringField("custom_string", "allowed1"),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10000"}, &v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10000"}, &v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickStringFieldSchema("custom_string", "", false, []string{"allowed1", "allowed2", "allowed3"})),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickStringField("custom_string", "allowed1"))),
 			},
 			want:    true,
 			wantErr: false,
@@ -1235,50 +507,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketPickStringNotRequiredInvalid",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickStringFieldSchema("custom_string",
-							"",
-							false, []string{"allowed1", "allowed2", "allowed3"},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickStringField("custom_string", "notallowed"),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10000"}, &v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10000"}, &v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickStringFieldSchema("custom_string", "", false, []string{"allowed1", "allowed2", "allowed3"})),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickStringField("custom_string", "notallowed"))),
 			},
 			want:    false,
 			wantErr: false,
@@ -1287,50 +521,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketPickStringsRequiredValid",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickMultipleStringsFieldSchema("custom_string",
-							"",
-							true, []string{"allowed1", "allowed2", "allowed3"},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickMultipleStringsField("custom_string", []string{"allowed1", "allowed2"}),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10000"}, &v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10000"}, &v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickMultipleStringsFieldSchema("custom_string", "", true, []string{"allowed1", "allowed2", "allowed3"})),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickMultipleStringsField("custom_string", []string{"allowed1", "allowed2"}))),
 			},
 			want:    true,
 			wantErr: false,
@@ -1339,50 +535,11 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketPickStringsNotRequiredValid",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickMultipleStringsFieldSchema("custom_string",
-							"",
-							false, []string{"allowed1", "allowed2", "allowed3"},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickMultipleStringsField("custom_string", []string{"allowed1", "allowed2"}),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10000"}, &v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10000"}, &v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickMultipleStringsFieldSchema("custom_string", "", false, []string{"allowed1", "allowed2", "allowed3"}))),
+				ticket: createTicketFixture(WithTicketCustomFields(PickMultipleStringsField("custom_string", []string{"allowed1", "allowed2"}))),
 			},
 			want:    true,
 			wantErr: false,
@@ -1391,50 +548,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketPickStringsRequiredInvalid",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickMultipleStringsFieldSchema("custom_string",
-							"",
-							true, []string{"allowed1", "allowed2", "allowed3"},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickMultipleStringsField("custom_string", []string{"allowed1", "notallowed"}),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10000"}, &v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10000"}, &v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickMultipleStringsFieldSchema("custom_string", "", true, []string{"allowed1", "allowed2", "allowed3"})),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickMultipleStringsField("custom_string", []string{"allowed1", "notallowed"}))),
 			},
 			want:    false,
 			wantErr: false,
@@ -1443,50 +562,12 @@ func TestValidateTicket(t *testing.T) {
 			name: "TestValidateTicketPickStringsNotRequiredInvalid",
 			args: args{
 				ctx: context.TODO(),
-				schema: &v2.TicketSchema{
-					Id:          "10001",
-					DisplayName: "",
-					Types: []*v2.TicketType{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					Statuses: []*v2.TicketStatus{
-						{
-							Id:          "10000",
-							DisplayName: "",
-						},
-						{
-							Id:          "10001",
-							DisplayName: "",
-						},
-					},
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickMultipleStringsFieldSchema("custom_string",
-							"",
-							false, []string{"allowed1", "allowed2", "allowed3"},
-						),
-					},
-				},
-				ticket: &v2.Ticket{
-					Id:          "10043",
-					DisplayName: "Test Ticket",
-					Description: "",
-					Assignees:   nil,
-					Reporter:    nil,
-					Status:      &v2.TicketStatus{Id: "10001"},
-					Type:        &v2.TicketType{Id: "10001"},
-					Labels:      []string{"test", "baton", "api"},
-					Url:         "",
-					CustomFields: map[string]*v2.TicketCustomField{
-						"custom_string": PickMultipleStringsField("custom_string", []string{"allowed1", "notallowed"}),
-					},
-				},
+				schema: newCustomSchema(
+					WithTicketTypes(&v2.TicketType{Id: "10000"}, &v2.TicketType{Id: "10001"}),
+					WithTicketStatuses(&v2.TicketStatus{Id: "10000"}, &v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(PickMultipleStringsFieldSchema("custom_string", "", false, []string{"allowed1", "allowed2", "allowed3"})),
+				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickMultipleStringsField("custom_string", []string{"allowed1", "notallowed"}))),
 			},
 			want:    false,
 			wantErr: false,
@@ -2301,20 +1382,21 @@ func TestCustomFieldForSchemaField(t *testing.T) {
 	now := time.Now().UTC()
 
 	schema := newCustomSchema(
-		StringFieldSchema("custom_string", "", true),
-		StringsFieldSchema("custom_strings", "", true),
-		BoolFieldSchema("custom_bool", "", true),
-		TimestampFieldSchema("custom_timestamp", "", true),
-		PickStringFieldSchema("custom_pick_string", "", true, []string{"test1", "test2"}),
-		PickMultipleStringsFieldSchema("custom_pick_strings", "", true, []string{"test1", "test2"}),
-		PickObjectValueFieldSchema("custom_pick_object", "", true, []*v2.TicketCustomFieldObjectValue{
-			{Id: "1"},
-			{Id: "2"},
-		}),
-		PickMultipleObjectValuesFieldSchema("custom_pick_objects", "", true, []*v2.TicketCustomFieldObjectValue{
-			{Id: "1"},
-		}),
-	)
+		WithCustomFields(
+			StringFieldSchema("custom_string", "", true),
+			StringsFieldSchema("custom_strings", "", true),
+			BoolFieldSchema("custom_bool", "", true),
+			TimestampFieldSchema("custom_timestamp", "", true),
+			PickStringFieldSchema("custom_pick_string", "", true, []string{"test1", "test2"}),
+			PickMultipleStringsFieldSchema("custom_pick_strings", "", true, []string{"test1", "test2"}),
+			PickObjectValueFieldSchema("custom_pick_object", "", true, []*v2.TicketCustomFieldObjectValue{
+				{Id: "1"},
+				{Id: "2"},
+			}),
+			PickMultipleObjectValuesFieldSchema("custom_pick_objects", "", true, []*v2.TicketCustomFieldObjectValue{
+				{Id: "1"},
+			}),
+		))
 
 	tests := []struct {
 		name    string
@@ -2494,15 +1576,79 @@ func TestCustomFieldForSchemaField(t *testing.T) {
 	}
 }
 
-func newCustomSchema(customFields ...*v2.TicketCustomField) *v2.TicketSchema {
+type TicketSchemaOption func(*v2.TicketSchema)
+
+func WithCustomFields(customFields ...*v2.TicketCustomField) TicketSchemaOption {
 	cfs := make(map[string]*v2.TicketCustomField)
 	for _, cf := range customFields {
 		cfs[cf.Id] = cf
 	}
-
-	return &v2.TicketSchema{
-		CustomFields: cfs,
+	return func(ts *v2.TicketSchema) {
+		ts.CustomFields = cfs
 	}
+}
+
+func WithTicketTypes(ticketTypes ...*v2.TicketType) TicketSchemaOption {
+	return func(ts *v2.TicketSchema) {
+		ts.Types = ticketTypes
+	}
+}
+
+func WithTicketStatuses(ticketStatuses ...*v2.TicketStatus) TicketSchemaOption {
+	return func(ts *v2.TicketSchema) {
+		ts.Statuses = ticketStatuses
+	}
+}
+
+func newCustomSchema(opts ...TicketSchemaOption) *v2.TicketSchema {
+	ts := &v2.TicketSchema{
+		Id: "10001",
+	}
+	for _, opt := range opts {
+		opt(ts)
+	}
+	return ts
+}
+
+type TicketOption func(*v2.Ticket)
+
+func WithTicketCustomFields(customFields ...*v2.TicketCustomField) TicketOption {
+	cfs := make(map[string]*v2.TicketCustomField)
+	for _, cf := range customFields {
+		cfs[cf.Id] = cf
+	}
+	return func(ts *v2.Ticket) {
+		ts.CustomFields = cfs
+	}
+}
+
+func WithTicketType(ticketType *v2.TicketType) TicketOption {
+	return func(ts *v2.Ticket) {
+		ts.Type = ticketType
+	}
+}
+
+func WithTicketStatus(ticketStatus *v2.TicketStatus) TicketOption {
+	return func(ts *v2.Ticket) {
+		ts.Status = ticketStatus
+	}
+}
+
+func createTicketFixture(opts ...TicketOption) *v2.Ticket {
+	t := &v2.Ticket{
+		Id:          "10043",
+		DisplayName: "Test Ticket",
+		Status:      &v2.TicketStatus{Id: "10001"},
+		Type:        &v2.TicketType{Id: "10001"},
+		Labels:      []string{"test", "baton", "api"},
+		CustomFields: map[string]*v2.TicketCustomField{
+			"project": PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10000"}),
+		},
+	}
+	for _, opt := range opts {
+		opt(t)
+	}
+	return t
 }
 
 func TestGetStringValue(t *testing.T) {
