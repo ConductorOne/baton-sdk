@@ -59,9 +59,7 @@ func TestValidateTicket(t *testing.T) {
 						}),
 					),
 				),
-				ticket: createTicketFixture(WithTicketCustomFields(
-					PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10001"})),
-				),
+				ticket: createTicketFixture(WithTicketCustomFields(PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10001"}))),
 			},
 			want:    true,
 			wantErr: false,
@@ -80,8 +78,7 @@ func TestValidateTicket(t *testing.T) {
 						}),
 					),
 				),
-				ticket: createTicketFixture(WithTicketCustomFields(
-					PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10002"}))),
+				ticket: createTicketFixture(WithTicketCustomFields(PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10002"}))),
 			},
 			want:    false,
 			wantErr: false,
@@ -104,8 +101,7 @@ func TestValidateTicket(t *testing.T) {
 						},
 						)),
 				),
-				ticket: createTicketFixture(WithTicketCustomFields(
-					PickObjectValueField("pick_object", &v2.TicketCustomFieldObjectValue{Id: "10002"}))),
+				ticket: createTicketFixture(WithTicketCustomFields(PickObjectValueField("pick_object", &v2.TicketCustomFieldObjectValue{Id: "10002"}))),
 			},
 			want:    false,
 			wantErr: false,
@@ -130,9 +126,7 @@ func TestValidateTicket(t *testing.T) {
 					))),
 				ticket: createTicketFixture(
 					WithTicketType(&v2.TicketType{Id: "10002"}),
-					WithTicketCustomFields(
-						PickObjectValueField(
-							"project", &v2.TicketCustomFieldObjectValue{Id: "10002"})),
+					WithTicketCustomFields(PickObjectValueField("project", &v2.TicketCustomFieldObjectValue{Id: "10002"})),
 				),
 			},
 			want:    false,
@@ -156,8 +150,7 @@ func TestValidateTicket(t *testing.T) {
 							},
 						})),
 				),
-				ticket: createTicketFixture(
-					WithTicketStatus(&v2.TicketStatus{Id: "10002"})),
+				ticket: createTicketFixture(WithTicketStatus(&v2.TicketStatus{Id: "10002"})),
 			},
 			want:    false,
 			wantErr: false,
@@ -393,8 +386,7 @@ func TestValidateTicket(t *testing.T) {
 					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
 					WithCustomFields(StringsFieldSchema("custom_strings", "", true)),
 				),
-				ticket: createTicketFixture(WithTicketCustomFields(
-					StringsField("custom_strings", []string{"somestring", "somestring2"})),
+				ticket: createTicketFixture(WithTicketCustomFields(StringsField("custom_strings", []string{"somestring", "somestring2"})),
 				),
 			},
 			want:    true,
