@@ -47,6 +47,8 @@ func (tt TaskType) String() string {
 		return "list_ticket_schemas"
 	case GetTicketType:
 		return "get_ticket"
+	case GetTicketSchemaType:
+		return "get_ticket_schema"
 	default:
 		return "unknown"
 	}
@@ -67,6 +69,7 @@ const (
 	CreateTicketType
 	ListTicketSchemasType
 	GetTicketType
+	GetTicketSchemaType
 )
 
 func Is(task *v1.Task, target TaskType) bool {

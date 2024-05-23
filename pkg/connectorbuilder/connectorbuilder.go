@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -15,7 +16,9 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
+	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
@@ -83,10 +86,15 @@ type builderImpl struct {
 	eventFeed              EventProvider
 	cb                     ConnectorBuilder
 	ticketManager          TicketManager
+	m                      metrics.Handler
+	nowFunc                func() time.Time
 }
 
 func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.TicketsServiceListTicketSchemasRequest) (*v2.TicketsServiceListTicketSchemasResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.ListTicketSchemasType
 	if b.ticketManager == nil {
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
@@ -95,12 +103,16 @@ func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.Tickets
 		Token: request.PageToken,
 	})
 	if err != nil {
+
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing ticket schemas failed: %w", err)
 	}
 	if request.PageToken != "" && request.PageToken == nextPageToken {
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing ticket schemas failed: next page token is the same as the current page token. this is most likely a connector bug")
 	}
 
+	b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
 	return &v2.TicketsServiceListTicketSchemasResponse{
 		List:          out,
 		NextPageToken: nextPageToken,
@@ -109,12 +121,16 @@ func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.Tickets
 }
 
 func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServiceCreateTicketRequest) (*v2.TicketsServiceCreateTicketResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.CreateTicketType
 	if b.ticketManager == nil {
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
 	reqBody := request.GetRequest()
 	if reqBody == nil {
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: request body is nil")
 	}
 	cTicket := &v2.Ticket{
@@ -128,9 +144,11 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 
 	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, request.GetSchema())
 	if err != nil {
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: creating ticket failed: %w", err)
 	}
 
+	b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
 	return &v2.TicketsServiceCreateTicketResponse{
 		Ticket:      ticket,
 		Annotations: annos,
@@ -138,15 +156,20 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 }
 
 func (b *builderImpl) GetTicket(ctx context.Context, request *v2.TicketsServiceGetTicketRequest) (*v2.TicketsServiceGetTicketResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.GetTicketType
 	if b.ticketManager == nil {
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
 	ticket, annos, err := b.ticketManager.GetTicket(ctx, request.GetId())
 	if err != nil {
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: getting ticket failed: %w", err)
 	}
 
+	b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
 	return &v2.TicketsServiceGetTicketResponse{
 		Ticket:      ticket,
 		Annotations: annos,
@@ -154,15 +177,20 @@ func (b *builderImpl) GetTicket(ctx context.Context, request *v2.TicketsServiceG
 }
 
 func (b *builderImpl) GetTicketSchema(ctx context.Context, request *v2.TicketsServiceGetTicketSchemaRequest) (*v2.TicketsServiceGetTicketSchemaResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.GetTicketSchemaType
 	if b.ticketManager == nil {
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
 	ticketSchema, annos, err := b.ticketManager.GetTicketSchema(ctx, request.GetId())
 	if err != nil {
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: getting ticket metadata failed: %w", err)
 	}
 
+	b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
 	return &v2.TicketsServiceGetTicketSchemaResponse{
 		Schema:      ticketSchema,
 		Annotations: annos,
@@ -415,6 +443,8 @@ func (b *builderImpl) Validate(ctx context.Context, request *v2.ConnectorService
 }
 
 func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (*v2.GrantManagerServiceGrantResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.GrantType
 	l := ctxzap.Extract(ctx)
 
 	rt := request.Entitlement.Resource.Id.ResourceType
@@ -423,6 +453,7 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		annos, err := provisioner.Grant(ctx, request.Principal, request.Entitlement)
 		if err != nil {
 			l.Error("error: grant failed", zap.Error(err))
+			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: grant failed: %w", err)
 		}
 
@@ -434,17 +465,23 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		grants, annos, err := provisionerV2.Grant(ctx, request.Principal, request.Entitlement)
 		if err != nil {
 			l.Error("error: grant failed", zap.Error(err))
+			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: grant failed: %w", err)
 		}
 
+		b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
 		return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
 	}
 
 	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
+	b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 	return nil, fmt.Errorf("error: resource type does not have provisioner configured")
 }
 
 func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (*v2.GrantManagerServiceRevokeResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.RevokeType
+
 	l := ctxzap.Extract(ctx)
 
 	rt := request.Grant.Entitlement.Resource.Id.ResourceType
@@ -453,6 +490,7 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		annos, err := provisioner.Revoke(ctx, request.Grant)
 		if err != nil {
 			l.Error("error: revoke failed", zap.Error(err))
+			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: revoke failed: %w", err)
 		}
 		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
@@ -463,12 +501,16 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		annos, err := provisionerV2.Revoke(ctx, request.Grant)
 		if err != nil {
 			l.Error("error: revoke failed", zap.Error(err))
+			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: revoke failed: %w", err)
 		}
+
+		b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
 		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 	}
 
 	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
+	b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 	return nil, status.Error(codes.Unimplemented, "resource type does not have provisioner configured")
 }
 
@@ -498,6 +540,8 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 }
 
 func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.CreateResourceType
 	l := ctxzap.Extract(ctx)
 	rt := request.GetResource().GetId().GetResourceType()
 	manager, ok := b.resourceManagers[rt]
@@ -505,15 +549,21 @@ func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateReso
 		resource, annos, err := manager.Create(ctx, request.Resource)
 		if err != nil {
 			l.Error("error: create resource failed", zap.Error(err))
+			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: create resource failed: %w", err)
 		}
+		b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
 		return &v2.CreateResourceResponse{Created: resource, Annotations: annos}, nil
 	}
 	l.Error("error: resource type does not have resource manager configured", zap.String("resource_type", rt))
+	b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 	return nil, status.Error(codes.Unimplemented, "resource type does not have resource manager configured")
 }
 
 func (b *builderImpl) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (*v2.DeleteResourceResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.DeleteResourceType
+
 	l := ctxzap.Extract(ctx)
 	rt := request.GetResourceId().GetResourceType()
 	manager, ok := b.resourceManagers[rt]
@@ -521,32 +571,40 @@ func (b *builderImpl) DeleteResource(ctx context.Context, request *v2.DeleteReso
 		annos, err := manager.Delete(ctx, request.GetResourceId())
 		if err != nil {
 			l.Error("error: delete resource failed", zap.Error(err))
+			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: delete resource failed: %w", err)
 		}
+		b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
 		return &v2.DeleteResourceResponse{Annotations: annos}, nil
 	}
 	l.Error("error: resource type does not have resource manager configured", zap.String("resource_type", rt))
+	b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 	return nil, status.Error(codes.Unimplemented, "resource type does not have resource manager configured")
 }
 
 func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (*v2.RotateCredentialResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.RotateCredentialsType
 	l := ctxzap.Extract(ctx)
 	rt := request.GetResourceId().GetResourceType()
 	manager, ok := b.credentialManagers[rt]
 	if !ok {
 		l.Error("error: resource type does not have credential manager configured", zap.String("resource_type", rt))
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
 	}
 
 	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
 	}
 
 	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
+		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
@@ -554,11 +612,13 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 	for _, plaintextCredential := range plaintexts {
 		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
+			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
 			return nil, err
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
 	}
 
+	b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
 	return &v2.RotateCredentialResponse{
 		Annotations:   annos,
 		ResourceId:    request.GetResourceId(),
