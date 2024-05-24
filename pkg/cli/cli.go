@@ -486,5 +486,10 @@ func NewCmd[T any, PtrT *T](
 	// We use this for OS specific commands.
 	cmd.AddCommand(additionalCommands(name, cfg)...)
 
+	err = configToCmdFlags(cmd, cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	return cmd, nil
 }
