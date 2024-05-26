@@ -795,7 +795,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 
 				entitlementGraph.AddEntitlement(grant.Entitlement)
 				entitlementGraph.AddEntitlement(srcEntitlement.GetEntitlement())
-				err = entitlementGraph.AddEdge(
+				err = entitlementGraph.AddEdge(ctx,
 					srcEntitlement.GetEntitlement().GetId(),
 					grant.GetEntitlement().GetId(),
 					expandable.Shallow,
