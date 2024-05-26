@@ -9,16 +9,18 @@ import (
 )
 
 func TestGetDescendants(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	graph := NewEntitlementGraph(context.Background())
 	graph.AddEntitlement(&v2.Entitlement{Id: "1"})
 	graph.AddEntitlement(&v2.Entitlement{Id: "2"})
 	graph.AddEntitlement(&v2.Entitlement{Id: "3"})
 	graph.AddEntitlement(&v2.Entitlement{Id: "4"})
-	err := graph.AddEdge("1", "2", false, nil)
+	err := graph.AddEdge(ctx, "1", "2", false, nil)
 	require.NoError(t, err)
-	err = graph.AddEdge("1", "3", false, nil)
+	err = graph.AddEdge(ctx, "1", "3", false, nil)
 	require.NoError(t, err)
-	err = graph.AddEdge("1", "4", false, nil)
+	err = graph.AddEdge(ctx, "1", "4", false, nil)
 	require.NoError(t, err)
 	node := graph.GetNode("1")
 	require.NotNil(t, node)
@@ -62,18 +64,21 @@ func TestRemoveNode(t *testing.T) {
 }
 
 func cyclicGraph(t *testing.T) (*EntitlementGraph, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	graph := NewEntitlementGraph(context.Background())
 	graph.AddEntitlement(&v2.Entitlement{Id: "1"})
 	graph.AddEntitlement(&v2.Entitlement{Id: "2"})
 	graph.AddEntitlement(&v2.Entitlement{Id: "3"})
 	graph.AddEntitlement(&v2.Entitlement{Id: "4"})
-	err := graph.AddEdge("1", "2", false, nil)
+	err := graph.AddEdge(ctx, "1", "2", false, nil)
 	require.NoError(t, err)
-	err = graph.AddEdge("2", "3", false, []string{"group"})
+	err = graph.AddEdge(ctx, "2", "3", false, []string{"group"})
 	require.NoError(t, err)
-	err = graph.AddEdge("3", "4", false, []string{"user"})
+	err = graph.AddEdge(ctx, "3", "4", false, []string{"user"})
 	require.NoError(t, err)
-	err = graph.AddEdge("4", "2", false, nil)
+	err = graph.AddEdge(ctx, "4", "2", false, nil)
 	require.NoError(t, err)
 	err = graph.Validate()
 	require.NoError(t, err)
@@ -89,6 +94,9 @@ func TestGetCycles(t *testing.T) {
 }
 
 func TestHandleCycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	graph, err := cyclicGraph(t)
 	require.NoError(t, err)
 
@@ -108,7 +116,7 @@ func TestHandleCycle(t *testing.T) {
 	graph = NewEntitlementGraph(context.Background())
 	graph.AddEntitlement(&v2.Entitlement{Id: "1"})
 	graph.AddEntitlement(&v2.Entitlement{Id: "2"})
-	err = graph.AddEdge("1", "1", false, []string{"group"})
+	err = graph.AddEdge(ctx, "1", "1", false, []string{"group"})
 	require.NoError(t, err)
 	err = graph.Validate()
 	require.NoError(t, err)
@@ -117,9 +125,9 @@ func TestHandleCycle(t *testing.T) {
 	graph = NewEntitlementGraph(context.Background())
 	graph.AddEntitlement(&v2.Entitlement{Id: "1"})
 	graph.AddEntitlement(&v2.Entitlement{Id: "2"})
-	err = graph.AddEdge("1", "2", false, []string{"group"})
+	err = graph.AddEdge(ctx, "1", "2", false, []string{"group"})
 	require.NoError(t, err)
-	err = graph.AddEdge("2", "1", false, []string{"user"})
+	err = graph.AddEdge(ctx, "2", "1", false, []string{"user"})
 	require.NoError(t, err)
 	err = graph.Validate()
 	require.NoError(t, err)

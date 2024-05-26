@@ -7,6 +7,8 @@ import (
 	"reflect"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 var (
@@ -300,7 +302,7 @@ func (g *EntitlementGraph) GetNode(entitlementId string) *Node {
 	return nil
 }
 
-func (g *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID string, shallow bool, resourceTypeIDs []string) error {
+func (g *EntitlementGraph) AddEdge(ctx context.Context, srcEntitlementID string, dstEntitlementID string, shallow bool, resourceTypeIDs []string) error {
 	srcNode := g.GetNode(srcEntitlementID)
 	if srcNode == nil {
 		return ErrNoEntitlement
@@ -324,7 +326,14 @@ func (g *EntitlementGraph) AddEdge(srcEntitlementID string, dstEntitlementID str
 		}
 	} else {
 		// TODO: just do nothing? it's probably a mistake if we're adding the same edge twice
-		return fmt.Errorf("edge already exists")
+		ctxzap.Extract(ctx).Warn(
+			"duplicate edge from datasource",
+			zap.String("src_entitlement_id", srcEntitlementID),
+			zap.String("dst_entitlement_id", dstEntitlementID),
+			zap.Bool("shallow", shallow),
+			zap.Strings("resource_type_ids", resourceTypeIDs),
+		)
+		return nil
 	}
 	return nil
 }
