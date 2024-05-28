@@ -1,34 +1,31 @@
 package metrics
 
 import (
-	"time"
-
-	"github.com/conductorone/baton-sdk/pkg/tasks"
+	"context"
 )
 
 type Handler interface {
-	WithConnectorName(name string) Handler
-	WithTags(tags map[string]string) Handler
-	RecordTaskSuccess(task tasks.TaskType, dur time.Duration)
-	RecordTaskFailure(task tasks.TaskType, dur time.Duration)
+	Int64Counter(name string, description string, unit Unit) Int64Counter
+	Int64Gauge(name string, description string, unit Unit) Int64Gauge
+	Int64Histogram(name string, description string, unit Unit) Int64Histogram
 }
 
-type noopHandler struct{}
-
-func (noopHandler) WithConnectorName(name string) Handler {
-	return noopHandler{}
+type Int64Counter interface {
+	Add(ctx context.Context, value int64)
 }
 
-func (noopHandler) WithTags(tags map[string]string) Handler {
-	return noopHandler{}
+type Int64Histogram interface {
+	Record(ctx context.Context, value int64)
 }
 
-func (noopHandler) RecordTaskSuccess(task tasks.TaskType, dur time.Duration) {
-	return
+type Int64Gauge interface {
+	Observe(ctx context.Context, value int64)
 }
 
-func (noopHandler) RecordTaskFailure(task tasks.TaskType, dur time.Duration) {
-	return
-}
+type Unit string
 
-var _ Handler = noopHandler{}
+const (
+	Dimensionless Unit = "1"
+	Bytes         Unit = "By"
+	Milliseconds  Unit = "ms"
+)

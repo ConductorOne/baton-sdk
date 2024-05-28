@@ -86,7 +86,7 @@ type builderImpl struct {
 	eventFeed              EventProvider
 	cb                     ConnectorBuilder
 	ticketManager          TicketManager
-	m                      metrics.Handler
+	m                      *metrics.M
 	nowFunc                func() time.Time
 }
 
@@ -94,7 +94,7 @@ func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.Tickets
 	start := b.nowFunc()
 	tt := tasks.ListTicketSchemasType
 	if b.ticketManager == nil {
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
@@ -104,15 +104,15 @@ func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.Tickets
 	})
 	if err != nil {
 
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing ticket schemas failed: %w", err)
 	}
 	if request.PageToken != "" && request.PageToken == nextPageToken {
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing ticket schemas failed: next page token is the same as the current page token. this is most likely a connector bug")
 	}
 
-	b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
+	b.m.RecordTaskSuccess(
 	return &v2.TicketsServiceListTicketSchemasResponse{
 		List:          out,
 		NextPageToken: nextPageToken,
@@ -124,13 +124,13 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 	start := b.nowFunc()
 	tt := tasks.CreateTicketType
 	if b.ticketManager == nil {
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
 	reqBody := request.GetRequest()
 	if reqBody == nil {
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: request body is nil")
 	}
 	cTicket := &v2.Ticket{
@@ -144,11 +144,11 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 
 	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, request.GetSchema())
 	if err != nil {
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: creating ticket failed: %w", err)
 	}
 
-	b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return &v2.TicketsServiceCreateTicketResponse{
 		Ticket:      ticket,
 		Annotations: annos,
@@ -159,17 +159,17 @@ func (b *builderImpl) GetTicket(ctx context.Context, request *v2.TicketsServiceG
 	start := b.nowFunc()
 	tt := tasks.GetTicketType
 	if b.ticketManager == nil {
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
 	ticket, annos, err := b.ticketManager.GetTicket(ctx, request.GetId())
 	if err != nil {
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: getting ticket failed: %w", err)
 	}
 
-	b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return &v2.TicketsServiceGetTicketResponse{
 		Ticket:      ticket,
 		Annotations: annos,
@@ -180,17 +180,17 @@ func (b *builderImpl) GetTicketSchema(ctx context.Context, request *v2.TicketsSe
 	start := b.nowFunc()
 	tt := tasks.GetTicketSchemaType
 	if b.ticketManager == nil {
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
 	ticketSchema, annos, err := b.ticketManager.GetTicketSchema(ctx, request.GetId())
 	if err != nil {
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: getting ticket metadata failed: %w", err)
 	}
 
-	b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return &v2.TicketsServiceGetTicketSchemaResponse{
 		Schema:      ticketSchema,
 		Annotations: annos,
@@ -293,19 +293,25 @@ func (b *builderImpl) ListResourceTypes(
 	ctx context.Context,
 	request *v2.ResourceTypesServiceListResourceTypesRequest,
 ) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.ListResourceTypesType
 	var out []*v2.ResourceType
 
 	for _, rb := range b.resourceBuilders {
 		out = append(out, rb.ResourceType(ctx))
 	}
 
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return &v2.ResourceTypesServiceListResourceTypesResponse{List: out}, nil
 }
 
 // ListResources returns all available resources for a given resource type ID.
 func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.ListResourcesType
 	rb, ok := b.resourceBuilders[request.ResourceTypeId]
 	if !ok {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list resources with unknown resource type %s", request.ResourceTypeId)
 	}
 
@@ -314,12 +320,15 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 		Token: request.PageToken,
 	})
 	if err != nil {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing resources failed: %w", err)
 	}
 	if request.PageToken != "" && request.PageToken == nextPageToken {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing resources failed: next page token is the same as the current page token. this is most likely a connector bug")
 	}
 
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return &v2.ResourcesServiceListResourcesResponse{
 		List:          out,
 		NextPageToken: nextPageToken,
@@ -329,8 +338,11 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 
 // ListEntitlements returns all the entitlements for a given resource.
 func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.ListEntitlementsType
 	rb, ok := b.resourceBuilders[request.Resource.Id.ResourceType]
 	if !ok {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list entitlements with unknown resource type %s", request.Resource.Id.ResourceType)
 	}
 
@@ -339,12 +351,15 @@ func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.Entitlem
 		Token: request.PageToken,
 	})
 	if err != nil {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing entitlements failed: %w", err)
 	}
 	if request.PageToken != "" && request.PageToken == nextPageToken {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing entitlements failed: next page token is the same as the current page token. this is most likely a connector bug")
 	}
 
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return &v2.EntitlementsServiceListEntitlementsResponse{
 		List:          out,
 		NextPageToken: nextPageToken,
@@ -354,8 +369,11 @@ func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.Entitlem
 
 // ListGrants lists all the grants for a given resource.
 func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.ListEntitlementsType
 	rb, ok := b.resourceBuilders[request.Resource.Id.ResourceType]
 	if !ok {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list entitlements with unknown resource type %s", request.Resource.Id.ResourceType)
 	}
 
@@ -364,12 +382,15 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 		Token: request.PageToken,
 	})
 	if err != nil {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing grants failed: %w", err)
 	}
 	if request.PageToken != "" && request.PageToken == nextPageToken {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing grants failed: next page token is the same as the current page token. this is most likely a connector bug")
 	}
 
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return &v2.GrantsServiceListGrantsResponse{
 		List:          out,
 		NextPageToken: nextPageToken,
@@ -379,13 +400,17 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 
 // GetMetadata gets all metadata for a connector.
 func (b *builderImpl) GetMetadata(ctx context.Context, request *v2.ConnectorServiceGetMetadataRequest) (*v2.ConnectorServiceGetMetadataResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.GetMetadataType
 	md, err := b.cb.Metadata(ctx)
 	if err != nil {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, err
 	}
 
 	md.Capabilities = getCapabilities(ctx, b)
 
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return &v2.ConnectorServiceGetMetadataResponse{Metadata: md}, nil
 }
 
@@ -453,7 +478,7 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		annos, err := provisioner.Grant(ctx, request.Principal, request.Entitlement)
 		if err != nil {
 			l.Error("error: grant failed", zap.Error(err))
-			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+			b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: grant failed: %w", err)
 		}
 
@@ -465,16 +490,16 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		grants, annos, err := provisionerV2.Grant(ctx, request.Principal, request.Entitlement)
 		if err != nil {
 			l.Error("error: grant failed", zap.Error(err))
-			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+			b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: grant failed: %w", err)
 		}
 
-		b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 		return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
 	}
 
 	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-	b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+	b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 	return nil, fmt.Errorf("error: resource type does not have provisioner configured")
 }
 
@@ -490,7 +515,7 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		annos, err := provisioner.Revoke(ctx, request.Grant)
 		if err != nil {
 			l.Error("error: revoke failed", zap.Error(err))
-			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+			b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: revoke failed: %w", err)
 		}
 		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
@@ -501,16 +526,16 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		annos, err := provisionerV2.Revoke(ctx, request.Grant)
 		if err != nil {
 			l.Error("error: revoke failed", zap.Error(err))
-			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+			b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: revoke failed: %w", err)
 		}
 
-		b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 	}
 
 	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-	b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+	b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 	return nil, status.Error(codes.Unimplemented, "resource type does not have provisioner configured")
 }
 
@@ -521,7 +546,10 @@ func (b *builderImpl) GetAsset(request *v2.AssetServiceGetAssetRequest, server v
 }
 
 func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (*v2.ListEventsResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.ListEventsType
 	if b.eventFeed == nil {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: event feed not implemented")
 	}
 	events, streamState, annotations, err := b.eventFeed.ListEvents(ctx, request.StartAt, &pagination.StreamToken{
@@ -529,8 +557,10 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 		Cursor: request.Cursor,
 	})
 	if err != nil {
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing events failed: %w", err)
 	}
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return &v2.ListEventsResponse{
 		Events:      events,
 		Cursor:      streamState.Cursor,
@@ -549,14 +579,14 @@ func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateReso
 		resource, annos, err := manager.Create(ctx, request.Resource)
 		if err != nil {
 			l.Error("error: create resource failed", zap.Error(err))
-			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+			b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: create resource failed: %w", err)
 		}
-		b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 		return &v2.CreateResourceResponse{Created: resource, Annotations: annos}, nil
 	}
 	l.Error("error: resource type does not have resource manager configured", zap.String("resource_type", rt))
-	b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+	b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 	return nil, status.Error(codes.Unimplemented, "resource type does not have resource manager configured")
 }
 
@@ -571,14 +601,14 @@ func (b *builderImpl) DeleteResource(ctx context.Context, request *v2.DeleteReso
 		annos, err := manager.Delete(ctx, request.GetResourceId())
 		if err != nil {
 			l.Error("error: delete resource failed", zap.Error(err))
-			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+			b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: delete resource failed: %w", err)
 		}
-		b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 		return &v2.DeleteResourceResponse{Annotations: annos}, nil
 	}
 	l.Error("error: resource type does not have resource manager configured", zap.String("resource_type", rt))
-	b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+	b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 	return nil, status.Error(codes.Unimplemented, "resource type does not have resource manager configured")
 }
 
@@ -590,21 +620,21 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 	manager, ok := b.credentialManagers[rt]
 	if !ok {
 		l.Error("error: resource type does not have credential manager configured", zap.String("resource_type", rt))
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
 	}
 
 	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
 	}
 
 	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
-		b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
@@ -612,13 +642,13 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 	for _, plaintextCredential := range plaintexts {
 		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
-			b.m.RecordTaskFailure(tt, b.nowFunc().Sub(start))
+			b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 			return nil, err
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
 	}
 
-	b.m.RecordTaskSuccess(tt, b.nowFunc().Sub(start))
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return &v2.RotateCredentialResponse{
 		Annotations:   annos,
 		ResourceId:    request.GetResourceId(),
@@ -627,20 +657,25 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 }
 
 func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.CreateAccountType
 	l := ctxzap.Extract(ctx)
 	if b.accountManager == nil {
 		l.Error("error: connector does not have account manager configured")
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
 	}
 	result, plaintexts, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: create account failed: %w", err)
 	}
 
 	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
@@ -648,6 +683,7 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 	for _, plaintextCredential := range plaintexts {
 		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
+			b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 			return nil, err
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
@@ -664,8 +700,10 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 	case *v2.CreateAccountResponse_ActionRequiredResult:
 		rv.Result = &v2.CreateAccountResponse_ActionRequired{ActionRequired: r}
 	default:
+		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("unknown result type: %T", result))
 	}
 
+	b.m.RecordTaskSuccess(nil, tt, b.nowFunc().Sub(start))
 	return rv, nil
 }

@@ -70,6 +70,12 @@ const (
 	ListTicketSchemasType
 	GetTicketType
 	GetTicketSchemaType
+	ListResourceTypesType
+	ListResourcesType
+	ListEntitlementsType
+	ListGrantsType
+	GetMetadataType
+	ListEventsType
 )
 
 func Is(task *v1.Task, target TaskType) bool {
