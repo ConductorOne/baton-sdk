@@ -4,11 +4,11 @@ import "context"
 
 type noopRecorder struct{}
 
-func (*noopRecorder) Record(ctx context.Context, value int64) {}
+func (*noopRecorder) Record(_ context.Context, _ int64) {}
 
-func (*noopRecorder) Add(ctx context.Context, value int64) {}
+func (*noopRecorder) Add(_ context.Context, _ int64) {}
 
-func (*noopRecorder) Observe(ctx context.Context, value int64) {}
+func (*noopRecorder) Observe(_ context.Context, _ int64) {}
 
 var _ Int64Counter = (*noopRecorder)(nil)
 var _ Int64Histogram = (*noopRecorder)(nil)
