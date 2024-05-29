@@ -47,6 +47,9 @@ func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	respAnnos.Merge(t.GetAnnotations()...)
 
+	// TODO(lauren) is this okay to set this here?
+	resp.Annotations = respAnnos
+
 	return c.helpers.FinishTask(ctx, resp, respAnnos, nil)
 }
 

@@ -78,13 +78,16 @@ func (m *localCreateTicket) Process(ctx context.Context, task *v1.Task, cc types
 	ticketRequestBody := &v2.TicketRequest{
 		DisplayName: template.DisplayName,
 		Description: template.Description,
-		Status: &v2.TicketStatus{
-			Id: template.StatusId,
-		},
 		Type: &v2.TicketType{
 			Id: template.TypeId,
 		},
 		Labels: template.Labels,
+	}
+
+	if template.StatusId != "" {
+		ticketRequestBody.Status = &v2.TicketStatus{
+			Id: template.StatusId,
+		}
 	}
 
 	cfs := make(map[string]*v2.TicketCustomField)
