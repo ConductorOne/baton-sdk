@@ -11,9 +11,9 @@ const (
 	taskSuccessCounterName = "task_success"
 	taskFailureCounterName = "task_failure"
 	taskDurationHistoName  = "task_latency"
-	taskSuccessCounterDesc = "number of successful tasks"
-	taskFailureCounterDesc = "number of failed tasks"
-	taskDurationHistoDesc  = "duration of all tasks"
+	taskSuccessCounterDesc = "number of successful tasks by task type"
+	taskFailureCounterDesc = "number of failed tasks by task type"
+	taskDurationHistoDesc  = "duration of all tasks by task type and status"
 )
 
 type M struct {
@@ -23,15 +23,15 @@ type M struct {
 func (m *M) RecordTaskSuccess(ctx context.Context, task tasks.TaskType, dur time.Duration) {
 	c := m.underlying.Int64Counter(taskSuccessCounterName, taskSuccessCounterDesc, Dimensionless)
 	h := m.underlying.Int64Histogram(taskDurationHistoName, taskDurationHistoDesc, Milliseconds)
-	c.Add(ctx, 1)
-	h.Record(ctx, dur.Milliseconds())
+	c.Add(ctx, 1, map[string]string{"task_type": task.String()})
+	h.Record(ctx, dur.Milliseconds(), map[string]string{"task_type": task.String(), "task_status": "success"})
 }
 
 func (m *M) RecordTaskFailure(ctx context.Context, task tasks.TaskType, dur time.Duration) {
 	c := m.underlying.Int64Counter(taskFailureCounterName, taskFailureCounterDesc, Dimensionless)
 	h := m.underlying.Int64Histogram(taskDurationHistoName, taskDurationHistoDesc, Milliseconds)
-	c.Add(ctx, 1)
-	h.Record(ctx, dur.Milliseconds())
+	c.Add(ctx, 1, map[string]string{"task_type": task.String()})
+	h.Record(ctx, dur.Milliseconds(), map[string]string{"task_type": task.String(), "task_status": "failure"})
 }
 
 func New(handler Handler) *M {

@@ -399,7 +399,7 @@ func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.Entitlem
 // ListGrants lists all the grants for a given resource.
 func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	start := b.nowFunc()
-	tt := tasks.ListEntitlementsType
+	tt := tasks.ListGrantsType
 	rb, ok := b.resourceBuilders[request.Resource.Id.ResourceType]
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))

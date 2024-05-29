@@ -5,11 +5,14 @@ import (
 	"strings"
 	"sync"
 
+	"go.opentelemetry.io/otel/attribute"
 	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
 type otelHandler struct {
-	meter otelmetric.Meter
+	name     string
+	meter    otelmetric.Meter
+	provider otelmetric.MeterProvider
 
 	int64CountersMtx sync.Mutex
 	int64Counters    map[string]otelmetric.Int64Counter
@@ -21,16 +24,19 @@ type otelHandler struct {
 
 type otelInt64Histogram func(ctx context.Context, incr int64, options ...otelmetric.RecordOption)
 
-func (f otelInt64Histogram) Record(ctx context.Context, value int64) {
-	f(ctx, value)
+func (f otelInt64Histogram) Record(ctx context.Context, value int64, tags map[string]string) {
+	attrs := makeAttrs(tags)
+
+	f(ctx, value, otelmetric.WithAttributes(attrs...))
 }
 
 var _ Int64Histogram = (otelInt64Histogram)(nil)
 
 type otelInt64Counter func(ctx context.Context, incr int64, options ...otelmetric.AddOption)
 
-func (f otelInt64Counter) Add(ctx context.Context, value int64) {
-	f(ctx, value)
+func (f otelInt64Counter) Add(ctx context.Context, value int64, tags map[string]string) {
+	attrs := makeAttrs(tags)
+	f(ctx, value, otelmetric.WithAttributes(attrs...))
 }
 
 var _ Int64Counter = (otelInt64Counter)(nil)
@@ -41,7 +47,9 @@ type syncInt64Gauge struct {
 	gauge otelmetric.Int64ObservableGauge
 }
 
-func (s *syncInt64Gauge) Observe(_ context.Context, value int64) {
+func (s *syncInt64Gauge) Observe(_ context.Context, value int64, tags map[string]string) {
+	attrs := makeAttrs(tags)
+	s.attrs = append(s.attrs, otelmetric.WithAttributes(attrs...))
 	s.value = value
 }
 
@@ -120,9 +128,28 @@ func (h *otelHandler) Int64Gauge(name string, description string, unit Unit) Int
 	return newGauge
 }
 
+func (h *otelHandler) WithTags(tags map[string]string) Handler {
+	attrs := makeAttrs(tags)
+
+	h.meter = h.provider.Meter(h.name, otelmetric.WithInstrumentationAttributes(attrs...))
+
+	return h
+}
+
+func makeAttrs(tags map[string]string) []attribute.KeyValue {
+	attrs := make([]attribute.KeyValue, len(tags))
+	for k, v := range tags {
+		attrs = append(attrs, attribute.String(k, v))
+	}
+
+	return attrs
+}
+
 func NewOtelHandler(_ context.Context, provider otelmetric.MeterProvider, name string) Handler {
 	return &otelHandler{
+		name:          name,
 		meter:         provider.Meter(name),
+		provider:      provider,
 		int64Counters: make(map[string]otelmetric.Int64Counter),
 		int64Histos:   make(map[string]otelmetric.Int64Histogram),
 		int64Gauges:   make(map[string]Int64Gauge),

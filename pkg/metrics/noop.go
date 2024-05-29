@@ -4,11 +4,11 @@ import "context"
 
 type noopRecorder struct{}
 
-func (*noopRecorder) Record(_ context.Context, _ int64) {}
+func (*noopRecorder) Record(_ context.Context, _ int64, _ map[string]string) {}
 
-func (*noopRecorder) Add(_ context.Context, _ int64) {}
+func (*noopRecorder) Add(_ context.Context, _ int64, _ map[string]string) {}
 
-func (*noopRecorder) Observe(_ context.Context, _ int64) {}
+func (*noopRecorder) Observe(_ context.Context, _ int64, _ map[string]string) {}
 
 var _ Int64Counter = (*noopRecorder)(nil)
 var _ Int64Histogram = (*noopRecorder)(nil)
@@ -26,6 +26,10 @@ func (*noopHandler) Int64Gauge(_ string, _ string, _ Unit) Int64Gauge {
 
 func (*noopHandler) Int64Histogram(_ string, _ string, _ Unit) Int64Histogram {
 	return &noopRecorder{}
+}
+
+func (*noopHandler) WithTags(_ map[string]string) Handler {
+	return &noopHandler{}
 }
 
 var _ Handler = (*noopHandler)(nil)
