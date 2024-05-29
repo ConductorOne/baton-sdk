@@ -65,6 +65,10 @@ func (a *Annotations) Update(msg proto.Message) {
 	*a = newAnnotations
 }
 
+func (a *Annotations) Merge(newAnnotations ...*anypb.Any) {
+	*a = append(*a, newAnnotations...)
+}
+
 // Contains checks if the message is in the annotations slice.
 func (a *Annotations) Contains(msg proto.Message) bool {
 	if msg == nil {

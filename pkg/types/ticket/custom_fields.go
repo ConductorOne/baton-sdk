@@ -15,6 +15,8 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+var ErrFieldNil = errors.New("error: field is nil")
+
 // CustomFieldForSchemaField returns a typed custom field for a given schema field.
 func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interface{}) (*v2.TicketCustomField, error) {
 	field, ok := schema.GetCustomFields()[id]
@@ -116,7 +118,7 @@ func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interfa
 
 func GetStringValue(field *v2.TicketCustomField) (string, error) {
 	if field == nil {
-		return "", errors.New("error: field is nil")
+		return "", ErrFieldNil
 	}
 	v, ok := field.GetValue().(*v2.TicketCustomField_StringValue)
 	if !ok {
@@ -127,7 +129,7 @@ func GetStringValue(field *v2.TicketCustomField) (string, error) {
 
 func GetStringsValue(field *v2.TicketCustomField) ([]string, error) {
 	if field == nil {
-		return nil, errors.New("error: field is nil")
+		return nil, ErrFieldNil
 	}
 	v, ok := field.GetValue().(*v2.TicketCustomField_StringValues)
 	if !ok {
@@ -138,7 +140,7 @@ func GetStringsValue(field *v2.TicketCustomField) ([]string, error) {
 
 func GetBoolValue(field *v2.TicketCustomField) (bool, error) {
 	if field == nil {
-		return false, errors.New("error: field is nil")
+		return false, ErrFieldNil
 	}
 	v, ok := field.GetValue().(*v2.TicketCustomField_BoolValue)
 	if !ok {
@@ -149,7 +151,7 @@ func GetBoolValue(field *v2.TicketCustomField) (bool, error) {
 
 func GetTimestampValue(field *v2.TicketCustomField) (time.Time, error) {
 	if field == nil {
-		return time.Time{}, errors.New("error: field is nil")
+		return time.Time{}, ErrFieldNil
 	}
 	v, ok := field.GetValue().(*v2.TicketCustomField_TimestampValue)
 	if !ok {
@@ -160,7 +162,7 @@ func GetTimestampValue(field *v2.TicketCustomField) (time.Time, error) {
 
 func GetPickStringValue(field *v2.TicketCustomField) (string, error) {
 	if field == nil {
-		return "", errors.New("error: field is nil")
+		return "", ErrFieldNil
 	}
 	v, ok := field.GetValue().(*v2.TicketCustomField_PickStringValue)
 	if !ok {
@@ -171,7 +173,7 @@ func GetPickStringValue(field *v2.TicketCustomField) (string, error) {
 
 func GetPickMultipleStringValues(field *v2.TicketCustomField) ([]string, error) {
 	if field == nil {
-		return nil, errors.New("error: field is nil")
+		return nil, ErrFieldNil
 	}
 	v, ok := field.GetValue().(*v2.TicketCustomField_PickMultipleStringValues)
 	if !ok {
@@ -182,7 +184,7 @@ func GetPickMultipleStringValues(field *v2.TicketCustomField) ([]string, error) 
 
 func GetPickObjectValue(field *v2.TicketCustomField) (*v2.TicketCustomFieldObjectValue, error) {
 	if field == nil {
-		return nil, errors.New("error: field is nil")
+		return nil, ErrFieldNil
 	}
 	v, ok := field.GetValue().(*v2.TicketCustomField_PickObjectValue)
 	if !ok {
@@ -193,7 +195,7 @@ func GetPickObjectValue(field *v2.TicketCustomField) (*v2.TicketCustomFieldObjec
 
 func GetPickMultipleObjectValues(field *v2.TicketCustomField) ([]*v2.TicketCustomFieldObjectValue, error) {
 	if field == nil {
-		return nil, errors.New("error: field is nil")
+		return nil, ErrFieldNil
 	}
 	v, ok := field.GetValue().(*v2.TicketCustomField_PickMultipleObjectValues)
 	if !ok {
@@ -245,10 +247,12 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 	// Look for a matching status
 	foundMatch := false
 	for _, status := range schema.GetStatuses() {
+		// Status is not required
 		if ticket.Status == nil {
-			l.Debug("error: invalid ticket: status is not set")
-			return false, nil
+			foundMatch = true
+			break
 		}
+
 		if ticket.Status.GetId() == status.GetId() {
 			foundMatch = true
 			break
@@ -273,7 +277,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 	}
 
 	if !foundMatch {
-		l.Debug("error: invalid ticket: could not find ticket type", zap.String("ticket_type_id", ticket.Status.GetId()))
+		l.Debug("error: invalid ticket: could not find ticket type", zap.String("ticket_type_id", ticket.Type.GetId()))
 		return false, nil
 	}
 
