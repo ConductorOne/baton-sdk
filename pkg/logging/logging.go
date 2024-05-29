@@ -30,6 +30,7 @@ func WithLogFormat(format string) Option {
 			c.Encoding = LogFormatJSON
 		case LogFormatConsole:
 			c.Encoding = LogFormatConsole
+			c.EncoderConfig = zap.NewDevelopmentEncoderConfig()
 		default:
 			c.Encoding = LogFormatJSON
 		}
