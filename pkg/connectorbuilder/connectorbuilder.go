@@ -103,7 +103,6 @@ func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.Tickets
 		Token: request.PageToken,
 	})
 	if err != nil {
-
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing ticket schemas failed: %w", err)
 	}
@@ -349,7 +348,7 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 		Token: request.PageToken,
 	})
 	if err != nil {
-		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing resources failed: %w", err)
 	}
 	if request.PageToken != "" && request.PageToken == nextPageToken {
@@ -380,7 +379,7 @@ func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.Entitlem
 		Token: request.PageToken,
 	})
 	if err != nil {
-		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing entitlements failed: %w", err)
 	}
 	if request.PageToken != "" && request.PageToken == nextPageToken {
@@ -411,7 +410,7 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 		Token: request.PageToken,
 	})
 	if err != nil {
-		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing grants failed: %w", err)
 	}
 	if request.PageToken != "" && request.PageToken == nextPageToken {
@@ -520,7 +519,7 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		grants, annos, err := provisionerV2.Grant(ctx, request.Principal, request.Entitlement)
 		if err != nil {
 			l.Error("error: grant failed", zap.Error(err))
-			b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: grant failed: %w", err)
 		}
 
@@ -579,7 +578,7 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 	start := b.nowFunc()
 	tt := tasks.ListEventsType
 	if b.eventFeed == nil {
-		b.m.RecordTaskFailure(nil, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: event feed not implemented")
 	}
 	events, streamState, annotations, err := b.eventFeed.ListEvents(ctx, request.StartAt, &pagination.StreamToken{
