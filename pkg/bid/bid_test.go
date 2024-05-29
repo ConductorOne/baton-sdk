@@ -62,14 +62,16 @@ var bidsToGrants = map[string]*v2.Grant{
 
 func TestToBid(t *testing.T) {
 	for bid, resource := range bidsToResources {
-		require.Equal(t, bid, MakeBid(resource))
+		require.Equal(t, bid, MustMakeBid(resource))
 	}
 	for bid, entitlement := range bidsToEntitlements {
-		require.Equal(t, bid, MakeBid(entitlement))
+		require.Equal(t, bid, MustMakeBid(entitlement))
 	}
 	for bid, grant := range bidsToGrants {
-		require.Equal(t, bid, MakeBid(grant))
+		require.Equal(t, bid, MustMakeBid(grant))
 	}
+	_, err := MakeBid(&v2.Resource{})
+	require.Error(t, err)
 }
 
 func TestParseBid(t *testing.T) {
