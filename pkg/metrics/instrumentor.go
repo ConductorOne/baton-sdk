@@ -33,3 +33,7 @@ func (m *M) RecordTaskFailure(ctx context.Context, task tasks.TaskType, dur time
 	c.Add(ctx, 1)
 	h.Record(ctx, dur.Milliseconds())
 }
+
+func New(handler Handler) *M {
+	return &M{underlying: handler}
+}

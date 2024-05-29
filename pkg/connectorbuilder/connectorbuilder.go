@@ -198,7 +198,7 @@ func (b *builderImpl) GetTicketSchema(ctx context.Context, request *v2.TicketsSe
 }
 
 // NewConnector creates a new ConnectorServer for a new resource.
-func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, error) {
+func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.ConnectorServer, error) {
 	switch c := in.(type) {
 	case ConnectorBuilder:
 		ret := &builderImpl{
@@ -210,6 +210,16 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 			credentialManagers:     make(map[string]CredentialManager),
 			cb:                     c,
 			ticketManager:          nil,
+			nowFunc:                time.Now,
+		}
+
+		err := ret.options(opts...)
+		if err != nil {
+			return nil, err
+		}
+
+		if ret.m == nil {
+			ret.m = metrics.New(metrics.NewNoOpHandler(ctx))
 		}
 
 		if b, ok := c.(EventProvider); ok {
@@ -276,6 +286,25 @@ func NewConnector(ctx context.Context, in interface{}) (types.ConnectorServer, e
 	default:
 		return nil, fmt.Errorf("input was not a ConnectorBuilder or a ConnectorServer")
 	}
+}
+
+type Opt func(b *builderImpl) error
+
+func WithMetricsHandler(h metrics.Handler) Opt {
+	return func(b *builderImpl) error {
+		b.m = metrics.New(h)
+		return nil
+	}
+}
+
+func (b *builderImpl) options(opts ...Opt) error {
+	for _, opt := range opts {
+		if err := opt(b); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func validateProvisionerVersion(ctx context.Context, p ResourceSyncer) error {
