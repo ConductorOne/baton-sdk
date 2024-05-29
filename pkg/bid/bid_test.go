@@ -53,3 +53,21 @@ func TestToBid(t *testing.T) {
 		require.Equal(t, bid, ToBid(grant))
 	}
 }
+
+func TestParseBid(t *testing.T) {
+	for bid, resource := range bidsToResources {
+		r, err := ParseBid(bid)
+		require.NoError(t, err)
+		require.Equal(t, resource, r)
+	}
+	for bid, entitlement := range bidsToEntitlements {
+		e, err := ParseBid(bid)
+		require.NoError(t, err)
+		require.Equal(t, entitlement, e)
+	}
+	for bid, grant := range bidsToGrants {
+		g, err := ParseBid(bid)
+		require.NoError(t, err)
+		require.Equal(t, grant, g)
+	}
+}
