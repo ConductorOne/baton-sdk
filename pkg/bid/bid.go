@@ -1,3 +1,35 @@
+/*
+Package bid implements functions to create and parse Baton IDs.
+
+Baton IDs are standardized identifiers for Baton resources, entitlements, and grants. They are not required when writing a connector, but they should help make serializing and deserializing IDs easier.
+
+Format:
+
+Resource: `bid:r:<parent_resource_type>/<parent_resource_id>/<resource_type>/<resource_id>`
+Entitlement: `bid:e:<parent_resource_type>/<parent_resource_id>/<resource_type>/<resource_id>:<entitlement_slug>`
+Grant: `bid:g:<entitlement_parent_resource_type>/<entitlement_parent_resource_id>/<entitlement_resource_type>/<entitlement_resource_id>:<entitlement_slug>:<principal_parent_resource_type>/<principal_parent_resource_id>/<principal_resource_type>/<principal_resource_id>`
+
+Trailing colons and slashes are omitted. Empty values in the middle must still have colons. Colons and slashes in values are escaped with backslash. Backslash is escaped with backslash.
+
+Examples:
+
+Resource, type user, id 1234. parent resource type group, id 5678
+`bid:r:group/5678/user/1234`
+Resource, type user, id 1234. no parent resource
+`bid:r:user/1234`
+
+Entitlement, type team, id 5678, slug member. parent resource: type org, id 9012
+`bid:e:org/9012/team/5678:member`
+Entitlement, type team, id 5678, slug: member. no parent resource
+`bid:e:team/56768:member`
+
+Grant, entitlement resource type team, id 5678, slug member. parent resource type org, id 9012. principal type user, id 1234, parent resource type team, id 5678
+`bid:g:org/9012/team/5678:member:team/5678/user/1234`
+
+Grant, entitlement resource type team, id 5678, slug member. no parent resource. principal type user, id 1234, no parent resource
+`bid:g:team/5678:member:user/1234`
+*/
+
 package bid
 
 import (

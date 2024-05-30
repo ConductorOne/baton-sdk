@@ -58,6 +58,23 @@ var bidsToGrants = map[string]*v2.Grant{
 		},
 		Principal: user0,
 	},
+	"bid:g:team/5678:member:user/1234": {
+		Entitlement: &v2.Entitlement{
+			Resource: &v2.Resource{
+				Id: &v2.ResourceId{
+					Resource:     "5678",
+					ResourceType: "team",
+				},
+			},
+			Slug: "member",
+		},
+		Principal: &v2.Resource{
+			Id: &v2.ResourceId{
+				Resource:     "1234",
+				ResourceType: "user",
+			},
+		},
+	},
 }
 
 func TestToBid(t *testing.T) {
