@@ -14,12 +14,12 @@ const (
 	eof     tokenType = iota
 )
 
-type BidScanner struct {
+type bidScanner struct {
 	index int
 	str   string
 }
 
-func (rs *BidScanner) nextToken() (tokenType, string, int, error) {
+func (rs *bidScanner) nextToken() (tokenType, string, int, error) {
 	// Do not modify rs.index in here. It will break Peek()
 	if rs.index >= len(rs.str) {
 		return eof, "", len(rs.str), nil
@@ -63,7 +63,7 @@ func (rs *BidScanner) nextToken() (tokenType, string, int, error) {
 	return literal, token.String(), len(rs.str), nil
 }
 
-func (rs *BidScanner) PeekToken() (tokenType, string, error) {
+func (rs *bidScanner) PeekToken() (tokenType, string, error) {
 	tType, val, _, err := rs.nextToken()
 	if err != nil {
 		return -1, "", err
@@ -71,7 +71,7 @@ func (rs *BidScanner) PeekToken() (tokenType, string, error) {
 	return tType, val, nil
 }
 
-func (rs *BidScanner) NextToken() (tokenType, string, error) {
+func (rs *bidScanner) NextToken() (tokenType, string, error) {
 	tType, val, idx, err := rs.nextToken()
 	if err != nil {
 		return -1, "", err
@@ -80,7 +80,7 @@ func (rs *BidScanner) NextToken() (tokenType, string, error) {
 	return tType, val, nil
 }
 
-func (rs *BidScanner) SkipToken() error {
+func (rs *bidScanner) SkipToken() error {
 	_, _, idx, err := rs.nextToken()
 	if err != nil {
 		return err

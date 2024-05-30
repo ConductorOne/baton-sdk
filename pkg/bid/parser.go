@@ -7,7 +7,7 @@ import (
 )
 
 func ParseBid(bidStr string) (BID, error) {
-	rs := &BidScanner{str: bidStr}
+	rs := &bidScanner{str: bidStr}
 
 	tType, val, err := rs.NextToken()
 	if err != nil {
@@ -65,7 +65,7 @@ func ParseBid(bidStr string) (BID, error) {
 	return rv, nil
 }
 
-func parseResourcePart(rs *BidScanner) (*v2.Resource, error) {
+func parseResourcePart(rs *bidScanner) (*v2.Resource, error) {
 	// "bid:r:group/sales/user/george"
 	//        ^
 	//        Parsing in this function starts here
@@ -167,7 +167,7 @@ func ParseResourceBid(bidStr string) (*v2.Resource, error) {
 	return nil, fmt.Errorf("invalid baton id resource: %s", bidStr)
 }
 
-func parseEntitlementPart(rs *BidScanner) (*v2.Entitlement, error) {
+func parseEntitlementPart(rs *bidScanner) (*v2.Entitlement, error) {
 	resource, err := parseResourcePart(rs)
 	if err != nil {
 		return nil, err
@@ -208,7 +208,7 @@ func ParseEntitlementBid(bidStr string) (*v2.Entitlement, error) {
 	return nil, fmt.Errorf("invalid baton id entitlement: %s", bidStr)
 }
 
-func parseGrantPart(rs *BidScanner) (*v2.Grant, error) {
+func parseGrantPart(rs *bidScanner) (*v2.Grant, error) {
 	entitlement, err := parseEntitlementPart(rs)
 	if err != nil {
 		return nil, err
