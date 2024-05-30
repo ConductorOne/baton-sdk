@@ -2,6 +2,7 @@ package c1api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -28,24 +29,35 @@ func (c *getTicketTaskHandler) HandleTask(ctx context.Context) error {
 
 	cc := c.helpers.ConnectorClient()
 
+	t := c.task.GetGetTicket()
+	if t == nil || t.GetTicketId() == "" {
+		l.Error("get ticket task was nil or missing ticket id", zap.Any("get_ticket_task", t))
+		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed get ticket task"), ErrTaskNonRetryable))
+	}
+
 	ticket, err := cc.GetTicket(ctx, &v2.TicketsServiceGetTicketRequest{
-		Id: c.task.GetId(),
+		Id: t.GetTicketId(),
 	})
 	if err != nil {
 		return err
 	}
 
 	if ticket.GetTicket() == nil {
-		return fmt.Errorf("connector returned empt ticket schema")
+		return fmt.Errorf("connector returned empty ticket")
 	}
 
 	resp := &v2.TicketsServiceGetTicketResponse{
 		Ticket: ticket.GetTicket(),
 	}
 
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	respAnnos.Merge(t.GetAnnotations()...)
+
+	resp.Annotations = respAnnos
+
 	l.Debug("GetTicket response", zap.Any("resp", resp))
 
-	return c.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
+	return c.helpers.FinishTask(ctx, resp, respAnnos, nil)
 }
 
 func newGetTicketTaskHandler(task *v1.Task, helpers getTicketTaskHelpers) *getTicketTaskHandler {
