@@ -1,13 +1,14 @@
 /*
 Package bid implements functions to create and parse Baton IDs.
 
-Baton IDs are standardized identifiers for Baton resources, entitlements, and grants. They are not required when writing a connector, but they should help make serializing and deserializing IDs easier.
+Baton IDs are standardized identifiers for Baton resources, entitlements, and grants.
+They are not required when writing a connector, but they should help make serializing and deserializing IDs easier.
 
 Format:
 
 Resource: `bid:r:<parent_resource_type>/<parent_resource_id>/<resource_type>/<resource_id>`
 Entitlement: `bid:e:<parent_resource_type>/<parent_resource_id>/<resource_type>/<resource_id>:<entitlement_slug>`
-Grant: `bid:g:<entitlement_parent_resource_type>/<entitlement_parent_resource_id>/<entitlement_resource_type>/<entitlement_resource_id>:<entitlement_slug>:<principal_parent_resource_type>/<principal_parent_resource_id>/<principal_resource_type>/<principal_resource_id>`
+Grant: `bid:g:<ent_parent_resource_type>/<ent_parent_resource_id>/<ent_resource_type>/<ent_resource_id>:<ent_slug>:<principal_parent_type>/<principal_parent_id>/<principal_type>/<principal_id>`
 
 Trailing colons and slashes are omitted. Empty values in the middle must still have colons. Colons and slashes in values are escaped with backslash. Backslash is escaped with backslash.
 
