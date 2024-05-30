@@ -114,3 +114,21 @@ func TestParseBid(t *testing.T) {
 		require.Empty(t, diff, bid)
 	}
 }
+
+func TestParseErrors(t *testing.T) {
+	var badBids = map[string]*BIDParseError{
+		"bid:r:":              NewBidParseError(&bidScanner{index: 6}, "invalid resource part"),
+		"bid:r:1":             NewBidParseError(&bidScanner{index: 7}, "invalid resource part: ''"),
+		"arn:blahblah":        NewBidParseError(&bidScanner{index: 3}, "invalid prefix: 'arn'"),
+		"bid:?":               NewBidParseError(&bidScanner{index: 5}, "invalid prefix: '?'"),
+		"bid:?:user/bob":      NewBidParseError(&bidScanner{index: 6}, "invalid type: '?'"),
+		"bid:r:user/bob:blah": NewBidParseError(&bidScanner{index: 15}, "invalid baton id: 'bid:r:user/bob:blah'"),
+	}
+	for bid, expectedErr := range badBids {
+		// Avoid repeating the string in two places
+		expectedErr.bs.str = bid
+		_, err := Parse(bid)
+		require.Error(t, err)
+		require.Equal(t, expectedErr.Error(), err.Error())
+	}
+}

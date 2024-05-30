@@ -55,8 +55,8 @@ type BID interface {
 	GetAnnotations() []*anypb.Any
 }
 
-type BIDError struct {
-	Msg string
+type BIDError interface {
+	error
 }
 
 type BIDStringError struct {
