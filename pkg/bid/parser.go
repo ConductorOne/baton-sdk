@@ -1,8 +1,6 @@
 package bid
 
 import (
-	"fmt"
-
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
@@ -14,7 +12,7 @@ func Parse(bidStr string) (BID, error) {
 		return nil, err
 	}
 	if tType != literal || val != BidPrefix {
-		return nil, fmt.Errorf("invalid baton id prefix: %s", val)
+		return nil, NewBidError(rs, "invalid baton id prefix: %s", val)
 	}
 
 	tType, val, err = rs.NextToken()
@@ -22,7 +20,7 @@ func Parse(bidStr string) (BID, error) {
 		return nil, err
 	}
 	if tType != colon || val != ":" {
-		return nil, fmt.Errorf("invalid baton id prefix: %s", val)
+		return nil, NewBidError(rs, "invalid baton id prefix: %s", val)
 	}
 
 	tType, val, err = rs.NextToken()
@@ -30,14 +28,14 @@ func Parse(bidStr string) (BID, error) {
 		return nil, err
 	}
 	if tType != literal {
-		return nil, fmt.Errorf("invalid baton id prefix: %s", val)
+		return nil, NewBidError(rs, "invalid baton id prefix: %s", val)
 	}
 	tType, _, err = rs.NextToken()
 	if err != nil {
 		return nil, err
 	}
 	if tType != colon {
-		return nil, fmt.Errorf("invalid baton id prefix: %s", val)
+		return nil, NewBidError(rs, "invalid baton id prefix: %s", val)
 	}
 
 	var rv BID
@@ -49,7 +47,7 @@ func Parse(bidStr string) (BID, error) {
 	case GrantBidPrefix:
 		rv, err = parseGrantPart(rs)
 	default:
-		return nil, fmt.Errorf("invalid baton id type: %s", val)
+		return nil, NewBidError(rs, "invalid baton id type: %s", val)
 	}
 	if err != nil {
 		return nil, err
@@ -60,7 +58,7 @@ func Parse(bidStr string) (BID, error) {
 		return nil, err
 	}
 	if tType != eof {
-		return nil, fmt.Errorf("invalid baton id: %s", bidStr)
+		return nil, NewBidError(rs, "invalid baton id: %s", bidStr)
 	}
 	return rv, nil
 }
@@ -85,7 +83,7 @@ func parseResourcePart(rs *bidScanner) (*v2.Resource, error) {
 			break
 		}
 		if tType != literal {
-			return nil, fmt.Errorf("invalid baton id resource part: %s %v %v", token, rs.str, rs.index)
+			return nil, NewBidError(rs, "invalid baton id resource part: %s %v %v", token, rs.str, rs.index)
 		}
 		// We just peeked the token and we want to use it in this case
 		err = rs.SkipToken()
@@ -102,7 +100,7 @@ func parseResourcePart(rs *bidScanner) (*v2.Resource, error) {
 			return nil, err
 		}
 		if tType != slash {
-			return nil, fmt.Errorf("invalid baton id resource part: %s", token)
+			return nil, NewBidError(rs, "invalid baton id resource part: %s", token)
 		}
 
 		// Resource id or parent resource id
@@ -111,7 +109,7 @@ func parseResourcePart(rs *bidScanner) (*v2.Resource, error) {
 			return nil, err
 		}
 		if tType != literal {
-			return nil, fmt.Errorf("invalid baton id resource part: %s", token)
+			return nil, NewBidError(rs, "invalid baton id resource part: %s", token)
 		}
 
 		tokens = append(tokens, token)
@@ -133,7 +131,7 @@ func parseResourcePart(rs *bidScanner) (*v2.Resource, error) {
 			return nil, err
 		}
 		if tType != literal {
-			return nil, fmt.Errorf("invalid baton id resource part: %s", rs.str)
+			return nil, NewBidError(rs, "invalid baton id resource part: %s", rs.str)
 		}
 	}
 
@@ -153,7 +151,7 @@ func parseResourcePart(rs *bidScanner) (*v2.Resource, error) {
 		return &v2.Resource{Id: resourceId}, nil
 	}
 
-	return nil, fmt.Errorf("invalid baton id resource part: %s", rs.str)
+	return nil, NewBidError(rs, "invalid baton id resource part: %s", rs.str)
 }
 
 func ParseResourceBid(bidStr string) (*v2.Resource, error) {
@@ -164,7 +162,7 @@ func ParseResourceBid(bidStr string) (*v2.Resource, error) {
 	if rv, ok := ret.(*v2.Resource); ok {
 		return rv, nil
 	}
-	return nil, fmt.Errorf("invalid baton id resource: %s", bidStr)
+	return nil, NewBidError(nil, "invalid baton id resource: %s", bidStr)
 }
 
 func parseEntitlementPart(rs *bidScanner) (*v2.Entitlement, error) {
@@ -180,7 +178,7 @@ func parseEntitlementPart(rs *bidScanner) (*v2.Entitlement, error) {
 		return nil, err
 	}
 	if tType != colon {
-		return nil, fmt.Errorf("invalid baton id entitlement part: %s", val)
+		return nil, NewBidError(rs, "invalid baton id entitlement part: %s", val)
 	}
 	// Get entitlement slug
 	tType, val, err = rs.NextToken()
@@ -188,7 +186,7 @@ func parseEntitlementPart(rs *bidScanner) (*v2.Entitlement, error) {
 		return nil, err
 	}
 	if tType != literal {
-		return nil, fmt.Errorf("invalid baton id entitlement part: %s", val)
+		return nil, NewBidError(rs, "invalid baton id entitlement part: %s", val)
 	}
 
 	return &v2.Entitlement{
@@ -205,7 +203,7 @@ func ParseEntitlementBid(bidStr string) (*v2.Entitlement, error) {
 	if rv, ok := ret.(*v2.Entitlement); ok {
 		return rv, nil
 	}
-	return nil, fmt.Errorf("invalid baton id entitlement: %s", bidStr)
+	return nil, NewBidError(nil, "invalid baton id entitlement: %s", bidStr)
 }
 
 func parseGrantPart(rs *bidScanner) (*v2.Grant, error) {
@@ -219,7 +217,7 @@ func parseGrantPart(rs *bidScanner) (*v2.Grant, error) {
 		return nil, err
 	}
 	if tType != colon {
-		return nil, fmt.Errorf("invalid baton id grant part: %s", val)
+		return nil, NewBidError(nil, "invalid baton id grant part: %s", val)
 	}
 
 	principal, err := parseResourcePart(rs)
@@ -241,5 +239,5 @@ func ParseGrantBid(bidStr string) (*v2.Grant, error) {
 	if rv, ok := ret.(*v2.Grant); ok {
 		return rv, nil
 	}
-	return nil, fmt.Errorf("invalid baton id grant: %s", bidStr)
+	return nil, NewBidError(nil, "invalid baton id grant: %s", bidStr)
 }

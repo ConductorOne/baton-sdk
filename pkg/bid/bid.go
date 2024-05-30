@@ -55,6 +55,24 @@ type BID interface {
 	GetAnnotations() []*anypb.Any
 }
 
+type BIDError struct {
+	Msg string
+	bs  *bidScanner
+}
+
+func (e *BIDError) Error() string {
+	if e.bs == nil || e.bs.index < 0 {
+		return fmt.Sprintf("error parsing baton id '%s': %s", e.bs.str, e.Msg)
+	}
+	// TODO: make a really cool multiline error message
+	return fmt.Sprintf("error parsing baton id '%s' at location %v: %s", e.bs.str, e.bs.index, e.Msg)
+}
+
+func NewBidError(bs *bidScanner, msg string, a ...any) *BIDError {
+	msg = fmt.Sprintf(msg, a...)
+	return &BIDError{Msg: msg, bs: bs}
+}
+
 func MakeBid(b BID) (string, error) {
 	switch bType := b.(type) {
 	case *v2.Resource:
@@ -64,7 +82,7 @@ func MakeBid(b BID) (string, error) {
 	case *v2.Grant:
 		return makeGrantBid(bType)
 	}
-	return "", fmt.Errorf("unknown bid type: %T", b)
+	return "", NewBidError(nil, "unknown bid type: %T", b)
 }
 
 func MustMakeBid(b BID) string {
@@ -88,7 +106,7 @@ func resourcePartToStr(r *v2.Resource) (string, error) {
 	resourceType := escapeParts(rid.GetResourceType())
 	resource := escapeParts(rid.GetResource())
 	if resourceType == "" || resource == "" {
-		return "", fmt.Errorf("resource type or id is empty")
+		return "", NewBidError(nil, "resource type or id is empty")
 	}
 	if r.ParentResourceId == nil {
 		return strings.Join([]string{resourceType, resource}, "/"), nil
@@ -98,7 +116,7 @@ func resourcePartToStr(r *v2.Resource) (string, error) {
 	parentResourceType := escapeParts(prid.GetResourceType())
 	parentResource := escapeParts(prid.GetResource())
 	if parentResourceType == "" || parentResource == "" {
-		return "", fmt.Errorf("parent resource type or id is empty")
+		return "", NewBidError(nil, "parent resource type or id is empty")
 	}
 
 	return strings.Join([]string{parentResourceType, parentResource, resourceType, resource}, "/"), nil
@@ -110,7 +128,7 @@ func entitlementPartToStr(e *v2.Entitlement) (string, error) {
 		return "", err
 	}
 	if e.Slug == "" {
-		return "", fmt.Errorf("entitlement slug is empty")
+		return "", NewBidError(nil, "entitlement slug is empty")
 	}
 
 	return strings.Join([]string{resourcePart, escapeParts(e.Slug)}, ":"), nil
