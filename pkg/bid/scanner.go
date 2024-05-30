@@ -8,10 +8,10 @@ import (
 type tokenType int
 
 const (
-	colon   tokenType = iota
-	slash   tokenType = iota
-	literal tokenType = iota
-	eof     tokenType = iota
+	colon tokenType = iota
+	slash
+	literal
+	eof
 )
 
 type bidScanner struct {
