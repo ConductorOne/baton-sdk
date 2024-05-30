@@ -57,20 +57,44 @@ type BID interface {
 
 type BIDError struct {
 	Msg string
+}
+
+type BIDStringError struct {
+	BIDError
+	Msg      string
+	resource BID
+}
+
+type BIDParseError struct {
+	BIDError
+	Msg string
 	bs  *bidScanner
 }
 
-func (e *BIDError) Error() string {
-	if e.bs == nil || e.bs.index < 0 {
-		return fmt.Sprintf("error parsing baton id '%s': %s", e.bs.str, e.Msg)
+func (e *BIDStringError) Error() string {
+	if e.resource == nil {
+		return fmt.Sprintf("error making baton id: %s", e.Msg)
 	}
-	// TODO: make a really cool multiline error message
-	return fmt.Sprintf("error parsing baton id '%s' at location %v: %s", e.bs.str, e.bs.index, e.Msg)
+	return fmt.Sprintf("error making baton id for resource %T %v: %s", e.resource, e.resource, e.Msg)
 }
 
-func NewBidError(bs *bidScanner, msg string, a ...any) *BIDError {
+func (e *BIDParseError) Error() string {
+	if e.bs == nil || e.bs.index < 0 {
+		return fmt.Sprintf("error parsing baton id: %s", e.Msg)
+	}
+	start := "error parsing baton id '"
+	pointer := strings.Repeat(" ", e.bs.index+len(start)) + "^"
+	return fmt.Sprintf("%s%s' at location %v: %s\n%s", start, e.bs.str, e.bs.index, e.Msg, pointer)
+}
+
+func NewBidStringError(resource BID, msg string, a ...any) *BIDStringError {
 	msg = fmt.Sprintf(msg, a...)
-	return &BIDError{Msg: msg, bs: bs}
+	return &BIDStringError{Msg: msg, resource: resource}
+}
+
+func NewBidParseError(bs *bidScanner, msg string, a ...any) *BIDParseError {
+	msg = fmt.Sprintf(msg, a...)
+	return &BIDParseError{Msg: msg, bs: bs}
 }
 
 func MakeBid(b BID) (string, error) {
@@ -82,7 +106,7 @@ func MakeBid(b BID) (string, error) {
 	case *v2.Grant:
 		return makeGrantBid(bType)
 	}
-	return "", NewBidError(nil, "unknown bid type: %T", b)
+	return "", NewBidStringError(b, "unknown bid type: %T", b)
 }
 
 func MustMakeBid(b BID) string {
@@ -103,20 +127,23 @@ func escapeParts(str string) string {
 
 func resourcePartToStr(r *v2.Resource) (string, error) {
 	rid := r.GetId()
+	if rid == nil {
+		return "", NewBidStringError(r, "resource id is nil")
+	}
 	resourceType := escapeParts(rid.GetResourceType())
 	resource := escapeParts(rid.GetResource())
 	if resourceType == "" || resource == "" {
-		return "", NewBidError(nil, "resource type or id is empty")
+		return "", NewBidStringError(r, "resource type or id is empty")
 	}
-	if r.ParentResourceId == nil {
+	prid := r.GetParentResourceId()
+	if prid == nil {
 		return strings.Join([]string{resourceType, resource}, "/"), nil
 	}
 
-	prid := r.GetParentResourceId()
 	parentResourceType := escapeParts(prid.GetResourceType())
 	parentResource := escapeParts(prid.GetResource())
 	if parentResourceType == "" || parentResource == "" {
-		return "", NewBidError(nil, "parent resource type or id is empty")
+		return "", NewBidStringError(r, "parent resource type or id is empty")
 	}
 
 	return strings.Join([]string{parentResourceType, parentResource, resourceType, resource}, "/"), nil
@@ -128,7 +155,7 @@ func entitlementPartToStr(e *v2.Entitlement) (string, error) {
 		return "", err
 	}
 	if e.Slug == "" {
-		return "", NewBidError(nil, "entitlement slug is empty")
+		return "", NewBidStringError(e, "entitlement slug is empty")
 	}
 
 	return strings.Join([]string{resourcePart, escapeParts(e.Slug)}, ":"), nil
