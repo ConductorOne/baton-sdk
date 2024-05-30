@@ -58,7 +58,7 @@ func resourcePartToStr(r *v2.Resource) (string, error) {
 		return "", fmt.Errorf("resource type or id is empty")
 	}
 	if r.ParentResourceId == nil {
-		return fmt.Sprintf("%s/%s", resourceType, resource), nil
+		return strings.Join([]string{resourceType, resource}, "/"), nil
 	}
 
 	prid := r.GetParentResourceId()
@@ -68,7 +68,7 @@ func resourcePartToStr(r *v2.Resource) (string, error) {
 		return "", fmt.Errorf("parent resource type or id is empty")
 	}
 
-	return fmt.Sprintf("%s/%s/%s/%s", parentResourceType, parentResource, resourceType, resource), nil
+	return strings.Join([]string{parentResourceType, parentResource, resourceType, resource}, "/"), nil
 }
 
 func entitlementPartToStr(e *v2.Entitlement) (string, error) {
@@ -79,7 +79,8 @@ func entitlementPartToStr(e *v2.Entitlement) (string, error) {
 	if e.Slug == "" {
 		return "", fmt.Errorf("entitlement slug is empty")
 	}
-	return fmt.Sprintf("%s:%s", resourcePart, escapeParts(e.Slug)), nil
+
+	return strings.Join([]string{resourcePart, escapeParts(e.Slug)}, ":"), nil
 }
 
 func makeResourceBid(r *v2.Resource) (string, error) {
@@ -87,7 +88,8 @@ func makeResourceBid(r *v2.Resource) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return BidPrefix + ":" + ResourceBidPrefix + ":" + resourcePart, nil
+
+	return strings.Join([]string{BidPrefix, ResourceBidPrefix, resourcePart}, ":"), nil
 }
 
 func makeEntitlementBid(e *v2.Entitlement) (string, error) {
@@ -96,7 +98,7 @@ func makeEntitlementBid(e *v2.Entitlement) (string, error) {
 		return "", err
 	}
 
-	return BidPrefix + ":" + EntitlementBidPrefix + ":" + entitlementPart, nil
+	return strings.Join([]string{BidPrefix, EntitlementBidPrefix, entitlementPart}, ":"), nil
 }
 
 func makeGrantBid(g *v2.Grant) (string, error) {
@@ -109,5 +111,5 @@ func makeGrantBid(g *v2.Grant) (string, error) {
 		return "", err
 	}
 
-	return BidPrefix + ":" + GrantBidPrefix + ":" + fmt.Sprintf("%s:%s", entitlementPart, principalPart), nil
+	return strings.Join([]string{BidPrefix, GrantBidPrefix, entitlementPart, principalPart}, ":"), nil
 }
