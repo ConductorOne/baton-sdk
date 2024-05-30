@@ -6,7 +6,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-func ParseBid(bidStr string) (BID, error) {
+func Parse(bidStr string) (BID, error) {
 	rs := &bidScanner{str: bidStr}
 
 	tType, val, err := rs.NextToken()
@@ -157,7 +157,7 @@ func parseResourcePart(rs *bidScanner) (*v2.Resource, error) {
 }
 
 func ParseResourceBid(bidStr string) (*v2.Resource, error) {
-	ret, err := ParseBid(bidStr)
+	ret, err := Parse(bidStr)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func parseEntitlementPart(rs *bidScanner) (*v2.Entitlement, error) {
 }
 
 func ParseEntitlementBid(bidStr string) (*v2.Entitlement, error) {
-	ret, err := ParseBid(bidStr)
+	ret, err := Parse(bidStr)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +234,7 @@ func parseGrantPart(rs *bidScanner) (*v2.Grant, error) {
 }
 
 func ParseGrantBid(bidStr string) (*v2.Grant, error) {
-	ret, err := ParseBid(bidStr)
+	ret, err := Parse(bidStr)
 	if err != nil {
 		return nil, err
 	}

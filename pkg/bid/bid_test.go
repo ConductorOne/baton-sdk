@@ -79,19 +79,19 @@ func TestParseBid(t *testing.T) {
 	opts := []cmp.Option{protocmp.Transform()}
 
 	for bid, resource := range bidsToResources {
-		r, err := ParseBid(bid)
+		r, err := Parse(bid)
 		require.NoError(t, err, bid)
 		diff := cmp.Diff(resource, r, opts...)
 		require.Empty(t, diff, bid)
 	}
 	for bid, entitlement := range bidsToEntitlements {
-		e, err := ParseBid(bid)
+		e, err := Parse(bid)
 		require.NoError(t, err, bid)
 		diff := cmp.Diff(entitlement, e, opts...)
 		require.Empty(t, diff, bid)
 	}
 	for bid, grant := range bidsToGrants {
-		g, err := ParseBid(bid)
+		g, err := Parse(bid)
 		require.NoError(t, err, bid)
 		diff := cmp.Diff(grant, g, opts...)
 		require.Empty(t, diff, bid)
