@@ -29,7 +29,7 @@ func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
 
 	t := c.task.GetCreateTicketTask()
 	if t == nil || t.GetTicketRequest() == nil {
-		l.Error("create ticket task was nil or missing ticket request", zap.Any("create_resource_task", t))
+		l.Error("create ticket task was nil or missing ticket request", zap.Any("create_ticket_task", t))
 		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed create ticket task"), ErrTaskNonRetryable))
 	}
 
