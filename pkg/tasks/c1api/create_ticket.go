@@ -30,7 +30,7 @@ func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
 	t := c.task.GetCreateTicketTask()
 	if t == nil || t.GetTicketRequest() == nil {
 		l.Error("create ticket task was nil or missing ticket request", zap.Any("create_ticket_task", t))
-		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed create ticket task"), ErrTaskNonRetryable))
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), errors.Join(errors.New("malformed create ticket task"), ErrTaskNonRetryable))
 	}
 
 	cc := c.helpers.ConnectorClient()
@@ -41,7 +41,7 @@ func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
 	})
 	if err != nil {
 		l.Error("failed creating ticket", zap.Error(err))
-		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), err)
 	}
 
 	respAnnos := annotations.Annotations(resp.GetAnnotations())

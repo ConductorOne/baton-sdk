@@ -39,10 +39,11 @@ func (c *getTicketTaskHandler) HandleTask(ctx context.Context) error {
 		Id: t.GetTicketId(),
 	})
 	if err != nil {
-		return err
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), err)
 	}
 
 	if ticket.GetTicket() == nil {
+		// TODO(lauren) should this use finish task? 
 		return fmt.Errorf("connector returned empty ticket")
 	}
 
