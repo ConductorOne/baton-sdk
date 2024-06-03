@@ -49,7 +49,7 @@ func (c *C1File) ListResourceTypes(ctx context.Context, request *v2.ResourceType
 
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, resourceTypes.Name(), request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error listing resource types: %w", err)
 	}
 
 	ret := make([]*v2.ResourceType, 0, len(objs))
@@ -75,7 +75,7 @@ func (c *C1File) GetResourceType(ctx context.Context, request *reader_v2.Resourc
 
 	err := c.getConnectorObject(ctx, resourceTypes.Name(), request.ResourceTypeId, ret)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error fetching resource type '%s': %w", request.ResourceTypeId, err)
 	}
 
 	return &reader_v2.ResourceTypesReaderServiceGetResourceTypeResponse{

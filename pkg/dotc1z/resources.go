@@ -61,7 +61,7 @@ func (c *C1File) ListResources(ctx context.Context, request *v2.ResourcesService
 
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, resources.Name(), request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error listing resources: %w", err)
 	}
 
 	ret := make([]*v2.Resource, 0, len(objs))
@@ -98,7 +98,7 @@ func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourcesRe
 
 	err := c.getResourceObject(ctx, request.ResourceId, ret, syncID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error fetching resource '%s': %w", request.ResourceId, err)
 	}
 
 	return &reader_v2.ResourcesReaderServiceGetResourceResponse{

@@ -54,7 +54,7 @@ func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsS
 	ctxzap.Extract(ctx).Debug("listing entitlements")
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, entitlements.Name(), request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error listing entitlements: %w", err)
 	}
 
 	ret := make([]*v2.Entitlement, 0, len(objs))
@@ -80,7 +80,7 @@ func (c *C1File) GetEntitlement(ctx context.Context, request *reader_v2.Entitlem
 
 	err := c.getConnectorObject(ctx, entitlements.Name(), request.EntitlementId, ret)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error fetching entitlement '%s': %w", request.EntitlementId, err)
 	}
 
 	return &reader_v2.EntitlementsReaderServiceGetEntitlementResponse{
