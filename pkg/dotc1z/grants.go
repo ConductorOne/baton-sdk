@@ -64,7 +64,7 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error listing grants: %w", err)
 	}
 
 	ret := make([]*v2.Grant, 0, len(objs))
@@ -90,7 +90,7 @@ func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderSe
 
 	err := c.getConnectorObject(ctx, grants.Name(), request.GrantId, ret)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error fetching grant '%s': %w", request.GetGrantId(), err)
 	}
 
 	return &reader_v2.GrantsReaderServiceGetGrantResponse{
@@ -102,11 +102,11 @@ func (c *C1File) ListGrantsForEntitlement(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
-	ctxzap.Extract(ctx).Debug("listing grants for entitlement")
+	ctxzap.Extract(ctx).Debug("listing grants for entitlement", zap.Any("entitlement", request.Entitlement))
 
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
 	}
 
 	ret := make([]*v2.Grant, 0, len(objs))
@@ -129,11 +129,11 @@ func (c *C1File) ListGrantsForPrincipal(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
-	ctxzap.Extract(ctx).Debug("listing grants for entitlement")
+	ctxzap.Extract(ctx).Debug("listing grants for principal", zap.Any("principal", request.GetPrincipalId()))
 
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err)
 	}
 
 	ret := make([]*v2.Grant, 0, len(objs))
@@ -156,11 +156,11 @@ func (c *C1File) ListGrantsForResourceType(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse, error) {
-	ctxzap.Extract(ctx).Debug("listing grants for resource type")
+	ctxzap.Extract(ctx).Debug("listing grants for resource type", zap.String("resource_type_id", request.GetResourceTypeId()))
 
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error listing grants for resource type '%s': %w", request.GetResourceTypeId(), err)
 	}
 
 	ret := make([]*v2.Grant, 0, len(objs))
