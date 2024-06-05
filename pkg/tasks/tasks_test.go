@@ -4,12 +4,13 @@ import (
 	"testing"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
+	taskTypes "github.com/conductorone/baton-sdk/pkg/types/tasks"
 )
 
 func TestIs(t *testing.T) {
 	type args struct {
 		task   *v1.Task
-		target TaskType
+		target taskTypes.TaskType
 	}
 	tests := []struct {
 		name string
@@ -20,7 +21,7 @@ func TestIs(t *testing.T) {
 			name: "nil task",
 			args: args{
 				task:   nil,
-				target: FullSyncType,
+				target: taskTypes.FullSyncType,
 			},
 			want: false,
 		},
@@ -30,7 +31,7 @@ func TestIs(t *testing.T) {
 				task: &v1.Task{
 					TaskType: nil,
 				},
-				target: FullSyncType,
+				target: taskTypes.FullSyncType,
 			},
 			want: false,
 		},
@@ -42,7 +43,7 @@ func TestIs(t *testing.T) {
 						SyncFull: &v1.Task_SyncFullTask{},
 					},
 				},
-				target: FullSyncType,
+				target: taskTypes.FullSyncType,
 			},
 			want: true,
 		},
@@ -54,7 +55,7 @@ func TestIs(t *testing.T) {
 						Grant: &v1.Task_GrantTask{},
 					},
 				},
-				target: GrantType,
+				target: taskTypes.GrantType,
 			},
 			want: true,
 		},
@@ -66,7 +67,7 @@ func TestIs(t *testing.T) {
 						Revoke: &v1.Task_RevokeTask{},
 					},
 				},
-				target: RevokeType,
+				target: taskTypes.RevokeType,
 			},
 			want: true,
 		},
@@ -78,7 +79,7 @@ func TestIs(t *testing.T) {
 						Hello: &v1.Task_HelloTask{},
 					},
 				},
-				target: HelloType,
+				target: taskTypes.HelloType,
 			},
 			want: true,
 		},
@@ -90,7 +91,7 @@ func TestIs(t *testing.T) {
 						None: &v1.Task_NoneTask{},
 					},
 				},
-				target: NoneType,
+				target: taskTypes.NoneType,
 			},
 			want: true,
 		},
@@ -111,14 +112,14 @@ func TestGetType(t *testing.T) {
 	tests := []struct {
 		name string
 		args args
-		want TaskType
+		want taskTypes.TaskType
 	}{
 		{
 			name: "nil task",
 			args: args{
 				task: nil,
 			},
-			want: UnknownType,
+			want: taskTypes.UnknownType,
 		},
 		{
 			name: "nil task type",
@@ -127,7 +128,7 @@ func TestGetType(t *testing.T) {
 					TaskType: nil,
 				},
 			},
-			want: UnknownType,
+			want: taskTypes.UnknownType,
 		},
 		{
 			name: "full sync",
@@ -138,7 +139,7 @@ func TestGetType(t *testing.T) {
 					},
 				},
 			},
-			want: FullSyncType,
+			want: taskTypes.FullSyncType,
 		},
 		{
 			name: "grant",
@@ -149,7 +150,7 @@ func TestGetType(t *testing.T) {
 					},
 				},
 			},
-			want: GrantType,
+			want: taskTypes.GrantType,
 		},
 		{
 			name: "revoke",
@@ -160,7 +161,7 @@ func TestGetType(t *testing.T) {
 					},
 				},
 			},
-			want: RevokeType,
+			want: taskTypes.RevokeType,
 		},
 		{
 			name: "hello",
@@ -171,7 +172,7 @@ func TestGetType(t *testing.T) {
 					},
 				},
 			},
-			want: HelloType,
+			want: taskTypes.HelloType,
 		},
 		{
 			name: "none",
@@ -182,7 +183,7 @@ func TestGetType(t *testing.T) {
 					},
 				},
 			},
-			want: NoneType,
+			want: taskTypes.NoneType,
 		},
 	}
 	for _, tt := range tests {
