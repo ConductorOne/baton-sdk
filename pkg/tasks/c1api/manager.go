@@ -20,6 +20,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	taskTypes "github.com/conductorone/baton-sdk/pkg/types/tasks"
 )
 
 var (
@@ -112,7 +113,7 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 	nextPoll := getNextPoll(resp.GetNextPoll().AsDuration())
 	l = l.With(zap.Duration("next_poll", nextPoll))
 
-	if resp.GetTask() == nil || tasks.Is(resp.GetTask(), tasks.NoneType) {
+	if resp.GetTask() == nil || tasks.Is(resp.GetTask(), taskTypes.NoneType) {
 		l.Debug("c1_api_task_manager.Next(): no tasks available")
 		return nil, nextPoll, nil
 	}
@@ -220,34 +221,34 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	// Handlers may do their work in a goroutine allowing processing to move onto the next task
 	var handler tasks.TaskHandler
 	switch tasks.GetType(task) {
-	case tasks.FullSyncType:
+	case taskTypes.FullSyncType:
 		handler = newFullSyncTaskHandler(task, tHelpers)
 
-	case tasks.HelloType:
+	case taskTypes.HelloType:
 		handler = newHelloTaskHandler(task, tHelpers)
 
-	case tasks.GrantType:
+	case taskTypes.GrantType:
 		handler = newGrantTaskHandler(task, tHelpers)
 
-	case tasks.RevokeType:
+	case taskTypes.RevokeType:
 		handler = newRevokeTaskHandler(task, tHelpers)
 
-	case tasks.CreateAccountType:
+	case taskTypes.CreateAccountType:
 		handler = newCreateAccountTaskHandler(task, tHelpers)
 
-	case tasks.CreateResourceType:
+	case taskTypes.CreateResourceType:
 		handler = newCreateResourceTaskHandler(task, tHelpers)
 
-	case tasks.DeleteResourceType:
+	case taskTypes.DeleteResourceType:
 		handler = newDeleteResourceTaskHandler(task, tHelpers)
 
-	case tasks.RotateCredentialsType:
+	case taskTypes.RotateCredentialsType:
 		handler = newRotateCredentialsTaskHandler(task, tHelpers)
-	case tasks.CreateTicketType:
+	case taskTypes.CreateTicketType:
 		handler = newCreateTicketTaskHandler(task, tHelpers)
-	case tasks.ListTicketSchemasType:
+	case taskTypes.ListTicketSchemasType:
 		handler = newListSchemasTaskHandler(task, tHelpers)
-	case tasks.GetTicketType:
+	case taskTypes.GetTicketType:
 		handler = newGetTicketTaskHandler(task, tHelpers)
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
