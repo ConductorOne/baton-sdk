@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/conductorone/baton-sdk/pkg/tasks"
+	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 )
 
 const (

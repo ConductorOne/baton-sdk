@@ -6,6 +6,7 @@ import (
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	taskTypes "github.com/conductorone/baton-sdk/pkg/types/tasks"
 )
 
 type Manager interface {
@@ -17,80 +18,7 @@ type TaskHandler interface {
 	HandleTask(ctx context.Context) error
 }
 
-type TaskType uint8
-
-func (tt TaskType) String() string {
-	switch tt {
-	case FullSyncType:
-		return "sync_full"
-	case GrantType:
-		return "grant"
-	case RevokeType:
-		return "revoke"
-	case HelloType:
-		return "hello"
-	case EventFeedType:
-		return "event_feed"
-	case NoneType:
-		return "none"
-	case CreateAccountType:
-		return "create_account"
-	case CreateResourceType:
-		return "create_resource"
-	case DeleteResourceType:
-		return "delete_resource"
-	case RotateCredentialsType:
-		return "rotate_credential"
-	case CreateTicketType:
-		return "create_ticket"
-	case ListTicketSchemasType:
-		return "list_ticket_schemas"
-	case GetTicketType:
-		return "get_ticket"
-	case GetTicketSchemaType:
-		return "get_ticket_schema"
-	case ListResourceTypesType:
-		return "list_resource_types"
-	case ListResourcesType:
-		return "list_resources"
-	case ListEntitlementsType:
-		return "list_entitlements"
-	case ListGrantsType:
-		return "list_grants"
-	case GetMetadataType:
-		return "get_metadata"
-	case ListEventsType:
-		return "list_events"
-	default:
-		return "unknown"
-	}
-}
-
-const (
-	UnknownType TaskType = iota
-	NoneType
-	FullSyncType
-	GrantType
-	RevokeType
-	HelloType
-	CreateAccountType
-	CreateResourceType
-	DeleteResourceType
-	RotateCredentialsType
-	EventFeedType
-	CreateTicketType
-	ListTicketSchemasType
-	GetTicketType
-	GetTicketSchemaType
-	ListResourceTypesType
-	ListResourcesType
-	ListEntitlementsType
-	ListGrantsType
-	GetMetadataType
-	ListEventsType
-)
-
-func Is(task *v1.Task, target TaskType) bool {
+func Is(task *v1.Task, target taskTypes.TaskType) bool {
 	if task == nil || task.TaskType == nil {
 		return false
 	}
@@ -98,31 +26,31 @@ func Is(task *v1.Task, target TaskType) bool {
 	var ok bool
 
 	switch target {
-	case FullSyncType:
+	case taskTypes.FullSyncType:
 		_, ok = task.GetTaskType().(*v1.Task_SyncFull)
-	case GrantType:
+	case taskTypes.GrantType:
 		_, ok = task.GetTaskType().(*v1.Task_Grant)
-	case RevokeType:
+	case taskTypes.RevokeType:
 		_, ok = task.GetTaskType().(*v1.Task_Revoke)
-	case HelloType:
+	case taskTypes.HelloType:
 		_, ok = task.GetTaskType().(*v1.Task_Hello)
-	case EventFeedType:
+	case taskTypes.EventFeedType:
 		_, ok = task.GetTaskType().(*v1.Task_EventFeed)
-	case NoneType:
+	case taskTypes.NoneType:
 		_, ok = task.GetTaskType().(*v1.Task_None)
-	case CreateAccountType:
+	case taskTypes.CreateAccountType:
 		_, ok = task.GetTaskType().(*v1.Task_CreateAccount)
-	case CreateResourceType:
+	case taskTypes.CreateResourceType:
 		_, ok = task.GetTaskType().(*v1.Task_CreateResource)
-	case DeleteResourceType:
+	case taskTypes.DeleteResourceType:
 		_, ok = task.GetTaskType().(*v1.Task_DeleteResource)
-	case RotateCredentialsType:
+	case taskTypes.RotateCredentialsType:
 		_, ok = task.GetTaskType().(*v1.Task_RotateCredentials)
-	case CreateTicketType:
+	case taskTypes.CreateTicketType:
 		_, ok = task.GetTaskType().(*v1.Task_CreateTicketTask_)
-	case ListTicketSchemasType:
+	case taskTypes.ListTicketSchemasType:
 		_, ok = task.GetTaskType().(*v1.Task_ListTicketSchemas)
-	case GetTicketType:
+	case taskTypes.GetTicketType:
 		_, ok = task.GetTaskType().(*v1.Task_GetTicket)
 	default:
 		return false
@@ -131,39 +59,39 @@ func Is(task *v1.Task, target TaskType) bool {
 	return ok
 }
 
-func GetType(task *v1.Task) TaskType {
+func GetType(task *v1.Task) taskTypes.TaskType {
 	if task == nil || task.TaskType == nil {
-		return UnknownType
+		return taskTypes.UnknownType
 	}
 
 	switch task.GetTaskType().(type) {
 	case *v1.Task_SyncFull:
-		return FullSyncType
+		return taskTypes.FullSyncType
 	case *v1.Task_Grant:
-		return GrantType
+		return taskTypes.GrantType
 	case *v1.Task_Revoke:
-		return RevokeType
+		return taskTypes.RevokeType
 	case *v1.Task_Hello:
-		return HelloType
+		return taskTypes.HelloType
 	case *v1.Task_EventFeed:
-		return EventFeedType
+		return taskTypes.EventFeedType
 	case *v1.Task_None:
-		return NoneType
+		return taskTypes.NoneType
 	case *v1.Task_CreateAccount:
-		return CreateAccountType
+		return taskTypes.CreateAccountType
 	case *v1.Task_CreateResource:
-		return CreateResourceType
+		return taskTypes.CreateResourceType
 	case *v1.Task_DeleteResource:
-		return DeleteResourceType
+		return taskTypes.DeleteResourceType
 	case *v1.Task_RotateCredentials:
-		return RotateCredentialsType
+		return taskTypes.RotateCredentialsType
 	case *v1.Task_CreateTicketTask_:
-		return CreateTicketType
+		return taskTypes.CreateTicketType
 	case *v1.Task_ListTicketSchemas:
-		return ListTicketSchemasType
+		return taskTypes.ListTicketSchemasType
 	case *v1.Task_GetTicket:
-		return GetTicketType
+		return taskTypes.GetTicketType
 	default:
-		return UnknownType
+		return taskTypes.UnknownType
 	}
 }
