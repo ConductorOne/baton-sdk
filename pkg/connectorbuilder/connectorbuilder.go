@@ -399,10 +399,11 @@ func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.Entitlem
 func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	start := b.nowFunc()
 	tt := tasks.ListGrantsType
-	rb, ok := b.resourceBuilders[request.Resource.Id.ResourceType]
+	rid := request.Resource.Id
+	rb, ok := b.resourceBuilders[rid.ResourceType]
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: list entitlements with unknown resource type %s", request.Resource.Id.ResourceType)
+		return nil, fmt.Errorf("error: list entitlements with unknown resource type %s", rid.ResourceType)
 	}
 
 	out, nextPageToken, annos, err := rb.Grants(ctx, request.Resource, &pagination.Token{
@@ -411,11 +412,13 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 	})
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: listing grants failed: %w", err)
+		return nil, fmt.Errorf("error: listing grants for resource %s/%s failed: %w", rid.ResourceType, rid.Resource, err)
 	}
 	if request.PageToken != "" && request.PageToken == nextPageToken {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: listing grants failed: next page token is the same as the current page token. this is most likely a connector bug")
+		return nil, fmt.Errorf("error: listing grants for resource %s/%s failed: next page token is the same as the current page token. this is most likely a connector bug",
+			rid.ResourceType,
+			rid.Resource)
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
