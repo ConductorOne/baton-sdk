@@ -389,15 +389,15 @@ func (g *EntitlementGraph) FixCycles() error {
 	prevCycleCount := 0
 	for i := 0; i < maxTries; i++ {
 		cycles, hasCycles := g.GetCycles()
+		if !hasCycles {
+			return nil
+		}
 		cycleCount := len(cycles)
 		if cycleCount < prevCycleCount {
 			// Reset the number of tries if we made progress
 			i = 0
 		}
 		prevCycleCount = cycleCount
-		if !hasCycles {
-			return nil
-		}
 
 		// Merge all the nodes in a cycle.
 		for i := 1; i < len(cycles[0]); i++ {
