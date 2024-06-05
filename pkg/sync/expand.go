@@ -386,11 +386,18 @@ func (g *EntitlementGraph) mergeNodes(node1ID int, node2ID int) {
 func (g *EntitlementGraph) FixCycles() error {
 	// If we can't fix the cycles in 10 tries, just give up
 	const maxTries = 10
+	prevCycleCount := 0
 	for i := 0; i < maxTries; i++ {
 		cycles, hasCycles := g.GetCycles()
 		if !hasCycles {
 			return nil
 		}
+		cycleCount := len(cycles)
+		if cycleCount < prevCycleCount {
+			// Reset the number of tries if we made progress
+			i = 0
+		}
+		prevCycleCount = cycleCount
 
 		// Merge all the nodes in a cycle.
 		for i := 1; i < len(cycles[0]); i++ {
