@@ -13,7 +13,7 @@ To get an overview of the project, read the [README](./README.md). Here are some
 ### Where are things?
 
 The Baton project lives over multiple git repositories.  To get started:
-- [baton-sdk](https://github.com/ConductorOne/baton-sdk): Primary SDK library, which contains many core behavoirs, data strcutures, and utilities. 
+- [baton-sdk](https://github.com/ConductorOne/baton-sdk): Primary SDK library, which contains many core behaviors, data structures, and utilities. 
 - [baton-cli](https://github.com/ConductorOne/baton-cli): Baton Command Line tool, which can be used to explore data extracted by a connector.
 - `baton-X`, where X is a specific connector.  For example [baton-github](https://github.com/ConductorOne/baton-github) contains the implementation of a GitHub connector.  It leverages the `baton-sdk` repository as a dependency.
 

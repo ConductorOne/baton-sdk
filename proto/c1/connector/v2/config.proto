@@ -70,9 +70,9 @@ message FileField {
 
 // TWO types of oauth2 flows:
 // GlobalOAuth2
-// we configure the client_id with the target saas -> an ennum?
+// we configure the client_id with the target saas -> an enum?
 
 // LATER:
-// Customer providerd OAuth2 ->
+// Customer provided OAuth2 ->
 // same flow component, but client_id, client_secret, are provided as input
 // and issuer / token URL /etc
