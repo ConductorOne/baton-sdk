@@ -1,4 +1,4 @@
-package sync
+package entitlements_graph
 
 import (
 	"context"
@@ -28,7 +28,7 @@ func TestGetDescendants(t *testing.T) {
 	require.NoError(t, err)
 
 	descendantEntitlements := graph.GetDescendantEntitlements("1")
-	expectedEntitlements := map[string]*grantInfo{
+	expectedEntitlements := map[string]*GrantInfo{
 		"2": {
 			Expanded:        false,
 			Shallow:         false,

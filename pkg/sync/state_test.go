@@ -2,12 +2,13 @@ package sync
 
 import (
 	"context"
+	"github.com/conductorone/baton-sdk/pkg/sync/action"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func compareSyncerState(t *testing.T, expected Action, actual *Action) {
+func compareSyncerState(t *testing.T, expected action.Action, actual *action.Action) {
 	require.NotNil(t, actual)
 	require.Equal(t, expected.Op, actual.Op)
 	require.Equal(t, expected.PageToken, actual.PageToken)
@@ -17,10 +18,10 @@ func compareSyncerState(t *testing.T, expected Action, actual *Action) {
 
 func TestSyncerToken(t *testing.T) {
 	st := &state{}
-	op1 := Action{Op: InitOp, PageToken: ""}
-	op2 := Action{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"}
-	op3 := Action{Op: SyncEntitlementsOp, PageToken: "1234", ResourceTypeID: "repo", ResourceID: "repo42"}
-	op4 := Action{Op: SyncEntitlementsOp, PageToken: "5678", ResourceTypeID: "repo", ResourceID: "repo42"}
+	op1 := action.Action{Op: action.InitOp, PageToken: ""}
+	op2 := action.Action{Op: action.SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"}
+	op3 := action.Action{Op: action.SyncEntitlementsOp, PageToken: "1234", ResourceTypeID: "repo", ResourceID: "repo42"}
+	op4 := action.Action{Op: action.SyncEntitlementsOp, PageToken: "5678", ResourceTypeID: "repo", ResourceID: "repo42"}
 
 	st.push(op1)
 	compareSyncerState(t, op1, st.Current())
@@ -65,11 +66,11 @@ func TestSyncerToken(t *testing.T) {
 
 func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 	st := &state{}
-	states := []Action{
-		{Op: InitOp, PageToken: ""},
-		{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"},
-		{Op: SyncEntitlementsOp, PageToken: "1234", ResourceTypeID: "repo", ResourceID: "repo42"},
-		{Op: SyncEntitlementsOp, PageToken: "5678", ResourceTypeID: "repo", ResourceID: "repo42"},
+	states := []action.Action{
+		{Op: action.InitOp, PageToken: ""},
+		{Op: action.SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"},
+		{Op: action.SyncEntitlementsOp, PageToken: "1234", ResourceTypeID: "repo", ResourceID: "repo42"},
+		{Op: action.SyncEntitlementsOp, PageToken: "5678", ResourceTypeID: "repo", ResourceID: "repo42"},
 	}
 
 	for _, s := range states {
@@ -94,7 +95,7 @@ func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 
 func TestSyncerTokenUnmarshalEmptyString(t *testing.T) {
 	st := &state{}
-	op1 := Action{Op: InitOp}
+	op1 := action.Action{Op: action.InitOp}
 
 	err := st.Unmarshal("")
 	require.NoError(t, err)
@@ -106,8 +107,8 @@ func TestSyncerTokenUnmarshalEmptyString(t *testing.T) {
 func TestSyncerTokenNextPage(t *testing.T) {
 	ctx := context.Background()
 	st := &state{}
-	op1 := Action{Op: InitOp}
-	op2 := Action{Op: InitOp, PageToken: "next-page"}
+	op1 := action.Action{Op: action.InitOp}
+	op2 := action.Action{Op: action.InitOp, PageToken: "next-page"}
 
 	st.PushAction(ctx, op1)
 	compareSyncerState(t, op1, st.Current())

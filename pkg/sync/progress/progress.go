@@ -1,4 +1,6 @@
-package sync
+package progress
+
+import "github.com/conductorone/baton-sdk/pkg/sync/action"
 
 type Progress struct {
 	Action               string
@@ -9,7 +11,7 @@ type Progress struct {
 	Count                uint32
 }
 
-func NewProgress(a *Action, c uint32) *Progress {
+func New(a *action.Action, c uint32) *Progress {
 	if a == nil {
 		return &Progress{}
 	}
