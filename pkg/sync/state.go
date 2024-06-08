@@ -52,12 +52,12 @@ func (s ActionOp) String() string {
 	}
 }
 
-// MarshalJSON marshals the ActionOp insto a json string.
+// MarshalJSON marshals the ActionOp into a json string.
 func (s *ActionOp) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.String())
 }
 
-// UnmarshalJSON unmarshal's the input byte slice and updates this action op.
+// UnmarshalJSON unmarshals the input byte slice and updates this action op.
 func (s *ActionOp) UnmarshalJSON(data []byte) error {
 	var v string
 	err := json.Unmarshal(data, &v)
@@ -132,7 +132,7 @@ type serializedToken struct {
 }
 
 // push adds a new action to the stack. If there is no current state, the action is directly set to current, else
-// the current state is appened to the slice of actions, and the new action is set to current.
+// the current state is appended to the slice of actions, and the new action is set to current.
 func (st *state) push(action Action) {
 	st.mtx.Lock()
 	defer st.mtx.Unlock()
