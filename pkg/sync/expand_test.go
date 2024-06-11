@@ -63,7 +63,7 @@ func createExpectedEntitlementsMap(input string) map[string]*grantInfo {
 }
 
 func createNodeIDList(input string) [][]int {
-	nodeIds := make([][]int, 0)
+	nodeIDs := make([][]int, 0)
 	expressions := strings.Split(input, string(separatorNext))
 	for _, expression := range expressions {
 		ids := strings.Split(expression, string(separatorList))
@@ -77,11 +77,10 @@ func createNodeIDList(input string) [][]int {
 			}
 		}
 		if len(nextRow) > 0 {
-			nodeIds = append(nodeIds, nextRow)
+			nodeIDs = append(nodeIDs, nextRow)
 		}
-
 	}
-	return nodeIds
+	return nodeIDs
 }
 
 func TestGetDescendants(t *testing.T) {
@@ -142,7 +141,7 @@ func TestHandleCycle(t *testing.T) {
 		message        string
 	}{
 		{"1>2>3>4 4>2", "2,3,4", "example"},
-		//{"1>1 2", "1", "simplest"}, // TODO(marcos): Fix this test!
+		// {"1>1 2", "1", "simplest"}, // TODO(marcos): Fix this test!
 		{"1>2 2>1", "1,2", "simple"},
 		{"1>2 2>1 3>4 4>3", "1,2 3,4", "two cycles"},
 	}
