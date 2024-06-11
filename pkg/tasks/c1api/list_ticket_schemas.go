@@ -60,8 +60,7 @@ func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
 
 	if err != nil {
 		l.Error("failed listing ticket schemas", zap.Error(err))
-		// TODO(lauren) should this be retryable?
-		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))
+		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
 	resp := &v2.TicketsServiceListTicketSchemasResponse{
