@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.53.1
 	github.com/aws/aws-sdk-go-v2/service/sts v1.28.6
 	github.com/aws/smithy-go v1.20.2
+	github.com/deckarep/golang-set/v2 v2.6.0
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/envoyproxy/protoc-gen-validate v1.0.4
 	github.com/glebarez/go-sqlite v1.22.0
@@ -26,6 +27,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.9.0
+	go.opentelemetry.io/otel v1.27.0
 	go.opentelemetry.io/otel/metric v1.27.0
 	go.uber.org/ratelimit v0.3.1
 	go.uber.org/zap v1.27.0
@@ -83,7 +85,6 @@ require (
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
 	github.com/tklauser/numcpus v0.8.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	go.opentelemetry.io/otel v1.27.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
