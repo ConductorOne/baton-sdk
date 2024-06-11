@@ -4,12 +4,11 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/doug-martin/goqu/v9"
+	"google.golang.org/protobuf/proto"
+
 	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/doug-martin/goqu/v9"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -57,8 +56,6 @@ func (r *resourcesTable) Schema() (string, []interface{}) {
 }
 
 func (c *C1File) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
-	ctxzap.Extract(ctx).Debug("listing resources")
-
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, resources.Name(), request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing resources: %w", err)
@@ -81,12 +78,6 @@ func (c *C1File) ListResources(ctx context.Context, request *v2.ResourcesService
 }
 
 func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourcesReaderServiceGetResourceRequest) (*reader_v2.ResourcesReaderServiceGetResourceResponse, error) {
-	ctxzap.Extract(ctx).Debug(
-		"fetching resource",
-		zap.String("resource_id", request.ResourceId.Resource),
-		zap.String("resource_type_id", request.ResourceId.ResourceType),
-	)
-
 	ret := &v2.Resource{}
 	annos := annotations.Annotations(request.GetAnnotations())
 	syncDetails := &c1zpb.SyncDetails{}
@@ -107,12 +98,6 @@ func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourcesRe
 }
 
 func (c *C1File) PutResource(ctx context.Context, resource *v2.Resource) error {
-	ctxzap.Extract(ctx).Debug(
-		"syncing resource",
-		zap.String("resource_id", resource.Id.Resource),
-		zap.String("resource_type_id", resource.Id.ResourceType),
-	)
-
 	updateRecord := goqu.Record{
 		"resource_type_id": resource.Id.ResourceType,
 		"external_id":      fmt.Sprintf("%s:%s", resource.Id.ResourceType, resource.Id.Resource),
