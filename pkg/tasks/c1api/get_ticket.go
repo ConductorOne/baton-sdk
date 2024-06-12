@@ -3,7 +3,6 @@ package c1api
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -39,11 +38,11 @@ func (c *getTicketTaskHandler) HandleTask(ctx context.Context) error {
 		Id: t.GetTicketId(),
 	})
 	if err != nil {
-		return err
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), err)
 	}
 
 	if ticket.GetTicket() == nil {
-		return fmt.Errorf("connector returned empty ticket")
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), errors.Join(errors.New("connector returned empty ticket"), ErrTaskNonRetryable))
 	}
 
 	resp := &v2.TicketsServiceGetTicketResponse{
