@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"io"
 	"os"
 	"strconv"
@@ -1320,14 +1321,14 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		}
 
 		for descendantEntitlementID, grantInfo := range graph.GetDescendantEntitlements(sourceEntitlementID) {
-			if grantInfo.Expanded {
+			if grantInfo.IsExpanded {
 				continue
 			}
-			graph.Actions = append(graph.Actions, EntitlementGraphAction{
+			graph.Actions = append(graph.Actions, expand.EntitlementGraphAction{
 				SourceEntitlementID:     sourceEntitlementID,
 				DescendantEntitlementID: descendantEntitlementID,
 				PageToken:               "",
-				Shallow:                 grantInfo.Shallow,
+				Shallow:                 grantInfo.IsShallow,
 				ResourceTypeIDs:         grantInfo.ResourceTypeIDs,
 			})
 		}

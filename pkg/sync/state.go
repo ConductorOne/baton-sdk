@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -16,7 +17,7 @@ type State interface {
 	NextPage(ctx context.Context, pageToken string) error
 	ResourceTypeID(ctx context.Context) string
 	ResourceID(ctx context.Context) string
-	EntitlementGraph(ctx context.Context) *EntitlementGraph
+	EntitlementGraph(ctx context.Context) *expand.EntitlementGraph
 	ParentResourceID(ctx context.Context) string
 	ParentResourceTypeID(ctx context.Context) string
 	PageToken(ctx context.Context) string
@@ -118,17 +119,17 @@ type state struct {
 	mtx              sync.RWMutex
 	actions          []Action
 	currentAction    *Action
-	entitlementGraph *EntitlementGraph
+	entitlementGraph *expand.EntitlementGraph
 	needsExpansion   bool
 }
 
 // serializedToken is used to serialize the token to JSON. This separate object is used to avoid having exported fields
 // on the object used externally. We should interface this, probably.
 type serializedToken struct {
-	Actions          []Action          `json:"actions"`
-	CurrentAction    *Action           `json:"current_action"`
-	NeedsExpansion   bool              `json:"needs_expansion"`
-	EntitlementGraph *EntitlementGraph `json:"entitlement_graph"`
+	Actions          []Action                 `json:"actions"`
+	CurrentAction    *Action                  `json:"current_action"`
+	NeedsExpansion   bool                     `json:"needs_expansion"`
+	EntitlementGraph *expand.EntitlementGraph `json:"entitlement_graph"`
 }
 
 // push adds a new action to the stack. If there is no current state, the action is directly set to current, else
@@ -291,13 +292,13 @@ func (st *state) ResourceID(ctx context.Context) string {
 }
 
 // EntitlementGraph returns the entitlement graph for the current action.
-func (st *state) EntitlementGraph(ctx context.Context) *EntitlementGraph {
+func (st *state) EntitlementGraph(ctx context.Context) *expand.EntitlementGraph {
 	c := st.Current()
 	if c == nil {
 		panic("no current state")
 	}
 	if st.entitlementGraph == nil {
-		st.entitlementGraph = NewEntitlementGraph(ctx)
+		st.entitlementGraph = expand.NewEntitlementGraph(ctx)
 	}
 	return st.entitlementGraph
 }
