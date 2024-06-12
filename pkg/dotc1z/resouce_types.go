@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -45,8 +43,6 @@ func (r *resourceTypesTable) Schema() (string, []interface{}) {
 }
 
 func (c *C1File) ListResourceTypes(ctx context.Context, request *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	ctxzap.Extract(ctx).Debug("listing resource types")
-
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, resourceTypes.Name(), request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing resource types: %w", err)
@@ -69,8 +65,6 @@ func (c *C1File) ListResourceTypes(ctx context.Context, request *v2.ResourceType
 }
 
 func (c *C1File) GetResourceType(ctx context.Context, request *reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest) (*reader_v2.ResourceTypesReaderServiceGetResourceTypeResponse, error) {
-	ctxzap.Extract(ctx).Debug("fetching resource type", zap.String("resource_type_id", request.ResourceTypeId))
-
 	ret := &v2.ResourceType{}
 
 	err := c.getConnectorObject(ctx, resourceTypes.Name(), request.ResourceTypeId, ret)
@@ -84,8 +78,6 @@ func (c *C1File) GetResourceType(ctx context.Context, request *reader_v2.Resourc
 }
 
 func (c *C1File) PutResourceType(ctx context.Context, resourceType *v2.ResourceType) error {
-	ctxzap.Extract(ctx).Debug("syncing resource type", zap.String("resource_type_id", resourceType.Id))
-
 	query, args, err := c.putConnectorObjectQuery(ctx, resourceTypes.Name(), resourceType, nil)
 	if err != nil {
 		return err

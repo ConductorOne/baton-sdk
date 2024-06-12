@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -60,8 +58,6 @@ func (r *grantsTable) Schema() (string, []interface{}) {
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
-	ctxzap.Extract(ctx).Debug("listing grants")
-
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants: %w", err)
@@ -84,8 +80,6 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 }
 
 func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
-	ctxzap.Extract(ctx).Debug("fetching grant", zap.String("grant_id", request.GrantId))
-
 	ret := &v2.Grant{}
 
 	err := c.getConnectorObject(ctx, grants.Name(), request.GrantId, ret)
@@ -102,8 +96,6 @@ func (c *C1File) ListGrantsForEntitlement(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
-	ctxzap.Extract(ctx).Debug("listing grants for entitlement", zap.Any("entitlement", request.Entitlement))
-
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
@@ -129,8 +121,6 @@ func (c *C1File) ListGrantsForPrincipal(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
-	ctxzap.Extract(ctx).Debug("listing grants for principal", zap.Any("principal", request.GetPrincipalId()))
-
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err)
@@ -156,8 +146,6 @@ func (c *C1File) ListGrantsForResourceType(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse, error) {
-	ctxzap.Extract(ctx).Debug("listing grants for resource type", zap.String("resource_type_id", request.GetResourceTypeId()))
-
 	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for resource type '%s': %w", request.GetResourceTypeId(), err)
@@ -180,8 +168,6 @@ func (c *C1File) ListGrantsForResourceType(
 }
 
 func (c *C1File) PutGrant(ctx context.Context, grant *v2.Grant) error {
-	ctxzap.Extract(ctx).Debug("syncing grant", zap.String("grant_id", grant.Id))
-
 	query, args, err := c.putConnectorObjectQuery(ctx, grants.Name(), grant, goqu.Record{
 		"resource_type_id":           grant.Entitlement.Resource.Id.ResourceType,
 		"resource_id":                grant.Entitlement.Resource.Id.Resource,
