@@ -103,7 +103,7 @@ func IsXMLContentType(contentType string) bool {
 	normalizedContentType := strings.TrimSpace(strings.ToLower(contentType))
 
 	for _, xmlContentType := range xmlContentTypes {
-		if normalizedContentType == xmlContentType {
+		if strings.HasPrefix(normalizedContentType, xmlContentType) {
 			return true
 		}
 	}
