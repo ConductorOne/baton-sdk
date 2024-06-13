@@ -9,60 +9,77 @@ import (
 	otelmetric "go.opentelemetry.io/otel/metric"
 )
 
+var (
+	_ Handler        = (*otelHandler)(nil)
+	_ Int64Counter   = (*otelInt64Counter)(nil)
+	_ Int64Gauge     = (*otelInt64Gauge)(nil)
+	_ Int64Histogram = (*otelInt64Histogram)(nil)
+)
+
 type otelHandler struct {
-	name     string
-	meter    otelmetric.Meter
-	provider otelmetric.MeterProvider
+	name         string
+	meter        otelmetric.Meter
+	provider     otelmetric.MeterProvider
+	defaultAttrs *[]attribute.KeyValue
 
 	int64CountersMtx sync.Mutex
-	int64Counters    map[string]otelmetric.Int64Counter
+	int64Counters    map[string]*otelInt64Counter
 	int64HistosMtx   sync.Mutex
-	int64Histos      map[string]otelmetric.Int64Histogram
+	int64Histos      map[string]*otelInt64Histogram
 	int64GaugesMtx   sync.Mutex
-	int64Gauges      map[string]Int64Gauge
+	int64Gauges      map[string]*otelInt64Gauge
 }
 
-type otelInt64Histogram func(ctx context.Context, incr int64, options ...otelmetric.RecordOption)
+type baseAttrs struct {
+	defaultAttrs *[]attribute.KeyValue
+}
 
-func (f otelInt64Histogram) Record(ctx context.Context, value int64, tags map[string]string) {
+func (a *baseAttrs) getAttributes(tags map[string]string) []attribute.KeyValue {
 	attrs := makeAttrs(tags)
+	if a.defaultAttrs != nil {
+		attrs = append(attrs, *a.defaultAttrs...)
+	}
 
-	f(ctx, value, otelmetric.WithAttributes(attrs...))
+	return attrs
 }
 
-var _ Int64Histogram = (otelInt64Histogram)(nil)
-
-type otelInt64Counter func(ctx context.Context, incr int64, options ...otelmetric.AddOption)
-
-func (f otelInt64Counter) Add(ctx context.Context, value int64, tags map[string]string) {
-	attrs := makeAttrs(tags)
-	f(ctx, value, otelmetric.WithAttributes(attrs...))
+func (a *baseAttrs) setDefaultAttrs(attrs *[]attribute.KeyValue) {
+	a.defaultAttrs = attrs
 }
 
-var _ Int64Counter = (otelInt64Counter)(nil)
+type otelInt64Counter struct {
+	*baseAttrs
+	counter otelmetric.Int64Counter
+}
 
-type syncInt64Gauge struct {
+func (c *otelInt64Counter) Add(ctx context.Context, value int64, tags map[string]string) {
+	attrs := c.getAttributes(tags)
+
+	c.counter.Add(ctx, value, otelmetric.WithAttributes(attrs...))
+}
+
+type otelInt64Histogram struct {
+	*baseAttrs
+	histo otelmetric.Int64Histogram
+}
+
+func (h *otelInt64Histogram) Record(ctx context.Context, value int64, tags map[string]string) {
+	attrs := h.getAttributes(tags)
+
+	h.histo.Record(ctx, value, otelmetric.WithAttributes(attrs...))
+}
+
+type otelInt64Gauge struct {
+	*baseAttrs
 	value int64
-	attrs []otelmetric.ObserveOption
+	attrs []attribute.KeyValue
 	gauge otelmetric.Int64ObservableGauge
 }
 
-func (s *syncInt64Gauge) Observe(_ context.Context, value int64, tags map[string]string) {
-	attrs := makeAttrs(tags)
-	s.attrs = append(s.attrs, otelmetric.WithAttributes(attrs...))
-	s.value = value
+func (g *otelInt64Gauge) Observe(_ context.Context, value int64, tags map[string]string) {
+	g.attrs = g.getAttributes(tags)
+	g.value = value
 }
-
-func newSyncInt64Gauge(meter otelmetric.Meter, name string, description string, unit Unit) *syncInt64Gauge {
-	g, err := meter.Int64ObservableGauge(name, otelmetric.WithDescription(description), otelmetric.WithUnit(string(unit)))
-	if err != nil {
-		panic(err)
-	}
-
-	return &syncInt64Gauge{gauge: g}
-}
-
-var _ Int64Gauge = (*syncInt64Gauge)(nil)
 
 func (h *otelHandler) Int64Histogram(name string, description string, unit Unit) Int64Histogram {
 	h.int64HistosMtx.Lock()
@@ -71,16 +88,18 @@ func (h *otelHandler) Int64Histogram(name string, description string, unit Unit)
 	name = strings.ToLower(name)
 
 	c, ok := h.int64Histos[name]
-	var err error
 	if !ok {
-		c, err = h.meter.Int64Histogram(name, otelmetric.WithDescription(description), otelmetric.WithUnit(string(unit)))
+		histo, err := h.meter.Int64Histogram(name, otelmetric.WithDescription(description), otelmetric.WithUnit(string(unit)))
 		if err != nil {
 			panic(err)
 		}
+		c = &otelInt64Histogram{histo: histo, baseAttrs: &baseAttrs{}}
 		h.int64Histos[name] = c
 	}
 
-	return otelInt64Histogram(c.Record)
+	c.setDefaultAttrs(h.defaultAttrs)
+
+	return c
 }
 
 func (h *otelHandler) Int64Counter(name string, description string, unit Unit) Int64Counter {
@@ -90,16 +109,18 @@ func (h *otelHandler) Int64Counter(name string, description string, unit Unit) I
 	name = strings.ToLower(name)
 
 	c, ok := h.int64Counters[name]
-	var err error
 	if !ok {
-		c, err = h.meter.Int64Counter(name, otelmetric.WithDescription(description), otelmetric.WithUnit(string(unit)))
+		counter, err := h.meter.Int64Counter(name, otelmetric.WithDescription(description), otelmetric.WithUnit(string(unit)))
 		if err != nil {
 			panic(err)
 		}
+		c = &otelInt64Counter{counter: counter, baseAttrs: &baseAttrs{}}
 		h.int64Counters[name] = c
 	}
 
-	return otelInt64Counter(c.Add)
+	c.setDefaultAttrs(h.defaultAttrs)
+
+	return c
 }
 
 func (h *otelHandler) Int64Gauge(name string, description string, unit Unit) Int64Gauge {
@@ -108,36 +129,41 @@ func (h *otelHandler) Int64Gauge(name string, description string, unit Unit) Int
 
 	name = strings.ToLower(name)
 
-	if c, ok := h.int64Gauges[name]; ok {
-		return c
+	c, ok := h.int64Gauges[name]
+	if !ok {
+		gauge, err := h.meter.Int64ObservableGauge(name, otelmetric.WithDescription(description), otelmetric.WithUnit(string(unit)))
+		if err != nil {
+			panic(err)
+		}
+
+		c = &otelInt64Gauge{gauge: gauge, baseAttrs: &baseAttrs{}}
+
+		_, err = h.meter.RegisterCallback(func(ctx context.Context, observer otelmetric.Observer) error {
+			observer.ObserveInt64(c.gauge, c.value, otelmetric.WithAttributes(c.attrs...))
+			return nil
+		}, c.gauge)
+		if err != nil {
+			panic(err)
+		}
+
+		h.int64Gauges[name] = c
 	}
 
-	newGauge := newSyncInt64Gauge(h.meter, name, description, unit)
+	c.setDefaultAttrs(h.defaultAttrs)
 
-	_, err := h.meter.RegisterCallback(func(ctx context.Context, observer otelmetric.Observer) error {
-		observer.ObserveInt64(newGauge.gauge, newGauge.value, newGauge.attrs...)
-		return nil
-	}, newGauge.gauge)
-
-	if err != nil {
-		panic(err)
-	}
-
-	h.int64Gauges[name] = newGauge
-
-	return newGauge
+	return c
 }
 
 func (h *otelHandler) WithTags(tags map[string]string) Handler {
 	attrs := makeAttrs(tags)
 
-	h.meter = h.provider.Meter(h.name, otelmetric.WithInstrumentationAttributes(attrs...))
+	h.defaultAttrs = &attrs
 
 	return h
 }
 
 func makeAttrs(tags map[string]string) []attribute.KeyValue {
-	attrs := make([]attribute.KeyValue, len(tags))
+	attrs := make([]attribute.KeyValue, 0, len(tags))
 	for k, v := range tags {
 		attrs = append(attrs, attribute.String(k, v))
 	}
@@ -150,10 +176,8 @@ func NewOtelHandler(_ context.Context, provider otelmetric.MeterProvider, name s
 		name:          name,
 		meter:         provider.Meter(name),
 		provider:      provider,
-		int64Counters: make(map[string]otelmetric.Int64Counter),
-		int64Histos:   make(map[string]otelmetric.Int64Histogram),
-		int64Gauges:   make(map[string]Int64Gauge),
+		int64Counters: make(map[string]*otelInt64Counter),
+		int64Histos:   make(map[string]*otelInt64Histogram),
+		int64Gauges:   make(map[string]*otelInt64Gauge),
 	}
 }
-
-var _ Handler = (*otelHandler)(nil)

@@ -8,9 +8,9 @@ import (
 )
 
 const (
-	taskSuccessCounterName = "task_success"
-	taskFailureCounterName = "task_failure"
-	taskDurationHistoName  = "task_latency"
+	taskSuccessCounterName = "baton_sdk.task_success"
+	taskFailureCounterName = "baton_sdk.task_failure"
+	taskDurationHistoName  = "baton_sdk.task_latency"
 	taskSuccessCounterDesc = "number of successful tasks by task type"
 	taskFailureCounterDesc = "number of failed tasks by task type"
 	taskDurationHistoDesc  = "duration of all tasks by task type and status"
