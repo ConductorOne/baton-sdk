@@ -167,8 +167,32 @@ func TestHandleCycle(t *testing.T) {
 	}
 }
 
-// TestHandleComplexCycle reduces a N=3 clique to a single node.
 func TestHandleComplexCycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	graph := parseExpression(t, ctx, "1>2>3>2>1")
+
+	require.Equal(t, 3, len(graph.Nodes))
+	require.Equal(t, 4, len(graph.Edges))
+	require.Equal(t, 3, len(graph.GetEntitlements()))
+
+	err := graph.FixCycles()
+	require.NoError(t, err, graph.Str())
+	err = graph.Validate()
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(graph.Nodes))
+	require.Equal(t, 0, len(graph.Edges))
+	require.Equal(t, 3, len(graph.GetEntitlements()))
+
+	cycles, isCycle := graph.GetCycles()
+	require.False(t, isCycle)
+	require.Empty(t, cycles)
+}
+
+// TestHandleCliqueCycle reduces a N=3 clique to a single node.
+func TestHandleCliqueCycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
