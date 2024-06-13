@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	_ "github.com/stretchr/testify/assert"
@@ -17,8 +16,6 @@ import (
 
 type OtelHandlerTestSuite struct {
 	suite.Suite
-	now      time.Time
-	provider *sdkmetric.MeterProvider
 	reader   sdkmetric.Reader
 	exporter sdkmetric.Exporter
 	handler  Handler
@@ -54,16 +51,6 @@ func (suite *OtelHandlerTestSuite) SetupTest() {
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(suite.reader))
 	suite.handler = NewOtelHandler(context.TODO(), provider, "test")
 }
-
-// func (suite *OtelHandlerTestSuite) TearDownTest() {
-// 	ctx := context.TODO()
-// 	err := suite.provider.Shutdown(ctx)
-// 	assert.NoError(suite.T(), err)
-// 	err = suite.reader.Shutdown(ctx)
-// 	assert.NoError(suite.T(), err)
-// 	err = suite.exporter.Shutdown(ctx)
-// 	assert.NoError(suite.T(), err)
-// }
 
 func (suite *OtelHandlerTestSuite) TestInt64Counter_noattrs() {
 	ctx := context.TODO()
