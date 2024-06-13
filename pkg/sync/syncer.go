@@ -44,6 +44,7 @@ type syncer struct {
 	c1zManager        manager.Manager
 	c1zPath           string
 	store             connectorstore.Writer
+	bulkStore         connectorstore.BulkWriter
 	connector         types.ConnectorClient
 	state             State
 	runDuration       time.Duration
@@ -1050,8 +1051,15 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
 			s.state.SetNeedsExpansion()
 		}
-
-		err = s.store.PutGrant(ctx, grant)
+		if s.bulkStore == nil {
+			err = s.store.PutGrant(ctx, grant)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if s.bulkStore != nil {
+		err = s.bulkStore.PutGrants(ctx, grants...)
 		if err != nil {
 			return err
 		}
@@ -1364,6 +1372,9 @@ func (s *syncer) loadStore(ctx context.Context) error {
 
 	s.store = store
 
+	if bulkStore, ok := s.store.(connectorstore.BulkWriter); ok {
+		s.bulkStore = bulkStore
+	}
 	return nil
 }
 

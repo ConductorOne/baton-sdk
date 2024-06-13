@@ -43,3 +43,8 @@ type Writer interface {
 	PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error
 	Cleanup(ctx context.Context) error
 }
+
+type BulkWriter interface {
+	Writer
+	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+}

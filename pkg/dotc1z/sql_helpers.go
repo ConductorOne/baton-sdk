@@ -231,6 +231,54 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 	return ret, nextPageToken, nil
 }
 
+type messageFieldsPair struct {
+	m      proto.Message
+	fields goqu.Record
+}
+
+func (c *C1File) bulkPutConnectorObjectQuery(ctx context.Context, tx *goqu.TxDatabase, tableName string, msgs ...*messageFieldsPair) error {
+	err := c.validateSyncDb(ctx)
+	if err != nil {
+		return err
+	}
+
+	baseQ := tx.Insert(tableName).Prepared(true)
+	baseQ = baseQ.OnConflict(goqu.DoUpdate("external_id, sync_id", goqu.C("data").Set(goqu.I("EXCLUDED.data"))))
+
+	for _, m := range msgs {
+		messageBlob, err := proto.MarshalOptions{Deterministic: true}.Marshal(m.m)
+		if err != nil {
+			return err
+		}
+
+		fields := m.fields
+		if fields == nil {
+			fields = goqu.Record{}
+		}
+
+		if _, idSet := fields["external_id"]; !idSet {
+			idGetter, ok := m.m.(protoHasID)
+			if !ok {
+				return fmt.Errorf("unable to get ID for object")
+			}
+			fields["external_id"] = idGetter.GetId()
+		}
+		fields["data"] = messageBlob
+		fields["sync_id"] = c.currentSyncID
+		fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
+		q := baseQ.Rows(fields)
+		query, args, err := q.ToSQL()
+		if err != nil {
+			return err
+		}
+		_, err = tx.Exec(query, args...)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *C1File) putConnectorObjectQuery(ctx context.Context, tableName string, m proto.Message, fields goqu.Record) (string, []interface{}, error) {
 	err := c.validateSyncDb(ctx)
 	if err != nil {
