@@ -8,6 +8,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/doug-martin/goqu/v9"
 )
 
 const resourceTypesTableVersion = "1"
@@ -75,6 +76,29 @@ func (c *C1File) GetResourceType(ctx context.Context, request *reader_v2.Resourc
 	return &reader_v2.ResourceTypesReaderServiceGetResourceTypeResponse{
 		ResourceType: ret,
 	}, nil
+}
+
+func (c *C1File) PutResourceTypes(ctx context.Context, resourceTypesObjs ...*v2.ResourceType) error {
+	pairs := make([]*messageFieldsPair, 0, len(resourceTypesObjs))
+	for _, rt := range resourceTypesObjs {
+		pairs = append(pairs, &messageFieldsPair{
+			m:      rt,
+			fields: nil,
+		})
+
+	}
+	err := c.db.WithTx(func(tx *goqu.TxDatabase) error {
+		err := c.bulkPutConnectorObjectQuery(ctx, tx, resourceTypes.Name(), pairs...)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	c.dbUpdated = true
+	return nil
 }
 
 func (c *C1File) PutResourceType(ctx context.Context, resourceType *v2.ResourceType) error {

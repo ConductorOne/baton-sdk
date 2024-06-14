@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/doug-martin/goqu/v9"
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -17,6 +18,14 @@ import (
 
 var c1zTests struct {
 	workingDir string
+}
+
+func TestSQLiteDialectRegistered(t *testing.T) {
+	require.Equal(
+		t,
+		"sqlite3",
+		goqu.GetDialect("sqlite3").Dialect(),
+	)
 }
 
 func TestMain(m *testing.M) {

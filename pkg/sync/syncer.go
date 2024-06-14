@@ -274,10 +274,17 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 		return err
 	}
 
-	for _, rt := range resp.List {
-		err = s.store.PutResourceType(ctx, rt)
+	if s.bulkStore != nil {
+		err = s.bulkStore.PutResourceTypes(ctx, resp.List...)
 		if err != nil {
 			return err
+		}
+	} else {
+		for _, rt := range resp.List {
+			err = s.store.PutResourceType(ctx, rt)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -383,6 +390,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 		}
 	}
 
+	bulkPutResoruces := []*v2.Resource{}
 	for _, r := range resp.List {
 		// Check if we've already synced this resource, skip it if we have
 		_, err = s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
@@ -404,12 +412,23 @@ func (s *syncer) syncResources(ctx context.Context) error {
 		// Set the resource creation source
 		r.CreationSource = v2.Resource_CREATION_SOURCE_CONNECTOR_LIST_RESOURCES
 
-		err = s.store.PutResource(ctx, r)
-		if err != nil {
-			return err
+		if s.bulkStore != nil {
+			err = s.store.PutResource(ctx, r)
+			if err != nil {
+				return err
+			}
+		} else {
+			bulkPutResoruces = append(bulkPutResoruces, r)
 		}
 
 		err = s.getSubResources(ctx, r)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(bulkPutResoruces) > 0 {
+		err = s.bulkStore.PutResources(ctx, bulkPutResoruces...)
 		if err != nil {
 			return err
 		}
@@ -549,10 +568,17 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 	if err != nil {
 		return err
 	}
-	for _, e := range resp.List {
-		err = s.store.PutEntitlement(ctx, e)
+	if s.bulkStore != nil {
+		err = s.bulkStore.PutEntitlements(ctx, resp.List...)
 		if err != nil {
 			return err
+		}
+	} else {
+		for _, e := range resp.List {
+			err = s.store.PutEntitlement(ctx, e)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

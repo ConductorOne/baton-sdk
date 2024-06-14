@@ -47,4 +47,7 @@ type Writer interface {
 type BulkWriter interface {
 	Writer
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
+	PutResources(ctx context.Context, resources ...*v2.Resource) error
+	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 }

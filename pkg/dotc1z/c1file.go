@@ -8,9 +8,12 @@ import (
 	"path/filepath"
 
 	"github.com/doug-martin/goqu/v9"
+	// NOTE: required to register the dialect for goqu
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	_ "github.com/glebarez/go-sqlite"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 type pragma struct {
@@ -29,6 +32,8 @@ type C1File struct {
 	tempDir        string
 	pragmas        []pragma
 }
+
+var _ connectorstore.BulkWriter = (*C1File)(nil)
 
 type C1FOption func(*C1File)
 
@@ -50,6 +55,7 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 	if err != nil {
 		return nil, err
 	}
+
 	db := goqu.New("sqlite3", rawDB)
 
 	c1File := &C1File{
