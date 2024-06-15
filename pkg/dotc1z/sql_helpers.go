@@ -283,39 +283,6 @@ func bulkPutConnectorObjectTx[T proto.Message](ctx context.Context, c *C1File,
 	return nil
 }
 
-func (c *C1File) putConnectorObjectQuery(ctx context.Context, tableName string, m proto.Message, fields goqu.Record) (string, []interface{}, error) {
-	err := c.validateSyncDb(ctx)
-	if err != nil {
-		return "", nil, err
-	}
-
-	messageBlob, err := proto.MarshalOptions{Deterministic: true}.Marshal(m)
-	if err != nil {
-		return "", nil, err
-	}
-
-	if fields == nil {
-		fields = goqu.Record{}
-	}
-
-	if _, idSet := fields["external_id"]; !idSet {
-		idGetter, ok := m.(protoHasID)
-		if !ok {
-			return "", nil, fmt.Errorf("unable to get ID for object")
-		}
-		fields["external_id"] = idGetter.GetId()
-	}
-	fields["data"] = messageBlob
-	fields["sync_id"] = c.currentSyncID
-	fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
-
-	q := c.db.Insert(tableName).Prepared(true)
-	q = q.Rows(fields)
-	q = q.OnConflict(goqu.DoUpdate("external_id, sync_id", goqu.C("data").Set(goqu.I("EXCLUDED.data"))))
-
-	return q.ToSQL()
-}
-
 func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceId, m *v2.Resource, syncID string) error {
 	err := c.validateDb(ctx)
 	if err != nil {

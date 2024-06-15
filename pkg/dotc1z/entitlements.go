@@ -84,7 +84,6 @@ func (c *C1File) GetEntitlement(ctx context.Context, request *reader_v2.Entitlem
 }
 
 func (c *C1File) PutEntitlements(ctx context.Context, entitlementObjs ...*v2.Entitlement) error {
-
 	err := c.db.WithTx(func(tx *goqu.TxDatabase) error {
 		err := bulkPutConnectorObjectTx(ctx, c, tx, entitlements.Name(),
 			func(entitlement *v2.Entitlement) (goqu.Record, error) {

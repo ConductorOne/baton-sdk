@@ -112,7 +112,7 @@ func BenchmarkExpandCircle(b *testing.B) {
 		require.NoError(b, err)
 		err = syncer.Close(ctx)
 		require.NoError(b, err)
-		os.Remove(c1zpath)
+		_ = os.Remove(c1zpath)
 	}
 }
 
