@@ -8,8 +8,13 @@ import (
 	"path/filepath"
 
 	"github.com/doug-martin/goqu/v9"
-	// NOTE: required to register the dialect for goqu
+	// NOTE: required to register the dialect for goqu.
+	//
+	// If you remove this import, goqu.Dialect("sqlite3") will
+	// return a copy of the default dialect, which is not what we want,
+	// and allocates a ton of memory.
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
+
 	_ "github.com/glebarez/go-sqlite"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
