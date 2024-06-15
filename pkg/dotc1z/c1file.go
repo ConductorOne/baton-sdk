@@ -33,7 +33,7 @@ type C1File struct {
 	pragmas        []pragma
 }
 
-var _ connectorstore.BulkWriter = (*C1File)(nil)
+var _ connectorstore.Writer = (*C1File)(nil)
 
 type C1FOption func(*C1File)
 

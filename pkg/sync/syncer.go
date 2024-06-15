@@ -44,7 +44,6 @@ type syncer struct {
 	c1zManager        manager.Manager
 	c1zPath           string
 	store             connectorstore.Writer
-	bulkStore         connectorstore.BulkWriter
 	connector         types.ConnectorClient
 	state             State
 	runDuration       time.Duration
@@ -274,18 +273,9 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 		return err
 	}
 
-	if s.bulkStore != nil {
-		err = s.bulkStore.PutResourceTypes(ctx, resp.List...)
-		if err != nil {
-			return err
-		}
-	} else {
-		for _, rt := range resp.List {
-			err = s.store.PutResourceType(ctx, rt)
-			if err != nil {
-				return err
-			}
-		}
+	err = s.store.PutResourceTypes(ctx, resp.List...)
+	if err != nil {
+		return err
 	}
 
 	s.handleProgress(ctx, s.state.Current(), len(resp.List))
@@ -412,14 +402,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 		// Set the resource creation source
 		r.CreationSource = v2.Resource_CREATION_SOURCE_CONNECTOR_LIST_RESOURCES
 
-		if s.bulkStore != nil {
-			err = s.store.PutResource(ctx, r)
-			if err != nil {
-				return err
-			}
-		} else {
-			bulkPutResoruces = append(bulkPutResoruces, r)
-		}
+		bulkPutResoruces = append(bulkPutResoruces, r)
 
 		err = s.getSubResources(ctx, r)
 		if err != nil {
@@ -428,7 +411,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 	}
 
 	if len(bulkPutResoruces) > 0 {
-		err = s.bulkStore.PutResources(ctx, bulkPutResoruces...)
+		err = s.store.PutResources(ctx, bulkPutResoruces...)
 		if err != nil {
 			return err
 		}
@@ -568,18 +551,9 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 	if err != nil {
 		return err
 	}
-	if s.bulkStore != nil {
-		err = s.bulkStore.PutEntitlements(ctx, resp.List...)
-		if err != nil {
-			return err
-		}
-	} else {
-		for _, e := range resp.List {
-			err = s.store.PutEntitlement(ctx, e)
-			if err != nil {
-				return err
-			}
-		}
+	err = s.store.PutEntitlements(ctx, resp.List...)
+	if err != nil {
+		return err
 	}
 
 	s.handleProgress(ctx, s.state.Current(), len(resp.List))
@@ -1077,18 +1051,10 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
 			s.state.SetNeedsExpansion()
 		}
-		if s.bulkStore == nil {
-			err = s.store.PutGrant(ctx, grant)
-			if err != nil {
-				return err
-			}
-		}
 	}
-	if s.bulkStore != nil {
-		err = s.bulkStore.PutGrants(ctx, grants...)
-		if err != nil {
-			return err
-		}
+	err = s.store.PutGrants(ctx, grants...)
+	if err != nil {
+		return err
 	}
 
 	s.handleProgress(ctx, s.state.Current(), len(grants))
@@ -1114,7 +1080,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	if updatedETag != nil {
 		resourceAnnos.Update(updatedETag)
 		resource.Annotations = resourceAnnos
-		err = s.store.PutResource(ctx, resource)
+		err = s.store.PutResources(ctx, resource)
 		if err != nil {
 			return err
 		}
@@ -1280,7 +1246,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				zap.Any("sources", sources),
 			)
 
-			err = s.store.PutGrant(ctx, descendantGrant)
+			err = s.store.PutGrants(ctx, descendantGrant)
 			if err != nil {
 				l.Error("runGrantExpandActions: error updating descendant grant", zap.Error(err))
 				return false, fmt.Errorf("runGrantExpandActions: error updating descendant grant: %w", err)
@@ -1398,9 +1364,6 @@ func (s *syncer) loadStore(ctx context.Context) error {
 
 	s.store = store
 
-	if bulkStore, ok := s.store.(connectorstore.BulkWriter); ok {
-		s.bulkStore = bulkStore
-	}
 	return nil
 }
 

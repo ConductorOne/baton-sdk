@@ -84,51 +84,26 @@ func (c *C1File) GetEntitlement(ctx context.Context, request *reader_v2.Entitlem
 }
 
 func (c *C1File) PutEntitlements(ctx context.Context, entitlementObjs ...*v2.Entitlement) error {
-	pairs := make([]*messageFieldsPair, 0, len(entitlementObjs))
-	for _, entitlement := range entitlementObjs {
-		fields := goqu.Record{
-			"resource_id":      entitlement.Resource.Id.Resource,
-			"resource_type_id": entitlement.Resource.Id.ResourceType,
-		}
-		pairs = append(pairs, &messageFieldsPair{
-			m:      entitlement,
-			fields: fields,
-		})
-	}
 
 	err := c.db.WithTx(func(tx *goqu.TxDatabase) error {
-		err := c.bulkPutConnectorObjectQuery(ctx, tx, entitlements.Name(), pairs...)
+		err := bulkPutConnectorObjectTx(ctx, c, tx, entitlements.Name(),
+			func(entitlement *v2.Entitlement) (goqu.Record, error) {
+				return goqu.Record{
+					"resource_id":      entitlement.Resource.Id.Resource,
+					"resource_type_id": entitlement.Resource.Id.ResourceType,
+				}, nil
+			},
+			entitlementObjs...,
+		)
 		if err != nil {
 			return err
 		}
+
 		return nil
 	})
 	if err != nil {
 		return err
 	}
 	c.dbUpdated = true
-	return nil
-}
-
-func (c *C1File) PutEntitlement(ctx context.Context, entitlement *v2.Entitlement) error {
-	if entitlement.Resource == nil && entitlement.Resource.Id == nil {
-		return fmt.Errorf("entitlements must have a non-nil resource")
-	}
-
-	query, args, err := c.putConnectorObjectQuery(ctx, entitlements.Name(), entitlement, goqu.Record{
-		"resource_id":      entitlement.Resource.Id.Resource,
-		"resource_type_id": entitlement.Resource.Id.ResourceType,
-	})
-	if err != nil {
-		return err
-	}
-
-	_, err = c.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return err
-	}
-
-	c.dbUpdated = true
-
 	return nil
 }

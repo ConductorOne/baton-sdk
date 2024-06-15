@@ -231,12 +231,13 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 	return ret, nextPageToken, nil
 }
 
-type messageFieldsPair struct {
-	m      proto.Message
-	fields goqu.Record
-}
+var protoMarshaler = proto.MarshalOptions{Deterministic: true}
 
-func (c *C1File) bulkPutConnectorObjectQuery(ctx context.Context, tx *goqu.TxDatabase, tableName string, msgs ...*messageFieldsPair) error {
+func bulkPutConnectorObjectTx[T proto.Message](ctx context.Context, c *C1File,
+	tx *goqu.TxDatabase,
+	tableName string,
+	extractFields func(m T) (goqu.Record, error),
+	msgs ...T) error {
 	err := c.validateSyncDb(ctx)
 	if err != nil {
 		return err
@@ -246,18 +247,21 @@ func (c *C1File) bulkPutConnectorObjectQuery(ctx context.Context, tx *goqu.TxDat
 	baseQ = baseQ.OnConflict(goqu.DoUpdate("external_id, sync_id", goqu.C("data").Set(goqu.I("EXCLUDED.data"))))
 
 	for _, m := range msgs {
-		messageBlob, err := proto.MarshalOptions{Deterministic: true}.Marshal(m.m)
+		messageBlob, err := protoMarshaler.Marshal(m)
 		if err != nil {
 			return err
 		}
 
-		fields := m.fields
+		fields, err := extractFields(m)
+		if err != nil {
+			return err
+		}
 		if fields == nil {
 			fields = goqu.Record{}
 		}
 
 		if _, idSet := fields["external_id"]; !idSet {
-			idGetter, ok := m.m.(protoHasID)
+			idGetter, ok := any(m).(protoHasID)
 			if !ok {
 				return fmt.Errorf("unable to get ID for object")
 			}

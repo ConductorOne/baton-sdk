@@ -168,22 +168,19 @@ func (c *C1File) ListGrantsForResourceType(
 }
 
 func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
-	pairs := make([]*messageFieldsPair, 0, len(bulkGrants))
-	for _, grant := range bulkGrants {
-		pairs = append(pairs, &messageFieldsPair{
-			m: grant,
-			fields: goqu.Record{
-				"resource_type_id":           grant.Entitlement.Resource.Id.ResourceType,
-				"resource_id":                grant.Entitlement.Resource.Id.Resource,
-				"entitlement_id":             grant.Entitlement.Id,
-				"principal_resource_type_id": grant.Principal.Id.ResourceType,
-				"principal_resource_id":      grant.Principal.Id.Resource,
-			},
-		})
-
-	}
 	err := c.db.WithTx(func(tx *goqu.TxDatabase) error {
-		err := c.bulkPutConnectorObjectQuery(ctx, tx, grants.Name(), pairs...)
+		err := bulkPutConnectorObjectTx(ctx, c, tx, grants.Name(),
+			func(grant *v2.Grant) (goqu.Record, error) {
+				return goqu.Record{
+					"resource_type_id":           grant.Entitlement.Resource.Id.ResourceType,
+					"resource_id":                grant.Entitlement.Resource.Id.Resource,
+					"entitlement_id":             grant.Entitlement.Id,
+					"principal_resource_type_id": grant.Principal.Id.ResourceType,
+					"principal_resource_id":      grant.Principal.Id.Resource,
+				}, nil
+			},
+			bulkGrants...,
+		)
 		if err != nil {
 			return err
 		}
@@ -193,27 +190,5 @@ func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 		return err
 	}
 	c.dbUpdated = true
-	return nil
-}
-
-func (c *C1File) PutGrant(ctx context.Context, grant *v2.Grant) error {
-	query, args, err := c.putConnectorObjectQuery(ctx, grants.Name(), grant, goqu.Record{
-		"resource_type_id":           grant.Entitlement.Resource.Id.ResourceType,
-		"resource_id":                grant.Entitlement.Resource.Id.Resource,
-		"entitlement_id":             grant.Entitlement.Id,
-		"principal_resource_type_id": grant.Principal.Id.ResourceType,
-		"principal_resource_id":      grant.Principal.Id.Resource,
-	})
-	if err != nil {
-		return err
-	}
-
-	_, err = c.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return err
-	}
-
-	c.dbUpdated = true
-
 	return nil
 }

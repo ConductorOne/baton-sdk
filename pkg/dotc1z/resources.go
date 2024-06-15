@@ -98,26 +98,22 @@ func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourcesRe
 }
 
 func (c *C1File) PutResources(ctx context.Context, resourceObjs ...*v2.Resource) error {
-	pairs := make([]*messageFieldsPair, 0, len(resourceObjs))
-	for _, resource := range resourceObjs {
-		updateRecord := goqu.Record{
-			"resource_type_id": resource.Id.ResourceType,
-			"external_id":      fmt.Sprintf("%s:%s", resource.Id.ResourceType, resource.Id.Resource),
-		}
-
-		if resource.ParentResourceId != nil {
-			updateRecord["parent_resource_type_id"] = resource.ParentResourceId.ResourceType
-			updateRecord["parent_resource_id"] = resource.ParentResourceId.Resource
-		}
-
-		pairs = append(pairs, &messageFieldsPair{
-			m:      resource,
-			fields: updateRecord,
-		})
-	}
-
 	err := c.db.WithTx(func(tx *goqu.TxDatabase) error {
-		err := c.bulkPutConnectorObjectQuery(ctx, tx, resources.Name(), pairs...)
+		err := bulkPutConnectorObjectTx(ctx, c, tx, resources.Name(),
+			func(resource *v2.Resource) (goqu.Record, error) {
+				fields := goqu.Record{
+					"resource_type_id": resource.Id.ResourceType,
+					"external_id":      fmt.Sprintf("%s:%s", resource.Id.ResourceType, resource.Id.Resource),
+				}
+
+				if resource.ParentResourceId != nil {
+					fields["parent_resource_type_id"] = resource.ParentResourceId.ResourceType
+					fields["parent_resource_id"] = resource.ParentResourceId.Resource
+				}
+				return fields, nil
+			},
+			resourceObjs...,
+		)
 		if err != nil {
 			return err
 		}
@@ -127,31 +123,5 @@ func (c *C1File) PutResources(ctx context.Context, resourceObjs ...*v2.Resource)
 		return err
 	}
 	c.dbUpdated = true
-	return nil
-}
-
-func (c *C1File) PutResource(ctx context.Context, resource *v2.Resource) error {
-	updateRecord := goqu.Record{
-		"resource_type_id": resource.Id.ResourceType,
-		"external_id":      fmt.Sprintf("%s:%s", resource.Id.ResourceType, resource.Id.Resource),
-	}
-
-	if resource.ParentResourceId != nil {
-		updateRecord["parent_resource_type_id"] = resource.ParentResourceId.ResourceType
-		updateRecord["parent_resource_id"] = resource.ParentResourceId.Resource
-	}
-
-	query, args, err := c.putConnectorObjectQuery(ctx, resources.Name(), resource, updateRecord)
-	if err != nil {
-		return err
-	}
-
-	_, err = c.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return err
-	}
-
-	c.dbUpdated = true
-
 	return nil
 }

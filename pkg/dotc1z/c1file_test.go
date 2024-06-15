@@ -114,7 +114,7 @@ func TestC1Z(t *testing.T) {
 	require.Equal(t, syncID, syncID2)
 
 	resourceTypeID := "test-resource-type"
-	err = f.PutResourceType(ctx, &v2.ResourceType{Id: resourceTypeID})
+	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
 	require.NoError(t, err)
 
 	// Fetch the resource type we just saved
@@ -167,7 +167,7 @@ func TestC1ZDecoder(t *testing.T) {
 	require.True(t, newSync)
 
 	resourceTypeID := "test-resource-type"
-	err = f.PutResourceType(ctx, &v2.ResourceType{Id: resourceTypeID})
+	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
 	require.NoError(t, err)
 
 	dbFile, err := os.ReadFile(f.dbFilePath)
