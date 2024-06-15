@@ -36,10 +36,11 @@ type Writer interface {
 	CurrentSyncStep(ctx context.Context) (string, error)
 	CheckpointSync(ctx context.Context, syncToken string) error
 	EndSync(ctx context.Context) error
-	PutResourceType(ctx context.Context, resourceType *v2.ResourceType) error
-	PutResource(ctx context.Context, resource *v2.Resource) error
-	PutEntitlement(ctx context.Context, entitlement *v2.Entitlement) error
-	PutGrant(ctx context.Context, grant *v2.Grant) error
 	PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error
 	Cleanup(ctx context.Context) error
+
+	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
+	PutResources(ctx context.Context, resources ...*v2.Resource) error
+	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 }

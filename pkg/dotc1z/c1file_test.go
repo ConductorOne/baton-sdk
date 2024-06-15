@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/doug-martin/goqu/v9"
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -17,6 +18,14 @@ import (
 
 var c1zTests struct {
 	workingDir string
+}
+
+func TestSQLiteDialectRegistered(t *testing.T) {
+	require.Equal(
+		t,
+		"sqlite3",
+		goqu.GetDialect("sqlite3").Dialect(),
+	)
 }
 
 func TestMain(m *testing.M) {
@@ -105,7 +114,7 @@ func TestC1Z(t *testing.T) {
 	require.Equal(t, syncID, syncID2)
 
 	resourceTypeID := "test-resource-type"
-	err = f.PutResourceType(ctx, &v2.ResourceType{Id: resourceTypeID})
+	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
 	require.NoError(t, err)
 
 	// Fetch the resource type we just saved
@@ -158,7 +167,7 @@ func TestC1ZDecoder(t *testing.T) {
 	require.True(t, newSync)
 
 	resourceTypeID := "test-resource-type"
-	err = f.PutResourceType(ctx, &v2.ResourceType{Id: resourceTypeID})
+	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
 	require.NoError(t, err)
 
 	dbFile, err := os.ReadFile(f.dbFilePath)

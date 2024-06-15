@@ -167,24 +167,28 @@ func (c *C1File) ListGrantsForResourceType(
 	}, nil
 }
 
-func (c *C1File) PutGrant(ctx context.Context, grant *v2.Grant) error {
-	query, args, err := c.putConnectorObjectQuery(ctx, grants.Name(), grant, goqu.Record{
-		"resource_type_id":           grant.Entitlement.Resource.Id.ResourceType,
-		"resource_id":                grant.Entitlement.Resource.Id.Resource,
-		"entitlement_id":             grant.Entitlement.Id,
-		"principal_resource_type_id": grant.Principal.Id.ResourceType,
-		"principal_resource_id":      grant.Principal.Id.Resource,
+func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
+	err := c.db.WithTx(func(tx *goqu.TxDatabase) error {
+		err := bulkPutConnectorObjectTx(ctx, c, tx, grants.Name(),
+			func(grant *v2.Grant) (goqu.Record, error) {
+				return goqu.Record{
+					"resource_type_id":           grant.Entitlement.Resource.Id.ResourceType,
+					"resource_id":                grant.Entitlement.Resource.Id.Resource,
+					"entitlement_id":             grant.Entitlement.Id,
+					"principal_resource_type_id": grant.Principal.Id.ResourceType,
+					"principal_resource_id":      grant.Principal.Id.Resource,
+				}, nil
+			},
+			bulkGrants...,
+		)
+		if err != nil {
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return err
 	}
-
-	_, err = c.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return err
-	}
-
 	c.dbUpdated = true
-
 	return nil
 }

@@ -273,11 +273,9 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 		return err
 	}
 
-	for _, rt := range resp.List {
-		err = s.store.PutResourceType(ctx, rt)
-		if err != nil {
-			return err
-		}
+	err = s.store.PutResourceTypes(ctx, resp.List...)
+	if err != nil {
+		return err
 	}
 
 	s.handleProgress(ctx, s.state.Current(), len(resp.List))
@@ -382,6 +380,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 		}
 	}
 
+	bulkPutResoruces := []*v2.Resource{}
 	for _, r := range resp.List {
 		// Check if we've already synced this resource, skip it if we have
 		_, err = s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
@@ -403,12 +402,16 @@ func (s *syncer) syncResources(ctx context.Context) error {
 		// Set the resource creation source
 		r.CreationSource = v2.Resource_CREATION_SOURCE_CONNECTOR_LIST_RESOURCES
 
-		err = s.store.PutResource(ctx, r)
+		bulkPutResoruces = append(bulkPutResoruces, r)
+
+		err = s.getSubResources(ctx, r)
 		if err != nil {
 			return err
 		}
+	}
 
-		err = s.getSubResources(ctx, r)
+	if len(bulkPutResoruces) > 0 {
+		err = s.store.PutResources(ctx, bulkPutResoruces...)
 		if err != nil {
 			return err
 		}
@@ -548,11 +551,9 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 	if err != nil {
 		return err
 	}
-	for _, e := range resp.List {
-		err = s.store.PutEntitlement(ctx, e)
-		if err != nil {
-			return err
-		}
+	err = s.store.PutEntitlements(ctx, resp.List...)
+	if err != nil {
+		return err
 	}
 
 	s.handleProgress(ctx, s.state.Current(), len(resp.List))
@@ -1050,11 +1051,10 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
 			s.state.SetNeedsExpansion()
 		}
-
-		err = s.store.PutGrant(ctx, grant)
-		if err != nil {
-			return err
-		}
+	}
+	err = s.store.PutGrants(ctx, grants...)
+	if err != nil {
+		return err
 	}
 
 	s.handleProgress(ctx, s.state.Current(), len(grants))
@@ -1080,7 +1080,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	if updatedETag != nil {
 		resourceAnnos.Update(updatedETag)
 		resource.Annotations = resourceAnnos
-		err = s.store.PutResource(ctx, resource)
+		err = s.store.PutResources(ctx, resource)
 		if err != nil {
 			return err
 		}
@@ -1246,7 +1246,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				zap.Any("sources", sources),
 			)
 
-			err = s.store.PutGrant(ctx, descendantGrant)
+			err = s.store.PutGrants(ctx, descendantGrant)
 			if err != nil {
 				l.Error("runGrantExpandActions: error updating descendant grant", zap.Error(err))
 				return false, fmt.Errorf("runGrantExpandActions: error updating descendant grant: %w", err)
