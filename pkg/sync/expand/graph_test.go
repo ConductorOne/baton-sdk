@@ -47,6 +47,9 @@ func parseExpression(
 	return graph
 }
 
+// expectEntitlements is a private test helper that asserts that the output of
+// `GetDescendantEntitlements()` contains exactly the entitlements in the DSL
+// string `expectedEntitlements`.
 func expectEntitlements(t *testing.T, entitlementsMap map[string]*Edge, expectedEntitlements string) {
 	entitlementIDs := make([]string, 0)
 	for entitlementID := range entitlementsMap {
@@ -59,7 +62,7 @@ func expectEntitlements(t *testing.T, entitlementsMap map[string]*Edge, expected
 		}
 	}
 
-	require.EqualValues(t, expectedEntitlementIDs, entitlementIDs)
+	require.ElementsMatch(t, expectedEntitlementIDs, entitlementIDs)
 }
 
 func createNodeIDList(input string) [][]int {
