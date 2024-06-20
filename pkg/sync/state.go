@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"sync"
+
+	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"

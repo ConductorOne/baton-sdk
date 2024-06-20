@@ -6,11 +6,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"io"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"

@@ -1,8 +1,9 @@
 package expand
 
 import (
-	mapset "github.com/deckarep/golang-set/v2"
 	"reflect"
+
+	mapset "github.com/deckarep/golang-set/v2"
 )
 
 // GetCycles given an entitlements graph, get a list of every contained cycle.
