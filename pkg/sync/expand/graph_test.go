@@ -1,4 +1,4 @@
-package sync
+package expand
 
 import (
 	"context"
@@ -47,19 +47,22 @@ func parseExpression(
 	return graph
 }
 
-func createExpectedEntitlementsMap(input string) map[string]*grantInfo {
-	expectedEntitlements := make(map[string]*grantInfo)
-	expectedIDs := strings.Split(input, string(separatorList))
-	for _, id := range expectedIDs {
-		if id != "" {
-			expectedEntitlements[id] = &grantInfo{
-				Expanded:        false,
-				Shallow:         false,
-				ResourceTypeIDs: nil,
-			}
+// expectEntitlements is a private test helper that asserts that the output of
+// `GetDescendantEntitlements()` contains exactly the entitlements in the DSL
+// string `expectedEntitlements`.
+func expectEntitlements(t *testing.T, entitlementsMap map[string]*Edge, expectedEntitlements string) {
+	entitlementIDs := make([]string, 0)
+	for entitlementID := range entitlementsMap {
+		entitlementIDs = append(entitlementIDs, entitlementID)
+	}
+	expectedEntitlementIDs := make([]string, 0)
+	for _, entitlementID := range strings.Split(expectedEntitlements, string(separatorList)) {
+		if entitlementID != "" {
+			expectedEntitlementIDs = append(expectedEntitlementIDs, entitlementID)
 		}
 	}
-	return expectedEntitlements
+
+	require.ElementsMatch(t, expectedEntitlementIDs, entitlementIDs)
 }
 
 func createNodeIDList(input string) [][]int {
@@ -103,8 +106,7 @@ func TestGetDescendants(t *testing.T) {
 			graph := parseExpression(t, ctx, testCase.expression)
 
 			descendantEntitlements := graph.GetDescendantEntitlements(testCase.rootID)
-			expectedEntitlements := createExpectedEntitlementsMap(testCase.expectedIDs)
-			require.EqualValues(t, expectedEntitlements, descendantEntitlements, graph.Str())
+			expectEntitlements(t, descendantEntitlements, testCase.expectedIDs)
 		})
 	}
 }
@@ -140,10 +142,10 @@ func TestHandleCycle(t *testing.T) {
 		expectedCycles string
 		message        string
 	}{
-		{"1>2>3>4 4>2", "2,3,4", "example"},
-		// {"1>1 2", "1", "simplest"}, // TODO(marcos): Fix this test!
-		{"1>2 2>1", "1,2", "simple"},
-		{"1>2 2>1 3>4 4>3", "1,2 3,4", "two cycles"},
+		{"1>2>3>4>2", "2,3,4", "example"},
+		{"1>1 2", "1", "simplest"},
+		{"1>2>1", "1,2", "simple"},
+		{"1>2>1 3>4>3", "1,2 3,4", "two cycles"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.message, func(t *testing.T) {
@@ -166,4 +168,77 @@ func TestHandleCycle(t *testing.T) {
 			require.Empty(t, cycles)
 		})
 	}
+}
+
+func TestHandleComplexCycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	graph := parseExpression(t, ctx, "1>2>3>2>1")
+
+	require.Equal(t, 3, len(graph.Nodes))
+	require.Equal(t, 4, len(graph.Edges))
+	require.Equal(t, 3, len(graph.GetEntitlements()))
+
+	err := graph.FixCycles()
+	require.NoError(t, err, graph.Str())
+	err = graph.Validate()
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(graph.Nodes))
+	require.Equal(t, 0, len(graph.Edges))
+	require.Equal(t, 3, len(graph.GetEntitlements()))
+
+	cycles, isCycle := graph.GetCycles()
+	require.False(t, isCycle)
+	require.Empty(t, cycles)
+}
+
+// TestHandleCliqueCycle reduces a N=3 clique to a single node.
+func TestHandleCliqueCycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	graph := parseExpression(t, ctx, "1>2>3>2>1>3>1")
+
+	require.Equal(t, 3, len(graph.Nodes))
+	require.Equal(t, 6, len(graph.Edges))
+	require.Equal(t, 3, len(graph.GetEntitlements()))
+
+	err := graph.FixCycles()
+	require.NoError(t, err, graph.Str())
+	err = graph.Validate()
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(graph.Nodes))
+	require.Equal(t, 0, len(graph.Edges))
+	require.Equal(t, 3, len(graph.GetEntitlements()))
+
+	cycles, isCycle := graph.GetCycles()
+	require.False(t, isCycle)
+	require.Empty(t, cycles)
+}
+
+func TestMarkEdgeExpanded(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	graph := parseExpression(t, ctx, "1>2>3")
+	require.False(t, graph.IsExpanded())
+
+	// Edge doesn't exist, don't panic.
+	graph.MarkEdgeExpanded("1", "3")
+	require.False(t, graph.IsEntitlementExpanded("1"))
+	require.False(t, graph.IsEntitlementExpanded("2"))
+	require.False(t, graph.IsExpanded())
+
+	graph.MarkEdgeExpanded("1", "2")
+	require.True(t, graph.IsEntitlementExpanded("1"))
+	require.False(t, graph.IsEntitlementExpanded("2"))
+	require.False(t, graph.IsExpanded())
+
+	graph.MarkEdgeExpanded("2", "3")
+	require.True(t, graph.IsEntitlementExpanded("1"))
+	require.True(t, graph.IsEntitlementExpanded("2"))
+	require.True(t, graph.IsExpanded())
 }

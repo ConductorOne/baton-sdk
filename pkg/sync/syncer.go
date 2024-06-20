@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/sync/expand"
+
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -483,7 +485,7 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 }
 
 // SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
-// and pushes an action to fetch the entitelments for each resource.
+// and pushes an action to fetch the entitlements for each resource.
 func (s *syncer) SyncEntitlements(ctx context.Context) error {
 	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
 		pageToken := s.state.PageToken(ctx)
@@ -884,7 +886,7 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 	return nil
 }
 
-type lastestSyncFetcher interface {
+type latestSyncFetcher interface {
 	LatestFinishedSync(ctx context.Context) (string, error)
 }
 
@@ -894,7 +896,7 @@ func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v
 	var previousSyncID string
 	var err error
 
-	if psf, ok := s.store.(lastestSyncFetcher); ok {
+	if psf, ok := s.store.(latestSyncFetcher); ok {
 		previousSyncID, err = psf.LatestFinishedSync(ctx)
 		if err != nil {
 			return "", nil, err
@@ -1305,8 +1307,8 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		return fmt.Errorf("exceeded max depth")
 	}
 
-	// TOOD(morgabra) Yield here after some amount of work?
-	// traverse edges or call some sort of getentitlements
+	// TODO(morgabra) Yield here after some amount of work?
+	// traverse edges or call some sort of getEntitlements
 	for _, sourceEntitlementID := range graph.GetEntitlements() {
 		// We've already expanded this entitlement, so skip it.
 		if graph.IsEntitlementExpanded(sourceEntitlementID) {
@@ -1320,14 +1322,14 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		}
 
 		for descendantEntitlementID, grantInfo := range graph.GetDescendantEntitlements(sourceEntitlementID) {
-			if grantInfo.Expanded {
+			if grantInfo.IsExpanded {
 				continue
 			}
-			graph.Actions = append(graph.Actions, EntitlementGraphAction{
+			graph.Actions = append(graph.Actions, expand.EntitlementGraphAction{
 				SourceEntitlementID:     sourceEntitlementID,
 				DescendantEntitlementID: descendantEntitlementID,
 				PageToken:               "",
-				Shallow:                 grantInfo.Shallow,
+				Shallow:                 grantInfo.IsShallow,
 				ResourceTypeIDs:         grantInfo.ResourceTypeIDs,
 			})
 		}

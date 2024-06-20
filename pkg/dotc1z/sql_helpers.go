@@ -70,8 +70,8 @@ type protoHasID interface {
 	GetId() string
 }
 
-// listConnectorObjects uses a connecter list request to fetch the corresponding data from the local db.
-// It returns the raw bytes that need to be unmarshaled into the correct proto message.
+// listConnectorObjects uses a connector list request to fetch the corresponding data from the local db.
+// It returns the raw bytes that need to be unmarshalled into the correct proto message.
 func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req proto.Message) ([][]byte, string, error) {
 	err := c.validateDb(ctx)
 	if err != nil {
