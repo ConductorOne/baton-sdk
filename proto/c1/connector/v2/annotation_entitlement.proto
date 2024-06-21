@@ -7,6 +7,6 @@ import "google/protobuf/struct.proto";
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 message EntitlementImmutable {
-  optional string source_id = 1;
+  string source_id = 1;
   google.protobuf.Struct metadata = 2;
 }

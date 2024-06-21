@@ -17,6 +17,6 @@ message GrantExpandable {
 }
 
 message GrantImmutable {
-  optional string source_id = 1;
+  string source_id = 1;
   google.protobuf.Struct metadata = 2;
 }

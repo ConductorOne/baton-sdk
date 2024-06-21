@@ -288,6 +288,8 @@ func (m *GrantImmutable) validate(all bool) error {
 
 	var errors []error
 
+	// no validation rules for SourceId
+
 	if all {
 		switch v := interface{}(m.GetMetadata()).(type) {
 		case interface{ ValidateAll() error }:
@@ -315,10 +317,6 @@ func (m *GrantImmutable) validate(all bool) error {
 				cause:  err,
 			}
 		}
-	}
-
-	if m.SourceId != nil {
-		// no validation rules for SourceId
 	}
 
 	if len(errors) > 0 {
