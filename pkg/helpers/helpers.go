@@ -25,6 +25,25 @@ func SplitFullName(name string) (string, string) {
 	return firstName, lastName
 }
 
+var limitHeaders = []string{
+	"X-Ratelimit-Limit",
+	"Ratelimit-Limit",
+	"X-RateLimit-Requests-Limit", // Linear uses a non-standard header
+}
+
+var remainingHeaders = []string{
+	"X-Ratelimit-Remaining",
+	"Ratelimit-Remaining",
+	"X-RateLimit-Requests-Remaining", // Linear uses a non-standard header
+}
+
+var resetAtHeaders = []string{
+	"X-Ratelimit-Reset",
+	"Ratelimit-Reset",
+	"X-RateLimit-Requests-Reset", // Linear uses a non-standard header
+	"Retry-After",                // Often returned with 429
+}
+
 func ExtractRateLimitData(statusCode int, header *http.Header) (*v2.RateLimitDescription, error) {
 	if header == nil {
 		return nil, nil
@@ -34,43 +53,54 @@ func ExtractRateLimitData(statusCode int, header *http.Header) (*v2.RateLimitDes
 
 	var limit int64
 	var err error
-	limitStr := header.Get("X-Ratelimit-Limit")
-	if limitStr != "" {
-		limit, err = strconv.ParseInt(limitStr, 10, 64)
-		if err != nil {
-			return nil, err
+	for _, limitHeader := range limitHeaders {
+		limitStr := header.Get(limitHeader)
+		if limitStr != "" {
+			limit, err = strconv.ParseInt(limitStr, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			break
 		}
 	}
 
 	var remaining int64
-	remainingStr := header.Get("X-Ratelimit-Remaining")
-	if remainingStr != "" {
-		remaining, err = strconv.ParseInt(remainingStr, 10, 64)
-		if err != nil {
-			return nil, err
+	for _, remainingHeader := range remainingHeaders {
+		remainingStr := header.Get(remainingHeader)
+		if remainingStr != "" {
+			remaining, err = strconv.ParseInt(remainingStr, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			break
 		}
-		if remaining > 0 {
-			rlstatus = v2.RateLimitDescription_STATUS_OK
-		}
+	}
+	if remaining > 0 {
+		rlstatus = v2.RateLimitDescription_STATUS_OK
 	}
 
 	var resetAt time.Time
-	reset := header.Get("X-Ratelimit-Reset")
-	if reset != "" {
-		res, err := strconv.ParseInt(reset, 10, 64)
-		if err != nil {
-			return nil, err
+	for _, resetAtHeader := range resetAtHeaders {
+		resetAtStr := header.Get(resetAtHeader)
+		if resetAtStr != "" {
+			res, err := strconv.ParseInt(resetAtStr, 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			resetAt = time.Now().Add(time.Second * time.Duration(res))
+			break
 		}
+	}
 
-		resetAt = time.Now().Add(time.Second * time.Duration(res))
+	if statusCode == http.StatusTooManyRequests {
+		rlstatus = v2.RateLimitDescription_STATUS_OVERLIMIT
+		remaining = 0
 	}
 
 	// If we didn't get any rate limit headers and status code is 429, return some sane defaults
-	if limit == 0 && remaining == 0 && resetAt.IsZero() && statusCode == http.StatusTooManyRequests {
+	if remaining == 0 && resetAt.IsZero() && rlstatus == v2.RateLimitDescription_STATUS_OVERLIMIT {
 		limit = 1
-		remaining = 0
 		resetAt = time.Now().Add(time.Second * 60)
-		rlstatus = v2.RateLimitDescription_STATUS_OVERLIMIT
 	}
 
 	return &v2.RateLimitDescription{
