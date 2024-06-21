@@ -30,7 +30,7 @@ func TestHelpers_ExtractRateLimitData(t *testing.T) {
 		Header: map[string][]string{
 			"X-Ratelimit-Limit":     {"100"},
 			"X-Ratelimit-Remaining": {"50"},
-			"X-Ratelimit-Reset":     {"60"},
+			"X-Ratelimit-Reset":     {"30"},
 		},
 	}
 
@@ -38,7 +38,7 @@ func TestHelpers_ExtractRateLimitData(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(100), rl.Limit)
 	require.Equal(t, int64(50), rl.Remaining)
-	require.Equal(t, n.Add(time.Second*60).Unix(), rl.ResetAt.AsTime().Unix())
+	require.Equal(t, n.Add(time.Second*30).Unix(), rl.ResetAt.AsTime().Unix())
 
 	resp = &http.Response{
 		StatusCode: http.StatusTooManyRequests,

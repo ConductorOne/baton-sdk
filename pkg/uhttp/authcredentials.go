@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 	"golang.org/x/oauth2/jwt"
@@ -146,7 +147,7 @@ func (o *OAuth2JWT) GetClient(ctx context.Context, options ...Option) (*http.Cli
 }
 
 func getHttpClient(ctx context.Context, options ...Option) (*http.Client, error) {
-	options = append(options, WithLogger(true, nil))
+	options = append(options, WithLogger(true, ctxzap.Extract(ctx)))
 
 	httpClient, err := NewClient(ctx, options...)
 	if err != nil {
