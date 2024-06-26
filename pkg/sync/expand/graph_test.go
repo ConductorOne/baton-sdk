@@ -126,14 +126,32 @@ func TestRemoveNode(t *testing.T) {
 	require.Nil(t, node)
 }
 
-func TestGetCycles(t *testing.T) {
+func TestGetFirstCycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	graph := parseExpression(t, ctx, "1>2>3>4 4>2")
-	cycles, isCycle := graph.GetCycles()
-	require.True(t, isCycle)
-	require.Equal(t, [][]int{{2, 3, 4}}, cycles)
+	testCases := []struct {
+		expression        string
+		expectedCycleSize int
+		message           string
+	}{
+		{"1>2>3>4 4>2", 3, "example"},
+		{"1>2>3>4 1>5>6>7", 0, "no cycle"},
+		{"1>2>3 1>3", 0, "pseudo cycle"},
+		{"1>1", 1, "self cycle"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.message, func(t *testing.T) {
+			graph := parseExpression(t, ctx, testCase.expression)
+			cycle := graph.GetFirstCycle()
+			if testCase.expectedCycleSize == 0 {
+				require.Nil(t, cycle)
+			} else {
+				require.NotNil(t, cycle)
+				require.Len(t, cycle, testCase.expectedCycleSize)
+			}
+		})
+	}
 }
 
 func TestHandleCycle(t *testing.T) {
@@ -154,18 +172,17 @@ func TestHandleCycle(t *testing.T) {
 
 			graph := parseExpression(t, ctx, testCase.expression)
 
-			cycles, isCycle := graph.GetCycles()
+			cycle := graph.GetFirstCycle()
 			expectedCycles := createNodeIDList(testCase.expectedCycles)
-			require.True(t, isCycle)
-			require.ElementsMatch(t, expectedCycles, cycles)
+			require.NotNil(t, cycle)
+			require.ElementsMatch(t, expectedCycles, cycle)
 
 			err := graph.FixCycles()
 			require.NoError(t, err, graph.Str())
 			err = graph.Validate()
 			require.NoError(t, err)
-			cycles, isCycle = graph.GetCycles()
-			require.False(t, isCycle)
-			require.Empty(t, cycles)
+			cycle = graph.GetFirstCycle()
+			require.Nil(t, cycle)
 		})
 	}
 }
@@ -189,9 +206,8 @@ func TestHandleComplexCycle(t *testing.T) {
 	require.Equal(t, 0, len(graph.Edges))
 	require.Equal(t, 3, len(graph.GetEntitlements()))
 
-	cycles, isCycle := graph.GetCycles()
-	require.False(t, isCycle)
-	require.Empty(t, cycles)
+	cycle := graph.GetFirstCycle()
+	require.Nil(t, cycle)
 }
 
 // TestHandleCliqueCycle reduces a N=3 clique to a single node.
@@ -199,24 +215,27 @@ func TestHandleCliqueCycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	graph := parseExpression(t, ctx, "1>2>3>2>1>3>1")
+	// Test can be flaky.
+	N := 1
+	for i := 0; i < N; i++ {
+		graph := parseExpression(t, ctx, "1>2>3>2>1>3>1")
 
-	require.Equal(t, 3, len(graph.Nodes))
-	require.Equal(t, 6, len(graph.Edges))
-	require.Equal(t, 3, len(graph.GetEntitlements()))
+		require.Equal(t, 3, len(graph.Nodes))
+		require.Equal(t, 6, len(graph.Edges))
+		require.Equal(t, 3, len(graph.GetEntitlements()))
 
-	err := graph.FixCycles()
-	require.NoError(t, err, graph.Str())
-	err = graph.Validate()
-	require.NoError(t, err)
+		err := graph.FixCycles()
+		require.NoError(t, err, graph.Str())
+		err = graph.Validate()
+		require.NoError(t, err)
 
-	require.Equal(t, 1, len(graph.Nodes))
-	require.Equal(t, 0, len(graph.Edges))
-	require.Equal(t, 3, len(graph.GetEntitlements()))
+		require.Equal(t, 1, len(graph.Nodes))
+		require.Equal(t, 0, len(graph.Edges))
+		require.Equal(t, 3, len(graph.GetEntitlements()))
 
-	cycles, isCycle := graph.GetCycles()
-	require.False(t, isCycle)
-	require.Empty(t, cycles)
+		cycle := graph.GetFirstCycle()
+		require.Nil(t, cycle)
+	}
 }
 
 func TestMarkEdgeExpanded(t *testing.T) {
