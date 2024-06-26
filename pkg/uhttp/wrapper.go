@@ -107,6 +107,9 @@ func WithXMLResponse(response interface{}) DoOption {
 		if !helpers.IsXMLContentType(resp.Header.Get(ContentType)) {
 			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get(ContentType))
 		}
+		if response == nil && len(resp.Body) == 0 {
+			return nil
+		}
 		return xml.Unmarshal(resp.Body, response)
 	}
 }
