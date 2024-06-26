@@ -87,33 +87,77 @@ func TestWrapper_WithJSONResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resp := http.Response{
-		Header: map[string][]string{
-			"Content-Type": {"application/json"},
-		},
-	}
-
 	responseBody := example{}
 	option := WithJSONResponse(&responseBody)
-	wrapperResp := WrapperResponse{
-		Header:     resp.Header,
-		Body:       exampleResponseBuffer.Bytes(),
-		StatusCode: 200,
-		Status:     "200 OK",
-	}
-	err = option(&wrapperResp)
 
-	require.Nil(t, err)
-	require.Equal(t, exampleResponse, responseBody)
+	t.Run("should marshal a JSON response", func(t *testing.T) {
+		resp := http.Response{
+			Header: map[string][]string{
+				"Content-Type": {"application/json"},
+			},
+		}
 
-	wrapperResp.Header = map[string][]string{
-		"Content-Type": {"application/xml"},
-	}
-	responseBody = example{}
-	option = WithJSONResponse(&responseBody)
-	err = option(&wrapperResp)
+		wrapperResp := WrapperResponse{
+			Header:     resp.Header,
+			Body:       exampleResponseBuffer.Bytes(),
+			StatusCode: 200,
+			Status:     "200 OK",
+		}
+		err = option(&wrapperResp)
 
-	require.NotNil(t, err)
+		require.Nil(t, err)
+		require.Equal(t, exampleResponse, responseBody)
+	})
+
+	t.Run("should return an error when the response is not JSON", func(t *testing.T) {
+		resp := http.Response{
+			Header: map[string][]string{
+				"Content-Type": {"application/xml"},
+			},
+		}
+
+		wrapperResp := WrapperResponse{
+			Header:     resp.Header,
+			Body:       exampleResponseBuffer.Bytes(),
+			StatusCode: 200,
+			Status:     "200 OK",
+		}
+		err = option(&wrapperResp)
+
+		require.NotNil(t, err)
+	})
+
+	t.Run("should not marshal when the JSON response is empty (HTTP 204)", func(t *testing.T) {
+		wrapperResp := WrapperResponse{
+			Header: map[string][]string{
+				"Content-Type": {"application/json"},
+			},
+			Body:       []byte(""),
+			StatusCode: 204,
+			Status:     "204 No Content",
+		}
+		err = WithJSONResponse(nil)(&wrapperResp)
+
+		require.Nil(t, err)
+	})
+
+	t.Run("should marshal an empty JSON response (\"{}\")", func(t *testing.T) {
+		type empty struct{}
+
+		wrapperResp := WrapperResponse{
+			Header: map[string][]string{
+				"Content-Type": {"application/json"},
+			},
+			Body:       []byte("{}"),
+			StatusCode: 204,
+			Status:     "204 No Content",
+		}
+		responseBody := empty{}
+		err = WithJSONResponse(&responseBody)(&wrapperResp)
+
+		require.Nil(t, err)
+		require.Equal(t, empty{}, responseBody)
+	})
 }
 
 func TestWrapper_WithXMLResponse(t *testing.T) {
@@ -133,18 +177,50 @@ func TestWrapper_WithXMLResponse(t *testing.T) {
 		},
 	}
 
-	responseBody := example{}
-	option := WithXMLResponse(&responseBody)
-	wrapperResp := WrapperResponse{
-		Header:     resp.Header,
-		Body:       exampleResponseBuffer.Bytes(),
-		StatusCode: 200,
-		Status:     "200 OK",
-	}
-	err = option(&wrapperResp)
+	t.Run("should marshal an XML response", func(t *testing.T) {
+		responseBody := example{}
+		option := WithXMLResponse(&responseBody)
+		wrapperResp := WrapperResponse{
+			Header:     resp.Header,
+			Body:       exampleResponseBuffer.Bytes(),
+			StatusCode: 200,
+			Status:     "200 OK",
+		}
+		err = option(&wrapperResp)
 
-	require.Nil(t, err)
-	require.Equal(t, exampleResponse, responseBody)
+		require.Nil(t, err)
+		require.Equal(t, exampleResponse, responseBody)
+	})
+
+	t.Run("should return an error when the response is not XML", func(t *testing.T) {
+		responseBody := example{}
+		option := WithXMLResponse(&responseBody)
+		wrapperResp := WrapperResponse{
+			Header: map[string][]string{
+				"Content-Type": {"application/json"},
+			},
+			Body:       exampleResponseBuffer.Bytes(),
+			StatusCode: 200,
+			Status:     "200 OK",
+		}
+		err = option(&wrapperResp)
+
+		require.NotNil(t, err)
+	})
+
+	t.Run("should not marshal when the XML response is empty (HTTP 204)", func(t *testing.T) {
+		wrapperResp := WrapperResponse{
+			Header: map[string][]string{
+				"Content-Type": {"application/xml"},
+			},
+			Body:       []byte(""),
+			StatusCode: 204,
+			Status:     "204 No Content",
+		}
+		err = WithXMLResponse(nil)(&wrapperResp)
+
+		require.Nil(t, err)
+	})
 }
 
 func TestWrapper_WithResponse(t *testing.T) {

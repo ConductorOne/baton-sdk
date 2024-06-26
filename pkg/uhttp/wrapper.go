@@ -45,10 +45,16 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 	}
 }
 
+// WithJSONResponse is a wrapper that marshals the returned response body into
+// the provided shape. If the API should return an empty JSON body (i.e. HTTP
+// status code 204 No Content), then pass a `nil` to `response`.
 func WithJSONResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
 		if !helpers.IsJSONContentType(resp.Header.Get(ContentType)) {
 			return fmt.Errorf("unexpected content type for json response: %s", resp.Header.Get(ContentType))
+		}
+		if response == nil && len(resp.Body) == 0 {
+			return nil
 		}
 		return json.Unmarshal(resp.Body, response)
 	}
@@ -100,6 +106,9 @@ func WithXMLResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
 		if !helpers.IsXMLContentType(resp.Header.Get(ContentType)) {
 			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get(ContentType))
+		}
+		if response == nil && len(resp.Body) == 0 {
+			return nil
 		}
 		return xml.Unmarshal(resp.Body, response)
 	}
