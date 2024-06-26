@@ -245,7 +245,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 	l := ctxzap.Extract(ctx)
 
 	// Look for a matching status
-	foundMatch := false
+	foundMatch := ticket.Status == nil
 	for _, status := range schema.GetStatuses() {
 		// Status is not required
 		if ticket.Status == nil {
@@ -265,10 +265,11 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 	}
 
 	// Look for a matching ticket type
-	foundMatch = false
+	foundMatch = ticket.Type == nil
 	for _, tType := range schema.GetTypes() {
 		if ticket.Type == nil {
-			return false, nil
+			foundMatch = true
+			break
 		}
 		if ticket.Type.GetId() == tType.GetId() {
 			foundMatch = true
