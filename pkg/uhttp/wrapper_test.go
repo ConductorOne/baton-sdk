@@ -190,7 +190,6 @@ func TestWrapper_WithXMLResponse(t *testing.T) {
 
 		require.Nil(t, err)
 		require.Equal(t, exampleResponse, responseBody)
-
 	})
 
 	t.Run("should return an error when the response is not XML", func(t *testing.T) {
