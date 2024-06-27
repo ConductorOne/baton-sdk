@@ -175,7 +175,7 @@ func TestHandleCycle(t *testing.T) {
 			cycle := graph.GetFirstCycle()
 			expectedCycles := createNodeIDList(testCase.expectedCycles)
 			require.NotNil(t, cycle)
-			require.ElementsMatch(t, expectedCycles, cycle)
+			require.ElementsMatch(t, expectedCycles[0], cycle)
 
 			err := graph.FixCycles()
 			require.NoError(t, err, graph.Str())
