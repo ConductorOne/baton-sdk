@@ -87,7 +87,7 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 
 var attempts = 0
 
-func shouldWaitAndRetry(ctx context.Context, err error) bool {
+func shouldWaitAndRetry(ctx context.Context, annos annotations.Annotations, err error) bool {
 	if err == nil {
 		attempts = 0
 		return true
@@ -100,6 +100,13 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 	l := ctxzap.Extract(ctx)
 
 	var wait time.Duration = time.Duration(attempts) * time.Second
+	rlData := &v2.RateLimitDescription{}
+	if annos != nil {
+		ok, err := annos.Pick(rlData)
+		if ok && err == nil {
+			wait = time.Until(rlData.ResetAt.AsTime())
+		}
+	}
 
 	l.Warn("retrying operation", zap.Error(err), zap.Duration("wait", wait))
 
@@ -188,6 +195,8 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		stateAction := s.state.Current()
 
+		var annos annotations.Annotations
+
 		switch stateAction.Op {
 		case InitOp:
 			s.state.FinishAction(ctx)
@@ -206,36 +215,36 @@ func (s *syncer) Sync(ctx context.Context) error {
 			continue
 
 		case SyncResourceTypesOp:
-			err = s.SyncResourceTypes(ctx)
-			if !shouldWaitAndRetry(ctx, err) {
+			annos, err = s.SyncResourceTypes(ctx)
+			if !shouldWaitAndRetry(ctx, annos, err) {
 				return err
 			}
 			continue
 
 		case SyncResourcesOp:
-			err = s.SyncResources(ctx)
-			if !shouldWaitAndRetry(ctx, err) {
+			annos, err = s.SyncResources(ctx)
+			if !shouldWaitAndRetry(ctx, annos, err) {
 				return err
 			}
 			continue
 
 		case SyncEntitlementsOp:
-			err = s.SyncEntitlements(ctx)
-			if !shouldWaitAndRetry(ctx, err) {
+			annos, err = s.SyncEntitlements(ctx)
+			if !shouldWaitAndRetry(ctx, annos, err) {
 				return err
 			}
 			continue
 
 		case SyncGrantsOp:
-			err = s.SyncGrants(ctx)
-			if !shouldWaitAndRetry(ctx, err) {
+			annos, err = s.SyncGrants(ctx)
+			if !shouldWaitAndRetry(ctx, annos, err) {
 				return err
 			}
 			continue
 
 		case SyncAssetsOp:
-			err = s.SyncAssets(ctx)
-			if err != nil {
+			annos, err = s.SyncAssets(ctx)
+			if !shouldWaitAndRetry(ctx, annos, err) {
 				return err
 			}
 			continue
@@ -247,8 +256,8 @@ func (s *syncer) Sync(ctx context.Context) error {
 				continue
 			}
 
-			err = s.SyncGrantExpansion(ctx)
-			if !shouldWaitAndRetry(ctx, err) {
+			annos, err = s.SyncGrantExpansion(ctx)
+			if !shouldWaitAndRetry(ctx, annos, err) {
 				return err
 			}
 			continue
@@ -313,7 +322,7 @@ func (s *syncer) SkipSync(ctx context.Context) error {
 }
 
 // SyncResourceTypes calls the ListResourceType() connector endpoint and persists the results in to the datasource.
-func (s *syncer) SyncResourceTypes(ctx context.Context) error {
+func (s *syncer) SyncResourceTypes(ctx context.Context) (annotations.Annotations, error) {
 	pageToken := s.state.PageToken(ctx)
 
 	if pageToken == "" {
@@ -323,32 +332,32 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 
 	err := s.loadStore(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	resp, err := s.connector.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{PageToken: pageToken})
 	if err != nil {
-		return err
+		return resp.GetAnnotations(), err
 	}
 
 	err = s.store.PutResourceTypes(ctx, resp.List...)
 	if err != nil {
-		return err
+		return resp.GetAnnotations(), err
 	}
 
 	s.handleProgress(ctx, s.state.Current(), len(resp.List))
 
 	if resp.NextPageToken == "" {
 		s.state.FinishAction(ctx)
-		return nil
+		return resp.GetAnnotations(), nil
 	}
 
 	err = s.state.NextPage(ctx, resp.NextPageToken)
 	if err != nil {
-		return err
+		return resp.GetAnnotations(), err
 	}
 
-	return nil
+	return resp.GetAnnotations(), nil
 }
 
 // getSubResources fetches the sub resource types from a resources' annotations.
@@ -376,7 +385,7 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
-func (s *syncer) SyncResources(ctx context.Context) error {
+func (s *syncer) SyncResources(ctx context.Context) (annotations.Annotations, error) {
 	if s.state.Current().ResourceTypeID == "" {
 		pageToken := s.state.PageToken(ctx)
 
@@ -387,13 +396,13 @@ func (s *syncer) SyncResources(ctx context.Context) error {
 
 		resp, err := s.store.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{PageToken: pageToken})
 		if err != nil {
-			return err
+			return resp.GetAnnotations(), err
 		}
 
 		if resp.NextPageToken != "" {
 			err = s.state.NextPage(ctx, resp.NextPageToken)
 			if err != nil {
-				return err
+				return resp.GetAnnotations(), err
 			}
 		} else {
 			s.state.FinishAction(ctx)
@@ -403,14 +412,14 @@ func (s *syncer) SyncResources(ctx context.Context) error {
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: rt.Id})
 		}
 
-		return nil
+		return resp.GetAnnotations(), nil
 	}
 
 	return s.syncResources(ctx)
 }
 
 // syncResources fetches a given resource from the connector, and returns a slice of new child resources to fetch.
-func (s *syncer) syncResources(ctx context.Context) error {
+func (s *syncer) syncResources(ctx context.Context) (annotations.Annotations, error) {
 	req := &v2.ResourcesServiceListResourcesRequest{
 		ResourceTypeId: s.state.ResourceTypeID(ctx),
 		PageToken:      s.state.PageToken(ctx),
@@ -424,7 +433,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 
 	resp, err := s.connector.ListResources(ctx, req)
 	if err != nil {
-		return err
+		return resp.GetAnnotations(), err
 	}
 
 	s.handleProgress(ctx, s.state.Current(), len(resp.List))
@@ -434,7 +443,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 	} else {
 		err = s.state.NextPage(ctx, resp.NextPageToken)
 		if err != nil {
-			return err
+			return resp.GetAnnotations(), err
 		}
 	}
 
@@ -449,12 +458,12 @@ func (s *syncer) syncResources(ctx context.Context) error {
 		}
 
 		if !errors.Is(err, sql.ErrNoRows) {
-			return err
+			return resp.GetAnnotations(), err
 		}
 
 		err = s.validateResourceTraits(ctx, r)
 		if err != nil {
-			return err
+			return resp.GetAnnotations(), err
 		}
 
 		// Set the resource creation source
@@ -464,18 +473,18 @@ func (s *syncer) syncResources(ctx context.Context) error {
 
 		err = s.getSubResources(ctx, r)
 		if err != nil {
-			return err
+			return resp.GetAnnotations(), err
 		}
 	}
 
 	if len(bulkPutResoruces) > 0 {
 		err = s.store.PutResources(ctx, bulkPutResoruces...)
 		if err != nil {
-			return err
+			return resp.GetAnnotations(), err
 		}
 	}
 
-	return nil
+	return resp.GetAnnotations(), nil
 }
 
 func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) error {
@@ -542,7 +551,7 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 
 // SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
 // and pushes an action to fetch the entitlements for each resource.
-func (s *syncer) SyncEntitlements(ctx context.Context) error {
+func (s *syncer) SyncEntitlements(ctx context.Context) (annotations.Annotations, error) {
 	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
 		pageToken := s.state.PageToken(ctx)
 
@@ -553,14 +562,14 @@ func (s *syncer) SyncEntitlements(ctx context.Context) error {
 
 		resp, err := s.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{PageToken: pageToken})
 		if err != nil {
-			return err
+			return resp.GetAnnotations(), err
 		}
 
 		// We want to take action on the next page before we push any new actions
 		if resp.NextPageToken != "" {
 			err = s.state.NextPage(ctx, resp.NextPageToken)
 			if err != nil {
-				return err
+				return resp.GetAnnotations(), err
 			}
 		} else {
 			s.state.FinishAction(ctx)
@@ -569,7 +578,7 @@ func (s *syncer) SyncEntitlements(ctx context.Context) error {
 		for _, r := range resp.List {
 			shouldSkipEntitlements, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
 			if err != nil {
-				return err
+				return resp.GetAnnotations(), err
 			}
 			if shouldSkipEntitlements {
 				continue
@@ -577,7 +586,7 @@ func (s *syncer) SyncEntitlements(ctx context.Context) error {
 			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceID: r.Id.Resource, ResourceTypeID: r.Id.ResourceType})
 		}
 
-		return nil
+		return resp.GetAnnotations(), nil
 	}
 
 	err := s.syncEntitlementsForResource(ctx, &v2.ResourceId{
@@ -585,10 +594,10 @@ func (s *syncer) SyncEntitlements(ctx context.Context) error {
 		Resource:     s.state.ResourceID(ctx),
 	})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return nil, nil
 }
 
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
@@ -734,7 +743,7 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, resourceID *v2.Resou
 }
 
 // SyncAssets iterates each resource in the data store, and adds an action to fetch all of the assets for that resource.
-func (s *syncer) SyncAssets(ctx context.Context) error {
+func (s *syncer) SyncAssets(ctx context.Context) (annotations.Annotations, error) {
 	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
 		pageToken := s.state.PageToken(ctx)
 
@@ -745,14 +754,14 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 
 		resp, err := s.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{PageToken: pageToken})
 		if err != nil {
-			return err
+			return resp.GetAnnotations(), err
 		}
 
 		// We want to take action on the next page before we push any new actions
 		if resp.NextPageToken != "" {
 			err = s.state.NextPage(ctx, resp.NextPageToken)
 			if err != nil {
-				return err
+				return resp.GetAnnotations(), err
 			}
 		} else {
 			s.state.FinishAction(ctx)
@@ -762,7 +771,7 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 			s.state.PushAction(ctx, Action{Op: SyncAssetsOp, ResourceID: r.Id.Resource, ResourceTypeID: r.Id.ResourceType})
 		}
 
-		return nil
+		return resp.GetAnnotations(), nil
 	}
 
 	err := s.syncAssetsForResource(ctx, &v2.ResourceId{
@@ -771,15 +780,15 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 	})
 	if err != nil {
 		ctxzap.Extract(ctx).Error("error syncing assets", zap.Error(err))
-		return err
+		return nil, err
 	}
 
-	return nil
+	return nil, nil
 }
 
 // SyncGrantExpansion
 // TODO(morgabra) Docs
-func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
+func (s *syncer) SyncGrantExpansion(ctx context.Context) (annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
 	entitlementGraph := s.state.EntitlementGraph(ctx)
 	if !entitlementGraph.Loaded {
@@ -792,14 +801,14 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 
 		resp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageToken: pageToken})
 		if err != nil {
-			return err
+			return resp.GetAnnotations(), err
 		}
 
 		// We want to take action on the next page before we push any new actions
 		if resp.NextPageToken != "" {
 			err = s.state.NextPage(ctx, resp.NextPageToken)
 			if err != nil {
-				return err
+				return resp.GetAnnotations(), err
 			}
 		} else {
 			entitlementGraph.Loaded = true
@@ -810,7 +819,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 			expandable := &v2.GrantExpandable{}
 			_, err := annos.Pick(expandable)
 			if err != nil {
-				return err
+				return resp.GetAnnotations(), err
 			}
 			if len(expandable.GetEntitlementIds()) == 0 {
 				continue
@@ -818,7 +827,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 
 			principalID := grant.GetPrincipal().GetId()
 			if principalID == nil {
-				return fmt.Errorf("principal id was nil")
+				return resp.GetAnnotations(), fmt.Errorf("principal id was nil")
 			}
 
 			// FIXME(morgabra) Log and skip some of the error paths here?
@@ -833,14 +842,14 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 					EntitlementId: srcEntitlementID,
 				})
 				if err != nil {
-					return err
+					return resp.GetAnnotations(), err
 				}
 
 				// The expand annotation points at entitlements by id. Those entitlements' resource should match
 				// the current grant's principal, so we don't allow expanding arbitrary entitlements.
 				sourceEntitlementResourceID := srcEntitlement.GetEntitlement().GetResource().GetId()
 				if sourceEntitlementResourceID == nil {
-					return fmt.Errorf("source entitlement resource id was nil")
+					return resp.GetAnnotations(), fmt.Errorf("source entitlement resource id was nil")
 				}
 				if principalID.ResourceType != sourceEntitlementResourceID.ResourceType ||
 					principalID.Resource != sourceEntitlementResourceID.Resource {
@@ -849,7 +858,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 						zap.String("grant_principal_id", principalID.String()),
 						zap.String("source_entitlement_resource_id", sourceEntitlementResourceID.String()))
 
-					return fmt.Errorf("source entitlement resource id did not match grant principal id")
+					return resp.GetAnnotations(), fmt.Errorf("source entitlement resource id did not match grant principal id")
 				}
 
 				entitlementGraph.AddEntitlement(grant.Entitlement)
@@ -861,11 +870,11 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 					expandable.ResourceTypeIds,
 				)
 				if err != nil {
-					return fmt.Errorf("error adding edge to graph: %w", err)
+					return resp.GetAnnotations(), fmt.Errorf("error adding edge to graph: %w", err)
 				}
 			}
 		}
-		return nil
+		return resp.GetAnnotations(), nil
 	}
 
 	if entitlementGraph.Loaded {
@@ -877,27 +886,27 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 				zap.Any("initial graph", entitlementGraph),
 			)
 			if dontFixCycles {
-				return fmt.Errorf("cycles detected in entitlement graph")
+				return nil, fmt.Errorf("cycles detected in entitlement graph")
 			}
 
 			err := entitlementGraph.FixCycles()
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 
 	err := s.expandGrantsForEntitlements(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return nil
+	return nil, nil
 }
 
 // SyncGrants fetches the grants for each resource from the connector. It iterates each resource
 // from the datastore, and pushes a new action to sync the grants for each individual resource.
-func (s *syncer) SyncGrants(ctx context.Context) error {
+func (s *syncer) SyncGrants(ctx context.Context) (annotations.Annotations, error) {
 	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
 		pageToken := s.state.PageToken(ctx)
 
@@ -908,14 +917,14 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 
 		resp, err := s.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{PageToken: pageToken})
 		if err != nil {
-			return err
+			return resp.GetAnnotations(), err
 		}
 
 		// We want to take action on the next page before we push any new actions
 		if resp.NextPageToken != "" {
 			err = s.state.NextPage(ctx, resp.NextPageToken)
 			if err != nil {
-				return err
+				return resp.GetAnnotations(), err
 			}
 		} else {
 			s.state.FinishAction(ctx)
@@ -924,7 +933,7 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 		for _, r := range resp.List {
 			shouldSkip, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
 			if err != nil {
-				return err
+				return resp.GetAnnotations(), err
 			}
 
 			if shouldSkip {
@@ -933,17 +942,17 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 			s.state.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: r.Id.Resource, ResourceTypeID: r.Id.ResourceType})
 		}
 
-		return nil
+		return resp.GetAnnotations(), nil
 	}
-	err := s.syncGrantsForResource(ctx, &v2.ResourceId{
+	annos, err := s.syncGrantsForResource(ctx, &v2.ResourceId{
 		ResourceType: s.state.ResourceTypeID(ctx),
 		Resource:     s.state.ResourceID(ctx),
 	})
 	if err != nil {
-		return err
+		return annos, err
 	}
 
-	return nil
+	return annos, nil
 }
 
 type latestSyncFetcher interface {
@@ -1067,12 +1076,12 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 }
 
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
-func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
+func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.ResourceId) (annotations.Annotations, error) {
 	resourceResponse, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 		ResourceId: resourceID,
 	})
 	if err != nil {
-		return err
+		return resourceResponse.Resource.Annotations, err
 	}
 
 	resource := resourceResponse.Resource
@@ -1087,21 +1096,22 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 	prevSyncID, prevEtag, err = s.fetchResourceForPreviousSync(ctx, resourceID)
 	if err != nil {
-		return err
+		return resourceAnnos, err
 	}
 	resourceAnnos.Update(prevEtag)
 	resource.Annotations = resourceAnnos
 
 	resp, err := s.connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{Resource: resource, PageToken: pageToken})
 	if err != nil {
-		return err
+		return resp.GetAnnotations(), err
 	}
 
 	// Fetch any etagged grants for this resource
 	var etaggedGrants []*v2.Grant
 	etaggedGrants, etagMatch, err = s.fetchEtaggedGrantsForResource(ctx, resource, prevEtag, prevSyncID, resp)
 	if err != nil {
-		return err
+		// TODO: get correct annotations from fetchEtaggedGrantsForResource
+		return resp.GetAnnotations(), err
 	}
 	grants = append(grants, etaggedGrants...)
 
@@ -1116,7 +1126,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	}
 	err = s.store.PutGrants(ctx, grants...)
 	if err != nil {
-		return err
+		return resp.GetAnnotations(), err
 	}
 
 	s.handleProgress(ctx, s.state.Current(), len(grants))
@@ -1132,7 +1142,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		respAnnos := annotations.Annotations(resp.GetAnnotations())
 		ok, err := respAnnos.Pick(newETag)
 		if err != nil {
-			return err
+			return respAnnos, err
 		}
 		if ok {
 			updatedETag = newETag
@@ -1144,21 +1154,21 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		resource.Annotations = resourceAnnos
 		err = s.store.PutResources(ctx, resource)
 		if err != nil {
-			return err
+			return resourceAnnos, err
 		}
 	}
 
 	if resp.NextPageToken != "" {
 		err = s.state.NextPage(ctx, resp.NextPageToken)
 		if err != nil {
-			return err
+			return resp.GetAnnotations(), err
 		}
-		return nil
+		return resp.GetAnnotations(), nil
 	}
 
 	s.state.FinishAction(ctx)
 
-	return nil
+	return resp.GetAnnotations(), nil
 }
 
 func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
