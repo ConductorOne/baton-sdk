@@ -78,10 +78,13 @@ func (m *localCreateTicket) Process(ctx context.Context, task *v1.Task, cc types
 	ticketRequestBody := &v2.TicketRequest{
 		DisplayName: template.DisplayName,
 		Description: template.Description,
-		Type: &v2.TicketType{
+		Labels:      template.Labels,
+	}
+
+	if template.TypeId != "" {
+		ticketRequestBody.Type = &v2.TicketType{
 			Id: template.TypeId,
-		},
-		Labels: template.Labels,
+		}
 	}
 
 	if template.StatusId != "" {
