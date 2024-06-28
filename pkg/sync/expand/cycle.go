@@ -1,71 +1,51 @@
 package expand
 
 import (
-	"reflect"
-
 	mapset "github.com/deckarep/golang-set/v2"
 )
 
-// GetCycles given an entitlements graph, get a list of every contained cycle.
-func (g *EntitlementGraph) GetCycles() ([][]int, bool) {
-	rv := make([][]int, 0)
+// GetFirstCycle given an entitlements graph, return a cycle by node ID if it
+// exists. Returns nil if no cycle exists. If there is a single
+// node pointing to itself, that will count as a cycle.
+func (g *EntitlementGraph) GetFirstCycle() []int {
+	visited := mapset.NewSet[int]()
 	for nodeID := range g.Nodes {
-		edges, ok := g.SourcesToDestinations[nodeID]
-		if !ok || len(edges) == 0 {
-			continue
-		}
-		cycle, isCycle := g.getCycle([]int{nodeID})
-		if isCycle && !isInCycle(cycle, rv) {
-			rv = append(rv, cycle)
+		cycle, hasCycle := g.cycleDetectionHelper(nodeID, visited, []int{})
+		if hasCycle {
+			return cycle
 		}
 	}
 
-	return rv, len(rv) > 0
+	return nil
 }
 
-func isInCycle(newCycle []int, cycles [][]int) bool {
-	for _, cycle := range cycles {
-		if len(cycle) > 0 && reflect.DeepEqual(cycle, newCycle) {
-			return true
-		}
-	}
-	return false
-}
+func (g *EntitlementGraph) cycleDetectionHelper(
+	nodeID int,
+	visited mapset.Set[int],
+	currentCycle []int,
+) ([]int, bool) {
+	visited.Add(nodeID)
+	if destinations, ok := g.SourcesToDestinations[nodeID]; ok {
+		for destinationID := range destinations {
+			nextCycle := make([]int, len(currentCycle))
+			copy(nextCycle, currentCycle)
+			nextCycle = append(nextCycle, nodeID)
 
-func shift(arr []int, n int) []int {
-	for i := 0; i < n; i++ {
-		arr = append(arr[1:], arr[0])
-	}
-	return arr
-}
-
-func (g *EntitlementGraph) getCycle(visits []int) ([]int, bool) {
-	if len(visits) == 0 {
-		return nil, false
-	}
-	nodeId := visits[len(visits)-1]
-	for descendantId := range g.SourcesToDestinations[nodeId] {
-		tempVisits := make([]int, len(visits))
-		copy(tempVisits, visits)
-		if descendantId == visits[0] {
-			// shift array so that the smallest element is first
-			smallestIndex := 0
-			for i := range tempVisits {
-				if tempVisits[i] < tempVisits[smallestIndex] {
-					smallestIndex = i
+			if !visited.Contains(destinationID) {
+				if cycle, hasCycle := g.cycleDetectionHelper(destinationID, visited, nextCycle); hasCycle {
+					return cycle, true
+				}
+			} else {
+				// Make sure to not include part of the start before the cycle.
+				outputCycle := make([]int, 0)
+				for i := len(nextCycle) - 1; i >= 0; i-- {
+					outputCycle = append(outputCycle, nextCycle[i])
+					if nextCycle[i] == destinationID {
+						return outputCycle, true
+					}
 				}
 			}
-			tempVisits = shift(tempVisits, smallestIndex)
-			return tempVisits, true
 		}
-		for _, visit := range visits {
-			if visit == descendantId {
-				return nil, false
-			}
-		}
-
-		tempVisits = append(tempVisits, descendantId)
-		return g.getCycle(tempVisits)
 	}
 	return nil, false
 }
@@ -104,21 +84,12 @@ func (g *EntitlementGraph) removeNode(nodeID int) {
 // FixCycles if any cycles of nodes exist, merge all nodes in that cycle into a
 // single node and then repeat. Iteration ends when there are no more cycles.
 func (g *EntitlementGraph) FixCycles() error {
-	cycles, hasCycles := g.GetCycles()
-	if !hasCycles {
+	cycle := g.GetFirstCycle()
+	if cycle == nil {
 		return nil
 	}
 
-	// After fixing the cycle, all other cycles become invalid.
-	largestCycleLength, largestCycleIndex := -1, -1
-	for index, nodeIDs := range cycles {
-		newLength := len(nodeIDs)
-		if newLength > largestCycleLength {
-			largestCycleLength = newLength
-			largestCycleIndex = index
-		}
-	}
-	if err := g.fixCycle(cycles[largestCycleIndex]); err != nil {
+	if err := g.fixCycle(cycle); err != nil {
 		return err
 	}
 

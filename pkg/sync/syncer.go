@@ -813,9 +813,9 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	}
 
 	if entitlementGraph.Loaded {
-		cycles, hasCycles := entitlementGraph.GetCycles()
-		if hasCycles {
-			l.Warn("cycles detected in entitlement graph", zap.Any("cycles", cycles))
+		cycle := entitlementGraph.GetFirstCycle()
+		if cycle != nil {
+			l.Warn("cycle detected in entitlement graph", zap.Any("cycle", cycle))
 			if dontFixCycles {
 				return fmt.Errorf("cycles detected in entitlement graph")
 			}
