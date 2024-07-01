@@ -11,16 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"plugin"
-	"reflect"
 )
-
-type ConfigField struct {
-	FieldName    string
-	FieldType    reflect.Kind
-	Required     bool
-	Description  string
-	DefaultValue any
-}
 
 // Load compiles a go file with a configuration schema and return its definition.
 func Load(filePath string) ([]ConfigField, error) {
