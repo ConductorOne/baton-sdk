@@ -1,11 +1,10 @@
-package configschema_test
+package configschema
 
 import (
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/conductorone/baton-sdk/pkg/configschema"
 	"github.com/stretchr/testify/require"
 )
 
@@ -128,7 +127,7 @@ func TestLoadx(t *testing.T) {
 
 			defer os.RemoveAll(rootDir)
 
-			fields, err := configschema.Load(goFilePath)
+			fields, _, err := load(goFilePath)
 			if tc.expect.err != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.expect.err)

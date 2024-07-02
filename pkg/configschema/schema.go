@@ -57,29 +57,29 @@ func ReadSchemaAndGenerateFiles(schemaPath string) error {
 
 // LoadAndEnsureDefaultFields compiles a go file with a configuration schema and return its definition
 // after checking the default fields of `defaultFields` are set.
-func LoadAndEnsureDefaultFields(filePath string) ([]SchemaField, error) {
-	originalFields, err := Load(filePath)
+func LoadAndEnsureDefaultFields(filePath string) ([]SchemaField, []SchemaFieldRelationship, error) {
+	originalFields, originalRelationships, err := load(filePath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return ensureDefaultFieldsExists(originalFields), nil
+	return ensureDefaultFieldsExists(originalFields), ensureDefaultRelationships(originalRelationships), nil
 }
 
-// Load compiles a go file with a configuration schema and return its definition.
-func Load(filePath string) ([]SchemaField, error) {
+// load compiles a go file with a configuration schema and return its definition.
+func load(filePath string) ([]SchemaField, []SchemaFieldRelationship, error) {
 	fileLocation, err := createMainPackageFileIfNeeded(filePath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	found, err := findSchemaConfigFunction(fileLocation)
 	if !found {
-		return nil, fmt.Errorf("SchemaConfig function not found at '%s'", filePath)
+		return nil, nil, fmt.Errorf("SchemaConfig function not found at '%s'", filePath)
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf(
+		return nil, nil, fmt.Errorf(
 			"unable to search for SchemaConfig function at '%s', error: %w",
 			filePath,
 			err,
