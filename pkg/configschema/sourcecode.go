@@ -10,18 +10,18 @@ import (
 	"path/filepath"
 )
 
-// findSchemaConfigFunction searches for `SchemaConfig() []SchemaField`
+// findSchemaConfigFunction searches for `SchemaConfig() []SchemaField`.
 func findSchemaConfigFunction(filePath string) (bool, error) {
 	return findFunctionWithReturn(filePath, "SchemaConfig", "SchemaField")
 }
 
-// findSchemaRelationshipFunction searches for `SchemaFieldsRelationship() []SchemaFieldRelationship`
+// findSchemaRelationshipFunction searches for `SchemaRelationship() []SchemaFieldRelationship`.
 func findSchemaRelationshipFunction(filepath string) (bool, error) {
-	return findFunctionWithReturn(filepath, "SchemaFieldsRelationship", "SchemaFieldRelationship")
+	return findFunctionWithReturn(filepath, "SchemaRelationship", "SchemaFieldRelationship")
 }
 
 // findFunctionWithReturn parses the source searching for a function
-// the function has to match in name and return
+// the function has to match in name and return.
 func findFunctionWithReturn(filePath string, funcName, returnName string) (bool, error) {
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, filePath, nil, parser.AllErrors)
