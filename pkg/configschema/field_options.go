@@ -24,3 +24,19 @@ func WithDefaultValue(value any) fieldOption {
 		return o
 	}
 }
+
+func WithHidden(hidden bool) fieldOption {
+	return func(o ConfigField) ConfigField {
+		o.Hidden = hidden
+
+		return o
+	}
+}
+
+func WithShortHand(sh string) fieldOption {
+	return func(o ConfigField) ConfigField {
+		o.CLIShortHand = sh
+
+		return o
+	}
+}

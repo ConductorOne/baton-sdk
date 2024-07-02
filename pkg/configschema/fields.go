@@ -5,7 +5,9 @@ import "reflect"
 type ConfigField struct {
 	FieldName    string
 	FieldType    reflect.Kind
+	CLIShortHand string
 	Required     bool
+	Hidden       bool
 	Description  string
 	DefaultValue any
 }
