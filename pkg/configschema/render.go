@@ -36,12 +36,7 @@ func ToCamelCase(s string) string {
 
 // ToUpperCase converts a field name from kebab-case to UPPER_SNAKE_CASE.
 func ToUpperCase(s string) string {
-	parts := strings.Split(s, "-")
-	for i := range parts {
-		parts[i] = strings.ToUpper(parts[i])
-	}
-
-	return strings.Join(parts, "_")
+	return strings.ToUpper(strings.ReplaceAll(s, "-", "_"))
 }
 
 func reflectKindToCobraType(t reflect.Kind) string {
