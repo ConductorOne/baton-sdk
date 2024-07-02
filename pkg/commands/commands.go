@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/logging"
@@ -16,7 +17,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 )
 
 type GetConnectorFunc func(ctx context.Context, cfg any) (types.ConnectorServer, error)
@@ -249,5 +252,62 @@ func MakeGRPCServerCommand(
 		}
 
 		return cw.Run(runCtx, serverCfg)
+	}
+}
+
+func MakeCapabilitiesCommand(
+	ctx context.Context,
+	name string,
+	v *viper.Viper,
+	cfg any,
+	getconnector GetConnectorFunc,
+) func(*cobra.Command, []string) error {
+	return func(*cobra.Command, []string) error {
+		runCtx, err := initLogger(
+			ctx,
+			name,
+			logging.WithLogFormat(v.GetString("log-format")),
+			logging.WithLogLevel(v.GetString("log-level")),
+		)
+		if err != nil {
+			return err
+		}
+
+		c, err := getconnector(runCtx, cfg)
+		if err != nil {
+			return err
+		}
+
+		md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
+		if err != nil {
+			return err
+		}
+
+		if md.Metadata.Capabilities == nil {
+			return fmt.Errorf("connector does not support capabilities")
+		}
+
+		protoMarshaller := protojson.MarshalOptions{
+			Multiline: true,
+			Indent:    "  ",
+		}
+
+		a := &anypb.Any{}
+		err = anypb.MarshalFrom(a, md.Metadata.Capabilities, proto.MarshalOptions{Deterministic: true})
+		if err != nil {
+			return err
+		}
+
+		outBytes, err := protoMarshaller.Marshal(a)
+		if err != nil {
+			return err
+		}
+
+		_, err = fmt.Fprint(os.Stdout, string(outBytes))
+		if err != nil {
+			return err
+		}
+
+		return nil
 	}
 }
