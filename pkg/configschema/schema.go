@@ -13,6 +13,17 @@ import (
 	"plugin"
 )
 
+// LoadAndEnsureDefaultFields compiles a go file with a configuration schema and return its definition
+// after checking the default fields of `defaultFields` are set.
+func LoadAndEnsureDefaultFields(filePath string) ([]ConfigField, error) {
+	originalFields, err := Load(filePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return ensureDefaultFieldsExists(originalFields), nil
+}
+
 // Load compiles a go file with a configuration schema and return its definition.
 func Load(filePath string) ([]ConfigField, error) {
 	fileLocation, err := createMainPackageFileIfNeeded(filePath)
