@@ -10,9 +10,19 @@ import (
 	"path/filepath"
 )
 
-// findSchemaConfigFunction parses the source searching for `SchemaConfig`.
-// the function should be `SchemaConfig() []SchemaField`.
+// findSchemaConfigFunction searches for `SchemaConfig() []SchemaField`
 func findSchemaConfigFunction(filePath string) (bool, error) {
+	return findFunctionWithReturn(filePath, "SchemaConfig", "SchemaField")
+}
+
+// findSchemaRelationshipFunction searches for `SchemaFieldsRelationship() []SchemaFieldRelationship`
+func findSchemaRelationshipFunction(filepath string) (bool, error) {
+	return findFunctionWithReturn(filepath, "SchemaFieldsRelationship", "SchemaFieldRelationship")
+}
+
+// findFunctionWithReturn parses the source searching for a function
+// the function has to match in name and return
+func findFunctionWithReturn(filePath string, funcName, returnName string) (bool, error) {
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, filePath, nil, parser.AllErrors)
 	if err != nil {
@@ -22,12 +32,12 @@ func findSchemaConfigFunction(filePath string) (bool, error) {
 	found := false
 	ast.Inspect(node, func(n ast.Node) bool {
 		fn, ok := n.(*ast.FuncDecl)
-		if ok && fn.Name.Name == "SchemaConfig" {
+		if ok && fn.Name.Name == funcName {
 			if fn.Type.Results != nil && len(fn.Type.Results.List) == 1 {
 				resultType, ok := fn.Type.Results.List[0].Type.(*ast.ArrayType)
 				if ok {
 					if ident, ok := resultType.Elt.(*ast.SelectorExpr); ok {
-						if ident.Sel.Name == "SchemaField" {
+						if ident.Sel.Name == returnName {
 							found = true
 							return false
 						}
