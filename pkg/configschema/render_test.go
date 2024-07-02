@@ -43,7 +43,7 @@ func TestRenderConfig(t *testing.T) {
 
 	b := bytes.NewBuffer(nil)
 
-	err := RenderConfig(TemplateData{PackageName: "main", Fields: fields}, b)
+	err := renderConfig(TemplateData{PackageName: "main", Fields: fields}, b)
 	require.NoError(t, err)
 
 	require.Equal(t, renderConfigExpected, b.String())
@@ -57,7 +57,7 @@ func TestRenderCobra(t *testing.T) {
 
 	b := bytes.NewBuffer(nil)
 
-	err := RenderCLI(TemplateData{PackageName: "main", Fields: fields}, b)
+	err := renderCLI(TemplateData{PackageName: "main", Fields: fields}, b)
 	require.NoError(t, err)
 
 	require.Equal(t, renderCLIExpected, b.String())

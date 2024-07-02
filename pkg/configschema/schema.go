@@ -34,7 +34,7 @@ func ReadSchemaAndGenerateFiles(schemaPath string) error {
 	defer fdconfig.Close()
 
 	templateData := TemplateData{PackageName: originalPackageName, Fields: fields}
-	err = RenderConfig(templateData, fdconfig)
+	err = renderConfig(templateData, fdconfig)
 	if err != nil {
 		return err
 	}
@@ -47,7 +47,7 @@ func ReadSchemaAndGenerateFiles(schemaPath string) error {
 	}
 	defer fdcli.Close()
 
-	err = RenderCLI(templateData, fdcli)
+	err = renderCLI(templateData, fdcli)
 	if err != nil {
 		return err
 	}
