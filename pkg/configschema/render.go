@@ -54,7 +54,7 @@ func reflectKindToCobraType(t reflect.Kind) string {
 
 func renderConfig(input TemplateData, output io.Writer) error {
 	t := template.Must(
-		template.New("configuration").Funcs(funcsMap).Parse(configurationStructTemplate),
+		template.New("configuration").Funcs(funcsMap).Parse(headerTemplate + configurationStructTemplate),
 	)
 
 	b := bytes.NewBuffer(nil)
@@ -76,7 +76,7 @@ func renderConfig(input TemplateData, output io.Writer) error {
 }
 
 func renderCLI(input TemplateData, output io.Writer) error {
-	t := template.Must(template.New("cli").Funcs(funcsMap).Parse(cobraCLITemplate))
+	t := template.Must(template.New("cli").Funcs(funcsMap).Parse(headerTemplate + cobraCLITemplate))
 
 	b := bytes.NewBuffer(nil)
 
