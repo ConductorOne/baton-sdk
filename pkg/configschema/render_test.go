@@ -36,7 +36,7 @@ func NewCLI(cmd *cobra.Command) {
 `
 
 func TestRenderConfig(t *testing.T) {
-	fields := []ConfigField{
+	fields := []SchemaField{
 		StringField("field-1-string", WithDefaultValue("value")),
 		IntField("field-2-int", WithDescription("this is a description")),
 	}
@@ -50,7 +50,7 @@ func TestRenderConfig(t *testing.T) {
 }
 
 func TestRenderCobra(t *testing.T) {
-	fields := []ConfigField{
+	fields := []SchemaField{
 		StringField("field-1-string", WithDefaultValue("value")),
 		IntField("field-2-int", WithDescription("this is a description")),
 	}

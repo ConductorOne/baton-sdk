@@ -2,7 +2,7 @@ package configschema
 
 import "reflect"
 
-type ConfigField struct {
+type SchemaField struct {
 	FieldName    string
 	FieldType    reflect.Kind
 	CLIShortHand string
@@ -12,8 +12,8 @@ type ConfigField struct {
 	DefaultValue any
 }
 
-func BoolField(name string, optional ...fieldOption) ConfigField {
-	field := ConfigField{
+func BoolField(name string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
 		FieldName:    name,
 		FieldType:    reflect.Bool,
 		DefaultValue: false,
@@ -26,8 +26,8 @@ func BoolField(name string, optional ...fieldOption) ConfigField {
 	return field
 }
 
-func StringField(name string, optional ...fieldOption) ConfigField {
-	field := ConfigField{
+func StringField(name string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
 		FieldName:    name,
 		FieldType:    reflect.String,
 		DefaultValue: "",
@@ -40,8 +40,8 @@ func StringField(name string, optional ...fieldOption) ConfigField {
 	return field
 }
 
-func IntField(name string, optional ...fieldOption) ConfigField {
-	field := ConfigField{
+func IntField(name string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
 		FieldName:    name,
 		FieldType:    reflect.Int,
 		DefaultValue: 0,

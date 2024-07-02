@@ -20,7 +20,7 @@ func compileAndLoadPlugin(filePath string) (string, error) {
 }
 
 // loadAndExecutePlugin load and execute the plugin function.
-func loadAndExecutePlugin(pluginPath string) ([]ConfigField, error) {
+func loadAndExecutePlugin(pluginPath string) ([]SchemaField, error) {
 	p, err := plugin.Open(pluginPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open plugin: %w", err)
@@ -31,7 +31,7 @@ func loadAndExecutePlugin(pluginPath string) ([]ConfigField, error) {
 		return nil, fmt.Errorf("failed to find SchemaConfig function: %w", err)
 	}
 
-	schemaConfigFunc, ok := symbol.(func() []ConfigField)
+	schemaConfigFunc, ok := symbol.(func() []SchemaField)
 	if !ok {
 		return nil, fmt.Errorf("SchemaConfig has wrong type signature")
 	}

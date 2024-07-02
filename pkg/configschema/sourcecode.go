@@ -11,7 +11,7 @@ import (
 )
 
 // findSchemaConfigFunction parses the source searching for `SchemaConfig`.
-// the function should be `SchemaConfig() []ConfigField`.
+// the function should be `SchemaConfig() []SchemaField`.
 func findSchemaConfigFunction(filePath string) (bool, error) {
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, filePath, nil, parser.AllErrors)
@@ -27,7 +27,7 @@ func findSchemaConfigFunction(filePath string) (bool, error) {
 				resultType, ok := fn.Type.Results.List[0].Type.(*ast.ArrayType)
 				if ok {
 					if ident, ok := resultType.Elt.(*ast.SelectorExpr); ok {
-						if ident.Sel.Name == "ConfigField" {
+						if ident.Sel.Name == "SchemaField" {
 							found = true
 							return false
 						}

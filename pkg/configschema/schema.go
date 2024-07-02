@@ -57,7 +57,7 @@ func ReadSchemaAndGenerateFiles(schemaPath string) error {
 
 // LoadAndEnsureDefaultFields compiles a go file with a configuration schema and return its definition
 // after checking the default fields of `defaultFields` are set.
-func LoadAndEnsureDefaultFields(filePath string) ([]ConfigField, error) {
+func LoadAndEnsureDefaultFields(filePath string) ([]SchemaField, error) {
 	originalFields, err := Load(filePath)
 	if err != nil {
 		return nil, err
@@ -67,7 +67,7 @@ func LoadAndEnsureDefaultFields(filePath string) ([]ConfigField, error) {
 }
 
 // Load compiles a go file with a configuration schema and return its definition.
-func Load(filePath string) ([]ConfigField, error) {
+func Load(filePath string) ([]SchemaField, error) {
 	fileLocation, err := createMainPackageFileIfNeeded(filePath)
 	if err != nil {
 		return nil, err

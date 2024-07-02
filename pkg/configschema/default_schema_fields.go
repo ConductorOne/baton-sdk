@@ -5,7 +5,7 @@ import (
 )
 
 // defaultFields list the default fields expected in every single connector.
-var defaultFields = []ConfigField{
+var defaultFields = []SchemaField{
 	BoolField("create-ticket", WithHidden(true), WithDescription("Create ticket")),
 	BoolField("get-ticket", WithHidden(true), WithDescription("Get ticket")),
 	BoolField("list-ticket-schemas", WithHidden(true), WithDescription("List ticket schemas")),
@@ -32,8 +32,8 @@ var defaultFields = []ConfigField{
 	StringField("log-level", WithDefaultValue("info"), WithDescription("The log level: debug, info, warn, error")),
 }
 
-func ensureDefaultFieldsExists(originalFields []ConfigField) []ConfigField {
-	var notfound []ConfigField
+func ensureDefaultFieldsExists(originalFields []SchemaField) []SchemaField {
+	var notfound []SchemaField
 
 	// compare the default list of fields
 	// with the incoming original list of fields

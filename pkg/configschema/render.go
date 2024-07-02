@@ -21,7 +21,7 @@ var funcsMap = template.FuncMap{
 
 type TemplateData struct {
 	PackageName string
-	Fields      []ConfigField
+	Fields      []SchemaField
 }
 
 // ToCamelCase converts a field name from kebab-case to CamelCase.
