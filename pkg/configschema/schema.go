@@ -37,7 +37,11 @@ func Load(filePath string) ([]ConfigField, error) {
 	}
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to search for SchemaConfig function at '%s', error: %w", filePath, err)
+		return nil, fmt.Errorf(
+			"unable to search for SchemaConfig function at '%s', error: %w",
+			filePath,
+			err,
+		)
 	}
 
 	pluginLocation, err := compileAndLoadPlugin(fileLocation)
