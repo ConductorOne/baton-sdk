@@ -20,7 +20,7 @@ func ReadSchemaAndGenerateFiles(schemaPath string) error {
 		return err
 	}
 
-	fields, err := LoadAndEnsureDefaultFields(absschemapath)
+	fields, relationships, err := LoadAndEnsureDefaultFields(absschemapath)
 	if err != nil {
 		return err
 	}
@@ -33,7 +33,11 @@ func ReadSchemaAndGenerateFiles(schemaPath string) error {
 	}
 	defer fdconfig.Close()
 
-	templateData := TemplateData{PackageName: originalPackageName, Fields: fields}
+	templateData := TemplateData{
+		PackageName:   originalPackageName,
+		Fields:        fields,
+		Relationships: relationships,
+	}
 	err = renderConfig(templateData, fdconfig)
 	if err != nil {
 		return err
@@ -98,6 +102,13 @@ func load(filePath string) ([]SchemaField, []SchemaFieldRelationship, error) {
 
 	// fields relationships
 	found, err = findSchemaRelationshipFunction(fileLocation)
+	if err != nil {
+		return nil, nil, fmt.Errorf(
+			"unable to search for SchemaRelationship function at '%s', error: %w",
+			filePath,
+			err,
+		)
+	}
 	if !found {
 		// since this definition is optional for the user, return empty
 		return fields, nil, nil
