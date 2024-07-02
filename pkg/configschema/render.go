@@ -13,7 +13,11 @@ import (
 	"golang.org/x/text/language"
 )
 
-var funcsMap = template.FuncMap{"ToCamelCase": ToCamelCase, "ToUpperCase": ToUpperCase, "KindToCobra": reflectKindToCobraType}
+var funcsMap = template.FuncMap{
+	"ToCamelCase": ToCamelCase,
+	"ToUpperCase": ToUpperCase,
+	"KindToCobra": reflectKindToCobraType,
+}
 
 type TemplateData struct {
 	PackageName string
@@ -54,7 +58,9 @@ func reflectKindToCobraType(t reflect.Kind) string {
 }
 
 func RenderConfig(input TemplateData, output io.Writer) error {
-	t := template.Must(template.New("configuration").Funcs(funcsMap).Parse(configurationStructTemplate))
+	t := template.Must(
+		template.New("configuration").Funcs(funcsMap).Parse(configurationStructTemplate),
+	)
 
 	b := bytes.NewBuffer(nil)
 
