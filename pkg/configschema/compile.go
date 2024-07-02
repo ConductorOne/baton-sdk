@@ -19,8 +19,8 @@ func compileAndLoadPlugin(filePath string) (string, error) {
 	return pluginPath, nil
 }
 
-// loadAndExecutePlugin load and execute the plugin function.
-func loadAndExecutePlugin(pluginPath string) ([]SchemaField, error) {
+// loadAndExecutePluginForSchemaConfig load and execute the plugin function.
+func loadAndExecutePluginForSchemaConfig(pluginPath string) ([]SchemaField, error) {
 	p, err := plugin.Open(pluginPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open plugin: %w", err)
@@ -31,10 +31,30 @@ func loadAndExecutePlugin(pluginPath string) ([]SchemaField, error) {
 		return nil, fmt.Errorf("failed to find SchemaConfig function: %w", err)
 	}
 
-	schemaConfigFunc, ok := symbol.(func() []SchemaField)
+	ourFunc, ok := symbol.(func() []SchemaField)
 	if !ok {
 		return nil, fmt.Errorf("SchemaConfig has wrong type signature")
 	}
 
-	return schemaConfigFunc(), nil
+	return ourFunc(), nil
+}
+
+// loadAndExecutePluginForSchemaFieldsRelationship load and execute the plugin function.
+func loadAndExecutePluginForSchemaFieldsRelationship(pluginPath string) ([]SchemaFieldRelationship, error) {
+	p, err := plugin.Open(pluginPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open plugin: %w", err)
+	}
+
+	symbol, err := p.Lookup("SchemaFieldsRelationship")
+	if err != nil {
+		return nil, fmt.Errorf("failed to find SchemaFieldsRelationship function: %w", err)
+	}
+
+	ourFunc, ok := symbol.(func() []SchemaFieldRelationship)
+	if !ok {
+		return nil, fmt.Errorf("SchemaFieldsRelationship has wrong type signature")
+	}
+
+	return ourFunc(), nil
 }

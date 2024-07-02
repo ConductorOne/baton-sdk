@@ -88,13 +88,25 @@ func load(filePath string) ([]SchemaField, []SchemaFieldRelationship, error) {
 
 	pluginLocation, err := compileAndLoadPlugin(fileLocation)
 	if err != nil {
-		return nil, fmt.Errorf("unable to compile file '%s', error: %w", filePath, err)
+		return nil, nil, fmt.Errorf("unable to compile file '%s', error: %w", filePath, err)
 	}
 
-	fields, err := loadAndExecutePlugin(pluginLocation)
+	fields, err := loadAndExecutePluginForSchemaConfig(pluginLocation)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return fields, nil
+	// fields relationships
+	found, err = findSchemaRelationshipFunction(fileLocation)
+	if !found {
+		// since this definition is optional for the user, return empty
+		return fields, nil, nil
+	}
+
+	relationships, err := loadAndExecutePluginForSchemaFieldsRelationship(pluginLocation)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return fields, relationships, nil
 }
