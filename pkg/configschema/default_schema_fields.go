@@ -58,3 +58,26 @@ var defaultFields = []SchemaField{
 	ticketTemplatePathField,
 	logLevelField,
 }
+
+func ensureDefaultFieldsExists(originalFields []SchemaField) []SchemaField {
+	var notfound []SchemaField
+
+	// compare the default list of fields
+	// with the incoming original list of fields
+	for _, d := range defaultFields {
+		found := false
+		for _, o := range originalFields {
+			if d.FieldName == o.FieldName {
+				found = true
+			}
+		}
+
+		if !found {
+			notfound = append(notfound, d)
+		}
+	}
+
+	notfound = append(notfound, originalFields...)
+
+	return notfound
+}
