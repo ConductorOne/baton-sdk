@@ -27,3 +27,7 @@ var defaultRelationship = []SchemaFieldRelationship{
 		listTicketSchemasField,
 	),
 }
+
+func ensureDefaultRelationships(original []SchemaFieldRelationship) []SchemaFieldRelationship {
+	return append(defaultRelationship, original...)
+}
