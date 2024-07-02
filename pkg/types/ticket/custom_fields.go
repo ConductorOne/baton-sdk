@@ -244,40 +244,36 @@ func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Ticket) (bool, error) {
 	l := ctxzap.Extract(ctx)
 
-	// Look for a matching status
-	foundMatch := ticket.Status == nil
-	for _, status := range schema.GetStatuses() {
-		// Status is not required
-		if ticket.Status == nil {
-			foundMatch = true
-			break
-		}
-
-		if ticket.Status.GetId() == status.GetId() {
-			foundMatch = true
-			break
+	// Validate the ticket status is one defined in the schema
+	// Ticket status is not required so if a ticket doesn't have a status
+	// we don't need to validate, skip the loop in this case
+	validTicketStatus := ticket.Status == nil
+	if !validTicketStatus {
+		for _, status := range schema.GetStatuses() {
+			if ticket.Status.GetId() == status.GetId() {
+				validTicketStatus = true
+				break
+			}
 		}
 	}
-
-	if !foundMatch {
+	if !validTicketStatus {
 		l.Debug("error: invalid ticket: could not find status", zap.String("status_id", ticket.Status.GetId()))
 		return false, nil
 	}
 
-	// Look for a matching ticket type
-	foundMatch = ticket.Type == nil
-	for _, tType := range schema.GetTypes() {
-		if ticket.Type == nil {
-			foundMatch = true
-			break
-		}
-		if ticket.Type.GetId() == tType.GetId() {
-			foundMatch = true
-			break
+	// Validate the ticket type is one defined in the schema
+	// Ticket type is not required so if a ticket doesn't have a type
+	// we don't need to validate, skip the loop in this case
+	validTicketType := ticket.Type == nil
+	if !validTicketType {
+		for _, tType := range schema.GetTypes() {
+			if ticket.Type.GetId() == tType.GetId() {
+				validTicketType = true
+				break
+			}
 		}
 	}
-
-	if !foundMatch {
+	if !validTicketType {
 		l.Debug("error: invalid ticket: could not find ticket type", zap.String("ticket_type_id", ticket.Type.GetId()))
 		return false, nil
 	}
@@ -361,7 +357,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
-			foundMatch = false
+			foundMatch := false
 			for _, m := range allowedValues {
 				if m == ticketValue {
 					foundMatch = true
@@ -436,7 +432,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
-			foundMatch = false
+			foundMatch := false
 			for _, m := range allowedValues {
 				if m.GetId() == ticketValue.GetId() {
 					foundMatch = true
