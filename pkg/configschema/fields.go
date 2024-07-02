@@ -12,8 +12,9 @@ type ConfigField struct {
 
 func BoolField(name string, optional ...fieldOption) ConfigField {
 	field := ConfigField{
-		FieldName: name,
-		FieldType: reflect.Bool,
+		FieldName:    name,
+		FieldType:    reflect.Bool,
+		DefaultValue: false,
 	}
 
 	for _, o := range optional {
@@ -25,8 +26,9 @@ func BoolField(name string, optional ...fieldOption) ConfigField {
 
 func StringField(name string, optional ...fieldOption) ConfigField {
 	field := ConfigField{
-		FieldName: name,
-		FieldType: reflect.String,
+		FieldName:    name,
+		FieldType:    reflect.String,
+		DefaultValue: "",
 	}
 
 	for _, o := range optional {
@@ -38,8 +40,9 @@ func StringField(name string, optional ...fieldOption) ConfigField {
 
 func IntField(name string, optional ...fieldOption) ConfigField {
 	field := ConfigField{
-		FieldName: name,
-		FieldType: reflect.Int,
+		FieldName:    name,
+		FieldType:    reflect.Int,
+		DefaultValue: 0,
 	}
 
 	for _, o := range optional {
