@@ -132,8 +132,6 @@ func TestLoadx(t *testing.T) {
 			alternativeLocation, err := os.MkdirTemp("", "baton-alternative-location-*")
 			require.NoError(t, err)
 
-			defer os.RemoveAll(rootDir)
-
 			fields, _, err := load(goFilePath, alternativeLocation)
 			if tc.expect.err != "" {
 				require.Error(t, err)
@@ -144,6 +142,9 @@ func TestLoadx(t *testing.T) {
 				// this is just to be sure that we got the same output as the input
 				require.Equal(t, tc.input.fieldName, fields[tc.input.fieldIndex].FieldName)
 			}
+
+			os.RemoveAll(rootDir)
+			os.RemoveAll(alternativeLocation)
 		})
 	}
 }
