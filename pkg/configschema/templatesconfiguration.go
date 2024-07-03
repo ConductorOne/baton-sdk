@@ -42,7 +42,7 @@ func NewConfiguration(cmd *cobra.Command) (*Configuration, error) {
 		return nil, err
 	}
 
-    var cfg *Configuration
+	var cfg *Configuration
 	if err := v.Unmarshal(cfg); err != nil {
 		return nil, err
 	}
