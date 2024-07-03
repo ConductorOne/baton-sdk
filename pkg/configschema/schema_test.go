@@ -1,10 +1,7 @@
 package configschema
 
 import (
-	"encoding/json"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -123,7 +120,6 @@ func TestLoadx(t *testing.T) {
 			rootDir, err := os.MkdirTemp("", "baton-sdk-configschema-test-*")
 			require.NoError(t, err)
 
-			err = writeGoMod(rootDir)
 			if err != nil {
 				t.Fatalf("unable to write go.mod with module redirect, error: %v", err)
 			}
@@ -133,9 +129,12 @@ func TestLoadx(t *testing.T) {
 				t.Fatalf("unable to write the go file for testing: %v", err)
 			}
 
+			alternativeLocation, err := os.MkdirTemp("", "baton-alternative-location-*")
+			require.NoError(t, err)
+
 			defer os.RemoveAll(rootDir)
 
-			fields, _, err := load(goFilePath)
+			fields, _, err := load(goFilePath, alternativeLocation)
 			if tc.expect.err != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.expect.err)
@@ -147,55 +146,4 @@ func TestLoadx(t *testing.T) {
 			}
 		})
 	}
-}
-
-func writeGoMod(outputdir string) error {
-	location, err := getGoModPath()
-	if err != nil {
-		return err
-	}
-
-	return createGoModFile(location, filepath.Dir(outputdir))
-}
-
-func getGoModPath() (string, error) {
-	// Ejecuta el comando `go env -json`
-	cmd := exec.Command("go", "env", "-json")
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-
-	var envVars map[string]string
-	if err := json.Unmarshal(output, &envVars); err != nil {
-		return "", err
-	}
-
-	gomod, ok := envVars["GOMOD"]
-	if !ok {
-		return "", fmt.Errorf("GOMOD not found")
-	}
-
-	return gomod, nil
-}
-
-func createGoModFile(path, outputdir string) error {
-	const goModTemplate = `module example.com/baton-sdk-user-plugin
-
-go 1.21
-
-require github.com/conductorOne/baton-sdk v0.0.0
-
-replace github.com/conductorOne/baton-sdk => %s
-`
-	// Crea el contenido del archivo go.mod
-	goModContent := fmt.Sprintf(goModTemplate, path)
-
-	// Escribe el contenido al archivo go.mod
-	err := os.WriteFile(filepath.Join(outputdir, "go.mod"), []byte(goModContent), 0600)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
