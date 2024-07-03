@@ -19,8 +19,8 @@ import (
 	"reflect"
 )
 
-func SchemaConfig() []configschema.ConfigField {
-	return []configschema.ConfigField{
+func SchemaConfig() []configschema.SchemaField {
+	return []configschema.SchemaField{
 		{
 			FieldName:    "jorge",
 			FieldType:    reflect.Bool,
@@ -38,8 +38,8 @@ import (
 	"reflect"
 )
 
-func SchemaConfig() []configschema.ConfigField {
-	return []configschema.ConfigField{
+func SchemaConfig() []configschema.SchemaField {
+	return []configschema.SchemaField{
 		{
 			FieldName:    "jorge",
 			FieldType:    reflect.Bool,
