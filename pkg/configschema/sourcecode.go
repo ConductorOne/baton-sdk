@@ -50,7 +50,7 @@ func findFunctionWithReturn(filePath string, funcName, returnName string) (bool,
 	return found, nil
 }
 
-// copyGoFileToTmpMainPackage modify the package name of a file and copies it to a new location
+// copyGoFileToTmpMainPackage modify the package name of a file and copies it to a new location.
 func copyGoFileToTmpMainPackage(originalFilePath, outputdir string) (string, error) {
 	fset := token.NewFileSet()
 
