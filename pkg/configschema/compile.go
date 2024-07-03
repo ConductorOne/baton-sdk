@@ -8,11 +8,16 @@ import (
 )
 
 // compileAndLoadPlugin compiles a go source as a plugin.
-func compileAndLoadPlugin(filePath string) (string, error) {
+func compileAndLoadPlugin(filePath string, cwd string) (string, error) {
 	pluginPath := filePath[:len(filePath)-3] + ".so"
 	cmd := exec.Command("go", "build", "-buildmode=plugin", "-o", pluginPath, filePath)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
+
+	// change CWD if needed
+	if cwd != "" {
+		cmd.Dir = cwd
+	}
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("failed to compile plugin: %s", stderr.String())
 	}

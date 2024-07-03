@@ -67,7 +67,7 @@ func LoadAndEnsureDefaultFields(filePath string) ([]SchemaField, []SchemaFieldRe
 		return nil, nil, fmt.Errorf("unable to create temporary directory, error: %w", err)
 	}
 
-	originalFields, originalRelationships, err := load(filePath, pkgDir)
+	originalFields, originalRelationships, err := load(filePath, pkgDir, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -76,7 +76,7 @@ func LoadAndEnsureDefaultFields(filePath string) ([]SchemaField, []SchemaFieldRe
 }
 
 // load compiles a go file with a configuration schema and return its definition.
-func load(filePath, outputdir string) ([]SchemaField, []SchemaFieldRelationship, error) {
+func load(filePath, outputdir, cwd string) ([]SchemaField, []SchemaFieldRelationship, error) {
 	fileLocation, err := copyGoFileToTmpMainPackage(filePath, outputdir)
 	if err != nil {
 		return nil, nil, err
@@ -95,7 +95,7 @@ func load(filePath, outputdir string) ([]SchemaField, []SchemaFieldRelationship,
 		)
 	}
 
-	pluginLocation, err := compileAndLoadPlugin(fileLocation)
+	pluginLocation, err := compileAndLoadPlugin(fileLocation, cwd)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to compile file '%s', error: %w", filePath, err)
 	}

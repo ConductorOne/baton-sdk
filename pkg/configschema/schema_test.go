@@ -1,7 +1,10 @@
 package configschema
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -120,10 +123,6 @@ func TestLoadx(t *testing.T) {
 			rootDir, err := os.MkdirTemp("", "baton-sdk-configschema-test-*")
 			require.NoError(t, err)
 
-			if err != nil {
-				t.Fatalf("unable to write go.mod with module redirect, error: %v", err)
-			}
-
 			goFilePath := filepath.Join(rootDir, "example.go")
 			if err := os.WriteFile(goFilePath, tc.input.goSourceCode, 0600); err != nil {
 				t.Fatalf("unable to write the go file for testing: %v", err)
@@ -132,7 +131,11 @@ func TestLoadx(t *testing.T) {
 			alternativeLocation, err := os.MkdirTemp("", "baton-alternative-location-*")
 			require.NoError(t, err)
 
-			fields, _, err := load(goFilePath, alternativeLocation)
+			projectDir, err := getGoModPath()
+			require.NoError(t, err)
+
+			// set the current working directory for `go build` to the project
+			fields, _, err := load(goFilePath, alternativeLocation, projectDir)
 			if tc.expect.err != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.expect.err)
@@ -147,4 +150,24 @@ func TestLoadx(t *testing.T) {
 			os.RemoveAll(alternativeLocation)
 		})
 	}
+}
+
+func getGoModPath() (string, error) {
+	cmd := exec.Command("go", "env", "-json")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	var envVars map[string]interface{}
+	if err := json.Unmarshal(output, &envVars); err != nil {
+		return "", err
+	}
+
+	gomod, ok := envVars["GOMOD"].(string)
+	if !ok {
+		return "", fmt.Errorf("GOMOD not found")
+	}
+
+	return filepath.Dir(gomod), nil
 }
