@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 
@@ -24,13 +25,14 @@ type localCreateTicket struct {
 }
 
 type ticketTemplate struct {
-	SchemaID     string                 `json:"schema_id"`
-	StatusId     string                 `json:"status_id"`
-	TypeId       string                 `json:"type_id"`
-	DisplayName  string                 `json:"display_name"`
-	Description  string                 `json:"description"`
-	Labels       []string               `json:"labels"`
-	CustomFields map[string]interface{} `json:"custom_fields"`
+	SchemaID       string                 `json:"schema_id"`
+	StatusId       string                 `json:"status_id"`
+	TypeId         string                 `json:"type_id"`
+	DisplayName    string                 `json:"display_name"`
+	Description    string                 `json:"description"`
+	Labels         []string               `json:"labels"`
+	CustomFields   map[string]interface{} `json:"custom_fields"`
+	RequestedForId string                 `json:"requested_for_id"`
 }
 
 func (m *localCreateTicket) loadTicketTemplate(ctx context.Context) (*ticketTemplate, error) {
@@ -91,6 +93,15 @@ func (m *localCreateTicket) Process(ctx context.Context, task *v1.Task, cc types
 		ticketRequestBody.Status = &v2.TicketStatus{
 			Id: template.StatusId,
 		}
+	}
+
+	if template.RequestedForId != "" {
+		rt := resource.NewResourceType("User", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER})
+		requestedUser, err := resource.NewUserResource(template.RequestedForId, rt, template.RequestedForId, []resource.UserTraitOption{})
+		if err != nil {
+			return err
+		}
+		ticketRequestBody.RequestedFor = requestedUser
 	}
 
 	cfs := make(map[string]*v2.TicketCustomField)

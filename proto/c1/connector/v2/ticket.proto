@@ -133,6 +133,7 @@ message Ticket {
   google.protobuf.Timestamp created_at = 12;
   google.protobuf.Timestamp updated_at = 13;
   google.protobuf.Timestamp completed_at = 14;
+  c1.connector.v2.Resource requested_for = 15;
 }
 
 message TicketType {
@@ -147,6 +148,7 @@ message TicketRequest {
   TicketType type = 4;
   repeated string labels = 5;
   map<string, TicketCustomField> custom_fields = 6;
+  c1.connector.v2.Resource requested_for = 7;
 }
 
 message TicketsServiceCreateTicketRequest {
