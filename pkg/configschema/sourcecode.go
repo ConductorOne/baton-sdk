@@ -1,7 +1,6 @@
 package configschema
 
 import (
-	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/printer"
@@ -51,9 +50,8 @@ func findFunctionWithReturn(filePath string, funcName, returnName string) (bool,
 	return found, nil
 }
 
-// createMainPackageFileIfNeeded modify the package name of a file.
-// this happens in another file so we don't overwrite the original with gibberish.
-func createMainPackageFileIfNeeded(originalFilePath string) (string, error) {
+// copyGoFileToTmpMainPackage modify the package name of a file and copies it to a new location
+func copyGoFileToTmpMainPackage(originalFilePath, outputdir string) (string, error) {
 	fset := token.NewFileSet()
 
 	node, err := parser.ParseFile(fset, originalFilePath, nil, parser.AllErrors)
@@ -61,19 +59,9 @@ func createMainPackageFileIfNeeded(originalFilePath string) (string, error) {
 		return "", err
 	}
 
-	// return original file path if the file already is in the main package
-	if node.Name.Name == "main" {
-		return originalFilePath, nil
-	}
-
 	node.Name.Name = "main"
 
-	pkgDir, err := os.MkdirTemp("", "baton-sdk-schema-*")
-	if err != nil {
-		return "", fmt.Errorf("unable to create temporary directory, error: %w", err)
-	}
-
-	newfile := filepath.Join(pkgDir, "plugin.go")
+	newfile := filepath.Join(outputdir, "plugin.go")
 
 	fd, err := os.OpenFile(newfile, os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {

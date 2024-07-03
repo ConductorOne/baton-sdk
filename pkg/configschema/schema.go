@@ -62,7 +62,12 @@ func ReadSchemaAndGenerateFiles(schemaPath string) error {
 // LoadAndEnsureDefaultFields compiles a go file with a configuration schema and return its definition
 // after checking the default fields of `defaultFields` are set.
 func LoadAndEnsureDefaultFields(filePath string) ([]SchemaField, []SchemaFieldRelationship, error) {
-	originalFields, originalRelationships, err := load(filePath)
+	pkgDir, err := os.MkdirTemp("", "baton-sdk-schema-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to create temporary directory, error: %w", err)
+	}
+
+	originalFields, originalRelationships, err := load(filePath, pkgDir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -71,8 +76,8 @@ func LoadAndEnsureDefaultFields(filePath string) ([]SchemaField, []SchemaFieldRe
 }
 
 // load compiles a go file with a configuration schema and return its definition.
-func load(filePath string) ([]SchemaField, []SchemaFieldRelationship, error) {
-	fileLocation, err := createMainPackageFileIfNeeded(filePath)
+func load(filePath, outputdir string) ([]SchemaField, []SchemaFieldRelationship, error) {
+	fileLocation, err := copyGoFileToTmpMainPackage(filePath, outputdir)
 	if err != nil {
 		return nil, nil, err
 	}
