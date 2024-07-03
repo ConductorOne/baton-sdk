@@ -155,7 +155,7 @@ func writeGoMod(outputdir string) error {
 		return err
 	}
 
-	return createGoModFile(location, outputdir)
+	return createGoModFile(location, filepath.Dir(outputdir))
 }
 
 func getGoModPath() (string, error) {
