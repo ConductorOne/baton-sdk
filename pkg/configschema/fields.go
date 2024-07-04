@@ -1,6 +1,13 @@
 package configschema
 
-import "reflect"
+import (
+	"errors"
+	"reflect"
+)
+
+var (
+	WrongValueTypeErr = errors.New("unable to cast any to concrete type")
+)
 
 type SchemaField struct {
 	FieldName    string
@@ -10,6 +17,36 @@ type SchemaField struct {
 	Hidden       bool
 	Description  string
 	DefaultValue any
+}
+
+// Bool returns the default value as a boolean.
+func (s SchemaField) Bool() (bool, error) {
+	value, ok := s.DefaultValue.(bool)
+	if !ok {
+		return false, WrongValueTypeErr
+	}
+
+	return value, nil
+}
+
+// Int returns the default value as a integer.
+func (s SchemaField) Int() (int, error) {
+	value, ok := s.DefaultValue.(int)
+	if !ok {
+		return 0, WrongValueTypeErr
+	}
+
+	return value, nil
+}
+
+// String returns the default value as a string.
+func (s SchemaField) String() (string, error) {
+	value, ok := s.DefaultValue.(string)
+	if !ok {
+		return "", WrongValueTypeErr
+	}
+
+	return value, nil
 }
 
 func BoolField(name string, optional ...fieldOption) SchemaField {
