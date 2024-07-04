@@ -2,7 +2,9 @@ package configschema
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
+	"strings"
 )
 
 var (
@@ -49,6 +51,14 @@ func (s SchemaField) String() (string, error) {
 	return value, nil
 }
 
+func (s SchemaField) GetDescription() string {
+	if s.Description == "" {
+		return fmt.Sprintf("(BATON_%s)", toUpperCase(s.FieldName))
+	}
+
+	return fmt.Sprintf("%s (BATON_%s)", s.Description, toUpperCase(s.FieldName))
+}
+
 func BoolField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:    name,
@@ -89,4 +99,8 @@ func IntField(name string, optional ...fieldOption) SchemaField {
 	}
 
 	return field
+}
+
+func toUpperCase(i string) string {
+	return strings.ReplaceAll(strings.ToUpper(i), "-", "_")
 }
