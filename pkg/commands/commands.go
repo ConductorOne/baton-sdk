@@ -22,13 +22,12 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-type GetConnectorFunc func(ctx context.Context, cfg any) (types.ConnectorServer, error)
+type GetConnectorFunc func(context.Context, *viper.Viper) (types.ConnectorServer, error)
 
 func MakeMainCommand(
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
-	cfg any,
 	getconnector GetConnectorFunc,
 	opts ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
@@ -53,7 +52,7 @@ func MakeMainCommand(
 			}
 		}
 
-		c, err := getconnector(runCtx, cfg)
+		c, err := getconnector(runCtx, v)
 		if err != nil {
 			return err
 		}
@@ -163,7 +162,6 @@ func MakeGRPCServerCommand(
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
-	cfg any,
 	getconnector GetConnectorFunc,
 ) func(*cobra.Command, []string) error {
 	return func(*cobra.Command, []string) error {
@@ -177,7 +175,7 @@ func MakeGRPCServerCommand(
 			return err
 		}
 
-		c, err := getconnector(runCtx, cfg)
+		c, err := getconnector(runCtx, v)
 		if err != nil {
 			return err
 		}
@@ -259,7 +257,6 @@ func MakeCapabilitiesCommand(
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
-	cfg any,
 	getconnector GetConnectorFunc,
 ) func(*cobra.Command, []string) error {
 	return func(*cobra.Command, []string) error {
@@ -273,7 +270,7 @@ func MakeCapabilitiesCommand(
 			return err
 		}
 
-		c, err := getconnector(runCtx, cfg)
+		c, err := getconnector(runCtx, v)
 		if err != nil {
 			return err
 		}
