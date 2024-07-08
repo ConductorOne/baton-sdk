@@ -131,7 +131,21 @@ func DefineConfiguration(
 		return nil, nil, err
 	}
 
-	// TODO (shackra): add the gRPC command and the capabilities command
+	grpcServerCmd := &cobra.Command{
+		Use:    "_connector-service",
+		Short:  "Start the connector service",
+		Hidden: true,
+		RunE:   commands.MakeGRPCServerCommand(ctx, connectorName, v, connector),
+	}
+	mainCMD.AddCommand(grpcServerCmd)
+
+	capabilitiesCmd := &cobra.Command{
+		Use:   "capabilities",
+		Short: "Get connector capabilities",
+		RunE:  commands.MakeCapabilitiesCommand(ctx, connectorName, v, connector),
+	}
+	mainCMD.AddCommand(capabilitiesCmd)
+
 
 	return v, mainCMD, nil
 }
