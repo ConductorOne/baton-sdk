@@ -146,6 +146,10 @@ func DefineConfiguration(
 	}
 	mainCMD.AddCommand(capabilitiesCmd)
 
+	// Add a hook for additional commands to be added to the root command.
+	// We use this for OS specific commands.
+	// TODO (shackra): uncomment this later if you want interactive setup
+	// mainCMD.AddCommand(commands.AdditionalCommands(name, fields, v)...)
 
 	return v, mainCMD, nil
 }
