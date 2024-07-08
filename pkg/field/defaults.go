@@ -1,8 +1,6 @@
-package configschema
+package field
 
-import (
-	"github.com/conductorone/baton-sdk/pkg/logging"
-)
+import "github.com/conductorone/baton-sdk/pkg/logging"
 
 var (
 	createTicketField      = BoolField("create-ticket", WithHidden(true), WithDescription("Create ticket"))
@@ -32,8 +30,8 @@ var (
 	logLevelField              = StringField("log-level", WithDefaultValue("info"), WithDescription("The log level: debug, info, warn, error"))
 )
 
-// defaultFields list the default fields expected in every single connector.
-var defaultFields = []SchemaField{
+// DefaultFields list the default fields expected in every single connector.
+var DefaultFields = []SchemaField{
 	createTicketField,
 	getTicketField,
 	listTicketSchemasField,
@@ -60,12 +58,22 @@ var defaultFields = []SchemaField{
 	logLevelField,
 }
 
-func ensureDefaultFieldsExists(originalFields []SchemaField) []SchemaField {
+func IsFieldAmongDefaultList(f SchemaField) bool {
+	for _, v := range DefaultFields {
+		if v.FieldName == f.FieldName {
+			return true
+		}
+	}
+
+	return false
+}
+
+func EnsureDefaultFieldsExists(originalFields []SchemaField) []SchemaField {
 	var notfound []SchemaField
 
 	// compare the default list of fields
 	// with the incoming original list of fields
-	for _, d := range defaultFields {
+	for _, d := range DefaultFields {
 		found := false
 		for _, o := range originalFields {
 			if d.FieldName == o.FieldName {

@@ -1,4 +1,4 @@
-package configschema
+package field
 
 var defaultRelationship = []SchemaFieldRelationship{
 	FieldsRequiredTogether(grantEntitlementField, grantPrincipalField),
@@ -28,6 +28,6 @@ var defaultRelationship = []SchemaFieldRelationship{
 	),
 }
 
-func ensureDefaultRelationships(original []SchemaFieldRelationship) []SchemaFieldRelationship {
+func EnsureDefaultRelationships(original []SchemaFieldRelationship) []SchemaFieldRelationship {
 	return append(defaultRelationship, original...)
 }

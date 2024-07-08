@@ -1,4 +1,4 @@
-package configschema
+package field
 
 type fieldOption func(SchemaField) SchemaField
 

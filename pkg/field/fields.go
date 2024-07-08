@@ -1,4 +1,4 @@
-package configschema
+package field
 
 import (
 	"errors"

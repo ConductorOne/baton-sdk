@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/spf13/viper"
 )
 
@@ -28,7 +29,7 @@ func (c *ConfigurationError) PushError(err error) {
 
 // ValidateConfiguration checks if fields marked as required have a non
 // zero-value set either from the CLI or from the configuration file.
-func ValidateConfiguration(v *viper.Viper, fields []SchemaField) error {
+func ValidateConfiguration(v *viper.Viper, fields []field.SchemaField) error {
 	errorsFound := &ConfigurationError{}
 
 	for _, field := range fields {
