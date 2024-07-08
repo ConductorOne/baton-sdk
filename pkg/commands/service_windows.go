@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
@@ -67,11 +68,6 @@ var (
 	boolReflectType        = reflect.TypeOf(true)
 	stringSliceReflectType = reflect.TypeOf([]string(nil))
 )
-
-type schemafield interface {
-	GetName() string
-	GetType() reflect.Kind
-}
 
 func getExePath() (string, error) {
 	p, err := filepath.Abs(os.Args[0])
@@ -277,33 +273,38 @@ func getWindowsService(ctx context.Context, name string) (*mgr.Service, func(), 
 	}, nil
 }
 
-func interactiveSetup(ctx context.Context, outputFilePath string, fields []schemafield, v *viper.Viper) error {
+func interactiveSetup(ctx context.Context, outputFilePath string, fields []field.SchemaField) error {
 	l := ctxzap.Extract(ctx)
 
 	config := make(map[string]interface{})
-	for _, field := range fields {
-		if field.GetName() == "" {
+	for _, vfield := range fields {
+		if vfield.GetName() == "" {
 			return fmt.Errorf("field has no name")
 		}
 
+		// ignore any fields from the default set
+		if field.IsFieldAmongDefaultList(vfield) {
+			continue
+		}
+
 		var input string
-		fmt.Printf("Enter %s: ", field.GetName())
+		fmt.Printf("Enter %s: ", vfield.GetName())
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			input = scanner.Text()
 			break
 		}
 
-		switch field.GetType() {
+		switch vfield.GetType() {
 		case reflect.Bool:
 			b, err := strconv.ParseBool(input)
 			if err != nil {
 				return err
 			}
-			config[field.GetName()] = b
+			config[vfield.GetName()] = b
 
 		case reflect.String:
-			config[field.GetName()] = input
+			config[vfield.GetName()] = input
 
 		case reflect.Int:
 			i, err := strconv.Atoi(input)
@@ -311,11 +312,11 @@ func interactiveSetup(ctx context.Context, outputFilePath string, fields []schem
 				return err
 			}
 
-			config[field.GetName()] = i
+			config[vfield.GetName()] = i
 
 			// TODO (shackra): add support for []string in SDK
 		default:
-			l.Error("Unsupported type for interactive config.", zap.String("type", field.GetType().String()))
+			l.Error("Unsupported type for interactive config.", zap.String("type", vfield.GetType().String()))
 			return errors.New("unsupported type for interactive config")
 		}
 	}
@@ -351,7 +352,7 @@ func interactiveSetup(ctx context.Context, outputFilePath string, fields []schem
 	return nil
 }
 
-func installCmd(name string, fields []schemafield, v *viper.Viper) *cobra.Command {
+func installCmd(name string, fields []field.SchemaField) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: fmt.Sprintf("Setup and configure the %s service", name),
@@ -369,7 +370,7 @@ func installCmd(name string, fields []schemafield, v *viper.Viper) *cobra.Comman
 				s.Close()
 				return fmt.Errorf("%s is already installed as a service. Please run '%s remove' to remove it first.", name, os.Args[0])
 			}
-			err = interactiveSetup(ctx, filepath.Join(getConfigDir(name), defaultConfigFile), fields, v)
+			err = interactiveSetup(ctx, filepath.Join(getConfigDir(name), defaultConfigFile), fields)
 			if err != nil {
 				l.Error("Failed to setup service.", zap.Error(err))
 				return err
@@ -510,12 +511,12 @@ func runService(ctx context.Context, name string) (context.Context, error) {
 	return ctx, nil
 }
 
-func AdditionalCommands(connectorName string, fields []schemafield, v *viper.Viper) []*cobra.Command {
+func AdditionalCommands(connectorName string, fields []field.SchemaField, v *viper.Viper) []*cobra.Command {
 	return []*cobra.Command{
 		startCmd(connectorName),
 		stopCmd(connectorName),
 		statusCmd(connectorName),
-		installCmd(connectorName, fields, v),
+		installCmd(connectorName, fields),
 		uninstallCmd(connectorName),
 	}
 }
