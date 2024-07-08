@@ -11,12 +11,12 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
@@ -67,6 +67,11 @@ var (
 	boolReflectType        = reflect.TypeOf(true)
 	stringSliceReflectType = reflect.TypeOf([]string(nil))
 )
+
+type schemafield interface {
+	GetName() string
+	GetType() reflect.Kind
+}
 
 func getExePath() (string, error) {
 	p, err := filepath.Abs(os.Args[0])
@@ -272,48 +277,45 @@ func getWindowsService(ctx context.Context, name string) (*mgr.Service, func(), 
 	}, nil
 }
 
-func interactiveSetup[T any, PtrT *T](ctx context.Context, outputFilePath string, cfg PtrT) error {
+func interactiveSetup(ctx context.Context, outputFilePath string, fields []schemafield, v *viper.Viper) error {
 	l := ctxzap.Extract(ctx)
 
-	var ret []reflect.StructField
-	fields := reflect.VisibleFields(reflect.TypeOf(*cfg))
-	for _, field := range fields {
-		if _, ok := skipServiceSetupFields[field.Name]; !ok {
-			ret = append(ret, field)
-		}
-	}
-
 	config := make(map[string]interface{})
-	for _, field := range ret {
-		var input string
-		cfgField := field.Tag.Get("mapstructure")
-		if cfgField == "" {
-			return fmt.Errorf("mapstructure tag is required on config field %s", field.Name)
+	for _, field := range fields {
+		if field.GetName() == "" {
+			return fmt.Errorf("field has no name")
 		}
 
-		fmt.Printf("Enter %s: ", field.Name)
+		var input string
+		fmt.Printf("Enter %s: ", field.GetName())
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			input = scanner.Text()
 			break
 		}
 
-		switch reflect.ValueOf(cfg).Elem().FieldByName(field.Name).Type() {
-		case stringReflectType:
-			config[cfgField] = input
-
-		case boolReflectType:
+		switch field.GetType() {
+		case reflect.Bool:
 			b, err := strconv.ParseBool(input)
 			if err != nil {
 				return err
 			}
-			config[cfgField] = b
+			config[field.GetName()] = b
 
-		case stringSliceReflectType:
-			config[cfgField] = strings.Split(input, ",")
+		case reflect.String:
+			config[field.GetName()] = input
 
+		case reflect.Int:
+			i, err := strconv.Atoi(input)
+			if err != nil {
+				return err
+			}
+
+			config[field.GetName()] = i
+
+			// TODO (shackra): add support for []string in SDK
 		default:
-			l.Error("Unsupported type for interactive config.", zap.String("type", field.Type.String()))
+			l.Error("Unsupported type for interactive config.", zap.String("type", field.GetType().String()))
 			return errors.New("unsupported type for interactive config")
 		}
 	}
@@ -349,52 +351,40 @@ func interactiveSetup[T any, PtrT *T](ctx context.Context, outputFilePath string
 	return nil
 }
 
-func installCmd[T any, PtrT *T](name string, cfg PtrT) *cobra.Command {
+func installCmd(name string, fields []schemafield, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: fmt.Sprintf("Setup and configure the %s service", name),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, err := initLogger(
-				context.Background(),
-				name,
-				logging.WithLogFormat(logging.LogFormatConsole),
-				logging.WithLogLevel("info"),
-			)
-
+			ctx, err := initLogger(context.Background(), name, logging.WithLogFormat(logging.LogFormatConsole), logging.WithLogLevel("info"))
 			l := ctxzap.Extract(ctx)
-
 			svcMgr, err := mgr.Connect()
 			if err != nil {
 				l.Error("Failed to connect to service manager.", zap.Error(err))
 				return err
 			}
 			defer svcMgr.Disconnect()
-
 			s, err := svcMgr.OpenService(name)
 			if err == nil {
 				s.Close()
 				return fmt.Errorf("%s is already installed as a service. Please run '%s remove' to remove it first.", name, os.Args[0])
 			}
-
-			err = interactiveSetup(ctx, filepath.Join(getConfigDir(name), defaultConfigFile), cfg)
+			err = interactiveSetup(ctx, filepath.Join(getConfigDir(name), defaultConfigFile), fields, v)
 			if err != nil {
 				l.Error("Failed to setup service.", zap.Error(err))
 				return err
 			}
-
 			exePath, err := getExePath()
 			if err != nil {
 				l.Error("Failed to get executable path.", zap.Error(err))
 				return err
 			}
-
 			s, err = svcMgr.CreateService(name, exePath, mgr.Config{DisplayName: name})
 			if err != nil {
 				l.Error("Failed to create service.", zap.Error(err), zap.String("service_name", name))
 				return err
 			}
 			defer s.Close()
-
 			err = eventlog.InstallAsEventCreate(name, eventlog.Error|eventlog.Warning|eventlog.Info)
 			if err != nil {
 				l.Error("Failed to install event log source.", zap.Error(err))
@@ -405,7 +395,6 @@ func installCmd[T any, PtrT *T](name string, cfg PtrT) *cobra.Command {
 				}
 				return err
 			}
-
 			l.Info("Successfully installed service.", zap.String("service_name", name))
 			return nil
 		},
@@ -521,12 +510,12 @@ func runService(ctx context.Context, name string) (context.Context, error) {
 	return ctx, nil
 }
 
-func additionalCommands[T any, PtrT *T](connectorName string, cfg PtrT) []*cobra.Command {
+func AdditionalCommands(connectorName string, fields []schemafield, v *viper.Viper) []*cobra.Command {
 	return []*cobra.Command{
 		startCmd(connectorName),
 		stopCmd(connectorName),
 		statusCmd(connectorName),
-		installCmd(connectorName, cfg),
+		installCmd(connectorName, fields, v),
 		uninstallCmd(connectorName),
 	}
 }

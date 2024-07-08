@@ -59,6 +59,14 @@ func (s SchemaField) GetDescription() string {
 	return fmt.Sprintf("%s (BATON_%s)", s.Description, toUpperCase(s.FieldName))
 }
 
+func (s SchemaField) GetName() string {
+	return s.FieldName
+}
+
+func (s SchemaField) GetType() reflect.Kind {
+	return s.FieldType
+}
+
 func BoolField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:    name,
