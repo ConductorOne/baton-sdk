@@ -30,7 +30,7 @@
     # Schemas tell Nix about the structure of your flake's outputs
     schemas = flake-schemas.schemas;
 
-    checks = forEachSupportedSystem ({system}: {
+    checks = forEachSupportedSystem ({system, ...}: {
       # check that the code complies with a minimum standard use `--no-verify`
       # to bypass this check when committing or pushing code
       pre-commit-check = pre-commit-hooks.lib.${system}.run {
