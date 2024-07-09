@@ -17,7 +17,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
@@ -511,7 +510,7 @@ func runService(ctx context.Context, name string) (context.Context, error) {
 	return ctx, nil
 }
 
-func AdditionalCommands(connectorName string, fields []field.SchemaField, v *viper.Viper) []*cobra.Command {
+func AdditionalCommands(connectorName string, fields []field.SchemaField) []*cobra.Command {
 	return []*cobra.Command{
 		startCmd(connectorName),
 		stopCmd(connectorName),
