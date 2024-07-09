@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/conductorone/baton-sdk/pkg/commands"
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -18,7 +18,7 @@ import (
 func DefineConfiguration(
 	ctx context.Context,
 	connectorName string,
-	connector commands.GetConnectorFunc,
+	connector cli.GetConnectorFunc,
 	fields []field.SchemaField,
 	constrains ...field.SchemaFieldRelationship,
 ) (*viper.Viper, *cobra.Command, error) {
@@ -51,7 +51,7 @@ func DefineConfiguration(
 		Short:         connectorName,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE:          commands.MakeMainCommand(ctx, connectorName, v, nil, nil),
+		RunE:          cli.MakeMainCommand(ctx, connectorName, v, nil, nil),
 	}
 
 	// add options to the main command
@@ -136,18 +136,18 @@ func DefineConfiguration(
 		Use:    "_connector-service",
 		Short:  "Start the connector service",
 		Hidden: true,
-		RunE:   commands.MakeGRPCServerCommand(ctx, connectorName, v, connector),
+		RunE:   cli.MakeGRPCServerCommand(ctx, connectorName, v, connector),
 	}
 	mainCMD.AddCommand(grpcServerCmd)
 
 	capabilitiesCmd := &cobra.Command{
 		Use:   "capabilities",
 		Short: "Get connector capabilities",
-		RunE:  commands.MakeCapabilitiesCommand(ctx, connectorName, v, connector),
+		RunE:  cli.MakeCapabilitiesCommand(ctx, connectorName, v, connector),
 	}
 	mainCMD.AddCommand(capabilitiesCmd)
 
-	mainCMD.AddCommand(commands.AdditionalCommands(name, fields)...)
+	mainCMD.AddCommand(cli.AdditionalCommands(name, fields)...)
 
 	return v, mainCMD, nil
 }
