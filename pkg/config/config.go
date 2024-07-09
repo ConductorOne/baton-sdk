@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/cli"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -20,7 +21,8 @@ func DefineConfiguration(
 	connectorName string,
 	connector cli.GetConnectorFunc,
 	fields []field.SchemaField,
-	constrains ...field.SchemaFieldRelationship,
+	constrains []field.SchemaFieldRelationship,
+	options ...connectorrunner.Option,
 ) (*viper.Viper, *cobra.Command, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
@@ -51,7 +53,7 @@ func DefineConfiguration(
 		Short:         connectorName,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE:          cli.MakeMainCommand(ctx, connectorName, v, nil, nil),
+		RunE:          cli.MakeMainCommand(ctx, connectorName, v, connector, options...),
 	}
 
 	// add options to the main command
