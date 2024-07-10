@@ -7,7 +7,9 @@ import (
 )
 
 var (
-	ErrNoEntitlement = errors.New("no entitlement found")
+	ErrNoEntitlement              = errors.New("no entitlement found")
+	ErrInvalidSourceToDestination = errors.New("invalid source to destination")
+	ErrInvalidDestinationToSource = errors.New("invalid destination to source")
 )
 
 func (node *Node) Str() string {
@@ -66,12 +68,20 @@ func (g *EntitlementGraph) Str() string {
 
 // validateEdges validates that for every edge, both nodes actually exists.
 func (g *EntitlementGraph) validateEdges() error {
-	for _, edge := range g.Edges {
+	for edgeId, edge := range g.Edges {
 		if _, ok := g.Nodes[edge.SourceID]; !ok {
 			return ErrNoEntitlement
 		}
 		if _, ok := g.Nodes[edge.DestinationID]; !ok {
 			return ErrNoEntitlement
+		}
+
+		if g.SourcesToDestinations[edge.SourceID][edge.DestinationID] != edgeId {
+			return fmt.Errorf("edge %v does not match source %v to destination %v", edgeId, edge.SourceID, edge.DestinationID)
+		}
+
+		if g.DestinationsToSources[edge.DestinationID][edge.SourceID] != edgeId {
+			return fmt.Errorf("edge %v does not match destination %v to source %v", edgeId, edge.DestinationID, edge.SourceID)
 		}
 	}
 	return nil
