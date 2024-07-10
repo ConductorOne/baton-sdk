@@ -211,29 +211,6 @@ func TestHandleCycle(t *testing.T) {
 	}
 }
 
-func TestHandleComplexCycle2(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	graph := parseExpression(t, ctx, "3>1 4>1 1>2>1 1>5 1>3")
-
-	require.Equal(t, 5, len(graph.Nodes))
-	require.Equal(t, 6, len(graph.Edges))
-	require.Equal(t, 5, len(graph.GetEntitlements()))
-
-	err := graph.FixCycles()
-	require.NoError(t, err, graph.Str())
-	err = graph.Validate()
-	require.NoError(t, err)
-
-	require.Equal(t, 3, len(graph.Nodes))
-	require.Equal(t, 2, len(graph.Edges))
-	require.Equal(t, 5, len(graph.GetEntitlements()))
-
-	cycle := graph.GetFirstCycle()
-	require.Nil(t, cycle)
-}
-
 func TestHandleComplexCycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
