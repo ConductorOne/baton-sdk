@@ -8,9 +8,7 @@ import (
 )
 
 var (
-	ErrNoEntitlement              = errors.New("no entitlement found")
-	ErrInvalidSourceToDestination = errors.New("invalid source to destination")
-	ErrInvalidDestinationToSource = errors.New("invalid destination to source")
+	ErrNoEntitlement = errors.New("no entitlement found")
 )
 
 func (node *Node) Str() string {
