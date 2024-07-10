@@ -20,8 +20,7 @@ func DefineConfiguration(
 	ctx context.Context,
 	connectorName string,
 	connector cli.GetConnectorFunc,
-	fields []field.SchemaField,
-	constrains []field.SchemaFieldRelationship,
+	schema field.Configuration,
 	options ...connectorrunner.Option,
 ) (*viper.Viper, *cobra.Command, error) {
 	v := viper.New()
@@ -44,8 +43,8 @@ func DefineConfiguration(
 	v.AutomaticEnv()
 
 	// add default fields and constrains
-	fields = field.EnsureDefaultFieldsExists(fields)
-	constrains = field.EnsureDefaultRelationships(constrains)
+	schema.Fields = field.EnsureDefaultFieldsExists(schema.Fields)
+	schema.Constrains = field.EnsureDefaultRelationships(schema.Constrains)
 
 	// setup CLI with cobra
 	mainCMD := &cobra.Command{
@@ -57,7 +56,7 @@ func DefineConfiguration(
 	}
 
 	// add options to the main command
-	for _, field := range fields {
+	for _, field := range schema.Fields {
 		switch field.FieldType {
 		case reflect.Bool:
 			value, err := field.Bool()
@@ -118,7 +117,7 @@ func DefineConfiguration(
 	}
 
 	// apply constrains
-	for _, constrain := range constrains {
+	for _, constrain := range schema.Constrains {
 		switch constrain.Kind {
 		case field.MutuallyExclusive:
 			mainCMD.MarkFlagsMutuallyExclusive(listFieldConstrainsAsStrings(constrain)...)
@@ -149,7 +148,7 @@ func DefineConfiguration(
 	}
 	mainCMD.AddCommand(capabilitiesCmd)
 
-	mainCMD.AddCommand(cli.AdditionalCommands(name, fields)...)
+	mainCMD.AddCommand(cli.AdditionalCommands(name, schema.Fields)...)
 
 	return v, mainCMD, nil
 }
