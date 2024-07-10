@@ -3,6 +3,7 @@ package expand
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -101,6 +102,23 @@ func (g *EntitlementGraph) validateNodes() error {
 				return fmt.Errorf("entitlement %v is in multiple nodes: %v %v", entID, nodeID, seenEntitlements[entID])
 			}
 			seenEntitlements[entID] = nodeID
+			entNodeId, ok := g.EntitlementsToNodes[entID]
+			if !ok {
+				return fmt.Errorf("entitlement %v is not in EntitlementsToNodes. should be in node %v", entID, nodeID)
+			}
+			if entNodeId != nodeID {
+				return fmt.Errorf("entitlement %v is in node %v but should be in node %v", entID, entNodeId, nodeID)
+			}
+		}
+	}
+
+	for entID, nodeID := range g.EntitlementsToNodes {
+		node, ok := g.Nodes[nodeID]
+		if !ok {
+			return fmt.Errorf("entitlement %v is in EntitlementsToNodes but not in Nodes", entID)
+		}
+		if !slices.Contains(node.EntitlementIDs, entID) {
+			return fmt.Errorf("entitlement %v is in EntitlementsToNodes but not in node %v", entID, nodeID)
 		}
 	}
 	return nil
