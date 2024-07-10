@@ -301,7 +301,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
-			if cf.Required && tv.StringValue.Value == "" {
+			if cf.Required && tv.StringValue.GetValue() == "" {
 				l.Debug("error: invalid ticket: string value is required but was empty", zap.String("custom_field_id", cf.Id))
 				return false, nil
 			}
@@ -313,7 +313,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
-			if cf.Required && len(tv.StringValues.Values) == 0 {
+			if cf.Required && len(tv.StringValues.GetValues()) == 0 {
 				l.Debug("error: invalid ticket: string values is required but was empty", zap.String("custom_field_id", cf.Id))
 				return false, nil
 			}
@@ -332,7 +332,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
-			if cf.Required && tv.TimestampValue.Value == nil {
+			if cf.Required && tv.TimestampValue.GetValue() == nil {
 				l.Debug("error: invalid ticket: expected timestamp value for field but was empty", zap.String("custom_field_id", cf.Id))
 				return false, nil
 			}
@@ -347,7 +347,13 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			ticketValue := tv.PickStringValue.GetValue()
 			allowedValues := v.PickStringValue.GetAllowedValues()
 
-			if cf.Required && ticketValue == "" {
+			// String value is empty but custom field is not required, skip further validation
+			if !cf.Required && ticketValue == "" {
+				continue
+			}
+
+			// Custom field is required, check if string is empty
+			if ticketValue == "" {
 				l.Debug("error: invalid ticket: expected string value for field but was empty", zap.String("custom_field_id", cf.Id))
 				return false, nil
 			}
@@ -384,7 +390,13 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			ticketValues := tv.PickMultipleStringValues.GetValues()
 			allowedValues := v.PickMultipleStringValues.GetAllowedValues()
 
-			if cf.Required && len(ticketValues) == 0 {
+			// String values are empty but custom field is not required, skip further validation
+			if !cf.Required && len(ticketValues) == 0 {
+				continue
+			}
+
+			// Custom field is required so check if string values are empty
+			if len(ticketValues) == 0 {
 				l.Debug("error: invalid ticket: string values is required but was empty", zap.String("custom_field_id", cf.Id))
 				return false, nil
 			}
@@ -422,7 +434,13 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			ticketValue := tv.PickObjectValue.GetValue()
 			allowedValues := v.PickObjectValue.GetAllowedValues()
 
-			if cf.Required && ticketValue == nil || ticketValue.GetId() == "" {
+			// Object value for field is nil, but custom field is not required, skip further validation
+			if !cf.Required && (ticketValue == nil || ticketValue.GetId() == "") {
+				continue
+			}
+
+			// Custom field is required so check if object value for field is nil
+			if ticketValue == nil || ticketValue.GetId() == "" {
 				l.Debug("error: invalid ticket: expected object value for field but was nil", zap.String("custom_field_id", cf.Id))
 				return false, nil
 			}
@@ -459,7 +477,13 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			ticketValues := tv.PickMultipleObjectValues.GetValues()
 			allowedValues := v.PickMultipleObjectValues.GetAllowedValues()
 
-			if cf.Required && len(ticketValues) == 0 {
+			// Object values are empty but custom field is not required, skip further validation
+			if !cf.Required && len(ticketValues) == 0 {
+				continue
+			}
+
+			// Custom field is required so check if object values are empty
+			if len(ticketValues) == 0 {
 				l.Debug("error: invalid ticket: object values is required but was empty", zap.String("custom_field_id", cf.Id))
 				return false, nil
 			}
