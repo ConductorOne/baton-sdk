@@ -55,7 +55,10 @@ func (g *EntitlementGraph) removeNode(nodeID int) {
 	// Delete from reverse mapping.
 	if node, ok := g.Nodes[nodeID]; ok {
 		for _, entitlementID := range node.EntitlementIDs {
-			delete(g.EntitlementsToNodes, entitlementID)
+			entNodeId, ok := g.EntitlementsToNodes[entitlementID]
+			if ok && entNodeId == nodeID {
+				delete(g.EntitlementsToNodes, entitlementID)
+			}
 		}
 	}
 

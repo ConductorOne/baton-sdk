@@ -3,6 +3,7 @@ package expand
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -66,12 +67,20 @@ func (g *EntitlementGraph) Str() string {
 
 // validateEdges validates that for every edge, both nodes actually exists.
 func (g *EntitlementGraph) validateEdges() error {
-	for _, edge := range g.Edges {
+	for edgeId, edge := range g.Edges {
 		if _, ok := g.Nodes[edge.SourceID]; !ok {
 			return ErrNoEntitlement
 		}
 		if _, ok := g.Nodes[edge.DestinationID]; !ok {
 			return ErrNoEntitlement
+		}
+
+		if g.SourcesToDestinations[edge.SourceID][edge.DestinationID] != edgeId {
+			return fmt.Errorf("edge %v does not match source %v to destination %v", edgeId, edge.SourceID, edge.DestinationID)
+		}
+
+		if g.DestinationsToSources[edge.DestinationID][edge.SourceID] != edgeId {
+			return fmt.Errorf("edge %v does not match destination %v to source %v", edgeId, edge.DestinationID, edge.SourceID)
 		}
 	}
 	return nil
@@ -91,6 +100,23 @@ func (g *EntitlementGraph) validateNodes() error {
 				return fmt.Errorf("entitlement %v is in multiple nodes: %v %v", entID, nodeID, seenEntitlements[entID])
 			}
 			seenEntitlements[entID] = nodeID
+			entNodeId, ok := g.EntitlementsToNodes[entID]
+			if !ok {
+				return fmt.Errorf("entitlement %v is not in EntitlementsToNodes. should be in node %v", entID, nodeID)
+			}
+			if entNodeId != nodeID {
+				return fmt.Errorf("entitlement %v is in node %v but should be in node %v", entID, entNodeId, nodeID)
+			}
+		}
+	}
+
+	for entID, nodeID := range g.EntitlementsToNodes {
+		node, ok := g.Nodes[nodeID]
+		if !ok {
+			return fmt.Errorf("entitlement %v is in EntitlementsToNodes but not in Nodes", entID)
+		}
+		if !slices.Contains(node.EntitlementIDs, entID) {
+			return fmt.Errorf("entitlement %v is in EntitlementsToNodes but not in node %v", entID, nodeID)
 		}
 	}
 	return nil

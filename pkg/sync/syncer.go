@@ -815,7 +815,11 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	if entitlementGraph.Loaded {
 		cycle := entitlementGraph.GetFirstCycle()
 		if cycle != nil {
-			l.Warn("cycle detected in entitlement graph", zap.Any("cycle", cycle))
+			l.Warn(
+				"cycle detected in entitlement graph",
+				zap.Any("cycle", cycle),
+				zap.Any("initial graph", entitlementGraph),
+			)
 			if dontFixCycles {
 				return fmt.Errorf("cycles detected in entitlement graph")
 			}
@@ -1302,7 +1306,11 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	}
 
 	if graph.Depth > maxDepth {
-		l.Error("expandGrantsForEntitlements: exceeded max depth", zap.Any("graph", graph), zap.Int("max_depth", maxDepth))
+		l.Error(
+			"expandGrantsForEntitlements: exceeded max depth",
+			zap.Any("graph", graph),
+			zap.Int("max_depth", maxDepth),
+		)
 		s.state.FinishAction(ctx)
 		return fmt.Errorf("exceeded max depth")
 	}
