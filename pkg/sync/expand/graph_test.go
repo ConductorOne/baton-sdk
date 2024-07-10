@@ -16,6 +16,23 @@ const separatorNext = ' '
 const separatorList = ','
 const dummyID = "nil"
 
+func elementsMatch(listA []int, listB []int) bool {
+	if len(listA) != len(listB) {
+		return false
+	}
+	setA := mapset.NewSet[int](listA...)
+	setB := mapset.NewSet[int](listB...)
+
+	differenceA := setA.Difference(setB)
+	if differenceA.Cardinality() > 0 {
+		return false
+	}
+
+	differenceB := setB.Difference(setA)
+
+	return differenceB.Cardinality() <= 0
+}
+
 func parseExpression(
 	t *testing.T,
 	ctx context.Context,
@@ -175,7 +192,14 @@ func TestHandleCycle(t *testing.T) {
 			cycle := graph.GetFirstCycle()
 			expectedCycles := createNodeIDList(testCase.expectedCycles)
 			require.NotNil(t, cycle)
-			require.ElementsMatch(t, expectedCycles[0], cycle)
+			found := false
+			for _, expectedCycle := range expectedCycles {
+				if elementsMatch(expectedCycle, cycle) {
+					found = true
+					break
+				}
+			}
+			require.True(t, found)
 
 			err := graph.FixCycles()
 			require.NoError(t, err, graph.Str())
