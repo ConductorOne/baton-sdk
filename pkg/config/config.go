@@ -44,7 +44,7 @@ func DefineConfiguration(
 
 	// add default fields and constrains
 	schema.Fields = field.EnsureDefaultFieldsExists(schema.Fields)
-	schema.Constrains = field.EnsureDefaultRelationships(schema.Constrains)
+	schema.Constraints = field.EnsureDefaultRelationships(schema.Constraints)
 
 	// setup CLI with cobra
 	mainCMD := &cobra.Command{
@@ -117,7 +117,7 @@ func DefineConfiguration(
 	}
 
 	// apply constrains
-	for _, constrain := range schema.Constrains {
+	for _, constrain := range schema.Constraints {
 		switch constrain.Kind {
 		case field.MutuallyExclusive:
 			mainCMD.MarkFlagsMutuallyExclusive(listFieldConstrainsAsStrings(constrain)...)
