@@ -28,6 +28,11 @@ func (e *ErrConfigurationMissingFields) Push(err error) {
 
 // Validate perform validation of field requirement and constraints
 // relationships after the configuration is read.
+// We don't check the following:
+//   - if required fields are mutually exclusive
+//   - repeated fields (by name) are defined
+//   - if sets of fields are mutually exclusive and required
+//     together at the same time
 func Validate(c Configuration, v *viper.Viper) error {
 	present := make(map[string]int)
 	missingFieldsError := &ErrConfigurationMissingFields{}
