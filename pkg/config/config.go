@@ -52,7 +52,7 @@ func DefineConfiguration(
 		Short:         connectorName,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE:          cli.MakeMainCommand(ctx, connectorName, v, connector, options...),
+		RunE:          cli.MakeMainCommand(ctx, connectorName, v, schema, connector, options...),
 	}
 
 	// add options to the main command
@@ -137,7 +137,7 @@ func DefineConfiguration(
 		Use:    "_connector-service",
 		Short:  "Start the connector service",
 		Hidden: true,
-		RunE:   cli.MakeGRPCServerCommand(ctx, connectorName, v, connector),
+		RunE:   cli.MakeGRPCServerCommand(ctx, connectorName, v, schema, connector),
 	}
 	mainCMD.AddCommand(grpcServerCmd)
 
