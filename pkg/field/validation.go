@@ -77,7 +77,7 @@ func validateConstraints(fieldsPresent map[string]int, relationships []SchemaFie
 		if present > 1 && relationship.Kind == MutuallyExclusive {
 			return makeMutuallyExclusiveError(fieldsPresent, relationship)
 		}
-		if present < len(relationship.Fields) && relationship.Kind == RequiredTogether {
+		if present > 0 && present < len(relationship.Fields) && relationship.Kind == RequiredTogether {
 			return makeNeededTogetherError(fieldsPresent, relationship)
 		}
 	}

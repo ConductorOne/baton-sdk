@@ -72,3 +72,26 @@ func TestValidationRequiredTogetherOneMissing(t *testing.T) {
 	require.Error(t, err)
 	require.EqualError(t, err, "fields marked as needed together are missing: bar")
 }
+
+func TestValidationRequiredTogetherAllMissing(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsRequiredTogether(foo, bar),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "")
+	v.Set("bar", "")
+
+	err := Validate(carrier, v)
+	require.NoError(t, err)
+}
