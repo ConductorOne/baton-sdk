@@ -52,11 +52,18 @@ func (s SchemaField) String() (string, error) {
 }
 
 func (s SchemaField) GetDescription() string {
+	var line string
 	if s.Description == "" {
-		return fmt.Sprintf("($BATON_%s)", toUpperCase(s.FieldName))
+		line = fmt.Sprintf("($BATON_%s)", toUpperCase(s.FieldName))
+	} else {
+		line = fmt.Sprintf("%s ($BATON_%s)", s.Description, toUpperCase(s.FieldName))
 	}
 
-	return fmt.Sprintf("%s ($BATON_%s)", s.Description, toUpperCase(s.FieldName))
+	if s.Required {
+		line = fmt.Sprintf("required: %s", line)
+	}
+
+	return line
 }
 
 func (s SchemaField) GetName() string {
