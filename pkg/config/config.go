@@ -114,6 +114,23 @@ func DefineConfiguration(
 				)
 			}
 		}
+
+		// mark required
+		if field.Required {
+			if field.FieldType == reflect.Bool {
+				return nil, nil, fmt.Errorf("requiring %s of type %s does not make sense", field.FieldName, field.FieldType)
+			}
+
+			err := mainCMD.MarkFlagRequired(field.FieldName)
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"cannot require field %s, %s: %w",
+					field.FieldName,
+					field.FieldType,
+					err,
+				)
+			}
+		}
 	}
 
 	// apply constrains
