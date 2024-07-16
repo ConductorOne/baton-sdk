@@ -52,7 +52,7 @@ func DefineConfiguration(
 		Short:         connectorName,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE:          cli.MakeMainCommand(ctx, connectorName, v, connector, options...),
+		RunE:          cli.MakeMainCommand(ctx, connectorName, v, schema, connector, options...),
 	}
 
 	// add options to the main command
@@ -114,6 +114,23 @@ func DefineConfiguration(
 				)
 			}
 		}
+
+		// mark required
+		if field.Required {
+			if field.FieldType == reflect.Bool {
+				return nil, nil, fmt.Errorf("requiring %s of type %s does not make sense", field.FieldName, field.FieldType)
+			}
+
+			err := mainCMD.MarkFlagRequired(field.FieldName)
+			if err != nil {
+				return nil, nil, fmt.Errorf(
+					"cannot require field %s, %s: %w",
+					field.FieldName,
+					field.FieldType,
+					err,
+				)
+			}
+		}
 	}
 
 	// apply constrains
@@ -137,7 +154,7 @@ func DefineConfiguration(
 		Use:    "_connector-service",
 		Short:  "Start the connector service",
 		Hidden: true,
-		RunE:   cli.MakeGRPCServerCommand(ctx, connectorName, v, connector),
+		RunE:   cli.MakeGRPCServerCommand(ctx, connectorName, v, schema, connector),
 	}
 	mainCMD.AddCommand(grpcServerCmd)
 

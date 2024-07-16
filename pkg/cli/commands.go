@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -28,10 +29,16 @@ func MakeMainCommand(
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
+	confschema field.Configuration,
 	getconnector GetConnectorFunc,
 	opts ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
 	return func(*cobra.Command, []string) error {
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, v); err != nil {
+			return err
+		}
+
 		runCtx, err := initLogger(
 			ctx,
 			name,
@@ -162,9 +169,15 @@ func MakeGRPCServerCommand(
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
+	confschema field.Configuration,
 	getconnector GetConnectorFunc,
 ) func(*cobra.Command, []string) error {
 	return func(*cobra.Command, []string) error {
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, v); err != nil {
+			return err
+		}
+
 		runCtx, err := initLogger(
 			ctx,
 			name,
