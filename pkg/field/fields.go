@@ -85,6 +85,10 @@ func BoolField(name string, optional ...fieldOption) SchemaField {
 		field = o(field)
 	}
 
+	if field.Required {
+		panic(fmt.Sprintf("requiring %s of type %s does not make sense", field.FieldName, field.FieldType))
+	}
+
 	return field
 }
 
