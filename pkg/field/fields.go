@@ -51,6 +51,16 @@ func (s SchemaField) String() (string, error) {
 	return value, nil
 }
 
+// StringArray retuns the default value as a string array.
+func (s SchemaField) StringArray() ([]string, error) {
+	value, ok := s.DefaultValue.([]string)
+	if !ok {
+		return nil, WrongValueTypeErr
+	}
+
+	return value, nil
+}
+
 func (s SchemaField) GetDescription() string {
 	var line string
 	if s.Description == "" {
@@ -111,6 +121,20 @@ func IntField(name string, optional ...fieldOption) SchemaField {
 		FieldName:    name,
 		FieldType:    reflect.Int,
 		DefaultValue: 0,
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
+}
+
+func StringArrayField(name string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:    name,
+		FieldType:    reflect.Slice,
+		DefaultValue: []string{},
 	}
 
 	for _, o := range optional {
