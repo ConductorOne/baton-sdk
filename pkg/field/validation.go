@@ -47,6 +47,8 @@ func Validate(c Configuration, v *viper.Viper) error {
 			isNonZero = v.GetInt(f.FieldName) != 0
 		case reflect.String:
 			isNonZero = v.GetString(f.FieldName) != ""
+		case reflect.Slice:
+			isNonZero = len(v.GetStringSlice(f.FieldName)) == 0
 		default:
 			return fmt.Errorf("field %s has unsupported type %s", f.FieldName, f.FieldType)
 		}
@@ -80,6 +82,9 @@ func validateConstraints(fieldsPresent map[string]int, relationships []SchemaFie
 		if present > 0 && present < len(relationship.Fields) && relationship.Kind == RequiredTogether {
 			return makeNeededTogetherError(fieldsPresent, relationship)
 		}
+		if present == 0 && relationship.Kind == AtLeastOne {
+			return makeAtLeastOneError(fieldsPresent, relationship)
+		}
 	}
 
 	return nil
@@ -105,4 +110,15 @@ func makeNeededTogetherError(fields map[string]int, relation SchemaFieldRelation
 	}
 
 	return fmt.Errorf("fields marked as needed together are missing: %s", strings.Join(found, ", "))
+}
+
+func makeAtLeastOneError(fields map[string]int, relation SchemaFieldRelationship) error {
+	var found []string
+	for _, f := range relation.Fields {
+		if fields[f.FieldName] == 0 {
+			found = append(found, f.FieldName)
+		}
+	}
+
+	return fmt.Errorf("at least one field was expected, any of: %s", strings.Join(found, ", "))
 }
