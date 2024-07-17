@@ -152,6 +152,8 @@ func DefineConfiguration(
 			mainCMD.MarkFlagsMutuallyExclusive(listFieldConstrainsAsStrings(constrain)...)
 		case field.RequiredTogether:
 			mainCMD.MarkFlagsRequiredTogether(listFieldConstrainsAsStrings(constrain)...)
+		case field.AtLeastOne:
+			mainCMD.MarkFlagsOneRequired(listFieldConstrainsAsStrings(constrain)...)
 		}
 	}
 

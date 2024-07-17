@@ -5,6 +5,7 @@ type Relationship int
 const (
 	RequiredTogether Relationship = iota + 1
 	MutuallyExclusive
+	AtLeastOne
 )
 
 type SchemaFieldRelationship struct {
@@ -22,6 +23,13 @@ func FieldsRequiredTogether(fields ...SchemaField) SchemaFieldRelationship {
 func FieldsMutuallyExclusive(fields ...SchemaField) SchemaFieldRelationship {
 	return SchemaFieldRelationship{
 		Kind:   MutuallyExclusive,
+		Fields: fields,
+	}
+}
+
+func FieldsAtLeastOneUsed(fields ...SchemaField) SchemaFieldRelationship {
+	return SchemaFieldRelationship{
+		Kind:   AtLeastOne,
 		Fields: fields,
 	}
 }
