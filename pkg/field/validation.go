@@ -47,6 +47,8 @@ func Validate(c Configuration, v *viper.Viper) error {
 			isNonZero = v.GetInt(f.FieldName) != 0
 		case reflect.String:
 			isNonZero = v.GetString(f.FieldName) != ""
+		case reflect.Slice:
+			isNonZero = len(v.GetStringSlice(f.FieldName)) == 0
 		default:
 			return fmt.Errorf("field %s has unsupported type %s", f.FieldName, f.FieldType)
 		}
