@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
@@ -13,10 +12,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func entrypoint(cfg field.Configuration) (*viper.Viper, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*20)
-	defer cancel()
-
+func entrypoint(ctx context.Context, cfg field.Configuration, args ...string) (*viper.Viper, error) {
 	v, cmd, err := config.DefineConfiguration(ctx, "baton-dummy", getConnector, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("DefineConfiguration failed: %w", err)
@@ -24,7 +20,8 @@ func entrypoint(cfg field.Configuration) (*viper.Viper, error) {
 
 	cmd.Version = "testing"
 
-	err = cmd.Execute()
+	cmd.SetArgs(args)
+	err = cmd.ExecuteContext(ctx)
 	if err != nil {
 		// we don't want a full execution
 		if errors.Is(err, context.DeadlineExceeded) {
