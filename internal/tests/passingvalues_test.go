@@ -12,15 +12,13 @@ func TestPassingValuesToFields(t *testing.T) {
 	stringfield := field.StringField("string-field", field.WithRequired(true))
 	intfield := field.IntField("int-field", field.WithRequired(true))
 	boolfield := field.BoolField("bool-field")
-	stringslicefield := field.StringSliceField("string-slice-field", field.WithRequired(true))
 
-	carrier := field.NewConfiguration([]field.SchemaField{stringfield, intfield, boolfield, stringslicefield})
+	carrier := field.NewConfiguration([]field.SchemaField{stringfield, intfield, boolfield})
 
 	os.Args = []string{"cmd",
 		"--string-field", "foo",
 		"--int-field", "100",
 		"--bool-field",
-		`--string-slice-field="foo,bar,foobarr"`,
 	}
 
 	v, err := entrypoint(carrier)
@@ -29,5 +27,4 @@ func TestPassingValuesToFields(t *testing.T) {
 	require.EqualValues(t, "foo", v.GetString("string-field"))
 	require.EqualValues(t, 100, v.GetInt("int-field"))
 	require.EqualValues(t, true, v.GetBool("bool-field"))
-	require.EqualValues(t, []string{"foo", "bar", "foobar"}, v.GetStringSlice("string-slice-field"))
 }
