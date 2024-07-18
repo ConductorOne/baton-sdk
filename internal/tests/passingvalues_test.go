@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPassingValuesToFields(t *testing.T) {
+func TestPassingValuesToFieldsViaCLI(t *testing.T) {
 	stringfield := field.StringField("string-field", field.WithRequired(true))
 	intfield := field.IntField("int-field", field.WithRequired(true))
 	boolfield := field.BoolField("bool-field")
