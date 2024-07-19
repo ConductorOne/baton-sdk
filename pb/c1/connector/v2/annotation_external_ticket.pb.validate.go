@@ -35,22 +35,22 @@ var (
 	_ = sort.Sort
 )
 
-// Validate checks the field values on ExternalTicket with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *ExternalTicket) Validate() error {
+// Validate checks the field values on ExternalTicketSettings with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ExternalTicketSettings) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on ExternalTicket with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in ExternalTicketMultiError,
-// or nil if none found.
-func (m *ExternalTicket) ValidateAll() error {
+// ValidateAll checks the field values on ExternalTicketSettings with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ExternalTicketSettingsMultiError, or nil if none found.
+func (m *ExternalTicketSettings) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *ExternalTicket) validate(all bool) error {
+func (m *ExternalTicketSettings) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -60,19 +60,19 @@ func (m *ExternalTicket) validate(all bool) error {
 	// no validation rules for Enabled
 
 	if len(errors) > 0 {
-		return ExternalTicketMultiError(errors)
+		return ExternalTicketSettingsMultiError(errors)
 	}
 
 	return nil
 }
 
-// ExternalTicketMultiError is an error wrapping multiple validation errors
-// returned by ExternalTicket.ValidateAll() if the designated constraints
-// aren't met.
-type ExternalTicketMultiError []error
+// ExternalTicketSettingsMultiError is an error wrapping multiple validation
+// errors returned by ExternalTicketSettings.ValidateAll() if the designated
+// constraints aren't met.
+type ExternalTicketSettingsMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m ExternalTicketMultiError) Error() string {
+func (m ExternalTicketSettingsMultiError) Error() string {
 	var msgs []string
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -81,11 +81,11 @@ func (m ExternalTicketMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m ExternalTicketMultiError) AllErrors() []error { return m }
+func (m ExternalTicketSettingsMultiError) AllErrors() []error { return m }
 
-// ExternalTicketValidationError is the validation error returned by
-// ExternalTicket.Validate if the designated constraints aren't met.
-type ExternalTicketValidationError struct {
+// ExternalTicketSettingsValidationError is the validation error returned by
+// ExternalTicketSettings.Validate if the designated constraints aren't met.
+type ExternalTicketSettingsValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -93,22 +93,24 @@ type ExternalTicketValidationError struct {
 }
 
 // Field function returns field value.
-func (e ExternalTicketValidationError) Field() string { return e.field }
+func (e ExternalTicketSettingsValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e ExternalTicketValidationError) Reason() string { return e.reason }
+func (e ExternalTicketSettingsValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e ExternalTicketValidationError) Cause() error { return e.cause }
+func (e ExternalTicketSettingsValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e ExternalTicketValidationError) Key() bool { return e.key }
+func (e ExternalTicketSettingsValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e ExternalTicketValidationError) ErrorName() string { return "ExternalTicketValidationError" }
+func (e ExternalTicketSettingsValidationError) ErrorName() string {
+	return "ExternalTicketSettingsValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e ExternalTicketValidationError) Error() string {
+func (e ExternalTicketSettingsValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -120,14 +122,14 @@ func (e ExternalTicketValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sExternalTicket.%s: %s%s",
+		"invalid %sExternalTicketSettings.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = ExternalTicketValidationError{}
+var _ error = ExternalTicketSettingsValidationError{}
 
 var _ interface {
 	Field() string
@@ -135,4 +137,4 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = ExternalTicketValidationError{}
+} = ExternalTicketSettingsValidationError{}

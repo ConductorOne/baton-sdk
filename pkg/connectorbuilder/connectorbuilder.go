@@ -456,7 +456,7 @@ func (b *builderImpl) GetMetadata(ctx context.Context, request *v2.ConnectorServ
 
 	annos := annotations.Annotations(md.Annotations)
 	if b.ticketManager != nil {
-		annos.Append(&v2.ExternalTicket{Enabled: b.ticketingEnabled})
+		annos.Append(&v2.ExternalTicketSettings{Enabled: b.ticketingEnabled})
 	}
 	md.Annotations = annos
 
