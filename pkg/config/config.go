@@ -13,6 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
 
@@ -180,6 +181,13 @@ func DefineConfiguration(
 	mainCMD.AddCommand(capabilitiesCmd)
 
 	mainCMD.AddCommand(cli.AdditionalCommands(name, schema.Fields)...)
+
+	// NOTE (shackra): we don't check subcommands (i.e.: grpcServerCmd and capabilitiesCmd)
+	mainCMD.PersistentFlags().VisitAll(func(f *pflag.Flag) {
+		if v.IsSet(f.Name) {
+			_ = mainCMD.Flags().Set(f.Name, v.GetString(f.Name))
+		}
+	})
 
 	return v, mainCMD, nil
 }
