@@ -5,9 +5,9 @@ import "github.com/conductorone/baton-sdk/pkg/logging"
 var (
 	createTicketField      = BoolField("create-ticket", WithHidden(true), WithDescription("Create ticket"))
 	getTicketField         = BoolField("get-ticket", WithHidden(true), WithDescription("Get ticket"))
-	listTicketSchemasField = BoolField("list-ticket-schemas", WithHidden(true), WithDescription("List ticket schemas"))
+	ListTicketSchemasField = BoolField("list-ticket-schemas", WithHidden(true), WithDescription("List ticket schemas"))
 	provisioningField      = BoolField("provisioning", WithShortHand("p"), WithDescription("This must be set in order for provisioning actions to be enabled"))
-	ticketingField         = BoolField("ticketing", WithDescription("This must be set to enable ticketing support"))
+	TicketingField         = BoolField("ticketing", WithDescription("This must be set to enable ticketing support"))
 	c1zTmpDirField         = StringField("c1z-temp-dir", WithHidden(true), WithDescription("The directory to store temporary files in. It must exist, "+
 		"and write access is required. Defaults to the OS temporary directory."))
 	clientIDField              = StringField("client-id", WithDescription("The client ID used to authenticate with ConductorOne"))
@@ -34,9 +34,9 @@ var (
 var DefaultFields = []SchemaField{
 	createTicketField,
 	getTicketField,
-	listTicketSchemasField,
+	ListTicketSchemasField,
 	provisioningField,
-	ticketingField,
+	TicketingField,
 	c1zTmpDirField,
 	clientIDField,
 	clientSecretField,
