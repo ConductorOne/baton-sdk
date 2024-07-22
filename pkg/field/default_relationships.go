@@ -5,7 +5,6 @@ var defaultRelationship = []SchemaFieldRelationship{
 	FieldsRequiredTogether(clientIDField, clientSecretField),
 	FieldsRequiredTogether(createTicketField, ticketTemplatePathField),
 	FieldsRequiredTogether(getTicketField, ticketIDField),
-	FieldsMutuallyExclusive(fileField, clientIDField),
 	FieldsMutuallyExclusive(
 		grantEntitlementField,
 		revokeGrantField,
