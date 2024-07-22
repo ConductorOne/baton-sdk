@@ -14,7 +14,7 @@ var defaultRelationship = []SchemaFieldRelationship{
 		eventFeedField,
 		createTicketField,
 		getTicketField,
-		listTicketSchemasField,
+		ListTicketSchemasField,
 	),
 	FieldsMutuallyExclusive(
 		grantEntitlementField,
@@ -23,7 +23,7 @@ var defaultRelationship = []SchemaFieldRelationship{
 		deleteResourceTypeField,
 		rotateCredentialsTypeField,
 		eventFeedField,
-		listTicketSchemasField,
+		ListTicketSchemasField,
 	),
 }
 
