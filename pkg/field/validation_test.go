@@ -95,3 +95,107 @@ func TestValidationRequiredTogetherAllMissing(t *testing.T) {
 	err := Validate(carrier, v)
 	require.NoError(t, err)
 }
+
+func TestValidationDependentFieldsAllPresent(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
+	baz := StringField("baz")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+			baz,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "present")
+	v.Set("bar", "present")
+	v.Set("baz", "present")
+
+	err := Validate(carrier, v)
+	require.NoError(t, err)
+}
+
+func TestValidationDependentFieldsExpectedFieldBazMissing(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
+	baz := StringField("baz")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+			baz,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "present")
+	v.Set("bar", "present")
+	v.Set("baz", "")
+
+	err := Validate(carrier, v)
+	require.Error(t, err)
+}
+
+func TestValidationDependentFieldsExpectedFieldBazBarMissing(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
+	baz := StringField("baz")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+			baz,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "present")
+	v.Set("bar", "")
+	v.Set("baz", "")
+
+	err := Validate(carrier, v)
+	require.Error(t, err)
+}
+
+func TestValidationDependentFieldsDepedentFieldMissing(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
+	baz := StringField("baz")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+			baz,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "")
+	v.Set("bar", "present")
+	v.Set("baz", "present")
+
+	err := Validate(carrier, v)
+	require.NoError(t, err)
+}
