@@ -148,18 +148,15 @@ func DefineConfiguration(
 
 	// apply constrains
 	for _, constrain := range schema.Constraints {
-		switch t := constrain.(type) {
-		case field.SchemaFieldRelationship:
-			switch t.Kind {
-			case field.MutuallyExclusive:
-				mainCMD.MarkFlagsMutuallyExclusive(listFieldConstrainsAsStrings(t)...)
-			case field.RequiredTogether:
-				mainCMD.MarkFlagsRequiredTogether(listFieldConstrainsAsStrings(t)...)
-			case field.AtLeastOne:
-				mainCMD.MarkFlagsOneRequired(listFieldConstrainsAsStrings(t)...)
-			}
-		case field.DependentSchemaFieldRelationship:
-			// Nothing to do
+		switch constrain.Kind {
+		case field.MutuallyExclusive:
+			mainCMD.MarkFlagsMutuallyExclusive(listFieldConstrainsAsStrings(constrain)...)
+		case field.RequiredTogether:
+			mainCMD.MarkFlagsRequiredTogether(listFieldConstrainsAsStrings(constrain)...)
+		case field.AtLeastOne:
+			mainCMD.MarkFlagsOneRequired(listFieldConstrainsAsStrings(constrain)...)
+		case field.Dependents:
+			// do nothing
 		}
 	}
 

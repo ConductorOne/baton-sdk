@@ -2,10 +2,10 @@ package field
 
 type Configuration struct {
 	Fields      []SchemaField
-	Constraints []SchemaFieldRelationshipI
+	Constraints []SchemaFieldRelationship
 }
 
-func NewConfiguration(fields []SchemaField, constraints ...SchemaFieldRelationshipI) Configuration {
+func NewConfiguration(fields []SchemaField, constraints ...SchemaFieldRelationship) Configuration {
 	return Configuration{
 		Fields:      fields,
 		Constraints: constraints,

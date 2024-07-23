@@ -33,6 +33,7 @@ func (e *ErrConfigurationMissingFields) Push(err error) {
 //   - repeated fields (by name) are defined
 //   - if sets of fields are mutually exclusive and required
 //     together at the same time
+//   - if fields depedent on themselves
 func Validate(c Configuration, v *viper.Viper) error {
 	present := make(map[string]int)
 	missingFieldsError := &ErrConfigurationMissingFields{}
@@ -70,11 +71,29 @@ func Validate(c Configuration, v *viper.Viper) error {
 	return validateConstraints(present, c.Constraints)
 }
 
-func validateConstraints(fieldsPresent map[string]int, relationships []SchemaFieldRelationshipI) error {
+func validateConstraints(fieldsPresent map[string]int, relationships []SchemaFieldRelationship) error {
 	for _, relationship := range relationships {
-		err := relationship.ValidateConstraint(fieldsPresent)
-		if err != nil {
-			return err
+		var present int
+		for _, f := range relationship.Fields {
+			present += fieldsPresent[f.FieldName]
+		}
+
+		var expected int
+		for _, e := range relationship.ExpectedFields {
+			expected += fieldsPresent[e.FieldName]
+		}
+
+		if present > 1 && relationship.Kind == MutuallyExclusive {
+			return makeMutuallyExclusiveError(fieldsPresent, relationship)
+		}
+		if present > 0 && present < len(relationship.Fields) && relationship.Kind == RequiredTogether {
+			return makeNeededTogetherError(fieldsPresent, relationship)
+		}
+		if present == 0 && relationship.Kind == AtLeastOne {
+			return makeAtLeastOneError(fieldsPresent, relationship)
+		}
+		if present > 0 && expected != len(relationship.ExpectedFields) && relationship.Kind == Dependents {
+			return makeDependentFieldsError(fieldsPresent, relationship)
 		}
 	}
 
@@ -114,6 +133,21 @@ func makeAtLeastOneError(fields map[string]int, relation SchemaFieldRelationship
 	return fmt.Errorf("at least one field was expected, any of: %s", strings.Join(found, ", "))
 }
 
-func makeDependentFieldsError(dependentPresent []string, requiredNotPresent []string) error {
-	return fmt.Errorf("set fields %s are dependent on %s being set", strings.Join(dependentPresent, ", "), strings.Join(requiredNotPresent, ", "))
+func makeDependentFieldsError(fields map[string]int, relation SchemaFieldRelationship) error {
+	var notfoundExpected []string
+	for _, n := range relation.ExpectedFields {
+		if fields[n.FieldName] == 0 {
+			notfoundExpected = append(notfoundExpected, n.FieldName)
+		}
+	}
+
+	var foundDependent []string
+	for _, f := range relation.Fields {
+		if fields[f.FieldName] == 1 {
+			foundDependent = append(foundDependent, f.FieldName)
+		}
+	}
+
+	return fmt.Errorf("set fields %s are dependent on %s being set",
+		strings.Join(foundDependent, ", "), strings.Join(notfoundExpected, ", "))
 }
