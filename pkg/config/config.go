@@ -155,6 +155,8 @@ func DefineConfiguration(
 			mainCMD.MarkFlagsRequiredTogether(listFieldConstrainsAsStrings(constrain)...)
 		case field.AtLeastOne:
 			mainCMD.MarkFlagsOneRequired(listFieldConstrainsAsStrings(constrain)...)
+		case field.Dependents:
+			// do nothing
 		}
 	}
 
