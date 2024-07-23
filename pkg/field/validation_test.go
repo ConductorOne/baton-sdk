@@ -108,7 +108,7 @@ func TestValidationDependentFieldsAllPresent(t *testing.T) {
 			baz,
 		},
 		Constraints: []SchemaFieldRelationship{
-			FieldsDependOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar, baz}),
 		},
 	}
 
@@ -134,7 +134,7 @@ func TestValidationDependentFieldsExpectedFieldBazMissing(t *testing.T) {
 			baz,
 		},
 		Constraints: []SchemaFieldRelationship{
-			FieldsDependOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar, baz}),
 		},
 	}
 
@@ -160,7 +160,7 @@ func TestValidationDependentFieldsExpectedFieldBazBarMissing(t *testing.T) {
 			baz,
 		},
 		Constraints: []SchemaFieldRelationship{
-			FieldsDependOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar, baz}),
 		},
 	}
 
@@ -186,7 +186,7 @@ func TestValidationDependentFieldsDepedentFieldMissing(t *testing.T) {
 			baz,
 		},
 		Constraints: []SchemaFieldRelationship{
-			FieldsDependOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar, baz}),
 		},
 	}
 

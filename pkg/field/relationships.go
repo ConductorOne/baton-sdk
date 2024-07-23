@@ -36,7 +36,7 @@ func FieldsAtLeastOneUsed(fields ...SchemaField) SchemaFieldRelationship {
 	}
 }
 
-func FieldsDependOn(dependent []SchemaField, expected []SchemaField) SchemaFieldRelationship {
+func FieldsDependentOn(dependent []SchemaField, expected []SchemaField) SchemaFieldRelationship {
 	return SchemaFieldRelationship{
 		Kind:           Dependents,
 		Fields:         dependent,
