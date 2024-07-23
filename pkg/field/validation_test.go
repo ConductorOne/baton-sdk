@@ -34,7 +34,7 @@ func TestValidateRelationshipMutuallyExclusiveAllPresent(t *testing.T) {
 			foo,
 			bar,
 		},
-		Constraints: []SchemaFieldRelationshipI{
+		Constraints: []SchemaFieldRelationship{
 			FieldsMutuallyExclusive(foo, bar),
 		},
 	}
@@ -58,7 +58,7 @@ func TestValidationRequiredTogetherOneMissing(t *testing.T) {
 			foo,
 			bar,
 		},
-		Constraints: []SchemaFieldRelationshipI{
+		Constraints: []SchemaFieldRelationship{
 			FieldsRequiredTogether(foo, bar),
 		},
 	}
@@ -82,7 +82,7 @@ func TestValidationRequiredTogetherAllMissing(t *testing.T) {
 			foo,
 			bar,
 		},
-		Constraints: []SchemaFieldRelationshipI{
+		Constraints: []SchemaFieldRelationship{
 			FieldsRequiredTogether(foo, bar),
 		},
 	}
@@ -94,94 +94,4 @@ func TestValidationRequiredTogetherAllMissing(t *testing.T) {
 
 	err := Validate(carrier, v)
 	require.NoError(t, err)
-}
-
-func TestValidationDependentFieldsRequiredPresent(t *testing.T) {
-	foo := StringField("foo")
-	bar := StringField("bar")
-
-	carrier := Configuration{
-		Fields: []SchemaField{
-			foo,
-			bar,
-		},
-		Constraints: []SchemaFieldRelationshipI{
-			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar}),
-		},
-	}
-
-	// create configuration using viper
-	v := viper.New()
-	v.Set("foo", "fooField")
-	v.Set("bar", "barField")
-
-	err := Validate(carrier, v)
-	require.NoError(t, err)
-}
-
-func TestValidationDependentFieldsBoolRequiredNotPresent(t *testing.T) {
-	foo := StringField("foo")
-	bar := StringField("bar")
-
-	carrier := Configuration{
-		Fields: []SchemaField{
-			foo,
-			bar,
-		},
-		Constraints: []SchemaFieldRelationshipI{
-			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar}),
-		},
-	}
-
-	// create configuration using viper
-	v := viper.New()
-	v.Set("bar", "barSet")
-
-	err := Validate(carrier, v)
-	require.Error(t, err)
-}
-
-func TestValidationDependentFieldsBoolRequiredPresent(t *testing.T) {
-	foo := BoolField("boolField")
-	bar := StringField("bar")
-
-	carrier := Configuration{
-		Fields: []SchemaField{
-			foo,
-			bar,
-		},
-		Constraints: []SchemaFieldRelationshipI{
-			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar}),
-		},
-	}
-
-	// create configuration using viper
-	v := viper.New()
-	v.Set("boolField", "true")
-	v.Set("stringField", "something")
-
-	err := Validate(carrier, v)
-	require.NoError(t, err)
-}
-
-func TestValidationDependentFieldsRequiredNotPresent(t *testing.T) {
-	foo := BoolField("boolField")
-	bar := StringField("stringField")
-
-	carrier := Configuration{
-		Fields: []SchemaField{
-			foo,
-			bar,
-		},
-		Constraints: []SchemaFieldRelationshipI{
-			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar}),
-		},
-	}
-
-	// create configuration using viper
-	v := viper.New()
-	v.Set("stringField", "stringFieldSet")
-
-	err := Validate(carrier, v)
-	require.Error(t, err)
 }

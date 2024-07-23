@@ -70,11 +70,20 @@ func Validate(c Configuration, v *viper.Viper) error {
 	return validateConstraints(present, c.Constraints)
 }
 
-func validateConstraints(fieldsPresent map[string]int, relationships []SchemaFieldRelationshipI) error {
+func validateConstraints(fieldsPresent map[string]int, relationships []SchemaFieldRelationship) error {
 	for _, relationship := range relationships {
-		err := relationship.ValidateConstraint(fieldsPresent)
-		if err != nil {
-			return err
+		var present int
+		for _, f := range relationship.Fields {
+			present += fieldsPresent[f.FieldName]
+		}
+		if present > 1 && relationship.Kind == MutuallyExclusive {
+			return makeMutuallyExclusiveError(fieldsPresent, relationship)
+		}
+		if present > 0 && present < len(relationship.Fields) && relationship.Kind == RequiredTogether {
+			return makeNeededTogetherError(fieldsPresent, relationship)
+		}
+		if present == 0 && relationship.Kind == AtLeastOne {
+			return makeAtLeastOneError(fieldsPresent, relationship)
 		}
 	}
 
@@ -112,8 +121,4 @@ func makeAtLeastOneError(fields map[string]int, relation SchemaFieldRelationship
 	}
 
 	return fmt.Errorf("at least one field was expected, any of: %s", strings.Join(found, ", "))
-}
-
-func makeDependentFieldsError(dependentPresent []string, requiredNotPresent []string) error {
-	return fmt.Errorf("set fields %s are dependent on %s being set", strings.Join(dependentPresent, ", "), strings.Join(requiredNotPresent, ", "))
 }
