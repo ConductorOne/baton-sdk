@@ -1,6 +1,6 @@
 package field
 
-var defaultRelationship = []SchemaFieldRelationship{
+var defaultRelationship = []SchemaFieldRelationshipI{
 	FieldsRequiredTogether(grantEntitlementField, grantPrincipalField),
 	FieldsRequiredTogether(clientIDField, clientSecretField),
 	FieldsRequiredTogether(createTicketField, ticketTemplatePathField),
@@ -27,6 +27,6 @@ var defaultRelationship = []SchemaFieldRelationship{
 	),
 }
 
-func EnsureDefaultRelationships(original []SchemaFieldRelationship) []SchemaFieldRelationship {
+func EnsureDefaultRelationships(original []SchemaFieldRelationshipI) []SchemaFieldRelationshipI {
 	return append(defaultRelationship, original...)
 }
