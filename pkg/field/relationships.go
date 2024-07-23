@@ -6,12 +6,10 @@ const (
 	RequiredTogether Relationship = iota + 1
 	MutuallyExclusive
 	AtLeastOne
-	DependentOn
 )
 
 type SchemaFieldRelationshipI interface {
 	ValidateConstraint(fieldsPresent map[string]int) error
-	GetKind() Relationship
 }
 
 type DependentSchemaFieldRelationship struct {
@@ -51,10 +49,6 @@ func (s DependentSchemaFieldRelationship) ValidateConstraint(fieldsPresent map[s
 	return nil
 }
 
-func (s DependentSchemaFieldRelationship) GetKind() Relationship {
-	return DependentOn
-}
-
 func (s SchemaFieldRelationship) ValidateConstraint(fieldsPresent map[string]int) error {
 	var present int
 	for _, f := range s.Fields {
@@ -71,10 +65,6 @@ func (s SchemaFieldRelationship) ValidateConstraint(fieldsPresent map[string]int
 	}
 
 	return nil
-}
-
-func (s SchemaFieldRelationship) GetKind() Relationship {
-	return s.Kind
 }
 
 func FieldsRequiredTogether(fields ...SchemaField) SchemaFieldRelationship {
