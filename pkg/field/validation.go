@@ -92,7 +92,7 @@ func validateConstraints(fieldsPresent map[string]int, relationships []SchemaFie
 		if present == 0 && relationship.Kind == AtLeastOne {
 			return makeAtLeastOneError(fieldsPresent, relationship)
 		}
-		if present >= 1 && expected != len(relationship.ExpectedFields) && relationship.Kind == Dependents {
+		if present > 0 && expected != len(relationship.ExpectedFields) && relationship.Kind == Dependents {
 			return makeDependentFieldsError(fieldsPresent, relationship)
 		}
 	}
