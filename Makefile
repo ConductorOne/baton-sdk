@@ -1,3 +1,5 @@
+VERSION := $(shell git describe --tags)
+
 .PHONY: lint
 lint:
 	golangci-lint run --timeout=3m
@@ -22,3 +24,7 @@ protofmt:
 .PHONY: test
 test:
 	go test -v ./...
+
+.PHONY: pkg/sdk/version.go
+pkg/sdk/version.go:
+	echo -e "package sdk\n\nconst Version = \"$(VERSION)\"" > $@
