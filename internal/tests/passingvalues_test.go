@@ -10,7 +10,7 @@ import (
 )
 
 func TestPassingValuesToFieldsViaCLI(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*20)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
 	defer cancel()
 
 	stringfield := field.StringField("string-field", field.WithRequired(true))
@@ -32,7 +32,7 @@ func TestPassingValuesToFieldsViaCLI(t *testing.T) {
 }
 
 func TestPassingValuesToFieldsViaENVVARS(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*20)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
 	defer cancel()
 
 	stringfield := field.StringField("string-field", field.WithRequired(true))
