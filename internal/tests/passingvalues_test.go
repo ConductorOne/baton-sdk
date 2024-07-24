@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const timeoutIn = time.Millisecond * 10
+const timeoutIn = time.Millisecond * 1
 
 func TestPassingValuesToFieldsViaCLI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
