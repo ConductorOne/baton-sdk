@@ -9,8 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const timeoutIn = time.Millisecond * 10
+
 func TestPassingValuesToFieldsViaCLI(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
 	defer cancel()
 
 	stringfield := field.StringField("string-field", field.WithRequired(true))
@@ -32,7 +34,7 @@ func TestPassingValuesToFieldsViaCLI(t *testing.T) {
 }
 
 func TestPassingValuesToFieldsViaENVVARS(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
 	defer cancel()
 
 	stringfield := field.StringField("string-field", field.WithRequired(true))
@@ -54,7 +56,7 @@ func TestPassingValuesToFieldsViaENVVARS(t *testing.T) {
 }
 
 func TestRequiredValuesAbsent(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
 	defer cancel()
 
 	stringfield := field.StringField("string-field", field.WithRequired(true))
@@ -70,7 +72,7 @@ func TestRequiredValuesAbsent(t *testing.T) {
 }
 
 func TestTriggerRequiredTogetherError(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
 	defer cancel()
 
 	stringfield := field.StringField("string-field")
@@ -87,7 +89,7 @@ func TestTriggerRequiredTogetherError(t *testing.T) {
 }
 
 func TestTriggerMutuallyExclusiveError(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
 	defer cancel()
 
 	stringfield := field.StringField("string-field")
@@ -104,7 +106,7 @@ func TestTriggerMutuallyExclusiveError(t *testing.T) {
 }
 
 func TestTriggerDependsOnError(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
 	defer cancel()
 
 	stringfield := field.StringField("string-field")
@@ -121,7 +123,7 @@ func TestTriggerDependsOnError(t *testing.T) {
 }
 
 func TestTriggerAtLeastOneError(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
 	defer cancel()
 
 	stringfield := field.StringField("string-field")
