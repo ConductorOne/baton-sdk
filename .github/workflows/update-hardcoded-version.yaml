@@ -2,8 +2,6 @@ name: Update hard-coded SDK version
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   release:
     types: [published, unpublished, created, edited, deleted, released]
 
