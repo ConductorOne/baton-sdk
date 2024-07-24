@@ -27,4 +27,5 @@ test:
 
 .PHONY: pkg/sdk/version.go
 pkg/sdk/version.go:
+	echo $(VERSION)
 	echo "package sdk\n\nconst Version = \"$(VERSION)\"" > $@
