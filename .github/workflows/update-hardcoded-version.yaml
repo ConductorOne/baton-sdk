@@ -1,0 +1,23 @@
+name: Update hard-coded SDK version
+on:
+  pull_request:
+    branches: [main]
+  release:
+
+jobs:
+  update-sdk-version:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RELENG_GITHUB_TOKEN }}
+      - name: Update hard-coded SDK version
+        run: make pkg/sdk/version.go
+      - name: Commit changes
+        uses: EndBug/add-and-commit@v9
+        with:
+          default_author: github_actions
+          message: "Updating hard-coded SDK version"
+          add: "pkg/sdk/version.go"
