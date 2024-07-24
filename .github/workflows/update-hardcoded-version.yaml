@@ -5,6 +5,7 @@ on:
   pull_request:
     branches: [main]
   release:
+    types: [published, unpublished, created, edited, deleted, released]
 
 jobs:
   update-sdk-version:
