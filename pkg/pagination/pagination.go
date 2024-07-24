@@ -21,9 +21,9 @@ type Token struct {
 }
 
 type PageState struct {
-	Token          string `json:"token"`
-	ResourceTypeID string `json:"resource_type_id"`
-	ResourceID     string `json:"resource_id"`
+	Token          string `json:"token,omitempty"`
+	ResourceTypeID string `json:"type,omitempty"`
+	ResourceID     string `json:"id,omitempty"`
 }
 
 // Bag holds pagination states that can be serialized for use as page tokens. It acts as a stack that you can push and pop
