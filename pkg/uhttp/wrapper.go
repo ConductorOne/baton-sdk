@@ -203,6 +203,23 @@ func WithJSONBody(body interface{}) RequestOption {
 	}
 }
 
+func WithBody(body string) RequestOption {
+	return func() (io.ReadWriter, map[string]string, error) {
+		var buffer bytes.Buffer
+		_, err := buffer.WriteString(body)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		_, headers, err := WithContentTypeFormHeader()()
+		if err != nil {
+			return nil, nil, err
+		}
+
+		return &buffer, headers, nil
+	}
+}
+
 func WithAcceptJSONHeader() RequestOption {
 	return WithHeader("Accept", "application/json")
 }
@@ -213,6 +230,30 @@ func WithContentTypeJSONHeader() RequestOption {
 
 func WithAcceptXMLHeader() RequestOption {
 	return WithHeader("Accept", "application/xml")
+}
+
+func WithContentTypeFormHeader() RequestOption {
+	return func() (io.ReadWriter, map[string]string, error) {
+		return nil, map[string]string{
+			"Content-Type": "application/x-www-form-urlencoded",
+		}, nil
+	}
+}
+
+func WithContentTypeVndHeader() RequestOption {
+	return func() (io.ReadWriter, map[string]string, error) {
+		return nil, map[string]string{
+			"Content-Type": "application/vnd.api+json",
+		}, nil
+	}
+}
+
+func WithAcceptVndJSONHeader() RequestOption {
+	return func() (io.ReadWriter, map[string]string, error) {
+		return nil, map[string]string{
+			"Accept": "application/vnd.api+json",
+		}, nil
+	}
 }
 
 func (c *BaseHttpClient) NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error) {
