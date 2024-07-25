@@ -221,27 +221,35 @@ func WithBody(body string) RequestOption {
 }
 
 func WithAcceptJSONHeader() RequestOption {
-	return WithHeader("Accept", "application/json")
+	return WithAccept("application/json")
 }
 
 func WithContentTypeJSONHeader() RequestOption {
-	return WithHeader("Content-Type", "application/json")
+	return WithContentType("application/json")
 }
 
 func WithAcceptXMLHeader() RequestOption {
-	return WithHeader("Accept", "application/xml")
+	return WithAccept("application/xml")
 }
 
 func WithContentTypeFormHeader() RequestOption {
-	return WithHeader("Content-Type", "application/x-www-form-urlencoded")
+	return WithContentType("application/x-www-form-urlencoded")
 }
 
 func WithContentTypeVndHeader() RequestOption {
-	return WithHeader("Content-Type", "application/vnd.api+json")
+	return WithContentType("application/vnd.api+json")
 }
 
 func WithAcceptVndJSONHeader() RequestOption {
-	return WithHeader("Accept", "application/vnd.api+json")
+	return WithAccept("application/vnd.api+json")
+}
+
+func WithContentType(ctype string) RequestOption {
+	return WithHeader("Content-Type", ctype)
+}
+
+func WithAccept(value string) RequestOption {
+	return WithHeader("Accept", value)
 }
 
 func (c *BaseHttpClient) NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error) {
