@@ -203,7 +203,7 @@ func WithJSONBody(body interface{}) RequestOption {
 	}
 }
 
-func WithBody(body string) RequestOption {
+func WithFormBody(body string) RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		var buffer bytes.Buffer
 		_, err := buffer.WriteString(body)
