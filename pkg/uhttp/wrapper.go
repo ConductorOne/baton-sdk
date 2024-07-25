@@ -233,27 +233,15 @@ func WithAcceptXMLHeader() RequestOption {
 }
 
 func WithContentTypeFormHeader() RequestOption {
-	return func() (io.ReadWriter, map[string]string, error) {
-		return nil, map[string]string{
-			"Content-Type": "application/x-www-form-urlencoded",
-		}, nil
-	}
+	return WithHeader("Content-Type", "application/x-www-form-urlencoded")
 }
 
 func WithContentTypeVndHeader() RequestOption {
-	return func() (io.ReadWriter, map[string]string, error) {
-		return nil, map[string]string{
-			"Content-Type": "application/vnd.api+json",
-		}, nil
-	}
+	return WithHeader("Content-Type", "application/vnd.api+json")
 }
 
 func WithAcceptVndJSONHeader() RequestOption {
-	return func() (io.ReadWriter, map[string]string, error) {
-		return nil, map[string]string{
-			"Accept": "application/vnd.api+json",
-		}, nil
-	}
+	return WithHeader("Accept", "application/vnd.api+json")
 }
 
 func (c *BaseHttpClient) NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error) {
