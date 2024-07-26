@@ -36,11 +36,12 @@ func GetCacheKey(req *http.Request) string {
 }
 
 func CopyResponse(resp *http.Response) *http.Response {
-	c := *resp
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return resp
 	}
+
+	c := *resp
 	// Replace resp with a no-op closer so nobody has to worry about closing the reader.
 	c.Body = io.NopCloser(bytes.NewBuffer(respBody))
 
