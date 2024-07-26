@@ -218,7 +218,11 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return resp, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
 	}
 
-	c.baseHttpCache.SetBytes(cacheKey, body)
+	err = c.baseHttpCache.SetBytes(cacheKey, body)
+	if err != nil {
+		return resp, err
+	}
+
 	return resp, err
 }
 

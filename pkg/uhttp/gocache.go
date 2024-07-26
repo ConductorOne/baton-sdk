@@ -58,9 +58,14 @@ func (c GoCache) Get(key string) *http.Response {
 	return nil
 }
 
-func (c GoCache) Set(key string, value *http.Response) {
+func (c GoCache) Set(key string, value *http.Response) error {
 	cacheableResponse, _ := httputil.DumpResponse(value, true)
-	c.rootLibrary.Set(key, cacheableResponse)
+	err := c.rootLibrary.Set(key, cacheableResponse)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c GoCache) GetString(key string) string {
@@ -72,20 +77,40 @@ func (c GoCache) GetString(key string) string {
 	return ""
 }
 
-func (c GoCache) SetString(key string, value string) {
-	c.rootLibrary.Set(key, []byte(value))
+func (c GoCache) SetString(key string, value string) error {
+	err := c.rootLibrary.Set(key, []byte(value))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (c GoCache) SetBytes(key string, value []byte) {
-	c.rootLibrary.Set(key, value)
+func (c GoCache) SetBytes(key string, value []byte) error {
+	err := c.rootLibrary.Set(key, value)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (c GoCache) Delete(key string) {
-	c.rootLibrary.Delete(key)
+func (c GoCache) Delete(key string) error {
+	err := c.rootLibrary.Delete(key)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (c GoCache) Clear() {
-	c.rootLibrary.Reset()
+func (c GoCache) Clear() error {
+	err := c.rootLibrary.Reset()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c GoCache) Has(key string) bool {
