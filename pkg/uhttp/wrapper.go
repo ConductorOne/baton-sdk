@@ -13,6 +13,8 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/helpers"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -40,7 +42,8 @@ type (
 		NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error)
 	}
 	BaseHttpClient struct {
-		HttpClient *http.Client
+		HttpClient    *http.Client
+		baseHttpCache GoCache
 	}
 
 	DoOption      func(resp *WrapperResponse) error
@@ -48,8 +51,14 @@ type (
 )
 
 func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
+	cache, err := NewGoCache(context.TODO(), int32(10))
+	if err != nil {
+		return nil
+	}
+
 	return &BaseHttpClient{
-		HttpClient: httpClient,
+		HttpClient:    httpClient,
+		baseHttpCache: cache,
 	}
 }
 
@@ -144,6 +153,16 @@ func WithResponse(response interface{}) DoOption {
 }
 
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
+	l := ctxzap.Extract(req.Context())
+
+	cacheKey := GetCacheKey(req)
+	if c.baseHttpCache.Has(GetCacheKey(req)) {
+		l.Debug("cache hit", zap.String("cacheKey", cacheKey))
+		resp := c.baseHttpCache.Get(cacheKey)
+		return resp, nil
+	}
+
+	l.Debug("cache miss", zap.String("cacheKey", cacheKey))
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
 		var urlErr *url.Error
@@ -158,11 +177,8 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return nil, err
 	}
 
+	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	err = resp.Body.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +218,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return resp, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
 	}
 
+	c.baseHttpCache.SetBytes(cacheKey, body)
 	return resp, err
 }
 
