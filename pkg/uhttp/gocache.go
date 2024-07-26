@@ -48,9 +48,13 @@ func CopyResponse(resp *http.Response) *http.Response {
 	return &c
 }
 
+func isOk(e error) bool {
+	return e == nil
+}
+
 func (c GoCache) Get(key string) (*http.Response, error) {
 	entry, found := c.rootLibrary.Get(key)
-	if found == nil {
+	if isOk(found) {
 		r := bufio.NewReader(bytes.NewReader(entry))
 		resp, err := http.ReadResponse(r, nil)
 		if err != nil {
