@@ -51,8 +51,11 @@ type (
 )
 
 func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
-	cache, err := NewGoCache(context.TODO(), int32(10))
+	var ctx = context.TODO()
+	l := ctxzap.Extract(ctx)
+	cache, err := NewGoCache(ctx, int32(10))
 	if err != nil {
+		l.Error("cache error", zap.Any("err", err))
 		return nil
 	}
 
