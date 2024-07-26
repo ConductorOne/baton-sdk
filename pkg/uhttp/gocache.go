@@ -18,13 +18,14 @@ type GoCache struct {
 }
 
 func NewGoCache(ctx context.Context, ttl int32) (GoCache, error) {
-	c, err := bigcache.New(ctx, bigcache.DefaultConfig(time.Duration(ttl)*time.Minute))
+	eviction := time.Duration(ttl) * time.Minute
+	c, err := bigcache.New(ctx, bigcache.DefaultConfig(eviction))
 	if err != nil {
 		return GoCache{}, err
 	}
 
 	gc := GoCache{
-		ttl:         time.Duration(ttl) * time.Minute,
+		ttl:         eviction,
 		rootLibrary: c,
 	}
 
