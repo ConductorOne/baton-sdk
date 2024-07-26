@@ -157,7 +157,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	l := ctxzap.Extract(req.Context())
 
 	if req.Method == http.MethodGet {
-		if c.baseHttpCache.Has(GetCacheKey(req)) {
+		if c.baseHttpCache.Has(cacheKey) {
 			l.Debug("cache hit", zap.String("cacheKey", cacheKey))
 			resp := c.baseHttpCache.Get(cacheKey)
 			return resp, nil
