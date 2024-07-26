@@ -159,7 +159,10 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	if req.Method == http.MethodGet {
 		if c.baseHttpCache.Has(cacheKey) {
 			l.Debug("cache hit", zap.String("cacheKey", cacheKey))
-			resp := c.baseHttpCache.Get(cacheKey)
+			resp, err := c.baseHttpCache.Get(cacheKey)
+			if err != nil {
+				return nil, err
+			}
 			return resp, nil
 		}
 
@@ -221,7 +224,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return resp, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
 	}
 
-	err = c.baseHttpCache.SetBytes(cacheKey, body)
+	err = c.baseHttpCache.Set(cacheKey, resp)
 	if err != nil {
 		return resp, err
 	}

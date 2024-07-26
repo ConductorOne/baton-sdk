@@ -48,15 +48,19 @@ func CopyResponse(resp *http.Response) *http.Response {
 	return &c
 }
 
-func (c GoCache) Get(key string) *http.Response {
+func (c GoCache) Get(key string) (*http.Response, error) {
 	entry, found := c.rootLibrary.Get(key)
 	if found == nil {
 		r := bufio.NewReader(bytes.NewReader(entry))
-		resp, _ := http.ReadResponse(r, nil)
-		return resp
+		resp, err := http.ReadResponse(r, nil)
+		if err != nil {
+			return resp, err
+		}
+
+		return resp, nil
 	}
 
-	return nil
+	return nil, nil
 }
 
 func (c GoCache) Set(key string, value *http.Response) error {
