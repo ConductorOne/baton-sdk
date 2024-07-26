@@ -153,16 +153,19 @@ func WithResponse(response interface{}) DoOption {
 }
 
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
+	var cacheKey string = GetCacheKey(req)
 	l := ctxzap.Extract(req.Context())
 
-	cacheKey := GetCacheKey(req)
-	if c.baseHttpCache.Has(GetCacheKey(req)) {
-		l.Debug("cache hit", zap.String("cacheKey", cacheKey))
-		resp := c.baseHttpCache.Get(cacheKey)
-		return resp, nil
+	if req.Method == http.MethodGet {
+		if c.baseHttpCache.Has(GetCacheKey(req)) {
+			l.Debug("cache hit", zap.String("cacheKey", cacheKey))
+			resp := c.baseHttpCache.Get(cacheKey)
+			return resp, nil
+		}
+
+		l.Debug("cache miss", zap.String("cacheKey", cacheKey))
 	}
 
-	l.Debug("cache miss", zap.String("cacheKey", cacheKey))
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
 		var urlErr *url.Error
