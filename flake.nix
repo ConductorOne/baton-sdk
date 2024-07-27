@@ -21,60 +21,74 @@
     # Helpers for producing system-specific outputs
     supportedSystems = ["x86_64-linux"];
     forEachSupportedSystem = f:
-      nixpkgs.lib.genAttrs supportedSystems (system:
-        f {
-          pkgs = import nixpkgs {inherit system;};
-          inherit system;
-        });
+      nixpkgs.lib.genAttrs supportedSystems (
+        system:
+          f {
+            pkgs = import nixpkgs {inherit system;};
+            inherit system;
+          }
+      );
   in {
     # Schemas tell Nix about the structure of your flake's outputs
     schemas = flake-schemas.schemas;
 
-    checks = forEachSupportedSystem ({system, ...}: {
-      # check that the code complies with a minimum standard use `--no-verify`
-      # to bypass this check when committing or pushing code
-      pre-commit-check = pre-commit-hooks.lib.${system}.run {
-        src = ./.;
-        hooks = {
-          alejandra = {
-            enable = true;
-            excludes = ["vendor"];
-          };
-          deadnix = {
-            enable = true;
-            excludes = ["vendor"];
-          };
-          gofmt = {
-            enable = true;
-            excludes = ["vendor"];
-          };
-          golangci-lint = {
-            enable = true;
-            excludes = ["vendor"];
-          };
-          govet = {
-            enable = true;
-            excludes = ["vendor"];
-          };
-          gotest = {
-            enable = true;
-            excludes = ["vendor"];
+    checks = forEachSupportedSystem (
+      {system, ...}: {
+        # check that the code complies with a minimum standard use `--no-verify`
+        # to bypass this check when committing or pushing code
+        pre-commit-check = pre-commit-hooks.lib.${system}.run {
+          src = ./.;
+          hooks = {
+            alejandra = {
+              enable = true;
+              excludes = ["vendor"];
+            };
+            deadnix = {
+              enable = true;
+              excludes = ["vendor"];
+            };
+            gofmt = {
+              enable = true;
+              excludes = ["vendor"];
+            };
+            golangci-lint = {
+              enable = true;
+              excludes = ["vendor"];
+            };
+            govet = {
+              enable = true;
+              excludes = ["vendor"];
+            };
+            gotest = {
+              enable = true;
+              excludes = ["vendor"];
+            };
           };
         };
-      };
-    });
+      }
+    );
 
     # Development environments
-    devShells = forEachSupportedSystem ({
-      pkgs,
-      system,
-    }: {
-      default = pkgs.mkShell {
-        buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
-        # Pinned packages available in the environment
-        packages = with pkgs; [buf golines];
-        shellHook = self.checks.${system}.pre-commit-check.shellHook;
-      };
-    });
+    devShells = forEachSupportedSystem (
+      {
+        pkgs,
+        system,
+      }: {
+        default = pkgs.mkShell {
+          buildInputs = self.checks.${system}.pre-commit-check.enabledPackages;
+          # Pinned packages available in the environment
+          packages = with pkgs; [
+            buf
+            golines
+          ];
+          shellHook = self.checks.${system}.pre-commit-check.shellHook;
+          # option needed for debugging
+          hardeningDisable = ["all"];
+          env = {
+            CGO_CFLAGS = "-Wno-error";
+          };
+        };
+      }
+    );
   };
 }

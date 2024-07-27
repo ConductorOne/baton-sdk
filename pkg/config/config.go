@@ -96,7 +96,7 @@ func DefineConfiguration(
 			mainCMD.PersistentFlags().
 				StringP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
 		case reflect.Slice:
-			value, err := field.StringArray()
+			value, err := field.StringSlice()
 			if err != nil {
 				return nil, nil, fmt.Errorf(
 					"field %s, %s: %w",
@@ -106,7 +106,7 @@ func DefineConfiguration(
 				)
 			}
 			mainCMD.PersistentFlags().
-				StringArrayP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+				StringSliceP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
 		default:
 			return nil, nil, fmt.Errorf(
 				"field %s, %s is not yet supported",
