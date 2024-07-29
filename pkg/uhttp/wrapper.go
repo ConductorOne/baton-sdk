@@ -16,7 +16,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const ContentType = "Content-Type"
+const (
+	ContentType               = "Content-Type"
+	applicationJSON           = "application/json"
+	applicationXML            = "application/xml"
+	applicationFormUrlencoded = "application/x-www-form-urlencoded"
+	applicationVndApiJSON     = "application/vnd.api+json"
+	acceptHeader              = "Accept"
+)
 
 type WrapperResponse struct {
 	Header     http.Header
@@ -221,35 +228,35 @@ func WithFormBody(body string) RequestOption {
 }
 
 func WithAcceptJSONHeader() RequestOption {
-	return WithAccept("application/json")
+	return WithAccept(applicationJSON)
 }
 
 func WithContentTypeJSONHeader() RequestOption {
-	return WithContentType("application/json")
+	return WithContentType(applicationJSON)
 }
 
 func WithAcceptXMLHeader() RequestOption {
-	return WithAccept("application/xml")
+	return WithAccept(applicationXML)
 }
 
 func WithContentTypeFormHeader() RequestOption {
-	return WithContentType("application/x-www-form-urlencoded")
+	return WithContentType(applicationFormUrlencoded)
 }
 
 func WithContentTypeVndHeader() RequestOption {
-	return WithContentType("application/vnd.api+json")
+	return WithContentType(applicationVndApiJSON)
 }
 
 func WithAcceptVndJSONHeader() RequestOption {
-	return WithAccept("application/vnd.api+json")
+	return WithAccept(applicationVndApiJSON)
 }
 
 func WithContentType(ctype string) RequestOption {
-	return WithHeader("Content-Type", ctype)
+	return WithHeader(ContentType, ctype)
 }
 
 func WithAccept(value string) RequestOption {
-	return WithHeader("Accept", value)
+	return WithHeader(acceptHeader, value)
 }
 
 func (c *BaseHttpClient) NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error) {
