@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httputil"
 	"sort"
@@ -78,10 +77,6 @@ func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevel boo
 	return gc, nil
 }
 
-func GetCacheKey(req *http.Request) string {
-	return req.URL.String()
-}
-
 func CreateCacheKey(req *http.Request) (string, error) {
 	// Normalize the URL path
 	path := strings.ToLower(req.URL.Path)
@@ -121,26 +116,9 @@ func CreateCacheKey(req *http.Request) (string, error) {
 	return cacheKey, nil
 }
 
-func CopyResponse(resp *http.Response) *http.Response {
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return resp
-	}
-
-	c := *resp
-	// Replace resp with a no-op closer so nobody has to worry about closing the reader.
-	c.Body = io.NopCloser(bytes.NewBuffer(respBody))
-
-	return &c
-}
-
-func isOk(e error) bool {
-	return e == nil
-}
-
 func (g *GoCache) Get(key string) (*http.Response, error) {
-	entry, found := g.rootLibrary.Get(key)
-	if isOk(found) {
+	entry, err := g.rootLibrary.Get(key)
+	if err == nil {
 		r := bufio.NewReader(bytes.NewReader(entry))
 		resp, err := http.ReadResponse(r, nil)
 		if err != nil {
@@ -154,35 +132,12 @@ func (g *GoCache) Get(key string) (*http.Response, error) {
 }
 
 func (g *GoCache) Set(key string, value *http.Response) error {
-	cacheableResponse, _ := httputil.DumpResponse(value, true)
-	err := g.rootLibrary.Set(key, cacheableResponse)
+	cacheableResponse, err := httputil.DumpResponse(value, true)
 	if err != nil {
 		return err
 	}
 
-	return nil
-}
-
-func (g *GoCache) GetString(key string) string {
-	entry, found := g.rootLibrary.Get(key)
-	if found == nil {
-		return string(entry)
-	}
-
-	return ""
-}
-
-func (c *GoCache) SetString(key string, value string) error {
-	err := c.rootLibrary.Set(key, []byte(value))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (g *GoCache) SetBytes(key string, value []byte) error {
-	err := g.rootLibrary.Set(key, value)
+	err = g.rootLibrary.Set(key, cacheableResponse)
 	if err != nil {
 		return err
 	}
