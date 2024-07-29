@@ -50,19 +50,18 @@ type (
 	RequestOption func() (io.ReadWriter, map[string]string, error)
 )
 
-func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
-	var ctx = context.TODO()
+func NewBaseHttpClient(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
 	cache, err := NewGoCache(ctx, int32(10))
 	if err != nil {
 		l.Error("cache error", zap.Any("err", err))
-		return nil
+		return nil, err
 	}
 
 	return &BaseHttpClient{
 		HttpClient:    httpClient,
 		baseHttpCache: cache,
-	}
+	}, nil
 }
 
 // WithJSONResponse is a wrapper that marshals the returned response body into

@@ -21,9 +21,11 @@ type example struct {
 	Age  int    `json:"age"`
 }
 
+var ctx = context.Background()
+
 func TestWrapper_NewBaseHttpClient(t *testing.T) {
 	httpClient := http.DefaultClient
-	client := NewBaseHttpClient(httpClient)
+	client, _ := NewBaseHttpClient(ctx, httpClient)
 
 	require.Equal(t, httpClient, client.HttpClient)
 }
@@ -385,7 +387,7 @@ func TestWrapper_NewRequest(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			client := NewBaseHttpClient(http.DefaultClient)
+			client, _ := NewBaseHttpClient(ctx, http.DefaultClient)
 
 			req, err := client.NewRequest(context.Background(), tc.method, u, tc.options...)
 			require.Equal(t, tc.expected.err, err)
