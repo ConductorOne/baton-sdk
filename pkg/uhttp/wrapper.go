@@ -52,24 +52,25 @@ type (
 
 func NewBaseHttpClient(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	var (
-		isLogLevelActive bool  = true
-		ttl              int32 = 600  // 600 seconds
-		cacheMaxSize     int   = 2048 // 2GB eq 2048MB
+		isLogLevel   bool
+		ttl          int32
+		cacheMaxSize int
+		ok           bool
 	)
 	l := ctxzap.Extract(ctx)
-	if ctx.Value("LOG_LEVEL") != nil {
-		isLogLevelActive = ctx.Value("LOG_LEVEL").(bool)
+	if isLogLevel, ok = ctx.Value("LOG_LEVEL").(bool); !ok {
+		isLogLevel = false
 	}
 
-	if ctx.Value("BATON_CACHE_TTL") != nil {
-		ttl = ctx.Value("BATON_CACHE_TTL").(int32)
+	if ttl, ok = ctx.Value("BATON_CACHE_TTL").(int32); !ok {
+		ttl = 600 // 600 seconds
 	}
 
-	if ctx.Value("BATON_CACHE_MAX_SIZE") != nil {
-		cacheMaxSize = ctx.Value("BATON_CACHE_MAX_SIZE").(int)
+	if cacheMaxSize, ok = ctx.Value("BATON_CACHE_MAX_SIZE").(int); !ok {
+		cacheMaxSize = 2048 // 2GB eq 2048MB
 	}
 
-	cache, err := NewGoCache(ctx, ttl, cacheMaxSize, isLogLevelActive)
+	cache, err := NewGoCache(ctx, ttl, cacheMaxSize, isLogLevel)
 	if err != nil {
 		l.Error("in-memory cache error", zap.Any("NewBaseHttpClient", err))
 		return nil, err

@@ -19,14 +19,14 @@ type GoCache struct {
 	rootLibrary *bigcache.BigCache
 }
 
-func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevelActive bool) (GoCache, error) {
+func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevel bool) (GoCache, error) {
 	l := ctxzap.Extract(ctx)
 	config := bigcache.Config{
 		// number of shards (must be a power of 2)
 		Shards: 1024,
 
 		// time after which entry can be evicted
-		LifeWindow: time.Duration(ttl) * time.Second, // BATON_CACHE_TTL
+		LifeWindow: time.Duration(ttl) * time.Second,
 
 		// Interval between removing expired entries (clean up).
 		// If set to <= 0 then no action is performed.
@@ -40,7 +40,7 @@ func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevelActi
 		MaxEntrySize: 500,
 
 		// prints information about additional memory allocation
-		Verbose: isLogLevelActive, // BATON_CACHE_DISABLE
+		Verbose: isLogLevel,
 
 		// cache will not allocate more memory than this limit, value in MB
 		// if value is reached then the oldest entries can be overridden for the new ones
