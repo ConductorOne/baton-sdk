@@ -37,7 +37,7 @@ var (
 )
 
 type Syncer interface {
-	Sync(context.Context, bool) error
+	Sync(context.Context) error
 	Close(context.Context) error
 }
 
@@ -114,7 +114,7 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 // For each page of data that is required to be fetched from the connector, a new action is pushed on to the stack. Once
 // an action is completed, it is popped off of the queue. Before processing each action, we checkpoint the state object
 // into the datasource. This allows for graceful resumes if a sync is interrupted.
-func (s *syncer) Sync(ctx context.Context, debug bool) error {
+func (s *syncer) Sync(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
 	runCtx := ctx

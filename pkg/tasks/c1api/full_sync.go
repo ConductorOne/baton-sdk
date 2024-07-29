@@ -38,8 +38,10 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string, debug bo
 		return err
 	}
 
+	// TODO(shackra): Change log-level to debug if `debug` is true
+
 	// TODO(jirwin): Should we attempt to retry at all before failing the task?
-	err = syncer.Sync(ctx, debug)
+	err = syncer.Sync(ctx)
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
 

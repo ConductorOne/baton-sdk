@@ -42,7 +42,7 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		return err
 	}
 
-	err = syncer.Sync(ctx, false)
+	err = syncer.Sync(ctx)
 	if err != nil {
 		if closeErr := syncer.Close(ctx); closeErr != nil {
 			err = errors.Join(err, closeErr)
