@@ -26,6 +26,9 @@ const (
 	applicationFormUrlencoded = "application/x-www-form-urlencoded"
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
+	logDebug                  = contextKey("LOG_DEBUG")
+	cacheTTL                  = contextKey("CACHE_TTL")
+	cacheMaxSize              = contextKey("CACHE_MAX_SIZE")
 )
 
 type WrapperResponse struct {
@@ -48,7 +51,12 @@ type (
 
 	DoOption      func(resp *WrapperResponse) error
 	RequestOption func() (io.ReadWriter, map[string]string, error)
+	contextKey    string
 )
+
+func (c contextKey) String() string {
+	return string(c)
+}
 
 func NewBaseHttpClient(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	var (
@@ -58,15 +66,15 @@ func NewBaseHttpClient(ctx context.Context, httpClient *http.Client) (*BaseHttpC
 		ok           bool
 	)
 	l := ctxzap.Extract(ctx)
-	if isLogLevel, ok = ctx.Value("LOG_LEVEL").(bool); !ok {
+	if isLogLevel, ok = ctx.Value(logDebug).(bool); !ok {
 		isLogLevel = false
 	}
 
-	if ttl, ok = ctx.Value("BATON_CACHE_TTL").(int32); !ok {
+	if ttl, ok = ctx.Value(cacheTTL).(int32); !ok {
 		ttl = 600 // 600 seconds
 	}
 
-	if cacheMaxSize, ok = ctx.Value("BATON_CACHE_MAX_SIZE").(int); !ok {
+	if cacheMaxSize, ok = ctx.Value(cacheMaxSize).(int); !ok {
 		cacheMaxSize = 2048 // 2GB eq 2048MB
 	}
 
