@@ -4,9 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"sort"
+	"strings"
 	"time"
 
 	bigcache "github.com/allegro/bigcache/v3"
@@ -75,6 +79,42 @@ func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevel boo
 
 func GetCacheKey(req *http.Request) string {
 	return req.URL.String()
+}
+
+func CreateCacheKey(req *http.Request) string {
+	// Normalize the URL path
+	path := strings.ToLower(req.URL.Path)
+
+	// Combine the path with sorted query parameters
+	queryParams := req.URL.Query()
+	var sortedParams []string
+	for k, v := range queryParams {
+		for _, value := range v {
+			sortedParams = append(sortedParams, fmt.Sprintf("%s=%s", k, value))
+		}
+	}
+	sort.Strings(sortedParams)
+	queryString := strings.Join(sortedParams, "&")
+
+	// Include relevant headers in the cache key
+	var headerParts []string
+	for key, values := range req.Header {
+		for _, value := range values {
+			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
+		}
+	}
+	sort.Strings(headerParts)
+	headersString := strings.Join(headerParts, "&")
+
+	// Create a unique string for the cache key
+	cacheString := fmt.Sprintf("%s?%s&headers=%s", path, queryString, headersString)
+
+	// Hash the cache string to create a key
+	hash := sha256.New()
+	hash.Write([]byte(cacheString))
+	cacheKey := fmt.Sprintf("%x", hash.Sum(nil))
+
+	return cacheKey
 }
 
 func CopyResponse(resp *http.Response) *http.Response {
