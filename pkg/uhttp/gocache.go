@@ -69,6 +69,7 @@ func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevel boo
 		return GoCache{}, initErr
 	}
 
+	l.Debug("in-memory cache config", zap.Any("config", config))
 	gc := GoCache{
 		ttl:         config.LifeWindow,
 		rootLibrary: cache,
@@ -81,7 +82,7 @@ func GetCacheKey(req *http.Request) string {
 	return req.URL.String()
 }
 
-func CreateCacheKey(req *http.Request) string {
+func CreateCacheKey(req *http.Request) (string, error) {
 	// Normalize the URL path
 	path := strings.ToLower(req.URL.Path)
 
@@ -111,10 +112,13 @@ func CreateCacheKey(req *http.Request) string {
 
 	// Hash the cache string to create a key
 	hash := sha256.New()
-	hash.Write([]byte(cacheString))
-	cacheKey := fmt.Sprintf("%x", hash.Sum(nil))
+	_, err := hash.Write([]byte(cacheString))
+	if err != nil {
+		return "", err
+	}
 
-	return cacheKey
+	cacheKey := fmt.Sprintf("%x", hash.Sum(nil))
+	return cacheKey, nil
 }
 
 func CopyResponse(resp *http.Response) *http.Response {
