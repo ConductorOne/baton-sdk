@@ -30,7 +30,7 @@ type fullSyncTaskHandler struct {
 	helpers fullSyncHelpers
 }
 
-func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
+func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string, debug bool) error {
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
 	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), sdkSync.WithC1ZPath(c1zPath), sdkSync.WithTmpDir(c.helpers.TempDir()))
 	if err != nil {
@@ -39,7 +39,7 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	}
 
 	// TODO(jirwin): Should we attempt to retry at all before failing the task?
-	err = syncer.Sync(ctx)
+	err = syncer.Sync(ctx, debug)
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
 
@@ -93,7 +93,8 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return err
 	}
 
-	err = c.sync(ctx, c1zPath)
+	// FIXME(shackra): use task.debug or something more appropriate
+	err = c.sync(ctx, c1zPath, c.task.Id != "")
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, err)

@@ -108,7 +108,7 @@ func BenchmarkExpandCircle(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir))
 		require.NoError(b, err)
-		err = syncer.Sync(ctx)
+		err = syncer.Sync(ctx, false)
 		require.NoError(b, err)
 		err = syncer.Close(ctx)
 		require.NoError(b, err)
