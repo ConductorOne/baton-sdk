@@ -181,10 +181,11 @@ func WithResponse(response interface{}) DoOption {
 }
 
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
-	var cacheKey string = GetCacheKey(req)
+	var cacheKey string
 	l := ctxzap.Extract(req.Context())
 
 	if req.Method == http.MethodGet {
+		cacheKey = GetCacheKey(req)
 		if c.baseHttpCache.Has(cacheKey) {
 			l.Debug("cache hit", zap.String("cacheKey", cacheKey))
 			resp, err := c.baseHttpCache.Get(cacheKey)
@@ -252,9 +253,11 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return resp, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
 	}
 
-	err = c.baseHttpCache.Set(cacheKey, resp)
-	if err != nil {
-		return resp, err
+	if req.Method == http.MethodGet {
+		err = c.baseHttpCache.Set(cacheKey, resp)
+		if err != nil {
+			return resp, err
+		}
 	}
 
 	return resp, err
