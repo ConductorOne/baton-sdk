@@ -60,6 +60,8 @@ func (m *Task) validate(all bool) error {
 
 	// no validation rules for Status
 
+	// no validation rules for Debug
+
 	switch v := m.TaskType.(type) {
 	case *Task_None:
 		if v == nil {

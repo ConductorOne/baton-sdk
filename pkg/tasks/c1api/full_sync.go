@@ -93,8 +93,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return err
 	}
 
-	// FIXME(shackra): use task.debug or something more appropriate
-	err = c.sync(ctx, c1zPath, c.task.Id != "")
+	err = c.sync(ctx, c1zPath, c.task.Debug)
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, err)
