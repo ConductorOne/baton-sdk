@@ -5,12 +5,13 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httputil"
 	"time"
 
 	bigcache "github.com/allegro/bigcache/v3"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 type GoCache struct {
@@ -18,13 +19,14 @@ type GoCache struct {
 	rootLibrary *bigcache.BigCache
 }
 
-func NewGoCache(ctx context.Context, ttl int32) (GoCache, error) {
+func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevelActive bool) (GoCache, error) {
+	l := ctxzap.Extract(ctx)
 	config := bigcache.Config{
 		// number of shards (must be a power of 2)
 		Shards: 1024,
 
 		// time after which entry can be evicted
-		LifeWindow: 10 * time.Minute,
+		LifeWindow: time.Duration(ttl) * time.Second, // BATON_CACHE_TTL
 
 		// Interval between removing expired entries (clean up).
 		// If set to <= 0 then no action is performed.
@@ -38,13 +40,13 @@ func NewGoCache(ctx context.Context, ttl int32) (GoCache, error) {
 		MaxEntrySize: 500,
 
 		// prints information about additional memory allocation
-		Verbose: true,
+		Verbose: isLogLevelActive, // BATON_CACHE_DISABLE
 
 		// cache will not allocate more memory than this limit, value in MB
 		// if value is reached then the oldest entries can be overridden for the new ones
 		// 0 value means no size limit
-		// Default value 1GB eq 1024MB
-		HardMaxCacheSize: 1024,
+		// Default value "GB eq 2048MB
+		HardMaxCacheSize: cacheMaxSize, // BATON_CACHE_MAX_SIZE
 
 		// callback fired when the oldest entry is removed because of its expiration time or no space left
 		// for the new entry, or because delete was called. A bitmask representing the reason will be returned.
@@ -59,12 +61,12 @@ func NewGoCache(ctx context.Context, ttl int32) (GoCache, error) {
 	}
 	cache, initErr := bigcache.New(ctx, config)
 	if initErr != nil {
-		log.Fatal(initErr)
+		l.Error("in-memory cache error", zap.Any("NewGoCache", initErr))
 		return GoCache{}, initErr
 	}
 
 	gc := GoCache{
-		ttl:         10 * time.Minute,
+		ttl:         config.LifeWindow,
 		rootLibrary: cache,
 	}
 
