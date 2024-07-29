@@ -60,10 +60,10 @@ func (c contextKey) String() string {
 
 func NewBaseHttpClient(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	var (
-		isLogLevel   bool
-		ttl          int32
-		cacheMaxSize int
-		ok           bool
+		isLogLevel bool
+		ttl        int32
+		maxSize    int
+		ok         bool
 	)
 	l := ctxzap.Extract(ctx)
 	if isLogLevel, ok = ctx.Value(logDebug).(bool); !ok {
@@ -74,11 +74,11 @@ func NewBaseHttpClient(ctx context.Context, httpClient *http.Client) (*BaseHttpC
 		ttl = 600 // 600 seconds
 	}
 
-	if cacheMaxSize, ok = ctx.Value(cacheMaxSize).(int); !ok {
-		cacheMaxSize = 2048 // 2GB eq 2048MB
+	if maxSize, ok = ctx.Value(cacheMaxSize).(int); !ok {
+		maxSize = 2048 // 2GB eq 2048MB
 	}
 
-	cache, err := NewGoCache(ctx, ttl, cacheMaxSize, isLogLevel)
+	cache, err := NewGoCache(ctx, ttl, maxSize, isLogLevel)
 	if err != nil {
 		l.Error("in-memory cache error", zap.Any("NewBaseHttpClient", err))
 		return nil, err
