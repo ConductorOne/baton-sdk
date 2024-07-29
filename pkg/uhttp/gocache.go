@@ -53,8 +53,8 @@ func isOk(e error) bool {
 	return e == nil
 }
 
-func (c *GoCache) Get(key string) (*http.Response, error) {
-	entry, found := c.rootLibrary.Get(key)
+func (g *GoCache) Get(key string) (*http.Response, error) {
+	entry, found := g.rootLibrary.Get(key)
 	if isOk(found) {
 		r := bufio.NewReader(bytes.NewReader(entry))
 		resp, err := http.ReadResponse(r, nil)
@@ -68,9 +68,9 @@ func (c *GoCache) Get(key string) (*http.Response, error) {
 	return nil, nil
 }
 
-func (c *GoCache) Set(key string, value *http.Response) error {
+func (g *GoCache) Set(key string, value *http.Response) error {
 	cacheableResponse, _ := httputil.DumpResponse(value, true)
-	err := c.rootLibrary.Set(key, cacheableResponse)
+	err := g.rootLibrary.Set(key, cacheableResponse)
 	if err != nil {
 		return err
 	}
@@ -78,8 +78,8 @@ func (c *GoCache) Set(key string, value *http.Response) error {
 	return nil
 }
 
-func (c *GoCache) GetString(key string) string {
-	entry, found := c.rootLibrary.Get(key)
+func (g *GoCache) GetString(key string) string {
+	entry, found := g.rootLibrary.Get(key)
 	if found == nil {
 		return string(entry)
 	}
@@ -96,8 +96,8 @@ func (c *GoCache) SetString(key string, value string) error {
 	return nil
 }
 
-func (c *GoCache) SetBytes(key string, value []byte) error {
-	err := c.rootLibrary.Set(key, value)
+func (g *GoCache) SetBytes(key string, value []byte) error {
+	err := g.rootLibrary.Set(key, value)
 	if err != nil {
 		return err
 	}
@@ -105,8 +105,8 @@ func (c *GoCache) SetBytes(key string, value []byte) error {
 	return nil
 }
 
-func (c *GoCache) Delete(key string) error {
-	err := c.rootLibrary.Delete(key)
+func (g *GoCache) Delete(key string) error {
+	err := g.rootLibrary.Delete(key)
 	if err != nil {
 		return err
 	}
@@ -114,8 +114,8 @@ func (c *GoCache) Delete(key string) error {
 	return nil
 }
 
-func (c *GoCache) Clear() error {
-	err := c.rootLibrary.Reset()
+func (g *GoCache) Clear() error {
+	err := g.rootLibrary.Reset()
 	if err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func (c *GoCache) Clear() error {
 	return nil
 }
 
-func (c *GoCache) Has(key string) bool {
-	_, found := c.rootLibrary.Get(key)
+func (g *GoCache) Has(key string) bool {
+	_, found := g.rootLibrary.Get(key)
 	return found == nil
 }
