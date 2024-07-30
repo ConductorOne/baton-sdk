@@ -295,7 +295,7 @@ func TestValidationMutuallyExclusiveWithSliceField(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestValidationAtLestOneWithSliceField(t *testing.T) {
+func TestValidationAtLeastOneWithSliceField(t *testing.T) {
 	foo := StringField("foo")
 	bar := StringSliceField("bar")
 
