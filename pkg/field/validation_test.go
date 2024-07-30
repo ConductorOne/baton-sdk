@@ -199,3 +199,50 @@ func TestValidationDependentFieldsDepedentFieldMissing(t *testing.T) {
 	err := Validate(carrier, v)
 	require.NoError(t, err)
 }
+
+func TestValidationDependentSliceFieldNotRequiredOrSet(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringSliceField("bar")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependentOn([]SchemaField{bar}, []SchemaField{foo}),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+
+	// slice field is not required but is dependent on foo being set
+	// foo is not set, so we should not have an error
+	err := Validate(carrier, v)
+	require.NoError(t, err)
+}
+
+func TestValidationRequiredNotSetForDependentSliceField(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringSliceField("bar")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependentOn([]SchemaField{bar}, []SchemaField{foo}),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("bar", "a,b,c")
+
+	// slice field 'bar' is not required but is dependent on 'foo' being set
+	// foo is not set, and 'bar' is, so we should have an error
+	err := Validate(carrier, v)
+	require.Error(t, err)
+}
