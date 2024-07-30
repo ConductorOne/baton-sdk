@@ -257,6 +257,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	if req.Method == http.MethodGet {
 		err := c.baseHttpCache.Set(cacheKey, resp)
 		if err != nil {
+			l.Debug("error setting cache", zap.String("cacheKey", cacheKey), zap.Error(err))
 			return resp, err
 		}
 	}
