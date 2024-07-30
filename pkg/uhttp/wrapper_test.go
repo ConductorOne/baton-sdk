@@ -388,6 +388,95 @@ func TestWrapper_NewRequest(t *testing.T) {
 				t.Fatal(err)
 			}
 
+			cc := CacheConfig{
+				logDebug:     true,
+				cacheTTL:     int32(1000),
+				cacheMaxSize: 1024,
+			}
+			ctx = context.WithValue(ctx, ContextKey{}, cc)
+			client, err := NewBaseHttpClient(ctx, http.DefaultClient)
+			assert.Nil(t, err)
+
+			req, err := client.NewRequest(context.Background(), tc.method, u, tc.options...)
+			require.Equal(t, tc.expected.err, err)
+			require.Equal(t, tc.expected.method, req.Method)
+			require.Equal(t, tc.expected.url, req.URL.String())
+			require.Equal(t, tc.expected.headers, req.Header)
+			require.Equal(t, tc.expected.body, req.Body)
+		})
+	}
+}
+
+func TestWrapperConfig(t *testing.T) {
+	type expected struct {
+		method  string
+		url     string
+		headers http.Header
+		body    io.ReadCloser
+		err     error
+	}
+
+	exampleBody := example{Name: "John", Age: 30}
+	exampleBodyBuffer := new(bytes.Buffer)
+	err := json.NewEncoder(exampleBodyBuffer).Encode(exampleBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	test := []struct {
+		name     string
+		method   string
+		url      string
+		options  []RequestOption
+		cc       CacheConfig
+		expected expected
+	}{
+		{
+			name:    "GET request with no options",
+			method:  http.MethodGet,
+			url:     "http://example.com",
+			options: nil,
+			cc: CacheConfig{
+				logDebug:     true,
+				cacheTTL:     int32(1000),
+				cacheMaxSize: 1024,
+			},
+			expected: expected{
+				method:  http.MethodGet,
+				url:     "http://example.com",
+				headers: http.Header{},
+				body:    nil,
+				err:     nil,
+			},
+		},
+		{
+			name:    "POST request with JSON body",
+			method:  http.MethodPost,
+			url:     "http://example.com",
+			options: []RequestOption{WithJSONBody(exampleBody), WithAcceptJSONHeader()},
+			cc: CacheConfig{
+				logDebug:     true,
+				cacheTTL:     int32(2000),
+				cacheMaxSize: 0,
+			},
+			expected: expected{
+				method:  http.MethodPost,
+				url:     "http://example.com",
+				headers: http.Header{"Accept": []string{"application/json"}, "Content-Type": []string{"application/json"}},
+				body:    io.NopCloser(exampleBodyBuffer),
+				err:     nil,
+			},
+		},
+	}
+
+	for _, tc := range test {
+		t.Run(tc.name, func(t *testing.T) {
+			u, err := url.Parse(tc.url)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			ctx = context.WithValue(ctx, ContextKey{}, tc.cc)
 			client, err := NewBaseHttpClient(ctx, http.DefaultClient)
 			assert.Nil(t, err)
 
