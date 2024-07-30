@@ -38,7 +38,9 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string, debug bo
 	var logfile *os.File
 	var err error
 	if debug {
-		logfile, err = os.Create(filepath.Join(c1zPath, "debug.log"))
+		logpath := filepath.Dir(c1zPath)
+
+		logfile, err = os.Create(filepath.Join(logpath, "debug.log"))
 		if err != nil {
 			return err
 		}
