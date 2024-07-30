@@ -13,6 +13,7 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -387,7 +388,8 @@ func TestWrapper_NewRequest(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			client, _ := NewBaseHttpClient(ctx, http.DefaultClient)
+			client, err := NewBaseHttpClient(ctx, http.DefaultClient)
+			assert.Nil(t, err)
 
 			req, err := client.NewRequest(context.Background(), tc.method, u, tc.options...)
 			require.Equal(t, tc.expected.err, err)
