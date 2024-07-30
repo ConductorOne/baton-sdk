@@ -45,6 +45,10 @@ func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevel boo
 	return gc, nil
 }
 
+func (g *GoCache) Statistics() bigcache.Stats {
+	return g.rootLibrary.Stats()
+}
+
 func CreateCacheKey(req *http.Request) (string, error) {
 	// Normalize the URL path
 	path := strings.ToLower(req.URL.Path)
