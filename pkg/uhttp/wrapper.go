@@ -63,7 +63,11 @@ func WithJSONResponse(response interface{}) DoOption {
 		if response == nil && len(resp.Body) == 0 {
 			return nil
 		}
-		return json.Unmarshal(resp.Body, response)
+		err := json.Unmarshal(resp.Body, response)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal json response: %w. body %v", err, resp.Body)
+		}
+		return nil
 	}
 }
 
@@ -117,7 +121,11 @@ func WithXMLResponse(response interface{}) DoOption {
 		if response == nil && len(resp.Body) == 0 {
 			return nil
 		}
-		return xml.Unmarshal(resp.Body, response)
+		err := xml.Unmarshal(resp.Body, response)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal xml response: %w. body %v", err, resp.Body)
+		}
+		return nil
 	}
 }
 
