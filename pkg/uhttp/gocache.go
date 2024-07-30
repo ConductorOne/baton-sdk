@@ -26,6 +26,8 @@ func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevel boo
 	config := bigcache.DefaultConfig(time.Duration(ttl) * time.Second)
 	// prints information about additional memory allocation
 	config.Verbose = isLogLevel
+	// number of shards (must be a power of 2)
+	config.Shards = 4
 	// cache will not allocate more memory than this limit, value in MB
 	// 0 value means no size limit
 	config.HardMaxCacheSize = cacheMaxSize
