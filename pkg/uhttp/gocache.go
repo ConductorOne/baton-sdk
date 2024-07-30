@@ -12,26 +12,22 @@ import (
 	"strings"
 	"time"
 
-	bigcache "github.com/allegro/bigcache/v3"
+	bigCache "github.com/allegro/bigcache/v3"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
 
 type GoCache struct {
-	rootLibrary *bigcache.BigCache
+	rootLibrary *bigCache.BigCache
 }
 
-func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevel bool) (GoCache, error) {
+func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
 	l := ctxzap.Extract(ctx)
-	config := bigcache.DefaultConfig(time.Duration(ttl) * time.Second)
-	// prints information about additional memory allocation
-	config.Verbose = isLogLevel
-	// number of shards (must be a power of 2)
+	config := bigCache.DefaultConfig(time.Duration(cfg.cacheTTL) * time.Second)
+	config.Verbose = cfg.logDebug
 	config.Shards = 4
-	// cache will not allocate more memory than this limit, value in MB
-	// 0 value means no size limit
-	config.HardMaxCacheSize = cacheMaxSize
-	cache, initErr := bigcache.New(ctx, config)
+	config.HardMaxCacheSize = cfg.cacheMaxSize // value in MB, 0 value means no size limit
+	cache, initErr := bigCache.New(ctx, config)
 	if initErr != nil {
 		l.Error("in-memory cache error", zap.Any("NewGoCache", initErr))
 		return GoCache{}, initErr
@@ -45,7 +41,7 @@ func NewGoCache(ctx context.Context, ttl int32, cacheMaxSize int, isLogLevel boo
 	return gc, nil
 }
 
-func (g *GoCache) Statistics() bigcache.Stats {
+func (g *GoCache) Statistics() bigCache.Stats {
 	return g.rootLibrary.Stats()
 }
 

@@ -26,9 +26,6 @@ const (
 	applicationFormUrlencoded = "application/x-www-form-urlencoded"
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
-	logDebug                  = contextKey("LOG_DEBUG")
-	cacheTTL                  = contextKey("CACHE_TTL")
-	cacheMaxSize              = contextKey("CACHE_MAX_SIZE")
 )
 
 type WrapperResponse struct {
@@ -51,34 +48,31 @@ type (
 
 	DoOption      func(resp *WrapperResponse) error
 	RequestOption func() (io.ReadWriter, map[string]string, error)
-	contextKey    string
+	ContextKey    struct{}
+	CacheConfig   struct {
+		logDebug     bool
+		cacheTTL     int32
+		cacheMaxSize int
+	}
 )
 
-func (c contextKey) String() string {
-	return string(c)
-}
-
 func NewBaseHttpClient(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
-	var (
-		isLogLevel bool
-		ttl        int32
-		maxSize    int
-		ok         bool
-	)
 	l := ctxzap.Extract(ctx)
-	if isLogLevel, ok = ctx.Value(logDebug).(bool); !ok {
-		isLogLevel = false
+	var (
+		ok     bool
+		config = CacheConfig{
+			logDebug:     false,
+			cacheTTL:     int32(600), // 600 seconds
+			cacheMaxSize: int(2048),  // 2GB eq 2048MB
+		}
+	)
+	if v := ctx.Value(ContextKey{}); v != nil {
+		if config, ok = v.(CacheConfig); !ok {
+			return &BaseHttpClient{}, fmt.Errorf("error casting config values")
+		}
 	}
 
-	if ttl, ok = ctx.Value(cacheTTL).(int32); !ok {
-		ttl = 600 // 600 seconds
-	}
-
-	if maxSize, ok = ctx.Value(cacheMaxSize).(int); !ok {
-		maxSize = 2048 // 2GB eq 2048MB
-	}
-
-	cache, err := NewGoCache(ctx, ttl, maxSize, isLogLevel)
+	cache, err := NewGoCache(ctx, config)
 	if err != nil {
 		l.Error("in-memory cache error", zap.Any("NewBaseHttpClient", err))
 		return nil, err
