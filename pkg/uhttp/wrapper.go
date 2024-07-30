@@ -59,13 +59,13 @@ type (
 func NewBaseHttpClient(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
 	var (
-		ok bool
 		// Default values: logDebug: false cacheTTL: 600 seconds cacheMaxSize: 2048 MB
 		config = CacheConfig{
 			logDebug:     false,
 			cacheTTL:     int32(600),
 			cacheMaxSize: int(2048),
 		}
+		ok bool
 	)
 	if v := ctx.Value(ContextKey{}); v != nil {
 		if config, ok = v.(CacheConfig); !ok {
