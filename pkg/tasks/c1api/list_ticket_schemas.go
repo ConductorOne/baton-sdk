@@ -52,7 +52,14 @@ func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
 
 		// Only return first 100 elements
 		if len(ticketSchemas) >= maxTicketSchemas {
+			ignoreCount := len(ticketSchemas) - maxTicketSchemas
 			ticketSchemas = ticketSchemas[:maxTicketSchemas]
+			hasAdditionalPages := schemas.GetNextPageToken() != ""
+
+			l.Info("list ticket schemas was greater than or equal to max of 100",
+				zap.Int("ignoredCount", ignoreCount),
+				zap.Bool("hasAdditionalPages", hasAdditionalPages))
+			
 			break
 		}
 
