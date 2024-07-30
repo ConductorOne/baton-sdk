@@ -59,7 +59,6 @@ func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
 			l.Info("list ticket schemas was greater than or equal to max of 100",
 				zap.Int("ignoredCount", ignoreCount),
 				zap.Bool("hasAdditionalPages", hasAdditionalPages))
-			
 			break
 		}
 
