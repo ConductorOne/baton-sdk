@@ -45,6 +45,8 @@ func (g *GoCache) Statistics() bigCache.Stats {
 	return g.rootLibrary.Stats()
 }
 
+// CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
+// The key is a SHA-256 hash of the normalized URL path, sorted query parameters, and relevant headers.
 func CreateCacheKey(req *http.Request) (string, error) {
 	// Normalize the URL path
 	path := strings.ToLower(req.URL.Path)
@@ -90,7 +92,7 @@ func (g *GoCache) Get(key string) (*http.Response, error) {
 		r := bufio.NewReader(bytes.NewReader(entry))
 		resp, err := http.ReadResponse(r, nil)
 		if err != nil {
-			return resp, err
+			return nil, err
 		}
 
 		return resp, nil
