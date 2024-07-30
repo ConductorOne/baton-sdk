@@ -433,7 +433,7 @@ func TestWrapperConfig(t *testing.T) {
 			cc: CacheConfig{
 				logDebug:     true,
 				cacheTTL:     int32(1000),
-				cacheMaxSize: 1024,
+				cacheMaxSize: int(1024),
 			},
 			expected: expected{
 				method:  http.MethodGet,
@@ -451,7 +451,7 @@ func TestWrapperConfig(t *testing.T) {
 			cc: CacheConfig{
 				logDebug:     true,
 				cacheTTL:     int32(2000),
-				cacheMaxSize: 0,
+				cacheMaxSize: int(0),
 			},
 			expected: expected{
 				method:  http.MethodPost,
