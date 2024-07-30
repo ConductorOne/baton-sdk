@@ -388,12 +388,6 @@ func TestWrapper_NewRequest(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			cc := CacheConfig{
-				logDebug:     true,
-				cacheTTL:     int32(1000),
-				cacheMaxSize: 1024,
-			}
-			ctx = context.WithValue(ctx, ContextKey{}, cc)
 			client, err := NewBaseHttpClient(ctx, http.DefaultClient)
 			assert.Nil(t, err)
 
