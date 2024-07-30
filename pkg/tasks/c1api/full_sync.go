@@ -5,9 +5,11 @@ import (
 	"errors"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -32,6 +34,27 @@ type fullSyncTaskHandler struct {
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string, debug bool) error {
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
+
+	var logfile *os.File
+	var err error
+	if debug {
+		logfile, err = os.Create(filepath.Join(c1zPath, "debug.log"))
+		if err != nil {
+			return err
+		}
+		defer logfile.Close()
+
+		writeSyncer := zapcore.AddSync(logfile)
+		encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+		core := zapcore.NewCore(encoder, writeSyncer, zapcore.InfoLevel)
+
+		l = l.WithOptions(zap.IncreaseLevel(zapcore.DebugLevel), zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+			return zapcore.NewTee(c, core)
+		}))
+
+		ctx = ctxzap.ToContext(ctx, l)
+	}
+
 	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), sdkSync.WithC1ZPath(c1zPath), sdkSync.WithTmpDir(c.helpers.TempDir()))
 	if err != nil {
 		l.Error("failed to create syncer", zap.Error(err))
