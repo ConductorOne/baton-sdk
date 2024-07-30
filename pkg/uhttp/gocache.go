@@ -23,10 +23,10 @@ type GoCache struct {
 
 func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
 	l := ctxzap.Extract(ctx)
-	config := bigCache.DefaultConfig(time.Duration(cfg.cacheTTL) * time.Second)
-	config.Verbose = cfg.logDebug
+	config := bigCache.DefaultConfig(time.Duration(cfg.CacheTTL) * time.Second)
+	config.Verbose = cfg.LogDebug
 	config.Shards = 4
-	config.HardMaxCacheSize = cfg.cacheMaxSize // value in MB, 0 value means no size limit
+	config.HardMaxCacheSize = cfg.CacheMaxSize // value in MB, 0 value means no size limit
 	cache, initErr := bigCache.New(ctx, config)
 	if initErr != nil {
 		l.Error("in-memory cache error", zap.Any("NewGoCache", initErr))
@@ -66,7 +66,9 @@ func CreateCacheKey(req *http.Request) (string, error) {
 	var headerParts []string
 	for key, values := range req.Header {
 		for _, value := range values {
-			headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
+			if key != "User-Agent" {
+				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
+			}
 		}
 	}
 	sort.Strings(headerParts)

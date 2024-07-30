@@ -431,9 +431,9 @@ func TestWrapperConfig(t *testing.T) {
 			url:     "http://example.com",
 			options: nil,
 			cc: CacheConfig{
-				logDebug:     true,
-				cacheTTL:     int32(1000),
-				cacheMaxSize: int(1024),
+				LogDebug:     true,
+				CacheTTL:     int32(1000),
+				CacheMaxSize: int(1024),
 			},
 			expected: expected{
 				method:  http.MethodGet,
@@ -449,9 +449,9 @@ func TestWrapperConfig(t *testing.T) {
 			url:     "http://example.com",
 			options: []RequestOption{WithJSONBody(exampleBody), WithAcceptJSONHeader()},
 			cc: CacheConfig{
-				logDebug:     true,
-				cacheTTL:     int32(2000),
-				cacheMaxSize: int(0),
+				LogDebug:     true,
+				CacheTTL:     int32(2000),
+				CacheMaxSize: int(0),
 			},
 			expected: expected{
 				method:  http.MethodPost,

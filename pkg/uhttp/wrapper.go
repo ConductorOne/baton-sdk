@@ -50,9 +50,9 @@ type (
 	RequestOption func() (io.ReadWriter, map[string]string, error)
 	ContextKey    struct{}
 	CacheConfig   struct {
-		logDebug     bool
-		cacheTTL     int32
-		cacheMaxSize int
+		LogDebug     bool
+		CacheTTL     int32
+		CacheMaxSize int
 	}
 )
 
@@ -61,9 +61,9 @@ func NewBaseHttpClient(ctx context.Context, httpClient *http.Client) (*BaseHttpC
 	var (
 		// Default values: logDebug: false cacheTTL: 600 seconds cacheMaxSize: 2048 MB
 		config = CacheConfig{
-			logDebug:     false,
-			cacheTTL:     int32(600),
-			cacheMaxSize: int(2048),
+			LogDebug:     false,
+			CacheTTL:     int32(600),
+			CacheMaxSize: int(2048),
 		}
 		ok bool
 	)
