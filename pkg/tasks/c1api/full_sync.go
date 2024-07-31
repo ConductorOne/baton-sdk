@@ -120,7 +120,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return err
 	}
 
-	err = c.sync(ctx, c1zPath, c.task.Debug)
+	err = c.sync(ctx, c1zPath, true)
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, err)
