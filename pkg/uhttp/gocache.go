@@ -59,6 +59,7 @@ func CreateCacheKey(req *http.Request) (string, error) {
 			sortedParams = append(sortedParams, fmt.Sprintf("%s=%s", k, value))
 		}
 	}
+
 	sort.Strings(sortedParams)
 	queryString := strings.Join(sortedParams, "&")
 
@@ -66,11 +67,12 @@ func CreateCacheKey(req *http.Request) (string, error) {
 	var headerParts []string
 	for key, values := range req.Header {
 		for _, value := range values {
-			if key != "User-Agent" {
+			if key == "Accept" || key == "Authorization" || key == "Cookie" || key == "Range" {
 				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 			}
 		}
 	}
+
 	sort.Strings(headerParts)
 	headersString := strings.Join(headerParts, "&")
 
