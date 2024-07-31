@@ -1013,6 +1013,100 @@ func (x *BatonServiceFinishTaskResponse) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+type SetLogFilePathRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	LogFilePath string `protobuf:"bytes,1,opt,name=log_file_path,json=logFilePath,proto3" json:"log_file_path,omitempty"`
+}
+
+func (x *SetLogFilePathRequest) Reset() {
+	*x = SetLogFilePathRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[11]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SetLogFilePathRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetLogFilePathRequest) ProtoMessage() {}
+
+func (x *SetLogFilePathRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[11]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetLogFilePathRequest.ProtoReflect.Descriptor instead.
+func (*SetLogFilePathRequest) Descriptor() ([]byte, []int) {
+	return file_c1_connectorapi_baton_v1_baton_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SetLogFilePathRequest) GetLogFilePath() string {
+	if x != nil {
+		return x.LogFilePath
+	}
+	return ""
+}
+
+type SetLogFilePathResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Status string `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+}
+
+func (x *SetLogFilePathResponse) Reset() {
+	*x = SetLogFilePathResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[12]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *SetLogFilePathResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetLogFilePathResponse) ProtoMessage() {}
+
+func (x *SetLogFilePathResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[12]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetLogFilePathResponse.ProtoReflect.Descriptor instead.
+func (*SetLogFilePathResponse) Descriptor() ([]byte, []int) {
+	return file_c1_connectorapi_baton_v1_baton_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *SetLogFilePathResponse) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
 type Task_NoneTask struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -1024,7 +1118,7 @@ type Task_NoneTask struct {
 func (x *Task_NoneTask) Reset() {
 	*x = Task_NoneTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[11]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[13]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1037,7 +1131,7 @@ func (x *Task_NoneTask) String() string {
 func (*Task_NoneTask) ProtoMessage() {}
 
 func (x *Task_NoneTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[11]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[13]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1071,7 +1165,7 @@ type Task_HelloTask struct {
 func (x *Task_HelloTask) Reset() {
 	*x = Task_HelloTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[12]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[14]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1084,7 +1178,7 @@ func (x *Task_HelloTask) String() string {
 func (*Task_HelloTask) ProtoMessage() {}
 
 func (x *Task_HelloTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[12]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[14]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1118,7 +1212,7 @@ type Task_SyncFullTask struct {
 func (x *Task_SyncFullTask) Reset() {
 	*x = Task_SyncFullTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[13]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[15]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1131,7 +1225,7 @@ func (x *Task_SyncFullTask) String() string {
 func (*Task_SyncFullTask) ProtoMessage() {}
 
 func (x *Task_SyncFullTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[13]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[15]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1166,7 +1260,7 @@ type Task_EventFeedTask struct {
 func (x *Task_EventFeedTask) Reset() {
 	*x = Task_EventFeedTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[14]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[16]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1179,7 +1273,7 @@ func (x *Task_EventFeedTask) String() string {
 func (*Task_EventFeedTask) ProtoMessage() {}
 
 func (x *Task_EventFeedTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[14]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[16]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1223,7 +1317,7 @@ type Task_GrantTask struct {
 func (x *Task_GrantTask) Reset() {
 	*x = Task_GrantTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[15]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[17]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1236,7 +1330,7 @@ func (x *Task_GrantTask) String() string {
 func (*Task_GrantTask) ProtoMessage() {}
 
 func (x *Task_GrantTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[15]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[17]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1292,7 +1386,7 @@ type Task_RevokeTask struct {
 func (x *Task_RevokeTask) Reset() {
 	*x = Task_RevokeTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[16]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[18]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1305,7 +1399,7 @@ func (x *Task_RevokeTask) String() string {
 func (*Task_RevokeTask) ProtoMessage() {}
 
 func (x *Task_RevokeTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[16]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[18]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1348,7 +1442,7 @@ type Task_CreateAccountTask struct {
 func (x *Task_CreateAccountTask) Reset() {
 	*x = Task_CreateAccountTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[17]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[19]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1361,7 +1455,7 @@ func (x *Task_CreateAccountTask) String() string {
 func (*Task_CreateAccountTask) ProtoMessage() {}
 
 func (x *Task_CreateAccountTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[17]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[19]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1409,7 +1503,7 @@ type Task_CreateResourceTask struct {
 func (x *Task_CreateResourceTask) Reset() {
 	*x = Task_CreateResourceTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[18]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[20]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1422,7 +1516,7 @@ func (x *Task_CreateResourceTask) String() string {
 func (*Task_CreateResourceTask) ProtoMessage() {}
 
 func (x *Task_CreateResourceTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[18]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[20]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1456,7 +1550,7 @@ type Task_DeleteResourceTask struct {
 func (x *Task_DeleteResourceTask) Reset() {
 	*x = Task_DeleteResourceTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[19]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[21]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1469,7 +1563,7 @@ func (x *Task_DeleteResourceTask) String() string {
 func (*Task_DeleteResourceTask) ProtoMessage() {}
 
 func (x *Task_DeleteResourceTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[19]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[21]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1505,7 +1599,7 @@ type Task_RotateCredentialsTask struct {
 func (x *Task_RotateCredentialsTask) Reset() {
 	*x = Task_RotateCredentialsTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[20]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[22]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1518,7 +1612,7 @@ func (x *Task_RotateCredentialsTask) String() string {
 func (*Task_RotateCredentialsTask) ProtoMessage() {}
 
 func (x *Task_RotateCredentialsTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[20]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[22]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1568,7 +1662,7 @@ type Task_CreateTicketTask struct {
 func (x *Task_CreateTicketTask) Reset() {
 	*x = Task_CreateTicketTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[21]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[23]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1581,7 +1675,7 @@ func (x *Task_CreateTicketTask) String() string {
 func (*Task_CreateTicketTask) ProtoMessage() {}
 
 func (x *Task_CreateTicketTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[21]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[23]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1629,7 +1723,7 @@ type Task_ListTicketSchemasTask struct {
 func (x *Task_ListTicketSchemasTask) Reset() {
 	*x = Task_ListTicketSchemasTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[22]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[24]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1642,7 +1736,7 @@ func (x *Task_ListTicketSchemasTask) String() string {
 func (*Task_ListTicketSchemasTask) ProtoMessage() {}
 
 func (x *Task_ListTicketSchemasTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[22]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[24]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1677,7 +1771,7 @@ type Task_GetTicketTask struct {
 func (x *Task_GetTicketTask) Reset() {
 	*x = Task_GetTicketTask{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[23]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[25]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1690,7 +1784,7 @@ func (x *Task_GetTicketTask) String() string {
 func (*Task_GetTicketTask) ProtoMessage() {}
 
 func (x *Task_GetTicketTask) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[23]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[25]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1733,7 +1827,7 @@ type BatonServiceHelloRequest_BuildInfo struct {
 func (x *BatonServiceHelloRequest_BuildInfo) Reset() {
 	*x = BatonServiceHelloRequest_BuildInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[24]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[26]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1746,7 +1840,7 @@ func (x *BatonServiceHelloRequest_BuildInfo) String() string {
 func (*BatonServiceHelloRequest_BuildInfo) ProtoMessage() {}
 
 func (x *BatonServiceHelloRequest_BuildInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[24]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[26]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1801,7 +1895,7 @@ type BatonServiceHelloRequest_OSInfo struct {
 func (x *BatonServiceHelloRequest_OSInfo) Reset() {
 	*x = BatonServiceHelloRequest_OSInfo{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[25]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[27]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1814,7 +1908,7 @@ func (x *BatonServiceHelloRequest_OSInfo) String() string {
 func (*BatonServiceHelloRequest_OSInfo) ProtoMessage() {}
 
 func (x *BatonServiceHelloRequest_OSInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[25]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[27]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1899,7 +1993,7 @@ type BatonServiceUploadAssetRequest_UploadMetadata struct {
 func (x *BatonServiceUploadAssetRequest_UploadMetadata) Reset() {
 	*x = BatonServiceUploadAssetRequest_UploadMetadata{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[26]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[28]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1912,7 +2006,7 @@ func (x *BatonServiceUploadAssetRequest_UploadMetadata) String() string {
 func (*BatonServiceUploadAssetRequest_UploadMetadata) ProtoMessage() {}
 
 func (x *BatonServiceUploadAssetRequest_UploadMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[26]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[28]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1961,7 +2055,7 @@ type BatonServiceUploadAssetRequest_UploadData struct {
 func (x *BatonServiceUploadAssetRequest_UploadData) Reset() {
 	*x = BatonServiceUploadAssetRequest_UploadData{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[27]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[29]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1974,7 +2068,7 @@ func (x *BatonServiceUploadAssetRequest_UploadData) String() string {
 func (*BatonServiceUploadAssetRequest_UploadData) ProtoMessage() {}
 
 func (x *BatonServiceUploadAssetRequest_UploadData) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[27]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[29]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2009,7 +2103,7 @@ type BatonServiceUploadAssetRequest_UploadEOF struct {
 func (x *BatonServiceUploadAssetRequest_UploadEOF) Reset() {
 	*x = BatonServiceUploadAssetRequest_UploadEOF{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[28]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[30]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2022,7 +2116,7 @@ func (x *BatonServiceUploadAssetRequest_UploadEOF) String() string {
 func (*BatonServiceUploadAssetRequest_UploadEOF) ProtoMessage() {}
 
 func (x *BatonServiceUploadAssetRequest_UploadEOF) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[28]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[30]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2066,7 +2160,7 @@ type BatonServiceFinishTaskRequest_Error struct {
 func (x *BatonServiceFinishTaskRequest_Error) Reset() {
 	*x = BatonServiceFinishTaskRequest_Error{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[29]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[31]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2079,7 +2173,7 @@ func (x *BatonServiceFinishTaskRequest_Error) String() string {
 func (*BatonServiceFinishTaskRequest_Error) ProtoMessage() {}
 
 func (x *BatonServiceFinishTaskRequest_Error) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[29]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[31]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2129,7 +2223,7 @@ type BatonServiceFinishTaskRequest_Success struct {
 func (x *BatonServiceFinishTaskRequest_Success) Reset() {
 	*x = BatonServiceFinishTaskRequest_Success{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[30]
+		mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[32]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2142,7 +2236,7 @@ func (x *BatonServiceFinishTaskRequest_Success) String() string {
 func (*BatonServiceFinishTaskRequest_Success) ProtoMessage() {}
 
 func (x *BatonServiceFinishTaskRequest_Success) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[30]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[32]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2597,52 +2691,67 @@ var file_c1_connectorapi_baton_v1_baton_proto_rawDesc = []byte{
 	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x36, 0x0a, 0x0b, 0x61, 0x6e, 0x6e, 0x6f, 0x74, 0x61,
 	0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x67, 0x6f,
 	0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x41, 0x6e,
-	0x79, 0x52, 0x0b, 0x61, 0x6e, 0x6e, 0x6f, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x32, 0x89,
-	0x05, 0x0a, 0x0c, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12,
-	0x72, 0x0a, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x12, 0x32, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f,
-	0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e,
-	0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65,
-	0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x33, 0x2e, 0x63,
-	0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62,
-	0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72,
-	0x76, 0x69, 0x63, 0x65, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
-	0x65, 0x22, 0x00, 0x12, 0x78, 0x0a, 0x07, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x12, 0x34,
-	0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69,
-	0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53,
-	0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x1a, 0x35, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63,
-	0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e,
-	0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x47, 0x65, 0x74, 0x54,
-	0x61, 0x73, 0x6b, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x7e, 0x0a,
-	0x09, 0x48, 0x65, 0x61, 0x72, 0x74, 0x62, 0x65, 0x61, 0x74, 0x12, 0x36, 0x2e, 0x63, 0x31, 0x2e,
-	0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74,
-	0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69,
-	0x63, 0x65, 0x48, 0x65, 0x61, 0x72, 0x74, 0x62, 0x65, 0x61, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x1a, 0x37, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f,
-	0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61,
-	0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x48, 0x65, 0x61, 0x72, 0x74, 0x62,
-	0x65, 0x61, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x81, 0x01,
-	0x0a, 0x0a, 0x46, 0x69, 0x6e, 0x69, 0x73, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x12, 0x37, 0x2e, 0x63,
-	0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62,
-	0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72,
-	0x76, 0x69, 0x63, 0x65, 0x46, 0x69, 0x6e, 0x69, 0x73, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x65,
-	0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x38, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65,
+	0x79, 0x52, 0x0b, 0x61, 0x6e, 0x6e, 0x6f, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x22, 0x47,
+	0x0a, 0x15, 0x53, 0x65, 0x74, 0x4c, 0x6f, 0x67, 0x46, 0x69, 0x6c, 0x65, 0x50, 0x61, 0x74, 0x68,
+	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x2e, 0x0a, 0x0d, 0x6c, 0x6f, 0x67, 0x5f, 0x66,
+	0x69, 0x6c, 0x65, 0x5f, 0x70, 0x61, 0x74, 0x68, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x42, 0x0a,
+	0xfa, 0x42, 0x07, 0x72, 0x05, 0x10, 0x01, 0x18, 0x80, 0x02, 0x52, 0x0b, 0x6c, 0x6f, 0x67, 0x46,
+	0x69, 0x6c, 0x65, 0x50, 0x61, 0x74, 0x68, 0x22, 0x30, 0x0a, 0x16, 0x53, 0x65, 0x74, 0x4c, 0x6f,
+	0x67, 0x46, 0x69, 0x6c, 0x65, 0x50, 0x61, 0x74, 0x68, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
+	0x65, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x09, 0x52, 0x06, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73, 0x32, 0x80, 0x06, 0x0a, 0x0c, 0x42, 0x61,
+	0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x72, 0x0a, 0x05, 0x48, 0x65,
+	0x6c, 0x6c, 0x6f, 0x12, 0x32, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74,
+	0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42,
+	0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x48, 0x65, 0x6c, 0x6c, 0x6f,
+	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x33, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e,
+	0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e,
+	0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x48,
+	0x65, 0x6c, 0x6c, 0x6f, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x78,
+	0x0a, 0x07, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x12, 0x34, 0x2e, 0x63, 0x31, 0x2e, 0x63,
+	0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f,
+	0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63,
+	0x65, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
+	0x35, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70,
+	0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e,
+	0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x47, 0x65, 0x74, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x7e, 0x0a, 0x09, 0x48, 0x65, 0x61, 0x72,
+	0x74, 0x62, 0x65, 0x61, 0x74, 0x12, 0x36, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65,
 	0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31,
-	0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x46, 0x69, 0x6e,
-	0x69, 0x73, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22,
-	0x00, 0x12, 0x86, 0x01, 0x0a, 0x0b, 0x55, 0x70, 0x6c, 0x6f, 0x61, 0x64, 0x41, 0x73, 0x73, 0x65,
-	0x74, 0x12, 0x38, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72,
-	0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74,
-	0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x55, 0x70, 0x6c, 0x6f, 0x61, 0x64, 0x41,
-	0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x39, 0x2e, 0x63, 0x31,
-	0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61,
-	0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76,
-	0x69, 0x63, 0x65, 0x55, 0x70, 0x6c, 0x6f, 0x61, 0x64, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65,
-	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x28, 0x01, 0x42, 0x37, 0x5a, 0x35, 0x67, 0x69,
-	0x74, 0x6c, 0x61, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x64, 0x75, 0x63, 0x74, 0x6f, 0x6e, 0x65,
-	0x2f, 0x63, 0x31, 0x2f, 0x70, 0x6b, 0x67, 0x2f, 0x70, 0x62, 0x2f, 0x63, 0x31, 0x2f, 0x63, 0x6f,
-	0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2f, 0x62, 0x61, 0x74, 0x6f, 0x6e,
-	0x2f, 0x76, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x48, 0x65, 0x61,
+	0x72, 0x74, 0x62, 0x65, 0x61, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x37, 0x2e,
+	0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e,
+	0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65,
+	0x72, 0x76, 0x69, 0x63, 0x65, 0x48, 0x65, 0x61, 0x72, 0x74, 0x62, 0x65, 0x61, 0x74, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x81, 0x01, 0x0a, 0x0a, 0x46, 0x69, 0x6e,
+	0x69, 0x73, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x12, 0x37, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e,
+	0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e,
+	0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x46,
+	0x69, 0x6e, 0x69, 0x73, 0x68, 0x54, 0x61, 0x73, 0x6b, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x1a, 0x38, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61,
+	0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f,
+	0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x46, 0x69, 0x6e, 0x69, 0x73, 0x68, 0x54, 0x61,
+	0x73, 0x6b, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x86, 0x01, 0x0a,
+	0x0b, 0x55, 0x70, 0x6c, 0x6f, 0x61, 0x64, 0x41, 0x73, 0x73, 0x65, 0x74, 0x12, 0x38, 0x2e, 0x63,
+	0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62,
+	0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72,
+	0x76, 0x69, 0x63, 0x65, 0x55, 0x70, 0x6c, 0x6f, 0x61, 0x64, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x39, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e,
+	0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e, 0x76,
+	0x31, 0x2e, 0x42, 0x61, 0x74, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x55, 0x70,
+	0x6c, 0x6f, 0x61, 0x64, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73,
+	0x65, 0x22, 0x00, 0x28, 0x01, 0x12, 0x75, 0x0a, 0x0e, 0x53, 0x65, 0x74, 0x4c, 0x6f, 0x67, 0x46,
+	0x69, 0x6c, 0x65, 0x50, 0x61, 0x74, 0x68, 0x12, 0x2f, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e,
+	0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2e,
+	0x76, 0x31, 0x2e, 0x53, 0x65, 0x74, 0x4c, 0x6f, 0x67, 0x46, 0x69, 0x6c, 0x65, 0x50, 0x61, 0x74,
+	0x68, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x30, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f,
+	0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2e, 0x62, 0x61, 0x74, 0x6f, 0x6e,
+	0x2e, 0x76, 0x31, 0x2e, 0x53, 0x65, 0x74, 0x4c, 0x6f, 0x67, 0x46, 0x69, 0x6c, 0x65, 0x50, 0x61,
+	0x74, 0x68, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x42, 0x37, 0x5a, 0x35,
+	0x67, 0x69, 0x74, 0x6c, 0x61, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x64, 0x75, 0x63, 0x74, 0x6f,
+	0x6e, 0x65, 0x2f, 0x63, 0x31, 0x2f, 0x70, 0x6b, 0x67, 0x2f, 0x70, 0x62, 0x2f, 0x63, 0x31, 0x2f,
+	0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x61, 0x70, 0x69, 0x2f, 0x62, 0x61, 0x74,
+	0x6f, 0x6e, 0x2f, 0x76, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -2658,7 +2767,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_rawDescGZIP() []byte {
 }
 
 var file_c1_connectorapi_baton_v1_baton_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_connectorapi_baton_v1_baton_proto_msgTypes = make([]protoimpl.MessageInfo, 31)
+var file_c1_connectorapi_baton_v1_baton_proto_msgTypes = make([]protoimpl.MessageInfo, 33)
 var file_c1_connectorapi_baton_v1_baton_proto_goTypes = []interface{}{
 	(Task_Status)(0),                                      // 0: c1.connectorapi.baton.v1.Task.Status
 	(*Task)(nil),                                          // 1: c1.connectorapi.baton.v1.Task
@@ -2672,118 +2781,122 @@ var file_c1_connectorapi_baton_v1_baton_proto_goTypes = []interface{}{
 	(*BatonServiceUploadAssetResponse)(nil),               // 9: c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse
 	(*BatonServiceFinishTaskRequest)(nil),                 // 10: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest
 	(*BatonServiceFinishTaskResponse)(nil),                // 11: c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse
-	(*Task_NoneTask)(nil),                                 // 12: c1.connectorapi.baton.v1.Task.NoneTask
-	(*Task_HelloTask)(nil),                                // 13: c1.connectorapi.baton.v1.Task.HelloTask
-	(*Task_SyncFullTask)(nil),                             // 14: c1.connectorapi.baton.v1.Task.SyncFullTask
-	(*Task_EventFeedTask)(nil),                            // 15: c1.connectorapi.baton.v1.Task.EventFeedTask
-	(*Task_GrantTask)(nil),                                // 16: c1.connectorapi.baton.v1.Task.GrantTask
-	(*Task_RevokeTask)(nil),                               // 17: c1.connectorapi.baton.v1.Task.RevokeTask
-	(*Task_CreateAccountTask)(nil),                        // 18: c1.connectorapi.baton.v1.Task.CreateAccountTask
-	(*Task_CreateResourceTask)(nil),                       // 19: c1.connectorapi.baton.v1.Task.CreateResourceTask
-	(*Task_DeleteResourceTask)(nil),                       // 20: c1.connectorapi.baton.v1.Task.DeleteResourceTask
-	(*Task_RotateCredentialsTask)(nil),                    // 21: c1.connectorapi.baton.v1.Task.RotateCredentialsTask
-	(*Task_CreateTicketTask)(nil),                         // 22: c1.connectorapi.baton.v1.Task.CreateTicketTask
-	(*Task_ListTicketSchemasTask)(nil),                    // 23: c1.connectorapi.baton.v1.Task.ListTicketSchemasTask
-	(*Task_GetTicketTask)(nil),                            // 24: c1.connectorapi.baton.v1.Task.GetTicketTask
-	(*BatonServiceHelloRequest_BuildInfo)(nil),            // 25: c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfo
-	(*BatonServiceHelloRequest_OSInfo)(nil),               // 26: c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfo
-	(*BatonServiceUploadAssetRequest_UploadMetadata)(nil), // 27: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata
-	(*BatonServiceUploadAssetRequest_UploadData)(nil),     // 28: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadData
-	(*BatonServiceUploadAssetRequest_UploadEOF)(nil),      // 29: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF
-	(*BatonServiceFinishTaskRequest_Error)(nil),           // 30: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error
-	(*BatonServiceFinishTaskRequest_Success)(nil),         // 31: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success
-	(*v2.ConnectorMetadata)(nil),                          // 32: c1.connector.v2.ConnectorMetadata
-	(*anypb.Any)(nil),                                     // 33: google.protobuf.Any
-	(*durationpb.Duration)(nil),                           // 34: google.protobuf.Duration
-	(*status.Status)(nil),                                 // 35: google.rpc.Status
-	(*timestamppb.Timestamp)(nil),                         // 36: google.protobuf.Timestamp
-	(*v2.Entitlement)(nil),                                // 37: c1.connector.v2.Entitlement
-	(*v2.Resource)(nil),                                   // 38: c1.connector.v2.Resource
-	(*v2.Grant)(nil),                                      // 39: c1.connector.v2.Grant
-	(*v2.AccountInfo)(nil),                                // 40: c1.connector.v2.AccountInfo
-	(*v2.CredentialOptions)(nil),                          // 41: c1.connector.v2.CredentialOptions
-	(*v2.EncryptionConfig)(nil),                           // 42: c1.connector.v2.EncryptionConfig
-	(*v2.ResourceId)(nil),                                 // 43: c1.connector.v2.ResourceId
-	(*v2.TicketRequest)(nil),                              // 44: c1.connector.v2.TicketRequest
-	(*v2.TicketSchema)(nil),                               // 45: c1.connector.v2.TicketSchema
+	(*SetLogFilePathRequest)(nil),                         // 12: c1.connectorapi.baton.v1.SetLogFilePathRequest
+	(*SetLogFilePathResponse)(nil),                        // 13: c1.connectorapi.baton.v1.SetLogFilePathResponse
+	(*Task_NoneTask)(nil),                                 // 14: c1.connectorapi.baton.v1.Task.NoneTask
+	(*Task_HelloTask)(nil),                                // 15: c1.connectorapi.baton.v1.Task.HelloTask
+	(*Task_SyncFullTask)(nil),                             // 16: c1.connectorapi.baton.v1.Task.SyncFullTask
+	(*Task_EventFeedTask)(nil),                            // 17: c1.connectorapi.baton.v1.Task.EventFeedTask
+	(*Task_GrantTask)(nil),                                // 18: c1.connectorapi.baton.v1.Task.GrantTask
+	(*Task_RevokeTask)(nil),                               // 19: c1.connectorapi.baton.v1.Task.RevokeTask
+	(*Task_CreateAccountTask)(nil),                        // 20: c1.connectorapi.baton.v1.Task.CreateAccountTask
+	(*Task_CreateResourceTask)(nil),                       // 21: c1.connectorapi.baton.v1.Task.CreateResourceTask
+	(*Task_DeleteResourceTask)(nil),                       // 22: c1.connectorapi.baton.v1.Task.DeleteResourceTask
+	(*Task_RotateCredentialsTask)(nil),                    // 23: c1.connectorapi.baton.v1.Task.RotateCredentialsTask
+	(*Task_CreateTicketTask)(nil),                         // 24: c1.connectorapi.baton.v1.Task.CreateTicketTask
+	(*Task_ListTicketSchemasTask)(nil),                    // 25: c1.connectorapi.baton.v1.Task.ListTicketSchemasTask
+	(*Task_GetTicketTask)(nil),                            // 26: c1.connectorapi.baton.v1.Task.GetTicketTask
+	(*BatonServiceHelloRequest_BuildInfo)(nil),            // 27: c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfo
+	(*BatonServiceHelloRequest_OSInfo)(nil),               // 28: c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfo
+	(*BatonServiceUploadAssetRequest_UploadMetadata)(nil), // 29: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata
+	(*BatonServiceUploadAssetRequest_UploadData)(nil),     // 30: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadData
+	(*BatonServiceUploadAssetRequest_UploadEOF)(nil),      // 31: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF
+	(*BatonServiceFinishTaskRequest_Error)(nil),           // 32: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error
+	(*BatonServiceFinishTaskRequest_Success)(nil),         // 33: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success
+	(*v2.ConnectorMetadata)(nil),                          // 34: c1.connector.v2.ConnectorMetadata
+	(*anypb.Any)(nil),                                     // 35: google.protobuf.Any
+	(*durationpb.Duration)(nil),                           // 36: google.protobuf.Duration
+	(*status.Status)(nil),                                 // 37: google.rpc.Status
+	(*timestamppb.Timestamp)(nil),                         // 38: google.protobuf.Timestamp
+	(*v2.Entitlement)(nil),                                // 39: c1.connector.v2.Entitlement
+	(*v2.Resource)(nil),                                   // 40: c1.connector.v2.Resource
+	(*v2.Grant)(nil),                                      // 41: c1.connector.v2.Grant
+	(*v2.AccountInfo)(nil),                                // 42: c1.connector.v2.AccountInfo
+	(*v2.CredentialOptions)(nil),                          // 43: c1.connector.v2.CredentialOptions
+	(*v2.EncryptionConfig)(nil),                           // 44: c1.connector.v2.EncryptionConfig
+	(*v2.ResourceId)(nil),                                 // 45: c1.connector.v2.ResourceId
+	(*v2.TicketRequest)(nil),                              // 46: c1.connector.v2.TicketRequest
+	(*v2.TicketSchema)(nil),                               // 47: c1.connector.v2.TicketSchema
 }
 var file_c1_connectorapi_baton_v1_baton_proto_depIdxs = []int32{
 	0,  // 0: c1.connectorapi.baton.v1.Task.status:type_name -> c1.connectorapi.baton.v1.Task.Status
-	12, // 1: c1.connectorapi.baton.v1.Task.none:type_name -> c1.connectorapi.baton.v1.Task.NoneTask
-	13, // 2: c1.connectorapi.baton.v1.Task.hello:type_name -> c1.connectorapi.baton.v1.Task.HelloTask
-	14, // 3: c1.connectorapi.baton.v1.Task.sync_full:type_name -> c1.connectorapi.baton.v1.Task.SyncFullTask
-	16, // 4: c1.connectorapi.baton.v1.Task.grant:type_name -> c1.connectorapi.baton.v1.Task.GrantTask
-	17, // 5: c1.connectorapi.baton.v1.Task.revoke:type_name -> c1.connectorapi.baton.v1.Task.RevokeTask
-	18, // 6: c1.connectorapi.baton.v1.Task.create_account:type_name -> c1.connectorapi.baton.v1.Task.CreateAccountTask
-	19, // 7: c1.connectorapi.baton.v1.Task.create_resource:type_name -> c1.connectorapi.baton.v1.Task.CreateResourceTask
-	20, // 8: c1.connectorapi.baton.v1.Task.delete_resource:type_name -> c1.connectorapi.baton.v1.Task.DeleteResourceTask
-	21, // 9: c1.connectorapi.baton.v1.Task.rotate_credentials:type_name -> c1.connectorapi.baton.v1.Task.RotateCredentialsTask
-	15, // 10: c1.connectorapi.baton.v1.Task.event_feed:type_name -> c1.connectorapi.baton.v1.Task.EventFeedTask
-	22, // 11: c1.connectorapi.baton.v1.Task.create_ticket_task:type_name -> c1.connectorapi.baton.v1.Task.CreateTicketTask
-	23, // 12: c1.connectorapi.baton.v1.Task.list_ticket_schemas:type_name -> c1.connectorapi.baton.v1.Task.ListTicketSchemasTask
-	24, // 13: c1.connectorapi.baton.v1.Task.get_ticket:type_name -> c1.connectorapi.baton.v1.Task.GetTicketTask
-	25, // 14: c1.connectorapi.baton.v1.BatonServiceHelloRequest.build_info:type_name -> c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfo
-	26, // 15: c1.connectorapi.baton.v1.BatonServiceHelloRequest.os_info:type_name -> c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfo
-	32, // 16: c1.connectorapi.baton.v1.BatonServiceHelloRequest.connector_metadata:type_name -> c1.connector.v2.ConnectorMetadata
-	33, // 17: c1.connectorapi.baton.v1.BatonServiceHelloRequest.annotations:type_name -> google.protobuf.Any
-	33, // 18: c1.connectorapi.baton.v1.BatonServiceHelloResponse.annotations:type_name -> google.protobuf.Any
+	14, // 1: c1.connectorapi.baton.v1.Task.none:type_name -> c1.connectorapi.baton.v1.Task.NoneTask
+	15, // 2: c1.connectorapi.baton.v1.Task.hello:type_name -> c1.connectorapi.baton.v1.Task.HelloTask
+	16, // 3: c1.connectorapi.baton.v1.Task.sync_full:type_name -> c1.connectorapi.baton.v1.Task.SyncFullTask
+	18, // 4: c1.connectorapi.baton.v1.Task.grant:type_name -> c1.connectorapi.baton.v1.Task.GrantTask
+	19, // 5: c1.connectorapi.baton.v1.Task.revoke:type_name -> c1.connectorapi.baton.v1.Task.RevokeTask
+	20, // 6: c1.connectorapi.baton.v1.Task.create_account:type_name -> c1.connectorapi.baton.v1.Task.CreateAccountTask
+	21, // 7: c1.connectorapi.baton.v1.Task.create_resource:type_name -> c1.connectorapi.baton.v1.Task.CreateResourceTask
+	22, // 8: c1.connectorapi.baton.v1.Task.delete_resource:type_name -> c1.connectorapi.baton.v1.Task.DeleteResourceTask
+	23, // 9: c1.connectorapi.baton.v1.Task.rotate_credentials:type_name -> c1.connectorapi.baton.v1.Task.RotateCredentialsTask
+	17, // 10: c1.connectorapi.baton.v1.Task.event_feed:type_name -> c1.connectorapi.baton.v1.Task.EventFeedTask
+	24, // 11: c1.connectorapi.baton.v1.Task.create_ticket_task:type_name -> c1.connectorapi.baton.v1.Task.CreateTicketTask
+	25, // 12: c1.connectorapi.baton.v1.Task.list_ticket_schemas:type_name -> c1.connectorapi.baton.v1.Task.ListTicketSchemasTask
+	26, // 13: c1.connectorapi.baton.v1.Task.get_ticket:type_name -> c1.connectorapi.baton.v1.Task.GetTicketTask
+	27, // 14: c1.connectorapi.baton.v1.BatonServiceHelloRequest.build_info:type_name -> c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfo
+	28, // 15: c1.connectorapi.baton.v1.BatonServiceHelloRequest.os_info:type_name -> c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfo
+	34, // 16: c1.connectorapi.baton.v1.BatonServiceHelloRequest.connector_metadata:type_name -> c1.connector.v2.ConnectorMetadata
+	35, // 17: c1.connectorapi.baton.v1.BatonServiceHelloRequest.annotations:type_name -> google.protobuf.Any
+	35, // 18: c1.connectorapi.baton.v1.BatonServiceHelloResponse.annotations:type_name -> google.protobuf.Any
 	1,  // 19: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.task:type_name -> c1.connectorapi.baton.v1.Task
-	34, // 20: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.next_poll:type_name -> google.protobuf.Duration
-	34, // 21: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.next_heartbeat:type_name -> google.protobuf.Duration
-	33, // 22: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.annotations:type_name -> google.protobuf.Any
-	33, // 23: c1.connectorapi.baton.v1.BatonServiceHeartbeatRequest.annotations:type_name -> google.protobuf.Any
-	34, // 24: c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse.next_heartbeat:type_name -> google.protobuf.Duration
-	33, // 25: c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse.annotations:type_name -> google.protobuf.Any
-	27, // 26: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.metadata:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata
-	28, // 27: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.data:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadData
-	29, // 28: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.eof:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF
-	33, // 29: c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse.annotations:type_name -> google.protobuf.Any
-	35, // 30: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.status:type_name -> google.rpc.Status
-	30, // 31: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.error:type_name -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error
-	31, // 32: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.success:type_name -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success
-	33, // 33: c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse.annotations:type_name -> google.protobuf.Any
-	33, // 34: c1.connectorapi.baton.v1.Task.NoneTask.annotations:type_name -> google.protobuf.Any
-	33, // 35: c1.connectorapi.baton.v1.Task.HelloTask.annotations:type_name -> google.protobuf.Any
-	33, // 36: c1.connectorapi.baton.v1.Task.SyncFullTask.annotations:type_name -> google.protobuf.Any
-	33, // 37: c1.connectorapi.baton.v1.Task.EventFeedTask.annotations:type_name -> google.protobuf.Any
-	36, // 38: c1.connectorapi.baton.v1.Task.EventFeedTask.start_at:type_name -> google.protobuf.Timestamp
-	37, // 39: c1.connectorapi.baton.v1.Task.GrantTask.entitlement:type_name -> c1.connector.v2.Entitlement
-	38, // 40: c1.connectorapi.baton.v1.Task.GrantTask.principal:type_name -> c1.connector.v2.Resource
-	33, // 41: c1.connectorapi.baton.v1.Task.GrantTask.annotations:type_name -> google.protobuf.Any
-	34, // 42: c1.connectorapi.baton.v1.Task.GrantTask.duration:type_name -> google.protobuf.Duration
-	39, // 43: c1.connectorapi.baton.v1.Task.RevokeTask.grant:type_name -> c1.connector.v2.Grant
-	33, // 44: c1.connectorapi.baton.v1.Task.RevokeTask.annotations:type_name -> google.protobuf.Any
-	40, // 45: c1.connectorapi.baton.v1.Task.CreateAccountTask.account_info:type_name -> c1.connector.v2.AccountInfo
-	41, // 46: c1.connectorapi.baton.v1.Task.CreateAccountTask.credential_options:type_name -> c1.connector.v2.CredentialOptions
-	42, // 47: c1.connectorapi.baton.v1.Task.CreateAccountTask.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
-	38, // 48: c1.connectorapi.baton.v1.Task.CreateResourceTask.resource:type_name -> c1.connector.v2.Resource
-	43, // 49: c1.connectorapi.baton.v1.Task.DeleteResourceTask.resource_id:type_name -> c1.connector.v2.ResourceId
-	43, // 50: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.resource_id:type_name -> c1.connector.v2.ResourceId
-	41, // 51: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.credential_options:type_name -> c1.connector.v2.CredentialOptions
-	42, // 52: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
-	44, // 53: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_request:type_name -> c1.connector.v2.TicketRequest
-	45, // 54: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_schema:type_name -> c1.connector.v2.TicketSchema
-	33, // 55: c1.connectorapi.baton.v1.Task.CreateTicketTask.annotations:type_name -> google.protobuf.Any
-	33, // 56: c1.connectorapi.baton.v1.Task.ListTicketSchemasTask.annotations:type_name -> google.protobuf.Any
-	33, // 57: c1.connectorapi.baton.v1.Task.GetTicketTask.annotations:type_name -> google.protobuf.Any
-	33, // 58: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata.annotations:type_name -> google.protobuf.Any
-	33, // 59: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF.annotations:type_name -> google.protobuf.Any
-	33, // 60: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.annotations:type_name -> google.protobuf.Any
-	33, // 61: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.response:type_name -> google.protobuf.Any
-	33, // 62: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.annotations:type_name -> google.protobuf.Any
-	33, // 63: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.response:type_name -> google.protobuf.Any
+	36, // 20: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.next_poll:type_name -> google.protobuf.Duration
+	36, // 21: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.next_heartbeat:type_name -> google.protobuf.Duration
+	35, // 22: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.annotations:type_name -> google.protobuf.Any
+	35, // 23: c1.connectorapi.baton.v1.BatonServiceHeartbeatRequest.annotations:type_name -> google.protobuf.Any
+	36, // 24: c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse.next_heartbeat:type_name -> google.protobuf.Duration
+	35, // 25: c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse.annotations:type_name -> google.protobuf.Any
+	29, // 26: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.metadata:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata
+	30, // 27: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.data:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadData
+	31, // 28: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.eof:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF
+	35, // 29: c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse.annotations:type_name -> google.protobuf.Any
+	37, // 30: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.status:type_name -> google.rpc.Status
+	32, // 31: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.error:type_name -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error
+	33, // 32: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.success:type_name -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success
+	35, // 33: c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse.annotations:type_name -> google.protobuf.Any
+	35, // 34: c1.connectorapi.baton.v1.Task.NoneTask.annotations:type_name -> google.protobuf.Any
+	35, // 35: c1.connectorapi.baton.v1.Task.HelloTask.annotations:type_name -> google.protobuf.Any
+	35, // 36: c1.connectorapi.baton.v1.Task.SyncFullTask.annotations:type_name -> google.protobuf.Any
+	35, // 37: c1.connectorapi.baton.v1.Task.EventFeedTask.annotations:type_name -> google.protobuf.Any
+	38, // 38: c1.connectorapi.baton.v1.Task.EventFeedTask.start_at:type_name -> google.protobuf.Timestamp
+	39, // 39: c1.connectorapi.baton.v1.Task.GrantTask.entitlement:type_name -> c1.connector.v2.Entitlement
+	40, // 40: c1.connectorapi.baton.v1.Task.GrantTask.principal:type_name -> c1.connector.v2.Resource
+	35, // 41: c1.connectorapi.baton.v1.Task.GrantTask.annotations:type_name -> google.protobuf.Any
+	36, // 42: c1.connectorapi.baton.v1.Task.GrantTask.duration:type_name -> google.protobuf.Duration
+	41, // 43: c1.connectorapi.baton.v1.Task.RevokeTask.grant:type_name -> c1.connector.v2.Grant
+	35, // 44: c1.connectorapi.baton.v1.Task.RevokeTask.annotations:type_name -> google.protobuf.Any
+	42, // 45: c1.connectorapi.baton.v1.Task.CreateAccountTask.account_info:type_name -> c1.connector.v2.AccountInfo
+	43, // 46: c1.connectorapi.baton.v1.Task.CreateAccountTask.credential_options:type_name -> c1.connector.v2.CredentialOptions
+	44, // 47: c1.connectorapi.baton.v1.Task.CreateAccountTask.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
+	40, // 48: c1.connectorapi.baton.v1.Task.CreateResourceTask.resource:type_name -> c1.connector.v2.Resource
+	45, // 49: c1.connectorapi.baton.v1.Task.DeleteResourceTask.resource_id:type_name -> c1.connector.v2.ResourceId
+	45, // 50: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.resource_id:type_name -> c1.connector.v2.ResourceId
+	43, // 51: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.credential_options:type_name -> c1.connector.v2.CredentialOptions
+	44, // 52: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
+	46, // 53: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_request:type_name -> c1.connector.v2.TicketRequest
+	47, // 54: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_schema:type_name -> c1.connector.v2.TicketSchema
+	35, // 55: c1.connectorapi.baton.v1.Task.CreateTicketTask.annotations:type_name -> google.protobuf.Any
+	35, // 56: c1.connectorapi.baton.v1.Task.ListTicketSchemasTask.annotations:type_name -> google.protobuf.Any
+	35, // 57: c1.connectorapi.baton.v1.Task.GetTicketTask.annotations:type_name -> google.protobuf.Any
+	35, // 58: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata.annotations:type_name -> google.protobuf.Any
+	35, // 59: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF.annotations:type_name -> google.protobuf.Any
+	35, // 60: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.annotations:type_name -> google.protobuf.Any
+	35, // 61: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.response:type_name -> google.protobuf.Any
+	35, // 62: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.annotations:type_name -> google.protobuf.Any
+	35, // 63: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.response:type_name -> google.protobuf.Any
 	2,  // 64: c1.connectorapi.baton.v1.BatonService.Hello:input_type -> c1.connectorapi.baton.v1.BatonServiceHelloRequest
 	4,  // 65: c1.connectorapi.baton.v1.BatonService.GetTask:input_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskRequest
 	6,  // 66: c1.connectorapi.baton.v1.BatonService.Heartbeat:input_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatRequest
 	10, // 67: c1.connectorapi.baton.v1.BatonService.FinishTask:input_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest
 	8,  // 68: c1.connectorapi.baton.v1.BatonService.UploadAsset:input_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest
-	3,  // 69: c1.connectorapi.baton.v1.BatonService.Hello:output_type -> c1.connectorapi.baton.v1.BatonServiceHelloResponse
-	5,  // 70: c1.connectorapi.baton.v1.BatonService.GetTask:output_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskResponse
-	7,  // 71: c1.connectorapi.baton.v1.BatonService.Heartbeat:output_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse
-	11, // 72: c1.connectorapi.baton.v1.BatonService.FinishTask:output_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse
-	9,  // 73: c1.connectorapi.baton.v1.BatonService.UploadAsset:output_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse
-	69, // [69:74] is the sub-list for method output_type
-	64, // [64:69] is the sub-list for method input_type
+	12, // 69: c1.connectorapi.baton.v1.BatonService.SetLogFilePath:input_type -> c1.connectorapi.baton.v1.SetLogFilePathRequest
+	3,  // 70: c1.connectorapi.baton.v1.BatonService.Hello:output_type -> c1.connectorapi.baton.v1.BatonServiceHelloResponse
+	5,  // 71: c1.connectorapi.baton.v1.BatonService.GetTask:output_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskResponse
+	7,  // 72: c1.connectorapi.baton.v1.BatonService.Heartbeat:output_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse
+	11, // 73: c1.connectorapi.baton.v1.BatonService.FinishTask:output_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse
+	9,  // 74: c1.connectorapi.baton.v1.BatonService.UploadAsset:output_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse
+	13, // 75: c1.connectorapi.baton.v1.BatonService.SetLogFilePath:output_type -> c1.connectorapi.baton.v1.SetLogFilePathResponse
+	70, // [70:76] is the sub-list for method output_type
+	64, // [64:70] is the sub-list for method input_type
 	64, // [64:64] is the sub-list for extension type_name
 	64, // [64:64] is the sub-list for extension extendee
 	0,  // [0:64] is the sub-list for field type_name
@@ -2928,7 +3041,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_NoneTask); i {
+			switch v := v.(*SetLogFilePathRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2940,7 +3053,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_HelloTask); i {
+			switch v := v.(*SetLogFilePathResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2952,7 +3065,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_SyncFullTask); i {
+			switch v := v.(*Task_NoneTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2964,7 +3077,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_EventFeedTask); i {
+			switch v := v.(*Task_HelloTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2976,7 +3089,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_GrantTask); i {
+			switch v := v.(*Task_SyncFullTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -2988,7 +3101,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_RevokeTask); i {
+			switch v := v.(*Task_EventFeedTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3000,7 +3113,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_CreateAccountTask); i {
+			switch v := v.(*Task_GrantTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3012,7 +3125,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_CreateResourceTask); i {
+			switch v := v.(*Task_RevokeTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3024,7 +3137,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_DeleteResourceTask); i {
+			switch v := v.(*Task_CreateAccountTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3036,7 +3149,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_RotateCredentialsTask); i {
+			switch v := v.(*Task_CreateResourceTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3048,7 +3161,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_CreateTicketTask); i {
+			switch v := v.(*Task_DeleteResourceTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3060,7 +3173,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_ListTicketSchemasTask); i {
+			switch v := v.(*Task_RotateCredentialsTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3072,7 +3185,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*Task_GetTicketTask); i {
+			switch v := v.(*Task_CreateTicketTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3084,7 +3197,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatonServiceHelloRequest_BuildInfo); i {
+			switch v := v.(*Task_ListTicketSchemasTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3096,7 +3209,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatonServiceHelloRequest_OSInfo); i {
+			switch v := v.(*Task_GetTicketTask); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3108,7 +3221,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatonServiceUploadAssetRequest_UploadMetadata); i {
+			switch v := v.(*BatonServiceHelloRequest_BuildInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3120,7 +3233,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatonServiceUploadAssetRequest_UploadData); i {
+			switch v := v.(*BatonServiceHelloRequest_OSInfo); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3132,7 +3245,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatonServiceUploadAssetRequest_UploadEOF); i {
+			switch v := v.(*BatonServiceUploadAssetRequest_UploadMetadata); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3144,7 +3257,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BatonServiceFinishTaskRequest_Error); i {
+			switch v := v.(*BatonServiceUploadAssetRequest_UploadData); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -3156,6 +3269,30 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			}
 		}
 		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*BatonServiceUploadAssetRequest_UploadEOF); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*BatonServiceFinishTaskRequest_Error); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_c1_connectorapi_baton_v1_baton_proto_msgTypes[32].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*BatonServiceFinishTaskRequest_Success); i {
 			case 0:
 				return &v.state
@@ -3198,7 +3335,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_c1_connectorapi_baton_v1_baton_proto_rawDesc,
 			NumEnums:      1,
-			NumMessages:   31,
+			NumMessages:   33,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

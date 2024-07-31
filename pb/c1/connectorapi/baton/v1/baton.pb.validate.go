@@ -2556,6 +2556,223 @@ var _ interface {
 	ErrorName() string
 } = BatonServiceFinishTaskResponseValidationError{}
 
+// Validate checks the field values on SetLogFilePathRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *SetLogFilePathRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on SetLogFilePathRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// SetLogFilePathRequestMultiError, or nil if none found.
+func (m *SetLogFilePathRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *SetLogFilePathRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if l := utf8.RuneCountInString(m.GetLogFilePath()); l < 1 || l > 256 {
+		err := SetLogFilePathRequestValidationError{
+			field:  "LogFilePath",
+			reason: "value length must be between 1 and 256 runes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return SetLogFilePathRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// SetLogFilePathRequestMultiError is an error wrapping multiple validation
+// errors returned by SetLogFilePathRequest.ValidateAll() if the designated
+// constraints aren't met.
+type SetLogFilePathRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m SetLogFilePathRequestMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m SetLogFilePathRequestMultiError) AllErrors() []error { return m }
+
+// SetLogFilePathRequestValidationError is the validation error returned by
+// SetLogFilePathRequest.Validate if the designated constraints aren't met.
+type SetLogFilePathRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e SetLogFilePathRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e SetLogFilePathRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e SetLogFilePathRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e SetLogFilePathRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e SetLogFilePathRequestValidationError) ErrorName() string {
+	return "SetLogFilePathRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e SetLogFilePathRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sSetLogFilePathRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = SetLogFilePathRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = SetLogFilePathRequestValidationError{}
+
+// Validate checks the field values on SetLogFilePathResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *SetLogFilePathResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on SetLogFilePathResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// SetLogFilePathResponseMultiError, or nil if none found.
+func (m *SetLogFilePathResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *SetLogFilePathResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Status
+
+	if len(errors) > 0 {
+		return SetLogFilePathResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// SetLogFilePathResponseMultiError is an error wrapping multiple validation
+// errors returned by SetLogFilePathResponse.ValidateAll() if the designated
+// constraints aren't met.
+type SetLogFilePathResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m SetLogFilePathResponseMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m SetLogFilePathResponseMultiError) AllErrors() []error { return m }
+
+// SetLogFilePathResponseValidationError is the validation error returned by
+// SetLogFilePathResponse.Validate if the designated constraints aren't met.
+type SetLogFilePathResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e SetLogFilePathResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e SetLogFilePathResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e SetLogFilePathResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e SetLogFilePathResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e SetLogFilePathResponseValidationError) ErrorName() string {
+	return "SetLogFilePathResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e SetLogFilePathResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sSetLogFilePathResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = SetLogFilePathResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = SetLogFilePathResponseValidationError{}
+
 // Validate checks the field values on Task_NoneTask with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.

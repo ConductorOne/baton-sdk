@@ -23,6 +23,8 @@ service BatonService {
 
   rpc FinishTask(BatonServiceFinishTaskRequest) returns (BatonServiceFinishTaskResponse) {}
   rpc UploadAsset(stream BatonServiceUploadAssetRequest) returns (BatonServiceUploadAssetResponse) {}
+
+  rpc SetLogFilePath(SetLogFilePathRequest) returns (SetLogFilePathResponse) {}
 }
 
 message Task {
@@ -280,4 +282,12 @@ message BatonServiceFinishTaskRequest {
 
 message BatonServiceFinishTaskResponse {
   repeated google.protobuf.Any annotations = 1;
+}
+
+message SetLogFilePathRequest {
+  string log_file_path = 1 [(validate.rules).string = {min_len: 1, max_len: 256 }];
+}
+
+message SetLogFilePathResponse {
+  string status = 1;
 }
