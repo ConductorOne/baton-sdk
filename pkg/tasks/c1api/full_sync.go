@@ -38,9 +38,7 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string, debug bo
 	var logfile *os.File
 	var err error
 	if debug {
-		logpath := filepath.Dir(c1zPath)
-
-		logfile, err = os.Create(filepath.Join(logpath, "debug.log"))
+		logfile, err = os.Create(filepath.Join(c1zPath, "debug.log"))
 		if err != nil {
 			return err
 		}
@@ -120,6 +118,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return err
 	}
 
+	// FIXME(shackra): pass c.task.Debug instead of just `true`
 	err = c.sync(ctx, c1zPath, true)
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
