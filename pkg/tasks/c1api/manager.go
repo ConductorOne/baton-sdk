@@ -195,7 +195,7 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 }
 
 func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
-	l := ctxzap.Extract(ctx)
+	l := ctxzap.Extract(ctx) // NOTE(shackra): is the ctx a fresh one in every call to Process?
 	if task == nil {
 		l.Debug("c1_api_task_manager.Process(): process called with nil task -- continuing")
 		return nil
@@ -250,6 +250,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newListSchemasTaskHandler(task, tHelpers)
 	case taskTypes.GetTicketType:
 		handler = newGetTicketTaskHandler(task, tHelpers)
+	case taskTypes.SetLogFileType:
+		handler = newSetLogFilePathTaskHandler()
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
 	}
