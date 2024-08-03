@@ -33,6 +33,7 @@ type Reader interface {
 type Writer interface {
 	Reader
 	StartSync(ctx context.Context) (string, bool, error)
+	StartNewSync(ctx context.Context) (string, error)
 	CurrentSyncStep(ctx context.Context) (string, error)
 	CheckpointSync(ctx context.Context, syncToken string) error
 	EndSync(ctx context.Context) error

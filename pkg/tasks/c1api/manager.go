@@ -47,6 +47,7 @@ type c1ApiTaskManager struct {
 	queue         []*v1.Task
 	serviceClient BatonServiceClient
 	tempDir       string
+	skipFullSync  bool
 }
 
 // getHeartbeatInterval returns an appropriate heartbeat interval. If the interval is 0, it will return the default heartbeat interval.
@@ -222,7 +223,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	var handler tasks.TaskHandler
 	switch tasks.GetType(task) {
 	case taskTypes.FullSyncType:
-		handler = newFullSyncTaskHandler(task, tHelpers)
+		handler = newFullSyncTaskHandler(task, tHelpers, c.skipFullSync)
 
 	case taskTypes.HelloType:
 		handler = newHelloTaskHandler(task, tHelpers)
@@ -263,7 +264,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	return nil
 }
 
-func NewC1TaskManager(ctx context.Context, clientID string, clientSecret string, tempDir string) (tasks.Manager, error) {
+func NewC1TaskManager(ctx context.Context, clientID string, clientSecret string, tempDir string, skipFullSync bool) (tasks.Manager, error) {
 	serviceClient, err := newServiceClient(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, err
@@ -272,5 +273,6 @@ func NewC1TaskManager(ctx context.Context, clientID string, clientSecret string,
 	return &c1ApiTaskManager{
 		serviceClient: serviceClient,
 		tempDir:       tempDir,
+		skipFullSync:  skipFullSync,
 	}, nil
 }
