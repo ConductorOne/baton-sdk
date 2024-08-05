@@ -56,7 +56,13 @@ type (
 	}
 )
 
-func NewBaseHttpClient(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
+func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
+	return &BaseHttpClient{
+		HttpClient: httpClient,
+	}
+}
+
+func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
 	var (
 		// Default values: logDebug: false cacheTTL: 600 seconds cacheMaxSize: 2048 MB
