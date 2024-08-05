@@ -26,7 +26,7 @@ var ctx = context.Background()
 
 func TestWrapper_NewBaseHttpClient(t *testing.T) {
 	httpClient := http.DefaultClient
-	client, err := NewBaseHttpClient(ctx, httpClient)
+	client, err := NewBaseHttpClientWithContext(ctx, httpClient)
 	require.NoError(t, err)
 	require.Equal(t, httpClient, client.HttpClient)
 }
@@ -388,7 +388,7 @@ func TestWrapper_NewRequest(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			client, err := NewBaseHttpClient(ctx, http.DefaultClient)
+			client, err := NewBaseHttpClientWithContext(ctx, http.DefaultClient)
 			assert.Nil(t, err)
 
 			req, err := client.NewRequest(context.Background(), tc.method, u, tc.options...)
@@ -471,7 +471,7 @@ func TestWrapperConfig(t *testing.T) {
 			}
 
 			ctx = context.WithValue(ctx, ContextKey{}, tc.cc)
-			client, err := NewBaseHttpClient(ctx, http.DefaultClient)
+			client, err := NewBaseHttpClientWithContext(ctx, http.DefaultClient)
 			require.NoError(t, err)
 
 			req, err := client.NewRequest(context.Background(), tc.method, u, tc.options...)
