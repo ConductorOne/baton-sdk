@@ -13,6 +13,7 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,10 +22,12 @@ type example struct {
 	Age  int    `json:"age"`
 }
 
+var ctx = context.Background()
+
 func TestWrapper_NewBaseHttpClient(t *testing.T) {
 	httpClient := http.DefaultClient
-	client := NewBaseHttpClient(httpClient)
-
+	client, err := NewBaseHttpClientWithContext(ctx, httpClient)
+	require.NoError(t, err)
 	require.Equal(t, httpClient, client.HttpClient)
 }
 
@@ -385,7 +388,91 @@ func TestWrapper_NewRequest(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			client := NewBaseHttpClient(http.DefaultClient)
+			client, err := NewBaseHttpClientWithContext(ctx, http.DefaultClient)
+			assert.Nil(t, err)
+
+			req, err := client.NewRequest(context.Background(), tc.method, u, tc.options...)
+			require.Equal(t, tc.expected.err, err)
+			require.Equal(t, tc.expected.method, req.Method)
+			require.Equal(t, tc.expected.url, req.URL.String())
+			require.Equal(t, tc.expected.headers, req.Header)
+			require.Equal(t, tc.expected.body, req.Body)
+		})
+	}
+}
+
+func TestWrapperConfig(t *testing.T) {
+	type expected struct {
+		method  string
+		url     string
+		headers http.Header
+		body    io.ReadCloser
+		err     error
+	}
+
+	exampleBody := example{Name: "John", Age: 30}
+	exampleBodyBuffer := new(bytes.Buffer)
+	err := json.NewEncoder(exampleBodyBuffer).Encode(exampleBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	test := []struct {
+		name     string
+		method   string
+		url      string
+		options  []RequestOption
+		cc       CacheConfig
+		expected expected
+	}{
+		{
+			name:    "GET request with no options",
+			method:  http.MethodGet,
+			url:     "http://example.com",
+			options: nil,
+			cc: CacheConfig{
+				LogDebug:     true,
+				CacheTTL:     int32(1000),
+				CacheMaxSize: int(1024),
+			},
+			expected: expected{
+				method:  http.MethodGet,
+				url:     "http://example.com",
+				headers: http.Header{},
+				body:    nil,
+				err:     nil,
+			},
+		},
+		{
+			name:    "POST request with JSON body",
+			method:  http.MethodPost,
+			url:     "http://example.com",
+			options: []RequestOption{WithJSONBody(exampleBody), WithAcceptJSONHeader()},
+			cc: CacheConfig{
+				LogDebug:     true,
+				CacheTTL:     int32(2000),
+				CacheMaxSize: int(0),
+			},
+			expected: expected{
+				method:  http.MethodPost,
+				url:     "http://example.com",
+				headers: http.Header{"Accept": []string{"application/json"}, "Content-Type": []string{"application/json"}},
+				body:    io.NopCloser(exampleBodyBuffer),
+				err:     nil,
+			},
+		},
+	}
+
+	for _, tc := range test {
+		t.Run(tc.name, func(t *testing.T) {
+			u, err := url.Parse(tc.url)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			ctx = context.WithValue(ctx, ContextKey{}, tc.cc)
+			client, err := NewBaseHttpClientWithContext(ctx, http.DefaultClient)
+			require.NoError(t, err)
 
 			req, err := client.NewRequest(context.Background(), tc.method, u, tc.options...)
 			require.Equal(t, tc.expected.err, err)

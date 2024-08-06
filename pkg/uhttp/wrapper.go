@@ -13,6 +13,8 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/helpers"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -40,17 +42,52 @@ type (
 		NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error)
 	}
 	BaseHttpClient struct {
-		HttpClient *http.Client
+		HttpClient    *http.Client
+		baseHttpCache GoCache
 	}
 
 	DoOption      func(resp *WrapperResponse) error
 	RequestOption func() (io.ReadWriter, map[string]string, error)
+	ContextKey    struct{}
+	CacheConfig   struct {
+		LogDebug     bool
+		CacheTTL     int32
+		CacheMaxSize int
+	}
 )
 
 func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 	return &BaseHttpClient{
 		HttpClient: httpClient,
 	}
+}
+
+func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
+	l := ctxzap.Extract(ctx)
+	var (
+		config = CacheConfig{
+			LogDebug:     l.Level().Enabled(zap.DebugLevel),
+			CacheTTL:     int32(3600), // seconds
+			CacheMaxSize: int(2048),   // MB
+		}
+		ok bool
+	)
+	if v := ctx.Value(ContextKey{}); v != nil {
+		if config, ok = v.(CacheConfig); !ok {
+			return nil, fmt.Errorf("error casting config values from context")
+		}
+	}
+
+	cache, err := NewGoCache(ctx, config)
+	if err != nil {
+		l.Error("error creating http cache", zap.Error(err))
+		return nil, err
+	}
+
+	return &BaseHttpClient{
+		HttpClient:    httpClient,
+		baseHttpCache: cache,
+	}, nil
 }
 
 // WithJSONResponse is a wrapper that marshals the returned response body into
@@ -144,6 +181,29 @@ func WithResponse(response interface{}) DoOption {
 }
 
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
+	var (
+		cacheKey string
+		err      error
+	)
+	l := ctxzap.Extract(req.Context())
+	if req.Method == http.MethodGet {
+		cacheKey, err = CreateCacheKey(req)
+		if err != nil {
+			return nil, err
+		}
+
+		resp, err := c.baseHttpCache.Get(cacheKey)
+		if err != nil {
+			return nil, err
+		}
+		if resp != nil {
+			l.Debug("http cache hit", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()))
+			return resp, nil
+		}
+
+		l.Debug("http cache miss", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()))
+	}
+
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
 		var urlErr *url.Error
@@ -158,11 +218,8 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return nil, err
 	}
 
+	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	err = resp.Body.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -200,6 +257,14 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return resp, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
+	}
+
+	if req.Method == http.MethodGet {
+		err := c.baseHttpCache.Set(cacheKey, resp)
+		if err != nil {
+			l.Debug("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(err))
+			return resp, err
+		}
 	}
 
 	return resp, err
