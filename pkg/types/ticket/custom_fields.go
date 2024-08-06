@@ -111,6 +111,13 @@ func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interfa
 
 		return PickMultipleObjectValuesField(id, ret), nil
 
+	case *v2.TicketCustomField_NumberValue:
+		v, ok := value.(int32)
+		if !ok {
+			return nil, fmt.Errorf("unexpected value type for custom field: %s %T", id, v)
+		}
+		return NumberField(id, v), nil
+
 	default:
 		return nil, errors.New("error: unknown custom field type")
 	}
@@ -204,6 +211,17 @@ func GetPickMultipleObjectValues(field *v2.TicketCustomField) ([]*v2.TicketCusto
 	return v.PickMultipleObjectValues.Values, nil
 }
 
+func GetNumberValue(field *v2.TicketCustomField) (int32, error) {
+	if field == nil {
+		return 0, ErrFieldNil
+	}
+	v, ok := field.GetValue().(*v2.TicketCustomField_NumberValue)
+	if !ok {
+		return 0, errors.New("error: expected number value")
+	}
+	return v.NumberValue.Value, nil
+}
+
 // GetCustomFieldValue returns the interface{} of the value set on a given custom field.
 func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 	if field == nil {
@@ -234,6 +252,8 @@ func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 	case *v2.TicketCustomField_PickMultipleObjectValues:
 		return v.PickMultipleObjectValues.GetValues(), nil
 
+	case *v2.TicketCustomField_NumberValue:
+		return v.NumberValue.GetValue(), nil
 	default:
 		return false, errors.New("error: unknown custom field type")
 	}
@@ -511,6 +531,13 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
+		case *v2.TicketCustomField_NumberValue:
+			tv, tok := ticketCf.GetValue().(*v2.TicketCustomField_NumberValue)
+			if !tok {
+				l.Debug("error: invalid ticket: expected number value for field", zap.String("custom_field_id", cf.Id), zap.Any("value", tv))
+				return false, nil
+			}
+
 		default:
 			l.Debug("error: invalid schema: unknown custom field type", zap.Any("custom_field_type", v))
 			return false, errors.New("error: invalid schema: unknown custom field type")
@@ -699,6 +726,28 @@ func PickMultipleObjectValuesField(id string, values []*v2.TicketCustomFieldObje
 		Value: &v2.TicketCustomField_PickMultipleObjectValues{
 			PickMultipleObjectValues: &v2.TicketCustomFieldPickMultipleObjectValues{
 				Values: values,
+			},
+		},
+	}
+}
+
+func NumberFieldSchema(id, displayName string, required bool) *v2.TicketCustomField {
+	return &v2.TicketCustomField{
+		Id:          id,
+		DisplayName: displayName,
+		Required:    required,
+		Value: &v2.TicketCustomField_NumberValue{
+			NumberValue: &v2.TicketCustomFieldNumberValue{},
+		},
+	}
+}
+
+func NumberField(id string, value int32) *v2.TicketCustomField {
+	return &v2.TicketCustomField{
+		Id: id,
+		Value: &v2.TicketCustomField_NumberValue{
+			NumberValue: &v2.TicketCustomFieldNumberValue{
+				Value: value,
 			},
 		},
 	}
