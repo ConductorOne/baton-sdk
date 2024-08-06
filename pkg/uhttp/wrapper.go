@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -145,6 +146,15 @@ func WithResponse(response interface{}) DoOption {
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
 	resp, err := c.HttpClient.Do(req)
 	if err != nil {
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			if urlErr.Timeout() {
+				return nil, status.Error(codes.DeadlineExceeded, fmt.Sprintf("request timeout: %v", urlErr.URL))
+			}
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, status.Error(codes.DeadlineExceeded, "request timeout")
+		}
 		return nil, err
 	}
 
@@ -174,6 +184,8 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	switch resp.StatusCode {
+	case http.StatusRequestTimeout:
+		return resp, status.Error(codes.DeadlineExceeded, resp.Status)
 	case http.StatusTooManyRequests:
 		return resp, status.Error(codes.Unavailable, resp.Status)
 	case http.StatusNotFound:
