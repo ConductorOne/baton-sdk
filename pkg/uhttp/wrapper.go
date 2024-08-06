@@ -57,9 +57,9 @@ type (
 )
 
 func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
-	return &BaseHttpClient{
-		HttpClient: httpClient,
-	}
+	ctx := context.Background()
+	client, _ := NewBaseHttpClientWithContext(ctx, httpClient)
+	return client
 }
 
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
