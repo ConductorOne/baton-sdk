@@ -50,6 +50,10 @@ func (m *localCreateTicket) loadTicketTemplate(ctx context.Context) (*ticketTemp
 	return template, nil
 }
 
+func (m *localCreateTicket) ShouldDebug() bool {
+	return false
+}
+
 func (m *localCreateTicket) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
@@ -141,6 +145,10 @@ type localGetTicket struct {
 	ticketId string
 }
 
+func (m *localGetTicket) ShouldDebug() bool {
+	return false
+}
+
 func (m *localGetTicket) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
@@ -179,6 +187,10 @@ func NewGetTicket(ctx context.Context, ticketId string) tasks.Manager {
 
 type localListTicketSchemas struct {
 	o sync.Once
+}
+
+func (m *localListTicketSchemas) ShouldDebug() bool {
+	return false
 }
 
 func (m *localListTicketSchemas) Next(ctx context.Context) (*v1.Task, time.Duration, error) {

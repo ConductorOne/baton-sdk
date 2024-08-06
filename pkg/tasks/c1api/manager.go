@@ -42,11 +42,12 @@ var (
 )
 
 type c1ApiTaskManager struct {
-	mtx           sync.Mutex
-	started       bool
-	queue         []*v1.Task
-	serviceClient BatonServiceClient
-	tempDir       string
+	mtx               sync.Mutex
+	started           bool
+	queue             []*v1.Task
+	serviceClient     BatonServiceClient
+	tempDir           string
+	runnerShouldDebug bool
 }
 
 // getHeartbeatInterval returns an appropriate heartbeat interval. If the interval is 0, it will return the default heartbeat interval.
@@ -194,6 +195,10 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 	return err
 }
 
+func (c *c1ApiTaskManager) ShouldDebug() bool {
+	return c.runnerShouldDebug
+}
+
 func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx) // NOTE(shackra): is the ctx a fresh one in every call to Process?
 	if task == nil {
@@ -251,7 +256,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	case taskTypes.GetTicketType:
 		handler = newGetTicketTaskHandler(task, tHelpers)
 	case taskTypes.SetLogFileType:
-		handler = newSetLogFilePathTaskHandler()
+		handler = newSetLogFilePathTaskHandler(c)
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
 	}

@@ -1,14 +1,18 @@
 package c1api
 
-import "context"
+import (
+	"context"
+)
 
-type debugHandler struct{}
+type debugHandler struct {
+	taskmanager *c1ApiTaskManager
+}
 
-func newSetLogFilePathTaskHandler() *debugHandler {
-	return &debugHandler{}
+func newSetLogFilePathTaskHandler(tm *c1ApiTaskManager) *debugHandler {
+	return &debugHandler{taskmanager: tm}
 }
 
 func (c *debugHandler) HandleTask(ctx context.Context) error {
-	// NOTE(shackra): update context here?
+	c.taskmanager.runnerShouldDebug = true
 	return nil
 }

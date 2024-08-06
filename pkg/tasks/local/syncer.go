@@ -26,6 +26,10 @@ func WithTmpDir(tmpDir string) Option {
 	}
 }
 
+func (m *localSyncer) ShouldDebug() bool {
+	return false
+}
+
 func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {

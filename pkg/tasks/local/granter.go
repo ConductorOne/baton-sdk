@@ -20,6 +20,10 @@ type localGranter struct {
 	principalType string
 }
 
+func (m *localGranter) ShouldDebug() bool {
+	return false
+}
+
 func (m *localGranter) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {

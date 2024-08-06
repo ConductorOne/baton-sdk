@@ -5,11 +5,9 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -32,36 +30,14 @@ type fullSyncTaskHandler struct {
 	helpers fullSyncHelpers
 }
 
-func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string, debug bool) error {
+func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
-
-	var logfile *os.File
-	var err error
-	if debug {
-		logfile, err = os.Create(filepath.Join(c1zPath, "debug.log"))
-		if err != nil {
-			return err
-		}
-		defer logfile.Close()
-
-		writeSyncer := zapcore.AddSync(logfile)
-		encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
-		core := zapcore.NewCore(encoder, writeSyncer, zapcore.InfoLevel)
-
-		l = l.WithOptions(zap.IncreaseLevel(zapcore.DebugLevel), zap.WrapCore(func(c zapcore.Core) zapcore.Core {
-			return zapcore.NewTee(c, core)
-		}))
-
-		ctx = ctxzap.ToContext(ctx, l)
-	}
 
 	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), sdkSync.WithC1ZPath(c1zPath), sdkSync.WithTmpDir(c.helpers.TempDir()))
 	if err != nil {
 		l.Error("failed to create syncer", zap.Error(err))
 		return err
 	}
-
-	// TODO(shackra): Change log-level to debug if `debug` is true
 
 	// TODO(jirwin): Should we attempt to retry at all before failing the task?
 	err = syncer.Sync(ctx)
@@ -118,8 +94,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return err
 	}
 
-	// FIXME(shackra): pass c.task.Debug instead of just `true`
-	err = c.sync(ctx, c1zPath, true)
+	err = c.sync(ctx, c1zPath)
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, err)
