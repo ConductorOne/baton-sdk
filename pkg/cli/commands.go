@@ -79,6 +79,9 @@ func MakeMainCommand(
 					v.GetString("client-secret"),
 				),
 			)
+			if v.GetBool("skip-full-sync") {
+				opts = append(opts, connectorrunner.WithFullSyncDisabled())
+			}
 		} else {
 			switch {
 			case v.GetString("grant-entitlement") != "":
@@ -201,6 +204,10 @@ func MakeGRPCServerCommand(
 
 		if v.GetBool("ticketing") {
 			copts = append(copts, connector.WithTicketingEnabled())
+		}
+
+		if v.GetBool("skip-full-sync") {
+			copts = append(copts, connector.WithFullSyncDisabled())
 		}
 
 		switch {

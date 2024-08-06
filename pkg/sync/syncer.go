@@ -52,6 +52,7 @@ type syncer struct {
 	transitionHandler func(s Action)
 	progressHandler   func(p *Progress)
 	tmpDir            string
+	skipFullSync      bool
 
 	skipEGForResourceType map[string]bool
 }
@@ -115,6 +116,10 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 // an action is completed, it is popped off of the queue. Before processing each action, we checkpoint the state object
 // into the datasource. This allows for graceful resumes if a sync is interrupted.
 func (s *syncer) Sync(ctx context.Context) error {
+	if s.skipFullSync {
+		return s.SkipSync(ctx)
+	}
+
 	l := ctxzap.Extract(ctx)
 
 	runCtx := ctx
@@ -256,6 +261,46 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 
 	l.Info("Sync complete.")
+
+	err = s.store.Cleanup(ctx)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *syncer) SkipSync(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
+	l.Info("skipping sync")
+
+	var runCanc context.CancelFunc
+	if s.runDuration > 0 {
+		_, runCanc = context.WithTimeout(ctx, s.runDuration)
+	}
+	if runCanc != nil {
+		defer runCanc()
+	}
+
+	err := s.loadStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
+	if err != nil {
+		return err
+	}
+
+	_, err = s.store.StartNewSync(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = s.store.EndSync(ctx)
+	if err != nil {
+		return err
+	}
 
 	err = s.store.Cleanup(ctx)
 	if err != nil {
@@ -1453,6 +1498,12 @@ func WithC1ZPath(path string) SyncOpt {
 func WithTmpDir(path string) SyncOpt {
 	return func(s *syncer) {
 		s.tmpDir = path
+	}
+}
+
+func WithSkipFullSync() SyncOpt {
+	return func(s *syncer) {
+		s.skipFullSync = true
 	}
 }
 

@@ -249,6 +249,7 @@ type runnerConfig struct {
 	createTicketConfig      *createTicketConfig
 	listTicketSchemasConfig *listTicketSchemasConfig
 	getTicketConfig         *getTicketConfig
+	skipFullSync            bool
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -416,6 +417,13 @@ func WithProvisioningEnabled() Option {
 	}
 }
 
+func WithFullSyncDisabled() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.skipFullSync = true
+		return nil
+	}
+}
+
 func WithTicketingEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.ticketingEnabled = true
@@ -485,6 +493,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		wrapperOpts = append(wrapperOpts, connector.WithTicketingEnabled())
 	}
 
+	if cfg.skipFullSync {
+		wrapperOpts = append(wrapperOpts, connector.WithFullSyncDisabled())
+	}
+
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {
 		return nil, err
@@ -541,7 +553,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		return runner, nil
 	}
 
-	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir)
+	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync)
 	if err != nil {
 		return nil, err
 	}
