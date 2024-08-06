@@ -16,6 +16,7 @@ import (
 )
 
 var ErrFieldNil = errors.New("error: field is nil")
+var ErrTicketValidationError = errors.New("create ticket request is not valid")
 
 // CustomFieldForSchemaField returns a typed custom field for a given schema field.
 func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interface{}) (*v2.TicketCustomField, error) {
