@@ -299,7 +299,7 @@ func (c *C1File) StartSync(ctx context.Context) (string, bool, error) {
 		return "", false, err
 	}
 
-	syncID := ksuid.New().String()
+	var syncID string
 	if sync != nil && sync.EndedAt == nil {
 		syncID = sync.ID
 	} else {
