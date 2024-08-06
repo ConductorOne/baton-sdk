@@ -271,7 +271,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return resp, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
 	}
 
-	if req.Method == http.MethodGet {
+	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
 		err := c.baseHttpCache.Set(cacheKey, resp)
 		if err != nil {
 			l.Debug("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(err))
