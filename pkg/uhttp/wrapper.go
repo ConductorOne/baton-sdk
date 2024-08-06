@@ -65,23 +65,22 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
 	var (
-		// Default values: logDebug: false cacheTTL: 3600 seconds cacheMaxSize: 2048 MB
 		config = CacheConfig{
-			LogDebug:     false,
-			CacheTTL:     int32(3600),
-			CacheMaxSize: int(2048),
+			LogDebug:     l.Level().Enabled(zap.DebugLevel),
+			CacheTTL:     int32(3600), // seconds
+			CacheMaxSize: int(2048),   // MB
 		}
 		ok bool
 	)
 	if v := ctx.Value(ContextKey{}); v != nil {
 		if config, ok = v.(CacheConfig); !ok {
-			return &BaseHttpClient{}, fmt.Errorf("error casting config values")
+			return nil, fmt.Errorf("error casting config values from context")
 		}
 	}
 
 	cache, err := NewGoCache(ctx, config)
 	if err != nil {
-		l.Error("in-memory cache error", zap.Any("NewBaseHttpClient", err))
+		l.Error("error creating http cache", zap.Error(err))
 		return nil, err
 	}
 
