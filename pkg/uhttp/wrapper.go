@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/helpers"
@@ -53,6 +55,7 @@ type (
 		LogDebug     bool
 		CacheTTL     int32
 		CacheMaxSize int
+		DisableCache bool
 	}
 )
 
@@ -67,11 +70,17 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
+	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
+	if err != nil {
+		disableCache = false
+	}
+
 	var (
 		config = CacheConfig{
 			LogDebug:     l.Level().Enabled(zap.DebugLevel),
 			CacheTTL:     int32(3600), // seconds
 			CacheMaxSize: int(2048),   // MB
+			DisableCache: disableCache,
 		}
 		ok bool
 	)

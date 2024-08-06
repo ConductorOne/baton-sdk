@@ -23,17 +23,21 @@ type GoCache struct {
 
 func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
 	l := ctxzap.Extract(ctx)
+	if cfg.DisableCache {
+		l.Debug("http cache disabled")
+		return GoCache{}, nil
+	}
 	config := bigCache.DefaultConfig(time.Duration(cfg.CacheTTL) * time.Second)
 	config.Verbose = cfg.LogDebug
 	config.Shards = 4
 	config.HardMaxCacheSize = cfg.CacheMaxSize // value in MB, 0 value means no size limit
-	cache, initErr := bigCache.New(ctx, config)
-	if initErr != nil {
-		l.Error("in-memory cache error", zap.Any("NewGoCache", initErr))
-		return GoCache{}, initErr
+	cache, err := bigCache.New(ctx, config)
+	if err != nil {
+		l.Error("http cache initialization error", zap.Error(err))
+		return GoCache{}, err
 	}
 
-	l.Debug("in-memory cache config", zap.Any("config", config))
+	l.Debug("http cache config", zap.Any("config", config))
 	gc := GoCache{
 		rootLibrary: cache,
 	}
