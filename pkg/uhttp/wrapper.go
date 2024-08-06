@@ -65,10 +65,10 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
 	var (
-		// Default values: logDebug: false cacheTTL: 600 seconds cacheMaxSize: 2048 MB
+		// Default values: logDebug: false cacheTTL: 3600 seconds cacheMaxSize: 2048 MB
 		config = CacheConfig{
 			LogDebug:     false,
-			CacheTTL:     int32(600),
+			CacheTTL:     int32(3600),
 			CacheMaxSize: int(2048),
 		}
 		ok bool
