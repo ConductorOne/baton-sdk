@@ -304,6 +304,9 @@ func (c *C1File) StartSync(ctx context.Context) (string, bool, error) {
 		syncID = sync.ID
 	} else {
 		syncID, err = c.StartNewSync(ctx)
+		if err != nil {
+			return "", false, err
+		}
 		newSync = true
 	}
 
