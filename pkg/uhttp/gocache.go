@@ -42,6 +42,10 @@ func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
 }
 
 func (g *GoCache) Statistics() bigCache.Stats {
+	if g.rootLibrary == nil {
+		return bigCache.Stats{}
+	}
+
 	return g.rootLibrary.Stats()
 }
 
@@ -91,6 +95,10 @@ func CreateCacheKey(req *http.Request) (string, error) {
 }
 
 func (g *GoCache) Get(key string) (*http.Response, error) {
+	if g.rootLibrary == nil {
+		return nil, nil
+	}
+
 	entry, err := g.rootLibrary.Get(key)
 	if err == nil {
 		r := bufio.NewReader(bytes.NewReader(entry))
@@ -106,6 +114,10 @@ func (g *GoCache) Get(key string) (*http.Response, error) {
 }
 
 func (g *GoCache) Set(key string, value *http.Response) error {
+	if g.rootLibrary == nil {
+		return nil
+	}
+
 	cacheableResponse, err := httputil.DumpResponse(value, true)
 	if err != nil {
 		return err
@@ -120,6 +132,10 @@ func (g *GoCache) Set(key string, value *http.Response) error {
 }
 
 func (g *GoCache) Delete(key string) error {
+	if g.rootLibrary == nil {
+		return nil
+	}
+
 	err := g.rootLibrary.Delete(key)
 	if err != nil {
 		return err
@@ -129,6 +145,10 @@ func (g *GoCache) Delete(key string) error {
 }
 
 func (g *GoCache) Clear() error {
+	if g.rootLibrary == nil {
+		return nil
+	}
+
 	err := g.rootLibrary.Reset()
 	if err != nil {
 		return err
@@ -138,6 +158,9 @@ func (g *GoCache) Clear() error {
 }
 
 func (g *GoCache) Has(key string) bool {
+	if g.rootLibrary == nil {
+		return false
+	}
 	_, found := g.rootLibrary.Get(key)
 	return found == nil
 }
