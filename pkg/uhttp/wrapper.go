@@ -192,16 +192,16 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 			return nil, err
 		}
 
-		if c.baseHttpCache.Has(cacheKey) {
-			l.Debug("cache hit", zap.String("cacheKey", cacheKey))
-			resp, err := c.baseHttpCache.Get(cacheKey)
-			if err != nil {
-				return nil, err
-			}
+		resp, err := c.baseHttpCache.Get(cacheKey)
+		if err != nil {
+			return nil, err
+		}
+		if resp != nil {
+			l.Debug("http cache hit", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()))
 			return resp, nil
 		}
 
-		l.Debug("cache miss", zap.String("cacheKey", cacheKey))
+		l.Debug("http cache miss", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()))
 	}
 
 	resp, err := c.HttpClient.Do(req)
@@ -262,7 +262,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	if req.Method == http.MethodGet {
 		err := c.baseHttpCache.Set(cacheKey, resp)
 		if err != nil {
-			l.Debug("error setting cache", zap.String("cacheKey", cacheKey), zap.Error(err))
+			l.Debug("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(err))
 			return resp, err
 		}
 	}
