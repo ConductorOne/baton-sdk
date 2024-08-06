@@ -37,6 +37,7 @@ message TicketCustomField {
     TicketCustomFieldPickMultipleStringValues pick_multiple_string_values = 105;
     TicketCustomFieldPickObjectValue pick_object_value = 106;
     TicketCustomFieldPickMultipleObjectValues pick_multiple_object_values = 107;
+    TicketCustomFieldNumberValue number_value = 108;
   }
 }
 
@@ -79,6 +80,10 @@ message TicketCustomFieldPickMultipleObjectValues {
 message TicketCustomFieldObjectValue {
   string id = 1;
   string display_name = 2;
+}
+
+message TicketCustomFieldNumberValue {
+  int32 value = 1;
 }
 
 message TicketStatus {
