@@ -48,7 +48,7 @@ type c1ApiTaskManager struct {
 	serviceClient     BatonServiceClient
 	tempDir           string
 	skipFullSync      bool
-  runnerShouldDebug bool
+	runnerShouldDebug bool
 }
 
 // getHeartbeatInterval returns an appropriate heartbeat interval. If the interval is 0, it will return the default heartbeat interval.
