@@ -74,12 +74,20 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 	if err != nil {
 		disableCache = false
 	}
+	cacheMaxSize, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_MAX_SIZE"), 10, 64)
+	if err != nil {
+		cacheMaxSize = 128 // MB
+	}
+	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
+	if err != nil {
+		cacheTTL = 3600 // seconds
+	}
 
 	var (
 		config = CacheConfig{
 			LogDebug:     l.Level().Enabled(zap.DebugLevel),
-			CacheTTL:     int32(3600), // seconds
-			CacheMaxSize: int(2048),   // MB
+			CacheTTL:     int32(cacheTTL),   // seconds
+			CacheMaxSize: int(cacheMaxSize), // MB
 			DisableCache: disableCache,
 		}
 		ok bool
