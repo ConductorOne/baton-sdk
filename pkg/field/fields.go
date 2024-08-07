@@ -51,7 +51,7 @@ func (s SchemaField) String() (string, error) {
 	return value, nil
 }
 
-// StringSlice retuns the default value as a string array.
+// StringSlice returns the default value as a string array.
 func (s SchemaField) StringSlice() ([]string, error) {
 	value, ok := s.DefaultValue.([]string)
 	if !ok {

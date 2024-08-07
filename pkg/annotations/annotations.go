@@ -10,7 +10,7 @@ import (
 
 type Annotations []*anypb.Any
 
-// Convenience function to create annotations.
+// New - Convenience function to create annotations.
 func New(msgs ...proto.Message) Annotations {
 	annos := Annotations{}
 	for _, msg := range msgs {
