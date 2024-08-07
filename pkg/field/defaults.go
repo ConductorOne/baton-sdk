@@ -28,6 +28,7 @@ var (
 	ticketIDField              = StringField("ticket-id", WithHidden(true), WithDescription("The ID of the ticket to get"))
 	ticketTemplatePathField    = StringField("ticket-template-path", WithHidden(true), WithDescription("A JSON file describing the ticket to create"))
 	logLevelField              = StringField("log-level", WithDefaultValue("info"), WithDescription("The log level: debug, info, warn, error"))
+	skipFullSync               = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"))
 )
 
 // DefaultFields list the default fields expected in every single connector.
@@ -56,6 +57,7 @@ var DefaultFields = []SchemaField{
 	ticketIDField,
 	ticketTemplatePathField,
 	logLevelField,
+	skipFullSync,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {

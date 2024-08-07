@@ -15,6 +15,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
+const maxTicketSchemas = 100
+
 type listTicketSchemasTaskHelpers interface {
 	ConnectorClient() types.ConnectorClient
 	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
@@ -48,9 +50,22 @@ func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
 
 		ticketSchemas = append(ticketSchemas, schemas.GetList()...)
 
+		// Only return first 100 elements
+		if len(ticketSchemas) >= maxTicketSchemas {
+			ignoreCount := len(ticketSchemas) - maxTicketSchemas
+			ticketSchemas = ticketSchemas[:maxTicketSchemas]
+			hasAdditionalPages := schemas.GetNextPageToken() != ""
+
+			l.Info("list ticket schemas was greater than or equal to max of 100",
+				zap.Int("ignoredCount", ignoreCount),
+				zap.Bool("hasAdditionalPages", hasAdditionalPages))
+			break
+		}
+
 		if schemas.GetNextPageToken() == "" {
 			break
 		}
+
 		pageToken = schemas.GetNextPageToken()
 	}
 

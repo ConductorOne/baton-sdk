@@ -57,6 +57,7 @@ type wrapper struct {
 	conn                *grpc.ClientConn
 	provisioningEnabled bool
 	ticketingEnabled    bool
+	fullSyncDisabled    bool
 
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
@@ -91,6 +92,13 @@ func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, w *wrapper) error {
 		w.provisioningEnabled = true
 
+		return nil
+	}
+}
+
+func WithFullSyncDisabled() Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.fullSyncDisabled = true
 		return nil
 	}
 }
