@@ -14,7 +14,7 @@ import (
 	"strconv"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/helpers"
+	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -115,7 +115,7 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 // status code 204 No Content), then pass a `nil` to `response`.
 func WithJSONResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
-		if !helpers.IsJSONContentType(resp.Header.Get(ContentType)) {
+		if !IsJSONContentType(resp.Header.Get(ContentType)) {
 			return fmt.Errorf("unexpected content type for json response: %s", resp.Header.Get(ContentType))
 		}
 		if response == nil && len(resp.Body) == 0 {
@@ -139,7 +139,7 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 			return nil
 		}
 
-		if !helpers.IsJSONContentType(resp.Header.Get(ContentType)) {
+		if !IsJSONContentType(resp.Header.Get(ContentType)) {
 			return fmt.Errorf("%v", string(resp.Body))
 		}
 
@@ -157,7 +157,7 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 
 func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 	return func(resp *WrapperResponse) error {
-		rl, err := helpers.ExtractRateLimitData(resp.StatusCode, &resp.Header)
+		rl, err := ratelimit.ExtractRateLimitData(resp.StatusCode, &resp.Header)
 		if err != nil {
 			return err
 		}
@@ -173,7 +173,7 @@ func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 
 func WithXMLResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
-		if !helpers.IsXMLContentType(resp.Header.Get(ContentType)) {
+		if !IsXMLContentType(resp.Header.Get(ContentType)) {
 			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get(ContentType))
 		}
 		if response == nil && len(resp.Body) == 0 {
@@ -189,10 +189,10 @@ func WithXMLResponse(response interface{}) DoOption {
 
 func WithResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
-		if helpers.IsJSONContentType(resp.Header.Get(ContentType)) {
+		if IsJSONContentType(resp.Header.Get(ContentType)) {
 			return WithJSONResponse(response)(resp)
 		}
-		if helpers.IsXMLContentType(resp.Header.Get(ContentType)) {
+		if IsXMLContentType(resp.Header.Get(ContentType)) {
 			return WithXMLResponse(response)(resp)
 		}
 
