@@ -196,12 +196,18 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 	return err
 }
 
+func (c *c1ApiTaskManager) GetTempDir() string {
+	return c.tempDir
+}
+
 func (c *c1ApiTaskManager) ShouldDebug() bool {
-	return c.runnerShouldDebug
+	// FIXME(shackra): use the field instead
+	// return c.runnerShouldDebug
+	return true
 }
 
 func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
-	l := ctxzap.Extract(ctx) // NOTE(shackra): is the ctx a fresh one in every call to Process?
+	l := ctxzap.Extract(ctx)
 	if task == nil {
 		l.Debug("c1_api_task_manager.Process(): process called with nil task -- continuing")
 		return nil

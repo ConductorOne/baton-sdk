@@ -18,6 +18,10 @@ type localRevoker struct {
 	grantID string
 }
 
+func (m *localRevoker) GetTempDir() string {
+	return ""
+}
+
 func (m *localRevoker) ShouldDebug() bool {
 	return false
 }

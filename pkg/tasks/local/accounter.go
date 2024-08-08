@@ -19,6 +19,10 @@ type localAccountManager struct {
 	email string
 }
 
+func (m *localAccountManager) GetTempDir() string {
+	return ""
+}
+
 func (m *localAccountManager) ShouldDebug() bool {
 	return false
 }

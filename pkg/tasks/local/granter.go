@@ -20,6 +20,10 @@ type localGranter struct {
 	principalType string
 }
 
+func (m *localGranter) GetTempDir() string {
+	return ""
+}
+
 func (m *localGranter) ShouldDebug() bool {
 	return false
 }

@@ -20,6 +20,10 @@ type localEventFeed struct {
 
 const EventsPerPageLocally = 100
 
+func (m *localEventFeed) GetTempDir() string {
+	return ""
+}
+
 func (m *localEventFeed) ShouldDebug() bool {
 	return false
 }

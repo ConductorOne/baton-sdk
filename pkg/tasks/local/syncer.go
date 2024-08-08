@@ -26,6 +26,10 @@ func WithTmpDir(tmpDir string) Option {
 	}
 }
 
+func (m *localSyncer) GetTempDir() string {
+	return ""
+}
+
 func (m *localSyncer) ShouldDebug() bool {
 	return false
 }

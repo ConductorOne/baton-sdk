@@ -50,6 +50,10 @@ func (m *localCreateTicket) loadTicketTemplate(ctx context.Context) (*ticketTemp
 	return template, nil
 }
 
+func (m *localCreateTicket) GetTempDir() string {
+	return ""
+}
+
 func (m *localCreateTicket) ShouldDebug() bool {
 	return false
 }
@@ -145,6 +149,10 @@ type localGetTicket struct {
 	ticketId string
 }
 
+func (m *localGetTicket) GetTempDir() string {
+	return ""
+}
+
 func (m *localGetTicket) ShouldDebug() bool {
 	return false
 }
@@ -187,6 +195,10 @@ func NewGetTicket(ctx context.Context, ticketId string) tasks.Manager {
 
 type localListTicketSchemas struct {
 	o sync.Once
+}
+
+func (m *localListTicketSchemas) GetTempDir() string {
+	return ""
 }
 
 func (m *localListTicketSchemas) ShouldDebug() bool {

@@ -19,6 +19,10 @@ type localCredentialRotator struct {
 	resourceType string
 }
 
+func (m *localCredentialRotator) GetTempDir() string {
+	return ""
+}
+
 func (m *localCredentialRotator) ShouldDebug() bool {
 	return false
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sync/semaphore"
@@ -46,8 +47,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 
 	if c.tasks.ShouldDebug() && c.debugFile == nil {
 		var err error
-		// FIXME(shackra): figure out the location of the c1z file
-		c.debugFile, err = os.CreateTemp("baton-sdk-debug", "debug.log")
+		c.debugFile, err = os.Create(filepath.Join(c.tasks.GetTempDir(), "debug.log"))
 		if err != nil {
 			return err
 		}

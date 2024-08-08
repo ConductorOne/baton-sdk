@@ -19,6 +19,10 @@ type localResourceDeleter struct {
 	resourceType string
 }
 
+func (m *localResourceDeleter) GetTempDir() string {
+	return ""
+}
+
 func (m *localResourceDeleter) ShouldDebug() bool {
 	return false
 }
