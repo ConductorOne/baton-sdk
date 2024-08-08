@@ -27,7 +27,7 @@ type BatonServiceClient interface {
 	Heartbeat(ctx context.Context, in *BatonServiceHeartbeatRequest, opts ...grpc.CallOption) (*BatonServiceHeartbeatResponse, error)
 	FinishTask(ctx context.Context, in *BatonServiceFinishTaskRequest, opts ...grpc.CallOption) (*BatonServiceFinishTaskResponse, error)
 	UploadAsset(ctx context.Context, opts ...grpc.CallOption) (BatonService_UploadAssetClient, error)
-	SetLogFilePath(ctx context.Context, in *SetLogFilePathRequest, opts ...grpc.CallOption) (*SetLogFilePathResponse, error)
+	StartDebugging(ctx context.Context, in *StartDebuggingRequest, opts ...grpc.CallOption) (*StartDebuggingResponse, error)
 }
 
 type batonServiceClient struct {
@@ -108,9 +108,9 @@ func (x *batonServiceUploadAssetClient) CloseAndRecv() (*BatonServiceUploadAsset
 	return m, nil
 }
 
-func (c *batonServiceClient) SetLogFilePath(ctx context.Context, in *SetLogFilePathRequest, opts ...grpc.CallOption) (*SetLogFilePathResponse, error) {
-	out := new(SetLogFilePathResponse)
-	err := c.cc.Invoke(ctx, "/c1.connectorapi.baton.v1.BatonService/SetLogFilePath", in, out, opts...)
+func (c *batonServiceClient) StartDebugging(ctx context.Context, in *StartDebuggingRequest, opts ...grpc.CallOption) (*StartDebuggingResponse, error) {
+	out := new(StartDebuggingResponse)
+	err := c.cc.Invoke(ctx, "/c1.connectorapi.baton.v1.BatonService/StartDebugging", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ type BatonServiceServer interface {
 	Heartbeat(context.Context, *BatonServiceHeartbeatRequest) (*BatonServiceHeartbeatResponse, error)
 	FinishTask(context.Context, *BatonServiceFinishTaskRequest) (*BatonServiceFinishTaskResponse, error)
 	UploadAsset(BatonService_UploadAssetServer) error
-	SetLogFilePath(context.Context, *SetLogFilePathRequest) (*SetLogFilePathResponse, error)
+	StartDebugging(context.Context, *StartDebuggingRequest) (*StartDebuggingResponse, error)
 }
 
 // UnimplementedBatonServiceServer should be embedded to have forward compatible implementations.
@@ -148,8 +148,8 @@ func (UnimplementedBatonServiceServer) FinishTask(context.Context, *BatonService
 func (UnimplementedBatonServiceServer) UploadAsset(BatonService_UploadAssetServer) error {
 	return status.Errorf(codes.Unimplemented, "method UploadAsset not implemented")
 }
-func (UnimplementedBatonServiceServer) SetLogFilePath(context.Context, *SetLogFilePathRequest) (*SetLogFilePathResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SetLogFilePath not implemented")
+func (UnimplementedBatonServiceServer) StartDebugging(context.Context, *StartDebuggingRequest) (*StartDebuggingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartDebugging not implemented")
 }
 
 // UnsafeBatonServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -261,20 +261,20 @@ func (x *batonServiceUploadAssetServer) Recv() (*BatonServiceUploadAssetRequest,
 	return m, nil
 }
 
-func _BatonService_SetLogFilePath_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetLogFilePathRequest)
+func _BatonService_StartDebugging_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartDebuggingRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(BatonServiceServer).SetLogFilePath(ctx, in)
+		return srv.(BatonServiceServer).StartDebugging(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/c1.connectorapi.baton.v1.BatonService/SetLogFilePath",
+		FullMethod: "/c1.connectorapi.baton.v1.BatonService/StartDebugging",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BatonServiceServer).SetLogFilePath(ctx, req.(*SetLogFilePathRequest))
+		return srv.(BatonServiceServer).StartDebugging(ctx, req.(*StartDebuggingRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -303,8 +303,8 @@ var BatonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _BatonService_FinishTask_Handler,
 		},
 		{
-			MethodName: "SetLogFilePath",
-			Handler:    _BatonService_SetLogFilePath_Handler,
+			MethodName: "StartDebugging",
+			Handler:    _BatonService_StartDebugging_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

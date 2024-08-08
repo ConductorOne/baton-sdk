@@ -8,7 +8,7 @@ type debugHandler struct {
 	taskmanager *c1ApiTaskManager
 }
 
-func newSetLogFilePathTaskHandler(tm *c1ApiTaskManager) *debugHandler {
+func newStartDebugging(tm *c1ApiTaskManager) *debugHandler {
 	return &debugHandler{taskmanager: tm}
 }
 

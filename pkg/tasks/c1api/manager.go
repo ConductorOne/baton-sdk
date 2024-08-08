@@ -260,8 +260,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newListSchemasTaskHandler(task, tHelpers)
 	case taskTypes.GetTicketType:
 		handler = newGetTicketTaskHandler(task, tHelpers)
-	case taskTypes.SetLogFileType:
-		handler = newSetLogFilePathTaskHandler(c)
+	case taskTypes.StartDebugging:
+		handler = newStartDebugging(c)
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
 	}

@@ -2556,53 +2556,42 @@ var _ interface {
 	ErrorName() string
 } = BatonServiceFinishTaskResponseValidationError{}
 
-// Validate checks the field values on SetLogFilePathRequest with the rules
+// Validate checks the field values on StartDebuggingRequest with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
-func (m *SetLogFilePathRequest) Validate() error {
+func (m *StartDebuggingRequest) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on SetLogFilePathRequest with the rules
+// ValidateAll checks the field values on StartDebuggingRequest with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the result is a list of violation errors wrapped in
-// SetLogFilePathRequestMultiError, or nil if none found.
-func (m *SetLogFilePathRequest) ValidateAll() error {
+// StartDebuggingRequestMultiError, or nil if none found.
+func (m *StartDebuggingRequest) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *SetLogFilePathRequest) validate(all bool) error {
+func (m *StartDebuggingRequest) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	if l := utf8.RuneCountInString(m.GetLogFilePath()); l < 1 || l > 256 {
-		err := SetLogFilePathRequestValidationError{
-			field:  "LogFilePath",
-			reason: "value length must be between 1 and 256 runes, inclusive",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
-
 	if len(errors) > 0 {
-		return SetLogFilePathRequestMultiError(errors)
+		return StartDebuggingRequestMultiError(errors)
 	}
 
 	return nil
 }
 
-// SetLogFilePathRequestMultiError is an error wrapping multiple validation
-// errors returned by SetLogFilePathRequest.ValidateAll() if the designated
+// StartDebuggingRequestMultiError is an error wrapping multiple validation
+// errors returned by StartDebuggingRequest.ValidateAll() if the designated
 // constraints aren't met.
-type SetLogFilePathRequestMultiError []error
+type StartDebuggingRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m SetLogFilePathRequestMultiError) Error() string {
+func (m StartDebuggingRequestMultiError) Error() string {
 	var msgs []string
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -2611,11 +2600,11 @@ func (m SetLogFilePathRequestMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m SetLogFilePathRequestMultiError) AllErrors() []error { return m }
+func (m StartDebuggingRequestMultiError) AllErrors() []error { return m }
 
-// SetLogFilePathRequestValidationError is the validation error returned by
-// SetLogFilePathRequest.Validate if the designated constraints aren't met.
-type SetLogFilePathRequestValidationError struct {
+// StartDebuggingRequestValidationError is the validation error returned by
+// StartDebuggingRequest.Validate if the designated constraints aren't met.
+type StartDebuggingRequestValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -2623,24 +2612,24 @@ type SetLogFilePathRequestValidationError struct {
 }
 
 // Field function returns field value.
-func (e SetLogFilePathRequestValidationError) Field() string { return e.field }
+func (e StartDebuggingRequestValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e SetLogFilePathRequestValidationError) Reason() string { return e.reason }
+func (e StartDebuggingRequestValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e SetLogFilePathRequestValidationError) Cause() error { return e.cause }
+func (e StartDebuggingRequestValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e SetLogFilePathRequestValidationError) Key() bool { return e.key }
+func (e StartDebuggingRequestValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e SetLogFilePathRequestValidationError) ErrorName() string {
-	return "SetLogFilePathRequestValidationError"
+func (e StartDebuggingRequestValidationError) ErrorName() string {
+	return "StartDebuggingRequestValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e SetLogFilePathRequestValidationError) Error() string {
+func (e StartDebuggingRequestValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -2652,14 +2641,14 @@ func (e SetLogFilePathRequestValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sSetLogFilePathRequest.%s: %s%s",
+		"invalid %sStartDebuggingRequest.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = SetLogFilePathRequestValidationError{}
+var _ error = StartDebuggingRequestValidationError{}
 
 var _ interface {
 	Field() string
@@ -2667,24 +2656,24 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = SetLogFilePathRequestValidationError{}
+} = StartDebuggingRequestValidationError{}
 
-// Validate checks the field values on SetLogFilePathResponse with the rules
+// Validate checks the field values on StartDebuggingResponse with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
-func (m *SetLogFilePathResponse) Validate() error {
+func (m *StartDebuggingResponse) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on SetLogFilePathResponse with the rules
+// ValidateAll checks the field values on StartDebuggingResponse with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the result is a list of violation errors wrapped in
-// SetLogFilePathResponseMultiError, or nil if none found.
-func (m *SetLogFilePathResponse) ValidateAll() error {
+// StartDebuggingResponseMultiError, or nil if none found.
+func (m *StartDebuggingResponse) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *SetLogFilePathResponse) validate(all bool) error {
+func (m *StartDebuggingResponse) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -2694,19 +2683,19 @@ func (m *SetLogFilePathResponse) validate(all bool) error {
 	// no validation rules for Status
 
 	if len(errors) > 0 {
-		return SetLogFilePathResponseMultiError(errors)
+		return StartDebuggingResponseMultiError(errors)
 	}
 
 	return nil
 }
 
-// SetLogFilePathResponseMultiError is an error wrapping multiple validation
-// errors returned by SetLogFilePathResponse.ValidateAll() if the designated
+// StartDebuggingResponseMultiError is an error wrapping multiple validation
+// errors returned by StartDebuggingResponse.ValidateAll() if the designated
 // constraints aren't met.
-type SetLogFilePathResponseMultiError []error
+type StartDebuggingResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m SetLogFilePathResponseMultiError) Error() string {
+func (m StartDebuggingResponseMultiError) Error() string {
 	var msgs []string
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -2715,11 +2704,11 @@ func (m SetLogFilePathResponseMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m SetLogFilePathResponseMultiError) AllErrors() []error { return m }
+func (m StartDebuggingResponseMultiError) AllErrors() []error { return m }
 
-// SetLogFilePathResponseValidationError is the validation error returned by
-// SetLogFilePathResponse.Validate if the designated constraints aren't met.
-type SetLogFilePathResponseValidationError struct {
+// StartDebuggingResponseValidationError is the validation error returned by
+// StartDebuggingResponse.Validate if the designated constraints aren't met.
+type StartDebuggingResponseValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -2727,24 +2716,24 @@ type SetLogFilePathResponseValidationError struct {
 }
 
 // Field function returns field value.
-func (e SetLogFilePathResponseValidationError) Field() string { return e.field }
+func (e StartDebuggingResponseValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e SetLogFilePathResponseValidationError) Reason() string { return e.reason }
+func (e StartDebuggingResponseValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e SetLogFilePathResponseValidationError) Cause() error { return e.cause }
+func (e StartDebuggingResponseValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e SetLogFilePathResponseValidationError) Key() bool { return e.key }
+func (e StartDebuggingResponseValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e SetLogFilePathResponseValidationError) ErrorName() string {
-	return "SetLogFilePathResponseValidationError"
+func (e StartDebuggingResponseValidationError) ErrorName() string {
+	return "StartDebuggingResponseValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e SetLogFilePathResponseValidationError) Error() string {
+func (e StartDebuggingResponseValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -2756,14 +2745,14 @@ func (e SetLogFilePathResponseValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sSetLogFilePathResponse.%s: %s%s",
+		"invalid %sStartDebuggingResponse.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = SetLogFilePathResponseValidationError{}
+var _ error = StartDebuggingResponseValidationError{}
 
 var _ interface {
 	Field() string
@@ -2771,7 +2760,7 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = SetLogFilePathResponseValidationError{}
+} = StartDebuggingResponseValidationError{}
 
 // Validate checks the field values on Task_NoneTask with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
