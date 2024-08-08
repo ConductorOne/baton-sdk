@@ -201,9 +201,7 @@ func (c *c1ApiTaskManager) GetTempDir() string {
 }
 
 func (c *c1ApiTaskManager) ShouldDebug() bool {
-	// FIXME(shackra): use the field instead
-	// return c.runnerShouldDebug
-	return true
+	return c.runnerShouldDebug
 }
 
 func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
