@@ -60,6 +60,8 @@ func (m *Task) validate(all bool) error {
 
 	// no validation rules for Status
 
+	// no validation rules for Debug
+
 	switch v := m.TaskType.(type) {
 	case *Task_None:
 		if v == nil {
@@ -2553,6 +2555,212 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = BatonServiceFinishTaskResponseValidationError{}
+
+// Validate checks the field values on StartDebuggingRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *StartDebuggingRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on StartDebuggingRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// StartDebuggingRequestMultiError, or nil if none found.
+func (m *StartDebuggingRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *StartDebuggingRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return StartDebuggingRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// StartDebuggingRequestMultiError is an error wrapping multiple validation
+// errors returned by StartDebuggingRequest.ValidateAll() if the designated
+// constraints aren't met.
+type StartDebuggingRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m StartDebuggingRequestMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m StartDebuggingRequestMultiError) AllErrors() []error { return m }
+
+// StartDebuggingRequestValidationError is the validation error returned by
+// StartDebuggingRequest.Validate if the designated constraints aren't met.
+type StartDebuggingRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e StartDebuggingRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e StartDebuggingRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e StartDebuggingRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e StartDebuggingRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e StartDebuggingRequestValidationError) ErrorName() string {
+	return "StartDebuggingRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e StartDebuggingRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sStartDebuggingRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = StartDebuggingRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = StartDebuggingRequestValidationError{}
+
+// Validate checks the field values on StartDebuggingResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *StartDebuggingResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on StartDebuggingResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// StartDebuggingResponseMultiError, or nil if none found.
+func (m *StartDebuggingResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *StartDebuggingResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Status
+
+	if len(errors) > 0 {
+		return StartDebuggingResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// StartDebuggingResponseMultiError is an error wrapping multiple validation
+// errors returned by StartDebuggingResponse.ValidateAll() if the designated
+// constraints aren't met.
+type StartDebuggingResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m StartDebuggingResponseMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m StartDebuggingResponseMultiError) AllErrors() []error { return m }
+
+// StartDebuggingResponseValidationError is the validation error returned by
+// StartDebuggingResponse.Validate if the designated constraints aren't met.
+type StartDebuggingResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e StartDebuggingResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e StartDebuggingResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e StartDebuggingResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e StartDebuggingResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e StartDebuggingResponseValidationError) ErrorName() string {
+	return "StartDebuggingResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e StartDebuggingResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sStartDebuggingResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = StartDebuggingResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = StartDebuggingResponseValidationError{}
 
 // Validate checks the field values on Task_NoneTask with the rules defined in
 // the proto definition for this message. If any rules are violated, the first

@@ -151,6 +151,7 @@ func MakeMainCommand(
 			opts = append(opts, connectorrunner.WithTempDir(v.GetString("c1z-temp-dir")))
 		}
 
+		// NOTE(shackra): top-most in the execution flow for connectors
 		r, err := connectorrunner.NewConnectorRunner(runCtx, c, opts...)
 		if err != nil {
 			l.Error("error creating connector runner", zap.Error(err))

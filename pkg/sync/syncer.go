@@ -37,8 +37,8 @@ var (
 )
 
 type Syncer interface {
-	Sync(ctx context.Context) error
-	Close(ctx context.Context) error
+	Sync(context.Context) error
+	Close(context.Context) error
 }
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.

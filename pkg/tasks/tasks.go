@@ -12,6 +12,8 @@ import (
 type Manager interface {
 	Next(ctx context.Context) (*v1.Task, time.Duration, error)
 	Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error
+	ShouldDebug() bool
+	GetTempDir() string
 }
 
 type TaskHandler interface {
