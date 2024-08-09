@@ -221,6 +221,7 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 	return nil
 }
 
+// newServiceClient creates a client and dials to the gRPC server set with BATON_C1_API_HOST.
 func newServiceClient(ctx context.Context, clientID string, clientSecret string) (BatonServiceClient, error) {
 	credProvider, clientName, tokenHost, err := ugrpc.NewC1CredentialProvider(ctx, clientID, clientSecret)
 	if err != nil {

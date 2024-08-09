@@ -19,6 +19,14 @@ type localResourceDeleter struct {
 	resourceType string
 }
 
+func (m *localResourceDeleter) GetTempDir() string {
+	return ""
+}
+
+func (m *localResourceDeleter) ShouldDebug() bool {
+	return false
+}
+
 func (m *localResourceDeleter) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {

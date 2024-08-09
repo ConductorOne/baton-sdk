@@ -19,6 +19,14 @@ type localAccountManager struct {
 	email string
 }
 
+func (m *localAccountManager) GetTempDir() string {
+	return ""
+}
+
+func (m *localAccountManager) ShouldDebug() bool {
+	return false
+}
+
 func (m *localAccountManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {

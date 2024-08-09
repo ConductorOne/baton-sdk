@@ -44,6 +44,8 @@ func (tt TaskType) String() string {
 		return "get_metadata"
 	case ListEventsType:
 		return "list_events"
+	case StartDebugging:
+		return "set_log_file_event"
 	default:
 		return "unknown"
 	}
@@ -71,4 +73,5 @@ const (
 	ListGrantsType
 	GetMetadataType
 	ListEventsType
+	StartDebugging
 )

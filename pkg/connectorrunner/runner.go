@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"time"
 
 	"golang.org/x/sync/semaphore"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -30,9 +32,10 @@ const (
 )
 
 type connectorRunner struct {
-	cw      types.ClientWrapper
-	oneShot bool
-	tasks   tasks.Manager
+	cw        types.ClientWrapper
+	oneShot   bool
+	tasks     tasks.Manager
+	debugFile *os.File
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -41,6 +44,28 @@ var ErrSigTerm = errors.New("context cancelled by process shutdown")
 func (c *connectorRunner) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(ErrSigTerm)
+
+	if c.tasks.ShouldDebug() && c.debugFile == nil {
+		var err error
+		c.debugFile, err = os.Create(filepath.Join(c.tasks.GetTempDir(), "debug.log"))
+		if err != nil {
+			return err
+		}
+	}
+
+	// modify the context to insert a logger directed to a file
+	if c.debugFile != nil {
+		l := ctxzap.Extract(ctx)
+		writeSyncer := zapcore.AddSync(c.debugFile)
+		encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+		core := zapcore.NewCore(encoder, writeSyncer, zapcore.DebugLevel)
+
+		l = l.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+			return zapcore.NewTee(c, core)
+		}))
+
+		ctx = ctxzap.ToContext(ctx, l)
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt)
@@ -184,6 +209,13 @@ func (c *connectorRunner) Close(ctx context.Context) error {
 
 	if err := c.cw.Close(); err != nil {
 		retErr = errors.Join(retErr, err)
+	}
+
+	if c.debugFile != nil {
+		if err := c.debugFile.Close(); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
+		c.debugFile = nil
 	}
 
 	return retErr

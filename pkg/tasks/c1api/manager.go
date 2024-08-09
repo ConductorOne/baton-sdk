@@ -42,12 +42,13 @@ var (
 )
 
 type c1ApiTaskManager struct {
-	mtx           sync.Mutex
-	started       bool
-	queue         []*v1.Task
-	serviceClient BatonServiceClient
-	tempDir       string
-	skipFullSync  bool
+	mtx               sync.Mutex
+	started           bool
+	queue             []*v1.Task
+	serviceClient     BatonServiceClient
+	tempDir           string
+	skipFullSync      bool
+	runnerShouldDebug bool
 }
 
 // getHeartbeatInterval returns an appropriate heartbeat interval. If the interval is 0, it will return the default heartbeat interval.
@@ -195,6 +196,14 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 	return err
 }
 
+func (c *c1ApiTaskManager) GetTempDir() string {
+	return c.tempDir
+}
+
+func (c *c1ApiTaskManager) ShouldDebug() bool {
+	return c.runnerShouldDebug
+}
+
 func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx)
 	if task == nil {
@@ -251,6 +260,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newListSchemasTaskHandler(task, tHelpers)
 	case taskTypes.GetTicketType:
 		handler = newGetTicketTaskHandler(task, tHelpers)
+	case taskTypes.StartDebugging:
+		handler = newStartDebugging(c)
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
 	}

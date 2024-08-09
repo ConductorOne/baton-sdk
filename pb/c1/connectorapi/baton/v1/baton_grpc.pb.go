@@ -27,6 +27,7 @@ type BatonServiceClient interface {
 	Heartbeat(ctx context.Context, in *BatonServiceHeartbeatRequest, opts ...grpc.CallOption) (*BatonServiceHeartbeatResponse, error)
 	FinishTask(ctx context.Context, in *BatonServiceFinishTaskRequest, opts ...grpc.CallOption) (*BatonServiceFinishTaskResponse, error)
 	UploadAsset(ctx context.Context, opts ...grpc.CallOption) (BatonService_UploadAssetClient, error)
+	StartDebugging(ctx context.Context, in *StartDebuggingRequest, opts ...grpc.CallOption) (*StartDebuggingResponse, error)
 }
 
 type batonServiceClient struct {
@@ -107,6 +108,15 @@ func (x *batonServiceUploadAssetClient) CloseAndRecv() (*BatonServiceUploadAsset
 	return m, nil
 }
 
+func (c *batonServiceClient) StartDebugging(ctx context.Context, in *StartDebuggingRequest, opts ...grpc.CallOption) (*StartDebuggingResponse, error) {
+	out := new(StartDebuggingResponse)
+	err := c.cc.Invoke(ctx, "/c1.connectorapi.baton.v1.BatonService/StartDebugging", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // BatonServiceServer is the server API for BatonService service.
 // All implementations should embed UnimplementedBatonServiceServer
 // for forward compatibility
@@ -116,6 +126,7 @@ type BatonServiceServer interface {
 	Heartbeat(context.Context, *BatonServiceHeartbeatRequest) (*BatonServiceHeartbeatResponse, error)
 	FinishTask(context.Context, *BatonServiceFinishTaskRequest) (*BatonServiceFinishTaskResponse, error)
 	UploadAsset(BatonService_UploadAssetServer) error
+	StartDebugging(context.Context, *StartDebuggingRequest) (*StartDebuggingResponse, error)
 }
 
 // UnimplementedBatonServiceServer should be embedded to have forward compatible implementations.
@@ -136,6 +147,9 @@ func (UnimplementedBatonServiceServer) FinishTask(context.Context, *BatonService
 }
 func (UnimplementedBatonServiceServer) UploadAsset(BatonService_UploadAssetServer) error {
 	return status.Errorf(codes.Unimplemented, "method UploadAsset not implemented")
+}
+func (UnimplementedBatonServiceServer) StartDebugging(context.Context, *StartDebuggingRequest) (*StartDebuggingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartDebugging not implemented")
 }
 
 // UnsafeBatonServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -247,6 +261,24 @@ func (x *batonServiceUploadAssetServer) Recv() (*BatonServiceUploadAssetRequest,
 	return m, nil
 }
 
+func _BatonService_StartDebugging_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartDebuggingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(BatonServiceServer).StartDebugging(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/c1.connectorapi.baton.v1.BatonService/StartDebugging",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(BatonServiceServer).StartDebugging(ctx, req.(*StartDebuggingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // BatonService_ServiceDesc is the grpc.ServiceDesc for BatonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -269,6 +301,10 @@ var BatonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FinishTask",
 			Handler:    _BatonService_FinishTask_Handler,
+		},
+		{
+			MethodName: "StartDebugging",
+			Handler:    _BatonService_StartDebugging_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
