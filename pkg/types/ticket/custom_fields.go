@@ -206,7 +206,6 @@ func GetPickMultipleObjectValues(field *v2.TicketCustomField) ([]*v2.TicketCusto
 }
 
 // GetCustomFieldValue returns the interface{} of the value set on a given custom field.
-// TODO(lauren) check len for arrays
 func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 	if field == nil {
 		return nil, nil
@@ -218,8 +217,13 @@ func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 			return nil, nil
 		}
 		return v.StringValue.GetValue(), nil
+
 	case *v2.TicketCustomField_StringValues:
-		return v.StringValues.GetValues(), nil
+		strVals := v.StringValues.GetValues()
+		if len(strVals) == 0 {
+			return nil, nil
+		}
+		return strVals, nil
 
 	case *v2.TicketCustomField_BoolValue:
 		return v.BoolValue.GetValue(), nil
@@ -233,14 +237,23 @@ func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 			return nil, nil
 		}
 		return strVal, nil
+
 	case *v2.TicketCustomField_PickMultipleStringValues:
-		return v.PickMultipleStringValues.GetValues(), nil
+		strVals := v.PickMultipleStringValues.GetValues()
+		if len(strVals) == 0 {
+			return nil, nil
+		}
+		return strVals, nil
 
 	case *v2.TicketCustomField_PickObjectValue:
 		return v.PickObjectValue.GetValue(), nil
 
 	case *v2.TicketCustomField_PickMultipleObjectValues:
-		return v.PickMultipleObjectValues.GetValues(), nil
+		objVals := v.PickMultipleObjectValues.GetValues()
+		if len(objVals) == 0 {
+			return objVals, nil
+		}
+		return objVals, nil
 
 	default:
 		return false, errors.New("error: unknown custom field type")
@@ -258,8 +271,13 @@ func GetDefaultCustomFieldValue(field *v2.TicketCustomField) (interface{}, error
 			return nil, nil
 		}
 		return strVal, nil
+
 	case *v2.TicketCustomField_StringValues:
-		return v.StringValues.GetDefaultValues(), nil
+		strVals := v.StringValues.GetDefaultValues()
+		if len(strVals) == 0 {
+			return nil, nil
+		}
+		return strVals, nil
 
 	case *v2.TicketCustomField_BoolValue:
 		return v.BoolValue.GetValue(), nil
@@ -273,14 +291,23 @@ func GetDefaultCustomFieldValue(field *v2.TicketCustomField) (interface{}, error
 			return nil, nil
 		}
 		return strVal, nil
+
 	case *v2.TicketCustomField_PickMultipleStringValues:
-		return v.PickMultipleStringValues.GetDefaultValues(), nil
+		strVals := v.PickMultipleStringValues.GetDefaultValues()
+		if len(strVals) == 0 {
+			return nil, nil
+		}
+		return strVals, nil
 
 	case *v2.TicketCustomField_PickObjectValue:
 		return v.PickObjectValue.GetDefaultValue(), nil
 
 	case *v2.TicketCustomField_PickMultipleObjectValues:
-		return v.PickMultipleObjectValues.GetDefaultValues(), nil
+		objVals := v.PickMultipleObjectValues.GetDefaultValues()
+		if len(objVals) == 0 {
+			return objVals, nil
+		}
+		return objVals, nil
 
 	default:
 		return false, errors.New("error: unknown custom field type")
