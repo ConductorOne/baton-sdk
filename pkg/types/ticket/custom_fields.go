@@ -317,7 +317,7 @@ func GetDefaultCustomFieldValue(field *v2.TicketCustomField) (interface{}, error
 func GetCustomFieldValueOrDefault(field *v2.TicketCustomField) (interface{}, error) {
 	v, err := GetCustomFieldValue(field)
 	if err != nil {
-		return nil, nil
+		return nil, err
 	}
 	if v == nil {
 		return GetDefaultCustomFieldValue(field)
