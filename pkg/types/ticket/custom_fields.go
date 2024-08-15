@@ -206,14 +206,18 @@ func GetPickMultipleObjectValues(field *v2.TicketCustomField) ([]*v2.TicketCusto
 }
 
 // GetCustomFieldValue returns the interface{} of the value set on a given custom field.
+// TODO(lauren) check len for arrays
 func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 	if field == nil {
 		return nil, nil
 	}
 	switch v := field.GetValue().(type) {
 	case *v2.TicketCustomField_StringValue:
+		strVal := v.StringValue.GetValue()
+		if strVal == "" {
+			return nil, nil
+		}
 		return v.StringValue.GetValue(), nil
-
 	case *v2.TicketCustomField_StringValues:
 		return v.StringValues.GetValues(), nil
 
@@ -224,8 +228,11 @@ func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 		return v.TimestampValue.GetValue(), nil
 
 	case *v2.TicketCustomField_PickStringValue:
-		return v.PickStringValue.GetValue(), nil
-
+		strVal := v.PickStringValue.GetValue()
+		if strVal == "" {
+			return nil, nil
+		}
+		return strVal, nil
 	case *v2.TicketCustomField_PickMultipleStringValues:
 		return v.PickMultipleStringValues.GetValues(), nil
 
@@ -238,6 +245,57 @@ func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 	default:
 		return false, errors.New("error: unknown custom field type")
 	}
+}
+
+func GetDefaultCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
+	if field == nil {
+		return nil, nil
+	}
+	switch v := field.GetValue().(type) {
+	case *v2.TicketCustomField_StringValue:
+		strVal := v.StringValue.GetDefaultValue()
+		if strVal == "" {
+			return nil, nil
+		}
+		return strVal, nil
+	case *v2.TicketCustomField_StringValues:
+		return v.StringValues.GetDefaultValues(), nil
+
+	case *v2.TicketCustomField_BoolValue:
+		return v.BoolValue.GetValue(), nil
+
+	case *v2.TicketCustomField_TimestampValue:
+		return v.TimestampValue.GetDefaultValue(), nil
+
+	case *v2.TicketCustomField_PickStringValue:
+		strVal := v.PickStringValue.GetDefaultValue()
+		if strVal == "" {
+			return nil, nil
+		}
+		return strVal, nil
+	case *v2.TicketCustomField_PickMultipleStringValues:
+		return v.PickMultipleStringValues.GetDefaultValues(), nil
+
+	case *v2.TicketCustomField_PickObjectValue:
+		return v.PickObjectValue.GetDefaultValue(), nil
+
+	case *v2.TicketCustomField_PickMultipleObjectValues:
+		return v.PickMultipleObjectValues.GetDefaultValues(), nil
+
+	default:
+		return false, errors.New("error: unknown custom field type")
+	}
+}
+
+func GetCustomFieldValueOrDefault(field *v2.TicketCustomField) (interface{}, error) {
+	v, err := GetCustomFieldValue(field)
+	if err != nil {
+		return nil, nil
+	}
+	if v == nil {
+		return GetDefaultCustomFieldValue(field)
+	}
+	return v, nil
 }
 
 // TODO(lauren) doesn't validate fields on ticket that are not in the schema
