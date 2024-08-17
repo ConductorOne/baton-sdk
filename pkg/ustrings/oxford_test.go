@@ -28,7 +28,15 @@ func TestOxfordizeList(t *testing.T) {
 		}
 	})
 
-	t.Run("with default configs", func(t *testing.T) {
+	t.Run("should display empty message", func(t *testing.T) {
+		actual := OxfordizeList(
+			[]string{},
+			WithEmptyListMessage("<empty>"),
+		)
+		require.Equal(t, "<empty>", actual)
+	})
+
+	t.Run("with custom configs", func(t *testing.T) {
 		parts := []string{"a", "b", "c"}
 
 		t.Run("should swap conjunction", func(t *testing.T) {

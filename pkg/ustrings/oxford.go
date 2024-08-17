@@ -2,20 +2,22 @@ package ustrings
 
 import (
 	"fmt"
-	libStr "strings"
+	"strings"
 )
 
 const (
-	ConjunctionDefault = "and"
-	SeparatorDefault   = ","
-	WrappersDefault    = Empty
+	ConjunctionDefault      = "and"
+	SeparatorDefault        = ","
+	WrappersDefault         = Empty
+	EmptyListMessageDefault = ""
 )
 
 type OxfordConfigs struct {
-	conjunction   string
-	separator     string
-	wrappersInner WrapOption
-	wrappersOuter WrapOption
+	conjunction      string
+	separator        string
+	wrappersInner    WrapOption
+	wrappersOuter    WrapOption
+	emptyListMessage string
 }
 
 type OxfordOptions func(config *OxfordConfigs)
@@ -44,62 +46,61 @@ func WithOuterWrappers(wrappers WrapOption) OxfordOptions {
 	}
 }
 
+func WithEmptyListMessage(message string) OxfordOptions {
+	return func(config *OxfordConfigs) {
+		config.emptyListMessage = message
+	}
+}
+
 func OxfordizeList(elements []string, options ...OxfordOptions) string {
 	configs := OxfordConfigs{
-		conjunction:   ConjunctionDefault,
-		separator:     SeparatorDefault,
-		wrappersInner: WrappersDefault,
-		wrappersOuter: WrappersDefault,
+		conjunction:      ConjunctionDefault,
+		separator:        SeparatorDefault,
+		wrappersInner:    WrappersDefault,
+		wrappersOuter:    WrappersDefault,
+		emptyListMessage: EmptyListMessageDefault,
 	}
 	for _, option := range options {
 		option(&configs)
 	}
 
-	if len(elements) == 0 {
-		return WrapString("", configs.wrappersOuter)
-	}
-
-	last := len(elements) - 1
-	var rest []string
-	var tail string
-	for _, element := range elements[:last] {
-		rest = append(
-			rest,
+	wrapped := make([]string, 0)
+	for _, element := range elements {
+		wrapped = append(
+			wrapped,
 			WrapString(
 				element,
 				configs.wrappersInner,
 			),
 		)
 	}
-	tail = WrapString(
-		elements[last],
-		configs.wrappersInner,
-	)
 
+	last := len(elements) - 1
 	var output string
-	switch len(rest) {
+	switch len(elements) {
 	case 0:
-		output = tail
+		output = configs.emptyListMessage
 	case 1:
+		output = elements[0]
+	case 2:
 		output = fmt.Sprintf(
 			"%s %s %s",
-			rest[0],
+			elements[0],
 			configs.conjunction,
-			tail,
+			elements[last],
 		)
 	default:
-		output = fmt.Sprintf(
-			"%s%s %s %s",
-			libStr.Join(
-				rest,
-				fmt.Sprintf(
-					"%s ",
-					configs.separator,
-				),
-			),
-			configs.separator,
+		wrapped[last] = fmt.Sprintf(
+			"%s %s",
 			configs.conjunction,
-			tail,
+			wrapped[last],
+		)
+		output = strings.Join(
+			wrapped,
+			fmt.Sprintf(
+				"%s ",
+				configs.separator,
+			),
 		)
 	}
 	return WrapString(output, configs.wrappersOuter)
