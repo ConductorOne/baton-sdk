@@ -8,15 +8,8 @@ var xmlContentTypes []string = []string{
 }
 
 func IsJSONContentType(contentType string) bool {
-	if !strings.HasPrefix(contentType, "application") {
-		return false
-	}
-
-	if !strings.Contains(contentType, "json") {
-		return false
-	}
-
-	return true
+	return strings.HasPrefix(contentType, "application") &&
+		strings.Contains(contentType, "json")
 }
 
 func IsXMLContentType(contentType string) bool {

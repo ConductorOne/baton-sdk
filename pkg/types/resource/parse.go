@@ -7,12 +7,10 @@ import "strings"
 func SplitFullName(name string) (string, string) {
 	names := strings.SplitN(name, " ", 2)
 	var firstName, lastName string
-
-	switch len(names) {
-	case 1:
+	if len(names) > 0 {
 		firstName = names[0]
-	case 2:
-		firstName = names[0]
+	}
+	if len(names) > 1 {
 		lastName = names[1]
 	}
 
