@@ -4,9 +4,20 @@ import (
 	"testing"
 
 	"github.com/conductorone/baton-sdk/pkg/field"
-	"github.com/conductorone/baton-sdk/pkg/ustrings"
 	"github.com/spf13/viper"
 )
+
+type TestCase = struct {
+	configs map[string]string
+	isValid bool
+	message string
+}
+
+type TestCaseFromExpression = struct {
+	expression string
+	isValid    bool
+	message    string
+}
 
 func MakeViper(input map[string]string) *viper.Viper {
 	output := viper.New()
@@ -16,28 +27,28 @@ func MakeViper(input map[string]string) *viper.Viper {
 	return output
 }
 
-// AssertOutcome - call a validation function and assert the result.
-func AssertOutcome(
+func exerciseTestCase(
 	t *testing.T,
-	function func() error,
-	expectedSuccess bool,
+	configurationSchema field.Configuration,
+	extraValidationFunction func(*viper.Viper) error,
+	configs map[string]string,
+	isValid bool,
 ) {
-	err := function()
-	if err != nil {
-		if expectedSuccess {
-			t.Fatal("expected function to succeed, but", err.Error())
-		}
-	} else {
-		if !expectedSuccess {
-			t.Fatal("expected function to fail, but it succeeded")
-		}
-	}
-}
-
-type TestCase = struct {
-	expression string
-	isValid    bool
-	message    string
+	AssertValidation(
+		t,
+		func() error {
+			v := MakeViper(configs)
+			err := field.Validate(configurationSchema, v)
+			if err != nil {
+				return err
+			}
+			if extraValidationFunction != nil {
+				return extraValidationFunction(v)
+			}
+			return nil
+		},
+		isValid,
+	)
 }
 
 // ExerciseTestCases - this helper function is meant to be called by each
@@ -52,23 +63,38 @@ func ExerciseTestCases(
 ) {
 	for _, testCase := range testCases {
 		t.Run(testCase.message, func(t *testing.T) {
-			values, err := ustrings.ParseFlags(testCase.expression)
+			exerciseTestCase(
+				t,
+				configurationSchema,
+				extraValidationFunction,
+				testCase.configs,
+				testCase.isValid,
+			)
+		})
+	}
+}
+
+// ExerciseTestCasesFromExpressions - Like ExerciseTestCases, but instead of
+// passing a `map[string]string` to each test case, pass a function that parses
+// configs from strings and pass each test case an expression as a string.
+func ExerciseTestCasesFromExpressions(
+	t *testing.T,
+	configurationSchema field.Configuration,
+	extraValidationFunction func(*viper.Viper) error,
+	expressionParser func(string) (map[string]string, error),
+	testCases []TestCaseFromExpression,
+) {
+	for _, testCase := range testCases {
+		t.Run(testCase.message, func(t *testing.T) {
+			values, err := expressionParser(testCase.expression)
 			if err != nil {
 				t.Fatal("could not parse flags:", err)
 			}
-			AssertOutcome(
+			exerciseTestCase(
 				t,
-				func() error {
-					v := MakeViper(values)
-					err = field.Validate(configurationSchema, v)
-					if err != nil {
-						return err
-					}
-					if extraValidationFunction != nil {
-						return extraValidationFunction(v)
-					}
-					return nil
-				},
+				configurationSchema,
+				extraValidationFunction,
+				values,
 				testCase.isValid,
 			)
 		})
