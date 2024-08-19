@@ -145,9 +145,16 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 	}
 
 	ticket, annos, err := b.ticketManager.CreateTicket(ctx, cTicket, request.GetSchema())
+	var resp *v2.TicketsServiceCreateTicketResponse
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: creating ticket failed: %w", err)
+		if ticket != nil {
+			resp = &v2.TicketsServiceCreateTicketResponse{
+				Ticket:      ticket,
+				Annotations: annos,
+			}
+		}
+		return resp, fmt.Errorf("error: creating ticket failed: %w", err)
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
@@ -165,10 +172,17 @@ func (b *builderImpl) GetTicket(ctx context.Context, request *v2.TicketsServiceG
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
+	var resp *v2.TicketsServiceGetTicketResponse
 	ticket, annos, err := b.ticketManager.GetTicket(ctx, request.GetId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: getting ticket failed: %w", err)
+		if ticket != nil {
+			resp = &v2.TicketsServiceGetTicketResponse{
+				Ticket:      ticket,
+				Annotations: annos,
+			}
+		}
+		return resp, fmt.Errorf("error: getting ticket failed: %w", err)
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
