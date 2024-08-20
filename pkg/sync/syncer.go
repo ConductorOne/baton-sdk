@@ -1433,9 +1433,12 @@ func (s *syncer) loadStore(ctx context.Context) error {
 
 // Close closes the datastorage to ensure it is updated on disk.
 func (s *syncer) Close(ctx context.Context) error {
-	err := s.store.Close()
-	if err != nil {
-		return fmt.Errorf("error closing store: %w", err)
+	var err error
+	if s.store != nil {
+		err = s.store.Close()
+		if err != nil {
+			return fmt.Errorf("error closing store: %w", err)
+		}
 	}
 
 	if s.c1zManager != nil {
