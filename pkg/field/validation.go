@@ -33,7 +33,7 @@ func (e *ErrConfigurationMissingFields) Push(err error) {
 //   - repeated fields (by name) are defined
 //   - if sets of fields are mutually exclusive and required
 //     together at the same time
-//   - if fields depedent on themselves
+//   - if fields depend on themselves
 func Validate(c Configuration, v *viper.Viper) error {
 	present := make(map[string]int)
 	missingFieldsError := &ErrConfigurationMissingFields{}

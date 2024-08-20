@@ -45,6 +45,7 @@ func WithEmail(email string, primary bool) UserTraitOption {
 		return nil
 	}
 }
+
 func WithUserLogin(login string, aliases ...string) UserTraitOption {
 	return func(ut *v2.UserTrait) error {
 		if login == "" {

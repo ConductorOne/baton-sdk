@@ -83,7 +83,7 @@ func getRatelimitDescriptors(ctx context.Context, method string, in interface{},
 	return ret
 }
 
-// UnaryServerInterceptor returns a new unary server interceptors that adds zap.Logger to the context.
+// UnaryInterceptor returns a new unary server interceptors that adds zap.Logger to the context.
 func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimitDescriptors_Entry) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		// If this is a call to the rate limit service, skip it
