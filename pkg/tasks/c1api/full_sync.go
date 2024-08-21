@@ -131,8 +131,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
-	debugfilepath := filepath.Join(c1zPath, "debug.log")
-	err = uploadDebugLogs(ctx, debugfilepath, c.helpers)
+	err = uploadDebugLogs(ctx, c.helpers)
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
@@ -148,22 +147,20 @@ func newFullSyncTaskHandler(task *v1.Task, helpers fullSyncHelpers, skipFullSync
 	}
 }
 
-func uploadDebugLogs(ctx context.Context, p string, helper fullSyncHelpers) error {
+func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 	l := ctxzap.Extract(ctx)
-	_, err := os.Stat(p)
+
+	debugfilelocation := filepath.Join(helper.TempDir(), "debug.log")
+
+	_, err := os.Stat(debugfilelocation)
 	if err == nil {
-		debugfile, err := os.Open(p)
+		debugfile, err := os.Open(debugfilelocation)
 		if err != nil {
 			return err
 		}
 		defer debugfile.Close()
-		defer func() {
-			err := os.Remove(p)
-			if err != nil {
-				l.Error("failed to remove debug logs after upload", zap.Error(err))
-			}
-		}()
 
+		l.Info("uploading debug logs", zap.String("file", debugfilelocation))
 		err = helper.Upload(ctx, debugfile)
 
 		if err != nil {
