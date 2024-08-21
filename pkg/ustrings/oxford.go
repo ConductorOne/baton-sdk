@@ -81,13 +81,13 @@ func OxfordizeList(elements []string, options ...OxfordOptions) string {
 	case 0:
 		output = configs.emptyListMessage
 	case 1:
-		output = elements[0]
+		output = wrapped[0]
 	case 2:
 		output = fmt.Sprintf(
 			"%s %s %s",
-			elements[0],
+			wrapped[0],
 			configs.conjunction,
-			elements[last],
+			wrapped[last],
 		)
 	default:
 		wrapped[last] = fmt.Sprintf(

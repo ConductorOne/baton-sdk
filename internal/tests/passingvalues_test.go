@@ -129,7 +129,7 @@ func TestEntryPoint(t *testing.T) {
 		_, err := entrypoint(ctx, carrier, "--string-field", "foo")
 
 		require.Error(t, err)
-		require.EqualError(t, err, "(Cobra) Execute failed: set fields (string-field) are dependent on (bool-field) being set")
+		require.EqualError(t, err, "(Cobra) Execute failed: set fields ('string-field') are dependent on ('bool-field') being set")
 	})
 
 	t.Run("should error when at least one field must be set", func(t *testing.T) {
@@ -141,6 +141,6 @@ func TestEntryPoint(t *testing.T) {
 		_, err := entrypoint(ctx, carrier)
 
 		require.Error(t, err)
-		require.EqualError(t, err, "(Cobra) Execute failed: at least one of the flags in the group [string-field int-field] is required")
+		require.EqualError(t, err, "(Cobra) Execute failed: at least one of the flags in the group [string-field bool-field] is required")
 	})
 }

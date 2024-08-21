@@ -57,5 +57,14 @@ func TestOxfordizeList(t *testing.T) {
 			)
 			require.Equal(t, "('a', 'b', and 'c')", actual)
 		})
+
+		t.Run("should swap wrappers with only two elements", func(t *testing.T) {
+			actual := OxfordizeList(
+				parts[:2],
+				WithInnerWrappers(SingleQuotes),
+				WithOuterWrappers(Parentheses),
+			)
+			require.Equal(t, "('a' and 'b')", actual)
+		})
 	})
 }
