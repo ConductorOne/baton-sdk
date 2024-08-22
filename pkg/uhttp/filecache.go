@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -16,11 +17,11 @@ type FileCache struct {
 	mu       sync.RWMutex
 }
 
-func NewFileCache(ctx context.Context, filename string) (*FileCache, error) {
+func NewFileCache(ctx context.Context) (*FileCache, error) {
 	l := ctxzap.Extract(ctx)
 	fc := FileCache{
 		data:     map[string]any{},
-		filename: filename,
+		filename: "lcache.c1z",
 	}
 
 	err := fc.load(ctx)
@@ -35,10 +36,15 @@ func NewFileCache(ctx context.Context, filename string) (*FileCache, error) {
 func (fc *FileCache) load(ctx context.Context) error {
 	var cacheData []byte
 	l := ctxzap.Extract(ctx)
-	_, err := os.OpenFile(fc.filename, os.O_RDWR|os.O_CREATE|os.O_EXCL|os.O_APPEND, 0600)
-	if !os.IsExist(err) {
-		l.Debug("error opening cache file", zap.Error(err))
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
 		return err
+	}
+
+	c1zPath := filepath.Join(cacheDir, fc.filename)
+	_, err = os.OpenFile(c1zPath, os.O_RDWR|os.O_CREATE|os.O_EXCL|os.O_APPEND, 0600)
+	if !os.IsExist(err) {
+		return &os.PathError{Op: "OpenFile", Path: c1zPath, Err: err}
 	}
 
 	cacheData, err = os.ReadFile(fc.filename)
