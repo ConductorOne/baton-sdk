@@ -8,15 +8,15 @@ import (
 )
 
 type TestCase = struct {
-	configs map[string]string
-	isValid bool
-	message string
+	Configs map[string]string
+	IsValid bool
+	Message string
 }
 
 type TestCaseFromExpression = struct {
-	expression string
-	isValid    bool
-	message    string
+	Expression string
+	IsValid    bool
+	Message    string
 }
 
 func MakeViper(input map[string]string) *viper.Viper {
@@ -27,7 +27,7 @@ func MakeViper(input map[string]string) *viper.Viper {
 	return output
 }
 
-func exerciseTestCase(
+func ExerciseTestCase(
 	t *testing.T,
 	configurationSchema field.Configuration,
 	extraValidationFunction func(*viper.Viper) error,
@@ -62,13 +62,13 @@ func ExerciseTestCases(
 	testCases []TestCase,
 ) {
 	for _, testCase := range testCases {
-		t.Run(testCase.message, func(t *testing.T) {
-			exerciseTestCase(
+		t.Run(testCase.Message, func(t *testing.T) {
+			ExerciseTestCase(
 				t,
 				configurationSchema,
 				extraValidationFunction,
-				testCase.configs,
-				testCase.isValid,
+				testCase.Configs,
+				testCase.IsValid,
 			)
 		})
 	}
@@ -85,17 +85,17 @@ func ExerciseTestCasesFromExpressions(
 	testCases []TestCaseFromExpression,
 ) {
 	for _, testCase := range testCases {
-		t.Run(testCase.message, func(t *testing.T) {
-			values, err := expressionParser(testCase.expression)
+		t.Run(testCase.Message, func(t *testing.T) {
+			values, err := expressionParser(testCase.Expression)
 			if err != nil {
 				t.Fatal("could not parse flags:", err)
 			}
-			exerciseTestCase(
+			ExerciseTestCase(
 				t,
 				configurationSchema,
 				extraValidationFunction,
 				values,
-				testCase.isValid,
+				testCase.IsValid,
 			)
 		})
 	}
