@@ -1,238 +1,318 @@
 package field
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
 )
 
-func fieldsPresent(fieldNames ...string) map[string]string {
-	output := make(map[string]string)
-	for _, fieldName := range fieldNames {
-		output[fieldName] = "1"
+func TestValidateRequiredFieldsNotFound(t *testing.T) {
+	carrier := Configuration{
+		Fields: []SchemaField{
+			StringField("foo", WithRequired(true)),
+			StringField("bar", WithRequired(false)),
+		},
 	}
-	return output
-}
 
-func AssertInvalidRelationshipConstraint(t *testing.T, configSchema Configuration) {
-	AssertOutcome(
-		t,
-		configSchema,
-		fieldsPresent("required"),
-		"invalid relationship constraint",
-	)
-}
-
-func AssertOutcome(
-	t *testing.T,
-	configSchema Configuration,
-	config map[string]string,
-	expectedErr string,
-) {
+	// create configuration using viper
 	v := viper.New()
-	for key, value := range config {
-		v.Set(key, value)
-	}
-	err := Validate(configSchema, v)
-	if expectedErr == "" {
-		require.NoError(t, err)
-	} else {
-		require.EqualError(t, err, expectedErr)
-	}
+	v.Set("foo", "")
+	v.Set("bar", "")
+
+	err := Validate(carrier, v)
+	require.Error(t, err)
+	require.EqualError(t, err, "errors found:\nfield foo of type string is marked as required but it has a zero-value")
 }
 
-func TestValidate(t *testing.T) {
+func TestValidateRelationshipMutuallyExclusiveAllPresent(t *testing.T) {
 	foo := StringField("foo")
 	bar := StringField("bar")
-	baz := StringSliceField("baz")
-	required := StringField("required", WithRequired(true))
 
-	t.Run("no relationships", func(t *testing.T) {
-		carrier := Configuration{
-			Fields: []SchemaField{required, foo},
-		}
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsMutuallyExclusive(foo, bar),
+		},
+	}
 
-		t.Run("should NOT error when config is valid", func(t *testing.T) {
-			AssertOutcome(t, carrier, fieldsPresent("required"), "")
-		})
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "hello")
+	v.Set("bar", "world")
 
-		t.Run("should error when a REQUIRED field is missing", func(t *testing.T) {
-			AssertOutcome(
-				t,
-				carrier,
-				nil,
-				"errors found:\nfield required of type string is marked as required but it has a zero-value",
-			)
-		})
-	})
+	err := Validate(carrier, v)
+	require.Error(t, err)
+	require.EqualError(t, err, "fields marked as mutually exclusive were set: foo, bar")
+}
 
-	t.Run("should error when mutually exclusive relationship has ONE field", func(t *testing.T) {
-		AssertInvalidRelationshipConstraint(
-			t,
-			Configuration{
-				Fields: []SchemaField{foo},
-				Constraints: []SchemaFieldRelationship{
-					FieldsMutuallyExclusive(foo),
-				},
-			},
-		)
-	})
+func TestValidationRequiredTogetherOneMissing(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
 
-	t.Run("should error when mutually exclusive relationship has DUPLICATE field", func(t *testing.T) {
-		AssertInvalidRelationshipConstraint(
-			t,
-			Configuration{
-				Fields: []SchemaField{foo},
-				Constraints: []SchemaFieldRelationship{
-					FieldsMutuallyExclusive(foo, foo),
-				},
-			},
-		)
-	})
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsRequiredTogether(foo, bar),
+		},
+	}
 
-	t.Run("should error when mutually exclusive relationship and any fields are REQUIRED", func(t *testing.T) {
-		AssertInvalidRelationshipConstraint(
-			t,
-			Configuration{
-				Fields: []SchemaField{foo, required},
-				Constraints: []SchemaFieldRelationship{
-					FieldsMutuallyExclusive(foo, required),
-				},
-			},
-		)
-	})
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "hello")
+	v.Set("bar", "")
 
-	t.Run("mutually exclusive relationship", func(t *testing.T) {
-		carrier := Configuration{
-			Fields: []SchemaField{foo, bar},
-			Constraints: []SchemaFieldRelationship{
-				FieldsMutuallyExclusive(foo, bar),
-			},
-		}
+	err := Validate(carrier, v)
+	require.Error(t, err)
+	require.EqualError(t, err, "fields marked as needed together are missing: bar")
+}
 
-		t.Run("should error when multiple values are present", func(t *testing.T) {
-			AssertOutcome(
-				t,
-				carrier,
-				fieldsPresent("foo", "bar"),
-				"fields marked as mutually exclusive were set: ('foo' and 'bar')",
-			)
-		})
+func TestValidationRequiredTogetherAllMissing(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
 
-		t.Run("should NOT error when only one value is present", func(t *testing.T) {
-			AssertOutcome(
-				t,
-				carrier,
-				fieldsPresent("foo"),
-				"",
-			)
-		})
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsRequiredTogether(foo, bar),
+		},
+	}
 
-		t.Run("should not error when NO values are present", func(t *testing.T) {
-			AssertOutcome(t, carrier, nil, "")
-		})
-	})
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "")
+	v.Set("bar", "")
 
-	t.Run("should error when required together relationship has DUPLICATE field", func(t *testing.T) {
-		AssertInvalidRelationshipConstraint(
-			t,
-			Configuration{
-				Fields: []SchemaField{foo},
-				Constraints: []SchemaFieldRelationship{
-					FieldsRequiredTogether(foo, foo),
-				},
-			},
-		)
-	})
+	err := Validate(carrier, v)
+	require.NoError(t, err)
+}
 
-	t.Run("required together relationship", func(t *testing.T) {
-		carrier := Configuration{
-			Fields: []SchemaField{foo, bar},
-			Constraints: []SchemaFieldRelationship{
-				FieldsRequiredTogether(foo, bar),
-			},
-		}
+func TestValidationDependentFieldsAllPresent(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
+	baz := StringField("baz")
 
-		t.Run("should NOT error when ALL fields are MISSING", func(t *testing.T) {
-			AssertOutcome(t, carrier, nil, "")
-		})
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+			baz,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+		},
+	}
 
-		t.Run("should NOT error when ALL fields are present", func(t *testing.T) {
-			AssertOutcome(
-				t,
-				carrier,
-				fieldsPresent("foo", "bar"),
-				"",
-			)
-		})
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "present")
+	v.Set("bar", "present")
+	v.Set("baz", "present")
 
-		t.Run("should error when one field is missing", func(t *testing.T) {
-			AssertOutcome(
-				t,
-				carrier,
-				fieldsPresent("foo"),
-				"fields marked as needed together are missing: ('bar')",
-			)
-		})
-	})
+	err := Validate(carrier, v)
+	require.NoError(t, err)
+}
 
-	t.Run("at least one used relationship", func(t *testing.T) {
-		carrier := Configuration{
-			Fields: []SchemaField{foo, bar},
-			Constraints: []SchemaFieldRelationship{
-				FieldsAtLeastOneUsed(bar, foo),
-			},
-		}
+func TestValidationDependentFieldsExpectedFieldBazMissing(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
+	baz := StringField("baz")
 
-		t.Run("should not error when NO fields are missing", func(t *testing.T) {
-			AssertOutcome(
-				t,
-				carrier,
-				fieldsPresent("foo", "bar"),
-				"",
-			)
-		})
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+			baz,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+		},
+	}
 
-		t.Run("should error when all fields are missing", func(t *testing.T) {
-			AssertOutcome(
-				t,
-				carrier,
-				nil,
-				"at least one field was expected, any of: ('bar' and 'foo')",
-			)
-		})
-	})
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "present")
+	v.Set("bar", "present")
+	v.Set("baz", "")
 
-	t.Run("dependency relationship", func(t *testing.T) {
-		carrier := Configuration{
-			Fields: []SchemaField{foo, bar, baz},
-			Constraints: []SchemaFieldRelationship{
-				FieldsDependentOn(
-					[]SchemaField{foo},
-					[]SchemaField{bar, baz},
-				),
-			},
-		}
+	err := Validate(carrier, v)
+	require.Error(t, err)
+}
 
-		testCases := []struct {
-			fields   string
-			expected string
-		}{
-			{"foo bar baz", ""},
-			{"foo bar", "set fields ('foo') are dependent on ('baz') being set"},
-			{"foo", "set fields ('foo') are dependent on ('bar' and 'baz') being set"},
-			{"bar baz", ""},
-			{"bar", ""},
-			{"baz", ""},
-			{"", ""},
-		}
-		for _, testCase := range testCases {
-			t.Run(testCase.fields, func(t *testing.T) {
-				config := fieldsPresent(strings.Split(testCase.fields, " ")...)
-				AssertOutcome(t, carrier, config, testCase.expected)
-			})
-		}
-	})
+func TestValidationDependentFieldsExpectedFieldBazBarMissing(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
+	baz := StringField("baz")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+			baz,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "present")
+	v.Set("bar", "")
+	v.Set("baz", "")
+
+	err := Validate(carrier, v)
+	require.Error(t, err)
+}
+
+func TestValidationDependentFieldsDepedentFieldMissing(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringField("bar")
+	baz := StringField("baz")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+			baz,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependentOn([]SchemaField{foo}, []SchemaField{bar, baz}),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "")
+	v.Set("bar", "present")
+	v.Set("baz", "present")
+
+	err := Validate(carrier, v)
+	require.NoError(t, err)
+}
+
+func TestValidationDependentSliceFieldNotRequiredOrSet(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringSliceField("bar")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependentOn([]SchemaField{bar}, []SchemaField{foo}),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+
+	// slice field is not required but is dependent on foo being set
+	// foo is not set, so we should not have an error
+	err := Validate(carrier, v)
+	require.NoError(t, err)
+}
+
+func TestValidationRequiredNotSetForDependentSliceField(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringSliceField("bar")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsDependentOn([]SchemaField{bar}, []SchemaField{foo}),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("bar", "a,b,c")
+
+	// slice field 'bar' is not required but is dependent on 'foo' being set
+	// foo is not set, and 'bar' is, so we should have an error
+	err := Validate(carrier, v)
+	require.Error(t, err)
+}
+
+func TestValidationRequiredTogetherSliceField(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringSliceField("bar")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsRequiredTogether(bar, foo),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "set")
+	v.Set("bar", "a,b,c")
+
+	// fields 'bar' and 'foo' are required together
+	// both are set so we should not have an error
+	err := Validate(carrier, v)
+	require.NoError(t, err)
+}
+
+func TestValidationMutuallyExclusiveWithSliceField(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringSliceField("bar")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsMutuallyExclusive(bar, foo),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+	v.Set("foo", "set")
+
+	// Should not error since only one field of the mutually exclusive fields are set
+	err := Validate(carrier, v)
+	require.NoError(t, err)
+}
+
+func TestValidationAtLeastOneWithSliceField(t *testing.T) {
+	foo := StringField("foo")
+	bar := StringSliceField("bar")
+
+	carrier := Configuration{
+		Fields: []SchemaField{
+			foo,
+			bar,
+		},
+		Constraints: []SchemaFieldRelationship{
+			FieldsAtLeastOneUsed(bar, foo),
+		},
+	}
+
+	// create configuration using viper
+	v := viper.New()
+
+	// Should error since no fields are set but at least one is required
+	err := Validate(carrier, v)
+	require.Error(t, err)
 }

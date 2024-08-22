@@ -11,136 +11,130 @@ import (
 
 const timeoutIn = time.Millisecond * 1
 
-func TestEntryPoint(t *testing.T) {
+func TestPassingValuesToFieldsViaCLI(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
 	defer cancel()
 
-	stringRequiredField := field.StringField(
-		"string-field",
-		field.WithRequired(true),
+	stringfield := field.StringField("string-field", field.WithRequired(true))
+	intfield := field.IntField("int-field", field.WithRequired(true))
+	boolfield := field.BoolField("bool-field")
+
+	carrier := field.NewConfiguration([]field.SchemaField{stringfield, intfield, boolfield})
+
+	v, err := entrypoint(ctx, carrier,
+		"--string-field", "foo",
+		"--int-field", "100",
+		"--bool-field",
 	)
-	intRequiredField := field.IntField(
-		"int-field",
-		field.WithRequired(true),
+
+	require.NoError(t, err)
+	require.EqualValues(t, "foo", v.GetString("string-field"))
+	require.EqualValues(t, 100, v.GetInt("int-field"))
+	require.EqualValues(t, true, v.GetBool("bool-field"))
+}
+
+func TestPassingValuesToFieldsViaENVVARS(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
+	defer cancel()
+
+	stringfield := field.StringField("string-field", field.WithRequired(true))
+	intfield := field.IntField("int-field", field.WithRequired(true))
+	boolfield := field.BoolField("bool-field")
+
+	carrier := field.NewConfiguration([]field.SchemaField{stringfield, intfield, boolfield})
+
+	// set envvars
+	t.Setenv("BATON_STRING_FIELD", "bar")
+	t.Setenv("BATON_INT_FIELD", "200")
+	t.Setenv("BATON_BOOL_FIELD", "true")
+	v, err := entrypoint(ctx, carrier)
+
+	require.NoError(t, err)
+	require.EqualValues(t, "bar", v.GetString("string-field"))
+	require.EqualValues(t, 200, v.GetInt("int-field"))
+	require.EqualValues(t, true, v.GetBool("bool-field"))
+}
+
+func TestRequiredValuesAbsent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
+	defer cancel()
+
+	stringfield := field.StringField("string-field", field.WithRequired(true))
+	intfield := field.IntField("int-field", field.WithRequired(true))
+	boolfield := field.BoolField("bool-field")
+
+	carrier := field.NewConfiguration([]field.SchemaField{stringfield, intfield, boolfield})
+
+	_, err := entrypoint(ctx, carrier)
+
+	require.Error(t, err)
+	require.EqualError(t, err, "(Cobra) Execute failed: required flag(s) \"int-field\", \"string-field\" not set")
+}
+
+func TestTriggerRequiredTogetherError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
+	defer cancel()
+
+	stringfield := field.StringField("string-field")
+	intfield := field.IntField("int-field")
+
+	carrier := field.NewConfiguration([]field.SchemaField{stringfield, intfield},
+		field.FieldsRequiredTogether(stringfield, intfield),
 	)
-	stringField := field.StringField("string-field")
-	boolField := field.BoolField("bool-field")
 
-	t.Run("should receive values from CLI", func(t *testing.T) {
-		carrier := field.NewConfiguration(
-			[]field.SchemaField{
-				stringRequiredField,
-				intRequiredField,
-				boolField,
-			},
-		)
+	_, err := entrypoint(ctx, carrier, "--string-field", "foo")
 
-		v, err := entrypoint(
-			ctx,
-			carrier,
-			"--string-field",
-			"foo",
-			"--int-field",
-			"100",
-			"--bool-field",
-		)
+	require.Error(t, err)
+	require.EqualError(t, err, "(Cobra) Execute failed: if any flags in the group [string-field int-field] are set they must all be set; missing [int-field]")
+}
 
-		require.NoError(t, err)
-		require.EqualValues(t, "foo", v.GetString("string-field"))
-		require.EqualValues(t, 100, v.GetInt("int-field"))
-		require.EqualValues(t, true, v.GetBool("bool-field"))
-	})
+func TestTriggerMutuallyExclusiveError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
+	defer cancel()
 
-	t.Run("should receive values from ENVVARS", func(t *testing.T) {
-		carrier := field.NewConfiguration(
-			[]field.SchemaField{
-				stringRequiredField,
-				intRequiredField,
-				boolField,
-			},
-		)
+	stringfield := field.StringField("string-field")
+	intfield := field.IntField("int-field")
 
-		// set envvars
-		t.Setenv("BATON_STRING_FIELD", "bar")
-		t.Setenv("BATON_INT_FIELD", "200")
-		t.Setenv("BATON_BOOL_FIELD", "true")
-		v, err := entrypoint(ctx, carrier)
+	carrier := field.NewConfiguration([]field.SchemaField{stringfield, intfield},
+		field.FieldsMutuallyExclusive(stringfield, intfield),
+	)
 
-		require.NoError(t, err)
-		require.EqualValues(t, "bar", v.GetString("string-field"))
-		require.EqualValues(t, 200, v.GetInt("int-field"))
-		require.EqualValues(t, true, v.GetBool("bool-field"))
-	})
+	_, err := entrypoint(ctx, carrier, "--string-field", "foo", "--int-field", "200")
 
-	t.Run("should error when required values are absent", func(t *testing.T) {
-		carrier := field.NewConfiguration(
-			[]field.SchemaField{
-				stringRequiredField,
-				intRequiredField,
-				boolField,
-			},
-		)
+	require.Error(t, err)
+	require.EqualError(t, err, "(Cobra) Execute failed: if any flags in the group [string-field int-field] are set none of the others can be; [int-field string-field] were all set")
+}
 
-		_, err := entrypoint(ctx, carrier)
+func TestTriggerDependsOnError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
+	defer cancel()
 
-		require.Error(t, err)
-		require.EqualError(t, err, "(Cobra) Execute failed: required flag(s) \"int-field\", \"string-field\" not set")
-	})
+	stringfield := field.StringField("string-field")
+	intfield := field.IntField("int-field")
 
-	t.Run("should error when fields are required together", func(t *testing.T) {
-		carrier := field.NewConfiguration(
-			[]field.SchemaField{stringField, boolField},
-			field.FieldsRequiredTogether(stringField, boolField),
-		)
+	carrier := field.NewConfiguration([]field.SchemaField{stringfield, intfield},
+		field.FieldsDependentOn([]field.SchemaField{stringfield}, []field.SchemaField{intfield}),
+	)
 
-		_, err := entrypoint(ctx, carrier, "--string-field", "foo")
+	_, err := entrypoint(ctx, carrier, "--string-field", "foo")
 
-		require.Error(t, err)
-		require.EqualError(t, err, "(Cobra) Execute failed: if any flags in the group [string-field bool-field] are set they must all be set; missing [bool-field]")
-	})
+	require.Error(t, err)
+	require.EqualError(t, err, "(Cobra) Execute failed: set fields string-field are dependent on int-field being set")
+}
 
-	t.Run("should error when fields are mutually exclusive", func(t *testing.T) {
-		carrier := field.NewConfiguration(
-			[]field.SchemaField{stringField, boolField},
-			field.FieldsMutuallyExclusive(stringField, boolField),
-		)
+func TestTriggerAtLeastOneError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
+	defer cancel()
 
-		_, err := entrypoint(
-			ctx,
-			carrier,
-			"--string-field",
-			"foo",
-			"--bool-field",
-		)
+	stringfield := field.StringField("string-field")
+	intfield := field.IntField("int-field")
 
-		require.Error(t, err)
-		require.EqualError(t, err, "(Cobra) Execute failed: if any flags in the group [string-field bool-field] are set none of the others can be; [bool-field string-field] were all set")
-	})
+	carrier := field.NewConfiguration([]field.SchemaField{stringfield, intfield},
+		field.FieldsAtLeastOneUsed(stringfield, intfield),
+	)
 
-	t.Run("should error when fields are dependent", func(t *testing.T) {
-		carrier := field.NewConfiguration(
-			[]field.SchemaField{stringField, boolField},
-			field.FieldsDependentOn(
-				[]field.SchemaField{stringField},
-				[]field.SchemaField{boolField},
-			),
-		)
+	_, err := entrypoint(ctx, carrier)
 
-		_, err := entrypoint(ctx, carrier, "--string-field", "foo")
-
-		require.Error(t, err)
-		require.EqualError(t, err, "(Cobra) Execute failed: set fields ('string-field') are dependent on ('bool-field') being set")
-	})
-
-	t.Run("should error when at least one field must be set", func(t *testing.T) {
-		carrier := field.NewConfiguration(
-			[]field.SchemaField{stringField, boolField},
-			field.FieldsAtLeastOneUsed(stringField, boolField),
-		)
-
-		_, err := entrypoint(ctx, carrier)
-
-		require.Error(t, err)
-		require.EqualError(t, err, "(Cobra) Execute failed: at least one of the flags in the group [string-field bool-field] is required")
-	})
+	require.Error(t, err)
+	require.EqualError(t, err, "(Cobra) Execute failed: at least one of the flags in the group [string-field int-field] is required")
 }

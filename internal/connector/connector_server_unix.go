@@ -14,11 +14,6 @@ import (
 	"go.uber.org/zap"
 )
 
-func getPort(listener net.Listener) uint32 {
-	//nolint:gosec // No risk of overflow because `Port` is 16-bit.
-	return uint32(listener.Addr().(*net.TCPAddr).Port)
-}
-
 func (cw *wrapper) setupListener(ctx context.Context) (uint32, *os.File, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -30,7 +25,7 @@ func (cw *wrapper) setupListener(ctx context.Context) (uint32, *os.File, error) 
 	if err != nil {
 		return 0, nil, err
 	}
-	listenPort := getPort(listener)
+	listenPort := uint32(listener.Addr().(*net.TCPAddr).Port)
 	listenerFile, err := listener.File()
 	if err != nil {
 		return 0, nil, err
@@ -63,7 +58,7 @@ func (cw *wrapper) getListener(ctx context.Context, serverCfg *connectorwrapperV
 		return nil, err
 	}
 
-	listenPort := getPort(listener)
+	listenPort := uint32(listener.Addr().(*net.TCPAddr).Port)
 	if listenPort != serverCfg.ListenPort {
 		return nil, fmt.Errorf("listen port mismatch: %d != %d", listenPort, serverCfg.ListenPort)
 	}

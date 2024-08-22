@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/conductorone/baton-sdk/pkg/ustrings"
 	"github.com/spf13/viper"
 )
 
@@ -30,8 +29,11 @@ func (e *ErrConfigurationMissingFields) Push(err error) {
 // Validate perform validation of field requirement and constraints
 // relationships after the configuration is read.
 // We don't check the following:
+//   - if required fields are mutually exclusive
+//   - repeated fields (by name) are defined
 //   - if sets of fields are mutually exclusive and required
 //     together at the same time
+//   - if fields depend on themselves
 func Validate(c Configuration, v *viper.Viper) error {
 	present := make(map[string]int)
 	missingFieldsError := &ErrConfigurationMissingFields{}
@@ -57,13 +59,7 @@ func Validate(c Configuration, v *viper.Viper) error {
 		}
 
 		if f.Required && !isNonZero {
-			missingFieldsError.Push(
-				fmt.Errorf(
-					"field %s of type %s is marked as required but it has a zero-value",
-					f.FieldName,
-					f.FieldType,
-				),
-			)
+			missingFieldsError.Push(fmt.Errorf("field %s of type %s is marked as required but it has a zero-value", f.FieldName, f.FieldType))
 		}
 	}
 
@@ -87,37 +83,21 @@ func validateConstraints(fieldsPresent map[string]int, relationships []SchemaFie
 			expected += fieldsPresent[e.FieldName]
 		}
 
-		switch relationship.Kind {
-		case MutuallyExclusive:
-			if present > 1 {
-				return makeMutuallyExclusiveError(fieldsPresent, relationship)
-			}
-		case RequiredTogether:
-			if present > 0 && present < len(relationship.Fields) {
-				return makeNeededTogetherError(fieldsPresent, relationship)
-			}
-		case AtLeastOne:
-			if present == 0 {
-				return makeAtLeastOneError(fieldsPresent, relationship)
-			}
-		case Dependents:
-			if present > 0 && expected != len(relationship.ExpectedFields) {
-				return makeDependentFieldsError(fieldsPresent, relationship)
-			}
-		default:
-			return fmt.Errorf("invalid relationship constraint")
+		if present > 1 && relationship.Kind == MutuallyExclusive {
+			return makeMutuallyExclusiveError(fieldsPresent, relationship)
+		}
+		if present > 0 && present < len(relationship.Fields) && relationship.Kind == RequiredTogether {
+			return makeNeededTogetherError(fieldsPresent, relationship)
+		}
+		if present == 0 && relationship.Kind == AtLeastOne {
+			return makeAtLeastOneError(fieldsPresent, relationship)
+		}
+		if present > 0 && expected != len(relationship.ExpectedFields) && relationship.Kind == Dependents {
+			return makeDependentFieldsError(fieldsPresent, relationship)
 		}
 	}
 
 	return nil
-}
-
-func nice(elements []string) string {
-	return ustrings.OxfordizeList(
-		elements,
-		ustrings.WithInnerWrappers(ustrings.SingleQuotes),
-		ustrings.WithOuterWrappers(ustrings.Parentheses),
-	)
 }
 
 func makeMutuallyExclusiveError(fields map[string]int, relation SchemaFieldRelationship) error {
@@ -128,10 +108,7 @@ func makeMutuallyExclusiveError(fields map[string]int, relation SchemaFieldRelat
 		}
 	}
 
-	return fmt.Errorf(
-		"fields marked as mutually exclusive were set: %s",
-		nice(found),
-	)
+	return fmt.Errorf("fields marked as mutually exclusive were set: %s", strings.Join(found, ", "))
 }
 
 func makeNeededTogetherError(fields map[string]int, relation SchemaFieldRelationship) error {
@@ -142,10 +119,7 @@ func makeNeededTogetherError(fields map[string]int, relation SchemaFieldRelation
 		}
 	}
 
-	return fmt.Errorf(
-		"fields marked as needed together are missing: %s",
-		nice(found),
-	)
+	return fmt.Errorf("fields marked as needed together are missing: %s", strings.Join(found, ", "))
 }
 
 func makeAtLeastOneError(fields map[string]int, relation SchemaFieldRelationship) error {
@@ -156,10 +130,7 @@ func makeAtLeastOneError(fields map[string]int, relation SchemaFieldRelationship
 		}
 	}
 
-	return fmt.Errorf(
-		"at least one field was expected, any of: %s",
-		nice(found),
-	)
+	return fmt.Errorf("at least one field was expected, any of: %s", strings.Join(found, ", "))
 }
 
 func makeDependentFieldsError(fields map[string]int, relation SchemaFieldRelationship) error {
@@ -177,9 +148,6 @@ func makeDependentFieldsError(fields map[string]int, relation SchemaFieldRelatio
 		}
 	}
 
-	return fmt.Errorf(
-		"set fields %s are dependent on %s being set",
-		nice(foundDependent),
-		nice(notfoundExpected),
-	)
+	return fmt.Errorf("set fields %s are dependent on %s being set",
+		strings.Join(foundDependent, ", "), strings.Join(notfoundExpected, ", "))
 }
