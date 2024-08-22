@@ -153,7 +153,13 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 	debugfilelocation := filepath.Join(helper.TempDir(), "debug.log")
 
 	_, err := os.Stat(debugfilelocation)
-	if err == nil {
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			l.Warn("debug log file does not exists", zap.Error(err))
+			return nil
+		}
+		return err
+	} else {
 		debugfile, err := os.Open(debugfilelocation)
 		if err != nil {
 			return err
@@ -172,9 +178,7 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 				l.Error("failed to delete file with debug logs", zap.Error(err), zap.String("file", debugfilelocation))
 			}
 		}()
-	} else if errors.Is(err, os.ErrNotExist) {
-		l.Warn("debug log file does not exists", zap.Error(err))
-	}
 
-	return nil
+		return nil
+	}
 }
