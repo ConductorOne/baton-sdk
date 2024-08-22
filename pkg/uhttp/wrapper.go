@@ -28,6 +28,8 @@ const (
 	applicationFormUrlencoded = "application/x-www-form-urlencoded"
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
+	cacheTTLMaximum           = 31536000 // 31536000 seconds = one year
+	cacheTTLDefault           = 3600     // 3600 seconds = one hour
 )
 
 type WrapperResponse struct {
@@ -68,6 +70,22 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 	return client
 }
 
+// getCacheTTL read the `BATON_HTTP_CACHE_TTL` environment variable and return
+// the value as a number of seconds between 0 and an arbitrary maximum. Note:
+// this means that passing a value of `-1` will set the TTL to zero rather than
+// infinity.
+func getCacheTTL() int32 {
+	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
+	if err != nil {
+		cacheTTL = cacheTTLDefault // seconds
+	}
+
+	cacheTTL = min(cacheTTLMaximum, max(0, cacheTTL))
+
+	//nolint:gosec // No risk of overflow because we have a low maximum.
+	return int32(cacheTTL)
+}
+
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
 	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
@@ -78,15 +96,10 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 	if err != nil {
 		cacheMaxSize = 128 // MB
 	}
-	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
-	if err != nil {
-		cacheTTL = 3600 // seconds
-	}
-
 	var (
 		config = CacheConfig{
 			LogDebug:     l.Level().Enabled(zap.DebugLevel),
-			CacheTTL:     int32(cacheTTL),   // seconds
+			CacheTTL:     getCacheTTL(),     // seconds
 			CacheMaxSize: int(cacheMaxSize), // MB
 			DisableCache: disableCache,
 		}

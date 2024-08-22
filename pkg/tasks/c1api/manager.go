@@ -178,6 +178,7 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 	_, rpcErr := c.serviceClient.FinishTask(finishCtx, &v1.BatonServiceFinishTaskRequest{
 		TaskId: task.GetId(),
 		Status: &pbstatus.Status{
+			//nolint:gosec // No risk of overflow because `Code` is a small enum.
 			Code:    int32(statusErr.Code()),
 			Message: statusErr.Message(),
 		},
@@ -233,25 +234,18 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	switch tasks.GetType(task) {
 	case taskTypes.FullSyncType:
 		handler = newFullSyncTaskHandler(task, tHelpers, c.skipFullSync)
-
 	case taskTypes.HelloType:
 		handler = newHelloTaskHandler(task, tHelpers)
-
 	case taskTypes.GrantType:
 		handler = newGrantTaskHandler(task, tHelpers)
-
 	case taskTypes.RevokeType:
 		handler = newRevokeTaskHandler(task, tHelpers)
-
 	case taskTypes.CreateAccountType:
 		handler = newCreateAccountTaskHandler(task, tHelpers)
-
 	case taskTypes.CreateResourceType:
 		handler = newCreateResourceTaskHandler(task, tHelpers)
-
 	case taskTypes.DeleteResourceType:
 		handler = newDeleteResourceTaskHandler(task, tHelpers)
-
 	case taskTypes.RotateCredentialsType:
 		handler = newRotateCredentialsTaskHandler(task, tHelpers)
 	case taskTypes.CreateTicketType:
