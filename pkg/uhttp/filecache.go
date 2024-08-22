@@ -12,15 +12,15 @@ import (
 
 type FileCache struct {
 	data     map[string]any
-	fileName string
+	filename string
 	mu       sync.RWMutex
 }
 
-func NewFileCache(ctx context.Context, fileName string) (*FileCache, error) {
+func NewFileCache(ctx context.Context, filename string) (*FileCache, error) {
 	l := ctxzap.Extract(ctx)
 	fc := FileCache{
 		data:     map[string]any{},
-		fileName: fileName,
+		filename: filename,
 	}
 
 	err := fc.load(ctx)
@@ -33,8 +33,15 @@ func NewFileCache(ctx context.Context, fileName string) (*FileCache, error) {
 }
 
 func (fc *FileCache) load(ctx context.Context) error {
+	var cacheData []byte
 	l := ctxzap.Extract(ctx)
-	file, err := os.ReadFile(fc.fileName)
+	_, err := os.OpenFile(fc.filename, os.O_RDWR|os.O_CREATE|os.O_EXCL|os.O_APPEND, 0600)
+	if !os.IsExist(err) {
+		l.Debug("error opening cache file", zap.Error(err))
+		return err
+	}
+
+	cacheData, err = os.ReadFile(fc.filename)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			l.Debug("error reading cache file", zap.Error(err))
@@ -42,10 +49,12 @@ func (fc *FileCache) load(ctx context.Context) error {
 		return err
 	}
 
-	err = json.Unmarshal(file, &fc.data)
-	if err != nil {
-		l.Debug("error unmarshaling cache data", zap.Error(err))
-		return err
+	if len(cacheData) > 0 {
+		err = json.Unmarshal(cacheData, &fc.data)
+		if err != nil {
+			l.Debug("error unmarshaling cache data", zap.Error(err))
+			return err
+		}
 	}
 
 	return nil
@@ -59,7 +68,7 @@ func (fc *FileCache) save(ctx context.Context) {
 		return
 	}
 
-	err = os.WriteFile(fc.fileName, file, 0600)
+	err = os.WriteFile(fc.filename, file, 0600)
 	if err != nil {
 		l.Debug("error writing cache data", zap.Error(err))
 	}
