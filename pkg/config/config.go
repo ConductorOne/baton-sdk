@@ -157,6 +157,8 @@ func DefineConfiguration(
 			mainCMD.MarkFlagsOneRequired(listFieldConstrainsAsStrings(constrain)...)
 		case field.Dependents:
 			// do nothing
+		default:
+			return nil, nil, fmt.Errorf("invalid config")
 		}
 	}
 

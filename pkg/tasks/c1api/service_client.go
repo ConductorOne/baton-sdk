@@ -171,13 +171,17 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 		return err
 	}
 
-	chunkCount := uint64(math.Ceil(float64(rLen) / float64(fileChunkSize)))
-	for i := uint64(0); i < chunkCount; i++ {
-		l.Debug("sending upload chunk", zap.Uint64("chunk", i), zap.Uint64("total_chunks", chunkCount))
+	chunkCount := int(math.Ceil(float64(rLen) / float64(fileChunkSize)))
+	for i := 0; i < chunkCount; i++ {
+		l.Debug(
+			"sending upload chunk",
+			zap.Int("chunk", i),
+			zap.Int("total_chunks", chunkCount),
+		)
 
 		chunkSize := fileChunkSize
 		if i == chunkCount-1 {
-			chunkSize = int(rLen) - int(i)*fileChunkSize
+			chunkSize = int(rLen) - i*fileChunkSize
 		}
 
 		chunk := make([]byte, chunkSize)
