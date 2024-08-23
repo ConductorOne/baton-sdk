@@ -14,6 +14,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -128,8 +130,9 @@ func (c *connectorRunner) run(ctx context.Context) error {
 
 	waitDuration := time.Second * 0
 	errCount := 0
+	commErrCount := 0
 	var err error
-	for {
+	for commErrCount < 5 {
 		select {
 		case <-ctx.Done():
 			return c.handleContextCancel(ctx)
@@ -194,6 +197,14 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				defer sem.Release(1)
 				err := c.processTask(ctx, t)
 				if err != nil {
+					switch code := status.Code(err); code {
+					case codes.Canceled:
+						commErrCount++
+					case codes.Unknown:
+						commErrCount++
+					default:
+						l.Info("Received gRPC error code", zap.Uint32("grpc_code", uint32(code)))
+					}
 					l.Error("runner: error processing task", zap.Error(err), zap.String("task_id", t.Id), zap.String("task_type", tasks.GetType(t).String()))
 				}
 				l.Debug("runner: task processed", zap.String("task_id", t.Id), zap.String("task_type", tasks.GetType(t).String()))
@@ -202,6 +213,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			l.Debug("runner: dispatched task, waiting for next task", zap.Duration("wait_duration", waitDuration))
 		}
 	}
+	return nil
 }
 
 func (c *connectorRunner) Close(ctx context.Context) error {
