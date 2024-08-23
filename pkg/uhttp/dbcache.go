@@ -1,9 +1,13 @@
 package uhttp
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net/http"
+	"net/http/httputil"
 	"os"
 	"path/filepath"
 	"sync"
@@ -46,21 +50,66 @@ func NewDBCache(ctx context.Context) (*DBCache, error) {
 	}, nil
 }
 
-func (d *DBCache) Get(ctx context.Context, key string) any {
+func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	val, err := d.Select(ctx, key)
+	if d.db == nil {
+		return nil, nil
+	}
+
+	entry, err := d.Select(ctx, key)
+	if err == nil {
+		r := bufio.NewReader(bytes.NewReader(entry))
+		resp, err := http.ReadResponse(r, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		return resp, nil
+	}
+
+	return nil, nil
+}
+
+func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) error {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.db == nil {
+		return nil
+	}
+
+	cacheableResponse, err := httputil.DumpResponse(value, true)
 	if err != nil {
 		return err
 	}
 
-	return val
+	err = d.Insert(ctx, key, cacheableResponse)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-func (d *DBCache) Set(ctx context.Context, key string, value any) error {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	err := d.Insert(ctx, key, value)
+func (d *DBCache) Delete(ctx context.Context, key string) error {
+	if d.db == nil {
+		return nil
+	}
+
+	err := d.Remove(ctx, key)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *DBCache) Clear(ctx context.Context) error {
+	if d.db == nil {
+		return nil
+	}
+
+	err := d.CloseDB(ctx)
 	if err != nil {
 		return err
 	}
@@ -103,13 +152,13 @@ func (d *DBCache) Has(ctx context.Context, key string) (bool, error) {
 	return false, nil
 }
 
-func (d *DBCache) Select(ctx context.Context, key string) (string, error) {
-	var data string
+func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
+	var data []byte
 	l := ctxzap.Extract(ctx)
 	rows, err := d.db.Query("SELECT data FROM cache where key = ?", key)
 	if err != nil {
 		l.Debug("error querying datatable", zap.Error(err))
-		return "", err
+		return nil, err
 	}
 
 	defer rows.Close()
@@ -117,11 +166,24 @@ func (d *DBCache) Select(ctx context.Context, key string) (string, error) {
 		err = rows.Scan(&data)
 		if err != nil {
 			l.Debug("error scaning rows", zap.Error(err))
-			return "", err
+			return nil, err
 		}
 	}
 
 	return data, nil
+}
+
+func (d *DBCache) Remove(ctx context.Context, key string) error {
+	l := ctxzap.Extract(ctx)
+	if ok, _ := d.Has(ctx, key); ok {
+		_, err := d.db.Exec("DELETE FROM cache WHERE key = ?", key)
+		if err != nil {
+			l.Debug("error deleting key", zap.Error(err))
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (d *DBCache) CloseDB(ctx context.Context) error {
