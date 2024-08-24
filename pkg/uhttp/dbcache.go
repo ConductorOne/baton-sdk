@@ -87,12 +87,12 @@ func GenerateCacheKey(req *http.Request) (string, error) {
 }
 
 func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
 	if d.db == nil {
 		return nil, nil
 	}
 
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	entry, err := d.Select(ctx, key)
 	if err == nil {
 		r := bufio.NewReader(bytes.NewReader(entry))
@@ -108,8 +108,6 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 }
 
 func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) error {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
 	if d.db == nil {
 		return nil
 	}
@@ -119,6 +117,8 @@ func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) err
 		return err
 	}
 
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 	err = d.Insert(ctx, key, cacheableResponse)
 	if err != nil {
 		return err
