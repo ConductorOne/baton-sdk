@@ -54,7 +54,6 @@ func NewDBCache(ctx context.Context) (*DBCache, error) {
 }
 
 // GenerateCacheKey generates a cache key based on the request URL, query parameters, and headers.
-// The key is a SHA-256 hash of the normalized URL path, sorted query parameters, and relevant headers.
 func GenerateCacheKey(req *http.Request) (string, error) {
 	var sortedParams []string
 	// Normalize the URL path
@@ -153,7 +152,7 @@ func (d *DBCache) Clear(ctx context.Context) error {
 	return nil
 }
 
-// Insert data into the cache table
+// Insert data into the cache table.
 func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 	var (
 		bytes []byte
