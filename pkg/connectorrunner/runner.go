@@ -200,13 +200,13 @@ func (c *connectorRunner) run(ctx context.Context) error {
 					switch code := status.Code(err); code {
 					case codes.Canceled:
 						commErrCount++
-					case codes.Unknown:
-						commErrCount++
 					default:
 						l.Info("Received gRPC error code", zap.Uint32("grpc_code", uint32(code)))
 					}
 					l.Error("runner: error processing task", zap.Error(err), zap.String("task_id", t.Id), zap.String("task_type", tasks.GetType(t).String()))
 				}
+				// reset the counter
+				commErrCount = 0
 				l.Debug("runner: task processed", zap.String("task_id", t.Id), zap.String("task_type", tasks.GetType(t).String()))
 			}(nextTask)
 
