@@ -213,6 +213,11 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			l.Debug("runner: dispatched task, waiting for next task", zap.Duration("wait_duration", waitDuration))
 		}
 	}
+
+	if commErrCount > 0 {
+		return fmt.Errorf("Unable to communicate with gRPC server")
+	}
+
 	return nil
 }
 
