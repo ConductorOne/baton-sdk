@@ -10,18 +10,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var urlTest = "https://jsonplaceholder.typicode.com/posts/1/comments"
+
 func TestDBCacheGettersAndSetters(t *testing.T) {
-	var (
-		err error
-		url = "https://jsonplaceholder.typicode.com/posts/1/comments"
-	)
 	fc, err := NewDBCache(ctx)
 	require.Nil(t, err)
 
 	d := &DBCache{
 		db: fc.db,
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlTest, nil)
 	require.Nil(t, err)
 	require.NotNil(t, req)
 
@@ -44,11 +42,10 @@ func TestDBCacheGettersAndSetters(t *testing.T) {
 }
 
 func TestDBCache(t *testing.T) {
-	var url = "https://jsonplaceholder.typicode.com/posts/1/comments"
 	fc, err := NewDBCache(ctx)
 	require.Nil(t, err)
 
-	err = fc.Insert(ctx, "url", url)
+	err = fc.Insert(ctx, "url", urlTest)
 	require.Nil(t, err)
 
 	res, err := fc.Select(ctx, "url")
@@ -58,5 +55,5 @@ func TestDBCache(t *testing.T) {
 	var val string
 	err = json.Unmarshal(res, &val)
 	require.Nil(t, err)
-	require.Equal(t, val, url)
+	require.Equal(t, val, urlTest)
 }
