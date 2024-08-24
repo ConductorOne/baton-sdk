@@ -6,10 +6,13 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httputil"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
@@ -39,7 +42,7 @@ func NewDBCache(ctx context.Context) (*DBCache, error) {
 	}
 
 	// Create cache table
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS cache(id INTEGER PRIMARY KEY, key NVARCHAR, data BLOB)")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS http_cache(id INTEGER PRIMARY KEY, key NVARCHAR, data BLOB)")
 	if err != nil {
 		l.Debug("error creating cache table", zap.Error(err))
 		return &DBCache{}, err
@@ -48,6 +51,39 @@ func NewDBCache(ctx context.Context) (*DBCache, error) {
 	return &DBCache{
 		db: db,
 	}, nil
+}
+
+// GenerateCacheKey generates a cache key based on the request URL, query parameters, and headers.
+// The key is a SHA-256 hash of the normalized URL path, sorted query parameters, and relevant headers.
+func GenerateCacheKey(req *http.Request) (string, error) {
+	var sortedParams []string
+	// Normalize the URL path
+	path := strings.ToLower(req.URL.Path)
+	// Combine the path with sorted query parameters
+	queryParams := req.URL.Query()
+	for k, v := range queryParams {
+		for _, value := range v {
+			sortedParams = append(sortedParams, fmt.Sprintf("%s=%s", k, value))
+		}
+	}
+
+	sort.Strings(sortedParams)
+	queryString := strings.Join(sortedParams, "&")
+	// Include relevant headers in the cache key
+	var headerParts []string
+	for key, values := range req.Header {
+		for _, value := range values {
+			if key == "Accept" || key == "Authorization" || key == "Cookie" || key == "Range" {
+				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
+			}
+		}
+	}
+
+	sort.Strings(headerParts)
+	headersString := strings.Join(headerParts, "&")
+	// Create a unique string for the cache key
+	cacheString := fmt.Sprintf("%s?%s&headers=%s", path, queryString, headersString)
+	return cacheString, nil
 }
 
 func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
@@ -109,7 +145,7 @@ func (d *DBCache) Clear(ctx context.Context) error {
 		return nil
 	}
 
-	err := d.CloseDB(ctx)
+	err := d.Close(ctx)
 	if err != nil {
 		return err
 	}
@@ -117,16 +153,24 @@ func (d *DBCache) Clear(ctx context.Context) error {
 	return nil
 }
 
+// Insert data into the cache table
 func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
+	var (
+		bytes []byte
+		err   error
+		ok    bool
+	)
 	l := ctxzap.Extract(ctx)
-	bytes, err := json.Marshal(value)
-	if err != nil {
-		l.Debug("error marshaling data", zap.Error(err))
-		return err
+	if bytes, ok = value.([]byte); !ok {
+		bytes, err = json.Marshal(value)
+		if err != nil {
+			l.Debug("error marshaling data", zap.Error(err))
+			return err
+		}
 	}
 
 	if ok, _ := d.Has(ctx, key); !ok {
-		_, err = d.db.Exec("INSERT INTO cache(key, data) values(?, ?)", key, bytes)
+		_, err := d.db.Exec("INSERT INTO http_cache(key, data) values(?, ?)", key, bytes)
 		if err != nil {
 			l.Debug("error inserting data", zap.Error(err))
 			return err
@@ -138,7 +182,7 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 
 func (d *DBCache) Has(ctx context.Context, key string) (bool, error) {
 	l := ctxzap.Extract(ctx)
-	rows, err := d.db.Query("SELECT data FROM cache where key = ?", key)
+	rows, err := d.db.Query("SELECT data FROM http_cache where key = ?", key)
 	if err != nil {
 		l.Debug("error querying datatable", zap.Error(err))
 		return false, err
@@ -155,7 +199,7 @@ func (d *DBCache) Has(ctx context.Context, key string) (bool, error) {
 func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 	var data []byte
 	l := ctxzap.Extract(ctx)
-	rows, err := d.db.Query("SELECT data FROM cache where key = ?", key)
+	rows, err := d.db.Query("SELECT data FROM http_cache where key = ?", key)
 	if err != nil {
 		l.Debug("error querying datatable", zap.Error(err))
 		return nil, err
@@ -176,7 +220,7 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 func (d *DBCache) Remove(ctx context.Context, key string) error {
 	l := ctxzap.Extract(ctx)
 	if ok, _ := d.Has(ctx, key); ok {
-		_, err := d.db.Exec("DELETE FROM cache WHERE key = ?", key)
+		_, err := d.db.Exec("DELETE FROM http_cache WHERE key = ?", key)
 		if err != nil {
 			l.Debug("error deleting key", zap.Error(err))
 			return err
@@ -186,7 +230,7 @@ func (d *DBCache) Remove(ctx context.Context, key string) error {
 	return nil
 }
 
-func (d *DBCache) CloseDB(ctx context.Context) error {
+func (d *DBCache) Close(ctx context.Context) error {
 	err := d.db.Close()
 	if err != nil {
 		ctxzap.Extract(ctx).Debug("error closing database", zap.Error(err))
