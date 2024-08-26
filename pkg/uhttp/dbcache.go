@@ -21,6 +21,11 @@ import (
 	"go.uber.org/zap"
 )
 
+type ICache interface {
+	Get(ctx context.Context, key string) (*http.Response, error)
+	Set(ctx context.Context, key string, value *http.Response) error
+}
+
 type DBCache struct {
 	db *sql.DB
 	mu sync.RWMutex
@@ -144,7 +149,7 @@ func (d *DBCache) Clear(ctx context.Context) error {
 		return nil
 	}
 
-	err := d.Close(ctx)
+	err := d.close(ctx)
 	if err != nil {
 		return err
 	}
@@ -229,7 +234,7 @@ func (d *DBCache) Remove(ctx context.Context, key string) error {
 	return nil
 }
 
-func (d *DBCache) Close(ctx context.Context) error {
+func (d *DBCache) close(ctx context.Context) error {
 	err := d.db.Close()
 	if err != nil {
 		ctxzap.Extract(ctx).Debug("error closing database", zap.Error(err))

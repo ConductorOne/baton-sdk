@@ -108,7 +108,7 @@ func CreateCacheKey(req *http.Request) (string, error) {
 	return cacheKey, nil
 }
 
-func (g *GoCache) Get(key string) (*http.Response, error) {
+func (g *GoCache) Get(ctx context.Context, key string) (*http.Response, error) {
 	if g.rootLibrary == nil {
 		return nil, nil
 	}
@@ -127,7 +127,7 @@ func (g *GoCache) Get(key string) (*http.Response, error) {
 	return nil, nil
 }
 
-func (g *GoCache) Set(key string, value *http.Response) error {
+func (g *GoCache) Set(ctx context.Context, key string, value *http.Response) error {
 	if g.rootLibrary == nil {
 		return nil
 	}
