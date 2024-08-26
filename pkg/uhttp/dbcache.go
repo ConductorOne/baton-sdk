@@ -31,7 +31,7 @@ type DBCache struct {
 	mu sync.RWMutex
 }
 
-func NewDBCache(ctx context.Context) (*DBCache, error) {
+func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	l := ctxzap.Extract(ctx)
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {

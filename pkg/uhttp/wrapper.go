@@ -111,13 +111,14 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 		}
 	}
 
-	cache, err := NewGoCache(ctx, config)
+	// Set in-memory cache(NewGoCache) or db-cache(NewDBCache)
+	cache, err := NewDBCache(ctx, config)
 	if err != nil {
 		l.Error("error creating http cache", zap.Error(err))
 		return nil, err
 	}
 
-	var obj ICache = &cache
+	var obj ICache = cache
 	return &BaseHttpClient{
 		HttpClient:    httpClient,
 		baseHttpCache: obj,
