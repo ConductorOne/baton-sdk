@@ -13,7 +13,7 @@ import (
 var urlTest = "https://jsonplaceholder.typicode.com/posts/1/comments"
 
 func TestDBCacheGettersAndSetters(t *testing.T) {
-	fc, err := NewDBCache(ctx)
+	fc, err := NewDBCache(ctx, CacheConfig{})
 	require.Nil(t, err)
 
 	d := &DBCache{
@@ -42,7 +42,7 @@ func TestDBCacheGettersAndSetters(t *testing.T) {
 }
 
 func TestDBCache(t *testing.T) {
-	fc, err := NewDBCache(ctx)
+	fc, err := NewDBCache(ctx, CacheConfig{})
 	require.Nil(t, err)
 
 	err = fc.Insert(ctx, "url", urlTest)

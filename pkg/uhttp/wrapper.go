@@ -70,7 +70,7 @@ type WrapperOption interface {
 }
 
 // Keep a handle on all caches so we can clear them later.
-var caches []GoCache
+var caches []ICache
 
 func ClearCaches(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
@@ -158,7 +158,8 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 		}
 	}
 
-	cache, err := NewGoCache(ctx, config)
+	// Set in-memory cache(NewGoCache) or db-cache(NewDBCache)
+	cache, err := NewDBCache(ctx, config)
 	if err != nil {
 		l.Error("error creating http cache", zap.Error(err))
 		return nil, err
@@ -167,7 +168,7 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 
 	baseClient := &BaseHttpClient{
 		HttpClient:    httpClient,
-		baseHttpCache: &cache,
+		baseHttpCache: cache,
 	}
 
 	for _, opt := range opts {

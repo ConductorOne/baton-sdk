@@ -24,6 +24,7 @@ import (
 type ICache interface {
 	Get(ctx context.Context, key string) (*http.Response, error)
 	Set(ctx context.Context, key string, value *http.Response) error
+	Clear(ctx context.Context) error
 }
 
 type DBCache struct {
@@ -31,7 +32,7 @@ type DBCache struct {
 	mu sync.RWMutex
 }
 
-func NewDBCache(ctx context.Context) (*DBCache, error) {
+func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	l := ctxzap.Extract(ctx)
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
