@@ -93,8 +93,8 @@ type (
 	}
 	BaseHttpClient struct {
 		HttpClient    *http.Client
-		baseHttpCache GoCache
 		rateLimiter   uRateLimit.Limiter
+		baseHttpCache ICache
 	}
 
 	DoOption      func(resp *WrapperResponse) error
@@ -167,7 +167,7 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 
 	baseClient := &BaseHttpClient{
 		HttpClient:    httpClient,
-		baseHttpCache: cache,
+		baseHttpCache: &cache,
 	}
 
 	for _, opt := range opts {
@@ -318,7 +318,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 			return nil, err
 		}
 
-		resp, err = c.baseHttpCache.Get(cacheKey)
+		resp, err = c.baseHttpCache.Get(req.Context(), cacheKey)
 		if err != nil {
 			return nil, err
 		}
@@ -396,7 +396,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
-		cacheErr := c.baseHttpCache.Set(cacheKey, resp)
+		cacheErr := c.baseHttpCache.Set(req.Context(), cacheKey, resp)
 		if cacheErr != nil {
 			l.Warn("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(cacheErr))
 		}
