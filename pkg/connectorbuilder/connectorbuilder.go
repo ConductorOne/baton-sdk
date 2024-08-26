@@ -138,7 +138,6 @@ func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServi
 		DisplayName:  reqBody.GetDisplayName(),
 		Description:  reqBody.GetDescription(),
 		Status:       reqBody.GetStatus(),
-		Type:         reqBody.GetType(),
 		Labels:       reqBody.GetLabels(),
 		CustomFields: reqBody.GetCustomFields(),
 		RequestedFor: reqBody.GetRequestedFor(),

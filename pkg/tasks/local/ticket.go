@@ -27,7 +27,6 @@ type localCreateTicket struct {
 type ticketTemplate struct {
 	SchemaID       string                 `json:"schema_id"`
 	StatusId       string                 `json:"status_id"`
-	TypeId         string                 `json:"type_id"`
 	DisplayName    string                 `json:"display_name"`
 	Description    string                 `json:"description"`
 	Labels         []string               `json:"labels"`
@@ -89,12 +88,6 @@ func (m *localCreateTicket) Process(ctx context.Context, task *v1.Task, cc types
 		DisplayName: template.DisplayName,
 		Description: template.Description,
 		Labels:      template.Labels,
-	}
-
-	if template.TypeId != "" {
-		ticketRequestBody.Type = &v2.TicketType{
-			Id: template.TypeId,
-		}
 	}
 
 	if template.StatusId != "" {
