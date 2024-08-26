@@ -99,7 +99,7 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	entry, err := d.Select(ctx, key)
-	if err == nil {
+	if err == nil && len(entry) > 0 {
 		r := bufio.NewReader(bytes.NewReader(entry))
 		resp, err := http.ReadResponse(r, nil)
 		if err != nil {
