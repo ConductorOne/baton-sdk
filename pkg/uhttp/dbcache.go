@@ -37,21 +37,21 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	l := ctxzap.Extract(ctx)
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
-		l.Debug("error reading user cache directory", zap.Error(err))
+		l.Debug("Failed to read user cache directory", zap.Error(err))
 		return nil, err
 	}
 
 	// Connect to db
 	db, err := sql.Open("sqlite", filepath.Join(cacheDir, "lcache.db"))
 	if err != nil {
-		l.Debug("error opening sql database", zap.Error(err))
+		l.Debug("Failed to open SQLite database", zap.Error(err))
 		return &DBCache{}, err
 	}
 
 	// Create cache table
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS http_cache(id INTEGER PRIMARY KEY, key NVARCHAR, data BLOB, expiration INTEGER)")
 	if err != nil {
-		l.Debug("error creating cache table", zap.Error(err))
+		l.Debug("Failed to create cache table in SQLite database", zap.Error(err))
 		return &DBCache{}, err
 	}
 
@@ -72,7 +72,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 				case <-ticker.C:
 					err := dc.DeleteExpired(ctx)
 					if err != nil {
-						l.Debug("error deleting expired cache", zap.Error(err))
+						l.Debug("Failed to delete expired cache entries", zap.Error(err))
 					}
 				}
 			}
@@ -115,8 +115,8 @@ func (d *DBCache) CreateCacheKey(req *http.Request) (string, error) {
 }
 
 func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
-	if d.db == nil {
-		return nil, nil
+	if d.IsNilConnection() {
+		return nil, fmt.Errorf("database connection is nil")
 	}
 
 	entry, err := d.Select(ctx, key)
@@ -134,8 +134,8 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 }
 
 func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) error {
-	if d.db == nil {
-		return nil
+	if d.IsNilConnection() {
+		return fmt.Errorf("database connection is nil")
 	}
 
 	cacheableResponse, err := httputil.DumpResponse(value, true)
@@ -152,8 +152,8 @@ func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) err
 }
 
 func (d *DBCache) Delete(ctx context.Context, key string) error {
-	if d.db == nil {
-		return nil
+	if d.IsNilConnection() {
+		return fmt.Errorf("database connection is nil")
 	}
 
 	err := d.Remove(ctx, key)
@@ -165,8 +165,8 @@ func (d *DBCache) Delete(ctx context.Context, key string) error {
 }
 
 func (d *DBCache) Clear(ctx context.Context) error {
-	if d.db == nil {
-		return nil
+	if d.IsNilConnection() {
+		return fmt.Errorf("database connection is nil")
 	}
 
 	err := d.close(ctx)
@@ -184,6 +184,10 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 		err   error
 		ok    bool
 	)
+	if d.IsNilConnection() {
+		return fmt.Errorf("database connection is nil")
+	}
+
 	l := ctxzap.Extract(ctx)
 	if bytes, ok = value.([]byte); !ok {
 		bytes, err = json.Marshal(value)
@@ -200,7 +204,7 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 			time.Now().UnixNano(),
 		)
 		if err != nil {
-			l.Debug("error inserting data", zap.Error(err))
+			l.Debug("Failed to insert data into cache table", zap.Error(err))
 			return err
 		}
 	}
@@ -209,10 +213,14 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 }
 
 func (d *DBCache) Has(ctx context.Context, key string) (bool, error) {
+	if d.IsNilConnection() {
+		return false, fmt.Errorf("database connection is nil")
+	}
+
 	l := ctxzap.Extract(ctx)
 	rows, err := d.db.Query("SELECT data FROM http_cache where key = ?", key)
 	if err != nil {
-		l.Debug("error querying datatable", zap.Error(err))
+		l.Debug("Failed to query cache table", zap.Error(err))
 		return false, err
 	}
 
@@ -224,8 +232,17 @@ func (d *DBCache) Has(ctx context.Context, key string) (bool, error) {
 	return false, nil
 }
 
+// IsNilConnection check if the database connection is nil
+func (d *DBCache) IsNilConnection() bool {
+	return d.db == nil
+}
+
 func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 	var data []byte
+	if d.IsNilConnection() {
+		return nil, fmt.Errorf("database connection is nil")
+	}
+
 	l := ctxzap.Extract(ctx)
 	rows, err := d.db.Query("SELECT data FROM http_cache where key = ?", key)
 	if err != nil {
@@ -237,7 +254,7 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 	for rows.Next() {
 		err = rows.Scan(&data)
 		if err != nil {
-			l.Debug("error scanning rows", zap.Error(err))
+			l.Debug("Failed to scan rows from cache table", zap.Error(err))
 			return nil, err
 		}
 	}
@@ -246,6 +263,10 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 }
 
 func (d *DBCache) Remove(ctx context.Context, key string) error {
+	if d.IsNilConnection() {
+		return fmt.Errorf("database connection is nil")
+	}
+
 	l := ctxzap.Extract(ctx)
 	if ok, _ := d.Has(ctx, key); ok {
 		_, err := d.db.Exec("DELETE FROM http_cache WHERE key = ?", key)
@@ -259,6 +280,10 @@ func (d *DBCache) Remove(ctx context.Context, key string) error {
 }
 
 func (d *DBCache) close(ctx context.Context) error {
+	if d.IsNilConnection() {
+		return fmt.Errorf("database connection is nil")
+	}
+
 	err := d.db.Close()
 	if err != nil {
 		ctxzap.Extract(ctx).Debug("error closing database", zap.Error(err))
@@ -278,6 +303,11 @@ func (d *DBCache) DeleteExpired(ctx context.Context) error {
 		expiration int64
 		key        string
 	)
+
+	if d.IsNilConnection() {
+		return fmt.Errorf("database connection is nil")
+	}
+
 	l := ctxzap.Extract(ctx)
 	rows, err := d.db.Query("SELECT key, expiration FROM http_cache")
 	if err != nil {
