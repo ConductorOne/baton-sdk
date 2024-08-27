@@ -197,7 +197,11 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 	if ok, _ := d.Has(ctx, key); !ok {
 		d.mu.RLock()
 		defer d.mu.RUnlock()
-		_, err := d.db.Exec("INSERT INTO http_cache(key, data, expiration) values(?, ?, ?)", key, bytes, time.Now().UnixNano())
+		_, err := d.db.Exec("INSERT INTO http_cache(key, data, expiration) values(?, ?, ?)",
+			key,
+			bytes,
+			time.Now().UnixNano(),
+		)
 		if err != nil {
 			l.Debug("error inserting data", zap.Error(err))
 			return err
@@ -236,7 +240,7 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 	for rows.Next() {
 		err = rows.Scan(&data)
 		if err != nil {
-			l.Debug("error scaning rows", zap.Error(err))
+			l.Debug("error scanning rows", zap.Error(err))
 			return nil, err
 		}
 	}
@@ -290,7 +294,7 @@ func (d *DBCache) DeleteExpired(ctx context.Context) error {
 	for rows.Next() {
 		err = rows.Scan(&key, &expiration)
 		if err != nil {
-			l.Debug("error scaning rows", zap.Error(err))
+			l.Debug("error scanning rows", zap.Error(err))
 			return err
 		}
 
