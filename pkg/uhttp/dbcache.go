@@ -68,6 +68,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 				select {
 				case <-ctx.Done():
 					// ctx done, shutting down cache cleanup routine
+					dc.Clear(ctx)
 					return
 				case <-ticker.C:
 					err := dc.DeleteExpired(ctx)
