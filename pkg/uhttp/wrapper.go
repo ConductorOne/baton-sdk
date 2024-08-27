@@ -314,7 +314,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if req.Method == http.MethodGet {
-		cacheKey, err = CreateCacheKey(req)
+		cacheKey, err = c.baseHttpCache.CreateCacheKey(req)
 		if err != nil {
 			return nil, err
 		}

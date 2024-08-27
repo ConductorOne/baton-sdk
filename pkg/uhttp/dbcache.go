@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	_ "github.com/glebarez/go-sqlite"
@@ -25,14 +26,17 @@ type ICache interface {
 	Get(ctx context.Context, key string) (*http.Response, error)
 	Set(ctx context.Context, key string, value *http.Response) error
 	Clear(ctx context.Context) error
+	CreateCacheKey(req *http.Request) (string, error)
 }
 
 type DBCache struct {
-	db *sql.DB
-	mu sync.RWMutex
+	db                *sql.DB
+	mu                sync.RWMutex
+	defaultExpiration time.Duration
 }
 
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
+	var defaultTime time.Duration = time.Duration(cfg.CacheTTL) * time.Second
 	l := ctxzap.Extract(ctx)
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
@@ -48,19 +52,38 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	// Create cache table
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS http_cache(id INTEGER PRIMARY KEY, key NVARCHAR, data BLOB)")
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS http_cache(id INTEGER PRIMARY KEY, key NVARCHAR, data BLOB, expiration INTEGER)")
 	if err != nil {
 		l.Debug("error creating cache table", zap.Error(err))
 		return &DBCache{}, err
 	}
 
-	return &DBCache{
-		db: db,
-	}, nil
+	dc := &DBCache{
+		defaultExpiration: defaultTime,
+		db:                db,
+	}
+	go func() {
+		ticker := time.NewTicker(dc.defaultExpiration)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				// ctx done, shutting down bigcache cleanup routine
+				return
+			case <-ticker.C:
+				err := dc.DeleteExpired(ctx)
+				if err != nil {
+					l.Debug("error deleting expired cache", zap.Error(err))
+				}
+			}
+		}
+	}()
+
+	return dc, nil
 }
 
 // GenerateCacheKey generates a cache key based on the request URL, query parameters, and headers.
-func GenerateCacheKey(req *http.Request) (string, error) {
+func (d *DBCache) CreateCacheKey(req *http.Request) (string, error) {
 	var sortedParams []string
 	// Normalize the URL path
 	path := strings.ToLower(req.URL.Path)
@@ -96,8 +119,6 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 		return nil, nil
 	}
 
-	d.mu.RLock()
-	defer d.mu.RUnlock()
 	entry, err := d.Select(ctx, key)
 	if err == nil && len(entry) > 0 {
 		r := bufio.NewReader(bytes.NewReader(entry))
@@ -122,8 +143,6 @@ func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) err
 		return err
 	}
 
-	d.mu.RLock()
-	defer d.mu.RUnlock()
 	err = d.Insert(ctx, key, cacheableResponse)
 	if err != nil {
 		return err
@@ -175,7 +194,9 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 	}
 
 	if ok, _ := d.Has(ctx, key); !ok {
-		_, err := d.db.Exec("INSERT INTO http_cache(key, data) values(?, ?)", key, bytes)
+		d.mu.RLock()
+		defer d.mu.RUnlock()
+		_, err := d.db.Exec("INSERT INTO http_cache(key, data, expiration) values(?, ?, ?)", key, bytes, time.Now().UnixNano())
 		if err != nil {
 			l.Debug("error inserting data", zap.Error(err))
 			return err
@@ -225,6 +246,8 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 func (d *DBCache) Remove(ctx context.Context, key string) error {
 	l := ctxzap.Extract(ctx)
 	if ok, _ := d.Has(ctx, key); ok {
+		d.mu.RLock()
+		defer d.mu.RUnlock()
 		_, err := d.db.Exec("DELETE FROM http_cache WHERE key = ?", key)
 		if err != nil {
 			l.Debug("error deleting key", zap.Error(err))
@@ -240,6 +263,43 @@ func (d *DBCache) close(ctx context.Context) error {
 	if err != nil {
 		ctxzap.Extract(ctx).Debug("error closing database", zap.Error(err))
 		return err
+	}
+
+	return nil
+}
+
+func (d *DBCache) Expired(expiration int64) bool {
+	return time.Now().UnixNano() > expiration
+}
+
+// Delete all expired items from the cache.
+func (d *DBCache) DeleteExpired(ctx context.Context) error {
+	var (
+		expiration int64
+		key        string
+	)
+	l := ctxzap.Extract(ctx)
+	rows, err := d.db.Query("SELECT key, expiration FROM http_cache")
+	if err != nil {
+		l.Debug("error querying datatable", zap.Error(err))
+		return err
+	}
+
+	defer rows.Close()
+	for rows.Next() {
+		err = rows.Scan(&key, &expiration)
+		if err != nil {
+			l.Debug("error scaning rows", zap.Error(err))
+			return err
+		}
+
+		if d.Expired(expiration) {
+			err := d.Remove(ctx, key)
+			if err != nil {
+				l.Debug("error removing rows", zap.Error(err))
+				return err
+			}
+		}
 	}
 
 	return nil
