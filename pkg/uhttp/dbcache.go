@@ -35,9 +35,15 @@ type DBCache struct {
 	defaultExpiration time.Duration
 }
 
+var (
+	NoExpiration   time.Duration = -1 // true
+	ExpirationTime time.Duration = 0
+)
+
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
-	var expirationTime time.Duration = time.Duration(cfg.CacheTTL) * time.Second
 	l := ctxzap.Extract(ctx)
+	ExpirationTime = time.Duration(cfg.CacheTTL) * time.Second
+	NoExpiration = 1 // false
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		l.Debug("error reading user cache directory", zap.Error(err))
@@ -59,25 +65,28 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	dc := &DBCache{
-		defaultExpiration: expirationTime,
+		defaultExpiration: ExpirationTime,
 		db:                db,
 	}
-	go func() {
-		ticker := time.NewTicker(dc.defaultExpiration)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				// ctx done, shutting down bigcache cleanup routine
-				return
-			case <-ticker.C:
-				err := dc.DeleteExpired(ctx)
-				if err != nil {
-					l.Debug("error deleting expired cache", zap.Error(err))
+
+	if NoExpiration > 0 {
+		go func() {
+			ticker := time.NewTicker(dc.defaultExpiration)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					// ctx done, shutting down cache cleanup routine
+					return
+				case <-ticker.C:
+					err := dc.DeleteExpired(ctx)
+					if err != nil {
+						l.Debug("error deleting expired cache", zap.Error(err))
+					}
 				}
 			}
-		}
-	}()
+		}()
+	}
 
 	return dc, nil
 }
