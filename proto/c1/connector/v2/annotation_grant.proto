@@ -22,5 +22,8 @@ message GrantImmutable {
   google.protobuf.Struct metadata = 2;
 }
 
-// Grant was not create because the entitlement already existed.
+// Grant was not created because the entitlement already existed.
 message GrantAlreadyExists {}
+
+// Grant was not revoked because the entitlement does not exist.
+message GrantAlreadyRevoked {}
