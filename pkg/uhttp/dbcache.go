@@ -68,7 +68,10 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 				select {
 				case <-ctx.Done():
 					// ctx done, shutting down cache cleanup routine
-					dc.Clear(ctx)
+					err := dc.Clear(ctx)
+					if err != nil {
+						l.Debug("shutting down cache failed", zap.Error(err))
+					}
 					return
 				case <-ticker.C:
 					err := dc.DeleteExpired(ctx)
@@ -115,6 +118,7 @@ func (d *DBCache) CreateCacheKey(req *http.Request) (string, error) {
 	return cacheString, nil
 }
 
+// Get returns cached response (if exists).
 func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 	if d.IsNilConnection() {
 		return nil, fmt.Errorf("database connection is nil")
@@ -134,6 +138,7 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 	return nil, nil
 }
 
+// Set stores and save response in the db.
 func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) error {
 	if d.IsNilConnection() {
 		return fmt.Errorf("database connection is nil")
@@ -152,6 +157,7 @@ func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) err
 	return nil
 }
 
+// Remove stored keys.
 func (d *DBCache) Delete(ctx context.Context, key string) error {
 	if d.IsNilConnection() {
 		return fmt.Errorf("database connection is nil")
@@ -213,6 +219,7 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 	return nil
 }
 
+// Has query for cached keys.
 func (d *DBCache) Has(ctx context.Context, key string) (bool, error) {
 	if d.IsNilConnection() {
 		return false, fmt.Errorf("database connection is nil")
@@ -238,6 +245,7 @@ func (d *DBCache) IsNilConnection() bool {
 	return d.db == nil
 }
 
+// Select query for cached response.
 func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 	var data []byte
 	if d.IsNilConnection() {
@@ -294,6 +302,7 @@ func (d *DBCache) close(ctx context.Context) error {
 	return nil
 }
 
+// Expired checks if key is expired.
 func (d *DBCache) Expired(expiration int64) bool {
 	return time.Now().UnixNano() > expiration
 }
