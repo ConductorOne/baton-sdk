@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
@@ -31,7 +30,6 @@ type ICache interface {
 
 type DBCache struct {
 	db                *sql.DB
-	mu                sync.RWMutex
 	defaultExpiration time.Duration
 }
 
