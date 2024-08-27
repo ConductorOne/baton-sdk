@@ -36,7 +36,7 @@ type DBCache struct {
 }
 
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
-	var defaultTime time.Duration = time.Duration(cfg.CacheTTL) * time.Second
+	var expirationTime time.Duration = time.Duration(cfg.CacheTTL) * time.Second
 	l := ctxzap.Extract(ctx)
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
@@ -59,7 +59,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	dc := &DBCache{
-		defaultExpiration: defaultTime,
+		defaultExpiration: expirationTime,
 		db:                db,
 	}
 	go func() {
