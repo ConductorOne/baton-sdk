@@ -35,15 +35,8 @@ type DBCache struct {
 	defaultExpiration time.Duration
 }
 
-var (
-	NoExpiration   time.Duration = -1 // true
-	ExpirationTime time.Duration = 0
-)
-
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	l := ctxzap.Extract(ctx)
-	ExpirationTime = time.Duration(cfg.CacheTTL) * time.Second
-	NoExpiration = 1 // false
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		l.Debug("error reading user cache directory", zap.Error(err))
@@ -65,11 +58,11 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	dc := &DBCache{
-		defaultExpiration: ExpirationTime,
+		defaultExpiration: cfg.ExpirationTime,
 		db:                db,
 	}
 
-	if NoExpiration > 0 {
+	if cfg.NoExpiration > 0 {
 		go func() {
 			ticker := time.NewTicker(dc.defaultExpiration)
 			defer ticker.Stop()
