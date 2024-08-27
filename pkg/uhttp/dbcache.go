@@ -44,14 +44,14 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	// Connect to db
 	db, err := sql.Open("sqlite", filepath.Join(cacheDir, "lcache.db"))
 	if err != nil {
-		l.Debug("Failed to open SQLite database", zap.Error(err))
+		l.Debug("Failed to open database", zap.Error(err))
 		return &DBCache{}, err
 	}
 
 	// Create cache table
 	_, err = db.Exec("CREATE TABLE IF NOT EXISTS http_cache(id INTEGER PRIMARY KEY, key NVARCHAR, data BLOB, expiration INTEGER)")
 	if err != nil {
-		l.Debug("Failed to create cache table in SQLite database", zap.Error(err))
+		l.Debug("Failed to create cache table in database", zap.Error(err))
 		return &DBCache{}, err
 	}
 
@@ -232,7 +232,7 @@ func (d *DBCache) Has(ctx context.Context, key string) (bool, error) {
 	return false, nil
 }
 
-// IsNilConnection check if the database connection is nil
+// IsNilConnection check if the database connection is nil.
 func (d *DBCache) IsNilConnection() bool {
 	return d.db == nil
 }
