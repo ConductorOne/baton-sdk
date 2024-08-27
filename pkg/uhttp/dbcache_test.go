@@ -13,36 +13,36 @@ import (
 var urlTest = "https://jsonplaceholder.typicode.com/posts/1/comments"
 
 func TestDBCacheGettersAndSetters(t *testing.T) {
-	fc, err := NewDBCache(ctx, CacheConfig{})
+	cli := &http.Client{}
+	fc, err := getDBCacheForTesting()
 	require.Nil(t, err)
 
-	d := &DBCache{
-		db: fc.db,
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlTest, nil)
 	require.Nil(t, err)
 	require.NotNil(t, req)
 
-	cli := &http.Client{}
 	resp, err := cli.Do(req)
 	require.Nil(t, err)
 	require.NotNil(t, resp)
 	defer resp.Body.Close()
 
-	cKey, err := GenerateCacheKey(resp.Request)
+	var ic ICache = &DBCache{
+		db: fc.db,
+	}
+	cKey, err := ic.CreateCacheKey(resp.Request)
 	require.Nil(t, err)
 
-	err = fc.Set(ctx, cKey, resp)
+	err = ic.Set(ctx, cKey, resp)
 	require.Nil(t, err)
 
-	res, err := d.Get(ctx, cKey)
+	res, err := ic.Get(ctx, cKey)
 	require.Nil(t, err)
 	require.NotNil(t, res)
 	defer res.Body.Close()
 }
 
 func TestDBCache(t *testing.T) {
-	fc, err := NewDBCache(ctx, CacheConfig{})
+	fc, err := getDBCacheForTesting()
 	require.Nil(t, err)
 
 	err = fc.Insert(ctx, "url", urlTest)
@@ -56,4 +56,15 @@ func TestDBCache(t *testing.T) {
 	err = json.Unmarshal(res, &val)
 	require.Nil(t, err)
 	require.Equal(t, val, urlTest)
+}
+
+func getDBCacheForTesting() (*DBCache, error) {
+	fc, err := NewDBCache(ctx, CacheConfig{
+		CacheTTL: 3600,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return fc, nil
 }
