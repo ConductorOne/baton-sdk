@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
@@ -54,10 +55,12 @@ type (
 	RequestOption func() (io.ReadWriter, map[string]string, error)
 	ContextKey    struct{}
 	CacheConfig   struct {
-		LogDebug     bool
-		CacheTTL     int32
-		CacheMaxSize int
-		DisableCache bool
+		LogDebug       bool
+		CacheTTL       int32
+		CacheMaxSize   int
+		DisableCache   bool
+		NoExpiration   time.Duration
+		ExpirationTime time.Duration
 	}
 )
 
@@ -98,10 +101,12 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 	}
 	var (
 		config = CacheConfig{
-			LogDebug:     l.Level().Enabled(zap.DebugLevel),
-			CacheTTL:     getCacheTTL(),     // seconds
-			CacheMaxSize: int(cacheMaxSize), // MB
-			DisableCache: disableCache,
+			LogDebug:       l.Level().Enabled(zap.DebugLevel),
+			CacheTTL:       getCacheTTL(),     // seconds
+			CacheMaxSize:   int(cacheMaxSize), // MB
+			DisableCache:   disableCache,
+			NoExpiration:   1, // false
+			ExpirationTime: time.Duration(getCacheTTL()) * time.Second,
 		}
 		ok bool
 	)
