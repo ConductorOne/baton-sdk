@@ -396,3 +396,207 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = GrantImmutableValidationError{}
+
+// Validate checks the field values on GrantAlreadyExists with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GrantAlreadyExists) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GrantAlreadyExists with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// GrantAlreadyExistsMultiError, or nil if none found.
+func (m *GrantAlreadyExists) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GrantAlreadyExists) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return GrantAlreadyExistsMultiError(errors)
+	}
+
+	return nil
+}
+
+// GrantAlreadyExistsMultiError is an error wrapping multiple validation errors
+// returned by GrantAlreadyExists.ValidateAll() if the designated constraints
+// aren't met.
+type GrantAlreadyExistsMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GrantAlreadyExistsMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GrantAlreadyExistsMultiError) AllErrors() []error { return m }
+
+// GrantAlreadyExistsValidationError is the validation error returned by
+// GrantAlreadyExists.Validate if the designated constraints aren't met.
+type GrantAlreadyExistsValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GrantAlreadyExistsValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GrantAlreadyExistsValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GrantAlreadyExistsValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GrantAlreadyExistsValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GrantAlreadyExistsValidationError) ErrorName() string {
+	return "GrantAlreadyExistsValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GrantAlreadyExistsValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGrantAlreadyExists.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GrantAlreadyExistsValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GrantAlreadyExistsValidationError{}
+
+// Validate checks the field values on GrantAlreadyRevoked with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GrantAlreadyRevoked) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GrantAlreadyRevoked with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// GrantAlreadyRevokedMultiError, or nil if none found.
+func (m *GrantAlreadyRevoked) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GrantAlreadyRevoked) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return GrantAlreadyRevokedMultiError(errors)
+	}
+
+	return nil
+}
+
+// GrantAlreadyRevokedMultiError is an error wrapping multiple validation
+// errors returned by GrantAlreadyRevoked.ValidateAll() if the designated
+// constraints aren't met.
+type GrantAlreadyRevokedMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GrantAlreadyRevokedMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GrantAlreadyRevokedMultiError) AllErrors() []error { return m }
+
+// GrantAlreadyRevokedValidationError is the validation error returned by
+// GrantAlreadyRevoked.Validate if the designated constraints aren't met.
+type GrantAlreadyRevokedValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GrantAlreadyRevokedValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GrantAlreadyRevokedValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GrantAlreadyRevokedValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GrantAlreadyRevokedValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GrantAlreadyRevokedValidationError) ErrorName() string {
+	return "GrantAlreadyRevokedValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GrantAlreadyRevokedValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGrantAlreadyRevoked.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GrantAlreadyRevokedValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GrantAlreadyRevokedValidationError{}
