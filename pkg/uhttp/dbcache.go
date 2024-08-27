@@ -196,8 +196,6 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 	}
 
 	if ok, _ := d.Has(ctx, key); !ok {
-		d.mu.RLock()
-		defer d.mu.RUnlock()
 		_, err := d.db.Exec("INSERT INTO http_cache(key, data, expiration) values(?, ?, ?)",
 			key,
 			bytes,
@@ -252,8 +250,6 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 func (d *DBCache) Remove(ctx context.Context, key string) error {
 	l := ctxzap.Extract(ctx)
 	if ok, _ := d.Has(ctx, key); ok {
-		d.mu.RLock()
-		defer d.mu.RUnlock()
 		_, err := d.db.Exec("DELETE FROM http_cache WHERE key = ?", key)
 		if err != nil {
 			l.Debug("error deleting key", zap.Error(err))
