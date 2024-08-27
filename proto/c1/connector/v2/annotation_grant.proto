@@ -16,7 +16,11 @@ message GrantExpandable {
   repeated string resource_type_ids = 3;
 }
 
+// Grant cannot be updated or revoked. For example, membership in an "all users" group.
 message GrantImmutable {
   string source_id = 1;
   google.protobuf.Struct metadata = 2;
 }
+
+// Grant was not create because the entitlement already existed.
+message GrantAlreadyExists {}
