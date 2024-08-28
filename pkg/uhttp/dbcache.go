@@ -15,9 +15,9 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	_ "github.com/glebarez/go-sqlite"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	_ "github.com/mattn/go-sqlite3"
 	"go.uber.org/zap"
 )
 
@@ -33,6 +33,14 @@ type DBCache struct {
 	defaultExpiration time.Duration
 }
 
+const (
+	failStartTransaction = "Failed to start a transaction"
+	nilConnection        = "Database connection is nil"
+	errQueryingTable     = "Error querying cache table"
+	failRollback         = "Failed to rollback transaction"
+	failInsert           = "Failed to insert data into cache table"
+)
+
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	l := ctxzap.Extract(ctx)
 	cacheDir, err := os.UserCacheDir()
@@ -42,7 +50,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	// Connect to db
-	db, err := sql.Open("sqlite", filepath.Join(cacheDir, "lcache.db"))
+	db, err := sql.Open("sqlite3", filepath.Join(cacheDir, "lcache.db"))
 	if err != nil {
 		l.Debug("Failed to open database", zap.Error(err))
 		return &DBCache{}, err
@@ -121,7 +129,7 @@ func (d *DBCache) CreateCacheKey(req *http.Request) (string, error) {
 // Get returns cached response (if exists).
 func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 	if d.IsNilConnection() {
-		return nil, fmt.Errorf("database connection is nil")
+		return nil, fmt.Errorf("%s", nilConnection)
 	}
 
 	entry, err := d.Select(ctx, key)
@@ -141,7 +149,7 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 // Set stores and save response in the db.
 func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) error {
 	if d.IsNilConnection() {
-		return fmt.Errorf("database connection is nil")
+		return fmt.Errorf("%s", nilConnection)
 	}
 
 	cacheableResponse, err := httputil.DumpResponse(value, true)
@@ -160,7 +168,7 @@ func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) err
 // Remove stored keys.
 func (d *DBCache) Delete(ctx context.Context, key string) error {
 	if d.IsNilConnection() {
-		return fmt.Errorf("database connection is nil")
+		return fmt.Errorf("%s", nilConnection)
 	}
 
 	err := d.Remove(ctx, key)
@@ -173,7 +181,7 @@ func (d *DBCache) Delete(ctx context.Context, key string) error {
 
 func (d *DBCache) Clear(ctx context.Context) error {
 	if d.IsNilConnection() {
-		return fmt.Errorf("database connection is nil")
+		return fmt.Errorf("%s", nilConnection)
 	}
 
 	err := d.close(ctx)
@@ -192,7 +200,7 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 		ok    bool
 	)
 	if d.IsNilConnection() {
-		return fmt.Errorf("database connection is nil")
+		return fmt.Errorf("%s", nilConnection)
 	}
 
 	l := ctxzap.Extract(ctx)
@@ -205,13 +213,33 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 	}
 
 	if ok, _ := d.Has(ctx, key); !ok {
-		_, err := d.db.Exec("INSERT INTO http_cache(key, data, expiration) values(?, ?, ?)",
+		tx, err := d.db.Begin()
+		if err != nil {
+			l.Debug(failStartTransaction, zap.Error(err))
+			return err
+		}
+
+		_, err = tx.Exec("INSERT INTO http_cache(key, data, expiration) values(?, ?, ?)",
 			key,
 			bytes,
 			time.Now().UnixNano(),
 		)
 		if err != nil {
-			l.Debug("Failed to insert data into cache table", zap.Error(err))
+			if errtx := tx.Rollback(); errtx != nil {
+				l.Debug(failRollback, zap.Error(errtx))
+			}
+
+			l.Debug(failInsert, zap.Error(err))
+			return err
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			if errtx := tx.Rollback(); errtx != nil {
+				l.Debug(failRollback, zap.Error(errtx))
+			}
+
+			l.Debug(failInsert, zap.Error(err))
 			return err
 		}
 	}
@@ -222,7 +250,7 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 // Has query for cached keys.
 func (d *DBCache) Has(ctx context.Context, key string) (bool, error) {
 	if d.IsNilConnection() {
-		return false, fmt.Errorf("database connection is nil")
+		return false, fmt.Errorf("%s", nilConnection)
 	}
 
 	l := ctxzap.Extract(ctx)
@@ -249,13 +277,13 @@ func (d *DBCache) IsNilConnection() bool {
 func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 	var data []byte
 	if d.IsNilConnection() {
-		return nil, fmt.Errorf("database connection is nil")
+		return nil, fmt.Errorf("%s", nilConnection)
 	}
 
 	l := ctxzap.Extract(ctx)
 	rows, err := d.db.Query("SELECT data FROM http_cache where key = ?", key)
 	if err != nil {
-		l.Debug("error querying datatable", zap.Error(err))
+		l.Debug(errQueryingTable, zap.Error(err))
 		return nil, err
 	}
 
@@ -273,14 +301,34 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 
 func (d *DBCache) Remove(ctx context.Context, key string) error {
 	if d.IsNilConnection() {
-		return fmt.Errorf("database connection is nil")
+		return fmt.Errorf("%s", nilConnection)
 	}
 
 	l := ctxzap.Extract(ctx)
 	if ok, _ := d.Has(ctx, key); ok {
-		_, err := d.db.Exec("DELETE FROM http_cache WHERE key = ?", key)
+		tx, err := d.db.Begin()
 		if err != nil {
+			l.Debug(failStartTransaction, zap.Error(err))
+			return err
+		}
+
+		_, err = d.db.Exec("DELETE FROM http_cache WHERE key = ?", key)
+		if err != nil {
+			if errtx := tx.Rollback(); errtx != nil {
+				l.Debug(failRollback, zap.Error(errtx))
+			}
+
 			l.Debug("error deleting key", zap.Error(err))
+			return err
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			if errtx := tx.Rollback(); errtx != nil {
+				l.Debug(failRollback, zap.Error(errtx))
+			}
+
+			l.Debug("Failed to remove cache value", zap.Error(err))
 			return err
 		}
 	}
@@ -290,7 +338,7 @@ func (d *DBCache) Remove(ctx context.Context, key string) error {
 
 func (d *DBCache) close(ctx context.Context) error {
 	if d.IsNilConnection() {
-		return fmt.Errorf("database connection is nil")
+		return fmt.Errorf("%s", nilConnection)
 	}
 
 	err := d.db.Close()
@@ -315,13 +363,13 @@ func (d *DBCache) DeleteExpired(ctx context.Context) error {
 	)
 
 	if d.IsNilConnection() {
-		return fmt.Errorf("database connection is nil")
+		return fmt.Errorf("%s", nilConnection)
 	}
 
 	l := ctxzap.Extract(ctx)
 	rows, err := d.db.Query("SELECT key, expiration FROM http_cache")
 	if err != nil {
-		l.Debug("error querying datatable", zap.Error(err))
+		l.Debug(errQueryingTable, zap.Error(err))
 		return err
 	}
 
