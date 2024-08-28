@@ -95,10 +95,17 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 	if err != nil {
 		disableCache = false
 	}
+
 	cacheMaxSize, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_MAX_SIZE"), 10, 64)
 	if err != nil {
 		cacheMaxSize = 128 // MB
 	}
+
+	memoryCache, err := strconv.ParseBool(os.Getenv("BATON_IN_MEMORY_HTTP_CACHE"))
+	if err != nil {
+		memoryCache = false
+	}
+
 	var (
 		config = CacheConfig{
 			LogDebug:       l.Level().Enabled(zap.DebugLevel),
@@ -108,7 +115,10 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 			NoExpiration:   1, // false
 			ExpirationTime: time.Duration(getCacheTTL()) * time.Second,
 		}
-		ok bool
+		ok  bool
+		cli = &BaseHttpClient{
+			HttpClient: httpClient,
+		}
 	)
 	if v := ctx.Value(ContextKey{}); v != nil {
 		if config, ok = v.(CacheConfig); !ok {
@@ -116,18 +126,26 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 		}
 	}
 
-	// Set in-memory cache(NewGoCache) or db-cache(NewDBCache)
+	// in-memory cache
+	if memoryCache {
+		memCache, err := NewGoCache(ctx, config)
+		if err != nil {
+			l.Error("error creating http cache(in-memory)", zap.Error(err))
+			return nil, err
+		}
+		cli.baseHttpCache = &memCache
+		return cli, nil
+	}
+
+	// db-cache(Default)
 	cache, err := NewDBCache(ctx, config)
 	if err != nil {
-		l.Error("error creating http cache", zap.Error(err))
+		l.Error("error creating http cache(db-cache)", zap.Error(err))
 		return nil, err
 	}
 
-	var obj ICache = cache
-	return &BaseHttpClient{
-		HttpClient:    httpClient,
-		baseHttpCache: obj,
-	}, nil
+	cli.baseHttpCache = cache
+	return cli, nil
 }
 
 // WithJSONResponse is a wrapper that marshals the returned response body into
