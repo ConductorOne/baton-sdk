@@ -347,23 +347,6 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 		return false, nil
 	}
 
-	// Validate the ticket type is one defined in the schema
-	// Ticket type is not required so if a ticket doesn't have a type
-	// we don't need to validate, skip the loop in this case
-	validTicketType := ticket.Type == nil
-	if !validTicketType {
-		for _, tType := range schema.GetTypes() {
-			if ticket.Type.GetId() == tType.GetId() {
-				validTicketType = true
-				break
-			}
-		}
-	}
-	if !validTicketType {
-		l.Debug("error: invalid ticket: could not find ticket type", zap.String("ticket_type_id", ticket.Type.GetId()))
-		return false, nil
-	}
-
 	schemaCustomFields := schema.GetCustomFields()
 	ticketCustomFields := ticket.GetCustomFields()
 
