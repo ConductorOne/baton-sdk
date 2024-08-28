@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -33,6 +34,19 @@ type DBCache struct {
 	defaultExpiration time.Duration
 }
 
+type Stats struct {
+	// Hits is a number of successfully found keys
+	Hits int64 `json:"hits"`
+	// Misses is a number of not found keys
+	Misses int64 `json:"misses"`
+	// DelHits is a number of successfully deleted keys
+	DelHits int64 `json:"delete_hits"`
+	// DelMisses is a number of not deleted keys
+	DelMisses int64 `json:"delete_misses"`
+	// Collisions is a number of happened key-collisions
+	Collisions int64 `json:"collisions"`
+}
+
 const (
 	failStartTransaction = "Failed to start a transaction"
 	nilConnection        = "Database connection is nil"
@@ -56,8 +70,13 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		return &DBCache{}, err
 	}
 
-	// Create cache table
-	_, err = db.Exec("CREATE TABLE IF NOT EXISTS http_cache(id INTEGER PRIMARY KEY, key NVARCHAR, data BLOB, expiration INTEGER)")
+	// Create cache table and index
+	_, err = db.Exec(`
+	CREATE TABLE IF NOT EXISTS http_cache(
+		id INTEGER PRIMARY KEY, key NVARCHAR, data BLOB, expiration INTEGER, url NVARCHAR, 
+		Hits INTEGER, Misses INTEGER, DelHits INTEGER, DelMisses INTEGER, Collisions INTEGER 
+	);
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_cache_key ON http_cache (key);`)
 	if err != nil {
 		l.Debug("Failed to create cache table in database", zap.Error(err))
 		return &DBCache{}, err
@@ -124,7 +143,16 @@ func (d *DBCache) CreateCacheKey(req *http.Request) (string, error) {
 	headersString := strings.Join(headerParts, "&")
 	// Create a unique string for the cache key
 	cacheString := fmt.Sprintf("%s?%s&headers=%s", path, queryString, headersString)
-	return cacheString, nil
+
+	// Hash the cache string to create a key
+	hash := sha256.New()
+	_, err := hash.Write([]byte(cacheString))
+	if err != nil {
+		return "", err
+	}
+
+	cacheKey := fmt.Sprintf("%x", hash.Sum(nil))
+	return cacheKey, nil
 }
 
 // Get returns cached response (if exists).
