@@ -86,6 +86,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 					if err != nil {
 						l.Debug("Failed to delete expired cache entries", zap.Error(err))
 					}
+					return
 				}
 			}
 		}()
@@ -281,7 +282,7 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 	}
 
 	l := ctxzap.Extract(ctx)
-	rows, err := d.db.Query("SELECT data FROM http_cache where key = ?", key)
+	rows, err := d.db.Query("SELECT data FROM http_cache where key = '?'", key)
 	if err != nil {
 		l.Debug(errQueryingTable, zap.Error(err))
 		return nil, err
@@ -312,7 +313,7 @@ func (d *DBCache) Remove(ctx context.Context, key string) error {
 			return err
 		}
 
-		_, err = d.db.Exec("DELETE FROM http_cache WHERE key = ?", key)
+		_, err = d.db.Exec("DELETE FROM http_cache WHERE key = '?'", key)
 		if err != nil {
 			if errtx := tx.Rollback(); errtx != nil {
 				l.Debug(failRollback, zap.Error(errtx))
@@ -358,8 +359,9 @@ func (d *DBCache) Expired(expiration int64) bool {
 // Delete all expired items from the cache.
 func (d *DBCache) DeleteExpired(ctx context.Context) error {
 	var (
-		expiration int64
-		key        string
+		expiration     int64
+		key            string
+		mapExpiredKeys = make(map[string]bool)
 	)
 
 	if d.IsNilConnection() {
@@ -377,18 +379,30 @@ func (d *DBCache) DeleteExpired(ctx context.Context) error {
 	for rows.Next() {
 		err = rows.Scan(&key, &expiration)
 		if err != nil {
-			l.Debug("error scanning rows", zap.Error(err))
+			l.Debug("error scanning rows",
+				zap.Error(err),
+				zap.String("key", key),
+			)
 			return err
 		}
 
-		if d.Expired(expiration) {
-			err := d.Remove(ctx, key)
-			if err != nil {
-				l.Debug("error removing rows", zap.Error(err))
-				return err
+		mapExpiredKeys[key] = d.Expired(expiration)
+	}
+
+	go func() {
+		for key, isExpired := range mapExpiredKeys {
+			if isExpired {
+				err := d.Remove(ctx, key)
+				if err != nil {
+					l.Debug("error removing rows",
+						zap.Error(err),
+						zap.String("key", key),
+					)
+					return
+				}
 			}
 		}
-	}
+	}()
 
 	return nil
 }
