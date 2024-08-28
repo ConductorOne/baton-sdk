@@ -282,7 +282,7 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 	}
 
 	l := ctxzap.Extract(ctx)
-	rows, err := d.db.Query("SELECT data FROM http_cache where key = '?'", key)
+	rows, err := d.db.Query("SELECT data FROM http_cache where key = ?", key)
 	if err != nil {
 		l.Debug(errQueryingTable, zap.Error(err))
 		return nil, err
@@ -313,7 +313,7 @@ func (d *DBCache) Remove(ctx context.Context, key string) error {
 			return err
 		}
 
-		_, err = d.db.Exec("DELETE FROM http_cache WHERE key = '?'", key)
+		_, err = d.db.Exec("DELETE FROM http_cache WHERE key = ?", key)
 		if err != nil {
 			if errtx := tx.Rollback(); errtx != nil {
 				l.Debug(failRollback, zap.Error(errtx))
