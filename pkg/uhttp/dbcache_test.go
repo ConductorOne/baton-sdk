@@ -45,10 +45,10 @@ func TestDBCache(t *testing.T) {
 	fc, err := getDBCacheForTesting()
 	require.Nil(t, err)
 
-	err = fc.Insert(ctx, "url", urlTest)
+	err = fc.Insert(ctx, "urlTest", urlTest, "http://example.com")
 	require.Nil(t, err)
 
-	res, err := fc.Select(ctx, "url")
+	res, err := fc.Select(ctx, "urlTest")
 	require.Nil(t, err)
 	require.NotNil(t, res)
 
