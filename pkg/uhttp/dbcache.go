@@ -100,7 +100,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		go func() {
 			ctxWithTimeout, cancel := context.WithTimeout(
 				ctx,
-				time.Duration(180)*time.Minute,
+				time.Duration(1)*time.Minute,
 			)
 			defer cancel()
 
@@ -110,6 +110,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 				select {
 				case <-ctxWithTimeout.Done():
 					// ctx done, shutting down cache cleanup routine
+					ticker.Stop()
 					err := dc.cleanup(ctx)
 					if err != nil {
 						l.Debug("shutting down cache failed", zap.Error(err))
