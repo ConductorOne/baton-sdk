@@ -100,7 +100,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		go func() {
 			ctxWithTimeout, cancel := context.WithTimeout(
 				ctx,
-				time.Duration(1)*time.Minute,
+				time.Duration(180)*time.Minute,
 			)
 			defer cancel()
 
@@ -633,4 +633,30 @@ func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
 		DelMisses:  int64(delmisses),
 		Collisions: int64(collisions),
 	}, nil
+}
+
+// Len computes number of entries in cache.
+func (d *DBCache) Len(ctx context.Context) (int, error) {
+	var count int = 0
+	if d.IsNilConnection() {
+		return -1, fmt.Errorf("%s", nilConnection)
+	}
+
+	l := ctxzap.Extract(ctx)
+	rows, err := d.db.QueryContext(ctx, `SELECT count(*) FROM http_cache`)
+	if err != nil {
+		l.Debug(errQueryingTable, zap.Error(err))
+		return -1, err
+	}
+
+	defer rows.Close()
+	for rows.Next() {
+		err = rows.Scan(&count)
+		if err != nil {
+			l.Debug("Failed to scan rows from table", zap.Error(err))
+			return -1, err
+		}
+	}
+
+	return count, nil
 }
