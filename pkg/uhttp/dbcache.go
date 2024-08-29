@@ -53,6 +53,7 @@ const (
 	errQueryingTable     = "Error querying cache table"
 	failRollback         = "Failed to rollback transaction"
 	failInsert           = "Failed to insert data into cache table"
+	staticQuery          = "UPDATE http_cache SET %s=(%s+1) WHERE key = ?"
 )
 
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
@@ -71,10 +72,18 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	// Create cache table and index
-	_, err = db.Exec(`
+	_, err = db.ExecContext(ctx, `
 	CREATE TABLE IF NOT EXISTS http_cache(
-		id INTEGER PRIMARY KEY, key NVARCHAR, data BLOB, expiration INTEGER, url NVARCHAR, 
-		Hits INTEGER, Misses INTEGER, DelHits INTEGER, DelMisses INTEGER, Collisions INTEGER 
+		id INTEGER PRIMARY KEY, 
+		key NVARCHAR, 
+		data BLOB, 
+		expiration INTEGER, 
+		url NVARCHAR, 
+		hits INTEGER DEFAULT 0, 
+		misses INTEGER DEFAULT 0, 
+		delhits INTEGER DEFAULT 0,
+		delmisses INTEGER DEFAULT 0, 
+		collisions INTEGER DEFAULT 0
 	);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_cache_key ON http_cache (key);`)
 	if err != nil {
@@ -133,7 +142,7 @@ func (d *DBCache) CreateCacheKey(req *http.Request) (string, error) {
 	var headerParts []string
 	for key, values := range req.Header {
 		for _, value := range values {
-			if key == "Accept" || key == "Authorization" || key == "Cookie" || key == "Range" {
+			if key == "Accept" || key == "Content-Type" || key == "Cookie" || key == "Range" {
 				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
 			}
 		}
@@ -169,7 +178,17 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 			return nil, err
 		}
 
+		err = d.Hits(ctx, key)
+		if err != nil {
+			ctxzap.Extract(ctx).Debug("Failed to update hits", zap.Error(err))
+		}
+
 		return resp, nil
+	}
+
+	err = d.Misses(ctx, key)
+	if err != nil {
+		ctxzap.Extract(ctx).Debug("Failed to update misses", zap.Error(err))
 	}
 
 	return nil, nil
@@ -177,6 +196,7 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 
 // Set stores and save response in the db.
 func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) error {
+	var url string
 	if d.IsNilConnection() {
 		return fmt.Errorf("%s", nilConnection)
 	}
@@ -186,7 +206,15 @@ func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) err
 		return err
 	}
 
-	err = d.Insert(ctx, key, cacheableResponse)
+	if value.Request != nil {
+		url = getFullUrl(value.Request)
+	}
+
+	err = d.Insert(ctx,
+		key,
+		cacheableResponse,
+		url,
+	)
 	if err != nil {
 		return err
 	}
@@ -222,7 +250,7 @@ func (d *DBCache) Clear(ctx context.Context) error {
 }
 
 // Insert data into the cache table.
-func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
+func (d *DBCache) Insert(ctx context.Context, key string, value any, url string) error {
 	var (
 		bytes []byte
 		err   error
@@ -248,10 +276,11 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any) error {
 			return err
 		}
 
-		_, err = tx.Exec("INSERT INTO http_cache(key, data, expiration) values(?, ?, ?)",
+		_, err = tx.ExecContext(ctx, "INSERT INTO http_cache(key, data, expiration, url) values(?, ?, ?, ?)",
 			key,
 			bytes,
 			time.Now().UnixNano(),
+			url,
 		)
 		if err != nil {
 			if errtx := tx.Rollback(); errtx != nil {
@@ -310,7 +339,7 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 	}
 
 	l := ctxzap.Extract(ctx)
-	rows, err := d.db.Query("SELECT data FROM http_cache where key = ?", key)
+	rows, err := d.db.QueryContext(ctx, "SELECT data FROM http_cache where key = ?", key)
 	if err != nil {
 		l.Debug(errQueryingTable, zap.Error(err))
 		return nil, err
@@ -334,32 +363,30 @@ func (d *DBCache) Remove(ctx context.Context, key string) error {
 	}
 
 	l := ctxzap.Extract(ctx)
-	if ok, _ := d.Has(ctx, key); ok {
-		tx, err := d.db.Begin()
-		if err != nil {
-			l.Debug(failStartTransaction, zap.Error(err))
-			return err
+	tx, err := d.db.Begin()
+	if err != nil {
+		l.Debug(failStartTransaction, zap.Error(err))
+		return err
+	}
+
+	_, err = d.db.ExecContext(ctx, "DELETE FROM http_cache WHERE key = ?", key)
+	if err != nil {
+		if errtx := tx.Rollback(); errtx != nil {
+			l.Debug(failRollback, zap.Error(errtx))
 		}
 
-		_, err = d.db.Exec("DELETE FROM http_cache WHERE key = ?", key)
-		if err != nil {
-			if errtx := tx.Rollback(); errtx != nil {
-				l.Debug(failRollback, zap.Error(errtx))
-			}
+		l.Debug("error deleting key", zap.Error(err))
+		return err
+	}
 
-			l.Debug("error deleting key", zap.Error(err))
-			return err
+	err = tx.Commit()
+	if err != nil {
+		if errtx := tx.Rollback(); errtx != nil {
+			l.Debug(failRollback, zap.Error(errtx))
 		}
 
-		err = tx.Commit()
-		if err != nil {
-			if errtx := tx.Rollback(); errtx != nil {
-				l.Debug(failRollback, zap.Error(errtx))
-			}
-
-			l.Debug("Failed to remove cache value", zap.Error(err))
-			return err
-		}
+		l.Debug("Failed to remove cache value", zap.Error(err))
+		return err
 	}
 
 	return nil
@@ -397,7 +424,7 @@ func (d *DBCache) DeleteExpired(ctx context.Context) error {
 	}
 
 	l := ctxzap.Extract(ctx)
-	rows, err := d.db.Query("SELECT key, expiration FROM http_cache")
+	rows, err := d.db.QueryContext(ctx, "SELECT key, expiration FROM http_cache")
 	if err != nil {
 		l.Debug(errQueryingTable, zap.Error(err))
 		return err
@@ -433,4 +460,117 @@ func (d *DBCache) DeleteExpired(ctx context.Context) error {
 	}()
 
 	return nil
+}
+
+func getFullUrl(r *http.Request) string {
+	return fmt.Sprintf("%s://%s%s", r.URL.Scheme, r.Host, r.URL.Path)
+}
+
+func (d *DBCache) Hits(ctx context.Context, key string) error {
+	if d.IsNilConnection() {
+		return fmt.Errorf("%s", nilConnection)
+	}
+
+	strField := "hits"
+	err := d.Update(ctx, strField, key)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *DBCache) DelHits(ctx context.Context, key string) error {
+	if d.IsNilConnection() {
+		return fmt.Errorf("%s", nilConnection)
+	}
+
+	strField := "delhits"
+	err := d.Update(ctx, strField, key)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *DBCache) Misses(ctx context.Context, key string) error {
+	if d.IsNilConnection() {
+		return fmt.Errorf("%s", nilConnection)
+	}
+
+	strField := "misses"
+	err := d.Update(ctx, strField, key)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *DBCache) DelMisses(ctx context.Context, key string) error {
+	if d.IsNilConnection() {
+		return fmt.Errorf("%s", nilConnection)
+	}
+
+	strField := "delmisses"
+	err := d.Update(ctx, strField, key)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *DBCache) Collisions(ctx context.Context, key string) error {
+	if d.IsNilConnection() {
+		return fmt.Errorf("%s", nilConnection)
+	}
+
+	strField := "collisions"
+	err := d.Update(ctx, strField, key)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (d *DBCache) Update(ctx context.Context, field, key string) error {
+	l := ctxzap.Extract(ctx)
+	tx, err := d.db.Begin()
+	if err != nil {
+		l.Debug(failStartTransaction, zap.Error(err))
+		return err
+	}
+
+	query, args := d.queryString(field)
+	_, err = d.db.ExecContext(ctx, fmt.Sprintf(query, args...), key)
+	if err != nil {
+		if errtx := tx.Rollback(); errtx != nil {
+			l.Debug(failRollback, zap.Error(errtx))
+		}
+
+		l.Debug("error updating "+field, zap.Error(err))
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		if errtx := tx.Rollback(); errtx != nil {
+			l.Debug(failRollback, zap.Error(errtx))
+		}
+
+		l.Debug("Failed to update "+field, zap.Error(err))
+		return err
+	}
+
+	return nil
+}
+
+func (d *DBCache) queryString(field string) (string, []interface{}) {
+	return staticQuery, []interface{}{
+		fmt.Sprint(field),
+		fmt.Sprint(field),
+	}
 }
