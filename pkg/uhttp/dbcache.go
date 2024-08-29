@@ -30,8 +30,8 @@ type ICache interface {
 }
 
 type DBCache struct {
-	db                *sql.DB
-	defaultExpiration time.Duration
+	db         *sql.DB
+	expiration int32
 }
 
 type Stats struct {
@@ -92,19 +92,19 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	dc := &DBCache{
-		defaultExpiration: cfg.ExpirationTime,
-		db:                db,
+		expiration: 180, // 3 hours
+		db:         db,
 	}
 
 	if cfg.NoExpiration > 0 {
-		go func() {
+		go func(expiration int32) {
 			ctxWithTimeout, cancel := context.WithTimeout(
 				ctx,
-				time.Duration(180)*time.Minute,
+				time.Duration(expiration)*time.Minute,
 			)
 			defer cancel()
 
-			ticker := time.NewTicker(dc.defaultExpiration)
+			ticker := time.NewTicker(cfg.ExpirationTime)
 			defer ticker.Stop()
 			for {
 				select {
@@ -123,7 +123,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 					}
 				}
 			}
-		}()
+		}(dc.expiration)
 	}
 
 	return dc, nil
