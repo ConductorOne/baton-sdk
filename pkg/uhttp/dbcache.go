@@ -98,23 +98,28 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 
 	if cfg.NoExpiration > 0 {
 		go func() {
+			ctxWithTimeout, cancel := context.WithTimeout(
+				ctx,
+				time.Duration(180)*time.Minute,
+			)
+			defer cancel()
+
 			ticker := time.NewTicker(dc.defaultExpiration)
 			defer ticker.Stop()
 			for {
 				select {
-				case <-ctx.Done():
+				case <-ctxWithTimeout.Done():
 					// ctx done, shutting down cache cleanup routine
-					err := dc.Clear(ctx)
+					err := dc.cleanup(ctx)
 					if err != nil {
 						l.Debug("shutting down cache failed", zap.Error(err))
 					}
 					return
 				case <-ticker.C:
-					err := dc.DeleteExpired(ctx)
+					err := dc.deleteExpired(ctx)
 					if err != nil {
 						l.Debug("Failed to delete expired cache entries", zap.Error(err))
 					}
-					return
 				}
 			}
 		}()
@@ -236,13 +241,22 @@ func (d *DBCache) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-func (d *DBCache) Clear(ctx context.Context) error {
+func (d *DBCache) cleanup(ctx context.Context) error {
 	if d.IsNilConnection() {
 		return fmt.Errorf("%s", nilConnection)
 	}
 
-	err := d.close(ctx)
+	l := ctxzap.Extract(ctx)
+	stats, err := d.getStats(ctx)
 	if err != nil {
+		l.Debug("error getting stats", zap.Error(err))
+		return err
+	}
+
+	l.Debug("summary and stats", zap.Any("stats", stats))
+	err = d.close(ctx)
+	if err != nil {
+		l.Debug("error closing db", zap.Error(err))
 		return err
 	}
 
@@ -412,7 +426,7 @@ func (d *DBCache) Expired(expiration int64) bool {
 }
 
 // Delete all expired items from the cache.
-func (d *DBCache) DeleteExpired(ctx context.Context) error {
+func (d *DBCache) deleteExpired(ctx context.Context) error {
 	var (
 		expiration     int64
 		key            string
@@ -573,4 +587,49 @@ func (d *DBCache) queryString(field string) (string, []interface{}) {
 		fmt.Sprint(field),
 		fmt.Sprint(field),
 	}
+}
+
+func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
+	var (
+		hits       = 0
+		misses     = 0
+		delhits    = 0
+		delmisses  = 0
+		collisions = 0
+	)
+	if d.IsNilConnection() {
+		return Stats{}, fmt.Errorf("%s", nilConnection)
+	}
+
+	l := ctxzap.Extract(ctx)
+	rows, err := d.db.QueryContext(ctx, `
+	SELECT 
+		sum(hits) total_hits, 
+		sum(misses) total_misses, 
+		sum(delhits) total_delhits, 
+		sum(delmisses) total_delmisses, 
+		sum(collisions) total_collisions 
+	FROM http_cache
+	`)
+	if err != nil {
+		l.Debug(errQueryingTable, zap.Error(err))
+		return Stats{}, err
+	}
+
+	defer rows.Close()
+	for rows.Next() {
+		err = rows.Scan(&hits, &misses, &delhits, &delmisses, &collisions)
+		if err != nil {
+			l.Debug("Failed to scan rows from cache table", zap.Error(err))
+			return Stats{}, err
+		}
+	}
+
+	return Stats{
+		Hits:       int64(hits),
+		Misses:     int64(misses),
+		DelHits:    int64(delhits),
+		DelMisses:  int64(delmisses),
+		Collisions: int64(collisions),
+	}, nil
 }
