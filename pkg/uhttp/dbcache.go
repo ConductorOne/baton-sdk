@@ -30,8 +30,9 @@ type ICache interface {
 }
 
 type DBCache struct {
-	db         *sql.DB
-	expiration int32
+	db             *sql.DB
+	waitDuration   int64
+	expirationTime int64
 }
 
 type Stats struct {
@@ -57,22 +58,22 @@ const (
 )
 
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
+	var (
+		err error
+		dc  = &DBCache{
+			waitDuration:   10800,                     // db expiration time, 10800 seconds, 3 hours
+			expirationTime: int64(cfg.ExpirationTime), // cache expiration time
+		}
+	)
 	l := ctxzap.Extract(ctx)
-	cacheDir, err := os.UserCacheDir()
+	dc, err = dc.Load(ctx)
 	if err != nil {
-		l.Debug("Failed to read user cache directory", zap.Error(err))
+		l.Debug("Failed to open database", zap.Error(err))
 		return nil, err
 	}
 
-	// Connect to db
-	db, err := sql.Open("sqlite3", filepath.Join(cacheDir, "lcache.db"))
-	if err != nil {
-		l.Debug("Failed to open database", zap.Error(err))
-		return &DBCache{}, err
-	}
-
 	// Create cache table and index
-	_, err = db.ExecContext(ctx, `
+	_, err = dc.db.ExecContext(ctx, `
 	CREATE TABLE IF NOT EXISTS http_cache(
 		id INTEGER PRIMARY KEY, 
 		key NVARCHAR, 
@@ -91,20 +92,15 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		return &DBCache{}, err
 	}
 
-	dc := &DBCache{
-		expiration: 180, // 3 hours
-		db:         db,
-	}
-
 	if cfg.NoExpiration > 0 {
-		go func(expiration int32) {
+		go func(waitDuration, expirationTime int64) {
 			ctxWithTimeout, cancel := context.WithTimeout(
 				ctx,
-				time.Duration(expiration)*time.Minute,
+				time.Duration(waitDuration)*time.Second,
 			)
 			defer cancel()
 
-			ticker := time.NewTicker(cfg.ExpirationTime)
+			ticker := time.NewTicker(time.Duration(expirationTime))
 			defer ticker.Stop()
 			for {
 				select {
@@ -123,7 +119,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 					}
 				}
 			}
-		}(dc.expiration)
+		}(dc.waitDuration, dc.expirationTime)
 	}
 
 	return dc, nil
@@ -168,6 +164,25 @@ func (d *DBCache) CreateCacheKey(req *http.Request) (string, error) {
 
 	cacheKey := fmt.Sprintf("%x", hash.Sum(nil))
 	return cacheKey, nil
+}
+
+func (d *DBCache) Load(ctx context.Context) (*DBCache, error) {
+	l := ctxzap.Extract(ctx)
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		l.Debug("Failed to read user cache directory", zap.Error(err))
+		return &DBCache{}, err
+	}
+
+	// Connect to db
+	sqlDB, err := sql.Open("sqlite3", filepath.Join(cacheDir, "lcache.db"))
+	if err != nil {
+		l.Debug("Failed to open database", zap.Error(err))
+		return &DBCache{}, err
+	}
+
+	d.db = sqlDB
+	return d, nil
 }
 
 // Get returns cached response (if exists).
@@ -255,10 +270,18 @@ func (d *DBCache) cleanup(ctx context.Context) error {
 	}
 
 	l.Debug("summary and stats", zap.Any("stats", stats))
-	err = d.close(ctx)
+	activity, err := d.getLastActivity(ctx)
 	if err != nil {
-		l.Debug("error closing db", zap.Error(err))
+		l.Debug("error getting last activity", zap.Error(err))
 		return err
+	}
+
+	if d.Expired(activity) {
+		err = d.close(ctx)
+		if err != nil {
+			l.Debug("error closing db", zap.Error(err))
+			return err
+		}
 	}
 
 	return nil
@@ -294,7 +317,7 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any, url string)
 		_, err = tx.ExecContext(ctx, "INSERT INTO http_cache(key, data, expiration, url) values(?, ?, ?, ?)",
 			key,
 			bytes,
-			time.Now().UnixNano(),
+			(time.Now().UnixNano() + d.waitDuration),
 			url,
 		)
 		if err != nil {
@@ -659,4 +682,30 @@ func (d *DBCache) Len(ctx context.Context) (int, error) {
 	}
 
 	return count, nil
+}
+
+// Len computes number of entries in cache.
+func (d *DBCache) getLastActivity(ctx context.Context) (int64, error) {
+	var maxExpiration int64 = 0
+	if d.IsNilConnection() {
+		return -1, fmt.Errorf("%s", nilConnection)
+	}
+
+	l := ctxzap.Extract(ctx)
+	rows, err := d.db.QueryContext(ctx, `SELECT max(expiration) FROM http_cache`)
+	if err != nil {
+		l.Debug(errQueryingTable, zap.Error(err))
+		return -1, err
+	}
+
+	defer rows.Close()
+	for rows.Next() {
+		err = rows.Scan(&maxExpiration)
+		if err != nil {
+			l.Debug("Failed to scan rows from table", zap.Error(err))
+			return -1, err
+		}
+	}
+
+	return maxExpiration, nil
 }
