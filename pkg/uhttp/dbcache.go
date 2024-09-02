@@ -28,13 +28,11 @@ type ICache interface {
 	Clear(ctx context.Context) error
 	CreateCacheKey(req *http.Request) (string, error)
 }
-
 type DBCache struct {
 	db             *sql.DB
 	waitDuration   int64
 	expirationTime int64
 }
-
 type Stats struct {
 	// Hits is a number of successfully found keys
 	Hits int64 `json:"hits"`
@@ -270,18 +268,10 @@ func (d *DBCache) cleanup(ctx context.Context) error {
 	}
 
 	l.Debug("summary and stats", zap.Any("stats", stats))
-	activity, err := d.getLastActivity(ctx)
+	err = d.close(ctx)
 	if err != nil {
-		l.Debug("error getting last activity", zap.Error(err))
+		l.Debug("error closing db", zap.Error(err))
 		return err
-	}
-
-	if d.Expired(activity) {
-		err = d.close(ctx)
-		if err != nil {
-			l.Debug("error closing db", zap.Error(err))
-			return err
-		}
 	}
 
 	return nil
@@ -682,30 +672,4 @@ func (d *DBCache) Len(ctx context.Context) (int, error) {
 	}
 
 	return count, nil
-}
-
-// Len computes number of entries in cache.
-func (d *DBCache) getLastActivity(ctx context.Context) (int64, error) {
-	var maxExpiration int64 = 0
-	if d.IsNilConnection() {
-		return -1, fmt.Errorf("%s", nilConnection)
-	}
-
-	l := ctxzap.Extract(ctx)
-	rows, err := d.db.QueryContext(ctx, `SELECT max(expiration) FROM http_cache`)
-	if err != nil {
-		l.Debug(errQueryingTable, zap.Error(err))
-		return -1, err
-	}
-
-	defer rows.Close()
-	for rows.Next() {
-		err = rows.Scan(&maxExpiration)
-		if err != nil {
-			l.Debug("Failed to scan rows from table", zap.Error(err))
-			return -1, err
-		}
-	}
-
-	return maxExpiration, nil
 }
