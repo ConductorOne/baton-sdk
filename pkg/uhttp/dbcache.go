@@ -42,7 +42,7 @@ const (
 	errQueryingTable     = "Error querying cache table"
 	failRollback         = "Failed to rollback transaction"
 	failInsert           = "Failed to insert response data into cache table"
-	staticQuery          = "UPDATE http_cache SET %s=(%s+1) WHERE key = ?"
+	staticQuery          = "INSERT INTO http_stats(key, %s) values(?, 1)"
 	failScanResponse     = "Failed to scan rows for cached response"
 	defaultWaitDuration  = int64(60) // Default Cleanup interval, 60 seconds
 	cacheTTLThreshold    = 60
@@ -70,11 +70,15 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		key NVARCHAR, 
 		data BLOB, 
 		expiration INTEGER, 
-		url NVARCHAR, 
-		hits INTEGER DEFAULT 0, 
-		misses INTEGER DEFAULT 0 
+		url NVARCHAR
 	);
-	CREATE UNIQUE INDEX IF NOT EXISTS idx_cache_key ON http_cache (key);`)
+	CREATE UNIQUE INDEX IF NOT EXISTS idx_cache_key ON http_cache (key);
+	CREATE TABLE IF NOT EXISTS http_stats(
+		id INTEGER PRIMARY KEY,
+		key NVARCHAR,
+		hits INTEGER DEFAULT 0, 
+		misses INTEGER DEFAULT 0,
+	);`)
 	if err != nil {
 		l.Debug("Failed to create cache table in database", zap.Error(err))
 		return &DBCache{}, err
@@ -485,7 +489,6 @@ func (d *DBCache) update(ctx context.Context, field, key string) error {
 func (d *DBCache) queryString(field string) (string, []interface{}) {
 	return staticQuery, []interface{}{
 		fmt.Sprint(field),
-		fmt.Sprint(field),
 	}
 }
 
@@ -503,7 +506,7 @@ func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
 	SELECT 
 		sum(hits) total_hits, 
 		sum(misses) total_misses 
-	FROM http_cache
+	FROM http_stats
 	`)
 	if err != nil {
 		l.Debug(errQueryingTable, zap.Error(err))
