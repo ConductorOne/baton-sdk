@@ -77,7 +77,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		id INTEGER PRIMARY KEY,
 		key NVARCHAR,
 		hits INTEGER DEFAULT 0, 
-		misses INTEGER DEFAULT 0,
+		misses INTEGER DEFAULT 0
 	);`)
 	if err != nil {
 		l.Debug("Failed to create cache table in database", zap.Error(err))
@@ -97,7 +97,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 			)
 			defer cancel()
 
-			ticker := time.NewTicker(time.Duration(expirationTime))
+			ticker := time.NewTicker(time.Duration(expirationTime) * time.Second)
 			defer ticker.Stop()
 			for {
 				select {
