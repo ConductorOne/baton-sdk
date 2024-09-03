@@ -53,7 +53,7 @@ const (
 	nilConnection        = "Database connection is nil"
 	errQueryingTable     = "Error querying cache table"
 	failRollback         = "Failed to rollback transaction"
-	failInsert           = "Failed to insert data into cache table"
+	failInsert           = "Failed to insert response data into cache table"
 	staticQuery          = "UPDATE http_cache SET %s=(%s+1) WHERE key = ?"
 )
 
@@ -321,7 +321,7 @@ func (d *DBCache) Insert(ctx context.Context, key string, value any, url string)
 	if bytes, ok = value.([]byte); !ok {
 		bytes, err = json.Marshal(value)
 		if err != nil {
-			l.Debug("error marshaling data", zap.Error(err))
+			l.Debug("Failed to marshal response data", zap.Error(err))
 			return err
 		}
 	}
