@@ -44,13 +44,16 @@ const (
 	failInsert           = "Failed to insert response data into cache table"
 	staticQuery          = "UPDATE http_cache SET %s=(%s+1) WHERE key = ?"
 	failScanResponse     = "Failed to scan rows for cached response"
+	defaultWaitDuration  = int64(60) // Default Cleanup interval, 60 seconds
+	cacheTTLThreshold    = 60
+	cacheTTLMultiplier   = 5
 )
 
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	var (
 		err error
 		dc  = &DBCache{
-			waitDuration: int64(60), // Default Cleanup interval, 60 seconds
+			waitDuration: defaultWaitDuration, // Default Cleanup interval, 60 seconds
 		}
 	)
 	l := ctxzap.Extract(ctx)
@@ -77,9 +80,9 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		return &DBCache{}, err
 	}
 
-	if !cfg.DisableCache { // cache is enabled
-		if cfg.CacheTTL > 60 {
-			dc.waitDuration = int64(cfg.CacheTTL * 5) // set as a fraction of the Cache TTL
+	if cfg.CacheTTL > 0 {
+		if cfg.CacheTTL > cacheTTLThreshold {
+			dc.waitDuration = int64(cfg.CacheTTL * cacheTTLMultiplier) // set as a fraction of the Cache TTL
 		}
 
 		dc.expirationTime = int64(cfg.CacheTTL) // cache expiration time
