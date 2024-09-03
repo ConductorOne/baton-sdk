@@ -2,8 +2,12 @@ package uhttp
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -71,4 +75,51 @@ func NewClient(ctx context.Context, options ...Option) (*http.Client, error) {
 	}
 	httpClient.Transport = t
 	return httpClient, nil
+}
+
+type ICache interface {
+	Get(ctx context.Context, key string) (*http.Response, error)
+	Set(ctx context.Context, key string, value *http.Response) error
+	Clear(ctx context.Context) error
+}
+
+// CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
+func CreateCacheKey(req *http.Request) (string, error) {
+	var sortedParams []string
+	// Normalize the URL path
+	path := strings.ToLower(req.URL.Path)
+	// Combine the path with sorted query parameters
+	queryParams := req.URL.Query()
+	for k, v := range queryParams {
+		for _, value := range v {
+			sortedParams = append(sortedParams, fmt.Sprintf("%s=%s", k, value))
+		}
+	}
+
+	sort.Strings(sortedParams)
+	queryString := strings.Join(sortedParams, "&")
+	// Include relevant headers in the cache key
+	var headerParts []string
+	for key, values := range req.Header {
+		for _, value := range values {
+			if key == "Accept" || key == "Content-Type" || key == "Cookie" || key == "Range" {
+				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
+			}
+		}
+	}
+
+	sort.Strings(headerParts)
+	headersString := strings.Join(headerParts, "&")
+	// Create a unique string for the cache key
+	cacheString := fmt.Sprintf("%s?%s&headers=%s", path, queryString, headersString)
+
+	// Hash the cache string to create a key
+	hash := sha256.New()
+	_, err := hash.Write([]byte(cacheString))
+	if err != nil {
+		return "", err
+	}
+
+	cacheKey := fmt.Sprintf("%x", hash.Sum(nil))
+	return cacheKey, nil
 }

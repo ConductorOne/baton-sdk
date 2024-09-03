@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -13,8 +12,6 @@ import (
 	"net/http/httputil"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	_ "github.com/glebarez/go-sqlite"
@@ -23,12 +20,6 @@ import (
 	"go.uber.org/zap"
 )
 
-type ICache interface {
-	Get(ctx context.Context, key string) (*http.Response, error)
-	Set(ctx context.Context, key string, value *http.Response) error
-	Clear(ctx context.Context) error
-	CreateCacheKey(req *http.Request) (string, error)
-}
 type DBCache struct {
 	db             *sql.DB
 	waitDuration   int64
@@ -126,47 +117,6 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	return dc, nil
 }
 
-// CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
-func (d *DBCache) CreateCacheKey(req *http.Request) (string, error) {
-	var sortedParams []string
-	// Normalize the URL path
-	path := strings.ToLower(req.URL.Path)
-	// Combine the path with sorted query parameters
-	queryParams := req.URL.Query()
-	for k, v := range queryParams {
-		for _, value := range v {
-			sortedParams = append(sortedParams, fmt.Sprintf("%s=%s", k, value))
-		}
-	}
-
-	sort.Strings(sortedParams)
-	queryString := strings.Join(sortedParams, "&")
-	// Include relevant headers in the cache key
-	var headerParts []string
-	for key, values := range req.Header {
-		for _, value := range values {
-			if key == "Accept" || key == "Content-Type" || key == "Cookie" || key == "Range" {
-				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
-			}
-		}
-	}
-
-	sort.Strings(headerParts)
-	headersString := strings.Join(headerParts, "&")
-	// Create a unique string for the cache key
-	cacheString := fmt.Sprintf("%s?%s&headers=%s", path, queryString, headersString)
-
-	// Hash the cache string to create a key
-	hash := sha256.New()
-	_, err := hash.Write([]byte(cacheString))
-	if err != nil {
-		return "", err
-	}
-
-	cacheKey := fmt.Sprintf("%x", hash.Sum(nil))
-	return cacheKey, nil
-}
-
 func (d *DBCache) Load(ctx context.Context) (*DBCache, error) {
 	l := ctxzap.Extract(ctx)
 	cacheDir, err := os.UserCacheDir()
@@ -213,7 +163,7 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 		return nil, fmt.Errorf("%s", nilConnection)
 	}
 
-	entry, err := d.Select(ctx, key)
+	entry, err := d.pick(ctx, key)
 	if err == nil && len(entry) > 0 {
 		r := bufio.NewReader(bytes.NewReader(entry))
 		resp, err := http.ReadResponse(r, nil)
@@ -253,7 +203,7 @@ func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) err
 		url = getFullUrl(value.Request)
 	}
 
-	err = d.Insert(ctx,
+	err = d.insert(ctx,
 		key,
 		cacheableResponse,
 		url,
@@ -308,7 +258,7 @@ func (d *DBCache) cleanup(ctx context.Context) error {
 }
 
 // Insert data into the cache table.
-func (d *DBCache) Insert(ctx context.Context, key string, value any, url string) error {
+func (d *DBCache) insert(ctx context.Context, key string, value any, url string) error {
 	var (
 		bytes []byte
 		err   error
@@ -389,8 +339,8 @@ func (d *DBCache) IsNilConnection() bool {
 	return d.db == nil
 }
 
-// Select query for cached response.
-func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
+// select query for cached response.
+func (d *DBCache) pick(ctx context.Context, key string) ([]byte, error) {
 	var data []byte
 	if d.IsNilConnection() {
 		return nil, fmt.Errorf("%s", nilConnection)
@@ -702,4 +652,9 @@ func (d *DBCache) Len(ctx context.Context) (int, error) {
 	}
 
 	return count, nil
+}
+
+func (d *DBCache) Clear(ctx context.Context) error {
+	// TODO: Implement
+	return nil
 }
