@@ -21,10 +21,13 @@ import (
 )
 
 type DBCache struct {
-	db             *sql.DB
-	waitDuration   int64
+	db *sql.DB
+	// Cleanup interval
+	waitDuration int64
+	// Cache duration
 	expirationTime int64
-	location       string
+	// Database path
+	location string
 }
 type Stats struct {
 	// Hits is a number of successfully found keys
@@ -47,12 +50,11 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	var (
 		err error
 		dc  = &DBCache{
-			waitDuration:   10800,                     // db expiration time, 10800 seconds, 3 hours
-			expirationTime: int64(cfg.ExpirationTime), // cache expiration time
+			waitDuration: int64(60), // Default Cleanup interval, 60 seconds
 		}
 	)
 	l := ctxzap.Extract(ctx)
-	dc, err = dc.Load(ctx)
+	dc, err = dc.load(ctx)
 	if err != nil {
 		l.Debug("Failed to open database", zap.Error(err))
 		return nil, err
@@ -75,7 +77,12 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		return &DBCache{}, err
 	}
 
-	if cfg.NoExpiration > 0 {
+	if !cfg.DisableCache { // cache is enabled
+		if cfg.CacheTTL > 60 {
+			dc.waitDuration = int64(cfg.CacheTTL * 5) // set as a fraction of the Cache TTL
+		}
+
+		dc.expirationTime = int64(cfg.CacheTTL) // cache expiration time
 		go func(waitDuration, expirationTime int64) {
 			ctxWithTimeout, cancel := context.WithTimeout(
 				ctx,
@@ -108,7 +115,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	return dc, nil
 }
 
-func (d *DBCache) Load(ctx context.Context) (*DBCache, error) {
+func (d *DBCache) load(ctx context.Context) (*DBCache, error) {
 	l := ctxzap.Extract(ctx)
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
@@ -162,7 +169,7 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 			return nil, err
 		}
 
-		err = d.Hits(ctx, key)
+		err = d.hits(ctx, key)
 		if err != nil {
 			ctxzap.Extract(ctx).Debug("Failed to update cache hits", zap.Error(err))
 		}
@@ -170,7 +177,7 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 		return resp, nil
 	}
 
-	err = d.Misses(ctx, key)
+	err = d.misses(ctx, key)
 	if err != nil {
 		ctxzap.Extract(ctx).Debug("Failed to update cache misses", zap.Error(err))
 	}
@@ -254,7 +261,7 @@ func (d *DBCache) insert(ctx context.Context, key string, value any, url string)
 		}
 	}
 
-	if ok, _ := d.Has(ctx, key); !ok {
+	if ok, _ := d.has(ctx, key); !ok {
 		tx, err := d.db.Begin()
 		if err != nil {
 			l.Debug(failStartTransaction, zap.Error(err))
@@ -291,7 +298,7 @@ func (d *DBCache) insert(ctx context.Context, key string, value any, url string)
 }
 
 // Has query for cached keys.
-func (d *DBCache) Has(ctx context.Context, key string) (bool, error) {
+func (d *DBCache) has(ctx context.Context, key string) (bool, error) {
 	if d.IsNilConnection() {
 		return false, fmt.Errorf("%s", nilConnection)
 	}
@@ -316,7 +323,7 @@ func (d *DBCache) IsNilConnection() bool {
 	return d.db == nil
 }
 
-// select query for cached response.
+// pick query for cached response.
 func (d *DBCache) pick(ctx context.Context, key string) ([]byte, error) {
 	var data []byte
 	if d.IsNilConnection() {
@@ -391,11 +398,6 @@ func (d *DBCache) close(ctx context.Context) error {
 	return nil
 }
 
-// Expired checks if key is expired.
-func (d *DBCache) Expired(expiration int64) bool {
-	return time.Now().UnixNano() > expiration
-}
-
 // Delete all expired items from the cache.
 func (d *DBCache) deleteExpired(ctx context.Context) error {
 	if d.IsNilConnection() {
@@ -417,13 +419,13 @@ func getFullUrl(r *http.Request) string {
 	return fmt.Sprintf("%s://%s%s", r.URL.Scheme, r.Host, r.URL.Path)
 }
 
-func (d *DBCache) Hits(ctx context.Context, key string) error {
+func (d *DBCache) hits(ctx context.Context, key string) error {
 	if d.IsNilConnection() {
 		return fmt.Errorf("%s", nilConnection)
 	}
 
 	strField := "hits"
-	err := d.Update(ctx, strField, key)
+	err := d.update(ctx, strField, key)
 	if err != nil {
 		return err
 	}
@@ -431,27 +433,13 @@ func (d *DBCache) Hits(ctx context.Context, key string) error {
 	return nil
 }
 
-func (d *DBCache) DelHits(ctx context.Context, key string) error {
-	if d.IsNilConnection() {
-		return fmt.Errorf("%s", nilConnection)
-	}
-
-	strField := "delhits"
-	err := d.Update(ctx, strField, key)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (d *DBCache) Misses(ctx context.Context, key string) error {
+func (d *DBCache) misses(ctx context.Context, key string) error {
 	if d.IsNilConnection() {
 		return fmt.Errorf("%s", nilConnection)
 	}
 
 	strField := "misses"
-	err := d.Update(ctx, strField, key)
+	err := d.update(ctx, strField, key)
 	if err != nil {
 		return err
 	}
@@ -459,21 +447,7 @@ func (d *DBCache) Misses(ctx context.Context, key string) error {
 	return nil
 }
 
-func (d *DBCache) DelMisses(ctx context.Context, key string) error {
-	if d.IsNilConnection() {
-		return fmt.Errorf("%s", nilConnection)
-	}
-
-	strField := "delmisses"
-	err := d.Update(ctx, strField, key)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (d *DBCache) Update(ctx context.Context, field, key string) error {
+func (d *DBCache) update(ctx context.Context, field, key string) error {
 	l := ctxzap.Extract(ctx)
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -549,7 +523,7 @@ func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
 }
 
 // Len computes number of entries in cache.
-func (d *DBCache) Len(ctx context.Context) (int, error) {
+func (d *DBCache) len(ctx context.Context) (int, error) {
 	var count int = 0
 	if d.IsNilConnection() {
 		return -1, fmt.Errorf("%s", nilConnection)
