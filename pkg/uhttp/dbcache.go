@@ -28,6 +28,8 @@ type DBCache struct {
 	expirationTime int64
 	// Database path
 	location string
+	// enable statistics
+	stats bool
 }
 type Stats struct {
 	// Hits is a number of successfully found keys
@@ -85,6 +87,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	if cfg.CacheTTL > 0 {
+		dc.stats = !cfg.DisableCache
 		if cfg.CacheTTL > cacheTTLThreshold {
 			dc.waitDuration = int64(cfg.CacheTTL * cacheTTLMultiplier) // set as a fraction of the Cache TTL
 		}
@@ -164,6 +167,10 @@ func (d *DBCache) removeDB(ctx context.Context) error {
 
 // Get returns cached response (if exists).
 func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
+	var (
+		isFound bool = false
+		resp    *http.Response
+	)
 	if d.IsNilConnection() {
 		return nil, fmt.Errorf("%s", nilConnection)
 	}
@@ -171,25 +178,29 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 	entry, err := d.pick(ctx, key)
 	if err == nil && len(entry) > 0 {
 		r := bufio.NewReader(bytes.NewReader(entry))
-		resp, err := http.ReadResponse(r, nil)
+		resp, err = http.ReadResponse(r, nil)
 		if err != nil {
 			return nil, err
 		}
 
-		err = d.hits(ctx, key)
-		if err != nil {
-			ctxzap.Extract(ctx).Debug("Failed to update cache hits", zap.Error(err))
+		isFound = true
+	}
+
+	if d.stats {
+		if isFound {
+			err = d.hits(ctx, key)
+			if err != nil {
+				ctxzap.Extract(ctx).Debug("Failed to update cache hits", zap.Error(err))
+			}
 		}
 
-		return resp, nil
+		err = d.misses(ctx, key)
+		if err != nil {
+			ctxzap.Extract(ctx).Debug("Failed to update cache misses", zap.Error(err))
+		}
 	}
 
-	err = d.misses(ctx, key)
-	if err != nil {
-		ctxzap.Extract(ctx).Debug("Failed to update cache misses", zap.Error(err))
-	}
-
-	return nil, nil
+	return resp, nil
 }
 
 // Set stores and save response in the db.
