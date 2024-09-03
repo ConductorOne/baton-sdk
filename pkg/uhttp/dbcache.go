@@ -31,12 +31,6 @@ type Stats struct {
 	Hits int64 `json:"hits"`
 	// Misses is a number of not found keys
 	Misses int64 `json:"misses"`
-	// DelHits is a number of successfully deleted keys
-	DelHits int64 `json:"delete_hits"`
-	// DelMisses is a number of not deleted keys
-	DelMisses int64 `json:"delete_misses"`
-	// Collisions is a number of happened key-collisions
-	Collisions int64 `json:"collisions"`
 }
 
 const (
@@ -73,10 +67,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		expiration INTEGER, 
 		url NVARCHAR, 
 		hits INTEGER DEFAULT 0, 
-		misses INTEGER DEFAULT 0, 
-		delhits INTEGER DEFAULT 0,
-		delmisses INTEGER DEFAULT 0, 
-		collisions INTEGER DEFAULT 0
+		misses INTEGER DEFAULT 0 
 	);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_cache_key ON http_cache (key);`)
 	if err != nil {
@@ -208,20 +199,6 @@ func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) err
 		cacheableResponse,
 		url,
 	)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Remove stored keys.
-func (d *DBCache) Delete(ctx context.Context, key string) error {
-	if d.IsNilConnection() {
-		return fmt.Errorf("%s", nilConnection)
-	}
-
-	err := d.Remove(ctx, key)
 	if err != nil {
 		return err
 	}
@@ -365,7 +342,7 @@ func (d *DBCache) pick(ctx context.Context, key string) ([]byte, error) {
 	return data, nil
 }
 
-func (d *DBCache) Remove(ctx context.Context, key string) error {
+func (d *DBCache) remove(ctx context.Context) error {
 	if d.IsNilConnection() {
 		return fmt.Errorf("%s", nilConnection)
 	}
@@ -377,7 +354,7 @@ func (d *DBCache) Remove(ctx context.Context, key string) error {
 		return err
 	}
 
-	_, err = d.db.ExecContext(ctx, "DELETE FROM http_cache WHERE key = ?", key)
+	_, err = d.db.ExecContext(ctx, "DELETE FROM http_cache WHERE expiration < ?", time.Now().UnixNano())
 	if err != nil {
 		if errtx := tx.Rollback(); errtx != nil {
 			l.Debug(failRollback, zap.Error(errtx))
@@ -421,51 +398,17 @@ func (d *DBCache) Expired(expiration int64) bool {
 
 // Delete all expired items from the cache.
 func (d *DBCache) deleteExpired(ctx context.Context) error {
-	var (
-		expiration     int64
-		key            string
-		mapExpiredKeys = make(map[string]bool)
-	)
-
 	if d.IsNilConnection() {
 		return fmt.Errorf("%s", nilConnection)
 	}
 
 	l := ctxzap.Extract(ctx)
-	rows, err := d.db.QueryContext(ctx, "SELECT key, expiration FROM http_cache")
+	err := d.remove(ctx)
 	if err != nil {
-		l.Debug(errQueryingTable, zap.Error(err))
-		return err
+		l.Debug("error removing rows",
+			zap.Error(err),
+		)
 	}
-
-	defer rows.Close()
-	for rows.Next() {
-		err = rows.Scan(&key, &expiration)
-		if err != nil {
-			l.Debug("error scanning rows",
-				zap.Error(err),
-				zap.String("key", key),
-			)
-			return err
-		}
-
-		mapExpiredKeys[key] = d.Expired(expiration)
-	}
-
-	go func() {
-		for key, isExpired := range mapExpiredKeys {
-			if isExpired {
-				err := d.Remove(ctx, key)
-				if err != nil {
-					l.Debug("error removing rows",
-						zap.Error(err),
-						zap.String("key", key),
-					)
-					return
-				}
-			}
-		}
-	}()
 
 	return nil
 }
@@ -530,20 +473,6 @@ func (d *DBCache) DelMisses(ctx context.Context, key string) error {
 	return nil
 }
 
-func (d *DBCache) Collisions(ctx context.Context, key string) error {
-	if d.IsNilConnection() {
-		return fmt.Errorf("%s", nilConnection)
-	}
-
-	strField := "collisions"
-	err := d.Update(ctx, strField, key)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
 func (d *DBCache) Update(ctx context.Context, field, key string) error {
 	l := ctxzap.Extract(ctx)
 	tx, err := d.db.Begin()
@@ -585,11 +514,8 @@ func (d *DBCache) queryString(field string) (string, []interface{}) {
 
 func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
 	var (
-		hits       = 0
-		misses     = 0
-		delhits    = 0
-		delmisses  = 0
-		collisions = 0
+		hits   = 0
+		misses = 0
 	)
 	if d.IsNilConnection() {
 		return Stats{}, fmt.Errorf("%s", nilConnection)
@@ -599,10 +525,7 @@ func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
 	rows, err := d.db.QueryContext(ctx, `
 	SELECT 
 		sum(hits) total_hits, 
-		sum(misses) total_misses, 
-		sum(delhits) total_delhits, 
-		sum(delmisses) total_delmisses, 
-		sum(collisions) total_collisions 
+		sum(misses) total_misses 
 	FROM http_cache
 	`)
 	if err != nil {
@@ -612,7 +535,7 @@ func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
 
 	defer rows.Close()
 	for rows.Next() {
-		err = rows.Scan(&hits, &misses, &delhits, &delmisses, &collisions)
+		err = rows.Scan(&hits, &misses)
 		if err != nil {
 			l.Debug(failScanResponse, zap.Error(err))
 			return Stats{}, err
@@ -620,11 +543,8 @@ func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
 	}
 
 	return Stats{
-		Hits:       int64(hits),
-		Misses:     int64(misses),
-		DelHits:    int64(delhits),
-		DelMisses:  int64(delmisses),
-		Collisions: int64(collisions),
+		Hits:   int64(hits),
+		Misses: int64(misses),
 	}, nil
 }
 
