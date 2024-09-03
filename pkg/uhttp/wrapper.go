@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	uRateLimit "go.uber.org/ratelimit"
@@ -101,12 +100,10 @@ type (
 	RequestOption func() (io.ReadWriter, map[string]string, error)
 	ContextKey    struct{}
 	CacheConfig   struct {
-		LogDebug       bool
-		CacheTTL       int32
-		CacheMaxSize   int
-		DisableCache   bool
-		NoExpiration   time.Duration
-		ExpirationTime time.Duration
+		LogDebug     bool
+		CacheTTL     int32 // If it's 0, cache is disabled
+		CacheMaxSize int
+		DisableCache bool
 	}
 )
 
@@ -154,12 +151,10 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 
 	var (
 		config = CacheConfig{
-			LogDebug:       l.Level().Enabled(zap.DebugLevel),
-			CacheTTL:       getCacheTTL(),     // seconds
-			CacheMaxSize:   int(cacheMaxSize), // MB
-			DisableCache:   disableCache,
-			NoExpiration:   1, // false
-			ExpirationTime: time.Duration(getCacheTTL()) * time.Second,
+			LogDebug:     l.Level().Enabled(zap.DebugLevel),
+			CacheTTL:     getCacheTTL(),     // seconds
+			CacheMaxSize: int(cacheMaxSize), // MB
+			DisableCache: disableCache,
 		}
 		ok  bool
 		cli = &BaseHttpClient{
