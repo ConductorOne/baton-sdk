@@ -55,6 +55,7 @@ const (
 	failRollback         = "Failed to rollback transaction"
 	failInsert           = "Failed to insert response data into cache table"
 	staticQuery          = "UPDATE http_cache SET %s=(%s+1) WHERE key = ?"
+	failScanResponse     = "Failed to scan rows for cached response"
 )
 
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
@@ -222,7 +223,7 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 
 		err = d.Hits(ctx, key)
 		if err != nil {
-			ctxzap.Extract(ctx).Debug("Failed to update hits", zap.Error(err))
+			ctxzap.Extract(ctx).Debug("Failed to update cache hits", zap.Error(err))
 		}
 
 		return resp, nil
@@ -230,7 +231,7 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 
 	err = d.Misses(ctx, key)
 	if err != nil {
-		ctxzap.Extract(ctx).Debug("Failed to update misses", zap.Error(err))
+		ctxzap.Extract(ctx).Debug("Failed to update cache misses", zap.Error(err))
 	}
 
 	return nil, nil
@@ -371,7 +372,7 @@ func (d *DBCache) Has(ctx context.Context, key string) (bool, error) {
 	l := ctxzap.Extract(ctx)
 	rows, err := d.db.Query("SELECT data FROM http_cache where key = ?", key)
 	if err != nil {
-		l.Debug("Failed to query cache table", zap.Error(err))
+		l.Debug("Failed to query cache table for key existence", zap.Error(err))
 		return false, err
 	}
 
@@ -406,7 +407,7 @@ func (d *DBCache) Select(ctx context.Context, key string) ([]byte, error) {
 	for rows.Next() {
 		err = rows.Scan(&data)
 		if err != nil {
-			l.Debug("Failed to scan rows from cache table", zap.Error(err))
+			l.Debug(failScanResponse, zap.Error(err))
 			return nil, err
 		}
 	}
@@ -432,7 +433,7 @@ func (d *DBCache) Remove(ctx context.Context, key string) error {
 			l.Debug(failRollback, zap.Error(errtx))
 		}
 
-		l.Debug("error deleting key", zap.Error(err))
+		l.Debug("Failed to delete cache key", zap.Error(err))
 		return err
 	}
 
@@ -442,7 +443,7 @@ func (d *DBCache) Remove(ctx context.Context, key string) error {
 			l.Debug(failRollback, zap.Error(errtx))
 		}
 
-		l.Debug("Failed to remove cache value", zap.Error(err))
+		l.Debug("Failed to remove cache entry", zap.Error(err))
 		return err
 	}
 
@@ -456,7 +457,7 @@ func (d *DBCache) close(ctx context.Context) error {
 
 	err := d.db.Close()
 	if err != nil {
-		ctxzap.Extract(ctx).Debug("error closing database", zap.Error(err))
+		ctxzap.Extract(ctx).Debug("Failed to close database connection", zap.Error(err))
 		return err
 	}
 
@@ -663,7 +664,7 @@ func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
 	for rows.Next() {
 		err = rows.Scan(&hits, &misses, &delhits, &delmisses, &collisions)
 		if err != nil {
-			l.Debug("Failed to scan rows from cache table", zap.Error(err))
+			l.Debug(failScanResponse, zap.Error(err))
 			return Stats{}, err
 		}
 	}
