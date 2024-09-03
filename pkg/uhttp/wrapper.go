@@ -145,11 +145,6 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 		cacheMaxSize = 128 // MB
 	}
 
-	memoryCache, err := strconv.ParseBool(os.Getenv("BATON_IN_MEMORY_HTTP_CACHE"))
-	if err != nil {
-		memoryCache = false
-	}
-
 	var (
 		config = CacheConfig{
 			LogDebug:     l.Level().Enabled(zap.DebugLevel),
@@ -168,15 +163,30 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 		}
 	}
 
-	// in-memory cache
-	if memoryCache {
-		memCache, err := NewGoCache(ctx, config)
-		if err != nil {
-			l.Error("error creating http cache(in-memory)", zap.Error(err))
-			return nil, err
+	if !disableCache {
+		cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
+		if cacheBackend == "" {
+			cacheBackend = "db"
 		}
-		cli.baseHttpCache = &memCache
-		return cli, nil
+
+		switch cacheBackend {
+		case "memory":
+			memCache, err := NewGoCache(ctx, config)
+			if err != nil {
+				l.Error("error creating http cache (in-memory)", zap.Error(err))
+				return nil, err
+			}
+			cli.baseHttpCache = &memCache
+		case "db":
+			cache, err := NewDBCache(ctx, config)
+			if err != nil {
+				l.Error("error creating http cache (db-cache)", zap.Error(err))
+				return nil, err
+			}
+			cli.baseHttpCache = cache
+		default:
+			return nil, fmt.Errorf("unsupported cache backend: %s", cacheBackend)
+		}
 	}
 
 	// db-cache(Default)
