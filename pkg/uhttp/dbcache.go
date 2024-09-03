@@ -192,7 +192,7 @@ func checkFileExists(filePath string) bool {
 	return !errors.Is(err, os.ErrNotExist)
 }
 
-func (d *DBCache) remove(ctx context.Context) error {
+func (d *DBCache) removeDB(ctx context.Context) error {
 	if !checkFileExists(d.location) {
 		return fmt.Errorf("file not found %s", d.location)
 	}
@@ -297,7 +297,7 @@ func (d *DBCache) cleanup(ctx context.Context) error {
 		return err
 	}
 
-	err = d.remove(ctx)
+	err = d.removeDB(ctx)
 	if err != nil {
 		l.Debug("error removing db", zap.Error(err))
 		return err
