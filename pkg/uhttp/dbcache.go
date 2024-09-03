@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -31,6 +32,7 @@ type DBCache struct {
 	db             *sql.DB
 	waitDuration   int64
 	expirationTime int64
+	location       string
 }
 type Stats struct {
 	// Hits is a number of successfully found keys
@@ -171,8 +173,10 @@ func (d *DBCache) Load(ctx context.Context) (*DBCache, error) {
 		return &DBCache{}, err
 	}
 
+	file := filepath.Join(cacheDir, "lcache.db")
+	d.location = file
 	// Connect to db
-	sqlDB, err := sql.Open("sqlite3", filepath.Join(cacheDir, "lcache.db"))
+	sqlDB, err := sql.Open("sqlite3", file)
 	if err != nil {
 		l.Debug("Failed to open database", zap.Error(err))
 		return &DBCache{}, err
@@ -180,6 +184,25 @@ func (d *DBCache) Load(ctx context.Context) (*DBCache, error) {
 
 	d.db = sqlDB
 	return d, nil
+}
+
+func checkFileExists(filePath string) bool {
+	_, err := os.Stat(filePath)
+	return !errors.Is(err, os.ErrNotExist)
+}
+
+func (d *DBCache) remove(ctx context.Context) error {
+	if !checkFileExists(d.location) {
+		return fmt.Errorf("file not found %s", d.location)
+	}
+
+	err := os.Remove(d.location)
+	if err != nil {
+		ctxzap.Extract(ctx).Debug("error removing database", zap.Error(err))
+		return err
+	}
+
+	return nil
 }
 
 // Get returns cached response (if exists).
@@ -270,6 +293,12 @@ func (d *DBCache) cleanup(ctx context.Context) error {
 	err = d.close(ctx)
 	if err != nil {
 		l.Debug("error closing db", zap.Error(err))
+		return err
+	}
+
+	err = d.remove(ctx)
+	if err != nil {
+		l.Debug("error removing db", zap.Error(err))
 		return err
 	}
 
