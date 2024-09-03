@@ -4,12 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"fmt"
 	"net/http"
 	"net/http/httputil"
-	"sort"
-	"strings"
 	"time"
 
 	bigCache "github.com/allegro/bigcache/v3"
@@ -61,51 +57,6 @@ func (g *GoCache) Statistics() bigCache.Stats {
 	}
 
 	return g.rootLibrary.Stats()
-}
-
-// CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
-// The key is a SHA-256 hash of the normalized URL path, sorted query parameters, and relevant headers.
-func (g *GoCache) CreateCacheKey(req *http.Request) (string, error) {
-	// Normalize the URL path
-	path := strings.ToLower(req.URL.Path)
-
-	// Combine the path with sorted query parameters
-	queryParams := req.URL.Query()
-	var sortedParams []string
-	for k, v := range queryParams {
-		for _, value := range v {
-			sortedParams = append(sortedParams, fmt.Sprintf("%s=%s", k, value))
-		}
-	}
-
-	sort.Strings(sortedParams)
-	queryString := strings.Join(sortedParams, "&")
-
-	// Include relevant headers in the cache key
-	var headerParts []string
-	for key, values := range req.Header {
-		for _, value := range values {
-			if key == "Accept" || key == "Authorization" || key == "Cookie" || key == "Range" {
-				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
-			}
-		}
-	}
-
-	sort.Strings(headerParts)
-	headersString := strings.Join(headerParts, "&")
-
-	// Create a unique string for the cache key
-	cacheString := fmt.Sprintf("%s?%s&headers=%s", path, queryString, headersString)
-
-	// Hash the cache string to create a key
-	hash := sha256.New()
-	_, err := hash.Write([]byte(cacheString))
-	if err != nil {
-		return "", err
-	}
-
-	cacheKey := fmt.Sprintf("%x", hash.Sum(nil))
-	return cacheKey, nil
 }
 
 func (g *GoCache) Get(ctx context.Context, key string) (*http.Response, error) {

@@ -263,7 +263,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	)
 	l := ctxzap.Extract(req.Context())
 	if req.Method == http.MethodGet {
-		cacheKey, err = c.baseHttpCache.CreateCacheKey(req)
+		cacheKey, err = CreateCacheKey(req)
 		if err != nil {
 			return nil, err
 		}

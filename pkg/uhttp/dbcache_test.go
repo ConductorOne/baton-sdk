@@ -29,7 +29,7 @@ func TestDBCacheGettersAndSetters(t *testing.T) {
 	var ic ICache = &DBCache{
 		db: fc.db,
 	}
-	cKey, err := ic.CreateCacheKey(resp.Request)
+	cKey, err := CreateCacheKey(resp.Request)
 	require.Nil(t, err)
 
 	err = ic.Set(ctx, cKey, resp)
@@ -45,10 +45,10 @@ func TestDBCache(t *testing.T) {
 	fc, err := getDBCacheForTesting()
 	require.Nil(t, err)
 
-	err = fc.Insert(ctx, "urlTest", urlTest, "http://example.com")
+	err = fc.insert(ctx, "urlTest", urlTest, "http://example.com")
 	require.Nil(t, err)
 
-	res, err := fc.Select(ctx, "urlTest")
+	res, err := fc.pick(ctx, "urlTest")
 	require.Nil(t, err)
 	require.NotNil(t, res)
 
