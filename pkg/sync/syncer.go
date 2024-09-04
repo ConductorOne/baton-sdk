@@ -99,11 +99,13 @@ func shouldWaitAndRetry(ctx context.Context, annos annotations.Annotations, err 
 	attempts++
 	l := ctxzap.Extract(ctx)
 
+	// use lineal time by default
 	var wait time.Duration = time.Duration(attempts) * time.Second
 	rlData := &v2.RateLimitDescription{}
 	if annos != nil {
 		ok, err := annos.Pick(rlData)
 		if ok && err == nil {
+			// or use time provided in the annotations
 			wait = time.Until(rlData.ResetAt.AsTime())
 		}
 	}
