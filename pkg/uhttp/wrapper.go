@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
@@ -19,6 +20,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -279,6 +281,22 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	case http.StatusRequestTimeout:
 		return resp, status.Error(codes.DeadlineExceeded, resp.Status)
 	case http.StatusTooManyRequests:
+		retryAfter := resp.Header.Get("Retry-After")
+		if retryAfter != "" {
+			retryAfterSeconds, err := strconv.Atoi(retryAfter)
+			if err == nil {
+				md := &v2.RateLimitDescription{
+					Status:  http.StatusTooManyRequests,
+					ResetAt: timestamppb.New(time.Now().Add(time.Duration(retryAfterSeconds) * time.Second)),
+				}
+				st := status.New(codes.Unavailable, resp.Status)
+				st, err = st.WithDetails(md)
+				if err != nil {
+					return resp, err
+				}
+				return resp, st.Err()
+			}
+		}
 		return resp, status.Error(codes.Unavailable, resp.Status)
 	case http.StatusNotFound:
 		return resp, status.Error(codes.NotFound, resp.Status)
@@ -288,6 +306,24 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return resp, status.Error(codes.PermissionDenied, resp.Status)
 	case http.StatusNotImplemented:
 		return resp, status.Error(codes.Unimplemented, resp.Status)
+	case http.StatusServiceUnavailable:
+		retryAfter := resp.Header.Get("Retry-After")
+		if retryAfter != "" {
+			retryAfterSeconds, err := strconv.Atoi(retryAfter)
+			if err == nil {
+				md := &v2.RateLimitDescription{
+					Status:  http.StatusServiceUnavailable,
+					ResetAt: timestamppb.New(time.Now().Add(time.Duration(retryAfterSeconds) * time.Second)),
+				}
+				st := status.New(codes.Unavailable, resp.Status)
+				st, err = st.WithDetails(md)
+				if err != nil {
+					return resp, err
+				}
+				return resp, st.Err()
+			}
+		}
+		return resp, status.Error(codes.Unavailable, resp.Status)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
