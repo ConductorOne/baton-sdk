@@ -92,7 +92,7 @@ func shouldWaitAndRetry(ctx context.Context, annos annotations.Annotations, err 
 		attempts = 0
 		return true
 	}
-	if status.Code(err) != codes.Unavailable {
+	if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
 		return false
 	}
 
