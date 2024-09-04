@@ -130,7 +130,7 @@ func (d *DBCache) load(ctx context.Context) (*DBCache, error) {
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		l.Debug("Failed to read user cache directory", zap.Error(err))
-		return &DBCache{}, err
+		return nil, err
 	}
 
 	file := filepath.Join(cacheDir, "lcache.db")
@@ -139,7 +139,7 @@ func (d *DBCache) load(ctx context.Context) (*DBCache, error) {
 	sqlDB, err := sql.Open("sqlite3", file)
 	if err != nil {
 		l.Debug("Failed to open database", zap.Error(err))
-		return &DBCache{}, err
+		return nil, err
 	}
 
 	d.db = sqlDB
