@@ -46,8 +46,8 @@ const (
 	failInsert           = "Failed to insert response data into cache table"
 	staticQuery          = "INSERT INTO http_stats(key, %s) values(?, 1)"
 	failScanResponse     = "Failed to scan rows for cached response"
-	defaultWaitDuration  = int64(60) // Default Cleanup interval, 60 seconds
 	cacheTTLThreshold    = 60
+	defaultWaitDuration  = int64(cacheTTLThreshold) // Default Cleanup interval, 60 seconds
 	cacheTTLMultiplier   = 5
 )
 
