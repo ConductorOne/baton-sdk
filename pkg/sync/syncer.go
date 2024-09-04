@@ -106,6 +106,7 @@ func shouldWaitAndRetry(ctx context.Context, annos annotations.Annotations, err 
 	if annos != nil {
 		ok, err := annos.Pick(rlData)
 		if ok && err == nil {
+			// or use time provided in the annotations
 			wait = time.Until(rlData.ResetAt.AsTime())
 		}
 	}
