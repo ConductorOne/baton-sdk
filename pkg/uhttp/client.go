@@ -77,7 +77,7 @@ func NewClient(ctx context.Context, options ...Option) (*http.Client, error) {
 	return httpClient, nil
 }
 
-type ICache interface {
+type icache interface {
 	Get(ctx context.Context, key string) (*http.Response, error)
 	Set(ctx context.Context, key string, value *http.Response) error
 	Clear(ctx context.Context) error

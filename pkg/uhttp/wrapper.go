@@ -32,7 +32,7 @@ const (
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
 	cacheTTLMaximum           = 31536000 // 31536000 seconds = one year
-	cacheTTLDefault           = 3600     // 3600 seconds = one hour
+	cacheTTLDefault           = 10       // 3600 seconds = one hour
 )
 
 const maxBodySize = 4096
@@ -70,7 +70,7 @@ type WrapperOption interface {
 }
 
 // Keep a handle on all caches so we can clear them later.
-var caches []ICache
+var caches []icache
 
 func ClearCaches(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
@@ -94,7 +94,7 @@ type (
 	BaseHttpClient struct {
 		HttpClient    *http.Client
 		rateLimiter   uRateLimit.Limiter
-		baseHttpCache ICache
+		baseHttpCache icache
 	}
 
 	DoOption      func(resp *WrapperResponse) error
