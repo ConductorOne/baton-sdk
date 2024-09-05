@@ -96,7 +96,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	);`)
 	if err != nil {
 		l.Debug("Failed to create cache table in database", zap.Error(err))
-		return &DBCache{}, err
+		return nil, err
 	}
 
 	if cfg.CacheTTL > 0 {

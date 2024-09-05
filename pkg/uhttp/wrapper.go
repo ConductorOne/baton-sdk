@@ -187,7 +187,6 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 		default:
 			l.Error("unsupported cache backend specified", zap.String("cacheBackend", cacheBackend))
 			return nil, fmt.Errorf("unsupported cache backend: %s", cacheBackend)
-
 		}
 	}
 
