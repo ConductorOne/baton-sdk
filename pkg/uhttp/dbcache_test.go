@@ -26,7 +26,7 @@ func TestDBCacheGettersAndSetters(t *testing.T) {
 	require.NotNil(t, resp)
 	defer resp.Body.Close()
 
-	var ic ICache = &DBCache{
+	var ic icache = &DBCache{
 		db: fc.db,
 	}
 	cKey, err := CreateCacheKey(resp.Request)

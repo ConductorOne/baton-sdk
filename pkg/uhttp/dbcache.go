@@ -14,9 +14,8 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/glebarez/go-sqlite"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	_ "github.com/mattn/go-sqlite3"
+	sql3 "github.com/mattn/go-sqlite3"
 	"go.uber.org/zap"
 )
 
@@ -38,6 +37,17 @@ type Stats struct {
 	Misses int64 `json:"misses"`
 }
 
+// Error implement sqlite error code.
+type SqliteError struct {
+	Code         int `json:"Code,omitempty"`         /* The error code returned by SQLite */
+	ExtendedCode int `json:"ExtendedCode,omitempty"` /* The extended error code returned by SQLite */
+	err          string
+}
+
+func (b *SqliteError) Error() string {
+	return b.err
+}
+
 const (
 	failStartTransaction = "Failed to start a transaction"
 	nilConnection        = "Database connection is nil"
@@ -56,6 +66,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		err error
 		dc  = &DBCache{
 			waitDuration: defaultWaitDuration, // Default Cleanup interval, 60 seconds
+			stats:        !cfg.DisableCache,
 		}
 	)
 	l := ctxzap.Extract(ctx)
@@ -68,18 +79,20 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	// Create cache table and index
 	_, err = dc.db.ExecContext(ctx, `
 	CREATE TABLE IF NOT EXISTS http_cache(
-		id INTEGER PRIMARY KEY, 
-		key NVARCHAR, 
-		data BLOB, 
-		expiration INTEGER, 
-		url NVARCHAR
+		key TEXT PRIMARY KEY, 
+		value BLOB, 
+		expires INT, 
+		lastAccess INT,
+		url TEXT
 	);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_cache_key ON http_cache (key);
+	CREATE INDEX IF NOT EXISTS expires ON http_cache (expires);
+	CREATE INDEX IF NOT EXISTS lastAccess ON http_cache (lastAccess);
 	CREATE TABLE IF NOT EXISTS http_stats(
-		id INTEGER PRIMARY KEY,
-		key NVARCHAR,
-		hits INTEGER DEFAULT 0, 
-		misses INTEGER DEFAULT 0
+		id INT PRIMARY KEY,
+		key TEXT,
+		hits INT DEFAULT 0, 
+		misses INT DEFAULT 0
 	);`)
 	if err != nil {
 		l.Debug("Failed to create cache table in database", zap.Error(err))
@@ -87,7 +100,6 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	if cfg.CacheTTL > 0 {
-		dc.stats = !cfg.DisableCache
 		if cfg.CacheTTL > cacheTTLThreshold {
 			dc.waitDuration = int64(cfg.CacheTTL * cacheTTLMultiplier) // set as a fraction of the Cache TTL
 		}
@@ -262,9 +274,10 @@ func (d *DBCache) cleanup(ctx context.Context) error {
 // Insert data into the cache table.
 func (d *DBCache) insert(ctx context.Context, key string, value any, url string) error {
 	var (
-		bytes []byte
-		err   error
-		ok    bool
+		bytes  []byte
+		err    error
+		ok     bool
+		errSQL sql3.Error
 	)
 	if d.IsNilConnection() {
 		return fmt.Errorf("%s", nilConnection)
@@ -279,61 +292,42 @@ func (d *DBCache) insert(ctx context.Context, key string, value any, url string)
 		}
 	}
 
-	if ok, _ := d.has(ctx, key); !ok {
-		tx, err := d.db.Begin()
-		if err != nil {
-			l.Debug(failStartTransaction, zap.Error(err))
-			return err
+	tx, err := d.db.Begin()
+	if err != nil {
+		l.Debug(failStartTransaction, zap.Error(err))
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, "INSERT INTO http_cache(key, value, expires, url) values(?, ?, ?, ?)",
+		key,
+		bytes,
+		(time.Now().UnixNano() + d.waitDuration),
+		url,
+	)
+	if err != nil {
+		if errtx := tx.Rollback(); errtx != nil {
+			l.Debug(failRollback, zap.Error(errtx))
 		}
 
-		_, err = tx.ExecContext(ctx, "INSERT INTO http_cache(key, data, expiration, url) values(?, ?, ?, ?)",
-			key,
-			bytes,
-			(time.Now().UnixNano() + d.waitDuration),
-			url,
-		)
-		if err != nil {
-			if errtx := tx.Rollback(); errtx != nil {
-				l.Debug(failRollback, zap.Error(errtx))
-			}
-
-			l.Debug(failInsert, zap.Error(err))
-			return err
+		if errors.As(err, &errSQL) && errSQL.Code == sql3.ErrConstraint {
+			return nil
 		}
 
-		err = tx.Commit()
-		if err != nil {
-			if errtx := tx.Rollback(); errtx != nil {
-				l.Debug(failRollback, zap.Error(errtx))
-			}
+		l.Debug(failInsert, zap.Error(err))
+		return err
+	}
 
-			l.Debug(failInsert, zap.Error(err))
-			return err
+	err = tx.Commit()
+	if err != nil {
+		if errtx := tx.Rollback(); errtx != nil {
+			l.Debug(failRollback, zap.Error(errtx))
 		}
+
+		l.Debug(failInsert, zap.Error(err))
+		return err
 	}
 
 	return nil
-}
-
-// Has query for cached keys.
-func (d *DBCache) has(ctx context.Context, key string) (bool, error) {
-	if d.IsNilConnection() {
-		return false, fmt.Errorf("%s", nilConnection)
-	}
-
-	l := ctxzap.Extract(ctx)
-	rows, err := d.db.Query("SELECT data FROM http_cache where key = ?", key)
-	if err != nil {
-		l.Debug("Failed to query cache table for key existence", zap.Error(err))
-		return false, err
-	}
-
-	defer rows.Close()
-	for rows.Next() {
-		return true, nil
-	}
-
-	return false, nil
 }
 
 // IsNilConnection check if the database connection is nil.
@@ -349,7 +343,7 @@ func (d *DBCache) pick(ctx context.Context, key string) ([]byte, error) {
 	}
 
 	l := ctxzap.Extract(ctx)
-	rows, err := d.db.QueryContext(ctx, "SELECT data FROM http_cache where key = ?", key)
+	rows, err := d.db.QueryContext(ctx, "SELECT value FROM http_cache where key = ?", key)
 	if err != nil {
 		l.Debug(errQueryingTable, zap.Error(err))
 		return nil, err
@@ -379,7 +373,7 @@ func (d *DBCache) remove(ctx context.Context) error {
 		return err
 	}
 
-	_, err = d.db.ExecContext(ctx, "DELETE FROM http_cache WHERE expiration < ?", time.Now().UnixNano())
+	_, err = d.db.ExecContext(ctx, "DELETE FROM http_cache WHERE expires < ?", time.Now().UnixNano())
 	if err != nil {
 		if errtx := tx.Rollback(); errtx != nil {
 			l.Debug(failRollback, zap.Error(errtx))

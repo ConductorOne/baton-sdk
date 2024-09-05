@@ -29,7 +29,7 @@ const (
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
 	cacheTTLMaximum           = 31536000 // 31536000 seconds = one year
-	cacheTTLDefault           = 3600     // 3600 seconds = one hour
+	cacheTTLDefault           = 10       // 3600 seconds = one hour
 )
 
 type WrapperResponse struct {
@@ -47,7 +47,7 @@ type (
 	}
 	BaseHttpClient struct {
 		HttpClient    *http.Client
-		baseHttpCache ICache
+		baseHttpCache icache
 	}
 
 	DoOption      func(resp *WrapperResponse) error
