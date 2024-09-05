@@ -84,7 +84,6 @@ func getCacheTTL() int32 {
 
 	cacheTTL = min(cacheTTLMaximum, max(0, cacheTTL))
 
-	//nolint:gosec // No risk of overflow because we have a low maximum.
 	return int32(cacheTTL)
 }
 
