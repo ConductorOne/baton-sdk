@@ -82,14 +82,14 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		key TEXT PRIMARY KEY, 
 		value BLOB, 
 		expires INT, 
-		lastAccess INT,
+		lastAccess TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
 		url TEXT
 	);
 	CREATE UNIQUE INDEX IF NOT EXISTS idx_cache_key ON http_cache (key);
 	CREATE INDEX IF NOT EXISTS expires ON http_cache (expires);
 	CREATE INDEX IF NOT EXISTS lastAccess ON http_cache (lastAccess);
 	CREATE TABLE IF NOT EXISTS http_stats(
-		id INT PRIMARY KEY,
+		id INTEGER PRIMARY KEY,
 		key TEXT,
 		hits INT DEFAULT 0, 
 		misses INT DEFAULT 0
