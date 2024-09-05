@@ -32,7 +32,7 @@ const (
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
 	cacheTTLMaximum           = 31536000 // 31536000 seconds = one year
-	cacheTTLDefault           = 10       // 3600 seconds = one hour
+	cacheTTLDefault           = 3600     // 3600 seconds = one hour
 )
 
 const maxBodySize = 4096
