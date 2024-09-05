@@ -335,6 +335,8 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 				return resp, err
 			}
 			return resp, st.Err()
+		} else {
+			l.Warn("retry-after header not found or impossible to parse", zap.Error(err), zap.String("retry-after", retryAfter))
 		}
 		return resp, status.Error(codes.Unavailable, resp.Status)
 	}
