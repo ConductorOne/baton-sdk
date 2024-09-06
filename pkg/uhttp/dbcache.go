@@ -147,7 +147,9 @@ func (d *DBCache) load(ctx context.Context) (*DBCache, error) {
 
 	file := filepath.Join(cacheDir, "lcache.db")
 	d.location = file
-	// Connect to db
+	// Open database
+	// The returned [DB] is safe for concurrent use by multiple goroutines and maintains its own pool of idle connections.
+	// Thus, the Open function should be called just once. It is rarely necessary to close a [DB].
 	sqlDB, err := sql.Open("sqlite3", file)
 	if err != nil {
 		l.Debug("Failed to open database", zap.Error(err))
