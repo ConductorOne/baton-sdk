@@ -102,7 +102,7 @@ type (
 	ContextKey    struct{}
 	CacheConfig   struct {
 		LogDebug     bool
-		CacheTTL     int32 // If it's 0, cache is disabled
+		CacheTTL     int32 // If it's 0, db cache is disabled
 		CacheMaxSize int
 		DisableCache bool
 	}

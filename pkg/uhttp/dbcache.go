@@ -99,7 +99,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		return nil, err
 	}
 
-	if cfg.CacheTTL > 0 {
+	if cfg.CacheTTL > 0 || !cfg.DisableCache {
 		if cfg.CacheTTL > cacheTTLThreshold {
 			dc.waitDuration = int64(cfg.CacheTTL * cacheTTLMultiplier) // set as a fraction of the Cache TTL
 		}
