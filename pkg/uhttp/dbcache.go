@@ -21,13 +21,13 @@ import (
 
 type DBCache struct {
 	db *sql.DB
-	// Cleanup interval
+	// Cleanup interval, close and remove db
 	waitDuration int64
-	// Cache duration
+	// Cache duration for removing expired keys
 	expirationTime int64
 	// Database path
 	location string
-	// enable statistics
+	// Enable statistics(hits, misses)
 	stats bool
 }
 type Stats struct {
@@ -104,7 +104,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 			dc.waitDuration = int64(cfg.CacheTTL * cacheTTLMultiplier) // set as a fraction of the Cache TTL
 		}
 
-		dc.expirationTime = int64(cfg.CacheTTL) // cache expiration time
+		dc.expirationTime = int64(cfg.CacheTTL) // time for removing expired key
 		go func(waitDuration, expirationTime int64) {
 			ctxWithTimeout, cancel := context.WithTimeout(
 				ctx,
