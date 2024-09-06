@@ -303,7 +303,7 @@ func (d *DBCache) insert(ctx context.Context, key string, value any, url string)
 	_, err = tx.ExecContext(ctx, "INSERT INTO http_cache(key, value, expires, url) values(?, ?, ?, ?)",
 		key,
 		bytes,
-		(time.Now().UnixNano() + d.waitDuration),
+		(time.Now().UnixNano() + d.expirationTime),
 		url,
 	)
 	if err != nil {
