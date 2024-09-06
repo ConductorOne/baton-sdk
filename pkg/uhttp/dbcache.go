@@ -421,9 +421,7 @@ func (d *DBCache) deleteExpired(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 	err := d.remove(ctx)
 	if err != nil {
-		l.Debug("error removing rows",
-			zap.Error(err),
-		)
+		l.Debug("error removing rows", zap.Error(err))
 	}
 
 	return nil
