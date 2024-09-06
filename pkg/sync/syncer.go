@@ -110,6 +110,17 @@ func shouldWaitAndRetry(ctx context.Context, annos annotations.Annotations, err 
 			wait = time.Until(rlData.ResetAt.AsTime())
 		}
 	}
+	if st, ok := status.FromError(err); annos == nil && ok {
+		details := st.Details()
+		for _, detail := range details {
+			if rlData, ok := detail.(*v2.RateLimitDescription); ok {
+				wait = time.Until(rlData.ResetAt.AsTime())
+			}
+		}
+		l.Debug("details from status error", zap.Any("details", details), zap.Int("len of details", len(details)), zap.Error(err))
+	} else {
+		l.Debug("unable to parse rate limit description from error", zap.Error(err), zap.Any("status", st))
+	}
 
 	// If error contains rate limit data, use that instead
 	if st, ok := status.FromError(err); ok {
