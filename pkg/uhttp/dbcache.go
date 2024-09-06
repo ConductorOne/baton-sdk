@@ -37,7 +37,7 @@ type Stats struct {
 	Misses int64 `json:"misses"`
 }
 
-// Error implement sqlite error code.
+// SqliteError implement sqlite error code.
 type SqliteError struct {
 	Code         int `json:"Code,omitempty"`         /* The error code returned by SQLite */
 	ExtendedCode int `json:"ExtendedCode,omitempty"` /* The extended error code returned by SQLite */
