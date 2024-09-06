@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
@@ -20,7 +19,6 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -215,20 +213,6 @@ func WithResponse(response interface{}) DoOption {
 	}
 }
 
-func retryValueToTime(value string, now time.Time) (time.Time, error) {
-	if value == "" {
-		return time.Time{}, fmt.Errorf("retry-after value is empty")
-	}
-	if retryAfterSeconds, err := strconv.Atoi(value); err == nil {
-		return now.Add(time.Duration(retryAfterSeconds) * time.Second), nil
-	}
-	if parsedTime, err := time.Parse(time.RFC1123, value); err == nil {
-		return parsedTime, nil
-	}
-
-	return time.Time{}, fmt.Errorf("unable to parse string '%s'", value)
-}
-
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
 	var (
 		cacheKey string
@@ -295,21 +279,14 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	case http.StatusRequestTimeout:
 		return resp, status.Error(codes.DeadlineExceeded, resp.Status)
 	case http.StatusTooManyRequests:
-		retryAfter := resp.Header.Get("Retry-After")
-		when, err := retryValueToTime(retryAfter, time.Now())
+		description, err := ratelimit.ExtractRateLimitData(http.StatusTooManyRequests, &resp.Header)
 		if err == nil {
-			md := &v2.RateLimitDescription{
-				Status:  http.StatusTooManyRequests,
-				ResetAt: timestamppb.New(when),
-			}
 			st := status.New(codes.Unavailable, resp.Status)
-			st, err = st.WithDetails(md)
+			st, err = st.WithDetails(description)
 			if err != nil {
 				return resp, err
 			}
 			return resp, st.Err()
-		} else {
-			l.Warn("retry-after header not found or impossible to parse", zap.Error(err), zap.String("retry-after", retryAfter))
 		}
 		return resp, status.Error(codes.Unavailable, resp.Status)
 	case http.StatusNotFound:
@@ -321,21 +298,14 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	case http.StatusNotImplemented:
 		return resp, status.Error(codes.Unimplemented, resp.Status)
 	case http.StatusServiceUnavailable:
-		retryAfter := resp.Header.Get("Retry-After")
-		when, err := retryValueToTime(retryAfter, time.Now())
+		description, err := ratelimit.ExtractRateLimitData(http.StatusTooManyRequests, &resp.Header)
 		if err == nil {
-			md := &v2.RateLimitDescription{
-				Status:  http.StatusServiceUnavailable,
-				ResetAt: timestamppb.New(when),
-			}
 			st := status.New(codes.Unavailable, resp.Status)
-			st, err = st.WithDetails(md)
+			st, err = st.WithDetails(description)
 			if err != nil {
 				return resp, err
 			}
 			return resp, st.Err()
-		} else {
-			l.Warn("retry-after header not found or impossible to parse", zap.Error(err), zap.String("retry-after", retryAfter))
 		}
 		return resp, status.Error(codes.Unavailable, resp.Status)
 	}
