@@ -66,7 +66,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		err error
 		dc  = &DBCache{
 			waitDuration: defaultWaitDuration, // Default Cleanup interval, 60 seconds
-			stats:        !cfg.DisableCache,
+			stats:        cfg.LogDebug,
 		}
 	)
 	l := ctxzap.Extract(ctx)
