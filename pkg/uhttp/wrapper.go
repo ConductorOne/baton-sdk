@@ -213,6 +213,20 @@ func WithResponse(response interface{}) DoOption {
 	}
 }
 
+func wrapRetryAfterInStatus(httpStatus int, headers *http.Header, preferredCode codes.Code) (*status.Status, error) {
+	description, err := ratelimit.ExtractRateLimitData(httpStatus, headers)
+	if err != nil {
+		return nil, err
+	}
+
+	st := status.New(preferredCode, http.StatusText(httpStatus))
+	st, err = st.WithDetails(description)
+	if err != nil {
+		return nil, err
+	}
+	return st, nil
+}
+
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
 	var (
 		cacheKey string
@@ -281,16 +295,11 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	case http.StatusRequestTimeout:
 		return resp, status.Error(codes.DeadlineExceeded, resp.Status)
 	case http.StatusTooManyRequests:
-		description, err := ratelimit.ExtractRateLimitData(http.StatusTooManyRequests, &resp.Header)
-		if err == nil {
-			st := status.New(codes.Unavailable, resp.Status)
-			st, err = st.WithDetails(description)
-			if err != nil {
-				return resp, err
-			}
-			return resp, st.Err()
+		st, err := wrapRetryAfterInStatus(http.StatusTooManyRequests, &resp.Header, codes.Unavailable)
+		if err != nil {
+			return resp, status.Error(codes.Unavailable, resp.Status)
 		}
-		return resp, status.Error(codes.Unavailable, resp.Status)
+		return resp, st.Err()
 	case http.StatusNotFound:
 		return resp, GRPCWrap(codes.NotFound, resp, optErrs...)
 	case http.StatusUnauthorized:
@@ -300,16 +309,11 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	case http.StatusNotImplemented:
 		return resp, status.Error(codes.Unimplemented, resp.Status)
 	case http.StatusServiceUnavailable:
-		description, err := ratelimit.ExtractRateLimitData(http.StatusTooManyRequests, &resp.Header)
-		if err == nil {
-			st := status.New(codes.Unavailable, resp.Status)
-			st, err = st.WithDetails(description)
-			if err != nil {
-				return resp, err
-			}
-			return resp, st.Err()
+		st, err := wrapRetryAfterInStatus(http.StatusServiceUnavailable, &resp.Header, codes.Unavailable)
+		if err != nil {
+			return resp, status.Error(codes.Unavailable, resp.Status)
 		}
-		return resp, status.Error(codes.Unavailable, resp.Status)
+		return resp, st.Err()
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
