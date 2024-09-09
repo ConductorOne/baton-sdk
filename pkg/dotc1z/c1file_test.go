@@ -192,7 +192,10 @@ func TestC1ZDecoder(t *testing.T) {
 	require.Equal(t, dbFile, b.Bytes())
 	b.Reset()
 
+	require.GreaterOrEqual(t, n, int64(0))
+
 	// Test max size exact
+	//nolint:gosec // No risk of overflow because n is always >= 0.
 	d, err = NewDecoder(c1zf, WithDecoderMaxDecodedSize(uint64(n)))
 	require.NoError(t, err)
 	_, err = io.Copy(b, d)
@@ -203,6 +206,8 @@ func TestC1ZDecoder(t *testing.T) {
 	b.Reset()
 
 	// Test max size - 1
+	require.GreaterOrEqual(t, n, int64(1))
+	//nolint:gosec // No risk of overflow because n is always > 0.
 	d, err = NewDecoder(c1zf, WithDecoderMaxDecodedSize(uint64(n-1)))
 	require.NoError(t, err)
 	_, err = io.Copy(io.Discard, d)
