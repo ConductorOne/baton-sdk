@@ -37,7 +37,17 @@ func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
 		return GoCache{}, err
 	}
 
-	l.Debug("http cache config", zap.Any("config", config))
+	l.Debug("http cache config",
+		zap.Dict("config",
+			zap.Int("Shards", config.Shards),
+			zap.Duration("LifeWindow", config.LifeWindow),
+			zap.Duration("CleanWindow", config.CleanWindow),
+			zap.Int("MaxEntriesInWindow", config.MaxEntriesInWindow),
+			zap.Int("MaxEntrySize", config.MaxEntrySize),
+			zap.Bool("StatsEnabled", config.StatsEnabled),
+			zap.Bool("Verbose", config.Verbose),
+			zap.Int("HardMaxCacheSize", config.HardMaxCacheSize),
+		))
 	gc := GoCache{
 		rootLibrary: cache,
 	}
