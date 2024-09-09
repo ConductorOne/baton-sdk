@@ -120,7 +120,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint) (*syncRun, er
 	return ret, nil
 }
 
-func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize int) ([]*syncRun, string, error) {
+func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize uint) ([]*syncRun, string, error) {
 	err := c.validateDb(ctx)
 	if err != nil {
 		return nil, "", err
@@ -138,7 +138,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize in
 	}
 
 	q = q.Order(goqu.C("id").Asc())
-	q = q.Limit(uint(pageSize + 1))
+	q = q.Limit(pageSize + 1)
 
 	var ret []*syncRun
 
@@ -153,7 +153,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize in
 	}
 	defer rows.Close()
 
-	count := 0
+	var count uint = 0
 	lastRow := 0
 	for rows.Next() {
 		count++

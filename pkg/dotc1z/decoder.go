@@ -167,6 +167,7 @@ func (d *decoder) Read(p []byte) (int, error) {
 
 	// Do underlying read
 	n, err := d.zd.Read(p)
+	//nolint:gosec // No risk of overflow/underflow because n is always >= 0.
 	d.decodedBytes += uint64(n)
 	if err != nil {
 		// NOTE(morgabra) This happens if you set a small DecoderMaxMemory

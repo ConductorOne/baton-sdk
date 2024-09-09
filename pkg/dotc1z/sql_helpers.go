@@ -183,7 +183,7 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 	}
 
 	// Clamp the page size
-	pageSize := int(listReq.GetPageSize())
+	pageSize := listReq.GetPageSize()
 	if pageSize > maxPageSize || pageSize == 0 {
 		pageSize = maxPageSize
 	}
@@ -206,7 +206,7 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 	}
 	defer rows.Close()
 
-	count := 0
+	var count uint32 = 0
 	lastRow := 0
 	for rows.Next() {
 		count++

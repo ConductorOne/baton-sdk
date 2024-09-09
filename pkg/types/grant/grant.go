@@ -17,7 +17,7 @@ type GrantPrincipal interface {
 	GetBatonResource() bool
 }
 
-// Sometimes C1 doesn't have the grant ID, but does have the principal and entitlement
+// Sometimes C1 doesn't have the grant ID, but does have the principal and entitlement.
 const UnknownGrantId string = "🧸_UNKNOWN_GRANT_ID"
 
 func WithGrantMetadata(metadata map[string]interface{}) GrantOption {
