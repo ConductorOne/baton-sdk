@@ -14,22 +14,39 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/doug-martin/goqu/v9"
+	// NOTE: required to register the dialect for goqu.
+	//
+	// If you remove this import, goqu.Dialect("sqlite3") will
+	// return a copy of the default dialect, which is not what we want,
+	// and allocates a ton of memory.
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
+	_ "github.com/glebarez/go-sqlite"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	sql3 "github.com/mattn/go-sqlite3"
 	"go.uber.org/zap"
 )
 
 type DBCache struct {
-	db *sql.DB
+	rawDb *sql.DB
+	db    *goqu.Database
 	// Cleanup interval, close and remove db
-	waitDuration int64
+	waitDuration time.Duration
 	// Cache duration for removing expired keys
-	expirationTime int64
+	expirationTime time.Duration
 	// Database path
 	location string
 	// Enable statistics(hits, misses)
 	stats bool
 }
+
+type CacheRow struct {
+	Key        string
+	Value      []byte
+	Expires    time.Time
+	LastAccess time.Time
+	Url        string
+}
+
 type Stats struct {
 	// Hits is a number of successfully found keys
 	Hits int64 `json:"hits"`
@@ -49,17 +66,20 @@ func (b *SqliteError) Error() string {
 }
 
 const (
-	failStartTransaction = "Failed to start a transaction"
-	nilConnection        = "Database connection is nil"
-	errQueryingTable     = "Error querying cache table"
-	failRollback         = "Failed to rollback transaction"
-	failInsert           = "Failed to insert response data into cache table"
-	staticQuery          = "INSERT INTO http_stats(key, %s) values(?, 1)"
-	failScanResponse     = "Failed to scan rows for cached response"
-	cacheTTLThreshold    = 60
-	defaultWaitDuration  = int64(cacheTTLThreshold) // Default Cleanup interval, 60 seconds
-	cacheTTLMultiplier   = 5
+	failStartTransaction       = "Failed to start a transaction"
+	nilConnection              = "Database connection is nil"
+	errQueryingTable           = "Error querying cache table"
+	failRollback               = "Failed to rollback transaction"
+	failInsert                 = "Failed to insert response data into cache table"
+	staticQuery                = "INSERT INTO http_stats(key, %s) values(?, 1)"
+	failScanResponse           = "Failed to scan rows for cached response"
+	cacheTTLThreshold          = 60
+	cacheTTLMultiplier   int64 = 5
 )
+
+var defaultWaitDuration = cacheTTLThreshold * time.Second // Default Cleanup interval, 60 seconds
+
+const tableName = "http_cache"
 
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	var (
@@ -101,18 +121,19 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 
 	if cfg.CacheTTL > 0 || !cfg.DisableCache {
 		if cfg.CacheTTL > cacheTTLThreshold {
-			dc.waitDuration = int64(cfg.CacheTTL * cacheTTLMultiplier) // set as a fraction of the Cache TTL
+			dc.waitDuration = time.Duration(cfg.CacheTTL*cacheTTLMultiplier) * time.Second // set as a fraction of the Cache TTL
 		}
 
-		dc.expirationTime = int64(cfg.CacheTTL) // time for removing expired key
-		go func(waitDuration, expirationTime int64) {
+		dc.expirationTime = time.Duration(cfg.CacheTTL) * time.Second // time for removing expired key
+
+		go func(waitDuration, expirationTime time.Duration) {
 			ctxWithTimeout, cancel := context.WithTimeout(
 				ctx,
-				time.Duration(waitDuration)*time.Second,
+				waitDuration,
 			)
 			defer cancel()
-
-			ticker := time.NewTicker(time.Duration(expirationTime) * time.Second)
+			// TODO: I think this should be wait duration
+			ticker := time.NewTicker(expirationTime)
 			defer ticker.Stop()
 			for {
 				select {
@@ -147,16 +168,14 @@ func (d *DBCache) load(ctx context.Context) (*DBCache, error) {
 
 	file := filepath.Join(cacheDir, "lcache.db")
 	d.location = file
-	// Open database
-	// The returned [DB] is safe for concurrent use by multiple goroutines and maintains its own pool of idle connections.
-	// Thus, the Open function should be called just once. It is rarely necessary to close a [DB].
-	sqlDB, err := sql.Open("sqlite3", file)
+
+	rawDB, err := sql.Open("sqlite", file)
 	if err != nil {
-		l.Debug("Failed to open database", zap.Error(err))
 		return nil, err
 	}
 
-	d.db = sqlDB
+	d.db = goqu.New("sqlite3", rawDB)
+	d.rawDb = rawDB
 	return d, nil
 }
 
@@ -170,7 +189,12 @@ func (d *DBCache) removeDB(ctx context.Context) error {
 		return fmt.Errorf("file not found %s", d.location)
 	}
 
-	err := os.Remove(d.location)
+	err := d.close(ctx)
+	if err != nil {
+		return err
+	}
+	// TODO: close DB so no file handles exist and we can delete the file on windows
+	err = os.Remove(d.location)
 	if err != nil {
 		ctxzap.Extract(ctx).Debug("error removing database", zap.Error(err))
 		return err
@@ -230,7 +254,7 @@ func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) err
 	}
 
 	if value.Request != nil {
-		url = getFullUrl(value.Request)
+		url = value.Request.URL.String()
 	}
 
 	err = d.insert(ctx,
@@ -276,10 +300,9 @@ func (d *DBCache) cleanup(ctx context.Context) error {
 // Insert data into the cache table.
 func (d *DBCache) insert(ctx context.Context, key string, value any, url string) error {
 	var (
-		bytes  []byte
-		err    error
-		ok     bool
-		errSQL sql3.Error
+		bytes []byte
+		err   error
+		ok    bool
 	)
 	if d.IsNilConnection() {
 		return fmt.Errorf("%s", nilConnection)
@@ -300,20 +323,28 @@ func (d *DBCache) insert(ctx context.Context, key string, value any, url string)
 		return err
 	}
 
-	_, err = tx.ExecContext(ctx, "INSERT INTO http_cache(key, value, expires, url) values(?, ?, ?, ?)",
-		key,
-		bytes,
-		(time.Now().UnixNano() + d.expirationTime),
-		url,
+	ds := goqu.Insert(tableName).Rows(
+		CacheRow{
+			Key:     key,
+			Value:   bytes,
+			Expires: time.Now().Add(d.expirationTime),
+			Url:     url,
+		},
 	)
+	insertSQL, args, err := ds.ToSQL()
+	if err != nil {
+		l.Debug("Failed to create insert statement", zap.Error(err))
+		return err
+	}
+	_, err = tx.ExecContext(ctx, insertSQL, args...)
 	if err != nil {
 		if errtx := tx.Rollback(); errtx != nil {
 			l.Debug(failRollback, zap.Error(errtx))
 		}
 
-		if errors.As(err, &errSQL) && errSQL.Code == sql3.ErrConstraint {
-			return nil
-		}
+		// if errors.As(err, &errSQL) && errSQL.Code == sql3.ErrConstraint {
+		// 	return nil
+		// }
 
 		l.Debug(failInsert, zap.Error(err))
 		return err
@@ -403,7 +434,7 @@ func (d *DBCache) close(ctx context.Context) error {
 		return fmt.Errorf("%s", nilConnection)
 	}
 
-	err := d.db.Close()
+	err := d.rawDb.Close()
 	if err != nil {
 		ctxzap.Extract(ctx).Debug("Failed to close database connection", zap.Error(err))
 		return err
@@ -425,10 +456,6 @@ func (d *DBCache) deleteExpired(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func getFullUrl(r *http.Request) string {
-	return fmt.Sprintf("%s://%s%s", r.URL.Scheme, r.Host, r.URL.Path)
 }
 
 func (d *DBCache) hits(ctx context.Context, key string) error {
