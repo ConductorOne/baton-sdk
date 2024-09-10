@@ -102,7 +102,7 @@ type (
 	ContextKey    struct{}
 	CacheConfig   struct {
 		LogDebug     bool
-		CacheTTL     int32 // If it's 0, db cache is disabled
+		CacheTTL     int64 // If 0, cache is disabled
 		CacheMaxSize int
 		DisableCache bool
 	}
@@ -121,7 +121,7 @@ func NewBaseHttpClient(httpClient *http.Client, opts ...WrapperOption) *BaseHttp
 // the value as a number of seconds between 0 and an arbitrary maximum. Note:
 // this means that passing a value of `-1` will set the TTL to zero rather than
 // infinity.
-func getCacheTTL() int32 {
+func getCacheTTL() int64 {
 	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
 	if err != nil {
 		cacheTTL = cacheTTLDefault // seconds
@@ -130,7 +130,7 @@ func getCacheTTL() int32 {
 	cacheTTL = min(cacheTTLMaximum, max(0, cacheTTL))
 
 	//nolint:gosec // No risk of overflow because we have a low maximum.
-	return int32(cacheTTL)
+	return cacheTTL
 }
 
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, opts ...WrapperOption) (*BaseHttpClient, error) {
