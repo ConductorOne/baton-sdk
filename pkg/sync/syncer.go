@@ -101,7 +101,7 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 
 	var wait time.Duration = time.Duration(attempts) * time.Second
 
-	l.Error("retrying operation", zap.Error(err), zap.Duration("wait", wait))
+	l.Warn("retrying operation", zap.Error(err), zap.Duration("wait", wait))
 
 	for {
 		select {
