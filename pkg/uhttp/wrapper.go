@@ -282,54 +282,57 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		StatusCode: resp.StatusCode,
 		Body:       body,
 	}
+
+	var optErr error
 	for _, option := range options {
 		err = option(&wresp)
 		if err != nil {
-			return resp, err
+			optErr = errors.Join(optErr, err)
 		}
+	}
+
+	st, err := wrapRetryAfterInStatus(resp.StatusCode, &resp.Header, codes.Unavailable)
+	if err != nil {
+		l.Debug("error getting rate limit data from response", zap.Error(err))
+		err = nil
+	}
+	var stErr error
+	if st != nil {
+		stErr = st.Err()
 	}
 
 	switch resp.StatusCode {
 	case http.StatusRequestTimeout:
-		return resp, status.Error(codes.DeadlineExceeded, resp.Status)
-	case http.StatusTooManyRequests:
-		st, err := wrapRetryAfterInStatus(http.StatusTooManyRequests, &resp.Header, codes.Unavailable)
-		if err != nil {
-			return resp, status.Error(codes.Unavailable, resp.Status)
-		}
-		return resp, st.Err()
+		return resp, errors.Join(status.Error(codes.DeadlineExceeded, resp.Status), optErr, stErr)
+	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+		return resp, errors.Join(status.Error(codes.Unavailable, resp.Status), optErr, stErr)
 	case http.StatusNotFound:
-		return resp, status.Error(codes.NotFound, resp.Status)
+		return resp, errors.Join(status.Error(codes.NotFound, resp.Status), optErr, stErr)
 	case http.StatusUnauthorized:
-		return resp, status.Error(codes.Unauthenticated, resp.Status)
+		return resp, errors.Join(status.Error(codes.Unauthenticated, resp.Status), optErr, stErr)
 	case http.StatusForbidden:
-		return resp, status.Error(codes.PermissionDenied, resp.Status)
+		return resp, errors.Join(status.Error(codes.PermissionDenied, resp.Status), optErr, stErr)
 	case http.StatusNotImplemented:
-		return resp, status.Error(codes.Unimplemented, resp.Status)
-	case http.StatusServiceUnavailable:
-		st, err := wrapRetryAfterInStatus(http.StatusServiceUnavailable, &resp.Header, codes.Unavailable)
-		if err != nil {
-			return resp, status.Error(codes.Unavailable, resp.Status)
-		}
-		return resp, st.Err()
+		return resp, errors.Join(status.Error(codes.Unimplemented, resp.Status), optErr, stErr)
+	}
+
+	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
+		return resp, errors.Join(status.Error(codes.Unavailable, resp.Status), optErr, stErr)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
-	}
-	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return resp, status.Error(codes.Unavailable, resp.Status)
+		return resp, errors.Join(stErr, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode)), optErr)
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
 		err := c.baseHttpCache.Set(cacheKey, resp)
 		if err != nil {
-			l.Debug("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(err))
-			return resp, err
+			l.Warn("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(err))
+			err = nil
 		}
 	}
 
-	return resp, err
+	return resp, errors.Join(err, optErr)
 }
 
 func WithHeader(key, value string) RequestOption {
