@@ -283,54 +283,103 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		Body:       body,
 	}
 
-	var optErrs []error
+	var optErr error
 	for _, option := range options {
-		optErr := option(&wresp)
-		if optErr != nil {
-			optErrs = append(optErrs, optErr)
+		err = option(&wresp)
+		if err != nil {
+			optErr = errors.Join(optErr, err)
 		}
+	}
+
+	st, err := wrapRetryAfterInStatus(resp.StatusCode, &resp.Header, codes.Unavailable)
+	if err != nil {
+		l.Debug("error getting rate limit data from response", zap.Error(err))
+		err = nil
+	}
+	var stErr error
+	if st != nil {
+		stErr = st.Err()
 	}
 
 	switch resp.StatusCode {
 	case http.StatusRequestTimeout:
-		return resp, status.Error(codes.DeadlineExceeded, resp.Status)
-	case http.StatusTooManyRequests:
-		st, err := wrapRetryAfterInStatus(http.StatusTooManyRequests, &resp.Header, codes.Unavailable)
-		if err != nil {
-			return resp, status.Error(codes.Unavailable, resp.Status)
-		}
-		return resp, st.Err()
+		return resp, errors.Join(status.Error(codes.DeadlineExceeded, resp.Status), optErr, stErr)
+	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+		return resp, errors.Join(status.Error(codes.Unavailable, resp.Status), optErr, stErr)
 	case http.StatusNotFound:
+<<<<<<< HEAD
 		return resp, GRPCWrap(codes.NotFound, resp, optErrs...)
+||||||| parent of e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
+		return resp, status.Error(codes.NotFound, resp.Status)
+=======
+		return resp, errors.Join(status.Error(codes.NotFound, resp.Status), optErr, stErr)
+>>>>>>> e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
 	case http.StatusUnauthorized:
+<<<<<<< HEAD
 		return resp, GRPCWrap(codes.Unauthenticated, resp, optErrs...)
+||||||| parent of e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
+		return resp, status.Error(codes.Unauthenticated, resp.Status)
+=======
+		return resp, errors.Join(status.Error(codes.Unauthenticated, resp.Status), optErr, stErr)
+>>>>>>> e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
 	case http.StatusForbidden:
+<<<<<<< HEAD
 		return resp, GRPCWrap(codes.PermissionDenied, resp, optErrs...)
+||||||| parent of e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
+		return resp, status.Error(codes.PermissionDenied, resp.Status)
+=======
+		return resp, errors.Join(status.Error(codes.PermissionDenied, resp.Status), optErr, stErr)
+>>>>>>> e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
 	case http.StatusNotImplemented:
-		return resp, status.Error(codes.Unimplemented, resp.Status)
-	case http.StatusServiceUnavailable:
-		st, err := wrapRetryAfterInStatus(http.StatusServiceUnavailable, &resp.Header, codes.Unavailable)
-		if err != nil {
-			return resp, status.Error(codes.Unavailable, resp.Status)
-		}
-		return resp, st.Err()
+		return resp, errors.Join(status.Error(codes.Unimplemented, resp.Status), optErr, stErr)
+	}
+
+	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
+		return resp, errors.Join(status.Error(codes.Unavailable, resp.Status), optErr, stErr)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+<<<<<<< HEAD
 		return resp, GRPCWrap(codes.Unknown, resp, append(optErrs, fmt.Errorf("unexpected status code: %d", resp.StatusCode))...)
 	}
 	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
 		return resp, status.Error(codes.Unavailable, resp.Status)
+||||||| parent of e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
+		return resp, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
+	}
+	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
+		return resp, status.Error(codes.Unavailable, resp.Status)
+=======
+		return resp, errors.Join(stErr, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode)), optErr)
+>>>>>>> e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
+<<<<<<< HEAD
 		cacheErr := c.baseHttpCache.Set(cacheKey, resp)
 		if cacheErr != nil {
 			l.Warn("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(cacheErr))
+||||||| parent of e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
+		err := c.baseHttpCache.Set(cacheKey, resp)
+		if err != nil {
+			l.Debug("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(err))
+			return resp, err
+=======
+		err := c.baseHttpCache.Set(cacheKey, resp)
+		if err != nil {
+			l.Warn("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(err))
+			err = nil
+>>>>>>> e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
 		}
 	}
 
+<<<<<<< HEAD
 	return resp, errors.Join(optErrs...)
+||||||| parent of e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
+	return resp, err
+=======
+	return resp, errors.Join(err, optErr)
+>>>>>>> e391244 (Join any errors when running DoOption functions. Add some comments in syncer.)
 }
 
 func WithHeader(key, value string) RequestOption {

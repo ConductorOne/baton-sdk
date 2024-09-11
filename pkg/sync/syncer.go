@@ -102,6 +102,8 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 
 	// use linear time by default
 	var wait time.Duration = time.Duration(attempts) * time.Second
+
+	// If error contains rate limit data, use that instead
 	if st, ok := status.FromError(err); ok {
 		details := st.Details()
 		for _, detail := range details {
