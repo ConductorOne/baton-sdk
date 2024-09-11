@@ -109,9 +109,11 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 		for _, detail := range details {
 			if rlData, ok := detail.(*v2.RateLimitDescription); ok {
 				wait = time.Until(rlData.ResetAt.AsTime())
+				wait /= time.Duration(rlData.Limit)
+				// Round up to the nearest second to make sure we don't hit the rate limit again
+				wait = time.Duration(math.Ceil(wait.Seconds())) * time.Second
 			}
 		}
-		l.Debug("details from status error", zap.Any("details", details), zap.Int("len of details", len(details)), zap.Error(err))
 	} else {
 		l.Debug("unable to parse rate limit description from error", zap.Error(err), zap.Any("status", st))
 	}
