@@ -315,8 +315,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// TODO: add opterrs here
-		return resp, WrapErrors(codes.Unknown, resp, fmt.Errorf("unexpected status code: %d", resp.StatusCode))
+		return resp, WrapErrors(codes.Unknown, resp, append(optErrs, fmt.Errorf("unexpected status code: %d", resp.StatusCode))...)
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
