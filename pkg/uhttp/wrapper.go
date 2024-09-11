@@ -213,21 +213,20 @@ func WithResponse(response interface{}) DoOption {
 	}
 }
 
-func WrapErrors(preferredCode codes.Code, resp *http.Response, errs ...error) error {
-	description, err := ratelimit.ExtractRateLimitData(resp.StatusCode, &resp.Header)
-	if err != nil {
-		return err
-	}
-
+func GRPCWrap(preferredCode codes.Code, resp *http.Response, errs ...error) error {
 	st := status.New(preferredCode, resp.Status)
-	st, err = st.WithDetails(description)
-	if err != nil {
-		return err
+
+	description, err := ratelimit.ExtractRateLimitData(resp.StatusCode, &resp.Header)
+	// Ignore any error extracting rate limit data
+	if err == nil {
+		st, _ = st.WithDetails(description)
 	}
 
-	allErrs := []error{st.Err()}
-	allErrs = append(allErrs, errs...)
+	if len(errs) == 0 {
+		return st.Err()
+	}
 
+	allErrs := append([]error{st.Err()}, errs...)
 	return errors.Join(allErrs...)
 }
 
@@ -297,25 +296,25 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 
 	switch resp.StatusCode {
 	case http.StatusRequestTimeout:
-		return resp, WrapErrors(codes.DeadlineExceeded, resp, optErrs...)
+		return resp, GRPCWrap(codes.DeadlineExceeded, resp, optErrs...)
 	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
-		return resp, WrapErrors(codes.Unavailable, resp, optErrs...)
+		return resp, GRPCWrap(codes.Unavailable, resp, optErrs...)
 	case http.StatusNotFound:
-		return resp, WrapErrors(codes.NotFound, resp, optErrs...)
+		return resp, GRPCWrap(codes.NotFound, resp, optErrs...)
 	case http.StatusUnauthorized:
-		return resp, WrapErrors(codes.Unauthenticated, resp, optErrs...)
+		return resp, GRPCWrap(codes.Unauthenticated, resp, optErrs...)
 	case http.StatusForbidden:
-		return resp, WrapErrors(codes.PermissionDenied, resp, optErrs...)
+		return resp, GRPCWrap(codes.PermissionDenied, resp, optErrs...)
 	case http.StatusNotImplemented:
-		return resp, WrapErrors(codes.Unimplemented, resp, optErrs...)
+		return resp, GRPCWrap(codes.Unimplemented, resp, optErrs...)
 	}
 
 	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return resp, WrapErrors(codes.Unavailable, resp, optErrs...)
+		return resp, GRPCWrap(codes.Unavailable, resp, optErrs...)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp, WrapErrors(codes.Unknown, resp, append(optErrs, fmt.Errorf("unexpected status code: %d", resp.StatusCode))...)
+		return resp, GRPCWrap(codes.Unknown, resp, append(optErrs, fmt.Errorf("unexpected status code: %d", resp.StatusCode))...)
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
