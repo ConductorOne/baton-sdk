@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
@@ -336,6 +337,36 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 
 	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
 		return resp, errors.Join(status.Error(codes.Unavailable, resp.Status), optErr, stErr)
+	}
+
+	allErrs := errors.Join(stErr, err, optErr)
+	l.Error("allErrs", zap.Error(allErrs))
+	type grpcstatus interface{ GRPCStatus() *status.Status }
+
+	var grpcStatus grpcstatus
+	ok := errors.As(allErrs, &grpcStatus)
+	if ok {
+		realStatus := grpcStatus.GRPCStatus()
+		l.Error("GRPC_STATUS", zap.Any("grpcStatus", realStatus), zap.Any("details", realStatus.Details()))
+	} else {
+		l.Error("NO_GRPC_STATUS", zap.Error(allErrs))
+	}
+	if stfe, ok := status.FromError(allErrs); ok {
+		details := stfe.Details()
+		if len(details) == 0 {
+			l.Error("OMG NO DETAILS", zap.Any("stfe", stfe))
+			if allErrs == nil {
+				l.Error("ALL ERRS IS NIL")
+			}
+		}
+		for _, detail := range details {
+			if rlData, ok := detail.(*v2.RateLimitDescription); ok {
+				wait := time.Until(rlData.ResetAt.AsTime())
+				l.Debug("RL_DATA_SUCCESS", zap.Duration("reset_at", wait))
+			} else {
+				l.Debug("RL_DATA_FAIL", zap.Any("detail", detail))
+			}
+		}
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
