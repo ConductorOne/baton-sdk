@@ -229,10 +229,7 @@ func WrapErrors(preferredCode codes.Code, resp *http.Response, errs ...error) er
 		return err
 	}
 
-	allErrs := []error{st.Err()}
-	allErrs = append(allErrs, errs...)
-
-	return errors.Join(allErrs...)
+	return errors.Join(append([]error{st.Err()}, errs...)...)
 }
 
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
