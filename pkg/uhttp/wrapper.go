@@ -219,6 +219,10 @@ func WrapErrors(preferredCode codes.Code, resp *http.Response, errs ...error) er
 		return err
 	}
 
+	if description == nil {
+		return errors.Join(errs...)
+	}
+
 	st := status.New(preferredCode, resp.Status)
 	st, err = st.WithDetails(description)
 	if err != nil {
