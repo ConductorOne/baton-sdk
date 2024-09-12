@@ -10,8 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"strconv"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
@@ -58,7 +56,6 @@ type (
 		LogDebug     bool
 		CacheTTL     int64 // If 0, cache is disabled
 		CacheMaxSize int
-		DisableCache bool
 	}
 )
 
@@ -71,73 +68,16 @@ func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
 	return client
 }
 
-// getCacheTTL read the `BATON_HTTP_CACHE_TTL` environment variable and return
-// the value as a number of seconds between 0 and an arbitrary maximum. Note:
-// this means that passing a value of `-1` will set the TTL to zero rather than
-// infinity.
-func getCacheTTL() int64 {
-	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
-	if err != nil {
-		cacheTTL = cacheTTLDefault // seconds
-	}
-
-	cacheTTL = min(cacheTTLMaximum, max(0, cacheTTL))
-
-	return cacheTTL
-}
-
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
-	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
+
+	cache, err := NewHttpCache(ctx, nil)
 	if err != nil {
-		disableCache = false
+		l.Error("error creating http cache", zap.Error(err))
 	}
-
-	cacheMaxSize, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_MAX_SIZE"), 10, 64)
-	if err != nil {
-		cacheMaxSize = defaultCacheSize // MB
-	}
-
-	var (
-		config = CacheConfig{
-			LogDebug:     l.Level().Enabled(zap.DebugLevel),
-			CacheTTL:     getCacheTTL(),     // seconds
-			CacheMaxSize: int(cacheMaxSize), // MB
-			DisableCache: disableCache,
-		}
-		ok  bool
-		cli = &BaseHttpClient{
-			HttpClient: httpClient,
-		}
-	)
-	if v := ctx.Value(ContextKey{}); v != nil {
-		if config, ok = v.(CacheConfig); !ok {
-			return nil, fmt.Errorf("error casting config values from context")
-		}
-	}
-
-	if !disableCache {
-		cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
-		if cacheBackend == "" {
-			cacheBackend = "db"
-		}
-
-		switch cacheBackend {
-		case "memory":
-			memCache, err := NewGoCache(ctx, config)
-			if err != nil {
-				l.Error("error creating http cache (in-memory)", zap.Error(err))
-				return nil, err
-			}
-			cli.baseHttpCache = &memCache
-		case "db":
-			cache, err := NewDBCache(ctx, config)
-			if err != nil {
-				l.Error("error creating http cache (db-cache)", zap.Error(err))
-				return nil, err
-			}
-			cli.baseHttpCache = cache
-		}
+	cli := &BaseHttpClient{
+		HttpClient:    httpClient,
+		baseHttpCache: cache,
 	}
 
 	return cli, nil
