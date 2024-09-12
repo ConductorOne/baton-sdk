@@ -50,9 +50,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: go tests
-        run: (set -o pipefail && go test -v -covermode=count -json ./... | tee test.json)
+        run: go test -v -covermode=count -json ./... > test.json
+      - name: Print go test results
+        if: always()
+        run: cat test.json
       - name: annotate go tests
         if: always()
-        uses: guyarb/golang-test-annotations@v0.5.1
+        uses: guyarb/golang-test-annotations@v0.8.0
         with:
           test-results: test.json
