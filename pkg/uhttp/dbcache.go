@@ -333,6 +333,11 @@ func (d *DBCache) insert(ctx context.Context, key string, value any, url string)
 			Url:     url,
 		},
 	)
+	ds = ds.OnConflict(goqu.DoUpdate("key", CacheRow{
+		Value:   bytes,
+		Expires: time.Now().Add(d.expirationTime),
+		Url:     url,
+	}))
 	insertSQL, args, err := ds.ToSQL()
 	if err != nil {
 		l.Debug("Failed to create insert statement", zap.Error(err))
@@ -343,10 +348,6 @@ func (d *DBCache) insert(ctx context.Context, key string, value any, url string)
 		if errtx := tx.Rollback(); errtx != nil {
 			l.Debug(failRollback, zap.Error(errtx))
 		}
-
-		// if errors.As(err, &errSQL) && errSQL.Code == sql3.ErrConstraint {
-		// 	return nil
-		// }
 
 		l.Debug(failInsert, zap.Error(err))
 		return err
