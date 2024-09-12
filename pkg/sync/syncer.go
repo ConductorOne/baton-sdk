@@ -264,7 +264,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 				continue
 			}
 
-			err := s.SyncGrantExpansion(ctx)
+			err = s.SyncGrantExpansion(ctx)
 			if !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
