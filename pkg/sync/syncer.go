@@ -114,8 +114,6 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 				wait = time.Duration(math.Ceil(wait.Seconds())) * time.Second
 			}
 		}
-	} else {
-		l.Debug("unable to parse rate limit description from error", zap.Error(err), zap.Any("status", st))
 	}
 
 	l.Warn("retrying operation", zap.Error(err), zap.Duration("wait", wait))
