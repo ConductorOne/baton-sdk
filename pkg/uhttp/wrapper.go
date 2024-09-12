@@ -105,7 +105,6 @@ type (
 		LogDebug     bool
 		CacheTTL     int64 // If 0, cache is disabled
 		CacheMaxSize int
-		DisableCache bool
 	}
 )
 
@@ -135,64 +134,16 @@ func getCacheTTL() int64 {
 
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, opts ...WrapperOption) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
-	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
+
+	cache, err := NewHttpCache(ctx, nil)
 	if err != nil {
-		disableCache = false
+		l.Error("error creating http cache", zap.Error(err))
+	}
+	cli := &BaseHttpClient{
+		HttpClient:    httpClient,
+		baseHttpCache: cache,
 	}
 
-	cacheMaxSize, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_MAX_SIZE"), 10, 64)
-	if err != nil {
-		cacheMaxSize = defaultCacheSize // MB
-	}
-
-	var (
-		config = CacheConfig{
-			LogDebug:     l.Level().Enabled(zap.DebugLevel),
-			CacheTTL:     getCacheTTL(),     // seconds
-			CacheMaxSize: int(cacheMaxSize), // MB
-			DisableCache: disableCache,
-		}
-		ok  bool
-		cli = &BaseHttpClient{
-			HttpClient: httpClient,
-		}
-	)
-	if v := ctx.Value(ContextKey{}); v != nil {
-		if config, ok = v.(CacheConfig); !ok {
-			return nil, fmt.Errorf("error casting config values from context")
-		}
-	}
-
-	if !disableCache {
-		cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
-		if cacheBackend == "" {
-			cacheBackend = "db"
-		}
-
-		switch cacheBackend {
-		case "memory":
-			memCache, err := NewGoCache(ctx, config)
-			if err != nil {
-				l.Error("error creating http cache (in-memory)", zap.Error(err))
-				return nil, err
-			}
-			cli.baseHttpCache = &memCache
-		case "db":
-			cache, err := NewDBCache(ctx, config)
-			if err != nil {
-				l.Error("error creating http cache (db-cache)", zap.Error(err))
-				return nil, err
-			}
-			cli.baseHttpCache = cache
-		}
-	}
-
-	// db-cache(Default)
-	cache, err := NewDBCache(ctx, config)
-	if err != nil {
-		l.Error("error creating http cache(db-cache)", zap.Error(err))
-		return nil, err
-	}
 	caches = append(caches, cache)
 
 	for _, opt := range opts {

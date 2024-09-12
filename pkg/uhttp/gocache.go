@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httputil"
+	"os"
+	"strconv"
 	"time"
 
 	bigCache "github.com/allegro/bigcache/v3"
@@ -17,12 +20,116 @@ type GoCache struct {
 	rootLibrary *bigCache.BigCache
 }
 
-func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
-	l := ctxzap.Extract(ctx)
-	if cfg.DisableCache {
-		l.Debug("http cache disabled")
-		return GoCache{}, nil
+type NoopCache struct{}
+
+func NewNoopCache(ctx context.Context) *NoopCache {
+	return &NoopCache{}
+}
+
+func (g *NoopCache) Get(req *http.Request) (*http.Response, error) {
+	return nil, nil
+}
+
+func (n *NoopCache) Set(req *http.Request, value *http.Response) error {
+	return nil
+}
+
+func (n *NoopCache) Clear(ctx context.Context) error {
+	return nil
+}
+
+func DefaultCacheConfig() CacheConfig {
+	return CacheConfig{
+		CacheTTL:     cacheTTLDefault,
+		CacheMaxSize: defaultCacheSize,
+		LogDebug:     false,
 	}
+}
+
+func NewCacheConfigFromEnv() *CacheConfig {
+	config := DefaultCacheConfig()
+
+	cacheMaxSize, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_MAX_SIZE"), 10, 64)
+	if err == nil {
+		config.CacheMaxSize = int(cacheMaxSize)
+	}
+
+	// read the `BATON_HTTP_CACHE_TTL` environment variable and return
+	// the value as a number of seconds between 0 and an arbitrary maximum. Note:
+	// this means that passing a value of `-1` will set the TTL to zero rather than
+	// infinity.
+	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
+	if err == nil {
+		config.CacheTTL = min(cacheTTLMaximum, max(0, cacheTTL))
+	}
+
+	return &config
+}
+
+func NewCacheConfigFromCtx(ctx context.Context) (*CacheConfig, error) {
+	defaultConfig := DefaultCacheConfig()
+	if v := ctx.Value(ContextKey{}); v != nil {
+		ctxConfig, ok := v.(CacheConfig)
+		if !ok {
+			return nil, fmt.Errorf("error casting config values from context")
+		}
+		return &ctxConfig, nil
+	}
+	return &defaultConfig, nil
+}
+
+func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
+	l := ctxzap.Extract(ctx)
+
+	var noopCache icache = &NoopCache{}
+	cache := noopCache
+
+	if config == nil {
+		config = NewCacheConfigFromEnv()
+	}
+
+	if config.CacheTTL <= 0 {
+		l.Debug("CacheTTL is <=0, disabling cache.", zap.Int64("CacheTTL", config.CacheTTL))
+		return noopCache, nil
+	}
+
+	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
+	if err != nil {
+		disableCache = false
+	}
+	if disableCache {
+		l.Debug("BATON_DISABLE_HTTP_CACHE set, disabling cache.", zap.Int64("CacheTTL", config.CacheTTL))
+		return noopCache, nil
+	}
+
+	cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
+	if cacheBackend == "" {
+		cacheBackend = "db"
+	}
+
+	switch cacheBackend {
+	case "memory":
+		memCache, err := NewGoCache(ctx, *config)
+		if err != nil {
+			l.Error("error creating http cache (in-memory)", zap.Error(err))
+			return nil, err
+		}
+		cache = memCache
+	case "db":
+		dbCache, err := NewDBCache(ctx, *config)
+		if err != nil {
+			l.Error("error creating http cache (db-cache)", zap.Error(err))
+			return nil, err
+		}
+		cache = dbCache
+	}
+
+	return cache, nil
+}
+
+func NewGoCache(ctx context.Context, cfg CacheConfig) (*GoCache, error) {
+	l := ctxzap.Extract(ctx)
+	gc := GoCache{}
 	config := bigCache.DefaultConfig(time.Duration(cfg.CacheTTL) * time.Second)
 	config.Verbose = cfg.LogDebug
 	config.Shards = 4
@@ -30,7 +137,7 @@ func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
 	cache, err := bigCache.New(ctx, config)
 	if err != nil {
 		l.Error("http cache initialization error", zap.Error(err))
-		return GoCache{}, err
+		return nil, err
 	}
 
 	l.Debug("http cache config",
@@ -44,11 +151,9 @@ func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
 			zap.Bool("Verbose", config.Verbose),
 			zap.Int("HardMaxCacheSize", config.HardMaxCacheSize),
 		))
-	gc := GoCache{
-		rootLibrary: cache,
-	}
+	gc.rootLibrary = cache
 
-	return gc, nil
+	return &gc, nil
 }
 
 func (g *GoCache) Statistics() bigCache.Stats {

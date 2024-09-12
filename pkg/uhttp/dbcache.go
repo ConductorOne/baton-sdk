@@ -121,41 +121,44 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		return nil, err
 	}
 
-	if cfg.CacheTTL > 0 || !cfg.DisableCache {
-		if cfg.CacheTTL > cacheTTLThreshold {
-			dc.waitDuration = time.Duration(cfg.CacheTTL*cacheTTLMultiplier) * time.Second // set as a fraction of the Cache TTL
-		}
+	if cfg.CacheTTL <= 0 {
+		l.Debug("Cache TTL is 0. Disabling cache.")
+		return nil, nil
+	}
 
-		dc.expirationTime = time.Duration(cfg.CacheTTL) * time.Second // time for removing expired key
+	if cfg.CacheTTL > cacheTTLThreshold {
+		dc.waitDuration = time.Duration(cfg.CacheTTL*cacheTTLMultiplier) * time.Second // set as a fraction of the Cache TTL
+	}
 
-		go func(waitDuration, expirationTime time.Duration) {
-			ctxWithTimeout, cancel := context.WithTimeout(
-				ctx,
-				waitDuration,
-			)
-			defer cancel()
-			// TODO: I think this should be wait duration
-			ticker := time.NewTicker(expirationTime)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctxWithTimeout.Done():
-					// ctx done, shutting down cache cleanup routine
-					ticker.Stop()
-					err := dc.cleanup(ctx)
-					if err != nil {
-						l.Debug("shutting down cache failed", zap.Error(err))
-					}
-					return
-				case <-ticker.C:
-					err := dc.deleteExpired(ctx)
-					if err != nil {
-						l.Debug("Failed to delete expired cache entries", zap.Error(err))
-					}
+	dc.expirationTime = time.Duration(cfg.CacheTTL) * time.Second // time for removing expired key
+
+	go func(waitDuration, expirationTime time.Duration) {
+		ctxWithTimeout, cancel := context.WithTimeout(
+			ctx,
+			waitDuration,
+		)
+		defer cancel()
+		// TODO: I think this should be wait duration
+		ticker := time.NewTicker(expirationTime)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctxWithTimeout.Done():
+				// ctx done, shutting down cache cleanup routine
+				ticker.Stop()
+				err := dc.cleanup(ctx)
+				if err != nil {
+					l.Debug("shutting down cache failed", zap.Error(err))
+				}
+				return
+			case <-ticker.C:
+				err := dc.deleteExpired(ctx)
+				if err != nil {
+					l.Debug("Failed to delete expired cache entries", zap.Error(err))
 				}
 			}
-		}(dc.waitDuration, dc.expirationTime)
-	}
+		}
+	}(dc.waitDuration, dc.expirationTime)
 
 	return dc, nil
 }
