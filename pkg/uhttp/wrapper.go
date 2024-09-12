@@ -30,6 +30,7 @@ const (
 	acceptHeader              = "Accept"
 	cacheTTLMaximum           = 31536000 // 31536000 seconds = one year
 	cacheTTLDefault           = 3600     // 3600 seconds = one hour
+	defaultCacheSize          = 50       // MB
 )
 
 type WrapperResponse struct {
@@ -94,7 +95,7 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 
 	cacheMaxSize, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_MAX_SIZE"), 10, 64)
 	if err != nil {
-		cacheMaxSize = 128 // MB
+		cacheMaxSize = defaultCacheSize // MB
 	}
 
 	var (
