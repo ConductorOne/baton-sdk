@@ -213,6 +213,23 @@ func WithResponse(response interface{}) DoOption {
 	}
 }
 
+func GRPCWrap(preferredCode codes.Code, resp *http.Response, errs ...error) error {
+	st := status.New(preferredCode, resp.Status)
+
+	description, err := ratelimit.ExtractRateLimitData(resp.StatusCode, &resp.Header)
+	// Ignore any error extracting rate limit data
+	if err == nil {
+		st, _ = st.WithDetails(description)
+	}
+
+	if len(errs) == 0 {
+		return st.Err()
+	}
+
+	allErrs := append([]error{st.Err()}, errs...)
+	return errors.Join(allErrs...)
+}
+
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
 	var (
 		cacheKey string
@@ -268,41 +285,46 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		StatusCode: resp.StatusCode,
 		Body:       body,
 	}
+
+	var optErrs []error
 	for _, option := range options {
-		err = option(&wresp)
-		if err != nil {
-			return resp, err
+		optErr := option(&wresp)
+		if optErr != nil {
+			optErrs = append(optErrs, optErr)
 		}
 	}
 
 	switch resp.StatusCode {
 	case http.StatusRequestTimeout:
-		return resp, status.Error(codes.DeadlineExceeded, resp.Status)
-	case http.StatusTooManyRequests:
-		return resp, status.Error(codes.Unavailable, resp.Status)
+		return resp, GRPCWrap(codes.DeadlineExceeded, resp, optErrs...)
+	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+		return resp, GRPCWrap(codes.Unavailable, resp, optErrs...)
 	case http.StatusNotFound:
-		return resp, status.Error(codes.NotFound, resp.Status)
+		return resp, GRPCWrap(codes.NotFound, resp, optErrs...)
 	case http.StatusUnauthorized:
-		return resp, status.Error(codes.Unauthenticated, resp.Status)
+		return resp, GRPCWrap(codes.Unauthenticated, resp, optErrs...)
 	case http.StatusForbidden:
-		return resp, status.Error(codes.PermissionDenied, resp.Status)
+		return resp, GRPCWrap(codes.PermissionDenied, resp, optErrs...)
 	case http.StatusNotImplemented:
-		return resp, status.Error(codes.Unimplemented, resp.Status)
+		return resp, GRPCWrap(codes.Unimplemented, resp, optErrs...)
+	}
+
+	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
+		return resp, GRPCWrap(codes.Unavailable, resp, optErrs...)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp, status.Error(codes.Unknown, fmt.Sprintf("unexpected status code: %d", resp.StatusCode))
+		return resp, GRPCWrap(codes.Unknown, resp, append(optErrs, fmt.Errorf("unexpected status code: %d", resp.StatusCode))...)
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
-		err := c.baseHttpCache.Set(cacheKey, resp)
-		if err != nil {
-			l.Debug("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(err))
-			return resp, err
+		cacheErr := c.baseHttpCache.Set(cacheKey, resp)
+		if cacheErr != nil {
+			l.Warn("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(cacheErr))
 		}
 	}
 
-	return resp, err
+	return resp, errors.Join(optErrs...)
 }
 
 func WithHeader(key, value string) RequestOption {

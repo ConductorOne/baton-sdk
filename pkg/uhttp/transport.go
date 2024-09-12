@@ -85,7 +85,7 @@ func (uat *userAgentTripper) RoundTrip(req *http.Request) (*http.Response, error
 	return uat.next.RoundTrip(req)
 }
 
-func (t *Transport) make(ctx context.Context) (http.RoundTripper, error) {
+func (t *Transport) make(_ context.Context) (http.RoundTripper, error) {
 	// based on http.DefaultTransport
 	baseTransport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
