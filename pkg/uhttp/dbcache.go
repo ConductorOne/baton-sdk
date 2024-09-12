@@ -113,7 +113,9 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		key TEXT,
 		hits INT DEFAULT 0, 
 		misses INT DEFAULT 0
-	);`)
+	);
+	DELETE FROM http_cache;
+	DELETE FROM http_stats;`)
 	if err != nil {
 		l.Debug("Failed to create cache table in database", zap.Error(err))
 		return nil, err

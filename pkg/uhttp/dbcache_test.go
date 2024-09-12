@@ -38,6 +38,10 @@ func TestDBCacheGettersAndSetters(t *testing.T) {
 	res, err := ic.Get(ctx, cKey)
 	require.Nil(t, err)
 	require.NotNil(t, res)
+
+	err = ic.Set(ctx, cKey, resp)
+	require.Nil(t, err, "Setting same cache key again should not error")
+
 	defer res.Body.Close()
 }
 
