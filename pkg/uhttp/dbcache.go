@@ -206,7 +206,7 @@ func (d *DBCache) removeDB(ctx context.Context) error {
 }
 
 // Get returns cached response (if exists).
-func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
+func (d *DBCache) Get(req *http.Request) (*http.Response, error) {
 	var (
 		isFound bool = false
 		resp    *http.Response
@@ -214,6 +214,12 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 	if d.IsNilConnection() {
 		return nil, fmt.Errorf("%s", nilConnection)
 	}
+
+	key, err := CreateCacheKey(req)
+	if err != nil {
+		return nil, err
+	}
+	ctx := req.Context()
 
 	entry, err := d.pick(ctx, key)
 	if err == nil && len(entry) > 0 {
@@ -244,7 +250,11 @@ func (d *DBCache) Get(ctx context.Context, key string) (*http.Response, error) {
 }
 
 // Set stores and save response in the db.
-func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) error {
+func (d *DBCache) Set(req *http.Request, value *http.Response) error {
+	key, err := CreateCacheKey(req)
+	if err != nil {
+		return err
+	}
 	var url string
 	if d.IsNilConnection() {
 		return fmt.Errorf("%s", nilConnection)
@@ -259,7 +269,7 @@ func (d *DBCache) Set(ctx context.Context, key string, value *http.Response) err
 		url = value.Request.URL.String()
 	}
 
-	err = d.insert(ctx,
+	err = d.insert(req.Context(),
 		key,
 		cacheableResponse,
 		url,

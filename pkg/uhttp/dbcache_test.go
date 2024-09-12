@@ -31,15 +31,19 @@ func TestDBCacheGettersAndSetters(t *testing.T) {
 	}
 	cKey, err := CreateCacheKey(resp.Request)
 	require.Nil(t, err)
+	require.NotEmpty(t, cKey)
 
-	err = ic.Set(ctx, cKey, resp)
+	err = ic.Set(req, resp)
 	require.Nil(t, err)
 
-	res, err := ic.Get(ctx, cKey)
+	res, err := ic.Get(req)
 	require.Nil(t, err)
 	require.NotNil(t, res)
+	require.Equal(t, resp.StatusCode, res.StatusCode)
+	require.Equal(t, resp.ContentLength, res.ContentLength)
+	require.EqualValues(t, resp.Header, res.Header)
 
-	err = ic.Set(ctx, cKey, resp)
+	err = ic.Set(req, resp)
 	require.Nil(t, err, "Setting same cache key again should not error")
 
 	defer res.Body.Close()
