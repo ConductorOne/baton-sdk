@@ -343,7 +343,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 			return nil, err
 		}
 
-		resp, err = c.baseHttpCache.Get(req.Context(), cacheKey)
+		resp, err = c.baseHttpCache.Get(req)
 		if err != nil {
 			return nil, err
 		}
@@ -421,7 +421,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
-		cacheErr := c.baseHttpCache.Set(req.Context(), cacheKey, resp)
+		cacheErr := c.baseHttpCache.Set(req, resp)
 		if cacheErr != nil {
 			l.Warn("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(cacheErr))
 		}

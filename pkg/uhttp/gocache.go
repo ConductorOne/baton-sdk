@@ -59,9 +59,14 @@ func (g *GoCache) Statistics() bigCache.Stats {
 	return g.rootLibrary.Stats()
 }
 
-func (g *GoCache) Get(ctx context.Context, key string) (*http.Response, error) {
+func (g *GoCache) Get(req *http.Request) (*http.Response, error) {
 	if g.rootLibrary == nil {
 		return nil, nil
+	}
+
+	key, err := CreateCacheKey(req)
+	if err != nil {
+		return nil, err
 	}
 
 	entry, err := g.rootLibrary.Get(key)
@@ -78,9 +83,14 @@ func (g *GoCache) Get(ctx context.Context, key string) (*http.Response, error) {
 	return nil, nil
 }
 
-func (g *GoCache) Set(ctx context.Context, key string, value *http.Response) error {
+func (g *GoCache) Set(req *http.Request, value *http.Response) error {
 	if g.rootLibrary == nil {
 		return nil
+	}
+
+	key, err := CreateCacheKey(req)
+	if err != nil {
+		return err
 	}
 
 	cacheableResponse, err := httputil.DumpResponse(value, true)

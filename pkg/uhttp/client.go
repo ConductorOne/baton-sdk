@@ -78,13 +78,16 @@ func NewClient(ctx context.Context, options ...Option) (*http.Client, error) {
 }
 
 type icache interface {
-	Get(ctx context.Context, key string) (*http.Response, error)
-	Set(ctx context.Context, key string, value *http.Response) error
+	Get(req *http.Request) (*http.Response, error)
+	Set(req *http.Request, value *http.Response) error
 	Clear(ctx context.Context) error
 }
 
 // CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
 func CreateCacheKey(req *http.Request) (string, error) {
+	if req == nil {
+		return "", fmt.Errorf("request is nil")
+	}
 	var sortedParams []string
 	// Normalize the URL path
 	path := strings.ToLower(req.URL.Path)
