@@ -952,7 +952,7 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 
 		return nil
 	}
-	_, err := s.syncGrantsForResource(ctx, &v2.ResourceId{
+	err := s.syncGrantsForResource(ctx, &v2.ResourceId{
 		ResourceType: s.state.ResourceTypeID(ctx),
 		Resource:     s.state.ResourceID(ctx),
 	})
@@ -1084,12 +1084,12 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 }
 
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
-func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.ResourceId) (annotations.Annotations, error) {
+func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
 	resourceResponse, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 		ResourceId: resourceID,
 	})
 	if err != nil {
-		return resourceResponse.Resource.Annotations, err
+		return err
 	}
 
 	resource := resourceResponse.Resource
@@ -1104,22 +1104,21 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 	prevSyncID, prevEtag, err = s.fetchResourceForPreviousSync(ctx, resourceID)
 	if err != nil {
-		return resourceAnnos, err
+		return err
 	}
 	resourceAnnos.Update(prevEtag)
 	resource.Annotations = resourceAnnos
 
 	resp, err := s.connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{Resource: resource, PageToken: pageToken})
 	if err != nil {
-		return resp.GetAnnotations(), err
+		return err
 	}
 
 	// Fetch any etagged grants for this resource
 	var etaggedGrants []*v2.Grant
 	etaggedGrants, etagMatch, err = s.fetchEtaggedGrantsForResource(ctx, resource, prevEtag, prevSyncID, resp)
 	if err != nil {
-		// TODO: get correct annotations from fetchEtaggedGrantsForResource
-		return resp.GetAnnotations(), err
+		return err
 	}
 	grants = append(grants, etaggedGrants...)
 
@@ -1134,7 +1133,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	}
 	err = s.store.PutGrants(ctx, grants...)
 	if err != nil {
-		return resp.GetAnnotations(), err
+		return err
 	}
 
 	s.handleProgress(ctx, s.state.Current(), len(grants))
@@ -1150,7 +1149,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		respAnnos := annotations.Annotations(resp.GetAnnotations())
 		ok, err := respAnnos.Pick(newETag)
 		if err != nil {
-			return respAnnos, err
+			return err
 		}
 		if ok {
 			updatedETag = newETag
@@ -1162,21 +1161,21 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		resource.Annotations = resourceAnnos
 		err = s.store.PutResources(ctx, resource)
 		if err != nil {
-			return resourceAnnos, err
+			return err
 		}
 	}
 
 	if resp.NextPageToken != "" {
 		err = s.state.NextPage(ctx, resp.NextPageToken)
 		if err != nil {
-			return resp.GetAnnotations(), err
+			return err
 		}
-		return resp.GetAnnotations(), nil
+		return nil
 	}
 
 	s.state.FinishAction(ctx)
 
-	return resp.GetAnnotations(), nil
+	return nil
 }
 
 func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
