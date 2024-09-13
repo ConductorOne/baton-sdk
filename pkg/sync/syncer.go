@@ -109,15 +109,19 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 		for _, detail := range details {
 			if rlData, ok := detail.(*v2.RateLimitDescription); ok {
 				waitResetAt := time.Until(rlData.ResetAt.AsTime())
+				if waitResetAt <= 0 {
+					continue
+				}
 				duration := time.Duration(rlData.Limit)
-				if duration == 0 {
-					duration = 1
+				if duration <= 0 {
+					continue
 				}
 				waitResetAt /= duration
 				// Round up to the nearest second to make sure we don't hit the rate limit again
 				waitResetAt = time.Duration(math.Ceil(waitResetAt.Seconds())) * time.Second
 				if waitResetAt > 0 {
 					wait = waitResetAt
+					break
 				}
 			}
 		}
