@@ -812,7 +812,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		pageToken := s.state.PageToken(ctx)
 
 		if pageToken == "" {
-			ctxzap.Extract(ctx).Info("Expanding grants...")
+			l.Info("Expanding grants...")
 			s.handleInitialActionForStep(ctx, *s.state.Current())
 		}
 
@@ -849,7 +849,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 
 			// FIXME(morgabra) Log and skip some of the error paths here?
 			for _, srcEntitlementID := range expandable.EntitlementIds {
-				ctxzap.Extract(ctx).Debug(
+				l.Debug(
 					"Expandable entitlement found",
 					zap.String("src_entitlement_id", srcEntitlementID),
 					zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
@@ -859,7 +859,12 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 					EntitlementId: srcEntitlementID,
 				})
 				if err != nil {
-					return err
+					l.Error("error fetching source entitlement",
+						zap.String("src_entitlement_id", srcEntitlementID),
+						zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
+						zap.Error(err),
+					)
+					continue
 				}
 
 				// The expand annotation points at entitlements by id. Those entitlements' resource should match
