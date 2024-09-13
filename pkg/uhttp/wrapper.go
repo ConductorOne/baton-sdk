@@ -213,7 +213,7 @@ func WithResponse(response interface{}) DoOption {
 	}
 }
 
-func GRPCWrap(preferredCode codes.Code, resp *http.Response, errs ...error) error {
+func WrapErrorsWithRateLimitInfo(preferredCode codes.Code, resp *http.Response, errs ...error) error {
 	st := status.New(preferredCode, resp.Status)
 
 	description, err := ratelimit.ExtractRateLimitData(resp.StatusCode, &resp.Header)
@@ -296,25 +296,25 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 
 	switch resp.StatusCode {
 	case http.StatusRequestTimeout:
-		return resp, GRPCWrap(codes.DeadlineExceeded, resp, optErrs...)
+		return resp, WrapErrorsWithRateLimitInfo(codes.DeadlineExceeded, resp, optErrs...)
 	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
-		return resp, GRPCWrap(codes.Unavailable, resp, optErrs...)
+		return resp, WrapErrorsWithRateLimitInfo(codes.Unavailable, resp, optErrs...)
 	case http.StatusNotFound:
-		return resp, GRPCWrap(codes.NotFound, resp, optErrs...)
+		return resp, WrapErrorsWithRateLimitInfo(codes.NotFound, resp, optErrs...)
 	case http.StatusUnauthorized:
-		return resp, GRPCWrap(codes.Unauthenticated, resp, optErrs...)
+		return resp, WrapErrorsWithRateLimitInfo(codes.Unauthenticated, resp, optErrs...)
 	case http.StatusForbidden:
-		return resp, GRPCWrap(codes.PermissionDenied, resp, optErrs...)
+		return resp, WrapErrorsWithRateLimitInfo(codes.PermissionDenied, resp, optErrs...)
 	case http.StatusNotImplemented:
-		return resp, GRPCWrap(codes.Unimplemented, resp, optErrs...)
+		return resp, WrapErrorsWithRateLimitInfo(codes.Unimplemented, resp, optErrs...)
 	}
 
 	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return resp, GRPCWrap(codes.Unavailable, resp, optErrs...)
+		return resp, WrapErrorsWithRateLimitInfo(codes.Unavailable, resp, optErrs...)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp, GRPCWrap(codes.Unknown, resp, append(optErrs, fmt.Errorf("unexpected status code: %d", resp.StatusCode))...)
+		return resp, WrapErrorsWithRateLimitInfo(codes.Unknown, resp, append(optErrs, fmt.Errorf("unexpected status code: %d", resp.StatusCode))...)
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
