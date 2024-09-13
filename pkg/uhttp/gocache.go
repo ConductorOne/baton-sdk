@@ -16,6 +16,19 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	cacheTTLMaximum  = 31536000 // 31536000 seconds = one year
+	cacheTTLDefault  = 3600     // 3600 seconds = one hour
+	defaultCacheSize = 50       // MB
+)
+
+type CacheConfig struct {
+	LogDebug     bool
+	CacheTTL     int64 // If 0, cache is disabled
+	CacheMaxSize int
+}
+type ContextKey struct{}
+
 type GoCache struct {
 	rootLibrary *bigCache.BigCache
 }
@@ -36,6 +49,10 @@ func (n *NoopCache) Set(req *http.Request, value *http.Response) error {
 
 func (n *NoopCache) Clear(ctx context.Context) error {
 	return nil
+}
+
+func (cc *CacheConfig) ToString() string {
+	return fmt.Sprintf("CacheTTL: %d, CacheMaxSize: %d, LogDebug: %t", cc.CacheTTL, cc.CacheMaxSize, cc.LogDebug)
 }
 
 func DefaultCacheConfig() CacheConfig {
@@ -98,17 +115,19 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 		disableCache = false
 	}
 	if disableCache {
-		l.Debug("BATON_DISABLE_HTTP_CACHE set, disabling cache.", zap.Int64("CacheTTL", config.CacheTTL))
+		l.Debug("BATON_DISABLE_HTTP_CACHE set, disabling cache.")
 		return noopCache, nil
 	}
 
 	cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
 	if cacheBackend == "" {
+		l.Debug("defaulting to db-cache")
 		cacheBackend = "db"
 	}
 
 	switch cacheBackend {
 	case "memory":
+		l.Debug("Using in-memory cache")
 		memCache, err := NewGoCache(ctx, *config)
 		if err != nil {
 			l.Error("error creating http cache (in-memory)", zap.Error(err))
@@ -116,6 +135,7 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 		}
 		cache = memCache
 	case "db":
+		l.Debug("Using db cache")
 		dbCache, err := NewDBCache(ctx, *config)
 		if err != nil {
 			l.Error("error creating http cache (db-cache)", zap.Error(err))

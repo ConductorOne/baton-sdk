@@ -31,9 +31,6 @@ const (
 	applicationFormUrlencoded = "application/x-www-form-urlencoded"
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
-	cacheTTLMaximum           = 31536000 // 31536000 seconds = one year
-	cacheTTLDefault           = 3600     // 3600 seconds = one hour
-	defaultCacheSize          = 50       // MB
 )
 
 const maxBodySize = 4096
@@ -100,12 +97,6 @@ type (
 
 	DoOption      func(resp *WrapperResponse) error
 	RequestOption func() (io.ReadWriter, map[string]string, error)
-	ContextKey    struct{}
-	CacheConfig   struct {
-		LogDebug     bool
-		CacheTTL     int64 // If 0, cache is disabled
-		CacheMaxSize int
-	}
 )
 
 func NewBaseHttpClient(httpClient *http.Client, opts ...WrapperOption) *BaseHttpClient {
@@ -277,9 +268,8 @@ func WrapErrorsWithRateLimitInfo(preferredCode codes.Code, resp *http.Response, 
 
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
 	var (
-		cacheKey string
-		err      error
-		resp     *http.Response
+		err  error
+		resp *http.Response
 	)
 	l := ctxzap.Extract(req.Context())
 
@@ -289,19 +279,14 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if req.Method == http.MethodGet {
-		cacheKey, err = CreateCacheKey(req)
-		if err != nil {
-			return nil, err
-		}
-
 		resp, err = c.baseHttpCache.Get(req)
 		if err != nil {
 			return nil, err
 		}
 		if resp == nil {
-			l.Debug("http cache miss", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()))
+			l.Debug("http cache miss", zap.String("url", req.URL.String()))
 		} else {
-			l.Debug("http cache hit", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()))
+			l.Debug("http cache hit", zap.String("url", req.URL.String()))
 		}
 	}
 
@@ -374,7 +359,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
 		cacheErr := c.baseHttpCache.Set(req, resp)
 		if cacheErr != nil {
-			l.Warn("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(cacheErr))
+			l.Warn("error setting cache", zap.String("url", req.URL.String()), zap.Error(cacheErr))
 		}
 	}
 
