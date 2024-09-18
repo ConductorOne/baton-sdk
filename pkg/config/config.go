@@ -184,7 +184,7 @@ func DefineConfiguration(
 	}
 	mainCMD.AddCommand(capabilitiesCmd)
 
-	mainCMD.AddCommand(cli.AdditionalCommands(name, schema.Fields)...)
+	mainCMD.AddCommand(cli.AdditionalCommands(connectorName, schema.Fields)...)
 
 	// NOTE (shackra): we don't check subcommands (i.e.: grpcServerCmd and capabilitiesCmd)
 	mainCMD.PersistentFlags().VisitAll(func(f *pflag.Flag) {
