@@ -34,11 +34,6 @@ func MakeMainCommand(
 	opts ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
 	return func(*cobra.Command, []string) error {
-		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, v); err != nil {
-			return err
-		}
-
 		runCtx, err := initLogger(
 			ctx,
 			name,
@@ -57,6 +52,11 @@ func MakeMainCommand(
 				l.Error("error running service", zap.Error(err))
 				return err
 			}
+		}
+
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, v); err != nil {
+			return fmt.Errorf("unable to make main command: %w", err)
 		}
 
 		c, err := getconnector(runCtx, v)
@@ -177,11 +177,6 @@ func MakeGRPCServerCommand(
 	getconnector GetConnectorFunc,
 ) func(*cobra.Command, []string) error {
 	return func(*cobra.Command, []string) error {
-		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, v); err != nil {
-			return err
-		}
-
 		runCtx, err := initLogger(
 			ctx,
 			name,
@@ -190,6 +185,11 @@ func MakeGRPCServerCommand(
 		)
 		if err != nil {
 			return err
+		}
+
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, v); err != nil {
+			return fmt.Errorf("unable to make gRPC server commands: %w", err)
 		}
 
 		c, err := getconnector(runCtx, v)
