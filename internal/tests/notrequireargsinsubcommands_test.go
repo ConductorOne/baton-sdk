@@ -26,12 +26,7 @@ func TestCallSubCommand(t *testing.T) {
 
 	t.Run("should run «capabilities» sub-command without success", func(t *testing.T) {
 		_, err := entrypoint(ctx, carrier, "capabilities")
-		require.Error(t, err)
-	})
-
-	t.Run("should run «capabilities name» sub-command successfully", func(t *testing.T) {
-		_, err := entrypoint(ctx, carrier, "capabilities", "name")
-		require.NoError(t, err)
+		require.EqualError(t, err, "(Cobra) Execute failed: required flag(s) \"name\" not set")
 	})
 
 	t.Run("should run «completion zsh» sub-command successfully", func(t *testing.T) {
