@@ -29,6 +29,11 @@ func TestCallSubCommand(t *testing.T) {
 		require.Error(t, err)
 	})
 
+	t.Run("should run «capabilities name» sub-command successfully", func(t *testing.T) {
+		_, err := entrypoint(ctx, carrier, "capabilities", "name")
+		require.NoError(t, err)
+	})
+
 	t.Run("should run «completion zsh» sub-command successfully", func(t *testing.T) {
 		_, err := entrypoint(ctx, carrier, "completion", "zsh")
 		require.NoError(t, err)
