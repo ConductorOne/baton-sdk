@@ -43,10 +43,6 @@ func DefineConfiguration(
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	v.AutomaticEnv()
 
-	// add default fields and constrains
-	schema.Fields = field.EnsureDefaultFieldsExists(schema.Fields)
-	schema.Constraints = field.EnsureDefaultRelationships(schema.Constraints)
-
 	// setup CLI with cobra
 	mainCMD := &cobra.Command{
 		Use:           connectorName,
