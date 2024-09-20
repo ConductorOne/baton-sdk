@@ -98,6 +98,18 @@ func DefineConfiguration(
 		}
 	})
 
+	grpcServerCmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if v.IsSet(f.Name) {
+			_ = grpcServerCmd.Flags().Set(f.Name, v.GetString(f.Name))
+		}
+	})
+
+	capabilitiesCmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if v.IsSet(f.Name) {
+			_ = capabilitiesCmd.Flags().Set(f.Name, v.GetString(f.Name))
+		}
+	})
+
 	return v, mainCMD, nil
 }
 
