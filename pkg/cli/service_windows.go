@@ -294,6 +294,13 @@ func interactiveSetup(ctx context.Context, outputFilePath string, fields []field
 			break
 		}
 
+		if input == "" {
+			if vfield.Required {
+				return fmt.Errorf("required field '%s' cannot be empty", vfield.GetName())
+			}
+			continue
+		}
+
 		switch vfield.GetType() {
 		case reflect.Bool:
 			b, err := strconv.ParseBool(input)
@@ -379,7 +386,12 @@ func installCmd(name string, fields []field.SchemaField) *cobra.Command {
 				l.Error("Failed to get executable path.", zap.Error(err))
 				return err
 			}
-			s, err = svcMgr.CreateService(name, exePath, mgr.Config{DisplayName: name})
+			mgrCfg := mgr.Config{
+				DisplayName:    name,
+				Description:    fmt.Sprintf("ConductorOne %s service", name),
+				BinaryPathName: exePath,
+			}
+			s, err = svcMgr.CreateService(name, exePath, mgrCfg)
 			if err != nil {
 				l.Error("Failed to create service.", zap.Error(err), zap.String("service_name", name))
 				return err
