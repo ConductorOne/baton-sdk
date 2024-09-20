@@ -92,21 +92,39 @@ func DefineConfiguration(
 		return nil, nil, err
 	}
 
+	// main subcommand
 	mainCMD.Flags().VisitAll(func(f *pflag.Flag) {
 		if v.IsSet(f.Name) {
 			_ = mainCMD.Flags().Set(f.Name, v.GetString(f.Name))
 		}
 	})
+	mainCMD.PersistentFlags().VisitAll(func(f *pflag.Flag) {
+		if v.IsSet(f.Name) {
+			_ = mainCMD.PersistentFlags().Set(f.Name, v.GetString(f.Name))
+		}
+	})
 
+	// children process subcommand
 	grpcServerCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		if v.IsSet(f.Name) {
 			_ = grpcServerCmd.Flags().Set(f.Name, v.GetString(f.Name))
 		}
 	})
+	grpcServerCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
+		if v.IsSet(f.Name) {
+			_ = grpcServerCmd.PersistentFlags().Set(f.Name, v.GetString(f.Name))
+		}
+	})
 
+	// capabilities subcommand
 	capabilitiesCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		if v.IsSet(f.Name) {
 			_ = capabilitiesCmd.Flags().Set(f.Name, v.GetString(f.Name))
+		}
+	})
+	capabilitiesCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
+		if v.IsSet(f.Name) {
+			_ = capabilitiesCmd.PersistentFlags().Set(f.Name, v.GetString(f.Name))
 		}
 	})
 
@@ -160,8 +178,12 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 					err,
 				)
 			}
-			command.Flags().
-				BoolP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			if field.Persistent {
+				command.PersistentFlags().BoolP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			} else {
+				command.Flags().
+					BoolP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			}
 		case reflect.Int:
 			value, err := field.Int()
 			if err != nil {
@@ -172,8 +194,13 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 					err,
 				)
 			}
-			command.Flags().
-				IntP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			if field.Persistent {
+				command.PersistentFlags().
+					IntP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			} else {
+				command.Flags().
+					IntP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			}
 		case reflect.String:
 			value, err := field.String()
 			if err != nil {
@@ -184,8 +211,13 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 					err,
 				)
 			}
-			command.Flags().
-				StringP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			if field.Persistent {
+				command.PersistentFlags().
+					StringP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			} else {
+				command.Flags().
+					StringP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			}
 		case reflect.Slice:
 			value, err := field.StringSlice()
 			if err != nil {
@@ -196,8 +228,13 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 					err,
 				)
 			}
-			command.Flags().
-				StringSliceP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			if field.Persistent {
+				command.PersistentFlags().
+					StringSliceP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			} else {
+				command.Flags().
+					StringSliceP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+			}
 		default:
 			return fmt.Errorf(
 				"field %s, %s is not yet supported",
@@ -208,14 +245,26 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 
 		// mark hidden
 		if field.Hidden {
-			err := command.Flags().MarkHidden(field.FieldName)
-			if err != nil {
-				return fmt.Errorf(
-					"cannot hide field %s, %s: %w",
-					field.FieldName,
-					field.FieldType,
-					err,
-				)
+			if field.Persistent {
+				err := command.PersistentFlags().MarkHidden(field.FieldName)
+				if err != nil {
+					return fmt.Errorf(
+						"cannot hide field %s, %s: %w",
+						field.FieldName,
+						field.FieldType,
+						err,
+					)
+				}
+			} else {
+				err := command.Flags().MarkHidden(field.FieldName)
+				if err != nil {
+					return fmt.Errorf(
+						"cannot hide field %s, %s: %w",
+						field.FieldName,
+						field.FieldType,
+						err,
+					)
+				}
 			}
 		}
 
@@ -225,14 +274,26 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 				return fmt.Errorf("requiring %s of type %s does not make sense", field.FieldName, field.FieldType)
 			}
 
-			err := command.MarkFlagRequired(field.FieldName)
-			if err != nil {
-				return fmt.Errorf(
-					"cannot require field %s, %s: %w",
-					field.FieldName,
-					field.FieldType,
-					err,
-				)
+			if field.Persistent {
+				err := command.MarkPersistentFlagRequired(field.FieldName)
+				if err != nil {
+					return fmt.Errorf(
+						"cannot require field %s, %s: %w",
+						field.FieldName,
+						field.FieldType,
+						err,
+					)
+				}
+			} else {
+				err := command.MarkFlagRequired(field.FieldName)
+				if err != nil {
+					return fmt.Errorf(
+						"cannot require field %s, %s: %w",
+						field.FieldName,
+						field.FieldType,
+						err,
+					)
+				}
 			}
 		}
 	}
