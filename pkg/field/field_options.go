@@ -40,3 +40,11 @@ func WithShortHand(sh string) fieldOption {
 		return o
 	}
 }
+
+func WithPersistent(value bool) fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.Persistent = value
+
+		return o
+	}
+}
