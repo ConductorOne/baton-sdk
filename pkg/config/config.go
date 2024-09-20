@@ -55,117 +55,8 @@ func DefineConfiguration(
 		SilenceUsage:  true,
 		RunE:          cli.MakeMainCommand(ctx, connectorName, v, schema, connector, options...),
 	}
-
-	// add options to the main command
-	for _, field := range schema.Fields {
-		switch field.FieldType {
-		case reflect.Bool:
-			value, err := field.Bool()
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"field %s, %s: %w",
-					field.FieldName,
-					field.FieldType,
-					err,
-				)
-			}
-			mainCMD.PersistentFlags().
-				BoolP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
-		case reflect.Int:
-			value, err := field.Int()
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"field %s, %s: %w",
-					field.FieldName,
-					field.FieldType,
-					err,
-				)
-			}
-			mainCMD.PersistentFlags().
-				IntP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
-		case reflect.String:
-			value, err := field.String()
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"field %s, %s: %w",
-					field.FieldName,
-					field.FieldType,
-					err,
-				)
-			}
-			mainCMD.PersistentFlags().
-				StringP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
-		case reflect.Slice:
-			value, err := field.StringSlice()
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"field %s, %s: %w",
-					field.FieldName,
-					field.FieldType,
-					err,
-				)
-			}
-			mainCMD.PersistentFlags().
-				StringSliceP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
-		default:
-			return nil, nil, fmt.Errorf(
-				"field %s, %s is not yet supported",
-				field.FieldName,
-				field.FieldType,
-			)
-		}
-
-		// mark hidden
-		if field.Hidden {
-			err := mainCMD.PersistentFlags().MarkHidden(field.FieldName)
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"cannot hide field %s, %s: %w",
-					field.FieldName,
-					field.FieldType,
-					err,
-				)
-			}
-		}
-
-		// mark required
-		if field.Required {
-			if field.FieldType == reflect.Bool {
-				return nil, nil, fmt.Errorf("requiring %s of type %s does not make sense", field.FieldName, field.FieldType)
-			}
-
-			err := mainCMD.MarkPersistentFlagRequired(field.FieldName)
-			if err != nil {
-				return nil, nil, fmt.Errorf(
-					"cannot require field %s, %s: %w",
-					field.FieldName,
-					field.FieldType,
-					err,
-				)
-			}
-		}
-	}
-
-	// apply constrains
-	for _, constrain := range schema.Constraints {
-		switch constrain.Kind {
-		case field.MutuallyExclusive:
-			mainCMD.MarkFlagsMutuallyExclusive(listFieldConstrainsAsStrings(constrain)...)
-		case field.RequiredTogether:
-			mainCMD.MarkFlagsRequiredTogether(listFieldConstrainsAsStrings(constrain)...)
-		case field.AtLeastOne:
-			mainCMD.MarkFlagsOneRequired(listFieldConstrainsAsStrings(constrain)...)
-		case field.Dependents:
-			// do nothing
-		default:
-			return nil, nil, fmt.Errorf("invalid config")
-		}
-	}
-
-	if err := v.BindPFlags(mainCMD.PersistentFlags()); err != nil {
-		return nil, nil, err
-	}
-	if err := v.BindPFlags(mainCMD.Flags()); err != nil {
+	err = setFlagsAndConstraints(mainCMD, schema)
+	if err != nil {
 		return nil, nil, err
 	}
 
@@ -175,19 +66,33 @@ func DefineConfiguration(
 		Hidden: true,
 		RunE:   cli.MakeGRPCServerCommand(ctx, connectorName, v, schema, connector),
 	}
+	err = setFlagsAndConstraints(grpcServerCmd, schema)
+	if err != nil {
+		return nil, nil, err
+	}
 	mainCMD.AddCommand(grpcServerCmd)
 
 	capabilitiesCmd := &cobra.Command{
 		Use:   "capabilities",
 		Short: "Get connector capabilities",
-		RunE:  cli.MakeCapabilitiesCommand(ctx, connectorName, v, connector),
+		RunE:  cli.MakeCapabilitiesCommand(ctx, connectorName, v, schema, connector),
+	}
+	err = setFlagsAndConstraints(capabilitiesCmd, schema)
+	if err != nil {
+		return nil, nil, err
 	}
 	mainCMD.AddCommand(capabilitiesCmd)
 
 	mainCMD.AddCommand(cli.AdditionalCommands(connectorName, schema.Fields)...)
 
-	// NOTE (shackra): we don't check subcommands (i.e.: grpcServerCmd and capabilitiesCmd)
-	mainCMD.PersistentFlags().VisitAll(func(f *pflag.Flag) {
+	if err := v.BindPFlags(mainCMD.PersistentFlags()); err != nil {
+		return nil, nil, err
+	}
+	if err := v.BindPFlags(mainCMD.Flags()); err != nil {
+		return nil, nil, err
+	}
+
+	mainCMD.Flags().VisitAll(func(f *pflag.Flag) {
 		if v.IsSet(f.Name) {
 			_ = mainCMD.Flags().Set(f.Name, v.GetString(f.Name))
 		}
@@ -227,4 +132,114 @@ func cleanOrGetConfigPath(customPath string) (string, string, error) {
 	}
 
 	return ".", ".baton", nil
+}
+
+func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) error {
+	// add options
+	for _, field := range schema.Fields {
+		switch field.FieldType {
+		case reflect.Bool:
+			value, err := field.Bool()
+			if err != nil {
+				return fmt.Errorf(
+					"field %s, %s: %w",
+					field.FieldName,
+					field.FieldType,
+					err,
+				)
+			}
+			command.Flags().
+				BoolP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+		case reflect.Int:
+			value, err := field.Int()
+			if err != nil {
+				return fmt.Errorf(
+					"field %s, %s: %w",
+					field.FieldName,
+					field.FieldType,
+					err,
+				)
+			}
+			command.Flags().
+				IntP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+		case reflect.String:
+			value, err := field.String()
+			if err != nil {
+				return fmt.Errorf(
+					"field %s, %s: %w",
+					field.FieldName,
+					field.FieldType,
+					err,
+				)
+			}
+			command.Flags().
+				StringP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+		case reflect.Slice:
+			value, err := field.StringSlice()
+			if err != nil {
+				return fmt.Errorf(
+					"field %s, %s: %w",
+					field.FieldName,
+					field.FieldType,
+					err,
+				)
+			}
+			command.Flags().
+				StringSliceP(field.FieldName, field.CLIShortHand, value, field.GetDescription())
+		default:
+			return fmt.Errorf(
+				"field %s, %s is not yet supported",
+				field.FieldName,
+				field.FieldType,
+			)
+		}
+
+		// mark hidden
+		if field.Hidden {
+			err := command.Flags().MarkHidden(field.FieldName)
+			if err != nil {
+				return fmt.Errorf(
+					"cannot hide field %s, %s: %w",
+					field.FieldName,
+					field.FieldType,
+					err,
+				)
+			}
+		}
+
+		// mark required
+		if field.Required {
+			if field.FieldType == reflect.Bool {
+				return fmt.Errorf("requiring %s of type %s does not make sense", field.FieldName, field.FieldType)
+			}
+
+			err := command.MarkFlagRequired(field.FieldName)
+			if err != nil {
+				return fmt.Errorf(
+					"cannot require field %s, %s: %w",
+					field.FieldName,
+					field.FieldType,
+					err,
+				)
+			}
+		}
+	}
+
+	// apply constrains
+	for _, constrain := range schema.Constraints {
+		switch constrain.Kind {
+		case field.MutuallyExclusive:
+			command.MarkFlagsMutuallyExclusive(listFieldConstrainsAsStrings(constrain)...)
+		case field.RequiredTogether:
+			command.MarkFlagsRequiredTogether(listFieldConstrainsAsStrings(constrain)...)
+		case field.AtLeastOne:
+			command.MarkFlagsOneRequired(listFieldConstrainsAsStrings(constrain)...)
+		case field.Dependents:
+			// do nothing
+		default:
+			return fmt.Errorf("invalid config")
+		}
+	}
+
+	return nil
 }

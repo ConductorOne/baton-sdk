@@ -56,7 +56,7 @@ func MakeMainCommand(
 
 		// validate required fields and relationship constraints
 		if err := field.Validate(confschema, v); err != nil {
-			return fmt.Errorf("unable to make main command: %w", err)
+			return err
 		}
 
 		c, err := getconnector(runCtx, v)
@@ -189,7 +189,7 @@ func MakeGRPCServerCommand(
 
 		// validate required fields and relationship constraints
 		if err := field.Validate(confschema, v); err != nil {
-			return fmt.Errorf("unable to make gRPC server commands: %w", err)
+			return err
 		}
 
 		c, err := getconnector(runCtx, v)
@@ -278,6 +278,7 @@ func MakeCapabilitiesCommand(
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
+	confschema field.Configuration,
 	getconnector GetConnectorFunc,
 ) func(*cobra.Command, []string) error {
 	return func(*cobra.Command, []string) error {
@@ -288,6 +289,11 @@ func MakeCapabilitiesCommand(
 			logging.WithLogLevel(v.GetString("log-level")),
 		)
 		if err != nil {
+			return err
+		}
+
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, v); err != nil {
 			return err
 		}
 
