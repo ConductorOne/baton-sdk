@@ -18,6 +18,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -65,6 +67,7 @@ func MakeMainCommand(
 		}
 
 		daemonMode := v.GetString("client-id") != "" || isService()
+		isProvisioning := v.GetString("grant-entitlement") != "" || v.GetString("revoke-grant") != ""
 		if daemonMode {
 			if v.GetString("client-id") == "" {
 				return fmt.Errorf("client-id is required in service mode")
@@ -83,6 +86,9 @@ func MakeMainCommand(
 				opts = append(opts, connectorrunner.WithFullSyncDisabled())
 			}
 		} else {
+			if isProvisioning && !v.GetBool("provisioning") {
+				return status.Error(codes.Unimplemented, connector.ProvisioningNotEnabledMsg)
+			}
 			switch {
 			case v.GetString("grant-entitlement") != "":
 				opts = append(opts,

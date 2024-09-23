@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/conductorone/baton-sdk/internal/connector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
@@ -535,10 +536,8 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 	start := b.nowFunc()
 	tt := tasks.GrantType
 	l := ctxzap.Extract(ctx)
-
 	rt := request.Entitlement.Resource.Id.ResourceType
-	provisioner, ok := b.resourceProvisioners[rt]
-	if ok {
+	if provisioner, ok := b.resourceProvisioners[rt]; ok {
 		annos, err := provisioner.Grant(ctx, request.Principal, request.Entitlement)
 		if err != nil {
 			l.Error("error: grant failed", zap.Error(err))
@@ -550,8 +549,7 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		return &v2.GrantManagerServiceGrantResponse{Annotations: annos}, nil
 	}
 
-	provisionerV2, ok := b.resourceProvisionersV2[rt]
-	if ok {
+	if provisionerV2, ok := b.resourceProvisionersV2[rt]; ok {
 		grants, annos, err := provisionerV2.Grant(ctx, request.Principal, request.Entitlement)
 		if err != nil {
 			l.Error("error: grant failed", zap.Error(err))
@@ -563,26 +561,24 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
 	}
 
-	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
+	l.Error(connector.ProvisioningNotEnabledMsg, zap.String("resource_type", rt))
 	b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-	return nil, fmt.Errorf("error: resource type does not have provisioner configured")
+	return nil, fmt.Errorf(connector.ProvisioningNotEnabledMsg)
 }
 
 func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (*v2.GrantManagerServiceRevokeResponse, error) {
 	start := b.nowFunc()
 	tt := tasks.RevokeType
-
 	l := ctxzap.Extract(ctx)
-
 	rt := request.Grant.Entitlement.Resource.Id.ResourceType
-	provisioner, ok := b.resourceProvisioners[rt]
-	if ok {
+	if provisioner, ok := b.resourceProvisioners[rt]; ok {
 		annos, err := provisioner.Revoke(ctx, request.Grant)
 		if err != nil {
 			l.Error("error: revoke failed", zap.Error(err))
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 			return nil, fmt.Errorf("error: revoke failed: %w", err)
 		}
+
 		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 	}
 
@@ -599,9 +595,9 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 	}
 
-	l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
+	l.Error(connector.ProvisioningNotEnabledMsg, zap.String("resource_type", rt))
 	b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-	return nil, status.Error(codes.Unimplemented, "resource type does not have provisioner configured")
+	return nil, status.Error(codes.Unimplemented, connector.ProvisioningNotEnabledMsg)
 }
 
 // GetAsset streams the asset to the client.
