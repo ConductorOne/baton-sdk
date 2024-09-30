@@ -7,9 +7,7 @@ import (
 	"strings"
 )
 
-var (
-	WrongValueTypeErr = errors.New("unable to cast any to concrete type")
-)
+var WrongValueTypeErr = errors.New("unable to cast any to concrete type")
 
 type SchemaField struct {
 	FieldName    string
@@ -17,6 +15,7 @@ type SchemaField struct {
 	CLIShortHand string
 	Required     bool
 	Hidden       bool
+	Persistent   bool
 	Description  string
 	DefaultValue any
 }
