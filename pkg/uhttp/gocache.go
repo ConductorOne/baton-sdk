@@ -4,12 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
-	"sort"
-	"strings"
+	"os"
+	"strconv"
 	"time"
 
 	bigCache "github.com/allegro/bigcache/v3"
@@ -17,16 +16,136 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	cacheTTLMaximum  = 31536000 // 31536000 seconds = one year
+	cacheTTLDefault  = 3600     // 3600 seconds = one hour
+	defaultCacheSize = 50       // MB
+)
+
+type CacheConfig struct {
+	LogDebug     bool
+	CacheTTL     int64 // If 0, cache is disabled
+	CacheMaxSize int
+}
+type ContextKey struct{}
+
 type GoCache struct {
 	rootLibrary *bigCache.BigCache
 }
 
-func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
-	l := ctxzap.Extract(ctx)
-	if cfg.DisableCache {
-		l.Debug("http cache disabled")
-		return GoCache{}, nil
+type NoopCache struct{}
+
+func NewNoopCache(ctx context.Context) *NoopCache {
+	return &NoopCache{}
+}
+
+func (g *NoopCache) Get(req *http.Request) (*http.Response, error) {
+	return nil, nil
+}
+
+func (n *NoopCache) Set(req *http.Request, value *http.Response) error {
+	return nil
+}
+
+func (cc *CacheConfig) ToString() string {
+	return fmt.Sprintf("CacheTTL: %d, CacheMaxSize: %d, LogDebug: %t", cc.CacheTTL, cc.CacheMaxSize, cc.LogDebug)
+}
+
+func DefaultCacheConfig() CacheConfig {
+	return CacheConfig{
+		CacheTTL:     cacheTTLDefault,
+		CacheMaxSize: defaultCacheSize,
+		LogDebug:     false,
 	}
+}
+
+func NewCacheConfigFromEnv() *CacheConfig {
+	config := DefaultCacheConfig()
+
+	cacheMaxSize, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_MAX_SIZE"), 10, 64)
+	if err == nil {
+		config.CacheMaxSize = int(cacheMaxSize)
+	}
+
+	// read the `BATON_HTTP_CACHE_TTL` environment variable and return
+	// the value as a number of seconds between 0 and an arbitrary maximum. Note:
+	// this means that passing a value of `-1` will set the TTL to zero rather than
+	// infinity.
+	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
+	if err == nil {
+		config.CacheTTL = min(cacheTTLMaximum, max(0, cacheTTL))
+	}
+
+	return &config
+}
+
+func NewCacheConfigFromCtx(ctx context.Context) (*CacheConfig, error) {
+	defaultConfig := DefaultCacheConfig()
+	if v := ctx.Value(ContextKey{}); v != nil {
+		ctxConfig, ok := v.(CacheConfig)
+		if !ok {
+			return nil, fmt.Errorf("error casting config values from context")
+		}
+		return &ctxConfig, nil
+	}
+	return &defaultConfig, nil
+}
+
+func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
+	l := ctxzap.Extract(ctx)
+
+	var noopCache icache = &NoopCache{}
+	cache := noopCache
+
+	if config == nil {
+		config = NewCacheConfigFromEnv()
+	}
+
+	if config.CacheTTL <= 0 {
+		l.Debug("CacheTTL is <=0, disabling cache.", zap.Int64("CacheTTL", config.CacheTTL))
+		return noopCache, nil
+	}
+
+	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
+	if err != nil {
+		disableCache = false
+	}
+	if disableCache {
+		l.Debug("BATON_DISABLE_HTTP_CACHE set, disabling cache.")
+		return noopCache, nil
+	}
+
+	cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
+	if cacheBackend == "" {
+		l.Debug("defaulting to db-cache")
+		cacheBackend = "db"
+	}
+
+	switch cacheBackend {
+	case "memory":
+		l.Debug("Using in-memory cache")
+		memCache, err := NewGoCache(ctx, *config)
+		if err != nil {
+			l.Error("error creating http cache (in-memory)", zap.Error(err))
+			return nil, err
+		}
+		cache = memCache
+	case "db":
+		l.Debug("Using db cache")
+		dbCache, err := NewDBCache(ctx, *config)
+		if err != nil {
+			l.Error("error creating http cache (db-cache)", zap.Error(err))
+			return nil, err
+		}
+		cache = dbCache
+	}
+
+	return cache, nil
+}
+
+func NewGoCache(ctx context.Context, cfg CacheConfig) (*GoCache, error) {
+	l := ctxzap.Extract(ctx)
+	gc := GoCache{}
 	config := bigCache.DefaultConfig(time.Duration(cfg.CacheTTL) * time.Second)
 	config.Verbose = cfg.LogDebug
 	config.Shards = 4
@@ -34,7 +153,7 @@ func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
 	cache, err := bigCache.New(ctx, config)
 	if err != nil {
 		l.Error("http cache initialization error", zap.Error(err))
-		return GoCache{}, err
+		return nil, err
 	}
 
 	l.Debug("http cache config",
@@ -48,11 +167,9 @@ func NewGoCache(ctx context.Context, cfg CacheConfig) (GoCache, error) {
 			zap.Bool("Verbose", config.Verbose),
 			zap.Int("HardMaxCacheSize", config.HardMaxCacheSize),
 		))
-	gc := GoCache{
-		rootLibrary: cache,
-	}
+	gc.rootLibrary = cache
 
-	return gc, nil
+	return &gc, nil
 }
 
 func (g *GoCache) Statistics() bigCache.Stats {
@@ -63,54 +180,14 @@ func (g *GoCache) Statistics() bigCache.Stats {
 	return g.rootLibrary.Stats()
 }
 
-// CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.
-// The key is a SHA-256 hash of the normalized URL path, sorted query parameters, and relevant headers.
-func CreateCacheKey(req *http.Request) (string, error) {
-	// Normalize the URL path
-	path := strings.ToLower(req.URL.Path)
-
-	// Combine the path with sorted query parameters
-	queryParams := req.URL.Query()
-	var sortedParams []string
-	for k, v := range queryParams {
-		for _, value := range v {
-			sortedParams = append(sortedParams, fmt.Sprintf("%s=%s", k, value))
-		}
-	}
-
-	sort.Strings(sortedParams)
-	queryString := strings.Join(sortedParams, "&")
-
-	// Include relevant headers in the cache key
-	var headerParts []string
-	for key, values := range req.Header {
-		for _, value := range values {
-			if key == "Accept" || key == "Authorization" || key == "Cookie" || key == "Range" {
-				headerParts = append(headerParts, fmt.Sprintf("%s=%s", key, value))
-			}
-		}
-	}
-
-	sort.Strings(headerParts)
-	headersString := strings.Join(headerParts, "&")
-
-	// Create a unique string for the cache key
-	cacheString := fmt.Sprintf("%s?%s&headers=%s", path, queryString, headersString)
-
-	// Hash the cache string to create a key
-	hash := sha256.New()
-	_, err := hash.Write([]byte(cacheString))
-	if err != nil {
-		return "", err
-	}
-
-	cacheKey := fmt.Sprintf("%x", hash.Sum(nil))
-	return cacheKey, nil
-}
-
-func (g *GoCache) Get(key string) (*http.Response, error) {
+func (g *GoCache) Get(req *http.Request) (*http.Response, error) {
 	if g.rootLibrary == nil {
 		return nil, nil
+	}
+
+	key, err := CreateCacheKey(req)
+	if err != nil {
+		return nil, err
 	}
 
 	entry, err := g.rootLibrary.Get(key)
@@ -127,9 +204,14 @@ func (g *GoCache) Get(key string) (*http.Response, error) {
 	return nil, nil
 }
 
-func (g *GoCache) Set(key string, value *http.Response) error {
+func (g *GoCache) Set(req *http.Request, value *http.Response) error {
 	if g.rootLibrary == nil {
 		return nil
+	}
+
+	key, err := CreateCacheKey(req)
+	if err != nil {
+		return err
 	}
 
 	cacheableResponse, err := httputil.DumpResponse(value, true)
