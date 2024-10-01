@@ -38,6 +38,7 @@ message TicketCustomField {
     TicketCustomFieldPickMultipleStringValues pick_multiple_string_values = 105;
     TicketCustomFieldPickObjectValue pick_object_value = 106;
     TicketCustomFieldPickMultipleObjectValues pick_multiple_object_values = 107;
+    TicketCustomFieldNumberValue number_value = 108;
   }
   repeated google.protobuf.Any annotations = 4;
 }
@@ -54,6 +55,11 @@ message TicketCustomFieldStringValues {
 
 message TicketCustomFieldBoolValue {
   bool value = 1;
+}
+
+message TicketCustomFieldNumberValue {
+  float value = 1;
+  float default_value = 2;
 }
 
 message TicketCustomFieldTimestampValue {
