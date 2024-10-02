@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
@@ -165,7 +166,7 @@ func GetNumberValue(field *v2.TicketCustomField) (float32, error) {
 	if !ok {
 		return 0, errors.New("error: expected number value")
 	}
-	return v.NumberValue.Value, nil
+	return v.NumberValue.GetValue().GetValue(), nil
 }
 
 func GetTimestampValue(field *v2.TicketCustomField) (time.Time, error) {
@@ -247,8 +248,11 @@ func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 		return v.BoolValue.GetValue(), nil
 
 	case *v2.TicketCustomField_NumberValue:
-		return v.NumberValue.GetValue(), nil
-
+		wrapperVal := v.NumberValue.GetValue()
+		if wrapperVal == nil {
+			return nil, nil
+		}
+		return wrapperVal.GetValue(), nil
 	case *v2.TicketCustomField_TimestampValue:
 		return v.TimestampValue.GetValue(), nil
 
@@ -304,7 +308,11 @@ func GetDefaultCustomFieldValue(field *v2.TicketCustomField) (interface{}, error
 		return v.BoolValue.GetValue(), nil
 
 	case *v2.TicketCustomField_NumberValue:
-		return v.NumberValue.GetDefaultValue(), nil
+		defaultWrapper := v.NumberValue.GetDefaultValue()
+		if defaultWrapper == nil {
+			return nil, nil
+		}
+		return defaultWrapper.GetValue(), nil
 
 	case *v2.TicketCustomField_TimestampValue:
 		return v.TimestampValue.GetDefaultValue(), nil
@@ -712,7 +720,7 @@ func NumberFieldSchema(id, displayName string, required bool) *v2.TicketCustomFi
 		DisplayName: displayName,
 		Required:    required,
 		Value: &v2.TicketCustomField_NumberValue{
-			NumberValue: nil,
+			NumberValue: &v2.TicketCustomFieldNumberValue{},
 		},
 	}
 }
@@ -733,7 +741,7 @@ func NumberField(id string, value float32) *v2.TicketCustomField {
 		Id: id,
 		Value: &v2.TicketCustomField_NumberValue{
 			NumberValue: &v2.TicketCustomFieldNumberValue{
-				Value: value,
+				Value: wrapperspb.Float(value),
 			},
 		},
 	}

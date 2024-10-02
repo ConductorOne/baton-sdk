@@ -1138,9 +1138,63 @@ func (m *TicketCustomFieldNumberValue) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for Value
+	if all {
+		switch v := interface{}(m.GetValue()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, TicketCustomFieldNumberValueValidationError{
+					field:  "Value",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, TicketCustomFieldNumberValueValidationError{
+					field:  "Value",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetValue()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return TicketCustomFieldNumberValueValidationError{
+				field:  "Value",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
 
-	// no validation rules for DefaultValue
+	if all {
+		switch v := interface{}(m.GetDefaultValue()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, TicketCustomFieldNumberValueValidationError{
+					field:  "DefaultValue",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, TicketCustomFieldNumberValueValidationError{
+					field:  "DefaultValue",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetDefaultValue()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return TicketCustomFieldNumberValueValidationError{
+				field:  "DefaultValue",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
 
 	if len(errors) > 0 {
 		return TicketCustomFieldNumberValueMultiError(errors)
