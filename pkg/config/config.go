@@ -88,16 +88,14 @@ func DefineConfiguration(
 
 	mainCMD.AddCommand(cli.AdditionalCommands(connectorName, schema.Fields)...)
 
+	// NOTE(shackra): Set all values from Viper to the flags so
+	// that Cobra won't complain that a flag is missing in case we
+	// pass values through environment variables
 
 	// main subcommand
 	mainCMD.Flags().VisitAll(func(f *pflag.Flag) {
 		if v.IsSet(f.Name) {
 			_ = mainCMD.Flags().Set(f.Name, v.GetString(f.Name))
-		}
-	})
-	mainCMD.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		if v.IsSet(f.Name) {
-			_ = mainCMD.PersistentFlags().Set(f.Name, v.GetString(f.Name))
 		}
 	})
 
@@ -107,21 +105,11 @@ func DefineConfiguration(
 			_ = grpcServerCmd.Flags().Set(f.Name, v.GetString(f.Name))
 		}
 	})
-	grpcServerCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		if v.IsSet(f.Name) {
-			_ = grpcServerCmd.PersistentFlags().Set(f.Name, v.GetString(f.Name))
-		}
-	})
 
 	// capabilities subcommand
 	capabilitiesCmd.Flags().VisitAll(func(f *pflag.Flag) {
 		if v.IsSet(f.Name) {
 			_ = capabilitiesCmd.Flags().Set(f.Name, v.GetString(f.Name))
-		}
-	})
-	capabilitiesCmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		if v.IsSet(f.Name) {
-			_ = capabilitiesCmd.PersistentFlags().Set(f.Name, v.GetString(f.Name))
 		}
 	})
 
