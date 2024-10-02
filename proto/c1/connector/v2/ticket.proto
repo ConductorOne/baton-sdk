@@ -5,6 +5,7 @@ package c1.connector.v2;
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
@@ -38,6 +39,7 @@ message TicketCustomField {
     TicketCustomFieldPickMultipleStringValues pick_multiple_string_values = 105;
     TicketCustomFieldPickObjectValue pick_object_value = 106;
     TicketCustomFieldPickMultipleObjectValues pick_multiple_object_values = 107;
+    TicketCustomFieldNumberValue number_value = 108;
   }
   repeated google.protobuf.Any annotations = 4;
 }
@@ -54,6 +56,11 @@ message TicketCustomFieldStringValues {
 
 message TicketCustomFieldBoolValue {
   bool value = 1;
+}
+
+message TicketCustomFieldNumberValue {
+  google.protobuf.FloatValue value = 1;
+  google.protobuf.FloatValue default_value = 2;
 }
 
 message TicketCustomFieldTimestampValue {

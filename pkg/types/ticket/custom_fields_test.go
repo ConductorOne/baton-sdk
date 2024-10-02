@@ -635,6 +635,74 @@ func TestValidateTicket(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "TestValidateTicketNumberRequiredNotPresent",
+			args: args{
+				ctx: context.TODO(),
+				schema: newCustomSchema(
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(
+						NumberFieldSchema("custom_number", "", true),
+						PickObjectValueFieldSchema("issue_type", "", true, []*v2.TicketCustomFieldObjectValue{
+							{Id: "10001"},
+						}),
+					),
+				),
+				ticket: createTicketFixture(
+					WithTicketCustomFields(
+						PickObjectValueField("issue_type", &v2.TicketCustomFieldObjectValue{Id: "10001"}),
+					),
+				),
+			},
+			want:    false,
+			wantErr: false,
+		},
+		{
+			name: "TestValidateTicketNumberNotRequired",
+			args: args{
+				ctx: context.TODO(),
+				schema: newCustomSchema(
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(
+						NumberFieldSchema("custom_number", "", false),
+						PickObjectValueFieldSchema("issue_type", "", true, []*v2.TicketCustomFieldObjectValue{
+							{Id: "10001"},
+						}),
+					),
+				),
+				ticket: createTicketFixture(
+					WithTicketCustomFields(
+						NumberField("custom_number", 5),
+						PickObjectValueField("issue_type", &v2.TicketCustomFieldObjectValue{Id: "10001"}),
+					),
+				),
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
+			name: "TestValidateTicketNumberRequiredPresent",
+			args: args{
+				ctx: context.TODO(),
+				schema: newCustomSchema(
+					WithTicketStatuses(&v2.TicketStatus{Id: "10001"}),
+					WithCustomFields(
+						NumberFieldSchema("custom_number", "", true),
+						PickObjectValueFieldSchema("issue_type", "", true, []*v2.TicketCustomFieldObjectValue{
+							{Id: "10001"},
+						}),
+					),
+				),
+				ticket: createTicketFixture(
+					WithTicketCustomFields(
+						PickObjectValueField("issue_type", &v2.TicketCustomFieldObjectValue{Id: "10001"}),
+						NumberField("custom_number", 5),
+					),
+				),
+			},
+			want:    true,
+			wantErr: false,
+		},
+		{
 			name: "TestValidateTicketPickStringInvalid",
 			args: args{
 				ctx: context.TODO(),
