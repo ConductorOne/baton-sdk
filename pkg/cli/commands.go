@@ -33,7 +33,16 @@ func MakeMainCommand(
 	getconnector GetConnectorFunc,
 	opts ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
-	return func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		// NOTE(shackra): bind all the flags (persistent and
+		// regular) with our instance of Viper, doing this
+		// anywhere else may fail to communicate to Viper the
+		// values gathered by Cobra.
+		err := v.BindPFlags(cmd.Flags())
+		if err != nil {
+			return err
+		}
+
 		runCtx, err := initLogger(
 			ctx,
 			name,
@@ -176,7 +185,16 @@ func MakeGRPCServerCommand(
 	confschema field.Configuration,
 	getconnector GetConnectorFunc,
 ) func(*cobra.Command, []string) error {
-	return func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		// NOTE(shackra): bind all the flags (persistent and
+		// regular) with our instance of Viper, doing this
+		// anywhere else may fail to communicate to Viper the
+		// values gathered by Cobra.
+		err := v.BindPFlags(cmd.Flags())
+		if err != nil {
+			return err
+		}
+
 		runCtx, err := initLogger(
 			ctx,
 			name,
@@ -281,7 +299,16 @@ func MakeCapabilitiesCommand(
 	confschema field.Configuration,
 	getconnector GetConnectorFunc,
 ) func(*cobra.Command, []string) error {
-	return func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		// NOTE(shackra): bind all the flags (persistent and
+		// regular) with our instance of Viper, doing this
+		// anywhere else may fail to communicate to Viper the
+		// values gathered by Cobra.
+		err := v.BindPFlags(cmd.Flags())
+		if err != nil {
+			return err
+		}
+
 		runCtx, err := initLogger(
 			ctx,
 			name,
