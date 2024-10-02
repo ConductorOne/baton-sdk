@@ -712,7 +712,7 @@ func NumberFieldSchema(id, displayName string, required bool) *v2.TicketCustomFi
 		DisplayName: displayName,
 		Required:    required,
 		Value: &v2.TicketCustomField_NumberValue{
-			NumberValue: &v2.TicketCustomFieldNumberValue{},
+			NumberValue: nil,
 		},
 	}
 }
