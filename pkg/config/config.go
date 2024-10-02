@@ -88,12 +88,6 @@ func DefineConfiguration(
 
 	mainCMD.AddCommand(cli.AdditionalCommands(connectorName, schema.Fields)...)
 
-	if err := v.BindPFlags(mainCMD.PersistentFlags()); err != nil {
-		return nil, nil, err
-	}
-	if err := v.BindPFlags(mainCMD.Flags()); err != nil {
-		return nil, nil, err
-	}
 
 	// main subcommand
 	mainCMD.Flags().VisitAll(func(f *pflag.Flag) {

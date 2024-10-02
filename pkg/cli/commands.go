@@ -33,7 +33,7 @@ func MakeMainCommand(
 	getconnector GetConnectorFunc,
 	opts ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
-	return func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
 		runCtx, err := initLogger(
 			ctx,
 			name,
@@ -52,6 +52,16 @@ func MakeMainCommand(
 				l.Error("error running service", zap.Error(err))
 				return err
 			}
+		}
+
+		// NOTE(shackra): bind all the flags (persistent and
+		// regular) with our instance of Viper, doing this
+		// anywhere else may fail to communicate to Viper the
+		// values gathered by Cobra.
+		err = v.BindPFlags(cmd.Flags())
+		if err != nil {
+			l.Error("unable to bind flags to settings", zap.Error(err))
+			return err
 		}
 
 		// validate required fields and relationship constraints
@@ -176,13 +186,22 @@ func MakeGRPCServerCommand(
 	confschema field.Configuration,
 	getconnector GetConnectorFunc,
 ) func(*cobra.Command, []string) error {
-	return func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
 		runCtx, err := initLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
 		)
+		if err != nil {
+			return err
+		}
+
+		// NOTE(shackra): bind all the flags (persistent and
+		// regular) with our instance of Viper, doing this
+		// anywhere else may fail to communicate to Viper the
+		// values gathered by Cobra.
+		err = v.BindPFlags(cmd.Flags())
 		if err != nil {
 			return err
 		}
@@ -281,13 +300,22 @@ func MakeCapabilitiesCommand(
 	confschema field.Configuration,
 	getconnector GetConnectorFunc,
 ) func(*cobra.Command, []string) error {
-	return func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
 		runCtx, err := initLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
 		)
+		if err != nil {
+			return err
+		}
+
+		// NOTE(shackra): bind all the flags (persistent and
+		// regular) with our instance of Viper, doing this
+		// anywhere else may fail to communicate to Viper the
+		// values gathered by Cobra.
+		err = v.BindPFlags(cmd.Flags())
 		if err != nil {
 			return err
 		}
