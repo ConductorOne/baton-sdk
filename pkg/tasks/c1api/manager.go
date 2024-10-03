@@ -139,12 +139,13 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 	finishCtx, finishCanc := context.WithTimeout(context.Background(), time.Second*30)
 	defer finishCanc()
 
+	var err2 error
 	var marshalledResp *anypb.Any
 	if resp != nil {
-		marshalledResp, err = anypb.New(resp)
-		if err != nil {
-			l.Error("c1_api_task_manager.finishTask(): error while attempting to marshal response", zap.Error(err))
-			return err
+		marshalledResp, err2 = anypb.New(resp)
+		if err2 != nil {
+			l.Error("c1_api_task_manager.finishTask(): error while attempting to marshal response", zap.Error(err2))
+			return err2
 		}
 	}
 
