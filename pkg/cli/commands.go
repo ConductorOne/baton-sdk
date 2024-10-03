@@ -56,6 +56,7 @@ func MakeMainCommand(
 		l := ctxzap.Extract(runCtx)
 
 		if isService() {
+			l.Debug("running as service", zap.String("name", name))
 			runCtx, err = runService(runCtx, name)
 			if err != nil {
 				l.Error("error running service", zap.Error(err))
