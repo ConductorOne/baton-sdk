@@ -21,6 +21,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"github.com/conductorone/baton-sdk/pkg/uhttp"
 )
 
 type ResourceSyncer interface {
@@ -350,6 +351,13 @@ func (b *builderImpl) ListResourceTypes(
 	start := b.nowFunc()
 	tt := tasks.ListResourceTypesType
 	var out []*v2.ResourceType
+
+	l := ctxzap.Extract(ctx)
+	// Clear all http caches at the start of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
+	err := uhttp.ClearCaches(ctx)
+	if err != nil {
+		l.Warn("error clearing http caches", zap.Error(err))
+	}
 
 	for _, rb := range b.resourceBuilders {
 		out = append(out, rb.ResourceType(ctx))

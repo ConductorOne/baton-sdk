@@ -158,8 +158,10 @@ func (g *GoCache) Delete(key string) error {
 	return nil
 }
 
-func (g *GoCache) Clear() error {
+func (g *GoCache) Clear(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
 	if g.rootLibrary == nil {
+		l.Debug("clear: rootLibrary is nil")
 		return nil
 	}
 
@@ -167,7 +169,12 @@ func (g *GoCache) Clear() error {
 	if err != nil {
 		return err
 	}
+	err = g.rootLibrary.ResetStats()
+	if err != nil {
+		return err
+	}
 
+	l.Debug("reset cache")
 	return nil
 }
 
