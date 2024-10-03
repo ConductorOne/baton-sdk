@@ -39,6 +39,22 @@ type WrapperResponse struct {
 	StatusCode int
 }
 
+// Keep a handle on all caches so we can clear them later.
+var caches []GoCache
+
+func ClearCaches(ctx context.Context) error {
+	l := ctxzap.Extract(ctx)
+	l.Debug("clearing caches")
+	var err error
+	for _, cache := range caches {
+		err = cache.Clear(ctx)
+		if err != nil {
+			err = errors.Join(err, err)
+		}
+	}
+	return err
+}
+
 type (
 	HttpClient interface {
 		HttpClient() *http.Client
@@ -116,6 +132,7 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 		l.Error("error creating http cache", zap.Error(err))
 		return nil, err
 	}
+	caches = append(caches, cache)
 
 	return &BaseHttpClient{
 		HttpClient:    httpClient,
