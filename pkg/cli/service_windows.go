@@ -178,7 +178,7 @@ func stopCmd(name string) *cobra.Command {
 					l.Error("Failed to stop service within 10 seconds.", zap.Error(err))
 					return changeCtx.Err()
 
-				case <-time.After(300 * time.Millisecond):
+				case <-time.After(1 * time.Second):
 					status, err = s.Query()
 					if err != nil {
 						l.Error("Failed to query service status.", zap.Error(err))
@@ -258,6 +258,7 @@ func getWindowsService(ctx context.Context, name string) (*mgr.Service, func(), 
 		l.Error("Failed to connect to service manager.", zap.Error(err))
 		return nil, func() {}, err
 	}
+	l.Debug("Connected to service manager.")
 
 	s, err := m.OpenService(name)
 	if err != nil {
@@ -265,6 +266,7 @@ func getWindowsService(ctx context.Context, name string) (*mgr.Service, func(), 
 		l.Error("Failed to open service.", zap.Error(err))
 		return nil, func() {}, err
 	}
+	l.Debug("Opened service.", zap.String("service_name", name))
 
 	return s, func() {
 		s.Close()
@@ -281,8 +283,8 @@ func interactiveSetup(ctx context.Context, outputFilePath string, fields []field
 			return fmt.Errorf("field has no name")
 		}
 
-		// ignore any fields from the default set
-		if field.IsFieldAmongDefaultList(vfield) {
+		// ignore any fields from the default set, except client id and client secret
+		if field.IsFieldAmongDefaultList(vfield) && vfield.GetName() != "client-id" && vfield.GetName() != "client-secret" {
 			continue
 		}
 
@@ -461,61 +463,76 @@ func uninstallCmd(name string) *cobra.Command {
 }
 
 type batonService struct {
+	name string
 	ctx  context.Context
 	elog debug.Log
 }
 
 func (s *batonService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
+	ctx, err := initLogger(s.ctx, s.name, logging.WithLogFormat(logging.LogFormatConsole), logging.WithLogLevel("info"))
+	if err != nil {
+		s.elog.Error(1, fmt.Sprintf("Failed to initialize logger. %v", err))
+		return false, 1
+	}
+	l := ctxzap.Extract(ctx)
+	l.Info("Executing service.")
 	changes <- svc.Status{State: svc.StartPending}
-	s.elog.Info(1, "Starting service.")
+	s.elog.Info(1, fmt.Sprintf("Starting %s service.", s.name))
 
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
-	s.elog.Info(1, "Started service.")
+	s.elog.Info(1, fmt.Sprintf("Started %s service.", s.name))
 outer:
 	for {
 		select {
 		case <-s.ctx.Done():
-			s.elog.Info(1, "Service context done. Shutting down.")
+			l.Info("Service context done. Shutting down")
+			s.elog.Info(1, fmt.Sprintf("%s service context done. Shutting down.", s.name))
 			break outer
 		case c := <-r:
 			switch c.Cmd {
 			case svc.Interrogate:
 				changes <- c.CurrentStatus
 			case svc.Stop, svc.Shutdown:
-				s.elog.Info(1, "Received stop/shutdown request. Stopping service.")
+				l.Info("Received stop/shutdown request. Stopping service.")
+				s.elog.Info(1, fmt.Sprintf("Received stop/shutdown request. Stopping %s service.", s.name))
 				break outer
 			default:
-				s.elog.Error(1, fmt.Sprintf("Unexpected control request #%d", c.Cmd))
+				s.elog.Error(1, fmt.Sprintf("Unexpected control request #%d", c))
 			}
 		}
 	}
 
+	l.Info("Service stopped.")
 	changes <- svc.Status{State: svc.StopPending}
-	s.elog.Info(1, "Service stopped.")
+	s.elog.Info(1, fmt.Sprintf("%s service stopped.", s.name))
 	return false, 0
 }
 
 func runService(ctx context.Context, name string) (context.Context, error) {
 	l := ctxzap.Extract(ctx)
-
 	l.Info("Running service.")
 
 	ctx, cancel := context.WithCancelCause(ctx)
+	var elog debug.Log
 	go func() {
 		defer cancel(nil)
 
-		elog, err := eventlog.Open(name)
+		var err error
+		elog, err = eventlog.Open(name)
 		if err != nil {
 			l.Error("Failed to open event log.", zap.Error(err))
 		}
 		defer elog.Close()
 
 		err = svc.Run(name, &batonService{
+			name: name,
 			ctx:  ctx,
 			elog: elog,
 		})
 		if err != nil {
-			l.Error("Service failed.", zap.Error(err))
+			elog.Error(1, fmt.Sprintf("Running %v service failed. %v", name, err))
+		} else {
+			elog.Info(1, fmt.Sprintf("%v service is running.", name))
 		}
 	}()
 
