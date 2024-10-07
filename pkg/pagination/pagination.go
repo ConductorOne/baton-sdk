@@ -93,6 +93,14 @@ func (pb *Bag) Next(pageToken string) error {
 
 // Next pops the current token, and pushes a copy of it with an updated page token.
 func (pb *Bag) NextToken(pageToken string) (string, error) {
+	// assume that `pb` was passed an empty token
+	if pb.currentState == nil {
+		pb.currentState = &PageState{
+			Token: pageToken,
+		}
+		return pb.Marshal()
+	}
+
 	st := pb.pop()
 	if st == nil {
 		return "", fmt.Errorf("no active page state")

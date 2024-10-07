@@ -138,3 +138,17 @@ func TestPaginationBagNextPage(t *testing.T) {
 	require.Len(t, bag.states, 0)
 	comparePageState(t, ps2, *bag.Current())
 }
+
+func TestPaginationBagNextPageWithoutActivePageState(t *testing.T) {
+	bag := &Bag{}
+
+	// try to unmarshal an empty string
+	err := bag.Unmarshal("")
+	// passing an empty string SHOULD NOT return error
+	require.NoError(t, err)
+
+	updatedToken, err := bag.NextToken("<valid token from third-party service>")
+	require.NoError(t, err)
+	require.NotEmpty(t, updatedToken)
+	require.NotNil(t, bag.currentState)
+}
