@@ -290,7 +290,10 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		if len(body) > 0 {
+			resp.Body = io.NopCloser(bytes.NewBuffer(body))
+		}
+		return resp, err
 	}
 
 	// Replace resp.Body with a no-op closer so nobody has to worry about closing the reader.
