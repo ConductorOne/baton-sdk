@@ -12,13 +12,16 @@ import (
 	"net/url"
 	"os"
 	"strconv"
+	"time"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	uRateLimit "go.uber.org/ratelimit"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 )
 
 const (
@@ -37,6 +40,31 @@ type WrapperResponse struct {
 	Body       []byte
 	Status     string
 	StatusCode int
+}
+
+type rateLimiterOption struct {
+	rate int
+	per  time.Duration
+}
+
+func (o rateLimiterOption) Apply(c *BaseHttpClient) {
+	opts := []uRateLimit.Option{}
+	if o.per > 0 {
+		opts = append(opts, uRateLimit.Per(o.per))
+	}
+	c.rateLimiter = uRateLimit.New(o.rate, opts...)
+}
+
+// WithRateLimiter returns a WrapperOption that sets the rate limiter for the http client.
+// `rate` is the number of requests allowed per `per` duration.
+// `per` is the duration in which the rate limit is enforced.
+// Example: WithRateLimiter(10, time.Second) will allow 10 requests per second.
+func WithRateLimiter(rate int, per time.Duration) WrapperOption {
+	return rateLimiterOption{rate: rate, per: per}
+}
+
+type WrapperOption interface {
+	Apply(*BaseHttpClient)
 }
 
 // Keep a handle on all caches so we can clear them later.
@@ -64,6 +92,7 @@ type (
 	BaseHttpClient struct {
 		HttpClient    *http.Client
 		baseHttpCache GoCache
+		rateLimiter   uRateLimit.Limiter
 	}
 
 	DoOption      func(resp *WrapperResponse) error
@@ -77,9 +106,9 @@ type (
 	}
 )
 
-func NewBaseHttpClient(httpClient *http.Client) *BaseHttpClient {
+func NewBaseHttpClient(httpClient *http.Client, opts ...WrapperOption) *BaseHttpClient {
 	ctx := context.TODO()
-	client, err := NewBaseHttpClientWithContext(ctx, httpClient)
+	client, err := NewBaseHttpClientWithContext(ctx, httpClient, opts...)
 	if err != nil {
 		return nil
 	}
@@ -102,7 +131,7 @@ func getCacheTTL() int32 {
 	return int32(cacheTTL)
 }
 
-func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) (*BaseHttpClient, error) {
+func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, opts ...WrapperOption) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
 	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
 	if err != nil {
@@ -134,10 +163,16 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client) 
 	}
 	caches = append(caches, cache)
 
-	return &BaseHttpClient{
+	baseClient := &BaseHttpClient{
 		HttpClient:    httpClient,
 		baseHttpCache: cache,
-	}, nil
+	}
+
+	for _, opt := range opts {
+		opt.Apply(baseClient)
+	}
+
+	return baseClient, nil
 }
 
 // WithJSONResponse is a wrapper that marshals the returned response body into
@@ -254,6 +289,12 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		resp     *http.Response
 	)
 	l := ctxzap.Extract(req.Context())
+
+	// If a rate limiter is defined, take a token before making the request.
+	if c.rateLimiter != nil {
+		c.rateLimiter.Take()
+	}
+
 	if req.Method == http.MethodGet {
 		cacheKey, err = CreateCacheKey(req)
 		if err != nil {
