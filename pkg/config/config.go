@@ -78,7 +78,7 @@ func DefineConfiguration(
 		Use:    "_connector-service",
 		Short:  "Start the connector service",
 		Hidden: true,
-		RunE:   cli.MakeGRPCServerCommand(ctx, connectorName, v, schema, connector),
+		RunE:   cli.MakeGRPCServerCommand(ctx, connectorName, v, confschema, connector),
 	}
 	err = setFlagsAndConstraints(grpcServerCmd, schema)
 	if err != nil {
@@ -89,7 +89,7 @@ func DefineConfiguration(
 	capabilitiesCmd := &cobra.Command{
 		Use:   "capabilities",
 		Short: "Get connector capabilities",
-		RunE:  cli.MakeCapabilitiesCommand(ctx, connectorName, v, schema, connector),
+		RunE:  cli.MakeCapabilitiesCommand(ctx, connectorName, v, confschema, connector),
 	}
 	err = setFlagsAndConstraints(capabilitiesCmd, schema)
 	if err != nil {
