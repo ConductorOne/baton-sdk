@@ -43,6 +43,12 @@ func WithOutputPaths(paths []string) Option {
 	}
 }
 
+func WithInitialFields(fields map[string]interface{}) Option {
+	return func(c *zap.Config) {
+		c.InitialFields = fields
+	}
+}
+
 // Init creates a new zap logger and attaches it to the provided context.
 func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 	zc := zap.NewProductionConfig()
