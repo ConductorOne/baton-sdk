@@ -43,6 +43,8 @@ func WithOutputPaths(paths []string) Option {
 	}
 }
 
+// WithInitialFields allows the logger to be configured with static fields at creation time.
+// This is useful for setting fields that are constant across all log messages.
 func WithInitialFields(fields map[string]interface{}) Option {
 	return func(c *zap.Config) {
 		c.InitialFields = fields
