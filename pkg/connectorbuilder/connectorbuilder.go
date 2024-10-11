@@ -79,6 +79,7 @@ type ConnectorBuilder interface {
 }
 
 type builderImpl struct {
+	resourceTypes          []string
 	resourceBuilders       map[string]ResourceSyncer
 	resourceProvisioners   map[string]ResourceProvisioner
 	resourceProvisionersV2 map[string]ResourceProvisionerV2
@@ -218,6 +219,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	switch c := in.(type) {
 	case ConnectorBuilder:
 		ret := &builderImpl{
+			resourceTypes:          make([]string, 0),
 			resourceBuilders:       make(map[string]ResourceSyncer),
 			resourceProvisioners:   make(map[string]ResourceProvisioner),
 			resourceProvisionersV2: make(map[string]ResourceProvisionerV2),
@@ -254,6 +256,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			if _, ok := ret.resourceBuilders[rType.Id]; ok {
 				return nil, fmt.Errorf("error: duplicate resource type found for resource builder %s", rType.Id)
 			}
+			ret.resourceTypes = append(ret.resourceTypes, rType.Id)
 			ret.resourceBuilders[rType.Id] = rb
 
 			if err := validateProvisionerVersion(ctx, rb); err != nil {
@@ -358,8 +361,12 @@ func (b *builderImpl) ListResourceTypes(
 	if err != nil {
 		l.Warn("error clearing http caches", zap.Error(err))
 	}
-
-	for _, rb := range b.resourceBuilders {
+	for _, resourceTypeId := range b.resourceTypes {
+		rb, ok := b.resourceBuilders[resourceTypeId]
+		if !ok {
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			return nil, fmt.Errorf("error: list resource types with unknown resource type %s", resourceTypeId)
+		}
 		out = append(out, rb.ResourceType(ctx))
 	}
 
