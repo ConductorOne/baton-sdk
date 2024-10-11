@@ -276,7 +276,7 @@ func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 	case *v2.TicketCustomField_PickMultipleObjectValues:
 		objVals := v.PickMultipleObjectValues.GetValues()
 		if len(objVals) == 0 {
-			return objVals, nil
+			return nil, nil
 		}
 		return objVals, nil
 
@@ -337,7 +337,7 @@ func GetDefaultCustomFieldValue(field *v2.TicketCustomField) (interface{}, error
 	case *v2.TicketCustomField_PickMultipleObjectValues:
 		objVals := v.PickMultipleObjectValues.GetDefaultValues()
 		if len(objVals) == 0 {
-			return objVals, nil
+			return nil, nil
 		}
 		return objVals, nil
 
