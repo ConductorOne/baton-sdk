@@ -124,7 +124,7 @@ message Task {
     CreateTicketTask create_ticket_task = 110;
     ListTicketSchemasTask list_ticket_schemas = 111;
     GetTicketTask get_ticket = 112;
-    BulkCreateTicketsTask bulk_create_tickets = 13;
+    BulkCreateTicketsTask bulk_create_tickets = 113;
     BulkGetTicketsTask bulk_get_tickets = 114;
   }
   bool debug = 3;
