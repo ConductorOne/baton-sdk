@@ -91,6 +91,14 @@ message Task {
     repeated google.protobuf.Any annotations = 3;
   }
 
+  message BulkCreateTicketsTask {
+    repeated CreateTicketTask ticket_requests = 1;
+  }
+
+  message BulkGetTicketsTask {
+    repeated GetTicketTask ticket_requests = 1;
+  }
+
   message ListTicketSchemasTask {
     repeated google.protobuf.Any annotations = 1;
   }
@@ -116,6 +124,8 @@ message Task {
     CreateTicketTask create_ticket_task = 110;
     ListTicketSchemasTask list_ticket_schemas = 111;
     GetTicketTask get_ticket = 112;
+    BulkCreateTicketsTask bulk_create_tickets = 13;
+    BulkGetTicketsTask bulk_get_tickets = 114;
   }
   bool debug = 3;
 }

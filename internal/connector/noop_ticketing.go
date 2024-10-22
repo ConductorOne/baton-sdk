@@ -24,3 +24,11 @@ func (n noopTicketing) ListTicketSchemas(ctx context.Context, request *v2.Ticket
 func (n noopTicketing) GetTicketSchema(ctx context.Context, request *v2.TicketsServiceGetTicketSchemaRequest) (*v2.TicketsServiceGetTicketSchemaResponse, error) {
 	return nil, errors.New("ticketing is not enabled")
 }
+
+func (n noopTicketing) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketRequest) (*v2.TicketsServiceBulkCreateTicketResponse, error) {
+	return nil, errors.New("ticketing is not enabled")
+}
+
+func (n noopTicketing) BulkGetTickets(ctx context.Context, request *v2.TicketsServiceBulkGetTicketRequest) (*v2.TicketsServiceBulkGetTicketResponse, error) {
+	return nil, errors.New("ticketing is not enabled")
+}

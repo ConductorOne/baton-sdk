@@ -4,6 +4,7 @@ var DefaultRelationships = []SchemaFieldRelationship{
 	FieldsRequiredTogether(grantEntitlementField, grantPrincipalField),
 	FieldsRequiredTogether(clientIDField, clientSecretField),
 	FieldsRequiredTogether(createTicketField, ticketTemplatePathField),
+	FieldsRequiredTogether(bulkCreateTicketField, bulkTicketTemplatePathField),
 	FieldsRequiredTogether(getTicketField, ticketIDField),
 	FieldsMutuallyExclusive(
 		grantEntitlementField,
@@ -26,6 +27,8 @@ var DefaultRelationships = []SchemaFieldRelationship{
 		ListTicketSchemasField,
 	),
 }
+
+// TODO(lauren) add mutually exclusive
 
 func EnsureDefaultRelationships(original []SchemaFieldRelationship) []SchemaFieldRelationship {
 	return append(DefaultRelationships, original...)
