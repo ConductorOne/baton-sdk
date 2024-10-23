@@ -106,7 +106,7 @@ func (b *builderImpl) BulkCreateTickets(ctx context.Context, request *v2.Tickets
 	reqBody := request.GetTicketRequests()
 	if len(reqBody) == 0 {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: request body is nil or empty")
+		return nil, fmt.Errorf("error: request body had no items")
 	}
 
 	ticketsResponse, err := b.ticketManager.BulkCreateTickets(ctx, request)
@@ -132,13 +132,13 @@ func (b *builderImpl) BulkGetTickets(ctx context.Context, request *v2.TicketsSer
 	reqBody := request.GetTicketRequests()
 	if len(reqBody) == 0 {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: request body is nil or empty")
+		return nil, fmt.Errorf("error: request body had no items")
 	}
 
 	ticketsResponse, err := b.ticketManager.BulkGetTickets(ctx, request)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: creating tickets failed: %w", err)
+		return nil, fmt.Errorf("error: fetching tickets failed: %w", err)
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
