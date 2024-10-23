@@ -29,7 +29,7 @@ func (c *bulkCreateTicketTaskHandler) HandleTask(ctx context.Context) error {
 
 	t := c.task.GetBulkCreateTickets()
 	if t == nil || len(t.GetTicketRequests()) == 0 {
-		l.Error("bulk create ticket task was nil or missing ticket requests", zap.Any("create_ticket_task", t))
+		l.Error("bulk create ticket task was nil or missing ticket requests", zap.Any("bulk_create_ticket_task", t))
 		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed bulk create ticket task"), ErrTaskNonRetryable))
 	}
 

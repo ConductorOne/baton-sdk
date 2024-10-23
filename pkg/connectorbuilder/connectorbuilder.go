@@ -104,9 +104,9 @@ func (b *builderImpl) BulkCreateTickets(ctx context.Context, request *v2.Tickets
 	}
 
 	reqBody := request.GetTicketRequests()
-	if reqBody == nil {
+	if len(reqBody) == 0 {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: request body is nil")
+		return nil, fmt.Errorf("error: request body is nil or empty")
 	}
 
 	ticketsResponse, err := b.ticketManager.BulkCreateTickets(ctx, request)
@@ -130,9 +130,9 @@ func (b *builderImpl) BulkGetTickets(ctx context.Context, request *v2.TicketsSer
 	}
 
 	reqBody := request.GetTicketRequests()
-	if reqBody == nil {
+	if len(reqBody) == 0 {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: request body is nil")
+		return nil, fmt.Errorf("error: request body is nil or empty")
 	}
 
 	ticketsResponse, err := b.ticketManager.BulkGetTickets(ctx, request)
