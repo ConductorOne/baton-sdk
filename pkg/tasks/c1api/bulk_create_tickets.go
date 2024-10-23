@@ -28,9 +28,9 @@ func (c *bulkCreateTicketTaskHandler) HandleTask(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
 	t := c.task.GetBulkCreateTickets()
-	if t == nil || t.GetTicketRequests() == nil {
-		l.Error("create ticket task was nil or missing ticket request", zap.Any("create_ticket_task", t))
-		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed create ticket task"), ErrTaskNonRetryable))
+	if t == nil || len(t.GetTicketRequests()) == 0 {
+		l.Error("bulk create ticket task was nil or missing ticket requests", zap.Any("create_ticket_task", t))
+		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed bulk create ticket task"), ErrTaskNonRetryable))
 	}
 
 	ticketRequests := make([]*v2.TicketsServiceCreateTicketRequest, 0)
@@ -47,8 +47,12 @@ func (c *bulkCreateTicketTaskHandler) HandleTask(ctx context.Context) error {
 		TicketRequests: ticketRequests,
 	})
 	if err != nil {
-		l.Error("failed creating ticket", zap.Error(err))
+		l.Error("failed bulk creating tickets", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, err)
+	}
+
+	if len(resp.GetTickets()) == 0 {
+		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("connector returned no tickets"), ErrTaskNonRetryable))
 	}
 
 	return c.helpers.FinishTask(ctx, resp, nil, nil)

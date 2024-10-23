@@ -29,9 +29,9 @@ func (c *bulkGetTicketTaskHandler) HandleTask(ctx context.Context) error {
 	cc := c.helpers.ConnectorClient()
 
 	t := c.task.GetBulkGetTickets()
-	if t == nil || t.GetTicketRequests() == nil {
-		l.Error("get ticket task was nil or missing ticket id", zap.Any("get_ticket_task", t))
-		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed get ticket task"), ErrTaskNonRetryable))
+	if t == nil || len(t.GetTicketRequests()) == 0 {
+		l.Error("bulk get ticket task was nil or missing tickets", zap.Any("get_ticket_task", t))
+		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed bulk get tickets task"), ErrTaskNonRetryable))
 	}
 
 	ticketRequests := make([]*v2.TicketsServiceGetTicketRequest, 0)
@@ -42,19 +42,15 @@ func (c *bulkGetTicketTaskHandler) HandleTask(ctx context.Context) error {
 		})
 	}
 
-	tickets, err := cc.BulkGetTickets(ctx, &v2.TicketsServiceBulkGetTicketRequest{
+	resp, err := cc.BulkGetTickets(ctx, &v2.TicketsServiceBulkGetTicketRequest{
 		TicketRequests: ticketRequests,
 	})
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
-	if tickets.GetTickets() == nil {
-		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("connector returned empty ticket"), ErrTaskNonRetryable))
-	}
-
-	resp := &v2.TicketsServiceBulkGetTicketResponse{
-		Tickets: tickets.GetTickets(),
+	if len(resp.GetTickets()) == 0 {
+		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("connector returned no tickets"), ErrTaskNonRetryable))
 	}
 
 	l.Debug("BulkGetTickets response", zap.Any("resp", resp))
