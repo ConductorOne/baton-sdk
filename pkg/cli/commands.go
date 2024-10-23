@@ -140,6 +140,10 @@ func MakeMainCommand(
 				opts = append(opts,
 					connectorrunner.WithTicketingEnabled(),
 					connectorrunner.WithCreateTicket(v.GetString("ticket-template-path")))
+			case v.GetBool("bulk-create-ticket"):
+				opts = append(opts,
+					connectorrunner.WithTicketingEnabled(),
+					connectorrunner.WithBulkCreateTicket(v.GetString("bulk-ticket-template-path")))
 			case v.GetBool("list-ticket-schemas"):
 				opts = append(opts,
 					connectorrunner.WithTicketingEnabled(),
@@ -242,6 +246,8 @@ func MakeGRPCServerCommand(
 		case v.GetString("rotate-credentials") != "" || v.GetString("rotate-credentials-type") != "":
 			copts = append(copts, connector.WithProvisioningEnabled())
 		case v.GetBool("create-ticket"):
+			copts = append(copts, connector.WithTicketingEnabled())
+		case v.GetBool("bulk-create-ticket"):
 			copts = append(copts, connector.WithTicketingEnabled())
 		case v.GetBool("list-ticket-schemas"):
 			copts = append(copts, connector.WithTicketingEnabled())

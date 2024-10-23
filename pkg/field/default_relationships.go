@@ -4,6 +4,7 @@ var DefaultRelationships = []SchemaFieldRelationship{
 	FieldsRequiredTogether(grantEntitlementField, grantPrincipalField),
 	FieldsRequiredTogether(clientIDField, clientSecretField),
 	FieldsRequiredTogether(createTicketField, ticketTemplatePathField),
+	FieldsRequiredTogether(bulkCreateTicketField, bulkTicketTemplatePathField),
 	FieldsRequiredTogether(getTicketField, ticketIDField),
 	FieldsMutuallyExclusive(
 		grantEntitlementField,
@@ -15,6 +16,7 @@ var DefaultRelationships = []SchemaFieldRelationship{
 		createTicketField,
 		getTicketField,
 		ListTicketSchemasField,
+		bulkCreateTicketField,
 	),
 	FieldsMutuallyExclusive(
 		grantEntitlementField,

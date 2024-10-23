@@ -256,6 +256,10 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newGetTicketTaskHandler(task, tHelpers)
 	case taskTypes.StartDebugging:
 		handler = newStartDebugging(c)
+	case taskTypes.BulkCreateTicketsType:
+		handler = newBulkCreateTicketTaskHandler(task, tHelpers)
+	case taskTypes.BulkGetTicketsType:
+		handler = newBulkGetTicketTaskHandler(task, tHelpers)
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
 	}

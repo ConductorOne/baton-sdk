@@ -46,6 +46,10 @@ func (tt TaskType) String() string {
 		return "list_events"
 	case StartDebugging:
 		return "set_log_file_event"
+	case BulkCreateTicketsType:
+		return "bulk_create_tickets"
+	case BulkGetTicketsType:
+		return "bulk_get_tickets"
 	default:
 		return "unknown"
 	}
@@ -74,4 +78,6 @@ const (
 	GetMetadataType
 	ListEventsType
 	StartDebugging
+	BulkCreateTicketsType
+	BulkGetTicketsType
 )

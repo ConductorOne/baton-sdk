@@ -3,12 +3,14 @@ package field
 import "github.com/conductorone/baton-sdk/pkg/logging"
 
 var (
-	createTicketField      = BoolField("create-ticket", WithHidden(true), WithDescription("Create ticket"), WithPersistent(true))
-	getTicketField         = BoolField("get-ticket", WithHidden(true), WithDescription("Get ticket"), WithPersistent(true))
-	ListTicketSchemasField = BoolField("list-ticket-schemas", WithHidden(true), WithDescription("List ticket schemas"), WithPersistent(true))
-	provisioningField      = BoolField("provisioning", WithShortHand("p"), WithDescription("This must be set in order for provisioning actions to be enabled"), WithPersistent(true))
-	TicketingField         = BoolField("ticketing", WithDescription("This must be set to enable ticketing support"), WithPersistent(true))
-	c1zTmpDirField         = StringField("c1z-temp-dir", WithHidden(true), WithDescription("The directory to store temporary files in. It must exist, "+
+	createTicketField           = BoolField("create-ticket", WithHidden(true), WithDescription("Create ticket"), WithPersistent(true))
+	bulkCreateTicketField       = BoolField("bulk-create-ticket", WithHidden(true), WithDescription("Bulk create tickets"), WithPersistent(true))
+	bulkTicketTemplatePathField = StringField("bulk-ticket-template-path", WithHidden(true), WithDescription("A JSON file describing the ticket to create"), WithPersistent(true))
+	getTicketField              = BoolField("get-ticket", WithHidden(true), WithDescription("Get ticket"), WithPersistent(true))
+	ListTicketSchemasField      = BoolField("list-ticket-schemas", WithHidden(true), WithDescription("List ticket schemas"), WithPersistent(true))
+	provisioningField           = BoolField("provisioning", WithShortHand("p"), WithDescription("This must be set in order for provisioning actions to be enabled"), WithPersistent(true))
+	TicketingField              = BoolField("ticketing", WithDescription("This must be set to enable ticketing support"), WithPersistent(true))
+	c1zTmpDirField              = StringField("c1z-temp-dir", WithHidden(true), WithDescription("The directory to store temporary files in. It must exist, "+
 		"and write access is required. Defaults to the OS temporary directory."), WithPersistent(true))
 	clientIDField              = StringField("client-id", WithDescription("The client ID used to authenticate with ConductorOne"), WithPersistent(true))
 	clientSecretField          = StringField("client-secret", WithDescription("The client secret used to authenticate with ConductorOne"), WithPersistent(true))
@@ -34,6 +36,8 @@ var (
 // DefaultFields list the default fields expected in every single connector.
 var DefaultFields = []SchemaField{
 	createTicketField,
+	bulkCreateTicketField,
+	bulkTicketTemplatePathField,
 	getTicketField,
 	ListTicketSchemasField,
 	provisioningField,
