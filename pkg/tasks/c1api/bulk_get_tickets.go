@@ -49,8 +49,8 @@ func (c *bulkGetTicketTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
-	if len(resp.GetTickets()) == 0 {
-		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("connector returned no tickets"), ErrTaskNonRetryable))
+	if len(resp.GetTickets()) != len(t.GetTicketRequests()) {
+		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("connector returned incorrect number of tickets"), ErrTaskNonRetryable))
 	}
 
 	l.Debug("BulkGetTickets response", zap.Any("resp", resp))
