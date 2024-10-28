@@ -70,8 +70,8 @@ type TicketManager interface {
 	CreateTicket(ctx context.Context, ticket *v2.Ticket, schema *v2.TicketSchema) (*v2.Ticket, annotations.Annotations, error)
 	GetTicketSchema(ctx context.Context, schemaID string) (*v2.TicketSchema, annotations.Annotations, error)
 	ListTicketSchemas(ctx context.Context, pToken *pagination.Token) ([]*v2.TicketSchema, string, annotations.Annotations, error)
-	BulkCreateTickets(context.Context, *v2.TicketsServiceBulkCreateTicketRequest) (*v2.TicketsServiceBulkCreateTicketResponse, error)
-	BulkGetTickets(context.Context, *v2.TicketsServiceBulkGetTicketRequest) (*v2.TicketsServiceBulkGetTicketResponse, error)
+	BulkCreateTickets(context.Context, *v2.TicketsServiceBulkCreateTicketsRequest) (*v2.TicketsServiceBulkCreateTicketsResponse, error)
+	BulkGetTickets(context.Context, *v2.TicketsServiceBulkGetTicketsRequest) (*v2.TicketsServiceBulkGetTicketsResponse, error)
 }
 
 type ConnectorBuilder interface {
@@ -95,7 +95,7 @@ type builderImpl struct {
 	nowFunc                func() time.Time
 }
 
-func (b *builderImpl) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketRequest) (*v2.TicketsServiceBulkCreateTicketResponse, error) {
+func (b *builderImpl) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketsRequest) (*v2.TicketsServiceBulkCreateTicketsResponse, error) {
 	start := b.nowFunc()
 	tt := tasks.BulkCreateTicketsType
 	if b.ticketManager == nil {
@@ -116,12 +116,12 @@ func (b *builderImpl) BulkCreateTickets(ctx context.Context, request *v2.Tickets
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-	return &v2.TicketsServiceBulkCreateTicketResponse{
+	return &v2.TicketsServiceBulkCreateTicketsResponse{
 		Tickets: ticketsResponse.GetTickets(),
 	}, nil
 }
 
-func (b *builderImpl) BulkGetTickets(ctx context.Context, request *v2.TicketsServiceBulkGetTicketRequest) (*v2.TicketsServiceBulkGetTicketResponse, error) {
+func (b *builderImpl) BulkGetTickets(ctx context.Context, request *v2.TicketsServiceBulkGetTicketsRequest) (*v2.TicketsServiceBulkGetTicketsResponse, error) {
 	start := b.nowFunc()
 	tt := tasks.BulkGetTicketsType
 	if b.ticketManager == nil {
@@ -142,7 +142,7 @@ func (b *builderImpl) BulkGetTickets(ctx context.Context, request *v2.TicketsSer
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-	return &v2.TicketsServiceBulkGetTicketResponse{
+	return &v2.TicketsServiceBulkGetTicketsResponse{
 		Tickets: ticketsResponse.GetTickets(),
 	}, nil
 }

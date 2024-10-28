@@ -43,7 +43,7 @@ func (c *bulkCreateTicketTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	cc := c.helpers.ConnectorClient()
-	resp, err := cc.BulkCreateTickets(ctx, &v2.TicketsServiceBulkCreateTicketRequest{
+	resp, err := cc.BulkCreateTickets(ctx, &v2.TicketsServiceBulkCreateTicketsRequest{
 		TicketRequests: ticketRequests,
 	})
 	if err != nil {

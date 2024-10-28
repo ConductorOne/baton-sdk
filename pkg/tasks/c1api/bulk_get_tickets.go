@@ -42,7 +42,7 @@ func (c *bulkGetTicketTaskHandler) HandleTask(ctx context.Context) error {
 		})
 	}
 
-	resp, err := cc.BulkGetTickets(ctx, &v2.TicketsServiceBulkGetTicketRequest{
+	resp, err := cc.BulkGetTickets(ctx, &v2.TicketsServiceBulkGetTicketsRequest{
 		TicketRequests: ticketRequests,
 	})
 	if err != nil {

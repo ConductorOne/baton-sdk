@@ -117,7 +117,7 @@ func (m *localBulkCreateTicket) Process(ctx context.Context, task *v1.Task, cc t
 		})
 	}
 
-	bulkTicketReq := &v2.TicketsServiceBulkCreateTicketRequest{
+	bulkTicketReq := &v2.TicketsServiceBulkCreateTicketsRequest{
 		TicketRequests: ticketReqs,
 	}
 

@@ -26,8 +26,8 @@ type TicketsServiceClient interface {
 	GetTicket(ctx context.Context, in *TicketsServiceGetTicketRequest, opts ...grpc.CallOption) (*TicketsServiceGetTicketResponse, error)
 	ListTicketSchemas(ctx context.Context, in *TicketsServiceListTicketSchemasRequest, opts ...grpc.CallOption) (*TicketsServiceListTicketSchemasResponse, error)
 	GetTicketSchema(ctx context.Context, in *TicketsServiceGetTicketSchemaRequest, opts ...grpc.CallOption) (*TicketsServiceGetTicketSchemaResponse, error)
-	BulkCreateTickets(ctx context.Context, in *TicketsServiceBulkCreateTicketRequest, opts ...grpc.CallOption) (*TicketsServiceBulkCreateTicketResponse, error)
-	BulkGetTickets(ctx context.Context, in *TicketsServiceBulkGetTicketRequest, opts ...grpc.CallOption) (*TicketsServiceBulkGetTicketResponse, error)
+	BulkCreateTickets(ctx context.Context, in *TicketsServiceBulkCreateTicketsRequest, opts ...grpc.CallOption) (*TicketsServiceBulkCreateTicketsResponse, error)
+	BulkGetTickets(ctx context.Context, in *TicketsServiceBulkGetTicketsRequest, opts ...grpc.CallOption) (*TicketsServiceBulkGetTicketsResponse, error)
 }
 
 type ticketsServiceClient struct {
@@ -74,8 +74,8 @@ func (c *ticketsServiceClient) GetTicketSchema(ctx context.Context, in *TicketsS
 	return out, nil
 }
 
-func (c *ticketsServiceClient) BulkCreateTickets(ctx context.Context, in *TicketsServiceBulkCreateTicketRequest, opts ...grpc.CallOption) (*TicketsServiceBulkCreateTicketResponse, error) {
-	out := new(TicketsServiceBulkCreateTicketResponse)
+func (c *ticketsServiceClient) BulkCreateTickets(ctx context.Context, in *TicketsServiceBulkCreateTicketsRequest, opts ...grpc.CallOption) (*TicketsServiceBulkCreateTicketsResponse, error) {
+	out := new(TicketsServiceBulkCreateTicketsResponse)
 	err := c.cc.Invoke(ctx, "/c1.connector.v2.TicketsService/BulkCreateTickets", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -83,8 +83,8 @@ func (c *ticketsServiceClient) BulkCreateTickets(ctx context.Context, in *Ticket
 	return out, nil
 }
 
-func (c *ticketsServiceClient) BulkGetTickets(ctx context.Context, in *TicketsServiceBulkGetTicketRequest, opts ...grpc.CallOption) (*TicketsServiceBulkGetTicketResponse, error) {
-	out := new(TicketsServiceBulkGetTicketResponse)
+func (c *ticketsServiceClient) BulkGetTickets(ctx context.Context, in *TicketsServiceBulkGetTicketsRequest, opts ...grpc.CallOption) (*TicketsServiceBulkGetTicketsResponse, error) {
+	out := new(TicketsServiceBulkGetTicketsResponse)
 	err := c.cc.Invoke(ctx, "/c1.connector.v2.TicketsService/BulkGetTickets", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -100,8 +100,8 @@ type TicketsServiceServer interface {
 	GetTicket(context.Context, *TicketsServiceGetTicketRequest) (*TicketsServiceGetTicketResponse, error)
 	ListTicketSchemas(context.Context, *TicketsServiceListTicketSchemasRequest) (*TicketsServiceListTicketSchemasResponse, error)
 	GetTicketSchema(context.Context, *TicketsServiceGetTicketSchemaRequest) (*TicketsServiceGetTicketSchemaResponse, error)
-	BulkCreateTickets(context.Context, *TicketsServiceBulkCreateTicketRequest) (*TicketsServiceBulkCreateTicketResponse, error)
-	BulkGetTickets(context.Context, *TicketsServiceBulkGetTicketRequest) (*TicketsServiceBulkGetTicketResponse, error)
+	BulkCreateTickets(context.Context, *TicketsServiceBulkCreateTicketsRequest) (*TicketsServiceBulkCreateTicketsResponse, error)
+	BulkGetTickets(context.Context, *TicketsServiceBulkGetTicketsRequest) (*TicketsServiceBulkGetTicketsResponse, error)
 }
 
 // UnimplementedTicketsServiceServer should be embedded to have forward compatible implementations.
@@ -120,10 +120,10 @@ func (UnimplementedTicketsServiceServer) ListTicketSchemas(context.Context, *Tic
 func (UnimplementedTicketsServiceServer) GetTicketSchema(context.Context, *TicketsServiceGetTicketSchemaRequest) (*TicketsServiceGetTicketSchemaResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetTicketSchema not implemented")
 }
-func (UnimplementedTicketsServiceServer) BulkCreateTickets(context.Context, *TicketsServiceBulkCreateTicketRequest) (*TicketsServiceBulkCreateTicketResponse, error) {
+func (UnimplementedTicketsServiceServer) BulkCreateTickets(context.Context, *TicketsServiceBulkCreateTicketsRequest) (*TicketsServiceBulkCreateTicketsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BulkCreateTickets not implemented")
 }
-func (UnimplementedTicketsServiceServer) BulkGetTickets(context.Context, *TicketsServiceBulkGetTicketRequest) (*TicketsServiceBulkGetTicketResponse, error) {
+func (UnimplementedTicketsServiceServer) BulkGetTickets(context.Context, *TicketsServiceBulkGetTicketsRequest) (*TicketsServiceBulkGetTicketsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BulkGetTickets not implemented")
 }
 
@@ -211,7 +211,7 @@ func _TicketsService_GetTicketSchema_Handler(srv interface{}, ctx context.Contex
 }
 
 func _TicketsService_BulkCreateTickets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TicketsServiceBulkCreateTicketRequest)
+	in := new(TicketsServiceBulkCreateTicketsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -223,13 +223,13 @@ func _TicketsService_BulkCreateTickets_Handler(srv interface{}, ctx context.Cont
 		FullMethod: "/c1.connector.v2.TicketsService/BulkCreateTickets",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TicketsServiceServer).BulkCreateTickets(ctx, req.(*TicketsServiceBulkCreateTicketRequest))
+		return srv.(TicketsServiceServer).BulkCreateTickets(ctx, req.(*TicketsServiceBulkCreateTicketsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _TicketsService_BulkGetTickets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(TicketsServiceBulkGetTicketRequest)
+	in := new(TicketsServiceBulkGetTicketsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -241,7 +241,7 @@ func _TicketsService_BulkGetTickets_Handler(srv interface{}, ctx context.Context
 		FullMethod: "/c1.connector.v2.TicketsService/BulkGetTickets",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TicketsServiceServer).BulkGetTickets(ctx, req.(*TicketsServiceBulkGetTicketRequest))
+		return srv.(TicketsServiceServer).BulkGetTickets(ctx, req.(*TicketsServiceBulkGetTicketsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

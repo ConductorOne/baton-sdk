@@ -15,8 +15,8 @@ service TicketsService {
   rpc GetTicket(TicketsServiceGetTicketRequest) returns (TicketsServiceGetTicketResponse);
   rpc ListTicketSchemas(TicketsServiceListTicketSchemasRequest) returns (TicketsServiceListTicketSchemasResponse);
   rpc GetTicketSchema(TicketsServiceGetTicketSchemaRequest) returns (TicketsServiceGetTicketSchemaResponse);
-  rpc BulkCreateTickets(TicketsServiceBulkCreateTicketRequest) returns (TicketsServiceBulkCreateTicketResponse);
-  rpc BulkGetTickets(TicketsServiceBulkGetTicketRequest) returns (TicketsServiceBulkGetTicketResponse);
+  rpc BulkCreateTickets(TicketsServiceBulkCreateTicketsRequest) returns (TicketsServiceBulkCreateTicketsResponse);
+  rpc BulkGetTickets(TicketsServiceBulkGetTicketsRequest) returns (TicketsServiceBulkGetTicketsResponse);
 }
 
 message TicketSchema {
@@ -193,19 +193,19 @@ message TicketsServiceGetTicketResponse {
   string error = 3;
 }
 
-message TicketsServiceBulkCreateTicketRequest {
+message TicketsServiceBulkCreateTicketsRequest {
   repeated TicketsServiceCreateTicketRequest ticket_requests = 1;
 }
 
-message TicketsServiceBulkCreateTicketResponse {
+message TicketsServiceBulkCreateTicketsResponse {
   repeated TicketsServiceCreateTicketResponse tickets = 1;
 }
 
-message TicketsServiceBulkGetTicketRequest {
+message TicketsServiceBulkGetTicketsRequest {
   repeated TicketsServiceGetTicketRequest ticket_requests = 1;
 }
 
-message TicketsServiceBulkGetTicketResponse {
+message TicketsServiceBulkGetTicketsResponse {
   repeated TicketsServiceGetTicketResponse tickets = 1;
 }
 
