@@ -245,6 +245,10 @@ type createTicketConfig struct {
 	templatePath string
 }
 
+type bulkCreateTicketConfig struct {
+	templatePath string
+}
+
 type grantConfig struct {
 	entitlementID string
 	principalType string
@@ -291,6 +295,7 @@ type runnerConfig struct {
 	deleteResourceConfig    *deleteResourceConfig
 	rotateCredentialsConfig *rotateCredentialsConfig
 	createTicketConfig      *createTicketConfig
+	bulkCreateTicketConfig  *bulkCreateTicketConfig
 	listTicketSchemasConfig *listTicketSchemasConfig
 	getTicketConfig         *getTicketConfig
 	skipFullSync            bool
@@ -485,6 +490,16 @@ func WithCreateTicket(templatePath string) Option {
 	}
 }
 
+func WithBulkCreateTicket(templatePath string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.bulkCreateTicketConfig = &bulkCreateTicketConfig{
+			templatePath: templatePath,
+		}
+		return nil
+	}
+}
+
 func WithListTicketSchemas() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
@@ -549,7 +564,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	runner.cw = cw
 
 	if cfg.onDemand {
-		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil {
+		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil && cfg.bulkCreateTicketConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -584,6 +599,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewListTicketSchema(ctx)
 		case cfg.getTicketConfig != nil:
 			tm = local.NewGetTicket(ctx, cfg.getTicketConfig.ticketID)
+		case cfg.bulkCreateTicketConfig != nil:
+			tm = local.NewBulkTicket(ctx, cfg.bulkCreateTicketConfig.templatePath)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))
 			if err != nil {
