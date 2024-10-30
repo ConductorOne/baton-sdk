@@ -271,7 +271,9 @@ func MakeGRPCServerCommand(
 			return err
 		}
 
-		// NOTE (shackra): I don't understand this goroutine
+		// Avoid zombie processes. If the parent dies, this
+		// will cause Stdin on the child to close, and then
+		// the child will exit itself.
 		go func() {
 			in := make([]byte, 1)
 			_, err := os.Stdin.Read(in)
