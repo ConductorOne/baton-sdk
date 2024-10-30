@@ -188,10 +188,17 @@ func WithJSONResponse(response interface{}) DoOption {
 		}
 		err := json.Unmarshal(resp.Body, response)
 		if err != nil {
-			return fmt.Errorf("failed to unmarshal json response: %w. body %v", err, resp.Body)
+			return fmt.Errorf("failed to unmarshal json response: %w. body %v", err, logBody(resp.Body, 4096))
 		}
 		return nil
 	}
+}
+
+func logBody(body []byte, size int) string {
+	if len(body) > size {
+		return string(body[:size]) + " ..."
+	}
+	return string(body)
 }
 
 type ErrorResponse interface {
