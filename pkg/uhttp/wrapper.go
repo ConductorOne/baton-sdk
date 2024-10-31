@@ -181,10 +181,6 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 func WithJSONResponse(response interface{}) DoOption {
 	return func(resp *WrapperResponse) error {
 		contentHeader := resp.Header.Get(ContentType)
-		if contentHeader == "" {
-			// for some reason there was no header for content-type
-			contentHeader = "custom-mime/empty"
-		}
 
 		if !IsJSONContentType(contentHeader) {
 			if len(resp.Body) != 0 {
