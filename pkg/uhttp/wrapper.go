@@ -10,8 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -106,21 +104,6 @@ func NewBaseHttpClient(httpClient *http.Client, opts ...WrapperOption) *BaseHttp
 		return nil
 	}
 	return client
-}
-
-// getCacheTTL read the `BATON_HTTP_CACHE_TTL` environment variable and return
-// the value as a number of seconds between 0 and an arbitrary maximum. Note:
-// this means that passing a value of `-1` will set the TTL to zero rather than
-// infinity.
-func getCacheTTL() int64 {
-	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
-	if err != nil {
-		cacheTTL = cacheTTLDefault // seconds
-	}
-
-	cacheTTL = min(cacheTTLMaximum, max(0, cacheTTL))
-
-	return cacheTTL
 }
 
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, opts ...WrapperOption) (*BaseHttpClient, error) {

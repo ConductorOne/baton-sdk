@@ -576,32 +576,6 @@ func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
 	}, nil
 }
 
-// Len computes number of entries in cache.
-func (d *DBCache) len(ctx context.Context) (int, error) {
-	var count int = 0
-	if d.IsNilConnection() {
-		return -1, fmt.Errorf("%s", nilConnection)
-	}
-
-	l := ctxzap.Extract(ctx)
-	rows, err := d.db.QueryContext(ctx, `SELECT count(*) FROM http_cache`)
-	if err != nil {
-		l.Debug(errQueryingTable, zap.Error(err))
-		return -1, err
-	}
-
-	defer rows.Close()
-	for rows.Next() {
-		err = rows.Scan(&count)
-		if err != nil {
-			l.Debug("Failed to scan rows from table", zap.Error(err))
-			return -1, err
-		}
-	}
-
-	return count, nil
-}
-
 func (d *DBCache) Clear(ctx context.Context) error {
 	// TODO: Implement
 	return nil
