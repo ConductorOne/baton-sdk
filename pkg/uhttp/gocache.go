@@ -98,8 +98,7 @@ func NewCacheConfigFromCtx(ctx context.Context) (*CacheConfig, error) {
 func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 	l := ctxzap.Extract(ctx)
 
-	var noopCache icache = &NoopCache{}
-	cache := noopCache
+	var cache icache = &NoopCache{}
 
 	if config == nil {
 		config = NewCacheConfigFromEnv()
@@ -107,7 +106,7 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 
 	if config.CacheTTL <= 0 {
 		l.Debug("CacheTTL is <=0, disabling cache.", zap.Int64("CacheTTL", config.CacheTTL))
-		return noopCache, nil
+		return cache, nil
 	}
 
 	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
@@ -116,7 +115,7 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 	}
 	if disableCache {
 		l.Debug("BATON_DISABLE_HTTP_CACHE set, disabling cache.")
-		return noopCache, nil
+		return cache, nil
 	}
 
 	cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
