@@ -121,16 +121,16 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 		return nil, err
 	}
 
-	if cfg.CacheTTL <= 0 {
+	if cfg.TTL <= 0 {
 		l.Debug("Cache TTL is 0. Disabling cache.")
 		return nil, nil
 	}
 
-	if cfg.CacheTTL > cacheTTLThreshold {
-		dc.waitDuration = time.Duration(cfg.CacheTTL*cacheTTLMultiplier) * time.Second // set as a fraction of the Cache TTL
+	if cfg.TTL > cacheTTLThreshold {
+		dc.waitDuration = time.Duration(cfg.TTL*cacheTTLMultiplier) * time.Second // set as a fraction of the Cache TTL
 	}
 
-	dc.expirationTime = time.Duration(cfg.CacheTTL) * time.Second // time for removing expired key
+	dc.expirationTime = time.Duration(cfg.TTL) * time.Second // time for removing expired key
 
 	go func(waitDuration, expirationTime time.Duration) {
 		ctxWithTimeout, cancel := context.WithTimeout(

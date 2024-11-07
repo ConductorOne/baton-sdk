@@ -68,7 +68,7 @@ func TestDBCache(t *testing.T) {
 
 func getDBCacheForTesting() (*DBCache, error) {
 	fc, err := NewDBCache(ctx, CacheConfig{
-		CacheTTL: 3600,
+		TTL: 3600,
 	})
 	if err != nil {
 		return nil, err

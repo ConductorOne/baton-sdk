@@ -22,11 +22,29 @@ const (
 	defaultCacheSize = 50       // MB
 )
 
+type CacheBehavior string
+
+const (
+	CacheBehaviorDefault CacheBehavior = "default"
+	CacheBehaviorSparse  CacheBehavior = "sparse" // Only cache requests that have been requested more than once
+)
+
+type CacheBackend string
+
+const (
+	CacheBackendDB     CacheBackend = "db"
+	CacheBackendMemory CacheBackend = "memory"
+	CacheBackendNoop   CacheBackend = "noop"
+)
+
 type CacheConfig struct {
-	LogDebug     bool
-	CacheTTL     int64 // If 0, cache is disabled
-	CacheMaxSize int
+	LogDebug bool
+	TTL      int64 // If 0, cache is disabled
+	MaxSize  int   // MB
+	Behavior CacheBehavior
+	Backend  CacheBackend
 }
+
 type ContextKey struct{}
 
 type GoCache struct {
@@ -52,14 +70,16 @@ func (n *NoopCache) Clear(ctx context.Context) error {
 }
 
 func (cc *CacheConfig) ToString() string {
-	return fmt.Sprintf("CacheTTL: %d, CacheMaxSize: %d, LogDebug: %t", cc.CacheTTL, cc.CacheMaxSize, cc.LogDebug)
+	return fmt.Sprintf("CacheTTL: %d, CacheMaxSize: %d, LogDebug: %t Behavior: %v", cc.TTL, cc.MaxSize, cc.LogDebug, cc.Behavior)
 }
 
 func DefaultCacheConfig() CacheConfig {
 	return CacheConfig{
-		CacheTTL:     cacheTTLDefault,
-		CacheMaxSize: defaultCacheSize,
-		LogDebug:     false,
+		TTL:      cacheTTLDefault,
+		MaxSize:  defaultCacheSize,
+		LogDebug: false,
+		Behavior: CacheBehaviorDefault,
+		Backend:  CacheBackendMemory,
 	}
 }
 
@@ -68,7 +88,7 @@ func NewCacheConfigFromEnv() *CacheConfig {
 
 	cacheMaxSize, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_MAX_SIZE"), 10, 64)
 	if err == nil {
-		config.CacheMaxSize = int(cacheMaxSize)
+		config.MaxSize = int(cacheMaxSize)
 	}
 
 	// read the `BATON_HTTP_CACHE_TTL` environment variable and return
@@ -77,7 +97,33 @@ func NewCacheConfigFromEnv() *CacheConfig {
 	// infinity.
 	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
 	if err == nil {
-		config.CacheTTL = min(cacheTTLMaximum, max(0, cacheTTL))
+		config.TTL = min(cacheTTLMaximum, max(0, cacheTTL))
+	}
+
+	cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
+	switch cacheBackend {
+	case "db":
+		config.Backend = CacheBackendDB
+	case "memory":
+		config.Backend = CacheBackendMemory
+	case "noop":
+		config.Backend = CacheBackendNoop
+	}
+
+	cacheBehavior := os.Getenv("BATON_HTTP_CACHE_BEHAVIOR")
+	switch cacheBehavior {
+	case "sparse":
+		config.Behavior = CacheBehaviorSparse
+	case "default":
+		config.Behavior = CacheBehaviorDefault
+	}
+
+	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
+	if err != nil {
+		disableCache = false
+	}
+	if disableCache {
+		config.Backend = CacheBackendNoop
 	}
 
 	return &config
@@ -98,68 +144,54 @@ func NewCacheConfigFromCtx(ctx context.Context) (*CacheConfig, error) {
 func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 	l := ctxzap.Extract(ctx)
 
-	var cache icache = &NoopCache{}
-
 	if config == nil {
 		config = NewCacheConfigFromEnv()
 	}
 
-	if config.CacheTTL <= 0 {
-		l.Debug("CacheTTL is <=0, disabling cache.", zap.Int64("CacheTTL", config.CacheTTL))
-		return cache, nil
+	if config.TTL <= 0 {
+		l.Debug("CacheTTL is <=0, disabling cache.", zap.Int64("CacheTTL", config.TTL))
+		return NewNoopCache(ctx), nil
 	}
 
-	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
-	if err != nil {
-		disableCache = false
-	}
-	if disableCache {
-		l.Debug("BATON_DISABLE_HTTP_CACHE set, disabling cache.")
-		return cache, nil
-	}
-
-	cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
-	if cacheBackend == "" {
-		l.Debug("defaulting to db-cache")
-		cacheBackend = "db"
-	}
-
-	switch cacheBackend {
-	case "memory":
+	switch config.Backend {
+	case CacheBackendNoop:
+		l.Debug("Using noop cache")
+		return NewNoopCache(ctx), nil
+	case CacheBackendMemory:
 		l.Debug("Using in-memory cache")
 		memCache, err := NewGoCache(ctx, *config)
 		if err != nil {
-			l.Error("error creating http cache (in-memory)", zap.Error(err))
+			l.Error("error creating http cache (in-memory)", zap.Error(err), zap.Any("config", *config))
 			return nil, err
 		}
-		cache = memCache
-	case "db":
+		return memCache, nil
+	case CacheBackendDB:
 		l.Debug("Using db cache")
 		dbCache, err := NewDBCache(ctx, *config)
 		if err != nil {
-			l.Error("error creating http cache (db-cache)", zap.Error(err))
+			l.Error("error creating http cache (db-cache)", zap.Error(err), zap.Any("config", *config))
 			return nil, err
 		}
-		cache = dbCache
+		return dbCache, nil
 	}
 
-	return cache, nil
+	return NewNoopCache(ctx), nil
 }
 
 func NewGoCache(ctx context.Context, cfg CacheConfig) (*GoCache, error) {
 	l := ctxzap.Extract(ctx)
 	gc := GoCache{}
-	config := bigCache.DefaultConfig(time.Duration(cfg.CacheTTL) * time.Second)
+	config := bigCache.DefaultConfig(time.Duration(cfg.TTL) * time.Second)
 	config.Verbose = cfg.LogDebug
 	config.Shards = 4
-	config.HardMaxCacheSize = cfg.CacheMaxSize // value in MB, 0 value means no size limit
+	config.HardMaxCacheSize = cfg.MaxSize // value in MB, 0 value means no size limit
 	cache, err := bigCache.New(ctx, config)
 	if err != nil {
-		l.Error("http cache initialization error", zap.Error(err))
+		l.Error("bigcache initialization error", zap.Error(err))
 		return nil, err
 	}
 
-	l.Debug("http cache config",
+	l.Debug("bigcache config",
 		zap.Dict("config",
 			zap.Int("Shards", config.Shards),
 			zap.Duration("LifeWindow", config.LifeWindow),
