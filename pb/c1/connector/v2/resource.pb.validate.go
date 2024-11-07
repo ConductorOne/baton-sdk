@@ -312,10 +312,10 @@ func (m *ResourceTypesServiceListResourceTypesRequest) validate(all bool) error 
 
 	if m.GetPageToken() != "" {
 
-		if l := len(m.GetPageToken()); l < 1 || l > 4096 {
+		if l := len(m.GetPageToken()); l < 1 || l > 1048576 {
 			err := ResourceTypesServiceListResourceTypesRequestValidationError{
 				field:  "PageToken",
-				reason: "value length must be between 1 and 4096 bytes, inclusive",
+				reason: "value length must be between 1 and 1048576 bytes, inclusive",
 			}
 			if !all {
 				return err
@@ -502,10 +502,10 @@ func (m *ResourceTypesServiceListResourceTypesResponse) validate(all bool) error
 
 	if m.GetNextPageToken() != "" {
 
-		if l := len(m.GetNextPageToken()); l < 1 || l > 4096 {
+		if l := len(m.GetNextPageToken()); l < 1 || l > 1048576 {
 			err := ResourceTypesServiceListResourceTypesResponseValidationError{
 				field:  "NextPageToken",
-				reason: "value length must be between 1 and 4096 bytes, inclusive",
+				reason: "value length must be between 1 and 1048576 bytes, inclusive",
 			}
 			if !all {
 				return err
@@ -3209,10 +3209,10 @@ func (m *ResourcesServiceListResourcesRequest) validate(all bool) error {
 
 	if m.GetPageToken() != "" {
 
-		if l := len(m.GetPageToken()); l < 1 || l > 4096 {
+		if l := len(m.GetPageToken()); l < 1 || l > 1048576 {
 			err := ResourcesServiceListResourcesRequestValidationError{
 				field:  "PageToken",
-				reason: "value length must be between 1 and 4096 bytes, inclusive",
+				reason: "value length must be between 1 and 1048576 bytes, inclusive",
 			}
 			if !all {
 				return err
@@ -3397,10 +3397,10 @@ func (m *ResourcesServiceListResourcesResponse) validate(all bool) error {
 
 	if m.GetNextPageToken() != "" {
 
-		if l := len(m.GetNextPageToken()); l < 1 || l > 4096 {
+		if l := len(m.GetNextPageToken()); l < 1 || l > 1048576 {
 			err := ResourcesServiceListResourcesResponseValidationError{
 				field:  "NextPageToken",
-				reason: "value length must be between 1 and 4096 bytes, inclusive",
+				reason: "value length must be between 1 and 1048576 bytes, inclusive",
 			}
 			if !all {
 				return err
