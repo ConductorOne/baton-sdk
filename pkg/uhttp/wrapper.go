@@ -185,16 +185,16 @@ func WithJSONResponse(response interface{}) DoOption {
 		if !IsJSONContentType(contentHeader) {
 			if len(resp.Body) != 0 {
 				// we want to see the body regardless
-				return fmt.Errorf("unexpected content type for JSON response: %s. body: «%s»", contentHeader, logBody(resp.Body, 4096))
+				return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d. body: «%s»", contentHeader, resp.StatusCode, logBody(resp.Body, 4096))
 			}
-			return fmt.Errorf("unexpected content type for JSON response: %s", contentHeader)
+			return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d", contentHeader, resp.StatusCode)
 		}
 		if response == nil && len(resp.Body) == 0 {
 			return nil
 		}
 		err := json.Unmarshal(resp.Body, response)
 		if err != nil {
-			return fmt.Errorf("failed to unmarshal json response: %w. body %v", err, logBody(resp.Body, 4096))
+			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d. body %v", err, resp.StatusCode, logBody(resp.Body, 4096))
 		}
 		return nil
 	}
