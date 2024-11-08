@@ -38,7 +38,7 @@ message GrantsServiceListGrantsRequest {
   string page_token = 3 [(validate.rules).string = {
     ignore_empty: true
     min_bytes: 1
-    max_bytes: 4096
+    max_bytes: 1048576 // 1MB
   }];
   repeated google.protobuf.Any annotations = 4;
 }
@@ -48,7 +48,7 @@ message GrantsServiceListGrantsResponse {
   string next_page_token = 2 [(validate.rules).string = {
     ignore_empty: true
     min_bytes: 1
-    max_bytes: 4096
+    max_bytes: 1048576 // 1MB
   }];
   repeated google.protobuf.Any annotations = 3;
 }
