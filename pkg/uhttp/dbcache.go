@@ -81,6 +81,7 @@ var defaultWaitDuration = cacheTTLThreshold * time.Second // Default Cleanup int
 
 const tableName = "http_cache"
 
+// TODO (ggreer): obey c1z-temp-dir CLI arg or environment variable
 func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	var (
 		err error
