@@ -47,13 +47,6 @@ type CacheRow struct {
 	Url        string
 }
 
-type Stats struct {
-	// Hits is a number of successfully found keys
-	Hits int64 `json:"hits"`
-	// Misses is a number of not found keys
-	Misses int64 `json:"misses"`
-}
-
 // SqliteError implement sqlite error code.
 type SqliteError struct {
 	Code         int `json:"Code,omitempty"`         /* The error code returned by SQLite */
@@ -541,13 +534,13 @@ func (d *DBCache) queryString(field string) (string, []interface{}) {
 	}
 }
 
-func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
+func (d *DBCache) getStats(ctx context.Context) (CacheStats, error) {
 	var (
-		hits   = 0
-		misses = 0
+		hits   int64
+		misses int64
 	)
 	if d.IsNilConnection() {
-		return Stats{}, fmt.Errorf("%s", nilConnection)
+		return CacheStats{}, fmt.Errorf("%s", nilConnection)
 	}
 
 	l := ctxzap.Extract(ctx)
@@ -558,23 +551,31 @@ func (d *DBCache) getStats(ctx context.Context) (Stats, error) {
 	FROM http_stats
 	`)
 	if err != nil {
-		l.Debug(errQueryingTable, zap.Error(err))
-		return Stats{}, err
+		l.Warn(errQueryingTable, zap.Error(err))
+		return CacheStats{}, err
 	}
 
 	defer rows.Close()
 	for rows.Next() {
 		err = rows.Scan(&hits, &misses)
 		if err != nil {
-			l.Debug(failScanResponse, zap.Error(err))
-			return Stats{}, err
+			l.Warn(failScanResponse, zap.Error(err))
+			return CacheStats{}, err
 		}
 	}
 
-	return Stats{
-		Hits:   int64(hits),
-		Misses: int64(misses),
+	return CacheStats{
+		Hits:   hits,
+		Misses: misses,
 	}, nil
+}
+
+func (d *DBCache) Stats(ctx context.Context) CacheStats {
+	stats, err := d.getStats(ctx)
+	if err != nil {
+		return CacheStats{}
+	}
+	return stats
 }
 
 func (d *DBCache) Clear(ctx context.Context) error {

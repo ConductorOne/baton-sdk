@@ -295,6 +295,11 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return err
 	}
 
+	_, err = s.connector.Cleanup(ctx, &v2.ConnectorServiceCleanupRequest{})
+	if err != nil {
+		l.Error("error clearing connector caches", zap.Error(err))
+	}
+
 	return nil
 }
 

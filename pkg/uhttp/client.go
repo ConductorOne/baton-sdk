@@ -81,6 +81,7 @@ type icache interface {
 	Get(req *http.Request) (*http.Response, error)
 	Set(req *http.Request, value *http.Response) error
 	Clear(ctx context.Context) error
+	Stats(ctx context.Context) CacheStats
 }
 
 // CreateCacheKey generates a cache key based on the request URL, query parameters, and headers.

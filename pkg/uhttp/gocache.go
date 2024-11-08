@@ -45,19 +45,27 @@ type CacheConfig struct {
 	Backend  CacheBackend
 }
 
+type CacheStats struct {
+	Hits   int64
+	Misses int64
+}
+
 type ContextKey struct{}
 
 type GoCache struct {
 	rootLibrary *bigCache.BigCache
 }
 
-type NoopCache struct{}
+type NoopCache struct {
+	counter int64
+}
 
 func NewNoopCache(ctx context.Context) *NoopCache {
 	return &NoopCache{}
 }
 
 func (g *NoopCache) Get(req *http.Request) (*http.Response, error) {
+	g.counter++
 	return nil, nil
 }
 
@@ -69,8 +77,15 @@ func (n *NoopCache) Clear(ctx context.Context) error {
 	return nil
 }
 
+func (n *NoopCache) Stats(ctx context.Context) CacheStats {
+	return CacheStats{
+		Hits:   0,
+		Misses: n.counter,
+	}
+}
+
 func (cc *CacheConfig) ToString() string {
-	return fmt.Sprintf("CacheTTL: %d, CacheMaxSize: %d, LogDebug: %t Behavior: %v", cc.TTL, cc.MaxSize, cc.LogDebug, cc.Behavior)
+	return fmt.Sprintf("Backend: %v, TTL: %d, MaxSize: %dMB, LogDebug: %t, Behavior: %v", cc.Backend, cc.TTL, cc.MaxSize, cc.LogDebug, cc.Behavior)
 }
 
 func DefaultCacheConfig() CacheConfig {
@@ -148,6 +163,8 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 		config = NewCacheConfigFromEnv()
 	}
 
+	l.Info("http cache config", zap.String("config", config.ToString()))
+
 	if config.TTL <= 0 {
 		l.Debug("CacheTTL is <=0, disabling cache.", zap.Int64("CacheTTL", config.TTL))
 		return NewNoopCache(ctx), nil
@@ -207,12 +224,15 @@ func NewGoCache(ctx context.Context, cfg CacheConfig) (*GoCache, error) {
 	return &gc, nil
 }
 
-func (g *GoCache) Statistics() bigCache.Stats {
+func (g *GoCache) Stats(ctx context.Context) CacheStats {
 	if g.rootLibrary == nil {
-		return bigCache.Stats{}
+		return CacheStats{}
 	}
-
-	return g.rootLibrary.Stats()
+	stats := g.rootLibrary.Stats()
+	return CacheStats{
+		Hits:   stats.Hits,
+		Misses: stats.Misses,
+	}
 }
 
 func (g *GoCache) Get(req *http.Request) (*http.Response, error) {
