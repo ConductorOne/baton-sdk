@@ -35,6 +35,8 @@ const (
 	cacheTTLDefault           = 3600     // 3600 seconds = one hour
 )
 
+const maxBodySize = 4096
+
 type WrapperResponse struct {
 	Header     http.Header
 	Body       []byte
@@ -185,7 +187,7 @@ func WithJSONResponse(response interface{}) DoOption {
 		if !IsJSONContentType(contentHeader) {
 			if len(resp.Body) != 0 {
 				// we want to see the body regardless
-				return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d. body: «%s»", contentHeader, resp.StatusCode, logBody(resp.Body, 4096))
+				return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d. body: «%s»", contentHeader, resp.StatusCode, logBody(resp.Body, maxBodySize))
 			}
 			return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d", contentHeader, resp.StatusCode)
 		}
@@ -194,7 +196,7 @@ func WithJSONResponse(response interface{}) DoOption {
 		}
 		err := json.Unmarshal(resp.Body, response)
 		if err != nil {
-			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d. body %v", err, resp.StatusCode, logBody(resp.Body, 4096))
+			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d. body %v", err, resp.StatusCode, logBody(resp.Body, maxBodySize))
 		}
 		return nil
 	}
@@ -217,13 +219,15 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 			return nil
 		}
 
-		if !IsJSONContentType(resp.Header.Get(ContentType)) {
-			return fmt.Errorf("%v", string(resp.Body))
+		contentHeader := resp.Header.Get(ContentType)
+
+		if !IsJSONContentType(contentHeader) {
+			return fmt.Errorf("unexpected content type for JSON error response: %s. status code: %d. body: «%s»", contentHeader, resp.StatusCode, logBody(resp.Body, maxBodySize))
 		}
 
 		// Decode the JSON response body into the ErrorResponse
 		if err := json.Unmarshal(resp.Body, &resource); err != nil {
-			return status.Error(codes.Unknown, "Request failed with unknown error")
+			return fmt.Errorf("failed to unmarshal JSON error response: %w. status code: %d. body %v", err, resp.StatusCode, logBody(resp.Body, maxBodySize))
 		}
 
 		// Construct a more detailed error message
