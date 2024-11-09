@@ -1,7 +1,6 @@
 package uhttp
 
 import (
-	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -53,17 +52,16 @@ func TestDBCache(t *testing.T) {
 	fc, err := getDBCacheForTesting()
 	require.Nil(t, err)
 
-	err = fc.insert(ctx, "urlTest", urlTest, "http://example.com")
+	data := []byte("Testing 123")
+
+	err = fc.insert(ctx, "urlTest", data, "http://example.com")
 	require.Nil(t, err)
 
 	res, err := fc.pick(ctx, "urlTest")
 	require.Nil(t, err)
 	require.NotNil(t, res)
 
-	var val string
-	err = json.Unmarshal(res, &val)
-	require.Nil(t, err)
-	require.Equal(t, val, urlTest)
+	require.Equal(t, data, res)
 }
 
 func getDBCacheForTesting() (*DBCache, error) {

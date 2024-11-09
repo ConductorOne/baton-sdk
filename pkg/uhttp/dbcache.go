@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -210,6 +209,7 @@ func (d *DBCache) Get(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 	ctx := req.Context()
+	l := ctxzap.Extract(ctx)
 
 	entry, err := d.pick(ctx, key)
 	if err == nil && len(entry) > 0 {
@@ -222,18 +222,40 @@ func (d *DBCache) Get(req *http.Request) (*http.Response, error) {
 		isFound = true
 	}
 
-	if d.stats {
-		field := "misses"
-		if isFound {
-			field = "hits"
-		}
-		err = d.updateStats(ctx, field, key)
-		if err != nil {
-			ctxzap.Extract(ctx).Warn("Failed to update cache stats", zap.Error(err), zap.String("field", field))
-		}
+	field := "misses"
+	if isFound {
+		field = "hits"
+	}
+	err = d.updateStats(ctx, field, key)
+	if err != nil {
+		l.Warn("Failed to update cache stats", zap.Error(err), zap.String("field", field))
 	}
 
 	return resp, nil
+}
+
+func (d *DBCache) pick(ctx context.Context, key string) ([]byte, error) {
+	if d.db == nil {
+		return nil, errNilConnection
+	}
+
+	l := ctxzap.Extract(ctx)
+	ds := goqu.From(tableName).Select("value").Where(goqu.Ex{"key": key})
+	query, args, err := ds.ToSQL()
+	if err != nil {
+		l.Warn("Failed to create select statement", zap.Error(err))
+		return nil, err
+	}
+
+	var value []byte
+	row := d.db.QueryRowContext(ctx, query, args...)
+	err = row.Scan(&value)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		l.Warn(errQueryingTable, zap.Error(err), zap.String("sql", query), zap.Any("args", args))
+		return nil, err
+	}
+
+	return value, nil
 }
 
 // Set stores and save response in the db.
@@ -277,24 +299,12 @@ func (d *DBCache) cleanup(ctx context.Context) error {
 }
 
 // Insert data into the cache table.
-func (d *DBCache) insert(ctx context.Context, key string, value any, url string) error {
-	var (
-		bytes []byte
-		err   error
-		ok    bool
-	)
+func (d *DBCache) insert(ctx context.Context, key string, bytes []byte, url string) error {
 	if d.db == nil {
 		return errNilConnection
 	}
 
 	l := ctxzap.Extract(ctx)
-	if bytes, ok = value.([]byte); !ok {
-		bytes, err = json.Marshal(value)
-		if err != nil {
-			l.Warn("Failed to marshal response data", zap.Error(err))
-			return err
-		}
-	}
 
 	tx, err := d.db.Begin()
 	if err != nil {
@@ -344,32 +354,6 @@ func (d *DBCache) insert(ctx context.Context, key string, value any, url string)
 	return nil
 }
 
-// pick query for cached response.
-func (d *DBCache) pick(ctx context.Context, key string) ([]byte, error) {
-	var data []byte
-	if d.db == nil {
-		return nil, errNilConnection
-	}
-
-	l := ctxzap.Extract(ctx)
-	rows, err := d.db.QueryContext(ctx, "SELECT value FROM http_cache where key = ?", key)
-	if err != nil {
-		l.Warn(errQueryingTable, zap.Error(err))
-		return nil, err
-	}
-
-	defer rows.Close()
-	for rows.Next() {
-		err = rows.Scan(&data)
-		if err != nil {
-			l.Warn(failScanResponse, zap.Error(err))
-			return nil, err
-		}
-	}
-
-	return data, nil
-}
-
 // Delete all expired items from the cache.
 func (d *DBCache) deleteExpired(ctx context.Context) error {
 	if d.db == nil {
@@ -398,29 +382,30 @@ func (d *DBCache) deleteExpired(ctx context.Context) error {
 		if errtx := tx.Rollback(); errtx != nil {
 			l.Warn(failRollback, zap.Error(errtx))
 		}
-
 		l.Warn("Failed to commit after deleting expired cache entries", zap.Error(err))
-		return err
 	}
 
-	return nil
+	return err
 }
 
 func (d *DBCache) close(ctx context.Context) error {
-	if d.db == nil {
+	if d.rawDb == nil {
 		return errNilConnection
 	}
 
 	err := d.rawDb.Close()
 	if err != nil {
 		ctxzap.Extract(ctx).Warn("Failed to close database connection", zap.Error(err))
-		return err
 	}
 
-	return nil
+	return err
 }
 
 func (d *DBCache) updateStats(ctx context.Context, field, key string) error {
+	if !d.stats {
+		return nil
+	}
+
 	if d.db == nil {
 		return errNilConnection
 	}
