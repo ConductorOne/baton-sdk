@@ -145,7 +145,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 				}
 				return
 			case <-ticker.C:
-				err := dc.remove(ctx)
+				err := dc.deleteExpired(ctx)
 				if err != nil {
 					l.Warn("Failed to delete expired cache entries", zap.Error(err))
 				}
@@ -189,7 +189,7 @@ func (d *DBCache) removeDB(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	// TODO: close DB so no file handles exist and we can delete the file on windows
+
 	err = os.Remove(d.location)
 	if err != nil {
 		ctxzap.Extract(ctx).Warn("error removing cache database", zap.Error(err))
@@ -223,16 +223,13 @@ func (d *DBCache) Get(req *http.Request) (*http.Response, error) {
 	}
 
 	if d.stats {
+		field := "misses"
 		if isFound {
-			err = d.updateStats(ctx, "hits", key)
-			if err != nil {
-				ctxzap.Extract(ctx).Warn("Failed to update cache hits", zap.Error(err))
-			}
+			field = "hits"
 		}
-
-		err = d.updateStats(ctx, "misses", key)
+		err = d.updateStats(ctx, field, key)
 		if err != nil {
-			ctxzap.Extract(ctx).Warn("Failed to update cache misses", zap.Error(err))
+			ctxzap.Extract(ctx).Warn("Failed to update cache stats", zap.Error(err), zap.String("field", field))
 		}
 	}
 
@@ -374,7 +371,7 @@ func (d *DBCache) pick(ctx context.Context, key string) ([]byte, error) {
 }
 
 // Delete all expired items from the cache.
-func (d *DBCache) remove(ctx context.Context) error {
+func (d *DBCache) deleteExpired(ctx context.Context) error {
 	if d.db == nil {
 		return errNilConnection
 	}
