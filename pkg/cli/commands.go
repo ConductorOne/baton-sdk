@@ -231,7 +231,7 @@ func MakeGRPCServerCommand(
 		otelShutdown, err := uotel.InitOtel(
 			context.Background(),
 			v.GetString("otel-collector-endpoint"),
-			fmt.Sprintf("%s-grpc", name),
+			fmt.Sprintf("%s-server", name),
 		)
 		if err != nil {
 			return err
