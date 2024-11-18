@@ -7,6 +7,7 @@ services:
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
     ports:
+      - "4317:4317"
       - "9888:9888" # OpenTelemetry collector metrics endpoint for Prometheus
     links:
       - tempo
@@ -81,8 +82,6 @@ services:
     image: grafana/tempo:latest
     container_name: tempo
     ports:
-      - "4317:4317" # Tempo endpoint for receiving trace data (otlp grpc)
-      - "4318:4318" # Tempo endpoint for receiving trace data (otlp http)
       - "3200:3200" # Tempo UI
     volumes:
       - ./tempo.yaml:/etc/tempo.yaml
