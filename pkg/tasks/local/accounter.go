@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -41,6 +42,9 @@ func (m *localAccountManager) Next(ctx context.Context) (*v1.Task, time.Duration
 }
 
 func (m *localAccountManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+	ctx, span := tracer.Start(ctx, "localAccountManager.Process", trace.WithNewRoot())
+	defer span.End()
+
 	accountManager := provisioner.NewCreateAccountManager(cc, m.dbPath, m.login, m.email, m.profile)
 
 	err := accountManager.Run(ctx)

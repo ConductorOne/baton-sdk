@@ -26,6 +26,9 @@ type rotateCredentialsTaskHandler struct {
 }
 
 func (g *rotateCredentialsTaskHandler) HandleTask(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "rotateCredentialsTaskHandler.HandleTask")
+	defer span.End()
+
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.Id), zap.Stringer("task_type", tasks.GetType(g.task)))
 
 	t := g.task.GetRotateCredentials()

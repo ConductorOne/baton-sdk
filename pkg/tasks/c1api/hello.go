@@ -5,13 +5,14 @@ import (
 	"errors"
 	"runtime/debug"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/shirou/gopsutil/v3/host"
+	"go.uber.org/zap"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"github.com/shirou/gopsutil/v3/host"
-	"go.uber.org/zap"
 )
 
 type helloHelpers interface {
@@ -66,6 +67,9 @@ func (c *helloTaskHandler) buildInfo(ctx context.Context) *v1.BatonServiceHelloR
 }
 
 func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "helloTaskHandler.HandleTask")
+	defer span.End()
+
 	if c.task == nil {
 		return errors.New("cannot handle task: task is nil")
 	}

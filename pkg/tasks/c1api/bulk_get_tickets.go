@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"google.golang.org/protobuf/proto"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
-	"google.golang.org/protobuf/proto"
 )
 
 type bulkGetTicketsTaskHelpers interface {
@@ -24,6 +25,9 @@ type bulkGetTicketTaskHandler struct {
 }
 
 func (c *bulkGetTicketTaskHandler) HandleTask(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "bulkGetTicketTaskHandler.HandleTask")
+	defer span.End()
+
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()

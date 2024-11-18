@@ -5,9 +5,10 @@ package cli
 import (
 	"context"
 
+	"github.com/spf13/cobra"
+
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/spf13/cobra"
 )
 
 func isService() bool {

@@ -23,6 +23,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type GetConnectorFunc func(context.Context, *viper.Viper) (types.ConnectorServer, error)
@@ -54,6 +55,12 @@ func MakeMainCommand(
 		if err != nil {
 			return err
 		}
+
+		otelShutdown, err := uotel.InitOtel(context.Background(), v.GetString("otel-collector-endpoint"), name)
+		if err != nil {
+			return err
+		}
+		defer otelShutdown(context.Background())
 
 		l := ctxzap.Extract(runCtx)
 
@@ -220,6 +227,16 @@ func MakeGRPCServerCommand(
 		if err != nil {
 			return err
 		}
+
+		otelShutdown, err := uotel.InitOtel(
+			context.Background(),
+			v.GetString("otel-collector-endpoint"),
+			fmt.Sprintf("%s-grpc", name),
+		)
+		if err != nil {
+			return err
+		}
+		defer otelShutdown(context.Background())
 
 		// validate required fields and relationship constraints
 		if err := field.Validate(confschema, v); err != nil {
