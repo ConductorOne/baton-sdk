@@ -30,7 +30,7 @@ func WithTmpDir(tmpDir string) Option {
 }
 
 func (l *localManager) copyFileToTmp(ctx context.Context) error {
-	ctx, span := tracer.Start(ctx, "localManager.copyFileToTmp")
+	_, span := tracer.Start(ctx, "localManager.copyFileToTmp")
 	defer span.End()
 
 	tmp, err := os.CreateTemp(l.tmpDir, "sync-*.c1z")
@@ -143,7 +143,7 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 }
 
 func (l *localManager) Close(ctx context.Context) error {
-	ctx, span := tracer.Start(ctx, "localManager.Close")
+	_, span := tracer.Start(ctx, "localManager.Close")
 	defer span.End()
 
 	err := os.Remove(l.tmpPath)

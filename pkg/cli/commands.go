@@ -56,13 +56,18 @@ func MakeMainCommand(
 			return err
 		}
 
+		l := ctxzap.Extract(runCtx)
+
 		otelShutdown, err := uotel.InitOtel(context.Background(), v.GetString("otel-collector-endpoint"), name)
 		if err != nil {
 			return err
 		}
-		defer otelShutdown(context.Background())
-
-		l := ctxzap.Extract(runCtx)
+		defer func() {
+			err := otelShutdown(context.Background())
+			if err != nil {
+				l.Error("error shutting down otel", zap.Error(err))
+			}
+		}()
 
 		if isService() {
 			l.Debug("running as service", zap.String("name", name))
@@ -228,6 +233,8 @@ func MakeGRPCServerCommand(
 			return err
 		}
 
+		l := ctxzap.Extract(runCtx)
+
 		otelShutdown, err := uotel.InitOtel(
 			context.Background(),
 			v.GetString("otel-collector-endpoint"),
@@ -236,8 +243,12 @@ func MakeGRPCServerCommand(
 		if err != nil {
 			return err
 		}
-		defer otelShutdown(context.Background())
-
+		defer func() {
+			err := otelShutdown(context.Background())
+			if err != nil {
+				l.Error("error shutting down otel", zap.Error(err))
+			}
+		}()
 		// validate required fields and relationship constraints
 		if err := field.Validate(confschema, v); err != nil {
 			return err
