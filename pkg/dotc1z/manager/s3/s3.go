@@ -34,7 +34,7 @@ func WithTmpDir(tmpDir string) Option {
 }
 
 func (s *s3Manager) copyToTempFile(ctx context.Context, r io.Reader) error {
-	ctx, span := tracer.Start(ctx, "s3Manager.copyToTempFile")
+	_, span := tracer.Start(ctx, "s3Manager.copyToTempFile")
 	defer span.End()
 
 	f, err := os.CreateTemp(s.tmpDir, "sync-*.c1z")
@@ -146,7 +146,7 @@ func (s *s3Manager) SaveC1Z(ctx context.Context) error {
 }
 
 func (s *s3Manager) Close(ctx context.Context) error {
-	ctx, span := tracer.Start(ctx, "s3Manager.Close")
+	_, span := tracer.Start(ctx, "s3Manager.Close")
 	defer span.End()
 
 	err := os.Remove(s.tmpFile)

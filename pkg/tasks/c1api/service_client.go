@@ -65,7 +65,7 @@ func (c *c1ServiceClient) getHostID() string {
 func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.BatonServiceClient, func(), error) {
 	dialCtx, cancel := context.WithTimeout(ctx, time.Second*30)
 	defer cancel()
-	cc, err := grpc.DialContext(
+	cc, err := grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
 		dialCtx,
 		c.addr,
 		c.dialOpts...,
@@ -263,7 +263,7 @@ func newServiceClient(ctx context.Context, clientID string, clientSecret string)
 		})),
 		grpc.WithPerRPCCredentials(credProvider),
 		grpc.WithUserAgent(fmt.Sprintf("%s baton-sdk/%s", clientName, sdk.Version)),
-		grpc.WithBlock(),
+		grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
 	}
 
 	return &c1ServiceClient{

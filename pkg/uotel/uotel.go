@@ -33,6 +33,9 @@ func InitOtel(ctx context.Context, endpoint string, serviceName string) (func(co
 			semconv.ServiceNameKey.String(serviceName),
 		),
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create otel resource: %w", err)
+	}
 
 	var shutdowns []func(context.Context) error
 
@@ -41,13 +44,6 @@ func InitOtel(ctx context.Context, endpoint string, serviceName string) (func(co
 		return nil, fmt.Errorf("failed to initialize tracer provider: %w", err)
 	}
 	shutdowns = append(shutdowns, tracerShutdown)
-
-	//_, err = initMeterProvider(ctx, res, conn)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to initialize meter provider: %w", err)
-	//}
-	// TODO(jirwin): the meter shutdown causes an error on shutdown
-	//shutdowns = append(shutdowns, meterShutdown)
 
 	shutdowns = append(shutdowns, func(context.Context) error {
 		return conn.Close()
@@ -85,18 +81,3 @@ func initTracerProvider(ctx context.Context, res *resource.Resource, conn *grpc.
 
 	return tracerProvider.Shutdown, nil
 }
-
-//func initMeterProvider(ctx context.Context, res *resource.Resource, conn *grpc.ClientConn) (func(context.Context) error, error) {
-//	metricExporter, err := otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithGRPCConn(conn))
-//	if err != nil {
-//		return nil, fmt.Errorf("failed to create metrics exporter: %w", err)
-//	}
-//
-//	meterProvider := sdkmetric.NewMeterProvider(
-//		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
-//		sdkmetric.WithResource(res),
-//	)
-//	otel.SetMeterProvider(meterProvider)
-//
-//	return meterProvider.Shutdown, nil
-//}
