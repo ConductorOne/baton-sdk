@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -19,14 +20,16 @@ import (
 const (
 	cacheTTLMaximum  = 31536000 // 31536000 seconds = one year
 	cacheTTLDefault  = 3600     // 3600 seconds = one hour
-	defaultCacheSize = 50       // MB
+	defaultCacheSize = 5        // MB
 )
 
 type CacheBehavior string
 
 const (
 	CacheBehaviorDefault CacheBehavior = "default"
-	CacheBehaviorSparse  CacheBehavior = "sparse" // Only cache requests that have been requested more than once
+	// On the first time setting a value, make it empty. Get will return not found, so uhttp Do() will set it again.
+	// Then actually set the value. This effectively makes the cache only cache things that have been requested more than once.
+	CacheBehaviorSparse CacheBehavior = "sparse"
 )
 
 type CacheBackend string
@@ -54,6 +57,7 @@ type ContextKey struct{}
 
 type GoCache struct {
 	rootLibrary *bigCache.BigCache
+	behavior    CacheBehavior
 }
 
 type NoopCache struct {
@@ -65,6 +69,7 @@ func NewNoopCache(ctx context.Context) *NoopCache {
 }
 
 func (g *NoopCache) Get(req *http.Request) (*http.Response, error) {
+	// This isn't threadsafe but who cares? It's the noop cache.
 	g.counter++
 	return nil, nil
 }
@@ -198,6 +203,7 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 func NewGoCache(ctx context.Context, cfg CacheConfig) (*GoCache, error) {
 	l := ctxzap.Extract(ctx)
 	gc := GoCache{}
+	gc.behavior = cfg.Behavior
 	config := bigCache.DefaultConfig(time.Duration(cfg.TTL) * time.Second)
 	config.Verbose = cfg.LogDebug
 	config.Shards = 4
@@ -246,17 +252,24 @@ func (g *GoCache) Get(req *http.Request) (*http.Response, error) {
 	}
 
 	entry, err := g.rootLibrary.Get(key)
-	if err == nil {
-		r := bufio.NewReader(bytes.NewReader(entry))
-		resp, err := http.ReadResponse(r, nil)
-		if err != nil {
-			return nil, err
+	if err != nil {
+		if errors.Is(err, bigCache.ErrEntryNotFound) {
+			return nil, nil
 		}
-
-		return resp, nil
+		return nil, err
 	}
 
-	return nil, nil
+	if len(entry) == 0 {
+		return nil, nil
+	}
+
+	r := bufio.NewReader(bytes.NewReader(entry))
+	resp, err := http.ReadResponse(r, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return resp, nil
 }
 
 func (g *GoCache) Set(req *http.Request, value *http.Response) error {
@@ -269,12 +282,25 @@ func (g *GoCache) Set(req *http.Request, value *http.Response) error {
 		return err
 	}
 
-	cacheableResponse, err := httputil.DumpResponse(value, true)
+	newValue, err := httputil.DumpResponse(value, true)
 	if err != nil {
 		return err
 	}
 
-	err = g.rootLibrary.Set(key, cacheableResponse)
+	// If in sparse mode, the first time we call set on a key we make the value empty bytes.
+	// Subsequent calls to set actually set the value.
+	if g.behavior == CacheBehaviorSparse {
+		_, err := g.rootLibrary.Get(key)
+		if err != nil && !errors.Is(err, bigCache.ErrEntryNotFound) {
+			return err
+		}
+
+		if errors.Is(err, bigCache.ErrEntryNotFound) {
+			newValue = []byte{}
+		}
+	}
+
+	err = g.rootLibrary.Set(key, newValue)
 	if err != nil {
 		return err
 	}
