@@ -269,10 +269,7 @@ func (d *DBCache) Set(req *http.Request, value *http.Response) error {
 		return err
 	}
 
-	var url string
-	if value.Request != nil {
-		url = value.Request.URL.String()
-	}
+	url := req.URL.String()
 
 	err = d.insert(req.Context(),
 		key,
