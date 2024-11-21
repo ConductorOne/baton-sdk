@@ -113,6 +113,7 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 	cache, err := NewHttpCache(ctx, nil)
 	if err != nil {
 		l.Error("error creating http cache", zap.Error(err))
+		return nil, err
 	}
 	cli := &BaseHttpClient{
 		HttpClient:    httpClient,
