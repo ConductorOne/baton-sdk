@@ -73,7 +73,7 @@ func ClearCaches(ctx context.Context) error {
 	l.Debug("clearing caches")
 	var err error
 	for _, cache := range caches {
-		l.Info("clearing cache", zap.String("cache", fmt.Sprintf("%T", cache)), zap.Any("stats", cache.Stats(ctx)))
+		l.Debug("clearing cache", zap.String("cache", fmt.Sprintf("%T", cache)), zap.Any("stats", cache.Stats(ctx)))
 		err = cache.Clear(ctx)
 		if err != nil {
 			err = errors.Join(err, err)

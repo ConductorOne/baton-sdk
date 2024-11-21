@@ -46,17 +46,6 @@ type CacheRow struct {
 	Url        string
 }
 
-// SqliteError implement sqlite error code.
-type SqliteError struct {
-	Code         int `json:"Code,omitempty"`         /* The error code returned by SQLite */
-	ExtendedCode int `json:"ExtendedCode,omitempty"` /* The extended error code returned by SQLite */
-	err          string
-}
-
-func (b *SqliteError) Error() string {
-	return b.err
-}
-
 const (
 	failStartTransaction       = "Failed to start a transaction"
 	errQueryingTable           = "Error querying cache table"
