@@ -35,6 +35,280 @@ var (
 	_ = sort.Sort
 )
 
+// Validate checks the field values on ConnectorServiceCleanupRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ConnectorServiceCleanupRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ConnectorServiceCleanupRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// ConnectorServiceCleanupRequestMultiError, or nil if none found.
+func (m *ConnectorServiceCleanupRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ConnectorServiceCleanupRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ConnectorServiceCleanupRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ConnectorServiceCleanupRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ConnectorServiceCleanupRequestValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return ConnectorServiceCleanupRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// ConnectorServiceCleanupRequestMultiError is an error wrapping multiple
+// validation errors returned by ConnectorServiceCleanupRequest.ValidateAll()
+// if the designated constraints aren't met.
+type ConnectorServiceCleanupRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ConnectorServiceCleanupRequestMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ConnectorServiceCleanupRequestMultiError) AllErrors() []error { return m }
+
+// ConnectorServiceCleanupRequestValidationError is the validation error
+// returned by ConnectorServiceCleanupRequest.Validate if the designated
+// constraints aren't met.
+type ConnectorServiceCleanupRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ConnectorServiceCleanupRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ConnectorServiceCleanupRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ConnectorServiceCleanupRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ConnectorServiceCleanupRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ConnectorServiceCleanupRequestValidationError) ErrorName() string {
+	return "ConnectorServiceCleanupRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ConnectorServiceCleanupRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sConnectorServiceCleanupRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ConnectorServiceCleanupRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ConnectorServiceCleanupRequestValidationError{}
+
+// Validate checks the field values on ConnectorServiceCleanupResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ConnectorServiceCleanupResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ConnectorServiceCleanupResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// ConnectorServiceCleanupResponseMultiError, or nil if none found.
+func (m *ConnectorServiceCleanupResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ConnectorServiceCleanupResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ConnectorServiceCleanupResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ConnectorServiceCleanupResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ConnectorServiceCleanupResponseValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return ConnectorServiceCleanupResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// ConnectorServiceCleanupResponseMultiError is an error wrapping multiple
+// validation errors returned by ConnectorServiceCleanupResponse.ValidateAll()
+// if the designated constraints aren't met.
+type ConnectorServiceCleanupResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ConnectorServiceCleanupResponseMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ConnectorServiceCleanupResponseMultiError) AllErrors() []error { return m }
+
+// ConnectorServiceCleanupResponseValidationError is the validation error
+// returned by ConnectorServiceCleanupResponse.Validate if the designated
+// constraints aren't met.
+type ConnectorServiceCleanupResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ConnectorServiceCleanupResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ConnectorServiceCleanupResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ConnectorServiceCleanupResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ConnectorServiceCleanupResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ConnectorServiceCleanupResponseValidationError) ErrorName() string {
+	return "ConnectorServiceCleanupResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ConnectorServiceCleanupResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sConnectorServiceCleanupResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ConnectorServiceCleanupResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ConnectorServiceCleanupResponseValidationError{}
+
 // Validate checks the field values on ConnectorMetadata with the rules defined
 // in the proto definition for this message. If any rules are violated, the
 // first error encountered is returned, or nil if there are no violations.

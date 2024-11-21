@@ -171,3 +171,7 @@ func (mc *mockConnector) GetMetadata(ctx context.Context, in *v2.ConnectorServic
 func (mc *mockConnector) Validate(ctx context.Context, in *v2.ConnectorServiceValidateRequest, opts ...grpc.CallOption) (*v2.ConnectorServiceValidateResponse, error) {
 	return &v2.ConnectorServiceValidateResponse{}, nil
 }
+
+func (mc *mockConnector) Cleanup(ctx context.Context, in *v2.ConnectorServiceCleanupRequest, opts ...grpc.CallOption) (*v2.ConnectorServiceCleanupResponse, error) {
+	return &v2.ConnectorServiceCleanupResponse{}, nil
+}

@@ -10,8 +10,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -31,8 +29,6 @@ const (
 	applicationFormUrlencoded = "application/x-www-form-urlencoded"
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
-	cacheTTLMaximum           = 31536000 // 31536000 seconds = one year
-	cacheTTLDefault           = 3600     // 3600 seconds = one hour
 )
 
 const maxBodySize = 4096
@@ -70,13 +66,14 @@ type WrapperOption interface {
 }
 
 // Keep a handle on all caches so we can clear them later.
-var caches []GoCache
+var caches []icache
 
 func ClearCaches(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 	l.Debug("clearing caches")
 	var err error
 	for _, cache := range caches {
+		l.Debug("clearing cache", zap.String("cache", fmt.Sprintf("%T", cache)), zap.Any("stats", cache.Stats(ctx)))
 		err = cache.Clear(ctx)
 		if err != nil {
 			err = errors.Join(err, err)
@@ -93,19 +90,12 @@ type (
 	}
 	BaseHttpClient struct {
 		HttpClient    *http.Client
-		baseHttpCache GoCache
 		rateLimiter   uRateLimit.Limiter
+		baseHttpCache icache
 	}
 
 	DoOption      func(resp *WrapperResponse) error
 	RequestOption func() (io.ReadWriter, map[string]string, error)
-	ContextKey    struct{}
-	CacheConfig   struct {
-		LogDebug     bool
-		CacheTTL     int32
-		CacheMaxSize int
-		DisableCache bool
-	}
 )
 
 func NewBaseHttpClient(httpClient *http.Client, opts ...WrapperOption) *BaseHttpClient {
@@ -117,64 +107,26 @@ func NewBaseHttpClient(httpClient *http.Client, opts ...WrapperOption) *BaseHttp
 	return client
 }
 
-// getCacheTTL read the `BATON_HTTP_CACHE_TTL` environment variable and return
-// the value as a number of seconds between 0 and an arbitrary maximum. Note:
-// this means that passing a value of `-1` will set the TTL to zero rather than
-// infinity.
-func getCacheTTL() int32 {
-	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
-	if err != nil {
-		cacheTTL = cacheTTLDefault // seconds
-	}
-
-	cacheTTL = min(cacheTTLMaximum, max(0, cacheTTL))
-
-	//nolint:gosec // No risk of overflow because we have a low maximum.
-	return int32(cacheTTL)
-}
-
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, opts ...WrapperOption) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
-	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
-	if err != nil {
-		disableCache = false
-	}
-	cacheMaxSize, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_MAX_SIZE"), 10, 64)
-	if err != nil {
-		cacheMaxSize = 128 // MB
-	}
-	var (
-		config = CacheConfig{
-			LogDebug:     l.Level().Enabled(zap.DebugLevel),
-			CacheTTL:     getCacheTTL(),     // seconds
-			CacheMaxSize: int(cacheMaxSize), // MB
-			DisableCache: disableCache,
-		}
-		ok bool
-	)
-	if v := ctx.Value(ContextKey{}); v != nil {
-		if config, ok = v.(CacheConfig); !ok {
-			return nil, fmt.Errorf("error casting config values from context")
-		}
-	}
 
-	cache, err := NewGoCache(ctx, config)
+	cache, err := NewHttpCache(ctx, nil)
 	if err != nil {
 		l.Error("error creating http cache", zap.Error(err))
 		return nil, err
 	}
-	caches = append(caches, cache)
-
-	baseClient := &BaseHttpClient{
+	cli := &BaseHttpClient{
 		HttpClient:    httpClient,
 		baseHttpCache: cache,
 	}
 
+	caches = append(caches, cache)
+
 	for _, opt := range opts {
-		opt.Apply(baseClient)
+		opt.Apply(cli)
 	}
 
-	return baseClient, nil
+	return cli, nil
 }
 
 // WithJSONResponse is a wrapper that marshals the returned response body into
@@ -301,9 +253,8 @@ func WrapErrorsWithRateLimitInfo(preferredCode codes.Code, resp *http.Response, 
 
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
 	var (
-		cacheKey string
-		err      error
-		resp     *http.Response
+		err  error
+		resp *http.Response
 	)
 	l := ctxzap.Extract(req.Context())
 
@@ -313,19 +264,14 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if req.Method == http.MethodGet {
-		cacheKey, err = CreateCacheKey(req)
-		if err != nil {
-			return nil, err
-		}
-
-		resp, err = c.baseHttpCache.Get(cacheKey)
+		resp, err = c.baseHttpCache.Get(req)
 		if err != nil {
 			return nil, err
 		}
 		if resp == nil {
-			l.Debug("http cache miss", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()))
+			l.Debug("http cache miss", zap.String("url", req.URL.String()))
 		} else {
-			l.Debug("http cache hit", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()))
+			l.Debug("http cache hit", zap.String("url", req.URL.String()))
 		}
 	}
 
@@ -396,9 +342,9 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
-		cacheErr := c.baseHttpCache.Set(cacheKey, resp)
+		cacheErr := c.baseHttpCache.Set(req, resp)
 		if cacheErr != nil {
-			l.Warn("error setting cache", zap.String("cacheKey", cacheKey), zap.String("url", req.URL.String()), zap.Error(cacheErr))
+			l.Warn("error setting cache", zap.String("url", req.URL.String()), zap.Error(cacheErr))
 		}
 	}
 

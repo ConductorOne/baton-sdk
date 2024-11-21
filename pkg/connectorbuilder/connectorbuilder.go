@@ -406,13 +406,6 @@ func (b *builderImpl) ListResourceTypes(
 	tt := tasks.ListResourceTypesType
 	var out []*v2.ResourceType
 
-	l := ctxzap.Extract(ctx)
-	// Clear all http caches at the start of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
-	err := uhttp.ClearCaches(ctx)
-	if err != nil {
-		l.Warn("error clearing http caches", zap.Error(err))
-	}
-
 	for _, rb := range b.resourceBuilders {
 		out = append(out, rb.ResourceType(ctx))
 	}
@@ -798,6 +791,17 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		ResourceId:    request.GetResourceId(),
 		EncryptedData: encryptedDatas,
 	}, nil
+}
+
+func (b *builderImpl) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
+	l := ctxzap.Extract(ctx)
+	// Clear all http caches at the end of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
+	err := uhttp.ClearCaches(ctx)
+	if err != nil {
+		l.Warn("error clearing http caches", zap.Error(err))
+	}
+	resp := &v2.ConnectorServiceCleanupResponse{}
+	return resp, err
 }
 
 func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {

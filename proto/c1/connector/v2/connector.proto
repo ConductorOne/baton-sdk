@@ -10,9 +10,17 @@ import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
+message ConnectorServiceCleanupRequest {
+  repeated google.protobuf.Any annotations = 1;
+}
+message ConnectorServiceCleanupResponse {
+  repeated google.protobuf.Any annotations = 1;
+}
+
 service ConnectorService {
   rpc GetMetadata(ConnectorServiceGetMetadataRequest) returns (ConnectorServiceGetMetadataResponse);
   rpc Validate(ConnectorServiceValidateRequest) returns (ConnectorServiceValidateResponse);
+  rpc Cleanup(ConnectorServiceCleanupRequest) returns (ConnectorServiceCleanupResponse);
 }
 
 message ConnectorMetadata {
