@@ -49,6 +49,7 @@ type EntitlementGraph struct {
 	Loaded                bool                     `json:"loaded"`
 	Depth                 int                      `json:"depth"`
 	Actions               []EntitlementGraphAction `json:"actions"`
+	HasNoCycles           bool                     `json:"has_no_cycles"`
 }
 
 func NewEntitlementGraph(_ context.Context) *EntitlementGraph {
@@ -58,6 +59,7 @@ func NewEntitlementGraph(_ context.Context) *EntitlementGraph {
 		EntitlementsToNodes:   make(map[string]int),
 		Nodes:                 make(map[int]Node),
 		SourcesToDestinations: make(map[int]map[int]int),
+		HasNoCycles:           false,
 	}
 }
 
@@ -157,6 +159,7 @@ func (g *EntitlementGraph) AddEntitlement(entitlement *v2.Entitlement) {
 	if found != nil {
 		return
 	}
+	g.HasNoCycles = false // Reset this since we're changing the graph.
 
 	// Start at 1 in case we don't initialize something and try to get node 0.
 	g.NextNodeID++
@@ -266,6 +269,8 @@ func (g *EntitlementGraph) AddEdge(
 	} else {
 		g.DestinationsToSources[dstNode.Id] = make(map[int]int)
 	}
+
+	g.HasNoCycles = false // Reset this since we're changing the graph.
 
 	// Start at 1 in case we don't initialize something and try to get edge 0.
 	g.NextEdgeID++

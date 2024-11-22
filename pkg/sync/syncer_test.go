@@ -21,7 +21,7 @@ func BenchmarkExpandCircle(b *testing.B) {
 	defer cancel()
 
 	// create a loop of N entitlements
-	circleSize := 9
+	circleSize := 10
 	// with different principal + grants at each layer
 	usersPerLayer := 100
 	groupCount := 100
