@@ -44,22 +44,29 @@ type Syncer interface {
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
-	c1zManager        manager.Manager
-	c1zPath           string
-	store             connectorstore.Writer
-	connector         types.ConnectorClient
-	state             State
-	runDuration       time.Duration
-	transitionHandler func(s Action)
-	progressHandler   func(p *Progress)
-	tmpDir            string
-	skipFullSync      bool
+	c1zManager         manager.Manager
+	c1zPath            string
+	store              connectorstore.Writer
+	connector          types.ConnectorClient
+	state              State
+	runDuration        time.Duration
+	transitionHandler  func(s Action)
+	progressHandler    func(p *Progress)
+	tmpDir             string
+	skipFullSync       bool
+	lastCheckPointTime time.Time
 
 	skipEGForResourceType map[string]bool
 }
 
+const minCheckpointInterval = 10 * time.Second
+
 // Checkpoint marshals the current state and stores it.
 func (s *syncer) Checkpoint(ctx context.Context) error {
+	if time.Since(s.lastCheckPointTime) < minCheckpointInterval {
+		return nil
+	}
+	s.lastCheckPointTime = time.Now()
 	checkpoint, err := s.state.Marshal()
 	if err != nil {
 		return err
