@@ -63,7 +63,7 @@ const minCheckpointInterval = 10 * time.Second
 
 // Checkpoint marshals the current state and stores it.
 func (s *syncer) Checkpoint(ctx context.Context) error {
-	if time.Since(s.lastCheckPointTime) < minCheckpointInterval {
+	if !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < minCheckpointInterval {
 		return nil
 	}
 	s.lastCheckPointTime = time.Now()
