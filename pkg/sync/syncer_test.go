@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -33,7 +34,7 @@ func BenchmarkExpandCircle(b *testing.B) {
 	defer cancel()
 
 	// create a loop of N entitlements
-	circleSize := 10
+	circleSize := 7
 	// with different principal + grants at each layer
 	usersPerLayer := 100
 	groupCount := 100
@@ -58,19 +59,20 @@ func BenchmarkExpandCircle(b *testing.B) {
 			principal, err := mc.AddUser(ctx, pid)
 			require.NoError(b, err)
 
-			_ = mc.AddGroupMember(ctx, group, principal)
+			// This isn't needed because grant expansion will create this grant
+			// _ = mc.AddGroupMember(ctx, group, principal)
 			_ = mc.AddGroupMember(ctx, childGroup, principal)
 		}
 	}
 
 	// create the circle
-	for i := 0; i < circleSize; i++ {
-		currentResource := mc.resourceDB[i]
-		currentEnt := mc.entDB[currentResource.Id.Resource][0]
-		nextResource := mc.resourceDB[(i+1)%circleSize] // Wrap around to the start for the last element
-		nextEnt := mc.entDB[nextResource.Id.Resource][0]
+	for i := 0; i < circleSize; i += 1 {
+		groupId := "group_" + strconv.Itoa(i)
+		nextGroupId := "group_" + strconv.Itoa((i+1)%circleSize) // Wrap around to the start for the last element
+		currentEnt := mc.entDB[groupId][0]
+		nextEnt := mc.entDB[nextGroupId][0]
 
-		_ = mc.AddGroupMember(ctx, nextEnt.Resource, currentEnt.Resource, currentEnt)
+		_ = mc.AddGroupMember(ctx, currentEnt.Resource, nextEnt.Resource, nextEnt)
 	}
 
 	tempDir, err := os.MkdirTemp("", "baton-benchmark-expand-circle")
