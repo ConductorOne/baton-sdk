@@ -8,27 +8,29 @@ import (
 	"go.uber.org/zap"
 )
 
+// JSON tags for actions, edges, and nodes are short to minimize size of serialized data when checkpointing
+
 type EntitlementGraphAction struct {
-	SourceEntitlementID     string   `json:"source_entitlement_id"`
-	DescendantEntitlementID string   `json:"descendant_entitlement_id"`
-	Shallow                 bool     `json:"shallow"`
-	ResourceTypeIDs         []string `json:"resource_types_ids"`
-	PageToken               string   `json:"page_token"`
+	SourceEntitlementID     string   `json:"sid"`
+	DescendantEntitlementID string   `json:"did"`
+	Shallow                 bool     `json:"s"`
+	ResourceTypeIDs         []string `json:"rtids"`
+	PageToken               string   `json:"pt"`
 }
 
 type Edge struct {
-	EdgeID          int      `json:"edge_id"`
-	SourceID        int      `json:"source_id"`
-	DestinationID   int      `json:"destination_id"`
-	IsExpanded      bool     `json:"expanded"`
-	IsShallow       bool     `json:"shallow"`
-	ResourceTypeIDs []string `json:"resource_type_ids"`
+	EdgeID          int      `json:"id"`
+	SourceID        int      `json:"sid"`
+	DestinationID   int      `json:"did"`
+	IsExpanded      bool     `json:"e"`
+	IsShallow       bool     `json:"s"`
+	ResourceTypeIDs []string `json:"rtids"`
 }
 
 // Node represents a list of entitlements. It is the base element of the graph.
 type Node struct {
 	Id             int      `json:"id"`
-	EntitlementIDs []string `json:"entitlementIds"` // List of entitlements.
+	EntitlementIDs []string `json:"eids"` // List of entitlements.
 }
 
 // EntitlementGraph - a directed graph representing the relationships between

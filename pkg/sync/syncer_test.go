@@ -24,6 +24,7 @@ func BenchmarkExpandCircle(b *testing.B) {
 	circleSize := 9
 	// with different principal + grants at each layer
 	usersPerLayer := 100
+	groupCount := 100
 
 	mc := newMockConnector()
 
@@ -40,28 +41,59 @@ func BenchmarkExpandCircle(b *testing.B) {
 	}
 	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
 
-	for i := 0; i < circleSize; i++ {
-		resoruceId := "g_" + strconv.Itoa(i)
-		resoruce, err := rs.NewGroupResource(
-			resoruceId,
+	for i := 0; i < groupCount; i++ {
+		groupId := "group_" + strconv.Itoa(i)
+		group, err := rs.NewGroupResource(
+			groupId,
 			groupResourceType,
-			resoruceId,
+			groupId,
 			[]rs.GroupTraitOption{},
 		)
 		require.NoError(b, err)
-
-		mc.resourceDB = append(mc.resourceDB, resoruce)
+		mc.resourceDB = append(mc.resourceDB, group)
 
 		ent := et.NewAssignmentEntitlement(
-			resoruce,
+			group,
 			"member",
 			et.WithGrantableTo(groupResourceType, userResourceType),
 		)
 		ent.Slug = "member"
+		mc.entDB[groupId] = append(mc.entDB[groupId], ent)
 
-		mc.entDB = append(mc.entDB, ent)
+		childGroupId := "child_group_" + strconv.Itoa(i)
+		childGroup, err := rs.NewGroupResource(
+			childGroupId,
+			groupResourceType,
+			childGroupId,
+			[]rs.GroupTraitOption{},
+		)
+		require.NoError(b, err)
+
+		mc.resourceDB = append(mc.resourceDB, childGroup)
+
+		childEnt := et.NewAssignmentEntitlement(
+			childGroup,
+			"member",
+			et.WithGrantableTo(groupResourceType, userResourceType),
+		)
+		childEnt.Slug = "member"
+		mc.entDB[childGroupId] = append(mc.entDB[childGroupId], childEnt)
+
+		grant := gt.NewGrant(
+			group,
+			"member",
+			childGroup,
+			gt.WithAnnotation(&v2.GrantExpandable{
+				EntitlementIds: []string{
+					childEnt.Id,
+				},
+			}),
+		)
+
+		mc.grantDB[childGroupId] = append(mc.grantDB[childGroupId], grant)
+
 		for j := 0; j < usersPerLayer; j++ {
-			pid := "u_" + strconv.Itoa(i*usersPerLayer+j)
+			pid := "user_circle_" + strconv.Itoa(i*usersPerLayer+j)
 			principal, err := rs.NewUserResource(
 				pid,
 				userResourceType,
@@ -73,18 +105,27 @@ func BenchmarkExpandCircle(b *testing.B) {
 			mc.userDB = append(mc.userDB, principal)
 
 			grant := gt.NewGrant(
-				resoruce,
+				group,
 				"member",
 				principal,
 			)
-			mc.grantDB = append(mc.grantDB, grant)
+			mc.grantDB[groupId] = append(mc.grantDB[groupId], grant)
+
+			childGroupGrant := gt.NewGrant(
+				childGroup,
+				"member",
+				principal,
+			)
+			mc.grantDB[childGroupId] = append(mc.grantDB[childGroupId], childGroupGrant)
 		}
 	}
 
 	// create the circle
 	for i := 0; i < circleSize; i++ {
-		currentEnt := mc.entDB[i]
-		nextEnt := mc.entDB[(i+1)%circleSize] // Wrap around to the start for the last element
+		currentResource := mc.resourceDB[i]
+		currentEnt := mc.entDB[currentResource.Id.Resource][0]
+		nextResource := mc.resourceDB[(i+1)%circleSize] // Wrap around to the start for the last element
+		nextEnt := mc.entDB[nextResource.Id.Resource][0]
 
 		grant := gt.NewGrant(
 			nextEnt.Resource,
@@ -97,7 +138,7 @@ func BenchmarkExpandCircle(b *testing.B) {
 			}),
 		)
 
-		mc.grantDB = append(mc.grantDB, grant)
+		mc.grantDB[nextEnt.Resource.Id.Resource] = append(mc.grantDB[nextEnt.Resource.Id.Resource], grant)
 	}
 
 	tempDir, err := os.MkdirTemp("", "baton-benchmark-expand-circle")
@@ -120,9 +161,9 @@ func newMockConnector() *mockConnector {
 	mc := &mockConnector{
 		rtDB:       make([]*v2.ResourceType, 0),
 		resourceDB: make([]*v2.Resource, 0),
-		entDB:      make([]*v2.Entitlement, 0),
+		entDB:      make(map[string][]*v2.Entitlement),
 		userDB:     make([]*v2.Resource, 0),
-		grantDB:    make([]*v2.Grant, 0),
+		grantDB:    make(map[string][]*v2.Grant),
 	}
 	return mc
 }
@@ -131,9 +172,9 @@ type mockConnector struct {
 	metadata   *v2.ConnectorMetadata
 	rtDB       []*v2.ResourceType
 	resourceDB []*v2.Resource
-	entDB      []*v2.Entitlement
+	entDB      map[string][]*v2.Entitlement // resource id to entitlements
 	userDB     []*v2.Resource
-	grantDB    []*v2.Grant
+	grantDB    map[string][]*v2.Grant // resource id to grants
 	v2.AssetServiceClient
 	v2.GrantManagerServiceClient
 	v2.ResourceManagerServiceClient
@@ -155,11 +196,11 @@ func (mc *mockConnector) ListResources(ctx context.Context, in *v2.ResourcesServ
 }
 
 func (mc *mockConnector) ListEntitlements(ctx context.Context, in *v2.EntitlementsServiceListEntitlementsRequest, opts ...grpc.CallOption) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
-	return &v2.EntitlementsServiceListEntitlementsResponse{List: mc.entDB}, nil
+	return &v2.EntitlementsServiceListEntitlementsResponse{List: mc.entDB[in.Resource.Id.Resource]}, nil
 }
 
 func (mc *mockConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
-	return &v2.GrantsServiceListGrantsResponse{List: mc.grantDB}, nil
+	return &v2.GrantsServiceListGrantsResponse{List: mc.grantDB[in.Resource.Id.Resource]}, nil
 }
 
 func (mc *mockConnector) GetMetadata(ctx context.Context, in *v2.ConnectorServiceGetMetadataRequest, opts ...grpc.CallOption) (*v2.ConnectorServiceGetMetadataResponse, error) {
