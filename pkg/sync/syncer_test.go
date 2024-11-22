@@ -16,6 +16,18 @@ import (
 	"google.golang.org/grpc"
 )
 
+var groupResourceType = &v2.ResourceType{
+	Id:          "group",
+	DisplayName: "Group",
+	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
+}
+var userResourceType = &v2.ResourceType{
+	Id:          "user",
+	DisplayName: "User",
+	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
+	Annotations: annotations.New(&v2.SkipEntitlementsAndGrants{}),
+}
+
 func BenchmarkExpandCircle(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -28,95 +40,26 @@ func BenchmarkExpandCircle(b *testing.B) {
 
 	mc := newMockConnector()
 
-	groupResourceType := &v2.ResourceType{
-		Id:          "group",
-		DisplayName: "Group",
-		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
-	}
-	userResourceType := &v2.ResourceType{
-		Id:          "user",
-		DisplayName: "User",
-		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
-		Annotations: annotations.New(&v2.SkipEntitlementsAndGrants{}),
-	}
 	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
 
 	for i := 0; i < groupCount; i++ {
 		groupId := "group_" + strconv.Itoa(i)
-		group, err := rs.NewGroupResource(
-			groupId,
-			groupResourceType,
-			groupId,
-			[]rs.GroupTraitOption{},
-		)
+		group, _, err := mc.AddGroup(ctx, groupId)
 		require.NoError(b, err)
-		mc.resourceDB = append(mc.resourceDB, group)
-
-		ent := et.NewAssignmentEntitlement(
-			group,
-			"member",
-			et.WithGrantableTo(groupResourceType, userResourceType),
-		)
-		ent.Slug = "member"
-		mc.entDB[groupId] = append(mc.entDB[groupId], ent)
 
 		childGroupId := "child_group_" + strconv.Itoa(i)
-		childGroup, err := rs.NewGroupResource(
-			childGroupId,
-			groupResourceType,
-			childGroupId,
-			[]rs.GroupTraitOption{},
-		)
+		childGroup, childEnt, err := mc.AddGroup(ctx, childGroupId)
 		require.NoError(b, err)
 
-		mc.resourceDB = append(mc.resourceDB, childGroup)
-
-		childEnt := et.NewAssignmentEntitlement(
-			childGroup,
-			"member",
-			et.WithGrantableTo(groupResourceType, userResourceType),
-		)
-		childEnt.Slug = "member"
-		mc.entDB[childGroupId] = append(mc.entDB[childGroupId], childEnt)
-
-		grant := gt.NewGrant(
-			group,
-			"member",
-			childGroup,
-			gt.WithAnnotation(&v2.GrantExpandable{
-				EntitlementIds: []string{
-					childEnt.Id,
-				},
-			}),
-		)
-
-		mc.grantDB[childGroupId] = append(mc.grantDB[childGroupId], grant)
+		_ = mc.AddGroupMember(ctx, group, childGroup, childEnt)
 
 		for j := 0; j < usersPerLayer; j++ {
-			pid := "user_circle_" + strconv.Itoa(i*usersPerLayer+j)
-			principal, err := rs.NewUserResource(
-				pid,
-				userResourceType,
-				pid,
-				[]rs.UserTraitOption{},
-				rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}),
-			)
+			pid := "user_" + strconv.Itoa(i*usersPerLayer+j)
+			principal, err := mc.AddUser(ctx, pid)
 			require.NoError(b, err)
-			mc.userDB = append(mc.userDB, principal)
 
-			grant := gt.NewGrant(
-				group,
-				"member",
-				principal,
-			)
-			mc.grantDB[groupId] = append(mc.grantDB[groupId], grant)
-
-			childGroupGrant := gt.NewGrant(
-				childGroup,
-				"member",
-				principal,
-			)
-			mc.grantDB[childGroupId] = append(mc.grantDB[childGroupId], childGroupGrant)
+			_ = mc.AddGroupMember(ctx, group, principal)
+			_ = mc.AddGroupMember(ctx, childGroup, principal)
 		}
 	}
 
@@ -127,18 +70,7 @@ func BenchmarkExpandCircle(b *testing.B) {
 		nextResource := mc.resourceDB[(i+1)%circleSize] // Wrap around to the start for the last element
 		nextEnt := mc.entDB[nextResource.Id.Resource][0]
 
-		grant := gt.NewGrant(
-			nextEnt.Resource,
-			"member",
-			currentEnt.Resource,
-			gt.WithAnnotation(&v2.GrantExpandable{
-				EntitlementIds: []string{
-					currentEnt.Id,
-				},
-			}),
-		)
-
-		mc.grantDB[nextEnt.Resource.Id.Resource] = append(mc.grantDB[nextEnt.Resource.Id.Resource], grant)
+		_ = mc.AddGroupMember(ctx, nextEnt.Resource, currentEnt.Resource, currentEnt)
 	}
 
 	tempDir, err := os.MkdirTemp("", "baton-benchmark-expand-circle")
@@ -182,6 +114,69 @@ type mockConnector struct {
 	v2.CredentialManagerServiceClient
 	v2.EventServiceClient
 	v2.TicketsServiceClient
+}
+
+func (mc *mockConnector) AddGroup(ctx context.Context, groupId string) (*v2.Resource, *v2.Entitlement, error) {
+	group, err := rs.NewGroupResource(
+		groupId,
+		groupResourceType,
+		groupId,
+		[]rs.GroupTraitOption{},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	mc.resourceDB = append(mc.resourceDB, group)
+
+	ent := et.NewAssignmentEntitlement(
+		group,
+		"member",
+		et.WithGrantableTo(groupResourceType, userResourceType),
+	)
+	ent.Slug = "member"
+	mc.entDB[groupId] = append(mc.entDB[groupId], ent)
+
+	return group, ent, nil
+}
+
+func (mc *mockConnector) AddUser(ctx context.Context, userId string) (*v2.Resource, error) {
+	user, err := rs.NewUserResource(
+		userId,
+		userResourceType,
+		userId,
+		[]rs.UserTraitOption{},
+		rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	mc.userDB = append(mc.userDB, user)
+	return user, nil
+}
+
+func (mc *mockConnector) AddGroupMember(ctx context.Context, resource *v2.Resource, principal *v2.Resource, expandEnts ...*v2.Entitlement) *v2.Grant {
+	grantOpts := []gt.GrantOption{}
+
+	for _, ent := range expandEnts {
+		grantOpts = append(grantOpts, gt.WithAnnotation(&v2.GrantExpandable{
+			EntitlementIds: []string{
+				ent.Id,
+			},
+		}))
+	}
+
+	grant := gt.NewGrant(
+		resource,
+		"member",
+		principal,
+		grantOpts...,
+	)
+
+	mc.grantDB[resource.Id.Resource] = append(mc.grantDB[resource.Id.Resource], grant)
+
+	return grant
 }
 
 func (mc *mockConnector) ListResourceTypes(context.Context, *v2.ResourceTypesServiceListResourceTypesRequest, ...grpc.CallOption) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
