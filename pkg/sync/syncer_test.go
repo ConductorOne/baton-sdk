@@ -189,10 +189,13 @@ func (mc *mockConnector) ListResourceTypes(context.Context, *v2.ResourceTypesSer
 }
 
 func (mc *mockConnector) ListResources(ctx context.Context, in *v2.ResourcesServiceListResourcesRequest, opts ...grpc.CallOption) (*v2.ResourcesServiceListResourcesResponse, error) {
-	all := make([]*v2.Resource, 0, len(mc.resourceDB)+len(mc.userDB))
-	all = append(all, mc.resourceDB...)
-	all = append(all, mc.userDB...)
-	return &v2.ResourcesServiceListResourcesResponse{List: all}, nil
+	if in.ResourceTypeId == "group" {
+		return &v2.ResourcesServiceListResourcesResponse{List: mc.resourceDB}, nil
+	}
+	if in.ResourceTypeId == "user" {
+		return &v2.ResourcesServiceListResourcesResponse{List: mc.userDB}, nil
+	}
+	return nil, fmt.Errorf("unknown resource type %s", in.ResourceTypeId)
 }
 
 func (mc *mockConnector) ListEntitlements(ctx context.Context, in *v2.EntitlementsServiceListEntitlementsRequest, opts ...grpc.CallOption) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
