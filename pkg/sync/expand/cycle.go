@@ -8,6 +8,9 @@ import (
 // exists. Returns nil if no cycle exists. If there is a single
 // node pointing to itself, that will count as a cycle.
 func (g *EntitlementGraph) GetFirstCycle() []int {
+	if g.HasNoCycles {
+		return nil
+	}
 	visited := mapset.NewSet[int]()
 	for nodeID := range g.Nodes {
 		cycle, hasCycle := g.cycleDetectionHelper(nodeID, visited, []int{})
@@ -87,8 +90,12 @@ func (g *EntitlementGraph) removeNode(nodeID int) {
 // FixCycles if any cycles of nodes exist, merge all nodes in that cycle into a
 // single node and then repeat. Iteration ends when there are no more cycles.
 func (g *EntitlementGraph) FixCycles() error {
+	if g.HasNoCycles {
+		return nil
+	}
 	cycle := g.GetFirstCycle()
 	if cycle == nil {
+		g.HasNoCycles = true
 		return nil
 	}
 
