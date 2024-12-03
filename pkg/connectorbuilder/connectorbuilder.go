@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -586,6 +587,7 @@ func getCapabilities(ctx context.Context, b *builderImpl) *v2.ConnectorCapabilit
 	for c := range connectorCaps {
 		caps = append(caps, c)
 	}
+	slices.Sort(caps)
 
 	return &v2.ConnectorCapabilities{
 		ResourceTypeCapabilities: resourceTypeCapabilities,
