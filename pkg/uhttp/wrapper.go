@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"syscall"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -154,6 +155,20 @@ func WithJSONResponse(response interface{}) DoOption {
 	}
 }
 
+// Ignore content type header and always try to parse the response as JSON.
+func WithAlwaysJSONResponse(response interface{}) DoOption {
+	return func(resp *WrapperResponse) error {
+		if response == nil && len(resp.Body) == 0 {
+			return nil
+		}
+		err := json.Unmarshal(resp.Body, response)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d. body %v", err, resp.StatusCode, logBody(resp.Body, maxBodySize))
+		}
+		return nil
+	}
+}
+
 func logBody(body []byte, size int) string {
 	if len(body) > size {
 		return string(body[:size]) + " ..."
@@ -234,6 +249,17 @@ func WithResponse(response interface{}) DoOption {
 	}
 }
 
+func WrapErrors(preferredCode codes.Code, statusMsg string, errs ...error) error {
+	st := status.New(preferredCode, statusMsg)
+
+	if len(errs) == 0 {
+		return st.Err()
+	}
+
+	allErrs := append([]error{st.Err()}, errs...)
+	return errors.Join(allErrs...)
+}
+
 func WrapErrorsWithRateLimitInfo(preferredCode codes.Code, resp *http.Response, errs ...error) error {
 	st := status.New(preferredCode, resp.Status)
 
@@ -281,7 +307,10 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 			var urlErr *url.Error
 			if errors.As(err, &urlErr) {
 				if urlErr.Timeout() {
-					return nil, status.Error(codes.DeadlineExceeded, fmt.Sprintf("request timeout: %v", urlErr.URL))
+					return nil, WrapErrors(codes.DeadlineExceeded, fmt.Sprintf("request timeout: %v", urlErr.URL), urlErr)
+				}
+				if urlErr.Temporary() {
+					return nil, WrapErrors(codes.Unavailable, fmt.Sprintf("temporary error: %v", urlErr.URL), urlErr)
 				}
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -296,6 +325,13 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	if err != nil {
 		if len(body) > 0 {
 			resp.Body = io.NopCloser(bytes.NewBuffer(body))
+		}
+		// Turn certain body read errors into grpc statuses so we retry
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return resp, WrapErrors(codes.Unavailable, "unexpected EOF", err)
+		}
+		if errors.Is(err, syscall.ECONNRESET) {
+			return resp, WrapErrors(codes.Unavailable, "connection reset", err)
 		}
 		return resp, err
 	}
