@@ -27,7 +27,6 @@ create table if not exists %s (
     discovered_at datetime not null
 );
 create index if not exists %s on %s (resource_type_id, resource_id);
-create index if not exists %s on %s (entitlement_id);
 create index if not exists %s on %s (principal_resource_type_id, principal_resource_id);
 create index if not exists %s on %s (entitlement_id, principal_resource_type_id, principal_resource_id);
 create unique index if not exists %s on %s (external_id, sync_id);`
@@ -48,8 +47,6 @@ func (r *grantsTable) Schema() (string, []interface{}) {
 	return grantsTableSchema, []interface{}{
 		r.Name(),
 		fmt.Sprintf("idx_resource_types_external_sync_v%s", r.Version()),
-		r.Name(),
-		fmt.Sprintf("idx_grants_entitlement_id_v%s", r.Version()),
 		r.Name(),
 		fmt.Sprintf("idx_grants_principal_id_v%s", r.Version()),
 		r.Name(),
