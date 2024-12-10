@@ -207,6 +207,12 @@ func NewGoCache(ctx context.Context, cfg CacheConfig) (*GoCache, error) {
 	config := bigCache.DefaultConfig(time.Duration(cfg.TTL) * time.Second)
 	config.Verbose = cfg.LogDebug
 	config.Shards = 4
+	if cfg.MaxSize > 0 && cfg.MaxSize < config.Shards {
+		// BigCache's config.maximumShardSizeInBytes does integer division, which returns zero if there are more shards than megabytes.
+		// Zero means unlimited cache size on each shard, so max size is effectively ignored.
+		// Work around this bug by increasing the max size to the number of shards. (4, so 4MB)
+		cfg.MaxSize = config.Shards
+	}
 	config.HardMaxCacheSize = cfg.MaxSize // value in MB, 0 value means no size limit
 	cache, err := bigCache.New(ctx, config)
 	if err != nil {
