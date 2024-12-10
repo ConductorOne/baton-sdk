@@ -37,6 +37,77 @@ func marshalJWK(t *testing.T, privKey interface{}) (*v2.EncryptionConfig, []byte
 	return config, privJWKBytes
 }
 
+func TestMultiRecipientEncrypton(t *testing.T) {
+	ctx := context.Background()
+	provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwk)
+	require.NoError(t, err)
+
+	config, key1, err := provider.GenerateKey(ctx)
+	require.NoError(t, err)
+	config2, key2, err := provider.GenerateKey(ctx)
+	require.NoError(t, err)
+	config3, key3, err := provider.GenerateKey(ctx)
+	require.NoError(t, err)
+
+	// try with an RSA key as well
+	privKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	config4, key4 := marshalJWK(t, privKey)
+
+	plainText := &v2.PlaintextData{
+		Name:        "password",
+		Description: "this is the password",
+		Schema:      "",
+		Bytes:       []byte("hunter2"),
+	}
+
+	cipherTexts, err := provider.Encrypt(ctx, []*v2.EncryptionConfig{config, config2, config3, config4}, plainText)
+	require.NoError(t, err)
+	require.Len(t, cipherTexts, 1)
+
+	cipherText := cipherTexts[0]
+	require.Equal(t, plainText.Name, cipherText.Name)
+	require.Equal(t, plainText.Description, cipherText.Description)
+	require.Equal(t, plainText.Schema, cipherText.Schema)
+	require.NotEqual(t, plainText.Bytes, cipherText.EncryptedBytes)
+	require.Greater(t, len(cipherText.EncryptedBytes), len(plainText.Bytes))
+
+	decryptedText, err := provider.Decrypt(ctx, cipherText, key1)
+	require.NoError(t, err)
+	require.Equal(t, plainText.Name, decryptedText.Name)
+	require.Equal(t, plainText.Description, decryptedText.Description)
+	require.Equal(t, plainText.Schema, decryptedText.Schema)
+	require.Equal(t, plainText.Bytes, decryptedText.Bytes)
+
+	decryptedText, err = provider.Decrypt(ctx, cipherText, key2)
+	require.NoError(t, err)
+	require.Equal(t, plainText.Name, decryptedText.Name)
+	require.Equal(t, plainText.Description, decryptedText.Description)
+	require.Equal(t, plainText.Schema, decryptedText.Schema)
+	require.Equal(t, plainText.Bytes, decryptedText.Bytes)
+
+	decryptedText, err = provider.Decrypt(ctx, cipherText, key3)
+	require.NoError(t, err)
+	require.Equal(t, plainText.Name, decryptedText.Name)
+	require.Equal(t, plainText.Description, decryptedText.Description)
+	require.Equal(t, plainText.Schema, decryptedText.Schema)
+	require.Equal(t, plainText.Bytes, decryptedText.Bytes)
+
+	decryptedText, err = provider.Decrypt(ctx, cipherText, key4)
+	require.NoError(t, err)
+	require.Equal(t, plainText.Name, decryptedText.Name)
+	require.Equal(t, plainText.Description, decryptedText.Description)
+	require.Equal(t, plainText.Schema, decryptedText.Schema)
+	require.Equal(t, plainText.Bytes, decryptedText.Bytes)
+
+	// but some random new key shouldn't work
+	_, badKey, err := provider.GenerateKey(ctx)
+	require.NoError(t, err)
+	_, err = provider.Decrypt(ctx, cipherText, badKey)
+	require.Error(t, err)
+
+}
+
 func testEncryptionProvider(t *testing.T, ctx context.Context, config *v2.EncryptionConfig, privKey []byte) {
 	provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwk)
 	require.NoError(t, err)
@@ -47,8 +118,10 @@ func testEncryptionProvider(t *testing.T, ctx context.Context, config *v2.Encryp
 		Schema:      "",
 		Bytes:       []byte("hunter2"),
 	}
-	cipherText, err := provider.Encrypt(ctx, config, plainText)
+	cipherTexts, err := provider.Encrypt(ctx, []*v2.EncryptionConfig{config}, plainText)
 	require.NoError(t, err)
+	require.Len(t, cipherTexts, 1)
+	cipherText := cipherTexts[0]
 
 	require.Equal(t, plainText.Name, cipherText.Name)
 	require.Equal(t, plainText.Description, cipherText.Description)
@@ -138,7 +211,7 @@ func TestEncryptionProviderJWKSymmetric(t *testing.T) {
 		Schema:      "",
 		Bytes:       []byte("hunter2"),
 	}
-	cipherText, err := provider.Encrypt(ctx, config, plainText)
+	cipherText, err := provider.Encrypt(ctx, []*v2.EncryptionConfig{config}, plainText)
 	require.ErrorIs(t, err, jwk.JWKUnsupportedKeyTypeError)
 	require.Nil(t, cipherText)
 }
