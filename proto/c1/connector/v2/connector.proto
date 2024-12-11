@@ -45,7 +45,6 @@ message ConnectorMetadata {
     ignore_empty: true
   }];
   ConnectorCapabilities capabilities = 8;
-  CredentialDetails credential_details = 9;
 }
 
 enum Capability {
@@ -85,6 +84,7 @@ message CredentialDetailsCredentialRotation {
 message ConnectorCapabilities {
   repeated ResourceTypeCapability resource_type_capabilities = 1;
   repeated Capability connector_capabilities = 2;
+  CredentialDetails credential_details = 3;
 }
 
 message ResourceTypeCapability {
