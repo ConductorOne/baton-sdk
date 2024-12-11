@@ -105,7 +105,6 @@ func TestMultiRecipientEncrypton(t *testing.T) {
 	require.NoError(t, err)
 	_, err = provider.Decrypt(ctx, cipherText, badKey)
 	require.Error(t, err)
-
 }
 
 func testEncryptionProvider(t *testing.T, ctx context.Context, config *v2.EncryptionConfig, privKey []byte) {

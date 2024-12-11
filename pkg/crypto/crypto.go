@@ -41,7 +41,7 @@ func (pkem *EncryptionManager) Encrypt(ctx context.Context, cred *v2.PlaintextDa
 	return encryptedDatas, nil
 }
 
-// MJP creating the providerMap means parsing the configs and failing early instead of in Encrypt
+// MJP creating the providerMap means parsing the configs and failing early instead of in Encrypt.
 func NewEncryptionManager(ctx context.Context, co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (*EncryptionManager, error) {
 	// Group the encryption configs by provider
 	providerMap := make(map[string]([]*v2.EncryptionConfig))

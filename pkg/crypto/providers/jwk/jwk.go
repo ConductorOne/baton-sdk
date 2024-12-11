@@ -135,9 +135,7 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.Encry
 			Schema:         plainText.Schema,
 			EncryptedBytes: []byte(encCipherText),
 		})
-
 	}
-
 	return encrypted, nil
 }
 
