@@ -56,10 +56,12 @@ type CreateAccountResponse interface {
 
 type AccountManager interface {
 	CreateAccount(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
+	CapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error)
 }
 
 type CredentialManager interface {
 	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
+	CapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error)
 }
 
 type EventProvider interface {
@@ -525,6 +527,12 @@ func (b *builderImpl) GetMetadata(ctx context.Context, request *v2.ConnectorServ
 	}
 
 	md.Capabilities = getCapabilities(ctx, b)
+	credDetails, err := getCredentialDetails(ctx, b)
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, err
+	}
+	md.CredentialDetails = credDetails
 
 	annos := annotations.Annotations(md.Annotations)
 	if b.ticketManager != nil {
@@ -534,6 +542,33 @@ func (b *builderImpl) GetMetadata(ctx context.Context, request *v2.ConnectorServ
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return &v2.ConnectorServiceGetMetadataResponse{Metadata: md}, nil
+}
+
+func getCredentialDetails(ctx context.Context, b *builderImpl) (*v2.CredentialDetails, error) {
+	l := ctxzap.Extract(ctx)
+	rv := &v2.CredentialDetails{}
+
+	for _, rb := range b.resourceBuilders {
+		if am, ok := rb.(AccountManager); ok {
+			accountProvisioningCapabilityDetails, _, err := am.CapabilityDetails(ctx)
+			if err != nil {
+				l.Error("error: getting account provisioning details", zap.Error(err))
+				return nil, fmt.Errorf("error: getting account provisioning details: %w", err)
+			}
+			rv.CapabilityAccountProvisioning = accountProvisioningCapabilityDetails
+		}
+
+		if cm, ok := rb.(CredentialManager); ok {
+			credentialRotationCapabilityDetails, _, err := cm.CapabilityDetails(ctx)
+			if err != nil {
+				l.Error("error: getting credential management details", zap.Error(err))
+				return nil, fmt.Errorf("error: getting credential management details: %w", err)
+			}
+			rv.CapabilityCredentialRotation = credentialRotationCapabilityDetails
+		}
+	}
+
+	return rv, nil
 }
 
 // getCapabilities gets all capabilities for a connector.

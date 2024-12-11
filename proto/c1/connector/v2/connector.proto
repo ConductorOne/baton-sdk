@@ -45,6 +45,7 @@ message ConnectorMetadata {
     ignore_empty: true
   }];
   ConnectorCapabilities capabilities = 8;
+  CredentialDetails credential_details = 9;
 }
 
 enum Capability {
@@ -57,6 +58,28 @@ enum Capability {
   CAPABILITY_CREDENTIAL_ROTATION = 6;
   CAPABILITY_RESOURCE_CREATE = 7;
   CAPABILITY_RESOURCE_DELETE = 8;
+}
+
+enum CapabilityDetailCredentialOption {
+  CAPABILITY_OPTIONS_UNSPECIFIED = 0;
+  CAPABILITY_OPTIONS_NO_PASSWORD = 1;
+  CAPABILITY_OPTIONS_RANDOM_PASSWORD = 2;
+  CAPABILITY_OPTIONS_SSO = 3;
+}
+
+message CredentialDetails {
+  CredentialDetailsAccountProvisioning capability_account_provisioning = 1;
+  CredentialDetailsCredentialRotation capability_credential_rotation = 2;
+}
+
+message CredentialDetailsAccountProvisioning {
+  repeated CapabilityDetailCredentialOption supported_credential_options = 1;
+  CapabilityDetailCredentialOption preferred_credential_option = 2;
+}
+
+message CredentialDetailsCredentialRotation {
+  repeated CapabilityDetailCredentialOption supported_credential_options = 1;
+  CapabilityDetailCredentialOption preferred_credential_option = 2;
 }
 
 message ConnectorCapabilities {
