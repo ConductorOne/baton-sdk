@@ -545,7 +545,7 @@ func (b *builderImpl) GetMetadata(ctx context.Context, request *v2.ConnectorServ
 func validateCapabilityDetails(ctx context.Context, credDetails *v2.CredentialDetails) error {
 	if credDetails.CapabilityAccountProvisioning != nil {
 		// Ensure that the preferred option is included and is part of the supported options
-		if credDetails.CapabilityAccountProvisioning.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_OPTIONS_UNSPECIFIED {
+		if credDetails.CapabilityAccountProvisioning.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
 			return status.Error(codes.InvalidArgument, "error: preferred credential creation option is not set")
 		}
 		if !slices.Contains(credDetails.CapabilityAccountProvisioning.SupportedCredentialOptions, credDetails.CapabilityAccountProvisioning.PreferredCredentialOption) {
@@ -555,7 +555,7 @@ func validateCapabilityDetails(ctx context.Context, credDetails *v2.CredentialDe
 
 	if credDetails.CapabilityCredentialRotation != nil {
 		// Ensure that the preferred option is included and is part of the supported options
-		if credDetails.CapabilityCredentialRotation.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_OPTIONS_UNSPECIFIED {
+		if credDetails.CapabilityCredentialRotation.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
 			return status.Error(codes.InvalidArgument, "error: preferred credential rotation option is not set")
 		}
 		if !slices.Contains(credDetails.CapabilityCredentialRotation.SupportedCredentialOptions, credDetails.CapabilityCredentialRotation.PreferredCredentialOption) {
