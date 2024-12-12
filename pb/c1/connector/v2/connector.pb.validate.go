@@ -634,6 +634,380 @@ var _ interface {
 	ErrorName() string
 } = ConnectorMetadataValidationError{}
 
+// Validate checks the field values on CredentialDetails with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *CredentialDetails) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialDetails with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CredentialDetailsMultiError, or nil if none found.
+func (m *CredentialDetails) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialDetails) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetCapabilityAccountProvisioning()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialDetailsValidationError{
+					field:  "CapabilityAccountProvisioning",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialDetailsValidationError{
+					field:  "CapabilityAccountProvisioning",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCapabilityAccountProvisioning()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialDetailsValidationError{
+				field:  "CapabilityAccountProvisioning",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetCapabilityCredentialRotation()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialDetailsValidationError{
+					field:  "CapabilityCredentialRotation",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialDetailsValidationError{
+					field:  "CapabilityCredentialRotation",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCapabilityCredentialRotation()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialDetailsValidationError{
+				field:  "CapabilityCredentialRotation",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return CredentialDetailsMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialDetailsMultiError is an error wrapping multiple validation errors
+// returned by CredentialDetails.ValidateAll() if the designated constraints
+// aren't met.
+type CredentialDetailsMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialDetailsMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialDetailsMultiError) AllErrors() []error { return m }
+
+// CredentialDetailsValidationError is the validation error returned by
+// CredentialDetails.Validate if the designated constraints aren't met.
+type CredentialDetailsValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialDetailsValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialDetailsValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialDetailsValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialDetailsValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialDetailsValidationError) ErrorName() string {
+	return "CredentialDetailsValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CredentialDetailsValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialDetails.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialDetailsValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialDetailsValidationError{}
+
+// Validate checks the field values on CredentialDetailsAccountProvisioning
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the first error encountered is returned, or nil if
+// there are no violations.
+func (m *CredentialDetailsAccountProvisioning) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialDetailsAccountProvisioning
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// CredentialDetailsAccountProvisioningMultiError, or nil if none found.
+func (m *CredentialDetailsAccountProvisioning) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialDetailsAccountProvisioning) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for PreferredCredentialOption
+
+	if len(errors) > 0 {
+		return CredentialDetailsAccountProvisioningMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialDetailsAccountProvisioningMultiError is an error wrapping multiple
+// validation errors returned by
+// CredentialDetailsAccountProvisioning.ValidateAll() if the designated
+// constraints aren't met.
+type CredentialDetailsAccountProvisioningMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialDetailsAccountProvisioningMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialDetailsAccountProvisioningMultiError) AllErrors() []error { return m }
+
+// CredentialDetailsAccountProvisioningValidationError is the validation error
+// returned by CredentialDetailsAccountProvisioning.Validate if the designated
+// constraints aren't met.
+type CredentialDetailsAccountProvisioningValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialDetailsAccountProvisioningValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialDetailsAccountProvisioningValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialDetailsAccountProvisioningValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialDetailsAccountProvisioningValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialDetailsAccountProvisioningValidationError) ErrorName() string {
+	return "CredentialDetailsAccountProvisioningValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CredentialDetailsAccountProvisioningValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialDetailsAccountProvisioning.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialDetailsAccountProvisioningValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialDetailsAccountProvisioningValidationError{}
+
+// Validate checks the field values on CredentialDetailsCredentialRotation with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *CredentialDetailsCredentialRotation) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialDetailsCredentialRotation
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// CredentialDetailsCredentialRotationMultiError, or nil if none found.
+func (m *CredentialDetailsCredentialRotation) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialDetailsCredentialRotation) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for PreferredCredentialOption
+
+	if len(errors) > 0 {
+		return CredentialDetailsCredentialRotationMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialDetailsCredentialRotationMultiError is an error wrapping multiple
+// validation errors returned by
+// CredentialDetailsCredentialRotation.ValidateAll() if the designated
+// constraints aren't met.
+type CredentialDetailsCredentialRotationMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialDetailsCredentialRotationMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialDetailsCredentialRotationMultiError) AllErrors() []error { return m }
+
+// CredentialDetailsCredentialRotationValidationError is the validation error
+// returned by CredentialDetailsCredentialRotation.Validate if the designated
+// constraints aren't met.
+type CredentialDetailsCredentialRotationValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialDetailsCredentialRotationValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialDetailsCredentialRotationValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialDetailsCredentialRotationValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialDetailsCredentialRotationValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialDetailsCredentialRotationValidationError) ErrorName() string {
+	return "CredentialDetailsCredentialRotationValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CredentialDetailsCredentialRotationValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialDetailsCredentialRotation.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialDetailsCredentialRotationValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialDetailsCredentialRotationValidationError{}
+
 // Validate checks the field values on ConnectorCapabilities with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
@@ -688,6 +1062,35 @@ func (m *ConnectorCapabilities) validate(all bool) error {
 			}
 		}
 
+	}
+
+	if all {
+		switch v := interface{}(m.GetCredentialDetails()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ConnectorCapabilitiesValidationError{
+					field:  "CredentialDetails",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ConnectorCapabilitiesValidationError{
+					field:  "CredentialDetails",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCredentialDetails()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ConnectorCapabilitiesValidationError{
+				field:  "CredentialDetails",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
 	}
 
 	if len(errors) > 0 {

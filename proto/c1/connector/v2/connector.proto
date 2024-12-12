@@ -59,9 +59,32 @@ enum Capability {
   CAPABILITY_RESOURCE_DELETE = 8;
 }
 
+enum CapabilityDetailCredentialOption {
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED = 0;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD = 1;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_RANDOM_PASSWORD = 2;
+  CAPABILITY_DETAIL_CREDENTIAL_OPTION_SSO = 3;
+}
+
+message CredentialDetails {
+  CredentialDetailsAccountProvisioning capability_account_provisioning = 1;
+  CredentialDetailsCredentialRotation capability_credential_rotation = 2;
+}
+
+message CredentialDetailsAccountProvisioning {
+  repeated CapabilityDetailCredentialOption supported_credential_options = 1;
+  CapabilityDetailCredentialOption preferred_credential_option = 2;
+}
+
+message CredentialDetailsCredentialRotation {
+  repeated CapabilityDetailCredentialOption supported_credential_options = 1;
+  CapabilityDetailCredentialOption preferred_credential_option = 2;
+}
+
 message ConnectorCapabilities {
   repeated ResourceTypeCapability resource_type_capabilities = 1;
   repeated Capability connector_capabilities = 2;
+  CredentialDetails credential_details = 3;
 }
 
 message ResourceTypeCapability {
