@@ -542,6 +542,30 @@ func (b *builderImpl) GetMetadata(ctx context.Context, request *v2.ConnectorServ
 	return &v2.ConnectorServiceGetMetadataResponse{Metadata: md}, nil
 }
 
+func validateCapabilityDetails(ctx context.Context, credDetails *v2.CredentialDetails) error {
+	if credDetails.CapabilityAccountProvisioning != nil {
+		// Ensure that the preferred option is included and is part of the supported options
+		if credDetails.CapabilityAccountProvisioning.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_OPTIONS_UNSPECIFIED {
+			return status.Error(codes.InvalidArgument, "error: preferred credential creation option is not set")
+		}
+		if !slices.Contains(credDetails.CapabilityAccountProvisioning.SupportedCredentialOptions, credDetails.CapabilityAccountProvisioning.PreferredCredentialOption) {
+			return status.Error(codes.InvalidArgument, "error: preferred credential creation option is not part of the supported options")
+		}
+	}
+
+	if credDetails.CapabilityCredentialRotation != nil {
+		// Ensure that the preferred option is included and is part of the supported options
+		if credDetails.CapabilityCredentialRotation.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_OPTIONS_UNSPECIFIED {
+			return status.Error(codes.InvalidArgument, "error: preferred credential rotation option is not set")
+		}
+		if !slices.Contains(credDetails.CapabilityCredentialRotation.SupportedCredentialOptions, credDetails.CapabilityCredentialRotation.PreferredCredentialOption) {
+			return status.Error(codes.InvalidArgument, "error: preferred credential rotation option is not part of the supported options")
+		}
+	}
+
+	return nil
+}
+
 func getCredentialDetails(ctx context.Context, b *builderImpl) (*v2.CredentialDetails, error) {
 	l := ctxzap.Extract(ctx)
 	rv := &v2.CredentialDetails{}
@@ -566,6 +590,10 @@ func getCredentialDetails(ctx context.Context, b *builderImpl) (*v2.CredentialDe
 		}
 	}
 
+	err := validateCapabilityDetails(ctx, rv)
+	if err != nil {
+		return nil, fmt.Errorf("error: validating capability details: %w", err)
+	}
 	return rv, nil
 }
 
