@@ -206,6 +206,9 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 
 func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 	return func(resp *WrapperResponse) error {
+		if resource == nil {
+			return fmt.Errorf("WithRatelimitData: rate limit description is nil")
+		}
 		rl, err := ratelimit.ExtractRateLimitData(resp.StatusCode, &resp.Header)
 		if err != nil {
 			return err
