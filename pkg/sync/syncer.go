@@ -146,6 +146,18 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 	}
 }
 
+func isWarning(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if status.Code(err) == codes.NotFound {
+		return true
+	}
+
+	return false
+}
+
 // Sync starts the syncing process. The sync process is driven by the action stack that is part of the state object.
 // For each page of data that is required to be fetched from the connector, a new action is pushed on to the stack. Once
 // an action is completed, it is popped off of the queue. Before processing each action, we checkpoint the state object
@@ -199,12 +211,17 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 	s.state = state
 
+	var warnings []error
 	for s.state.Current() != nil {
 		err = s.Checkpoint(ctx)
 		if err != nil {
 			return err
 		}
 
+		// TODO: count actions divided by warnings and error if warning percentage is too high
+		if len(warnings) > 10 {
+			return fmt.Errorf("too many warnings, exiting sync. warnings: %v", warnings)
+		}
 		select {
 		case <-runCtx.Done():
 			err = context.Cause(runCtx)
@@ -254,6 +271,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		case SyncEntitlementsOp:
 			err = s.SyncEntitlements(ctx)
+			if isWarning(ctx, err) {
+				l.Warn("skipping sync entitlement action", zap.Any("stateAction", stateAction), zap.Error(err))
+				warnings = append(warnings, err)
+				s.state.FinishAction(ctx)
+				continue
+			}
 			if !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
@@ -261,6 +284,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		case SyncGrantsOp:
 			err = s.SyncGrants(ctx)
+			if isWarning(ctx, err) {
+				l.Warn("skipping sync grant action", zap.Any("stateAction", stateAction), zap.Error(err))
+				warnings = append(warnings, err)
+				s.state.FinishAction(ctx)
+				continue
+			}
 			if !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
@@ -307,6 +336,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 		l.Error("error clearing connector caches", zap.Error(err))
 	}
 
+	if len(warnings) > 0 {
+		l.Warn("sync completed with warnings", zap.Int("warning_count", len(warnings)), zap.Any("warnings", warnings))
+	}
 	return nil
 }
 
