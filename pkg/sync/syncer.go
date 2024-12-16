@@ -273,7 +273,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 		case SyncEntitlementsOp:
 			err = s.SyncEntitlements(ctx)
 			if isWarning(ctx, err) {
-				l.Error("skipping entitlement", zap.Any("state", s.state.Current()), zap.Error(err))
+				l.Warn("skipping sync entitlement action", zap.Any("stateAction", stateAction), zap.Error(err))
 				warnings = append(warnings, err)
 				s.state.FinishAction(ctx)
 				continue
@@ -286,7 +286,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 		case SyncGrantsOp:
 			err = s.SyncGrants(ctx)
 			if isWarning(ctx, err) {
-				l.Error("skipping grant", zap.Any("state", s.state.Current()), zap.Error(err))
+				l.Warn("skipping sync grant action", zap.Any("stateAction", stateAction), zap.Error(err))
 				warnings = append(warnings, err)
 				s.state.FinishAction(ctx)
 				continue
