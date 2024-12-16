@@ -23,15 +23,6 @@ const (
 	defaultCacheSize uint   = 5        // MB
 )
 
-type CacheBehavior string
-
-const (
-	CacheBehaviorDefault CacheBehavior = "default"
-	// On the first time setting a value, make it empty. Get will return not found, so uhttp Do() will set it again.
-	// Then actually set the value. This effectively makes the cache only cache things that have been requested more than once.
-	CacheBehaviorSparse CacheBehavior = "sparse"
-)
-
 type CacheBackend string
 
 const (
@@ -42,9 +33,8 @@ const (
 
 type CacheConfig struct {
 	LogDebug bool
-	TTL      uint64 // If 0, cache is disabled
-	MaxSize  uint   // MB
-	Behavior CacheBehavior
+	TTL      uint64       // If 0, cache is disabled
+	MaxSize  uint         // MB
 	Backend  CacheBackend // If noop, cache is disabled
 }
 
@@ -57,7 +47,6 @@ type ContextKey struct{}
 
 type GoCache struct {
 	rootLibrary *otter.Cache[string, []byte]
-	behavior    CacheBehavior
 }
 
 type NoopCache struct {
@@ -90,7 +79,7 @@ func (n *NoopCache) Stats(ctx context.Context) CacheStats {
 }
 
 func (cc *CacheConfig) ToString() string {
-	return fmt.Sprintf("Backend: %v, TTL: %d, MaxSize: %dMB, LogDebug: %t, Behavior: %v", cc.Backend, cc.TTL, cc.MaxSize, cc.LogDebug, cc.Behavior)
+	return fmt.Sprintf("Backend: %v, TTL: %d, MaxSize: %dMB, LogDebug: %t", cc.Backend, cc.TTL, cc.MaxSize, cc.LogDebug)
 }
 
 func DefaultCacheConfig() CacheConfig {
@@ -98,7 +87,6 @@ func DefaultCacheConfig() CacheConfig {
 		TTL:      cacheTTLDefault,
 		MaxSize:  defaultCacheSize,
 		LogDebug: false,
-		Behavior: CacheBehaviorDefault,
 		Backend:  CacheBackendMemory,
 	}
 }
@@ -124,14 +112,6 @@ func NewCacheConfigFromEnv() *CacheConfig {
 		config.Backend = CacheBackendMemory
 	case "noop":
 		config.Backend = CacheBackendNoop
-	}
-
-	cacheBehavior := os.Getenv("BATON_HTTP_CACHE_BEHAVIOR")
-	switch cacheBehavior {
-	case "sparse":
-		config.Behavior = CacheBehaviorSparse
-	case "default":
-		config.Behavior = CacheBehaviorDefault
 	}
 
 	disableCache, err := strconv.ParseBool(os.Getenv("BATON_DISABLE_HTTP_CACHE"))
@@ -199,7 +179,6 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 func NewGoCache(ctx context.Context, cfg CacheConfig) (*GoCache, error) {
 	l := ctxzap.Extract(ctx)
 	gc := GoCache{}
-	gc.behavior = cfg.Behavior
 	maxSize := cfg.MaxSize * 1024 * 1024
 	if maxSize > math.MaxInt {
 		return nil, fmt.Errorf("error converting max size to bytes")
@@ -276,15 +255,6 @@ func (g *GoCache) Set(req *http.Request, value *http.Response) error {
 	newValue, err := httputil.DumpResponse(value, true)
 	if err != nil {
 		return err
-	}
-
-	// If in sparse mode, the first time we call set on a key we make the value empty bytes.
-	// Subsequent calls to set actually set the value.
-	if g.behavior == CacheBehaviorSparse {
-		_, ok := g.rootLibrary.Get(key)
-		if !ok {
-			newValue = []byte{}
-		}
 	}
 
 	// Otter's cost function rejects large responses if there's not enough room
