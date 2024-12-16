@@ -158,8 +158,6 @@ func isWarning(ctx context.Context, err error) bool {
 	return false
 }
 
-var warnings []error
-
 // Sync starts the syncing process. The sync process is driven by the action stack that is part of the state object.
 // For each page of data that is required to be fetched from the connector, a new action is pushed on to the stack. Once
 // an action is completed, it is popped off of the queue. Before processing each action, we checkpoint the state object
@@ -213,6 +211,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 	s.state = state
 
+	var warnings []error
 	for s.state.Current() != nil {
 		err = s.Checkpoint(ctx)
 		if err != nil {
