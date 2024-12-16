@@ -45,7 +45,7 @@ type CacheConfig struct {
 	TTL      uint64 // If 0, cache is disabled
 	MaxSize  uint   // MB
 	Behavior CacheBehavior
-	Backend  CacheBackend
+	Backend  CacheBackend // If noop, cache is disabled
 }
 
 type CacheStats struct {
@@ -111,10 +111,6 @@ func NewCacheConfigFromEnv() *CacheConfig {
 		config.MaxSize = uint(cacheMaxSize)
 	}
 
-	// read the `BATON_HTTP_CACHE_TTL` environment variable and return
-	// the value as a number of seconds between 0 and an arbitrary maximum. Note:
-	// this means that passing a value of `-1` will set the TTL to zero rather than
-	// infinity.
 	cacheTTL, err := strconv.ParseUint(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
 	if err == nil {
 		config.TTL = min(cacheTTLMaximum, max(0, cacheTTL))
@@ -170,8 +166,8 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 
 	l.Info("http cache config", zap.String("config", config.ToString()))
 
-	if config.TTL <= 0 {
-		l.Debug("CacheTTL is <=0, disabling cache.", zap.Uint64("CacheTTL", config.TTL))
+	if config.TTL == 0 {
+		l.Debug("CacheTTL is 0, disabling cache.", zap.Uint64("CacheTTL", config.TTL))
 		return NewNoopCache(ctx), nil
 	}
 
