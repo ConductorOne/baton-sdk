@@ -337,6 +337,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 		l.Error("error clearing connector caches", zap.Error(err))
 	}
 
+	if len(warnings) > 0 {
+		l.Warn("sync completed with warnings", zap.Int("warning_count", len(warnings)), zap.Any("warnings", warnings))
+	}
 	return nil
 }
 
