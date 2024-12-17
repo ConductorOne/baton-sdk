@@ -9,6 +9,12 @@ import (
 	taskTypes "github.com/conductorone/baton-sdk/pkg/types/tasks"
 )
 
+type HealthInfo struct {
+	CurrentTask *v1.Task `json:"current_task"`
+	QueueLength int      `json:"queue_length"`
+	Started     bool     `json:"started"`
+}
+
 type Manager interface {
 	Next(ctx context.Context) (*v1.Task, time.Duration, error)
 	Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error

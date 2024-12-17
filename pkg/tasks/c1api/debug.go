@@ -5,10 +5,10 @@ import (
 )
 
 type debugHandler struct {
-	taskmanager *c1ApiTaskManager
+	taskmanager *C1ApiTaskManager
 }
 
-func newStartDebugging(tm *c1ApiTaskManager) *debugHandler {
+func newStartDebugging(tm *C1ApiTaskManager) *debugHandler {
 	return &debugHandler{taskmanager: tm}
 }
 

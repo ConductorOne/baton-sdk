@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sync/semaphore"
@@ -35,9 +36,11 @@ const (
 type connectorRunner struct {
 	cw           types.ClientWrapper
 	oneShot      bool
-	tasks        tasks.Manager
+	taskManager  tasks.Manager
 	debugFile    *os.File
 	healthServer HealthServer
+	tasks        map[string]*v1.Task
+	taskMtx      sync.Mutex
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -47,9 +50,9 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(ErrSigTerm)
 
-	if c.tasks.ShouldDebug() && c.debugFile == nil {
+	if c.taskManager.ShouldDebug() && c.debugFile == nil {
 		var err error
-		c.debugFile, err = os.Create(filepath.Join(c.tasks.GetTempDir(), "debug.log"))
+		c.debugFile, err = os.Create(filepath.Join(c.taskManager.GetTempDir(), "debug.log"))
 		if err != nil {
 			return err
 		}
@@ -107,7 +110,16 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 		return fmt.Errorf("runner: error creating connector client: %w", err)
 	}
 
-	err = c.tasks.Process(ctx, task, cc)
+	c.taskMtx.Lock()
+	c.tasks[task.Id] = task
+	c.taskMtx.Unlock()
+	defer func() {
+		c.taskMtx.Lock()
+		delete(c.tasks, task.Id)
+		c.taskMtx.Unlock()
+	}()
+
+	err = c.taskManager.Process(ctx, task, cc)
 	if err != nil {
 		return fmt.Errorf("runner: error processing task: %w", err)
 	}
@@ -148,7 +160,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			l.Debug("runner: worker claimed, checking for next task")
 
 			// Fetch the next task.
-			nextTask, nextWaitDuration, err := c.tasks.Next(ctx)
+			nextTask, nextWaitDuration, err := c.taskManager.Next(ctx)
 			if err != nil {
 				// TODO(morgabra) Use a library with jitter for this?
 				errCount++
@@ -281,17 +293,17 @@ type eventStreamConfig struct {
 type runnerConfig struct {
 	rlCfg                   *ratelimitV1.RateLimiterConfig
 	rlDescriptors           []*ratelimitV1.RateLimitDescriptors_Entry
-	onDemand                bool
-	c1zPath                 string
-	clientAuth              bool
+	OnDemand                bool   `json:"on_demand"`
+	C1zPath                 string `json:"c1z_path"`
+	ClientAuth              bool   `json:"client_auth"`
 	clientID                string
 	clientSecret            string
-	provisioningEnabled     bool
-	ticketingEnabled        bool
+	ProvisioningEnabled     bool `json:"provisioning_enabled"`
+	TicketingEnabled        bool `json:"ticketing_enabled"`
 	grantConfig             *grantConfig
 	revokeConfig            *revokeConfig
 	eventFeedConfig         *eventStreamConfig
-	tempDir                 string
+	TempDir                 string `json:"temp_dir"`
 	createAccountConfig     *createAccountConfig
 	deleteResourceConfig    *deleteResourceConfig
 	rotateCredentialsConfig *rotateCredentialsConfig
@@ -299,7 +311,7 @@ type runnerConfig struct {
 	bulkCreateTicketConfig  *bulkCreateTicketConfig
 	listTicketSchemasConfig *listTicketSchemasConfig
 	getTicketConfig         *getTicketConfig
-	skipFullSync            bool
+	SkipFullSync            bool `json:"skip_full_sync"`
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -378,8 +390,8 @@ func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Opti
 
 func WithOnDemandGrant(c1zPath string, entitlementID string, principalID string, principalType string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		cfg.c1zPath = c1zPath
+		cfg.OnDemand = true
+		cfg.C1zPath = c1zPath
 		cfg.grantConfig = &grantConfig{
 			entitlementID: entitlementID,
 			principalID:   principalID,
@@ -393,15 +405,15 @@ func WithClientCredentials(clientID string, clientSecret string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.clientID = clientID
 		cfg.clientSecret = clientSecret
-		cfg.clientAuth = true
+		cfg.ClientAuth = true
 		return nil
 	}
 }
 
 func WithOnDemandRevoke(c1zPath string, grantID string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		cfg.c1zPath = c1zPath
+		cfg.OnDemand = true
+		cfg.C1zPath = c1zPath
 		cfg.revokeConfig = &revokeConfig{
 			grantID: grantID,
 		}
@@ -411,8 +423,8 @@ func WithOnDemandRevoke(c1zPath string, grantID string) Option {
 
 func WithOnDemandCreateAccount(c1zPath string, login string, email string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		cfg.c1zPath = c1zPath
+		cfg.OnDemand = true
+		cfg.C1zPath = c1zPath
 		cfg.createAccountConfig = &createAccountConfig{
 			login: login,
 			email: email,
@@ -423,8 +435,8 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string) Optio
 
 func WithOnDemandDeleteResource(c1zPath string, resourceId string, resourceType string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		cfg.c1zPath = c1zPath
+		cfg.OnDemand = true
+		cfg.C1zPath = c1zPath
 		cfg.deleteResourceConfig = &deleteResourceConfig{
 			resourceId:   resourceId,
 			resourceType: resourceType,
@@ -435,8 +447,8 @@ func WithOnDemandDeleteResource(c1zPath string, resourceId string, resourceType 
 
 func WithOnDemandRotateCredentials(c1zPath string, resourceId string, resourceType string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		cfg.c1zPath = c1zPath
+		cfg.OnDemand = true
+		cfg.C1zPath = c1zPath
 		cfg.rotateCredentialsConfig = &rotateCredentialsConfig{
 			resourceId:   resourceId,
 			resourceType: resourceType,
@@ -447,14 +459,14 @@ func WithOnDemandRotateCredentials(c1zPath string, resourceId string, resourceTy
 
 func WithOnDemandSync(c1zPath string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		cfg.c1zPath = c1zPath
+		cfg.OnDemand = true
+		cfg.C1zPath = c1zPath
 		return nil
 	}
 }
 func WithOnDemandEventStream() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
+		cfg.OnDemand = true
 		cfg.eventFeedConfig = &eventStreamConfig{}
 		return nil
 	}
@@ -462,28 +474,28 @@ func WithOnDemandEventStream() Option {
 
 func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.provisioningEnabled = true
+		cfg.ProvisioningEnabled = true
 		return nil
 	}
 }
 
 func WithFullSyncDisabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.skipFullSync = true
+		cfg.SkipFullSync = true
 		return nil
 	}
 }
 
 func WithTicketingEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.ticketingEnabled = true
+		cfg.TicketingEnabled = true
 		return nil
 	}
 }
 
 func WithCreateTicket(templatePath string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
+		cfg.OnDemand = true
 		cfg.createTicketConfig = &createTicketConfig{
 			templatePath: templatePath,
 		}
@@ -493,7 +505,7 @@ func WithCreateTicket(templatePath string) Option {
 
 func WithBulkCreateTicket(templatePath string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
+		cfg.OnDemand = true
 		cfg.bulkCreateTicketConfig = &bulkCreateTicketConfig{
 			templatePath: templatePath,
 		}
@@ -503,7 +515,7 @@ func WithBulkCreateTicket(templatePath string) Option {
 
 func WithListTicketSchemas() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
+		cfg.OnDemand = true
 		cfg.listTicketSchemasConfig = &listTicketSchemasConfig{}
 		return nil
 	}
@@ -511,7 +523,7 @@ func WithListTicketSchemas() Option {
 
 func WithGetTicket(ticketID string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
+		cfg.OnDemand = true
 		cfg.getTicketConfig = &getTicketConfig{
 			ticketID: ticketID,
 		}
@@ -521,7 +533,7 @@ func WithGetTicket(ticketID string) Option {
 
 func WithTempDir(tempDir string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.tempDir = tempDir
+		cfg.TempDir = tempDir
 		return nil
 	}
 }
@@ -530,6 +542,7 @@ func WithTempDir(tempDir string) Option {
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
 	cfg := &runnerConfig{}
+	runner.tasks = make(map[string]*v1.Task)
 
 	for _, o := range opts {
 		err := o(ctx, cfg)
@@ -545,15 +558,15 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		wrapperOpts = append(wrapperOpts, connector.WithRateLimitDescriptor(d))
 	}
 
-	if cfg.provisioningEnabled {
+	if cfg.ProvisioningEnabled {
 		wrapperOpts = append(wrapperOpts, connector.WithProvisioningEnabled())
 	}
 
-	if cfg.ticketingEnabled {
+	if cfg.TicketingEnabled {
 		wrapperOpts = append(wrapperOpts, connector.WithTicketingEnabled())
 	}
 
-	if cfg.skipFullSync {
+	if cfg.SkipFullSync {
 		wrapperOpts = append(wrapperOpts, connector.WithFullSyncDisabled())
 	}
 
@@ -568,19 +581,22 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	healthServer, err := NewHealthServer(
 		ctx,
 		":8080",
-		runner.cw,
-		runner.tasks,
+		runner,
 		cfg,
 	)
 	if err != nil {
 		return nil, err
 	}
 	runner.healthServer = *healthServer
+	err = runner.healthServer.Start(ctx)
+	if err != nil {
+		return nil, err
+	}
 	l := ctxzap.Extract(ctx)
 	l.Info("runner: health server started", zap.String("address", ":8080"))
 
-	if cfg.onDemand {
-		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil && cfg.bulkCreateTicketConfig == nil {
+	if cfg.OnDemand {
+		if cfg.C1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil && cfg.bulkCreateTicketConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -589,23 +605,23 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		case cfg.grantConfig != nil:
 			tm = local.NewGranter(
 				ctx,
-				cfg.c1zPath,
+				cfg.C1zPath,
 				cfg.grantConfig.entitlementID,
 				cfg.grantConfig.principalID,
 				cfg.grantConfig.principalType,
 			)
 
 		case cfg.revokeConfig != nil:
-			tm = local.NewRevoker(ctx, cfg.c1zPath, cfg.revokeConfig.grantID)
+			tm = local.NewRevoker(ctx, cfg.C1zPath, cfg.revokeConfig.grantID)
 
 		case cfg.createAccountConfig != nil:
-			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email)
+			tm = local.NewCreateAccountManager(ctx, cfg.C1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email)
 
 		case cfg.deleteResourceConfig != nil:
-			tm = local.NewResourceDeleter(ctx, cfg.c1zPath, cfg.deleteResourceConfig.resourceId, cfg.deleteResourceConfig.resourceType)
+			tm = local.NewResourceDeleter(ctx, cfg.C1zPath, cfg.deleteResourceConfig.resourceId, cfg.deleteResourceConfig.resourceType)
 
 		case cfg.rotateCredentialsConfig != nil:
-			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
+			tm = local.NewCredentialRotator(ctx, cfg.C1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
 
 		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx)
@@ -618,23 +634,23 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		case cfg.bulkCreateTicketConfig != nil:
 			tm = local.NewBulkTicket(ctx, cfg.bulkCreateTicketConfig.templatePath)
 		default:
-			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))
+			tm, err = local.NewSyncer(ctx, cfg.C1zPath, local.WithTmpDir(cfg.TempDir))
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		runner.tasks = tm
+		runner.taskManager = tm
 
 		runner.oneShot = true
 		return runner, nil
 	}
 
-	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync)
+	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.TempDir, cfg.SkipFullSync)
 	if err != nil {
 		return nil, err
 	}
-	runner.tasks = tm
+	runner.taskManager = tm
 
 	return runner, nil
 }

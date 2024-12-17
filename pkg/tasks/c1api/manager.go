@@ -41,7 +41,7 @@ var (
 	ErrTaskNonRetryable = errors.New("task failed and is non-retryable")
 )
 
-type c1ApiTaskManager struct {
+type C1ApiTaskManager struct {
 	mtx               sync.Mutex
 	started           bool
 	queue             []*v1.Task
@@ -78,7 +78,19 @@ func getNextPoll(d time.Duration) time.Duration {
 	}
 }
 
-func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
+func (c *C1ApiTaskManager) GetHealthInfo(ctx context.Context) tasks.HealthInfo {
+	var currentTask *v1.Task = nil
+	if len(c.queue) > 0 {
+		currentTask = c.queue[0]
+	}
+	return tasks.HealthInfo{
+		CurrentTask: currentTask,
+		QueueLength: len(c.queue),
+		Started:     c.started,
+	}
+}
+
+func (c *C1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	l := ctxzap.Extract(ctx)
 
 	c.mtx.Lock()
@@ -129,7 +141,7 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 	return resp.GetTask(), nextPoll, nil
 }
 
-func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, err error) error {
+func (c *C1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, err error) error {
 	l := ctxzap.Extract(ctx)
 	l = l.With(
 		zap.String("task_id", task.GetId()),
@@ -197,15 +209,15 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 	return err
 }
 
-func (c *c1ApiTaskManager) GetTempDir() string {
+func (c *C1ApiTaskManager) GetTempDir() string {
 	return c.tempDir
 }
 
-func (c *c1ApiTaskManager) ShouldDebug() bool {
+func (c *C1ApiTaskManager) ShouldDebug() bool {
 	return c.runnerShouldDebug
 }
 
-func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+func (c *C1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx)
 	if task == nil {
 		l.Debug("c1_api_task_manager.Process(): process called with nil task -- continuing")
@@ -279,7 +291,7 @@ func NewC1TaskManager(ctx context.Context, clientID string, clientSecret string,
 		return nil, err
 	}
 
-	return &c1ApiTaskManager{
+	return &C1ApiTaskManager{
 		serviceClient: serviceClient,
 		tempDir:       tempDir,
 		skipFullSync:  skipFullSync,
