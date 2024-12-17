@@ -19,7 +19,6 @@ import (
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
-	"github.com/conductorone/baton-sdk/pkg/health"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/tasks/c1api"
 	"github.com/conductorone/baton-sdk/pkg/tasks/local"
@@ -38,7 +37,7 @@ type connectorRunner struct {
 	oneShot      bool
 	tasks        tasks.Manager
 	debugFile    *os.File
-	healthServer health.HealthServer
+	healthServer HealthServer
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -47,13 +46,6 @@ var ErrSigTerm = errors.New("context cancelled by process shutdown")
 func (c *connectorRunner) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(ErrSigTerm)
-
-	// TODO: make address configurable
-	healthServer, err := health.NewHealthServer(ctx, ":8080")
-	if err != nil {
-		return err
-	}
-	c.healthServer = *healthServer
 
 	if c.tasks.ShouldDebug() && c.debugFile == nil {
 		var err error
@@ -85,7 +77,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		}
 	}()
 
-	err = c.run(ctx)
+	err := c.run(ctx)
 	if err != nil {
 		return err
 	}
@@ -123,7 +115,7 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 	return nil
 }
 
-func (c *connectorRunner) backoff(ctx context.Context, errCount int) time.Duration {
+func (c *connectorRunner) backoff(_ context.Context, errCount int) time.Duration {
 	waitDuration := time.Duration(errCount*errCount) * time.Second
 	if waitDuration > time.Minute {
 		waitDuration = time.Minute
@@ -219,7 +211,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 	}
 
 	if stopForLoop {
-		return fmt.Errorf("Unable to communicate with gRPC server")
+		return fmt.Errorf("unable to communicate with gRPC server")
 	}
 
 	return nil
@@ -571,6 +563,21 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	}
 
 	runner.cw = cw
+
+	// TODO: make address configurable
+	healthServer, err := NewHealthServer(
+		ctx,
+		":8080",
+		runner.cw,
+		runner.tasks,
+		cfg,
+	)
+	if err != nil {
+		return nil, err
+	}
+	runner.healthServer = *healthServer
+	l := ctxzap.Extract(ctx)
+	l.Info("runner: health server started", zap.String("address", ":8080"))
 
 	if cfg.onDemand {
 		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil && cfg.bulkCreateTicketConfig == nil {
