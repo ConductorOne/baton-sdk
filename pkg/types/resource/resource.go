@@ -164,7 +164,7 @@ func convertIDToString(id interface{}) (string, error) {
 	case int:
 		resourceID = strconv.Itoa(objID)
 	default:
-		return "", fmt.Errorf("unexpected type for id")
+		return "", fmt.Errorf("unexpected type for id %v", objID)
 	}
 
 	return resourceID, nil

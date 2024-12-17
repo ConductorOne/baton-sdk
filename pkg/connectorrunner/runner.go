@@ -19,6 +19,7 @@ import (
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
+	"github.com/conductorone/baton-sdk/pkg/health"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/tasks/c1api"
 	"github.com/conductorone/baton-sdk/pkg/tasks/local"
@@ -33,10 +34,11 @@ const (
 )
 
 type connectorRunner struct {
-	cw        types.ClientWrapper
-	oneShot   bool
-	tasks     tasks.Manager
-	debugFile *os.File
+	cw           types.ClientWrapper
+	oneShot      bool
+	tasks        tasks.Manager
+	debugFile    *os.File
+	healthServer health.HealthServer
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -45,6 +47,13 @@ var ErrSigTerm = errors.New("context cancelled by process shutdown")
 func (c *connectorRunner) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(ErrSigTerm)
+
+	// TODO: make address configurable
+	healthServer, err := health.NewHealthServer(ctx, ":8080")
+	if err != nil {
+		return err
+	}
+	c.healthServer = *healthServer
 
 	if c.tasks.ShouldDebug() && c.debugFile == nil {
 		var err error
@@ -76,7 +85,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		}
 	}()
 
-	err := c.run(ctx)
+	err = c.run(ctx)
 	if err != nil {
 		return err
 	}

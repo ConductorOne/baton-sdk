@@ -93,6 +93,7 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 	}
 }
 
+// TODO: To allow for parallel actions in the future, attempts should be per action, not global.
 var attempts = 0
 
 func shouldWaitAndRetry(ctx context.Context, err error) bool {
@@ -1415,6 +1416,7 @@ func (s *syncer) newExpandedGrant(_ context.Context, descEntitlement *v2.Entitle
 		Entitlement: descEntitlement,
 		Principal:   principal,
 	}
+	// TODO: add annotation to say which grant this was expanded from
 
 	return grant, nil
 }
