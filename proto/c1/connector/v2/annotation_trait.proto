@@ -40,6 +40,7 @@ message UserTrait {
     ACCOUNT_TYPE_HUMAN = 1;
     ACCOUNT_TYPE_SERVICE = 2;
     ACCOUNT_TYPE_SYSTEM = 3;
+    ACCOUNT_TYPE_AI_AGENT = 4;
   }
   AccountType account_type = 5 [(validate.rules).enum = {defined_only: true}];
 

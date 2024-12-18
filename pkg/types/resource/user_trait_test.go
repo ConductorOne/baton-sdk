@@ -130,4 +130,29 @@ func TestUserTrait(t *testing.T) {
 	require.False(t, ut.Emails[1].IsPrimary)
 	require.Equal(t, ut.Emails[1].Address, "bob@example.com")
 	require.Equal(t, v2.UserTrait_ACCOUNT_TYPE_SERVICE, ut.AccountType)
+
+	ut, err = NewUserTrait(
+		WithUserIcon(&v2.AssetRef{Id: "iconID"}),
+		WithUserProfile(userProfile),
+		WithStatus(v2.UserTrait_Status_STATUS_UNSPECIFIED),
+		WithEmail("alice@example.com", true),
+		WithEmail("bob@example.com", false),
+		WithAccountType(v2.UserTrait_ACCOUNT_TYPE_AI_AGENT),
+	)
+	require.NoError(t, err)
+
+	require.NotNil(t, ut.Status)
+	require.Equal(t, v2.UserTrait_Status_STATUS_UNSPECIFIED, ut.Status.Status)
+	require.NotNil(t, ut.Icon)
+	require.Equal(t, "iconID", ut.Icon.Id)
+	require.NotNil(t, ut.Profile)
+	val, ok = GetProfileStringValue(ut.Profile, "test")
+	require.True(t, ok)
+	require.Equal(t, "user-profile-field", val)
+	require.Len(t, ut.Emails, 2)
+	require.True(t, ut.Emails[0].IsPrimary)
+	require.Equal(t, ut.Emails[0].Address, "alice@example.com")
+	require.False(t, ut.Emails[1].IsPrimary)
+	require.Equal(t, ut.Emails[1].Address, "bob@example.com")
+	require.Equal(t, v2.UserTrait_ACCOUNT_TYPE_AI_AGENT, ut.AccountType)
 }
