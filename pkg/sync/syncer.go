@@ -852,9 +852,99 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 	entitlementGraph := s.state.EntitlementGraph(ctx)
-	fmt.Printf("%v\n", entitlementGraph)
+	if !entitlementGraph.Loaded {
+		pageToken := s.state.PageToken(ctx)
+
+		if pageToken == "" {
+			l.Info("Expanding grants...")
+			s.handleInitialActionForStep(ctx, *s.state.Current())
+		}
+
+		resp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageToken: pageToken})
+		if err != nil {
+			return err
+		}
+
+		// We want to take action on the next page before we push any new actions
+		if resp.NextPageToken != "" {
+			err = s.state.NextPage(ctx, resp.NextPageToken)
+			if err != nil {
+				return err
+			}
+		} else {
+			l.Info("Finished loading entitlement graph", zap.Int("edges", len(entitlementGraph.Edges)))
+			entitlementGraph.Loaded = true
+		}
+
+		for _, grant := range resp.List {
+			annos := annotations.Annotations(grant.Annotations)
+			expandable := &v2.GrantExpandable{}
+			_, err := annos.Pick(expandable)
+			if err != nil {
+				return err
+			}
+			if len(expandable.GetEntitlementIds()) == 0 {
+				continue
+			}
+
+			principalID := grant.GetPrincipal().GetId()
+			if principalID == nil {
+				return fmt.Errorf("principal id was nil")
+			}
+
+			// FIXME(morgabra) Log and skip some of the error paths here?
+			for _, srcEntitlementID := range expandable.EntitlementIds {
+				l.Debug(
+					"Expandable entitlement found",
+					zap.String("src_entitlement_id", srcEntitlementID),
+					zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
+				)
+
+				srcEntitlement, err := s.store.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
+					EntitlementId: srcEntitlementID,
+				})
+				if err != nil {
+					l.Error("error fetching source entitlement",
+						zap.String("src_entitlement_id", srcEntitlementID),
+						zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
+						zap.Error(err),
+					)
+					continue
+				}
+
+				// The expand annotation points at entitlements by id. Those entitlements' resource should match
+				// the current grant's principal, so we don't allow expanding arbitrary entitlements.
+				sourceEntitlementResourceID := srcEntitlement.GetEntitlement().GetResource().GetId()
+				if sourceEntitlementResourceID == nil {
+					return fmt.Errorf("source entitlement resource id was nil")
+				}
+				if principalID.ResourceType != sourceEntitlementResourceID.ResourceType ||
+					principalID.Resource != sourceEntitlementResourceID.Resource {
+					l.Error(
+						"source entitlement resource id did not match grant principal id",
+						zap.String("grant_principal_id", principalID.String()),
+						zap.String("source_entitlement_resource_id", sourceEntitlementResourceID.String()))
+
+					return fmt.Errorf("source entitlement resource id did not match grant principal id")
+				}
+
+				entitlementGraph.AddEntitlement(grant.Entitlement)
+				entitlementGraph.AddEntitlement(srcEntitlement.GetEntitlement())
+				err = entitlementGraph.AddEdge(ctx,
+					srcEntitlement.GetEntitlement().GetId(),
+					grant.GetEntitlement().GetId(),
+					expandable.Shallow,
+					expandable.ResourceTypeIds,
+				)
+				if err != nil {
+					return fmt.Errorf("error adding edge to graph: %w", err)
+				}
+			}
+		}
+		return nil
+	}
+
 	if entitlementGraph.Loaded {
-		fmt.Printf("getting cycles1\n")
 		cycle := entitlementGraph.GetFirstCycle()
 		if cycle != nil {
 			l.Warn(
@@ -865,105 +955,19 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 			if dontFixCycles {
 				return fmt.Errorf("cycles detected in entitlement graph")
 			}
-			fmt.Printf("fixing cycles1\n")
+
 			err := entitlementGraph.FixCycles()
-			fmt.Printf("fixed cycles1\n")
 			if err != nil {
 				return err
 			}
 		}
-		fmt.Printf("expandGrantsForEntitlements\n")
-		return s.expandGrantsForEntitlements(ctx)
 	}
 
-	pageToken := s.state.PageToken(ctx)
-
-	if pageToken == "" {
-		l.Info("Expanding grants...")
-		s.handleInitialActionForStep(ctx, *s.state.Current())
-	}
-
-	resp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageToken: pageToken})
+	err := s.expandGrantsForEntitlements(ctx)
 	if err != nil {
 		return err
 	}
 
-	// We want to take action on the next page before we push any new actions
-	if resp.NextPageToken != "" {
-		err = s.state.NextPage(ctx, resp.NextPageToken)
-		if err != nil {
-			return err
-		}
-	} else {
-		l.Info("Finished loading entitlement graph", zap.Int("edges", len(entitlementGraph.Edges)))
-		entitlementGraph.Loaded = true
-	}
-
-	for _, grant := range resp.List {
-		annos := annotations.Annotations(grant.Annotations)
-		expandable := &v2.GrantExpandable{}
-		_, err := annos.Pick(expandable)
-		if err != nil {
-			return err
-		}
-		if len(expandable.GetEntitlementIds()) == 0 {
-			continue
-		}
-
-		principalID := grant.GetPrincipal().GetId()
-		if principalID == nil {
-			return fmt.Errorf("principal id was nil")
-		}
-
-		// FIXME(morgabra) Log and skip some of the error paths here?
-		for _, srcEntitlementID := range expandable.EntitlementIds {
-			l.Debug(
-				"Expandable entitlement found",
-				zap.String("src_entitlement_id", srcEntitlementID),
-				zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
-			)
-
-			srcEntitlement, err := s.store.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
-				EntitlementId: srcEntitlementID,
-			})
-			if err != nil {
-				l.Error("error fetching source entitlement",
-					zap.String("src_entitlement_id", srcEntitlementID),
-					zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
-					zap.Error(err),
-				)
-				continue
-			}
-
-			// The expand annotation points at entitlements by id. Those entitlements' resource should match
-			// the current grant's principal, so we don't allow expanding arbitrary entitlements.
-			sourceEntitlementResourceID := srcEntitlement.GetEntitlement().GetResource().GetId()
-			if sourceEntitlementResourceID == nil {
-				return fmt.Errorf("source entitlement resource id was nil")
-			}
-			if principalID.ResourceType != sourceEntitlementResourceID.ResourceType ||
-				principalID.Resource != sourceEntitlementResourceID.Resource {
-				l.Error(
-					"source entitlement resource id did not match grant principal id",
-					zap.String("grant_principal_id", principalID.String()),
-					zap.String("source_entitlement_resource_id", sourceEntitlementResourceID.String()))
-
-				return fmt.Errorf("source entitlement resource id did not match grant principal id")
-			}
-
-			entitlementGraph.AddEntitlement(grant.Entitlement)
-			entitlementGraph.AddEntitlement(srcEntitlement.GetEntitlement())
-			err = entitlementGraph.AddEdge(ctx,
-				srcEntitlement.GetEntitlement().GetId(),
-				grant.GetEntitlement().GetId(),
-				expandable.Shallow,
-				expandable.ResourceTypeIds,
-			)
-			if err != nil {
-				return fmt.Errorf("error adding edge to graph: %w", err)
-			}
-		}
-	}
 	return nil
 }
 
@@ -1426,7 +1430,6 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	actions := len(graph.Actions)
 	if actions%250 == 0 || actions < 10 {
 		l.Info("Expanding grants", zap.Int("actions", actions))
-		fmt.Printf("actions: %v: %v\n", actions, graph.Actions)
 	}
 
 	actionsDone, err := s.runGrantExpandActions(ctx)
@@ -1437,7 +1440,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	if !actionsDone {
 		return nil
 	}
-	fmt.Printf("not done: %v\n", graph.Depth)
+
 	if graph.Depth > maxDepth {
 		l.Error(
 			"expandGrantsForEntitlements: exceeded max depth",
@@ -1466,7 +1469,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 			if grantInfo.IsExpanded {
 				continue
 			}
-			graph.Actions = append(graph.Actions, expand.EntitlementGraphAction{
+			graph.Actions = append(graph.Actions, &expand.EntitlementGraphAction{
 				SourceEntitlementID:     sourceEntitlementID,
 				DescendantEntitlementID: descendantEntitlementID,
 				PageToken:               "",
