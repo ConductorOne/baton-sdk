@@ -113,6 +113,7 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, conf *v2.Encryption
 		Description:    plainText.Description,
 		Schema:         plainText.Schema,
 		EncryptedBytes: []byte(encCipherText),
+		KeyIds:         []string{tp},
 	}, nil
 }
 
