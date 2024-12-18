@@ -1521,8 +1521,8 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	l.Debug("expandGrantsForEntitlements: start", zap.Any("graph", graph))
 
 	actions := len(graph.Actions)
-	if actions%250 == 0 || actions < 10 {
-		l.Info("Expanding grants", zap.Int("actions", actions))
+	if actions%250 == 0 || actions <= 10 {
+		l.Info("Expanding grants", zap.Int("actions_remaining", actions))
 	}
 
 	actionsDone, err := s.runGrantExpandActions(ctx)
