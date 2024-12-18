@@ -1469,7 +1469,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 			if grantInfo.IsExpanded {
 				continue
 			}
-			graph.Actions = append(graph.Actions, expand.EntitlementGraphAction{
+			graph.Actions = append(graph.Actions, &expand.EntitlementGraphAction{
 				SourceEntitlementID:     sourceEntitlementID,
 				DescendantEntitlementID: descendantEntitlementID,
 				PageToken:               "",

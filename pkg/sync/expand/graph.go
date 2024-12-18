@@ -39,17 +39,17 @@ type Node struct {
 // This is because the graph can have cycles, and we address them by reducing
 // _all_ nodes in a cycle into a single node.
 type EntitlementGraph struct {
-	NextNodeID            int                      `json:"next_node_id"`            // Automatically incremented so that each node has a unique ID.
-	NextEdgeID            int                      `json:"next_edge_id"`            // Automatically incremented so that each edge has a unique ID.
-	Nodes                 map[int]Node             `json:"nodes"`                   // The mapping of all node IDs to nodes.
-	EntitlementsToNodes   map[string]int           `json:"entitlements_to_nodes"`   // Internal mapping of entitlements to nodes for quicker lookup.
-	SourcesToDestinations map[int]map[int]int      `json:"sources_to_destinations"` // Internal mapping of outgoing edges by node ID.
-	DestinationsToSources map[int]map[int]int      `json:"destinations_to_sources"` // Internal mapping of incoming edges by node ID.
-	Edges                 map[int]Edge             `json:"edges"`                   // Adjacency list. Source node -> descendant node
-	Loaded                bool                     `json:"loaded"`
-	Depth                 int                      `json:"depth"`
-	Actions               []EntitlementGraphAction `json:"actions"`
-	HasNoCycles           bool                     `json:"has_no_cycles"`
+	NextNodeID            int                       `json:"next_node_id"`            // Automatically incremented so that each node has a unique ID.
+	NextEdgeID            int                       `json:"next_edge_id"`            // Automatically incremented so that each edge has a unique ID.
+	Nodes                 map[int]Node              `json:"nodes"`                   // The mapping of all node IDs to nodes.
+	EntitlementsToNodes   map[string]int            `json:"entitlements_to_nodes"`   // Internal mapping of entitlements to nodes for quicker lookup.
+	SourcesToDestinations map[int]map[int]int       `json:"sources_to_destinations"` // Internal mapping of outgoing edges by node ID.
+	DestinationsToSources map[int]map[int]int       `json:"destinations_to_sources"` // Internal mapping of incoming edges by node ID.
+	Edges                 map[int]Edge              `json:"edges"`                   // Adjacency list. Source node -> descendant node
+	Loaded                bool                      `json:"loaded"`
+	Depth                 int                       `json:"depth"`
+	Actions               []*EntitlementGraphAction `json:"actions"`
+	HasNoCycles           bool                      `json:"has_no_cycles"`
 }
 
 func NewEntitlementGraph(_ context.Context) *EntitlementGraph {

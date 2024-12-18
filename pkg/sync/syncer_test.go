@@ -29,6 +29,58 @@ var userResourceType = &v2.ResourceType{
 	Annotations: annotations.New(&v2.SkipEntitlementsAndGrants{}),
 }
 
+func TestExpandGrants(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 2500 * 4 = 10K - used to cause an infinite loop on pagition
+	usersPerLayer := 2500
+	groupCount := 5
+
+	mc := newMockConnector()
+
+	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+	type asdf struct {
+		r *v2.Resource
+		e *v2.Entitlement
+	}
+	groups := make([]*asdf, 0)
+	for i := 0; i < groupCount; i++ {
+		groupId := "group_" + strconv.Itoa(i)
+		group, groupEnt, err := mc.AddGroup(ctx, groupId)
+		for _, g := range groups {
+			_ = mc.AddGroupMember(ctx, g.r, group, groupEnt)
+		}
+		groups = append(groups, &asdf{
+			r: group,
+			e: groupEnt,
+		})
+		require.NoError(t, err)
+
+		for j := 0; j < usersPerLayer; j++ {
+			pid := fmt.Sprintf("user_%d_%d_%d", i, usersPerLayer, j)
+			principal, err := mc.AddUser(ctx, pid)
+			require.NoError(t, err)
+
+			// This isn't needed because grant expansion will create this grant
+			// _ = mc.AddGroupMember(ctx, group, principal)
+			_ = mc.AddGroupMember(ctx, group, principal)
+		}
+	}
+
+	tempDir, err := os.MkdirTemp("", "baton-benchmark-expand-grants")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+	c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
+	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	err = syncer.Sync(ctx)
+	require.NoError(t, err)
+	err = syncer.Close(ctx)
+	require.NoError(t, err)
+	_ = os.Remove(c1zpath)
+}
+
 func BenchmarkExpandCircle(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
