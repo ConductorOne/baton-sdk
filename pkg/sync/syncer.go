@@ -42,11 +42,85 @@ type Syncer interface {
 	Close(context.Context) error
 }
 
-type Counts struct {
+type ProgressCounts struct {
 	ResourceTypes        int
 	Resources            map[string]int
 	EntitlementsProgress map[string]int
+	LastEntitlementLog   time.Time
 	GrantsProgress       map[string]int
+	LastGrantLog         time.Time
+}
+
+func (p *ProgressCounts) LogResourceTypesProgress(ctx context.Context) {
+	l := ctxzap.Extract(ctx)
+	l.Info("Synced resource types", zap.Int("count", p.ResourceTypes))
+}
+
+func (p *ProgressCounts) LogResourcesProgress(ctx context.Context, resourceType string) {
+	l := ctxzap.Extract(ctx)
+	resources := p.Resources[resourceType]
+	l.Info("Synced resources", zap.String("resource_type_id", resourceType), zap.Int("count", resources))
+}
+
+func (p *ProgressCounts) LogEntitlementsProgress(ctx context.Context, resourceType string) {
+	// TODO: only log progress if we complete or we haven't logged in the past 10 seconds
+	l := ctxzap.Extract(ctx)
+	entitlementsProgress := p.EntitlementsProgress[resourceType]
+	resources := p.Resources[resourceType]
+	percentComplete := (entitlementsProgress * 100) / resources
+
+	switch {
+	case entitlementsProgress > resources:
+		l.Error("more entitlement resources than resources",
+			zap.String("resource_type_id", resourceType),
+			zap.Int("entitlement_progress", entitlementsProgress),
+			zap.Int("resources", resources),
+		)
+	case percentComplete == 100:
+		l.Info("Synced entitlements",
+			zap.String("resource_type_id", resourceType),
+			zap.Int("count", entitlementsProgress),
+		)
+		p.LastEntitlementLog = time.Time{}
+	case time.Since(p.LastEntitlementLog) > 10*time.Second:
+		l.Info("Syncing entitlements",
+			zap.String("resource_type_id", resourceType),
+			zap.Int("entitlement_progress", entitlementsProgress),
+			zap.Int("resources", resources),
+			zap.Int("percent_complete", percentComplete),
+		)
+		p.LastEntitlementLog = time.Now()
+	}
+}
+
+func (p *ProgressCounts) LogGrantsProgress(ctx context.Context, resourceType string) {
+	l := ctxzap.Extract(ctx)
+	grantsProgress := p.GrantsProgress[resourceType]
+	resources := p.Resources[resourceType]
+	percentComplete := (grantsProgress * 100) / resources
+
+	switch {
+	case grantsProgress > resources:
+		l.Error("more grant resources than resources",
+			zap.String("resource_type_id", resourceType),
+			zap.Int("grant_progress", grantsProgress),
+			zap.Int("resources", resources),
+		)
+	case percentComplete == 100:
+		l.Info("Synced grants",
+			zap.String("resource_type_id", resourceType),
+			zap.Int("count", grantsProgress),
+		)
+		p.LastGrantLog = time.Time{}
+	case time.Since(p.LastGrantLog) > 10*time.Second:
+		l.Info("Syncing grants",
+			zap.String("resource_type_id", resourceType),
+			zap.Int("grant_progress", grantsProgress),
+			zap.Int("resources", resources),
+			zap.Int("percent_complete", percentComplete),
+		)
+		p.LastGrantLog = time.Now()
+	}
 }
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
@@ -62,7 +136,7 @@ type syncer struct {
 	tmpDir             string
 	skipFullSync       bool
 	lastCheckPointTime time.Time
-	counts             Counts
+	counts             ProgressCounts
 
 	skipEGForResourceType map[string]bool
 }
@@ -418,8 +492,7 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 	s.handleProgress(ctx, s.state.Current(), len(resp.List))
 
 	if resp.NextPageToken == "" {
-		l := ctxzap.Extract(ctx)
-		l.Info("Synced resource types", zap.Int("count", s.counts.ResourceTypes))
+		s.counts.LogResourceTypesProgress(ctx)
 		s.state.FinishAction(ctx)
 		return nil
 	}
@@ -514,8 +587,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 	s.counts.Resources[resourceTypeId] += len(resp.List)
 
 	if resp.NextPageToken == "" {
-		l := ctxzap.Extract(ctx)
-		l.Info("Synced resources", zap.String("resource_type_id", resourceTypeId), zap.Int("count", s.counts.Resources[resourceTypeId]))
+		s.counts.LogResourcesProgress(ctx, resourceTypeId)
 		s.state.FinishAction(ctx)
 	} else {
 		err = s.state.NextPage(ctx, resp.NextPageToken)
@@ -708,6 +780,9 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 			return err
 		}
 	} else {
+		s.counts.EntitlementsProgress[resourceID.ResourceType] += 1
+		s.counts.LogEntitlementsProgress(ctx, resourceID.ResourceType)
+
 		s.state.FinishAction(ctx)
 	}
 
@@ -1247,6 +1322,8 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		return nil
 	}
 
+	s.counts.GrantsProgress[resourceID.ResourceType] += 1
+	s.counts.LogGrantsProgress(ctx, resourceID.ResourceType)
 	s.state.FinishAction(ctx)
 
 	return nil
@@ -1613,7 +1690,7 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 	s := &syncer{
 		connector:             c,
 		skipEGForResourceType: make(map[string]bool),
-		counts: Counts{
+		counts: ProgressCounts{
 			ResourceTypes:        0,
 			Resources:            make(map[string]int),
 			GrantsProgress:       make(map[string]int),
