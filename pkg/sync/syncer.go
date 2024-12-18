@@ -42,6 +42,13 @@ type Syncer interface {
 	Close(context.Context) error
 }
 
+type Counts struct {
+	ResourceTypes        int
+	Resources            map[string]int
+	EntitlementsProgress map[string]int
+	GrantsProgress       map[string]int
+}
+
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
 	c1zManager         manager.Manager
@@ -55,6 +62,7 @@ type syncer struct {
 	tmpDir             string
 	skipFullSync       bool
 	lastCheckPointTime time.Time
+	counts             Counts
 
 	skipEGForResourceType map[string]bool
 }
@@ -406,9 +414,12 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 		return err
 	}
 
+	s.counts.ResourceTypes += len(resp.List)
 	s.handleProgress(ctx, s.state.Current(), len(resp.List))
 
 	if resp.NextPageToken == "" {
+		l := ctxzap.Extract(ctx)
+		l.Info("Synced resource types", zap.Int("count", s.counts.ResourceTypes))
 		s.state.FinishAction(ctx)
 		return nil
 	}
@@ -499,7 +510,12 @@ func (s *syncer) syncResources(ctx context.Context) error {
 
 	s.handleProgress(ctx, s.state.Current(), len(resp.List))
 
+	resourceTypeId := s.state.ResourceTypeID(ctx)
+	s.counts.Resources[resourceTypeId] += len(resp.List)
+
 	if resp.NextPageToken == "" {
+		l := ctxzap.Extract(ctx)
+		l.Info("Synced resources", zap.String("resource_type_id", resourceTypeId), zap.Int("count", s.counts.Resources[resourceTypeId]))
 		s.state.FinishAction(ctx)
 	} else {
 		err = s.state.NextPage(ctx, resp.NextPageToken)
@@ -1597,6 +1613,12 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 	s := &syncer{
 		connector:             c,
 		skipEGForResourceType: make(map[string]bool),
+		counts: Counts{
+			ResourceTypes:        0,
+			Resources:            make(map[string]int),
+			GrantsProgress:       make(map[string]int),
+			EntitlementsProgress: make(map[string]int),
+		},
 	}
 
 	for _, o := range opts {
