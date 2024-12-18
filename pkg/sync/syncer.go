@@ -1120,7 +1120,6 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 			Resource:    resource,
 			Annotations: storeAnnos,
 			PageToken:   npt,
-			PageSize:    1000,
 		})
 		if err != nil {
 			return nil, false, err
@@ -1273,7 +1272,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	// Fetch a page of source grants
 	sourceGrants, err := s.store.ListGrantsForEntitlement(ctx, &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
 		Entitlement: sourceEntitlement.GetEntitlement(),
-		PageSize:    1000,
 		PageToken:   action.PageToken,
 	})
 	if err != nil {
@@ -1323,7 +1321,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			req := &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
 				Entitlement: descendantEntitlement.GetEntitlement(),
 				PrincipalId: sourceGrant.GetPrincipal().GetId(),
-				PageSize:    1000,
 				PageToken:   pageToken,
 				Annotations: nil,
 			}
