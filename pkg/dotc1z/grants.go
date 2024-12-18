@@ -168,24 +168,18 @@ func (c *C1File) ListGrantsForResourceType(
 }
 
 func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
-	err := c.db.WithTx(func(tx *goqu.TxDatabase) error {
-		err := bulkPutConnectorObjectTx(ctx, c, tx, grants.Name(),
-			func(grant *v2.Grant) (goqu.Record, error) {
-				return goqu.Record{
-					"resource_type_id":           grant.Entitlement.Resource.Id.ResourceType,
-					"resource_id":                grant.Entitlement.Resource.Id.Resource,
-					"entitlement_id":             grant.Entitlement.Id,
-					"principal_resource_type_id": grant.Principal.Id.ResourceType,
-					"principal_resource_id":      grant.Principal.Id.Resource,
-				}, nil
-			},
-			bulkGrants...,
-		)
-		if err != nil {
-			return err
-		}
-		return nil
-	})
+	err := bulkPutConnectorObject(ctx, c, grants.Name(),
+		func(grant *v2.Grant) (goqu.Record, error) {
+			return goqu.Record{
+				"resource_type_id":           grant.Entitlement.Resource.Id.ResourceType,
+				"resource_id":                grant.Entitlement.Resource.Id.Resource,
+				"entitlement_id":             grant.Entitlement.Id,
+				"principal_resource_type_id": grant.Principal.Id.ResourceType,
+				"principal_resource_id":      grant.Principal.Id.Resource,
+			}, nil
+		},
+		bulkGrants...,
+	)
 	if err != nil {
 		return err
 	}

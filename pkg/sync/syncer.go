@@ -1281,6 +1281,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("runGrantExpandActions: error fetching source grants: %w", err)
 	}
 
+	var newGrants []*v2.Grant = make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.List {
 		// Skip this grant if it is not for a resource type we care about
 		if len(action.ResourceTypeIDs) > 0 {
@@ -1383,13 +1384,14 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				zap.String("grant_id", descendantGrant.GetId()),
 				zap.Any("sources", sources),
 			)
-
-			err = s.store.PutGrants(ctx, descendantGrant)
-			if err != nil {
-				l.Error("runGrantExpandActions: error updating descendant grant", zap.Error(err))
-				return false, fmt.Errorf("runGrantExpandActions: error updating descendant grant: %w", err)
-			}
 		}
+		newGrants = append(newGrants, descendantGrants...)
+	}
+
+	err = s.store.PutGrants(ctx, newGrants...)
+	if err != nil {
+		l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
+		return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
 	}
 
 	// If we have no more pages of work, pop the action off the stack and mark this edge in the graph as done

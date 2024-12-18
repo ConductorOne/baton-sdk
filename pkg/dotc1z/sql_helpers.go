@@ -233,6 +233,62 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 
 var protoMarshaler = proto.MarshalOptions{Deterministic: true}
 
+func bulkPutConnectorObject[T proto.Message](ctx context.Context, c *C1File,
+	tableName string,
+	extractFields func(m T) (goqu.Record, error),
+	msgs ...T) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	err := c.validateSyncDb(ctx)
+	if err != nil {
+		return err
+	}
+
+	rows := make([]*goqu.Record, len(msgs))
+	for i, m := range msgs {
+		messageBlob, err := protoMarshaler.Marshal(m)
+		if err != nil {
+			return err
+		}
+
+		fields, err := extractFields(m)
+		if err != nil {
+			return err
+		}
+		if fields == nil {
+			fields = goqu.Record{}
+		}
+
+		if _, idSet := fields["external_id"]; !idSet {
+			idGetter, ok := any(m).(protoHasID)
+			if !ok {
+				return fmt.Errorf("unable to get ID for object")
+			}
+			fields["external_id"] = idGetter.GetId()
+		}
+		fields["data"] = messageBlob
+		fields["sync_id"] = c.currentSyncID
+		fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
+		rows[i] = &fields
+	}
+
+	query, args, err := c.db.Insert(tableName).
+		OnConflict(goqu.DoUpdate("external_id, sync_id", goqu.C("data").Set(goqu.I("EXCLUDED.data")))).
+		Rows(rows).
+		Prepared(true).
+		ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = c.db.Exec(query, args...)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func bulkPutConnectorObjectTx[T proto.Message](ctx context.Context, c *C1File,
 	tx *goqu.TxDatabase,
 	tableName string,
