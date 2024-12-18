@@ -872,6 +872,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 				return err
 			}
 		} else {
+			l.Info("Finished loading entitlement graph", zap.Int("edges", len(entitlementGraph.Edges)))
 			entitlementGraph.Loaded = true
 		}
 
@@ -1426,6 +1427,11 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	graph := s.state.EntitlementGraph(ctx)
 	l = l.With(zap.Int("depth", graph.Depth))
 	l.Debug("expandGrantsForEntitlements: start", zap.Any("graph", graph))
+
+	actions := len(graph.Actions)
+	if actions%250 == 0 || actions < 10 {
+		l.Info("Expanding grants", zap.Int("actions", actions))
+	}
 
 	actionsDone, err := s.runGrantExpandActions(ctx)
 	if err != nil {
