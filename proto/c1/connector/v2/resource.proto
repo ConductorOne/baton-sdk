@@ -175,12 +175,12 @@ message CreateAccountResponse {
 
 message EncryptedData {
   string provider = 1;
-  string key_id = 2;
+  string key_id = 2 [deprecated = true];
   string name = 3;
   string description = 4;
   string schema = 5; // optional
   bytes encrypted_bytes = 6; // if 'schema' is set, this should be JSON.
-  repeated string key_ids = 7; // will replace key_id in the future.
+  repeated string key_ids = 7;
 }
 
 message PlaintextData {
