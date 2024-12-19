@@ -74,6 +74,7 @@ func (j *JWKEncryptionProvider) GenerateKey(ctx context.Context) (*v2.Encryption
 
 func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.EncryptionConfig, plainText *v2.PlaintextData) ([]*v2.EncryptedData, error) {
 	recipients := make([]age.Recipient, 0, len(configs))
+	recipientThumbs := make([]string, 0, len(configs))
 	encrypted := make([]*v2.EncryptedData, 0, len(configs))
 
 	for _, config := range configs {
@@ -81,26 +82,27 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.Encry
 		if err != nil {
 			return nil, err
 		}
+		tp, err := thumbprint(jwk)
+		if err != nil {
+			return nil, err
+		}
+
 		switch pubKey := jwk.Public().Key.(type) {
 		case ed25519.PublicKey:
+			recipientThumbs = append(recipientThumbs, tp)
 			recipient, err := CreateED25519Recipient(pubKey)
 			if err != nil {
 				return nil, err
 			}
 			recipients = append(recipients, recipient)
 		case *rsa.PublicKey:
+			recipientThumbs = append(recipientThumbs, tp)
 			recipient, err := CreateRSARecipient(pubKey)
 			if err != nil {
 				return nil, err
 			}
 			recipients = append(recipients, recipient)
 		case *ecdsa.PublicKey:
-
-			tp, err := thumbprint(jwk)
-			if err != nil {
-				return nil, err
-			}
-
 			ciphertext, err := EncryptECDSA(pubKey, plainText.Bytes)
 			if err != nil {
 				return nil, err
@@ -108,7 +110,7 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.Encry
 			encCipherText := base64.StdEncoding.EncodeToString(ciphertext)
 			encrypted = append(encrypted, &v2.EncryptedData{
 				Provider:       EncryptionProviderJwk,
-				KeyId:          tp,
+				KeyId:          []string{tp},
 				Name:           plainText.Name,
 				Description:    plainText.Description,
 				Schema:         plainText.Schema,
@@ -129,7 +131,7 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.Encry
 
 		encrypted = append(encrypted, &v2.EncryptedData{
 			Provider:       EncryptionProviderJwk,
-			KeyId:          "", // MJP what does "keyID" mean for multi-recipient encryption? Multiple ids?
+			KeyId:          recipientThumbs,
 			Name:           plainText.Name,
 			Description:    plainText.Description,
 			Schema:         plainText.Schema,
