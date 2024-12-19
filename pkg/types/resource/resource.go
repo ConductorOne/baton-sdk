@@ -154,6 +154,30 @@ func WithAppTrait(opts ...AppTraitOption) ResourceOption {
 	}
 }
 
+func WithSecretTrait(opts ...SecretTraitOption) ResourceOption {
+	return func(r *v2.Resource) error {
+		rt := &v2.SecretTrait{}
+
+		annos := annotations.Annotations(r.Annotations)
+		_, err := annos.Pick(rt)
+		if err != nil {
+			return err
+		}
+
+		for _, o := range opts {
+			err := o(rt)
+			if err != nil {
+				return err
+			}
+		}
+
+		annos.Update(rt)
+		r.Annotations = annos
+
+		return nil
+	}
+}
+
 func convertIDToString(id interface{}) (string, error) {
 	var resourceID string
 	switch objID := id.(type) {
@@ -288,6 +312,23 @@ func NewAppResource(
 	opts ...ResourceOption,
 ) (*v2.Resource, error) {
 	opts = append(opts, WithAppTrait(appTraitOpts...))
+
+	ret, err := NewResource(name, resourceType, objectID, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
+func NewSecretResource(
+	name string,
+	resourceType *v2.ResourceType,
+	objectID interface{},
+	traitOpts []SecretTraitOption,
+	opts ...ResourceOption,
+) (*v2.Resource, error) {
+	opts = append(opts, WithSecretTrait(traitOpts...))
 
 	ret, err := NewResource(name, resourceType, objectID, opts...)
 	if err != nil {
