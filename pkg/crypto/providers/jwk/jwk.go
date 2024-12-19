@@ -82,13 +82,13 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.Encry
 		if err != nil {
 			return nil, err
 		}
-		tp, err := thumbprint(jwk)
-		if err != nil {
-			return nil, err
-		}
 
 		switch pubKey := jwk.Public().Key.(type) {
 		case ed25519.PublicKey:
+			tp, err := thumbprint(jwk)
+			if err != nil {
+				return nil, err
+			}
 			recipientThumbs = append(recipientThumbs, tp)
 			recipient, err := CreateED25519Recipient(pubKey)
 			if err != nil {
@@ -96,6 +96,10 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.Encry
 			}
 			recipients = append(recipients, recipient)
 		case *rsa.PublicKey:
+			tp, err := thumbprint(jwk)
+			if err != nil {
+				return nil, err
+			}
 			recipientThumbs = append(recipientThumbs, tp)
 			recipient, err := CreateRSARecipient(pubKey)
 			if err != nil {
@@ -103,6 +107,10 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.Encry
 			}
 			recipients = append(recipients, recipient)
 		case *ecdsa.PublicKey:
+			tp, err := thumbprint(jwk)
+			if err != nil {
+				return nil, err
+			}
 			ciphertext, err := EncryptECDSA(pubKey, plainText.Bytes)
 			if err != nil {
 				return nil, err
