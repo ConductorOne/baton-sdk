@@ -256,6 +256,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 			if waitErr != nil {
 				l.Error("error closing connector wrapper", zap.Error(waitErr))
 			}
+			os.Exit(1)
 		}
 	}()
 

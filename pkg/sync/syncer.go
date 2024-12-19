@@ -146,6 +146,18 @@ func shouldWaitAndRetry(ctx context.Context, err error) bool {
 	}
 }
 
+func isWarning(ctx context.Context, err error) bool {
+	if err == nil {
+		return false
+	}
+
+	if status.Code(err) == codes.NotFound {
+		return true
+	}
+
+	return false
+}
+
 // Sync starts the syncing process. The sync process is driven by the action stack that is part of the state object.
 // For each page of data that is required to be fetched from the connector, a new action is pushed on to the stack. Once
 // an action is completed, it is popped off of the queue. Before processing each action, we checkpoint the state object
@@ -199,12 +211,17 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 	s.state = state
 
+	var warnings []error
 	for s.state.Current() != nil {
 		err = s.Checkpoint(ctx)
 		if err != nil {
 			return err
 		}
 
+		// TODO: count actions divided by warnings and error if warning percentage is too high
+		if len(warnings) > 10 {
+			return fmt.Errorf("too many warnings, exiting sync. warnings: %v", warnings)
+		}
 		select {
 		case <-runCtx.Done():
 			err = context.Cause(runCtx)
@@ -254,6 +271,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		case SyncEntitlementsOp:
 			err = s.SyncEntitlements(ctx)
+			if isWarning(ctx, err) {
+				l.Warn("skipping sync entitlement action", zap.Any("stateAction", stateAction), zap.Error(err))
+				warnings = append(warnings, err)
+				s.state.FinishAction(ctx)
+				continue
+			}
 			if !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
@@ -261,6 +284,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		case SyncGrantsOp:
 			err = s.SyncGrants(ctx)
+			if isWarning(ctx, err) {
+				l.Warn("skipping sync grant action", zap.Any("stateAction", stateAction), zap.Error(err))
+				warnings = append(warnings, err)
+				s.state.FinishAction(ctx)
+				continue
+			}
 			if !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
@@ -307,6 +336,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 		l.Error("error clearing connector caches", zap.Error(err))
 	}
 
+	if len(warnings) > 0 {
+		l.Warn("sync completed with warnings", zap.Int("warning_count", len(warnings)), zap.Any("warnings", warnings))
+	}
 	return nil
 }
 
@@ -840,6 +872,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 				return err
 			}
 		} else {
+			l.Info("Finished loading entitlement graph", zap.Int("edges", len(entitlementGraph.Edges)))
 			entitlementGraph.Loaded = true
 		}
 
@@ -1087,7 +1120,6 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 			Resource:    resource,
 			Annotations: storeAnnos,
 			PageToken:   npt,
-			PageSize:    1000,
 		})
 		if err != nil {
 			return nil, false, err
@@ -1240,7 +1272,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	// Fetch a page of source grants
 	sourceGrants, err := s.store.ListGrantsForEntitlement(ctx, &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
 		Entitlement: sourceEntitlement.GetEntitlement(),
-		PageSize:    1000,
 		PageToken:   action.PageToken,
 	})
 	if err != nil {
@@ -1248,6 +1279,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("runGrantExpandActions: error fetching source grants: %w", err)
 	}
 
+	var newGrants []*v2.Grant = make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.List {
 		// Skip this grant if it is not for a resource type we care about
 		if len(action.ResourceTypeIDs) > 0 {
@@ -1289,7 +1321,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			req := &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
 				Entitlement: descendantEntitlement.GetEntitlement(),
 				PrincipalId: sourceGrant.GetPrincipal().GetId(),
-				PageSize:    1000,
 				PageToken:   pageToken,
 				Annotations: nil,
 			}
@@ -1350,13 +1381,14 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				zap.String("grant_id", descendantGrant.GetId()),
 				zap.Any("sources", sources),
 			)
-
-			err = s.store.PutGrants(ctx, descendantGrant)
-			if err != nil {
-				l.Error("runGrantExpandActions: error updating descendant grant", zap.Error(err))
-				return false, fmt.Errorf("runGrantExpandActions: error updating descendant grant: %w", err)
-			}
 		}
+		newGrants = append(newGrants, descendantGrants...)
+	}
+
+	err = s.store.PutGrants(ctx, newGrants...)
+	if err != nil {
+		l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
+		return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
 	}
 
 	// If we have no more pages of work, pop the action off the stack and mark this edge in the graph as done
@@ -1395,6 +1427,11 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	l = l.With(zap.Int("depth", graph.Depth))
 	l.Debug("expandGrantsForEntitlements: start", zap.Any("graph", graph))
 
+	actions := len(graph.Actions)
+	if actions%250 == 0 || actions < 10 {
+		l.Info("Expanding grants", zap.Int("actions", actions))
+	}
+
 	actionsDone, err := s.runGrantExpandActions(ctx)
 	if err != nil {
 		l.Error("expandGrantsForEntitlements: error running graph actions", zap.Error(err))
@@ -1432,7 +1469,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 			if grantInfo.IsExpanded {
 				continue
 			}
-			graph.Actions = append(graph.Actions, expand.EntitlementGraphAction{
+			graph.Actions = append(graph.Actions, &expand.EntitlementGraphAction{
 				SourceEntitlementID:     sourceEntitlementID,
 				DescendantEntitlementID: descendantEntitlementID,
 				PageToken:               "",

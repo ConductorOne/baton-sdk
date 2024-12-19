@@ -137,8 +137,15 @@ message CredentialOptions {
       lte: 64
     }];
   }
+  message NoPassword {
+  }
+  message SSO {
+    string sso_provider = 1;
+  }
   oneof options {
     RandomPassword random_password = 100;
+    NoPassword no_password = 101;
+    SSO sso = 102;
   }
 }
 

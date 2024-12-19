@@ -47,13 +47,13 @@ type CacheRow struct {
 }
 
 const (
-	failStartTransaction       = "Failed to start a transaction"
-	errQueryingTable           = "Error querying cache table"
-	failRollback               = "Failed to rollback transaction"
-	failInsert                 = "Failed to insert response data into cache table"
-	failScanResponse           = "Failed to scan rows for cached response"
-	cacheTTLThreshold          = 60
-	cacheTTLMultiplier   int64 = 5
+	failStartTransaction        = "Failed to start a transaction"
+	errQueryingTable            = "Error querying cache table"
+	failRollback                = "Failed to rollback transaction"
+	failInsert                  = "Failed to insert response data into cache table"
+	failScanResponse            = "Failed to scan rows for cached response"
+	cacheTTLThreshold           = 60
+	cacheTTLMultiplier   uint64 = 5
 )
 
 var errNilConnection = errors.New("database connection is nil")
@@ -67,8 +67,9 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	var (
 		err error
 		dc  = &DBCache{
-			waitDuration:   defaultWaitDuration, // Default Cleanup interval, 60 seconds
-			stats:          true,
+			waitDuration: defaultWaitDuration, // Default Cleanup interval, 60 seconds
+			stats:        true,
+			//nolint:gosec // disable G115
 			expirationTime: time.Duration(cfg.TTL) * time.Second,
 		}
 	)
@@ -110,6 +111,7 @@ func NewDBCache(ctx context.Context, cfg CacheConfig) (*DBCache, error) {
 	}
 
 	if cfg.TTL > cacheTTLThreshold {
+		//nolint:gosec // disable G115
 		dc.waitDuration = time.Duration(cfg.TTL*cacheTTLMultiplier) * time.Second // set as a fraction of the Cache TTL
 	}
 
