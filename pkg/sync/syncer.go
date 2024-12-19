@@ -567,6 +567,8 @@ func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) err
 			trait = &v2.UserTrait{}
 		case v2.ResourceType_TRAIT_ROLE:
 			trait = &v2.RoleTrait{}
+		case v2.ResourceType_TRAIT_CREDENTIAL:
+			trait = &v2.CredentialTrait{}
 		default:
 		}
 

@@ -913,6 +913,235 @@ var _ interface {
 	ErrorName() string
 } = AppTraitValidationError{}
 
+// Validate checks the field values on CredentialTrait with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *CredentialTrait) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialTrait with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// CredentialTraitMultiError, or nil if none found.
+func (m *CredentialTrait) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialTrait) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetProfile()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialTraitValidationError{
+					field:  "Profile",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialTraitValidationError{
+					field:  "Profile",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetProfile()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialTraitValidationError{
+				field:  "Profile",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if _, ok := CredentialTrait_CredentialType_name[int32(m.GetType())]; !ok {
+		err := CredentialTraitValidationError{
+			field:  "Type",
+			reason: "value must be one of the defined enum values",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if all {
+		switch v := interface{}(m.GetCreatedAt()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialTraitValidationError{
+					field:  "CreatedAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialTraitValidationError{
+					field:  "CreatedAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetCreatedAt()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialTraitValidationError{
+				field:  "CreatedAt",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetLastUsed()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialTraitValidationError{
+					field:  "LastUsed",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialTraitValidationError{
+					field:  "LastUsed",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetLastUsed()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialTraitValidationError{
+				field:  "LastUsed",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetExpiresAt()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialTraitValidationError{
+					field:  "ExpiresAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialTraitValidationError{
+					field:  "ExpiresAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetExpiresAt()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialTraitValidationError{
+				field:  "ExpiresAt",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for OwnerUserId
+
+	if len(errors) > 0 {
+		return CredentialTraitMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialTraitMultiError is an error wrapping multiple validation errors
+// returned by CredentialTrait.ValidateAll() if the designated constraints
+// aren't met.
+type CredentialTraitMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialTraitMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialTraitMultiError) AllErrors() []error { return m }
+
+// CredentialTraitValidationError is the validation error returned by
+// CredentialTrait.Validate if the designated constraints aren't met.
+type CredentialTraitValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialTraitValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialTraitValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialTraitValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialTraitValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialTraitValidationError) ErrorName() string { return "CredentialTraitValidationError" }
+
+// Error satisfies the builtin error interface
+func (e CredentialTraitValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialTrait.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialTraitValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialTraitValidationError{}
+
 // Validate checks the field values on UserTrait_Email with the rules defined
 // in the proto definition for this message. If any rules are violated, the
 // first error encountered is returned, or nil if there are no violations.

@@ -185,6 +185,52 @@ func (AppTrait_AppFlag) EnumDescriptor() ([]byte, []int) {
 	return file_c1_connector_v2_annotation_trait_proto_rawDescGZIP(), []int{3, 0}
 }
 
+type CredentialTrait_CredentialType int32
+
+const (
+	CredentialTrait_CREDENTIAL_TYPE_UNSPECIFIED CredentialTrait_CredentialType = 0
+	CredentialTrait_CREDENTIAL_TYPE_API_KEY     CredentialTrait_CredentialType = 1
+)
+
+// Enum value maps for CredentialTrait_CredentialType.
+var (
+	CredentialTrait_CredentialType_name = map[int32]string{
+		0: "CREDENTIAL_TYPE_UNSPECIFIED",
+		1: "CREDENTIAL_TYPE_API_KEY",
+	}
+	CredentialTrait_CredentialType_value = map[string]int32{
+		"CREDENTIAL_TYPE_UNSPECIFIED": 0,
+		"CREDENTIAL_TYPE_API_KEY":     1,
+	}
+)
+
+func (x CredentialTrait_CredentialType) Enum() *CredentialTrait_CredentialType {
+	p := new(CredentialTrait_CredentialType)
+	*p = x
+	return p
+}
+
+func (x CredentialTrait_CredentialType) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (CredentialTrait_CredentialType) Descriptor() protoreflect.EnumDescriptor {
+	return file_c1_connector_v2_annotation_trait_proto_enumTypes[3].Descriptor()
+}
+
+func (CredentialTrait_CredentialType) Type() protoreflect.EnumType {
+	return &file_c1_connector_v2_annotation_trait_proto_enumTypes[3]
+}
+
+func (x CredentialTrait_CredentialType) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use CredentialTrait_CredentialType.Descriptor instead.
+func (CredentialTrait_CredentialType) EnumDescriptor() ([]byte, []int) {
+	return file_c1_connector_v2_annotation_trait_proto_rawDescGZIP(), []int{4, 0}
+}
+
 type UserTrait struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -495,6 +541,93 @@ func (x *AppTrait) GetFlags() []AppTrait_AppFlag {
 	return nil
 }
 
+type CredentialTrait struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Profile     *structpb.Struct               `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
+	Type        CredentialTrait_CredentialType `protobuf:"varint,2,opt,name=type,proto3,enum=c1.connector.v2.CredentialTrait_CredentialType" json:"type,omitempty"`
+	CreatedAt   *timestamppb.Timestamp         `protobuf:"bytes,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	LastUsed    *timestamppb.Timestamp         `protobuf:"bytes,4,opt,name=last_used,json=lastUsed,proto3" json:"last_used,omitempty"`
+	ExpiresAt   *timestamppb.Timestamp         `protobuf:"bytes,5,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	OwnerUserId string                         `protobuf:"bytes,6,opt,name=owner_user_id,json=ownerUserId,proto3" json:"owner_user_id,omitempty"`
+}
+
+func (x *CredentialTrait) Reset() {
+	*x = CredentialTrait{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[4]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *CredentialTrait) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CredentialTrait) ProtoMessage() {}
+
+func (x *CredentialTrait) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[4]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CredentialTrait.ProtoReflect.Descriptor instead.
+func (*CredentialTrait) Descriptor() ([]byte, []int) {
+	return file_c1_connector_v2_annotation_trait_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *CredentialTrait) GetProfile() *structpb.Struct {
+	if x != nil {
+		return x.Profile
+	}
+	return nil
+}
+
+func (x *CredentialTrait) GetType() CredentialTrait_CredentialType {
+	if x != nil {
+		return x.Type
+	}
+	return CredentialTrait_CREDENTIAL_TYPE_UNSPECIFIED
+}
+
+func (x *CredentialTrait) GetCreatedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return nil
+}
+
+func (x *CredentialTrait) GetLastUsed() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastUsed
+	}
+	return nil
+}
+
+func (x *CredentialTrait) GetExpiresAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return nil
+}
+
+func (x *CredentialTrait) GetOwnerUserId() string {
+	if x != nil {
+		return x.OwnerUserId
+	}
+	return ""
+}
+
 type UserTrait_Email struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -508,7 +641,7 @@ type UserTrait_Email struct {
 func (x *UserTrait_Email) Reset() {
 	*x = UserTrait_Email{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[4]
+		mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[5]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -521,7 +654,7 @@ func (x *UserTrait_Email) String() string {
 func (*UserTrait_Email) ProtoMessage() {}
 
 func (x *UserTrait_Email) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[4]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[5]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -563,7 +696,7 @@ type UserTrait_Status struct {
 func (x *UserTrait_Status) Reset() {
 	*x = UserTrait_Status{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[5]
+		mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[6]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -576,7 +709,7 @@ func (x *UserTrait_Status) String() string {
 func (*UserTrait_Status) ProtoMessage() {}
 
 func (x *UserTrait_Status) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[5]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[6]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -617,7 +750,7 @@ type UserTrait_MFAStatus struct {
 func (x *UserTrait_MFAStatus) Reset() {
 	*x = UserTrait_MFAStatus{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[6]
+		mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[7]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -630,7 +763,7 @@ func (x *UserTrait_MFAStatus) String() string {
 func (*UserTrait_MFAStatus) ProtoMessage() {}
 
 func (x *UserTrait_MFAStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[6]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[7]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -664,7 +797,7 @@ type UserTrait_SSOStatus struct {
 func (x *UserTrait_SSOStatus) Reset() {
 	*x = UserTrait_SSOStatus{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[7]
+		mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[8]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -677,7 +810,7 @@ func (x *UserTrait_SSOStatus) String() string {
 func (*UserTrait_SSOStatus) ProtoMessage() {}
 
 func (x *UserTrait_SSOStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[7]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[8]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -822,11 +955,39 @@ var file_c1_connector_v2_annotation_trait_proto_rawDesc = []byte{
 	0x50, 0x50, 0x5f, 0x46, 0x4c, 0x41, 0x47, 0x5f, 0x53, 0x41, 0x4d, 0x4c, 0x10, 0x03, 0x12, 0x11,
 	0x0a, 0x0d, 0x41, 0x50, 0x50, 0x5f, 0x46, 0x4c, 0x41, 0x47, 0x5f, 0x4f, 0x49, 0x44, 0x43, 0x10,
 	0x04, 0x12, 0x15, 0x0a, 0x11, 0x41, 0x50, 0x50, 0x5f, 0x46, 0x4c, 0x41, 0x47, 0x5f, 0x42, 0x4f,
-	0x4f, 0x4b, 0x4d, 0x41, 0x52, 0x4b, 0x10, 0x05, 0x42, 0x36, 0x5a, 0x34, 0x67, 0x69, 0x74, 0x68,
-	0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x63, 0x6f, 0x6e, 0x64, 0x75, 0x63, 0x74, 0x6f, 0x72,
-	0x6f, 0x6e, 0x65, 0x2f, 0x62, 0x61, 0x74, 0x6f, 0x6e, 0x2d, 0x73, 0x64, 0x6b, 0x2f, 0x70, 0x62,
-	0x2f, 0x63, 0x31, 0x2f, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x2f, 0x76, 0x32,
-	0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x4f, 0x4b, 0x4d, 0x41, 0x52, 0x4b, 0x10, 0x05, 0x22, 0xb6, 0x03, 0x0a, 0x0f, 0x43, 0x72, 0x65,
+	0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x54, 0x72, 0x61, 0x69, 0x74, 0x12, 0x31, 0x0a, 0x07,
+	0x70, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x17, 0x2e,
+	0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e,
+	0x53, 0x74, 0x72, 0x75, 0x63, 0x74, 0x52, 0x07, 0x70, 0x72, 0x6f, 0x66, 0x69, 0x6c, 0x65, 0x12,
+	0x4d, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x2f, 0x2e,
+	0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x2e, 0x76, 0x32, 0x2e,
+	0x43, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x54, 0x72, 0x61, 0x69, 0x74, 0x2e,
+	0x43, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x54, 0x79, 0x70, 0x65, 0x42, 0x08,
+	0xfa, 0x42, 0x05, 0x82, 0x01, 0x02, 0x10, 0x01, 0x52, 0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x39,
+	0x0a, 0x0a, 0x63, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x18, 0x03, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74,
+	0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x09,
+	0x63, 0x72, 0x65, 0x61, 0x74, 0x65, 0x64, 0x41, 0x74, 0x12, 0x37, 0x0a, 0x09, 0x6c, 0x61, 0x73,
+	0x74, 0x5f, 0x75, 0x73, 0x65, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67,
+	0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54,
+	0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x52, 0x08, 0x6c, 0x61, 0x73, 0x74, 0x55, 0x73,
+	0x65, 0x64, 0x12, 0x39, 0x0a, 0x0a, 0x65, 0x78, 0x70, 0x69, 0x72, 0x65, 0x73, 0x5f, 0x61, 0x74,
+	0x18, 0x05, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61,
+	0x6d, 0x70, 0x52, 0x09, 0x65, 0x78, 0x70, 0x69, 0x72, 0x65, 0x73, 0x41, 0x74, 0x12, 0x22, 0x0a,
+	0x0d, 0x6f, 0x77, 0x6e, 0x65, 0x72, 0x5f, 0x75, 0x73, 0x65, 0x72, 0x5f, 0x69, 0x64, 0x18, 0x06,
+	0x20, 0x01, 0x28, 0x09, 0x52, 0x0b, 0x6f, 0x77, 0x6e, 0x65, 0x72, 0x55, 0x73, 0x65, 0x72, 0x49,
+	0x64, 0x22, 0x4e, 0x0a, 0x0e, 0x43, 0x72, 0x65, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x54,
+	0x79, 0x70, 0x65, 0x12, 0x1f, 0x0a, 0x1b, 0x43, 0x52, 0x45, 0x44, 0x45, 0x4e, 0x54, 0x49, 0x41,
+	0x4c, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49,
+	0x45, 0x44, 0x10, 0x00, 0x12, 0x1b, 0x0a, 0x17, 0x43, 0x52, 0x45, 0x44, 0x45, 0x4e, 0x54, 0x49,
+	0x41, 0x4c, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x41, 0x50, 0x49, 0x5f, 0x4b, 0x45, 0x59, 0x10,
+	0x01, 0x42, 0x36, 0x5a, 0x34, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f,
+	0x63, 0x6f, 0x6e, 0x64, 0x75, 0x63, 0x74, 0x6f, 0x72, 0x6f, 0x6e, 0x65, 0x2f, 0x62, 0x61, 0x74,
+	0x6f, 0x6e, 0x2d, 0x73, 0x64, 0x6b, 0x2f, 0x70, 0x62, 0x2f, 0x63, 0x31, 0x2f, 0x63, 0x6f, 0x6e,
+	0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x2f, 0x76, 0x32, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f,
+	0x33,
 }
 
 var (
@@ -841,47 +1002,54 @@ func file_c1_connector_v2_annotation_trait_proto_rawDescGZIP() []byte {
 	return file_c1_connector_v2_annotation_trait_proto_rawDescData
 }
 
-var file_c1_connector_v2_annotation_trait_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_c1_connector_v2_annotation_trait_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_c1_connector_v2_annotation_trait_proto_goTypes = []interface{}{
-	(UserTrait_AccountType)(0),    // 0: c1.connector.v2.UserTrait.AccountType
-	(UserTrait_Status_Status)(0),  // 1: c1.connector.v2.UserTrait.Status.Status
-	(AppTrait_AppFlag)(0),         // 2: c1.connector.v2.AppTrait.AppFlag
-	(*UserTrait)(nil),             // 3: c1.connector.v2.UserTrait
-	(*GroupTrait)(nil),            // 4: c1.connector.v2.GroupTrait
-	(*RoleTrait)(nil),             // 5: c1.connector.v2.RoleTrait
-	(*AppTrait)(nil),              // 6: c1.connector.v2.AppTrait
-	(*UserTrait_Email)(nil),       // 7: c1.connector.v2.UserTrait.Email
-	(*UserTrait_Status)(nil),      // 8: c1.connector.v2.UserTrait.Status
-	(*UserTrait_MFAStatus)(nil),   // 9: c1.connector.v2.UserTrait.MFAStatus
-	(*UserTrait_SSOStatus)(nil),   // 10: c1.connector.v2.UserTrait.SSOStatus
-	(*structpb.Struct)(nil),       // 11: google.protobuf.Struct
-	(*AssetRef)(nil),              // 12: c1.connector.v2.AssetRef
-	(*timestamppb.Timestamp)(nil), // 13: google.protobuf.Timestamp
+	(UserTrait_AccountType)(0),          // 0: c1.connector.v2.UserTrait.AccountType
+	(UserTrait_Status_Status)(0),        // 1: c1.connector.v2.UserTrait.Status.Status
+	(AppTrait_AppFlag)(0),               // 2: c1.connector.v2.AppTrait.AppFlag
+	(CredentialTrait_CredentialType)(0), // 3: c1.connector.v2.CredentialTrait.CredentialType
+	(*UserTrait)(nil),                   // 4: c1.connector.v2.UserTrait
+	(*GroupTrait)(nil),                  // 5: c1.connector.v2.GroupTrait
+	(*RoleTrait)(nil),                   // 6: c1.connector.v2.RoleTrait
+	(*AppTrait)(nil),                    // 7: c1.connector.v2.AppTrait
+	(*CredentialTrait)(nil),             // 8: c1.connector.v2.CredentialTrait
+	(*UserTrait_Email)(nil),             // 9: c1.connector.v2.UserTrait.Email
+	(*UserTrait_Status)(nil),            // 10: c1.connector.v2.UserTrait.Status
+	(*UserTrait_MFAStatus)(nil),         // 11: c1.connector.v2.UserTrait.MFAStatus
+	(*UserTrait_SSOStatus)(nil),         // 12: c1.connector.v2.UserTrait.SSOStatus
+	(*structpb.Struct)(nil),             // 13: google.protobuf.Struct
+	(*AssetRef)(nil),                    // 14: c1.connector.v2.AssetRef
+	(*timestamppb.Timestamp)(nil),       // 15: google.protobuf.Timestamp
 }
 var file_c1_connector_v2_annotation_trait_proto_depIdxs = []int32{
-	7,  // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
-	8,  // 1: c1.connector.v2.UserTrait.status:type_name -> c1.connector.v2.UserTrait.Status
-	11, // 2: c1.connector.v2.UserTrait.profile:type_name -> google.protobuf.Struct
-	12, // 3: c1.connector.v2.UserTrait.icon:type_name -> c1.connector.v2.AssetRef
+	9,  // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
+	10, // 1: c1.connector.v2.UserTrait.status:type_name -> c1.connector.v2.UserTrait.Status
+	13, // 2: c1.connector.v2.UserTrait.profile:type_name -> google.protobuf.Struct
+	14, // 3: c1.connector.v2.UserTrait.icon:type_name -> c1.connector.v2.AssetRef
 	0,  // 4: c1.connector.v2.UserTrait.account_type:type_name -> c1.connector.v2.UserTrait.AccountType
-	13, // 5: c1.connector.v2.UserTrait.created_at:type_name -> google.protobuf.Timestamp
-	13, // 6: c1.connector.v2.UserTrait.last_login:type_name -> google.protobuf.Timestamp
-	9,  // 7: c1.connector.v2.UserTrait.mfa_status:type_name -> c1.connector.v2.UserTrait.MFAStatus
-	10, // 8: c1.connector.v2.UserTrait.sso_status:type_name -> c1.connector.v2.UserTrait.SSOStatus
-	12, // 9: c1.connector.v2.GroupTrait.icon:type_name -> c1.connector.v2.AssetRef
-	11, // 10: c1.connector.v2.GroupTrait.profile:type_name -> google.protobuf.Struct
-	11, // 11: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
-	12, // 12: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
-	12, // 13: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
-	11, // 14: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct
+	15, // 5: c1.connector.v2.UserTrait.created_at:type_name -> google.protobuf.Timestamp
+	15, // 6: c1.connector.v2.UserTrait.last_login:type_name -> google.protobuf.Timestamp
+	11, // 7: c1.connector.v2.UserTrait.mfa_status:type_name -> c1.connector.v2.UserTrait.MFAStatus
+	12, // 8: c1.connector.v2.UserTrait.sso_status:type_name -> c1.connector.v2.UserTrait.SSOStatus
+	14, // 9: c1.connector.v2.GroupTrait.icon:type_name -> c1.connector.v2.AssetRef
+	13, // 10: c1.connector.v2.GroupTrait.profile:type_name -> google.protobuf.Struct
+	13, // 11: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
+	14, // 12: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
+	14, // 13: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
+	13, // 14: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct
 	2,  // 15: c1.connector.v2.AppTrait.flags:type_name -> c1.connector.v2.AppTrait.AppFlag
-	1,  // 16: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
-	17, // [17:17] is the sub-list for method output_type
-	17, // [17:17] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	13, // 16: c1.connector.v2.CredentialTrait.profile:type_name -> google.protobuf.Struct
+	3,  // 17: c1.connector.v2.CredentialTrait.type:type_name -> c1.connector.v2.CredentialTrait.CredentialType
+	15, // 18: c1.connector.v2.CredentialTrait.created_at:type_name -> google.protobuf.Timestamp
+	15, // 19: c1.connector.v2.CredentialTrait.last_used:type_name -> google.protobuf.Timestamp
+	15, // 20: c1.connector.v2.CredentialTrait.expires_at:type_name -> google.protobuf.Timestamp
+	1,  // 21: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
+	22, // [22:22] is the sub-list for method output_type
+	22, // [22:22] is the sub-list for method input_type
+	22, // [22:22] is the sub-list for extension type_name
+	22, // [22:22] is the sub-list for extension extendee
+	0,  // [0:22] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_trait_proto_init() }
@@ -940,7 +1108,7 @@ func file_c1_connector_v2_annotation_trait_proto_init() {
 			}
 		}
 		file_c1_connector_v2_annotation_trait_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*UserTrait_Email); i {
+			switch v := v.(*CredentialTrait); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -952,7 +1120,7 @@ func file_c1_connector_v2_annotation_trait_proto_init() {
 			}
 		}
 		file_c1_connector_v2_annotation_trait_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*UserTrait_Status); i {
+			switch v := v.(*UserTrait_Email); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -964,7 +1132,7 @@ func file_c1_connector_v2_annotation_trait_proto_init() {
 			}
 		}
 		file_c1_connector_v2_annotation_trait_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*UserTrait_MFAStatus); i {
+			switch v := v.(*UserTrait_Status); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -976,6 +1144,18 @@ func file_c1_connector_v2_annotation_trait_proto_init() {
 			}
 		}
 		file_c1_connector_v2_annotation_trait_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*UserTrait_MFAStatus); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_c1_connector_v2_annotation_trait_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*UserTrait_SSOStatus); i {
 			case 0:
 				return &v.state
@@ -993,8 +1173,8 @@ func file_c1_connector_v2_annotation_trait_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_c1_connector_v2_annotation_trait_proto_rawDesc,
-			NumEnums:      3,
-			NumMessages:   8,
+			NumEnums:      4,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -91,3 +91,16 @@ message AppTrait {
   }
   repeated AppFlag flags = 5;
 }
+
+message CredentialTrait {
+  google.protobuf.Struct profile = 1;
+  enum CredentialType {
+    CREDENTIAL_TYPE_UNSPECIFIED = 0;
+    CREDENTIAL_TYPE_API_KEY = 1;
+  }
+  CredentialType type = 2 [(validate.rules).enum = {defined_only: true}];
+  google.protobuf.Timestamp created_at = 3;
+  google.protobuf.Timestamp last_used = 4;
+  google.protobuf.Timestamp expires_at = 5;
+  string owner_user_id = 6;
+}
