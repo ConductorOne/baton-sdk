@@ -110,11 +110,12 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.Encry
 			encCipherText := base64.StdEncoding.EncodeToString(ciphertext)
 			encrypted = append(encrypted, &v2.EncryptedData{
 				Provider:       EncryptionProviderJwk,
-				KeyId:          []string{tp},
+				KeyId:          tp, // MJP remove me once we've depricated fully
 				Name:           plainText.Name,
 				Description:    plainText.Description,
 				Schema:         plainText.Schema,
 				EncryptedBytes: []byte(encCipherText),
+				KeyIds:         []string{tp},
 			})
 
 		default:
@@ -131,11 +132,12 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.Encry
 
 		encrypted = append(encrypted, &v2.EncryptedData{
 			Provider:       EncryptionProviderJwk,
-			KeyId:          recipientThumbs,
+			KeyId:          recipientThumbs[0], // MJP remove me once we've depricated fully
 			Name:           plainText.Name,
 			Description:    plainText.Description,
 			Schema:         plainText.Schema,
 			EncryptedBytes: []byte(encCipherText),
+			KeyIds:         recipientThumbs,
 		})
 	}
 	return encrypted, nil
