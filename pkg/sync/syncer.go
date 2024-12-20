@@ -78,7 +78,6 @@ func (p *ProgressCounts) LogResourcesProgress(ctx context.Context, resourceType 
 }
 
 func (p *ProgressCounts) LogEntitlementsProgress(ctx context.Context, resourceType string) {
-	// TODO: only log progress if we complete or we haven't logged in the past 10 seconds
 	entitlementsProgress := p.EntitlementsProgress[resourceType]
 	resources := p.Resources[resourceType]
 	if resources == 0 {
