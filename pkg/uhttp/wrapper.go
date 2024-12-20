@@ -30,6 +30,7 @@ const (
 	applicationFormUrlencoded = "application/x-www-form-urlencoded"
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
+	authorizationHeader       = "Authorization"
 )
 
 const maxBodySize = 4096
@@ -462,6 +463,10 @@ func WithContentType(ctype string) RequestOption {
 
 func WithAccept(value string) RequestOption {
 	return WithHeader(acceptHeader, value)
+}
+
+func WithBearerToken(token string) RequestOption {
+	return WithHeader(authorizationHeader, fmt.Sprintf("Bearer %s", token))
 }
 
 func (c *BaseHttpClient) NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error) {
