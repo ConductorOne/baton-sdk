@@ -49,6 +49,7 @@ type ProgressCounts struct {
 	LastEntitlementLog   map[string]time.Time
 	GrantsProgress       map[string]int
 	LastGrantLog         map[string]time.Time
+	LastActionLog        time.Time
 }
 
 // TODO: use a mutex or a syncmap for when this code becomes parallel
@@ -59,6 +60,7 @@ func NewProgressCounts() *ProgressCounts {
 		LastEntitlementLog:   make(map[string]time.Time),
 		GrantsProgress:       make(map[string]int),
 		LastGrantLog:         make(map[string]time.Time),
+		LastActionLog:        time.Time{},
 	}
 }
 
@@ -140,6 +142,17 @@ func (p *ProgressCounts) LogGrantsProgress(ctx context.Context, resourceType str
 		)
 		p.LastGrantLog[resourceType] = time.Now()
 	}
+}
+
+func (p *ProgressCounts) LogExpandProgress(ctx context.Context, actions []*expand.EntitlementGraphAction) {
+	actionsLen := len(actions)
+	if time.Since(p.LastActionLog) < 10*time.Second && actionsLen > 10 {
+		return
+	}
+	p.LastActionLog = time.Now()
+
+	l := ctxzap.Extract(ctx)
+	l.Info("Expanding grants", zap.Int("actions_remaining", actionsLen))
 }
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
@@ -1539,10 +1552,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	l = l.With(zap.Int("depth", graph.Depth))
 	l.Debug("expandGrantsForEntitlements: start", zap.Any("graph", graph))
 
-	actions := len(graph.Actions)
-	if actions%250 == 0 || actions <= 10 {
-		l.Info("Expanding grants", zap.Int("actions_remaining", actions))
-	}
+	s.counts.LogExpandProgress(ctx, graph.Actions)
 
 	actionsDone, err := s.runGrantExpandActions(ctx)
 	if err != nil {
