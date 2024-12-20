@@ -75,11 +75,14 @@ func (p *ProgressCounts) LogResourcesProgress(ctx context.Context, resourceType 
 
 func (p *ProgressCounts) LogEntitlementsProgress(ctx context.Context, resourceType string) {
 	// TODO: only log progress if we complete or we haven't logged in the past 10 seconds
-	l := ctxzap.Extract(ctx)
 	entitlementsProgress := p.EntitlementsProgress[resourceType]
 	resources := p.Resources[resourceType]
+	if resources == 0 {
+		return
+	}
 	percentComplete := (entitlementsProgress * 100) / resources
 
+	l := ctxzap.Extract(ctx)
 	switch {
 	case entitlementsProgress > resources:
 		l.Error("more entitlement resources than resources",
@@ -106,11 +109,14 @@ func (p *ProgressCounts) LogEntitlementsProgress(ctx context.Context, resourceTy
 }
 
 func (p *ProgressCounts) LogGrantsProgress(ctx context.Context, resourceType string) {
-	l := ctxzap.Extract(ctx)
 	grantsProgress := p.GrantsProgress[resourceType]
 	resources := p.Resources[resourceType]
+	if resources == 0 {
+		return
+	}
 	percentComplete := (grantsProgress * 100) / resources
 
+	l := ctxzap.Extract(ctx)
 	switch {
 	case grantsProgress > resources:
 		l.Error("more grant resources than resources",
