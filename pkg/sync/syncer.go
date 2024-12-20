@@ -147,7 +147,7 @@ func (p *ProgressCounts) LogGrantsProgress(ctx context.Context, resourceType str
 
 func (p *ProgressCounts) LogExpandProgress(ctx context.Context, actions []*expand.EntitlementGraphAction) {
 	actionsLen := len(actions)
-	if time.Since(p.LastActionLog) < maxLogFrequency && actionsLen > 10 {
+	if time.Since(p.LastActionLog) < maxLogFrequency {
 		return
 	}
 	p.LastActionLog = time.Now()
