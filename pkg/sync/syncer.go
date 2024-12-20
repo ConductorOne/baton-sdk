@@ -52,6 +52,8 @@ type ProgressCounts struct {
 	LastActionLog        time.Time
 }
 
+const maxLogFrequency = 10 * time.Second
+
 // TODO: use a mutex or a syncmap for when this code becomes parallel
 func NewProgressCounts() *ProgressCounts {
 	return &ProgressCounts{
@@ -99,7 +101,7 @@ func (p *ProgressCounts) LogEntitlementsProgress(ctx context.Context, resourceTy
 			zap.Int("total", resources),
 		)
 		p.LastEntitlementLog[resourceType] = time.Time{}
-	case time.Since(p.LastEntitlementLog[resourceType]) > 10*time.Second:
+	case time.Since(p.LastEntitlementLog[resourceType]) > maxLogFrequency:
 		l.Info("Syncing entitlements",
 			zap.String("resource_type_id", resourceType),
 			zap.Int("synced", entitlementsProgress),
@@ -133,7 +135,7 @@ func (p *ProgressCounts) LogGrantsProgress(ctx context.Context, resourceType str
 			zap.Int("total", resources),
 		)
 		p.LastGrantLog[resourceType] = time.Time{}
-	case time.Since(p.LastGrantLog[resourceType]) > 10*time.Second:
+	case time.Since(p.LastGrantLog[resourceType]) > maxLogFrequency:
 		l.Info("Syncing grants",
 			zap.String("resource_type_id", resourceType),
 			zap.Int("synced", grantsProgress),
@@ -146,7 +148,7 @@ func (p *ProgressCounts) LogGrantsProgress(ctx context.Context, resourceType str
 
 func (p *ProgressCounts) LogExpandProgress(ctx context.Context, actions []*expand.EntitlementGraphAction) {
 	actionsLen := len(actions)
-	if time.Since(p.LastActionLog) < 10*time.Second && actionsLen > 10 {
+	if time.Since(p.LastActionLog) < maxLogFrequency && actionsLen > 10 {
 		return
 	}
 	p.LastActionLog = time.Now()
