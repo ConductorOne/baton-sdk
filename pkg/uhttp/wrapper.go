@@ -91,9 +91,10 @@ type (
 		NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error)
 	}
 	BaseHttpClient struct {
-		HttpClient    *http.Client
-		rateLimiter   uRateLimit.Limiter
-		baseHttpCache icache
+		HttpClient     *http.Client
+		rateLimiter    uRateLimit.Limiter
+		baseHttpCache  icache
+		debugPrintBody bool
 	}
 
 	DoOption      func(resp *WrapperResponse) error
@@ -341,7 +342,11 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	// Replace resp.Body with a no-op closer so nobody has to worry about closing the reader.
-	resp.Body = io.NopCloser(bytes.NewBuffer(body))
+	if c.debugPrintBody {
+		resp.Body = io.NopCloser(wrapBodyToUndress(bytes.NewBuffer(body)))
+	} else {
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+	}
 
 	wresp := WrapperResponse{
 		Header:     resp.Header,
