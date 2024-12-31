@@ -9,7 +9,9 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -62,8 +64,6 @@ func TestExpandGrants(t *testing.T) {
 			principal, err := mc.AddUser(ctx, pid)
 			require.NoError(t, err)
 
-			// This isn't needed because grant expansion will create this grant
-			// _ = mc.AddGroupMember(ctx, group, principal)
 			_ = mc.AddGroupMember(ctx, group, principal)
 		}
 	}
@@ -78,6 +78,107 @@ func TestExpandGrants(t *testing.T) {
 	require.NoError(t, err)
 	err = syncer.Close(ctx)
 	require.NoError(t, err)
+	_ = os.Remove(c1zpath)
+}
+
+func TestExpandGrantImmutable(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mc := newMockConnector()
+
+	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+
+	group1, group1Ent, err := mc.AddGroup(ctx, "test_group_1")
+	require.NoError(t, err)
+	group2, group2Ent, err := mc.AddGroup(ctx, "test_group_2")
+	require.NoError(t, err)
+
+	user1, err := mc.AddUser(ctx, "user_1")
+	require.NoError(t, err)
+	user2, err := mc.AddUser(ctx, "user_2")
+	require.NoError(t, err)
+
+	// Add all users to group 2
+	_ = mc.AddGroupMember(ctx, group2, user1)
+	_ = mc.AddGroupMember(ctx, group2, user2)
+
+	// Add group 2 to group 1
+	_ = mc.AddGroupMember(ctx, group1, group2, group2Ent)
+
+	// Directly add user 1 to group 1 (this grant should not be immutable after expansion)
+	_ = mc.AddGroupMember(ctx, group1, user1)
+
+	tempDir, err := os.MkdirTemp("", "baton-expand-grant-immutable")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+	c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
+	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	err = syncer.Sync(ctx)
+	require.NoError(t, err)
+	err = syncer.Close(ctx)
+	require.NoError(t, err)
+
+	c1zManager, err := manager.New(ctx, c1zpath)
+	require.NoError(t, err)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
+	allGrants, err := store.ListGrants(ctx, allGrantsReq)
+	require.NoError(t, err)
+	require.Len(t, allGrants.List, 5)
+
+	req := &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
+		Entitlement: group1Ent,
+		// PrincipalId: user1.Id,
+		PageToken:   "",
+		Annotations: nil,
+	}
+	resp, err := store.ListGrantsForEntitlement(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, resp.List, 3) // both users and group2 should have group1 membership
+
+	req = &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
+		Entitlement: group1Ent,
+		PrincipalId: user1.Id,
+		PageToken:   "",
+		Annotations: nil,
+	}
+	resp, err = store.ListGrantsForEntitlement(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, resp.List, 1)
+
+	grant := resp.List[0]
+
+	annos := annotations.Annotations(grant.Annotations)
+	immutable := &v2.GrantImmutable{}
+	hasImmutable, err := annos.Pick(immutable)
+	require.NoError(t, err)
+
+	require.False(t, hasImmutable) // Direct grant should not be immutable
+
+	req = &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
+		Entitlement: group1Ent,
+		PrincipalId: user2.Id,
+		PageToken:   "",
+		Annotations: nil,
+	}
+	resp, err = store.ListGrantsForEntitlement(ctx, req)
+	require.NoError(t, err)
+	require.Len(t, resp.List, 1)
+
+	grant = resp.List[0]
+
+	annos = annotations.Annotations(grant.Annotations)
+	immutable = &v2.GrantImmutable{}
+	hasImmutable, err = annos.Pick(immutable)
+	require.NoError(t, err)
+
+	require.True(t, hasImmutable) // Expanded indirect grant should be immutable
+
 	_ = os.Remove(c1zpath)
 }
 

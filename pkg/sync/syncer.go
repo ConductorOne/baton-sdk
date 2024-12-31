@@ -1536,10 +1536,15 @@ func (s *syncer) newExpandedGrant(_ context.Context, descEntitlement *v2.Entitle
 		return nil, fmt.Errorf("newExpandedGrant: principal is nil")
 	}
 
+	// Add immutable annotation since this function is only called if no direct grant exists
+	var annos annotations.Annotations
+	annos.Update(&v2.GrantImmutable{})
+
 	grant := &v2.Grant{
 		Id:          fmt.Sprintf("%s:%s:%s", descEntitlement.Id, principal.Id.ResourceType, principal.Id.Resource),
 		Entitlement: descEntitlement,
 		Principal:   principal,
+		Annotations: annos,
 	}
 
 	return grant, nil
