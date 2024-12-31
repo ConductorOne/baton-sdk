@@ -361,7 +361,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	switch resp.StatusCode {
 	case http.StatusRequestTimeout:
 		return resp, WrapErrorsWithRateLimitInfo(codes.DeadlineExceeded, resp, optErrs...)
-	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable:
 		return resp, WrapErrorsWithRateLimitInfo(codes.Unavailable, resp, optErrs...)
 	case http.StatusNotFound:
 		return resp, WrapErrorsWithRateLimitInfo(codes.NotFound, resp, optErrs...)
@@ -369,6 +369,8 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return resp, WrapErrorsWithRateLimitInfo(codes.Unauthenticated, resp, optErrs...)
 	case http.StatusForbidden:
 		return resp, WrapErrorsWithRateLimitInfo(codes.PermissionDenied, resp, optErrs...)
+	case http.StatusConflict:
+		return resp, WrapErrorsWithRateLimitInfo(codes.AlreadyExists, resp, optErrs...)
 	case http.StatusNotImplemented:
 		return resp, WrapErrorsWithRateLimitInfo(codes.Unimplemented, resp, optErrs...)
 	}
