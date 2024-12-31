@@ -41,7 +41,7 @@ func TestGenBagFromToken(t *testing.T) {
 	marshalled, err := bag.Marshal()
 	require.NoError(t, err)
 
-	token := Token{Token: marshalled}
+	token := &Token{Token: marshalled}
 
 	// Unmarshal
 	bagFromToken, err := GenBagFromToken[innerStruct](token)

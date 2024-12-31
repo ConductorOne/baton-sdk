@@ -18,7 +18,7 @@ type GenBag[T any] struct {
 	currentState *T
 }
 
-func GenBagFromToken[T any](pToken Token) (*GenBag[T], error) {
+func GenBagFromToken[T any](pToken *Token) (*GenBag[T], error) {
 	bag := &GenBag[T]{}
 	err := bag.Unmarshal(pToken.Token)
 	if err != nil {
