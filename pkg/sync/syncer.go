@@ -378,7 +378,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			continue
 
 		case SyncResourcesOp:
-			err = s.SyncResources(ctx)
+			err = s.SyncResources(ctx, newSync)
 			if !shouldWaitAndRetry(ctx, err) {
 				return err
 			}
@@ -429,10 +429,28 @@ func (s *syncer) Sync(ctx context.Context) error {
 				return err
 			}
 			continue
+		case OnStartSyncOp:
+			err = s.OnStartSync(ctx)
+			if !shouldWaitAndRetry(ctx, err) {
+				return err
+			}
+			continue
+		case OnResumeSyncOp:
+			err = s.OnResumeSync(ctx)
+			if !shouldWaitAndRetry(ctx, err) {
+				return err
+			}
+			continue
 		default:
 			return fmt.Errorf("unexpected sync step")
 		}
 	}
+
+	// TODO: add a final action to the state to ensure we always cleanup from the connector side
+	// err = s.OnEndSync(ctx)
+	// if err != nil {
+	//	return err
+	// }
 
 	err = s.store.EndSync(ctx)
 	if err != nil {
@@ -563,7 +581,7 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
-func (s *syncer) SyncResources(ctx context.Context) error {
+func (s *syncer) SyncResources(ctx context.Context, newSync bool) error {
 	if s.state.Current().ResourceTypeID == "" {
 		pageToken := s.state.PageToken(ctx)
 
@@ -587,6 +605,12 @@ func (s *syncer) SyncResources(ctx context.Context) error {
 		}
 
 		for _, rt := range resp.List {
+			if newSync {
+				s.state.PushAction(ctx, Action{Op: OnStartSyncOp, ResourceTypeID: rt.Id})
+			} else {
+				s.state.PushAction(ctx, Action{Op: OnResumeSyncOp, ResourceTypeID: rt.Id})
+			}
+
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: rt.Id})
 		}
 
@@ -1662,6 +1686,48 @@ func (s *syncer) Close(ctx context.Context) error {
 			return err
 		}
 	}
+
+	return nil
+}
+
+func (s *syncer) OnStartSync(ctx context.Context) error {
+	req := &v2.OnStartRequest{
+		ResourceTypeId: s.state.ResourceTypeID(ctx),
+	}
+
+	_, err := s.connector.OnStart(ctx, req)
+	if err != nil {
+		return err
+	}
+	s.state.FinishAction(ctx)
+
+	return nil
+}
+
+func (s *syncer) OnResumeSync(ctx context.Context) error {
+	req := &v2.OnResumeRequest{
+		ResourceTypeId: s.state.ResourceTypeID(ctx),
+	}
+
+	_, err := s.connector.OnResume(ctx, req)
+	if err != nil {
+		return err
+	}
+	s.state.FinishAction(ctx)
+
+	return nil
+}
+
+func (s *syncer) OnEndSync(ctx context.Context) error {
+	req := &v2.OnEndRequest{
+		ResourceTypeId: s.state.ResourceTypeID(ctx),
+	}
+
+	_, err := s.connector.OnEnd(ctx, req)
+	if err != nil {
+		return err
+	}
+	s.state.FinishAction(ctx)
 
 	return nil
 }

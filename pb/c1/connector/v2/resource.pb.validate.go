@@ -3713,6 +3713,740 @@ var _ interface {
 	ErrorName() string
 } = ExternalIdValidationError{}
 
+// Validate checks the field values on OnStartRequest with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *OnStartRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on OnStartRequest with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in OnStartRequestMultiError,
+// or nil if none found.
+func (m *OnStartRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *OnStartRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if l := len(m.GetResourceTypeId()); l < 1 || l > 1024 {
+		err := OnStartRequestValidationError{
+			field:  "ResourceTypeId",
+			reason: "value length must be between 1 and 1024 bytes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, OnStartRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, OnStartRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return OnStartRequestValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return OnStartRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// OnStartRequestMultiError is an error wrapping multiple validation errors
+// returned by OnStartRequest.ValidateAll() if the designated constraints
+// aren't met.
+type OnStartRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m OnStartRequestMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m OnStartRequestMultiError) AllErrors() []error { return m }
+
+// OnStartRequestValidationError is the validation error returned by
+// OnStartRequest.Validate if the designated constraints aren't met.
+type OnStartRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e OnStartRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e OnStartRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e OnStartRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e OnStartRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e OnStartRequestValidationError) ErrorName() string { return "OnStartRequestValidationError" }
+
+// Error satisfies the builtin error interface
+func (e OnStartRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sOnStartRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = OnStartRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = OnStartRequestValidationError{}
+
+// Validate checks the field values on OnStartResponse with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *OnStartResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on OnStartResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// OnStartResponseMultiError, or nil if none found.
+func (m *OnStartResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *OnStartResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return OnStartResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// OnStartResponseMultiError is an error wrapping multiple validation errors
+// returned by OnStartResponse.ValidateAll() if the designated constraints
+// aren't met.
+type OnStartResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m OnStartResponseMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m OnStartResponseMultiError) AllErrors() []error { return m }
+
+// OnStartResponseValidationError is the validation error returned by
+// OnStartResponse.Validate if the designated constraints aren't met.
+type OnStartResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e OnStartResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e OnStartResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e OnStartResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e OnStartResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e OnStartResponseValidationError) ErrorName() string { return "OnStartResponseValidationError" }
+
+// Error satisfies the builtin error interface
+func (e OnStartResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sOnStartResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = OnStartResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = OnStartResponseValidationError{}
+
+// Validate checks the field values on OnResumeRequest with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *OnResumeRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on OnResumeRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// OnResumeRequestMultiError, or nil if none found.
+func (m *OnResumeRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *OnResumeRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if l := len(m.GetResourceTypeId()); l < 1 || l > 1024 {
+		err := OnResumeRequestValidationError{
+			field:  "ResourceTypeId",
+			reason: "value length must be between 1 and 1024 bytes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, OnResumeRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, OnResumeRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return OnResumeRequestValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return OnResumeRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// OnResumeRequestMultiError is an error wrapping multiple validation errors
+// returned by OnResumeRequest.ValidateAll() if the designated constraints
+// aren't met.
+type OnResumeRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m OnResumeRequestMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m OnResumeRequestMultiError) AllErrors() []error { return m }
+
+// OnResumeRequestValidationError is the validation error returned by
+// OnResumeRequest.Validate if the designated constraints aren't met.
+type OnResumeRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e OnResumeRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e OnResumeRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e OnResumeRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e OnResumeRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e OnResumeRequestValidationError) ErrorName() string { return "OnResumeRequestValidationError" }
+
+// Error satisfies the builtin error interface
+func (e OnResumeRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sOnResumeRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = OnResumeRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = OnResumeRequestValidationError{}
+
+// Validate checks the field values on OnResumeResponse with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *OnResumeResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on OnResumeResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// OnResumeResponseMultiError, or nil if none found.
+func (m *OnResumeResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *OnResumeResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return OnResumeResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// OnResumeResponseMultiError is an error wrapping multiple validation errors
+// returned by OnResumeResponse.ValidateAll() if the designated constraints
+// aren't met.
+type OnResumeResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m OnResumeResponseMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m OnResumeResponseMultiError) AllErrors() []error { return m }
+
+// OnResumeResponseValidationError is the validation error returned by
+// OnResumeResponse.Validate if the designated constraints aren't met.
+type OnResumeResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e OnResumeResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e OnResumeResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e OnResumeResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e OnResumeResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e OnResumeResponseValidationError) ErrorName() string { return "OnResumeResponseValidationError" }
+
+// Error satisfies the builtin error interface
+func (e OnResumeResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sOnResumeResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = OnResumeResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = OnResumeResponseValidationError{}
+
+// Validate checks the field values on OnEndRequest with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *OnEndRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on OnEndRequest with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in OnEndRequestMultiError, or
+// nil if none found.
+func (m *OnEndRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *OnEndRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if l := len(m.GetResourceTypeId()); l < 1 || l > 1024 {
+		err := OnEndRequestValidationError{
+			field:  "ResourceTypeId",
+			reason: "value length must be between 1 and 1024 bytes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, OnEndRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, OnEndRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return OnEndRequestValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return OnEndRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// OnEndRequestMultiError is an error wrapping multiple validation errors
+// returned by OnEndRequest.ValidateAll() if the designated constraints aren't met.
+type OnEndRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m OnEndRequestMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m OnEndRequestMultiError) AllErrors() []error { return m }
+
+// OnEndRequestValidationError is the validation error returned by
+// OnEndRequest.Validate if the designated constraints aren't met.
+type OnEndRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e OnEndRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e OnEndRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e OnEndRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e OnEndRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e OnEndRequestValidationError) ErrorName() string { return "OnEndRequestValidationError" }
+
+// Error satisfies the builtin error interface
+func (e OnEndRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sOnEndRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = OnEndRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = OnEndRequestValidationError{}
+
+// Validate checks the field values on OnEndResponse with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *OnEndResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on OnEndResponse with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in OnEndResponseMultiError, or
+// nil if none found.
+func (m *OnEndResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *OnEndResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return OnEndResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// OnEndResponseMultiError is an error wrapping multiple validation errors
+// returned by OnEndResponse.ValidateAll() if the designated constraints
+// aren't met.
+type OnEndResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m OnEndResponseMultiError) Error() string {
+	var msgs []string
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m OnEndResponseMultiError) AllErrors() []error { return m }
+
+// OnEndResponseValidationError is the validation error returned by
+// OnEndResponse.Validate if the designated constraints aren't met.
+type OnEndResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e OnEndResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e OnEndResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e OnEndResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e OnEndResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e OnEndResponseValidationError) ErrorName() string { return "OnEndResponseValidationError" }
+
+// Error satisfies the builtin error interface
+func (e OnEndResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sOnEndResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = OnEndResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = OnEndResponseValidationError{}
+
 // Validate checks the field values on AccountInfo_Email with the rules defined
 // in the proto definition for this message. If any rules are violated, the
 // first error encountered is returned, or nil if there are no violations.

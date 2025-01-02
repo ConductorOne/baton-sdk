@@ -208,5 +208,3 @@ message TicketsServiceBulkGetTicketsRequest {
 message TicketsServiceBulkGetTicketsResponse {
   repeated TicketsServiceGetTicketResponse tickets = 1;
 }
-
-

@@ -356,13 +356,52 @@ func BenchmarkExpandCircle(b *testing.B) {
 	}
 }
 
+func TestLifecycle(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mc := newMockConnector()
+
+	mc.rtDB = append(mc.rtDB, userResourceType)
+
+	callStart := false
+	callResume := false
+
+	mc.ConnectorLifeCycleClient = &connectorLifeCycleClientMock{
+		onStart: func(ctx context.Context, in *v2.OnStartRequest, opts ...grpc.CallOption) (*v2.OnStartResponse, error) {
+			callStart = true
+			return &v2.OnStartResponse{}, nil
+		},
+		onResume: func(ctx context.Context, in *v2.OnResumeRequest, opts ...grpc.CallOption) (*v2.OnResumeResponse, error) {
+			callResume = true
+			return &v2.OnResumeResponse{}, nil
+		},
+	}
+
+	tempDir, err := os.MkdirTemp("", "baton-expand-grant-immutable-cycle")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+	c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
+	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+
+	err = syncer.Sync(ctx)
+	require.NoError(t, err)
+	err = syncer.Close(ctx)
+	require.NoError(t, err)
+
+	require.True(t, callStart)
+	require.False(t, callResume)
+}
+
 func newMockConnector() *mockConnector {
 	mc := &mockConnector{
-		rtDB:       make([]*v2.ResourceType, 0),
-		resourceDB: make([]*v2.Resource, 0),
-		entDB:      make(map[string][]*v2.Entitlement),
-		userDB:     make([]*v2.Resource, 0),
-		grantDB:    make(map[string][]*v2.Grant),
+		rtDB:                     make([]*v2.ResourceType, 0),
+		resourceDB:               make([]*v2.Resource, 0),
+		entDB:                    make(map[string][]*v2.Entitlement),
+		userDB:                   make([]*v2.Resource, 0),
+		grantDB:                  make(map[string][]*v2.Grant),
+		ConnectorLifeCycleClient: &connectorLifeCycleClientMock{},
 	}
 	return mc
 }
@@ -381,6 +420,7 @@ type mockConnector struct {
 	v2.CredentialManagerServiceClient
 	v2.EventServiceClient
 	v2.TicketsServiceClient
+	v2.ConnectorLifeCycleClient
 }
 
 func (mc *mockConnector) AddGroup(ctx context.Context, groupId string) (*v2.Resource, *v2.Entitlement, error) {
@@ -480,4 +520,34 @@ func (mc *mockConnector) Validate(ctx context.Context, in *v2.ConnectorServiceVa
 
 func (mc *mockConnector) Cleanup(ctx context.Context, in *v2.ConnectorServiceCleanupRequest, opts ...grpc.CallOption) (*v2.ConnectorServiceCleanupResponse, error) {
 	return &v2.ConnectorServiceCleanupResponse{}, nil
+}
+
+type connectorLifeCycleClientMock struct {
+	onStart  func(ctx context.Context, in *v2.OnStartRequest, opts ...grpc.CallOption) (*v2.OnStartResponse, error)
+	onResume func(ctx context.Context, in *v2.OnResumeRequest, opts ...grpc.CallOption) (*v2.OnResumeResponse, error)
+	onEnd    func(ctx context.Context, in *v2.OnEndRequest, opts ...grpc.CallOption) (*v2.OnEndResponse, error)
+}
+
+func (clc *connectorLifeCycleClientMock) OnStart(ctx context.Context, in *v2.OnStartRequest, opts ...grpc.CallOption) (*v2.OnStartResponse, error) {
+	if clc.onStart != nil {
+		return clc.onStart(ctx, in, opts...)
+	}
+
+	return &v2.OnStartResponse{}, nil
+}
+
+func (clc *connectorLifeCycleClientMock) OnResume(ctx context.Context, in *v2.OnResumeRequest, opts ...grpc.CallOption) (*v2.OnResumeResponse, error) {
+	if clc.onResume != nil {
+		return clc.onResume(ctx, in, opts...)
+	}
+
+	return &v2.OnResumeResponse{}, nil
+}
+
+func (clc *connectorLifeCycleClientMock) OnEnd(ctx context.Context, in *v2.OnEndRequest, opts ...grpc.CallOption) (*v2.OnEndResponse, error) {
+	if clc.onEnd != nil {
+		return clc.onEnd(ctx, in, opts...)
+	}
+
+	return &v2.OnEndResponse{}, nil
 }

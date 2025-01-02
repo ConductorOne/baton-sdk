@@ -83,11 +83,18 @@ type ConnectorBuilder interface {
 	ResourceSyncers(ctx context.Context) []ResourceSyncer
 }
 
+type ConnectorLifeCycle interface {
+	OnStart(ctx context.Context) error
+	OnResume(ctx context.Context) error
+	OnEnd(ctx context.Context) error
+}
+
 type builderImpl struct {
 	resourceBuilders       map[string]ResourceSyncer
 	resourceProvisioners   map[string]ResourceProvisioner
 	resourceProvisionersV2 map[string]ResourceProvisionerV2
 	resourceManagers       map[string]ResourceManager
+	lifeCycleManager       map[string]ConnectorLifeCycle
 	accountManager         AccountManager
 	credentialManagers     map[string]CredentialManager
 	eventFeed              EventProvider
@@ -284,6 +291,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			cb:                     c,
 			ticketManager:          nil,
 			nowFunc:                time.Now,
+			lifeCycleManager:       make(map[string]ConnectorLifeCycle),
 		}
 
 		err := ret.options(opts...)
@@ -349,6 +357,13 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 					return nil, fmt.Errorf("error: duplicate resource type found for credential manager %s", rType.Id)
 				}
 				ret.credentialManagers[rType.Id] = credentialManagers
+			}
+
+			if connectorLifeCycleManager, ok := rb.(ConnectorLifeCycle); ok {
+				if _, ok := ret.lifeCycleManager[rType.Id]; ok {
+					return nil, fmt.Errorf("error: duplicate resource type found for life cycle manager%s", rType.Id)
+				}
+				ret.lifeCycleManager[rType.Id] = connectorLifeCycleManager
 			}
 		}
 		return ret, nil
@@ -923,4 +938,74 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return rv, nil
+}
+
+func (b *builderImpl) OnStart(ctx context.Context, request *v2.OnStartRequest) (*v2.OnStartResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.OnStart
+	rb, ok := b.lifeCycleManager[request.ResourceTypeId]
+
+	resp := &v2.OnStartResponse{}
+	// If there is no lifecycle manager for the resource type, return success.
+	if !ok {
+		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+		return resp, nil
+	}
+
+	err := rb.OnStart(ctx)
+
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return resp, fmt.Errorf("error: on start failed: %w", err)
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return resp, nil
+}
+
+func (b *builderImpl) OnResume(ctx context.Context, request *v2.OnResumeRequest) (*v2.OnResumeResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.OnResume
+	rb, ok := b.lifeCycleManager[request.ResourceTypeId]
+
+	resp := &v2.OnResumeResponse{}
+	// If there is no lifecycle manager for the resource type, return success.
+	if !ok {
+		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+		return resp, nil
+	}
+
+	err := rb.OnResume(ctx)
+
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return resp, fmt.Errorf("error: on resume failed: %w", err)
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return resp, nil
+}
+
+func (b *builderImpl) OnEnd(ctx context.Context, request *v2.OnEndRequest) (*v2.OnEndResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.OnEnd
+	rb, ok := b.lifeCycleManager[request.ResourceTypeId]
+
+	resp := &v2.OnEndResponse{}
+
+	// If there is no lifecycle manager for the resource type, return success.
+	if !ok {
+		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+		return resp, nil
+	}
+
+	err := rb.OnEnd(ctx)
+
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return resp, fmt.Errorf("error: on end failed: %w", err)
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return resp, nil
 }

@@ -80,4 +80,7 @@ const (
 	StartDebugging
 	BulkCreateTicketsType
 	BulkGetTicketsType
+	OnStart
+	OnResume
+	OnEnd
 )

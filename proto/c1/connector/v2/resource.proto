@@ -73,6 +73,12 @@ service ResourcesService {
   rpc ListResources(ResourcesServiceListResourcesRequest) returns (ResourcesServiceListResourcesResponse);
 }
 
+service ConnectorLifeCycle {
+  rpc OnStart(OnStartRequest) returns (OnStartResponse);
+  rpc OnResume(OnResumeRequest) returns (OnResumeResponse);
+  rpc OnEnd(OnEndRequest) returns (OnEndResponse);
+}
+
 service ResourceManagerService {
   rpc CreateResource(CreateResourceRequest) returns (CreateResourceResponse);
   rpc DeleteResource(DeleteResourceRequest) returns (DeleteResourceResponse);
@@ -133,12 +139,11 @@ message AccountInfo {
 message CredentialOptions {
   message RandomPassword {
     int64 length = 1 [(validate.rules).int64 = {
-      gte: 8,
+      gte: 8
       lte: 64
     }];
   }
-  message NoPassword {
-  }
+  message NoPassword {}
   message SSO {
     string sso_provider = 1;
   }
@@ -275,3 +280,33 @@ message ExternalId {
   string link = 2;
   string description = 3;
 }
+
+message OnStartRequest {
+  string resource_type_id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message OnStartResponse {}
+
+message OnResumeRequest {
+  string resource_type_id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message OnResumeResponse {}
+
+message OnEndRequest {
+  string resource_type_id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message OnEndResponse {}
