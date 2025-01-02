@@ -33,9 +33,7 @@ const maxDepth = 8
 
 var dontFixCycles, _ = strconv.ParseBool(os.Getenv("BATON_DONT_FIX_CYCLES"))
 
-var (
-	ErrSyncNotComplete = fmt.Errorf("sync exited without finishing")
-)
+var ErrSyncNotComplete = fmt.Errorf("sync exited without finishing")
 
 type Syncer interface {
 	Sync(context.Context) error
@@ -972,7 +970,7 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 }
 
 // SyncGrantExpansion
-// TODO(morgabra) Docs.
+// TODO(morgabra) Docs
 func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 	entitlementGraph := s.state.EntitlementGraph(ctx)
