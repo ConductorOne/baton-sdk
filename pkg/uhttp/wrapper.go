@@ -343,7 +343,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 
 	// Replace resp.Body with a no-op closer so nobody has to worry about closing the reader.
 	if c.debugPrintBody {
-		resp.Body = io.NopCloser(wrapBodyToUndress(bytes.NewBuffer(body)))
+		resp.Body = io.NopCloser(wrapPrintBody(bytes.NewBuffer(body)))
 	} else {
 		resp.Body = io.NopCloser(bytes.NewBuffer(body))
 	}

@@ -2,9 +2,6 @@ package uhttp
 
 // Implements a debugging facility for request responses. This changes
 // the behavior of `BaseHttpClient` with an unexported flag.
-//
-// If you always wanted to see the actual body of your response, now
-// you can 👁️👄👁️undress it🫦 to uncover all its... data!
 
 import (
 	"io"
@@ -24,18 +21,18 @@ func (pr *printReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func wrapBodyToUndress(body io.Reader) io.Reader {
+func wrapPrintBody(body io.Reader) io.Reader {
 	return &printReader{reader: body}
 }
 
-type undressOption struct {
-	undress bool
+type printBodyOption struct {
+	debugPrintBody bool
 }
 
-func (o undressOption) Apply(c *BaseHttpClient) {
-	c.debugPrintBody = o.undress
+func (o printBodyOption) Apply(c *BaseHttpClient) {
+	c.debugPrintBody = o.debugPrintBody
 }
 
-func WithUndressBody(undress bool) WrapperOption {
-	return undressOption{undress: undress}
+func WithPrintBody(shouldPrint bool) WrapperOption {
+	return printBodyOption{debugPrintBody: shouldPrint}
 }
