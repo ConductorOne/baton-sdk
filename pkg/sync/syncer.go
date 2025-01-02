@@ -970,7 +970,6 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 }
 
 // SyncGrantExpansion documentation pending.
-// TODO(morgabra) Docs
 func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 	entitlementGraph := s.state.EntitlementGraph(ctx)
