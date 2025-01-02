@@ -4,8 +4,10 @@ package uhttp
 // the behavior of `BaseHttpClient` with an unexported flag.
 
 import (
+	"errors"
+	"fmt"
 	"io"
-	"log"
+	"os"
 )
 
 type printReader struct {
@@ -15,7 +17,10 @@ type printReader struct {
 func (pr *printReader) Read(p []byte) (int, error) {
 	n, err := pr.reader.Read(p)
 	if n > 0 {
-		log.Print(string(p[:n]))
+		_, merr := fmt.Fprint(os.Stdout, string(p[:n]))
+		if merr != nil {
+			return -1, errors.Join(err, merr)
+		}
 	}
 
 	return n, err
