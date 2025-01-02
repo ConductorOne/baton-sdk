@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+var ErrNoToken = fmt.Errorf("pagination token cannot be nil")
+
 type genericSerializedPaginationBag[T any] struct {
 	States       []T `json:"states"`
 	CurrentState *T  `json:"current_state"`
@@ -19,6 +21,10 @@ type GenBag[T any] struct {
 }
 
 func GenBagFromToken[T any](pToken *Token) (*GenBag[T], error) {
+	if pToken == nil {
+		return nil, ErrNoToken
+	}
+
 	bag := &GenBag[T]{}
 	err := bag.Unmarshal(pToken.Token)
 	if err != nil {
