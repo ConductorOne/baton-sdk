@@ -44,7 +44,7 @@ type connectorClient struct {
 	connectorV2.CredentialManagerServiceClient
 	connectorV2.EventServiceClient
 	connectorV2.TicketsServiceClient
-	connectorV2.ConnectorLifeCycleClient
+	connectorV2.ConnectorLifeCycleServiceClient
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")
@@ -329,20 +329,20 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	cw.conn = conn
 
 	cw.client = &connectorClient{
-		ResourceTypesServiceClient:     connectorV2.NewResourceTypesServiceClient(cw.conn),
-		ResourcesServiceClient:         connectorV2.NewResourcesServiceClient(cw.conn),
-		EntitlementsServiceClient:      connectorV2.NewEntitlementsServiceClient(cw.conn),
-		GrantsServiceClient:            connectorV2.NewGrantsServiceClient(cw.conn),
-		ConnectorServiceClient:         connectorV2.NewConnectorServiceClient(cw.conn),
-		AssetServiceClient:             connectorV2.NewAssetServiceClient(cw.conn),
-		RateLimiterServiceClient:       ratelimitV1.NewRateLimiterServiceClient(cw.conn),
-		GrantManagerServiceClient:      connectorV2.NewGrantManagerServiceClient(cw.conn),
-		ResourceManagerServiceClient:   connectorV2.NewResourceManagerServiceClient(cw.conn),
-		AccountManagerServiceClient:    connectorV2.NewAccountManagerServiceClient(cw.conn),
-		CredentialManagerServiceClient: connectorV2.NewCredentialManagerServiceClient(cw.conn),
-		EventServiceClient:             connectorV2.NewEventServiceClient(cw.conn),
-		TicketsServiceClient:           connectorV2.NewTicketsServiceClient(cw.conn),
-		ConnectorLifeCycleClient:       connectorV2.NewConnectorLifeCycleClient(cw.conn),
+		ResourceTypesServiceClient:      connectorV2.NewResourceTypesServiceClient(cw.conn),
+		ResourcesServiceClient:          connectorV2.NewResourcesServiceClient(cw.conn),
+		EntitlementsServiceClient:       connectorV2.NewEntitlementsServiceClient(cw.conn),
+		GrantsServiceClient:             connectorV2.NewGrantsServiceClient(cw.conn),
+		ConnectorServiceClient:          connectorV2.NewConnectorServiceClient(cw.conn),
+		AssetServiceClient:              connectorV2.NewAssetServiceClient(cw.conn),
+		RateLimiterServiceClient:        ratelimitV1.NewRateLimiterServiceClient(cw.conn),
+		GrantManagerServiceClient:       connectorV2.NewGrantManagerServiceClient(cw.conn),
+		ResourceManagerServiceClient:    connectorV2.NewResourceManagerServiceClient(cw.conn),
+		AccountManagerServiceClient:     connectorV2.NewAccountManagerServiceClient(cw.conn),
+		CredentialManagerServiceClient:  connectorV2.NewCredentialManagerServiceClient(cw.conn),
+		EventServiceClient:              connectorV2.NewEventServiceClient(cw.conn),
+		TicketsServiceClient:            connectorV2.NewTicketsServiceClient(cw.conn),
+		ConnectorLifeCycleServiceClient: connectorV2.NewConnectorLifeCycleServiceClient(cw.conn),
 	}
 
 	return cw.client, nil

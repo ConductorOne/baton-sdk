@@ -73,7 +73,7 @@ service ResourcesService {
   rpc ListResources(ResourcesServiceListResourcesRequest) returns (ResourcesServiceListResourcesResponse);
 }
 
-service ConnectorLifeCycle {
+service ConnectorLifeCycleService {
   rpc OnStart(OnStartRequest) returns (OnStartResponse);
   rpc OnResume(OnResumeRequest) returns (OnResumeResponse);
   rpc OnEnd(OnEndRequest) returns (OnEndResponse);
