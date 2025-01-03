@@ -9,12 +9,13 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/conductorone/baton-sdk/pkg/cli"
-	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
-	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+
+	"github.com/conductorone/baton-sdk/pkg/cli"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/field"
 )
 
 func DefineConfiguration(
@@ -85,6 +86,18 @@ func DefineConfiguration(
 		return nil, nil, err
 	}
 	mainCMD.AddCommand(grpcServerCmd)
+
+	connectServerCmd := &cobra.Command{
+		Use:    "_connect-experiment",
+		Short:  "Start the connector service using connect as the transport",
+		Hidden: true,
+		RunE:   cli.MakeConnectServerCommand(ctx, connectorName, v, confschema, connector),
+	}
+	err = setFlagsAndConstraints(connectServerCmd, schema)
+	if err != nil {
+		return nil, nil, err
+	}
+	mainCMD.AddCommand(connectServerCmd)
 
 	capabilitiesCmd := &cobra.Command{
 		Use:   "capabilities",

@@ -9,6 +9,8 @@ import (
 
 type noopTicketing struct{}
 
+var _ v2.TicketsServiceServer = (*noopTicketing)(nil)
+
 func (n noopTicketing) CreateTicket(ctx context.Context, request *v2.TicketsServiceCreateTicketRequest) (*v2.TicketsServiceCreateTicketResponse, error) {
 	return nil, errors.New("ticketing is not enabled")
 }

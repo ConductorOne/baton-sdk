@@ -7,13 +7,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/conductorone/baton-sdk/internal/connector"
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
-	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
-	"github.com/conductorone/baton-sdk/pkg/field"
-	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -21,6 +14,14 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+
+	"github.com/conductorone/baton-sdk/internal/connector"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/field"
+	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
 type GetConnectorFunc func(context.Context, *viper.Viper) (types.ConnectorServer, error)
@@ -297,6 +298,92 @@ func MakeGRPCServerCommand(
 			return err
 		}
 
+		return cw.Run(runCtx, serverCfg)
+	}
+}
+
+func MakeConnectServerCommand(
+	ctx context.Context,
+	name string,
+	v *viper.Viper,
+	confschema field.Configuration,
+	getconnector GetConnectorFunc,
+) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		// NOTE(shackra): bind all the flags (persistent and
+		// regular) with our instance of Viper, doing this
+		// anywhere else may fail to communicate to Viper the
+		// values gathered by Cobra.
+		err := v.BindPFlags(cmd.Flags())
+		if err != nil {
+			return err
+		}
+
+		runCtx, err := initLogger(
+			ctx,
+			name,
+			logging.WithLogFormat(v.GetString("log-format")),
+			logging.WithLogLevel(v.GetString("log-level")),
+		)
+		if err != nil {
+			return err
+		}
+
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, v); err != nil {
+			return err
+		}
+
+		c, err := getconnector(runCtx, v)
+		if err != nil {
+			return err
+		}
+
+		var copts []connector.Option
+
+		if v.GetBool("provisioning") {
+			copts = append(copts, connector.WithProvisioningEnabled())
+		}
+
+		if v.GetBool("ticketing") {
+			copts = append(copts, connector.WithTicketingEnabled())
+		}
+
+		if v.GetBool("skip-full-sync") {
+			copts = append(copts, connector.WithFullSyncDisabled())
+		}
+
+		switch {
+		case v.GetString("grant-entitlement") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("revoke-grant") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("create-account-login") != "" || v.GetString("create-account-email") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("delete-resource") != "" || v.GetString("delete-resource-type") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("rotate-credentials") != "" || v.GetString("rotate-credentials-type") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetBool("create-ticket"):
+			copts = append(copts, connector.WithTicketingEnabled())
+		case v.GetBool("bulk-create-ticket"):
+			copts = append(copts, connector.WithTicketingEnabled())
+		case v.GetBool("list-ticket-schemas"):
+			copts = append(copts, connector.WithTicketingEnabled())
+		case v.GetBool("get-ticket"):
+			copts = append(copts, connector.WithTicketingEnabled())
+		}
+
+		cw, err := connector.NewWrapperConnect(runCtx, c, copts...)
+		if err != nil {
+			return err
+		}
+
+		serverCfg := &v1.ServerConfig{
+			Credential:        nil,
+			RateLimiterConfig: nil,
+			ListenPort:        8000,
+		}
 		return cw.Run(runCtx, serverCfg)
 	}
 }

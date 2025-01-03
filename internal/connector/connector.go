@@ -51,25 +51,31 @@ var ErrConnectorNotImplemented = errors.New("client does not implement connector
 type wrapper struct {
 	mtx sync.RWMutex
 
-	server              types.ConnectorServer
-	client              types.ConnectorClient
-	serverStdin         io.WriteCloser
-	conn                *grpc.ClientConn
-	provisioningEnabled bool
-	ticketingEnabled    bool
-	fullSyncDisabled    bool
+	opts *wrapperOptions
 
-	rateLimiter   ratelimitV1.RateLimiterServiceServer
-	rlCfg         *ratelimitV1.RateLimiterConfig
-	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
+	server      types.ConnectorServer
+	client      types.ConnectorClient
+	serverStdin io.WriteCloser
+	conn        *grpc.ClientConn
+	rateLimiter ratelimitV1.RateLimiterServiceServer
 
 	now func() time.Time
 }
 
-type Option func(ctx context.Context, w *wrapper) error
+type Option func(ctx context.Context, w *wrapperOptions) error
+
+type wrapperOptions struct {
+	rlCfg               *ratelimitV1.RateLimiterConfig
+	rlDescriptors       []*ratelimitV1.RateLimitDescriptors_Entry
+	provisioningEnabled bool
+	fullSyncDisabled    bool
+	ticketingEnabled    bool
+
+	connectListenPort uint32
+}
 
 func WithRateLimiterConfig(cfg *ratelimitV1.RateLimiterConfig) Option {
-	return func(ctx context.Context, w *wrapper) error {
+	return func(ctx context.Context, w *wrapperOptions) error {
 		if cfg != nil {
 			w.rlCfg = cfg
 		}
@@ -79,40 +85,44 @@ func WithRateLimiterConfig(cfg *ratelimitV1.RateLimiterConfig) Option {
 }
 
 func WithRateLimitDescriptor(entry *ratelimitV1.RateLimitDescriptors_Entry) Option {
-	return func(ctx context.Context, w *wrapper) error {
+	return func(ctx context.Context, w *wrapperOptions) error {
 		if entry != nil {
 			w.rlDescriptors = append(w.rlDescriptors, entry)
 		}
-
 		return nil
 	}
 }
 
 func WithProvisioningEnabled() Option {
-	return func(ctx context.Context, w *wrapper) error {
+	return func(ctx context.Context, w *wrapperOptions) error {
 		w.provisioningEnabled = true
-
 		return nil
 	}
 }
 
 func WithFullSyncDisabled() Option {
-	return func(ctx context.Context, w *wrapper) error {
+	return func(ctx context.Context, w *wrapperOptions) error {
 		w.fullSyncDisabled = true
 		return nil
 	}
 }
 
 func WithTicketingEnabled() Option {
-	return func(ctx context.Context, w *wrapper) error {
+	return func(ctx context.Context, w *wrapperOptions) error {
 		w.ticketingEnabled = true
+		return nil
+	}
+}
 
+func WithConnectListenPort(port uint32) Option {
+	return func(ctx context.Context, w *wrapperOptions) error {
+		w.connectListenPort = port
 		return nil
 	}
 }
 
 // NewConnectorWrapper returns a connector wrapper for running connector services locally.
-func NewWrapper(ctx context.Context, server interface{}, opts ...Option) (*wrapper, error) {
+func NewWrapper(ctx context.Context, server interface{}, optfunc ...Option) (*wrapper, error) {
 	connectorServer, isServer := server.(types.ConnectorServer)
 	if !isServer {
 		return nil, ErrConnectorNotImplemented
@@ -121,10 +131,11 @@ func NewWrapper(ctx context.Context, server interface{}, opts ...Option) (*wrapp
 	w := &wrapper{
 		server: connectorServer,
 		now:    time.Now,
+		opts:   &wrapperOptions{},
 	}
 
-	for _, o := range opts {
-		err := o(ctx, w)
+	for _, o := range optfunc {
+		err := o(ctx, w.opts)
 		if err != nil {
 			return nil, err
 		}
@@ -161,14 +172,14 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	connectorV2.RegisterAssetServiceServer(server, cw.server)
 	connectorV2.RegisterEventServiceServer(server, cw.server)
 
-	if cw.ticketingEnabled {
+	if cw.opts.ticketingEnabled {
 		connectorV2.RegisterTicketsServiceServer(server, cw.server)
 	} else {
 		noop := &noopTicketing{}
 		connectorV2.RegisterTicketsServiceServer(server, noop)
 	}
 
-	if cw.provisioningEnabled {
+	if cw.opts.provisioningEnabled {
 		connectorV2.RegisterGrantManagerServiceServer(server, cw.server)
 		connectorV2.RegisterResourceManagerServiceServer(server, cw.server)
 		connectorV2.RegisterAccountManagerServiceServer(server, cw.server)
@@ -206,7 +217,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 
 	serverCfg, err := proto.Marshal(&connectorwrapperV1.ServerConfig{
 		Credential:        serverCred,
-		RateLimiterConfig: cw.rlCfg,
+		RateLimiterConfig: cw.opts.rlCfg,
 		ListenPort:        listenPort,
 	})
 	if err != nil {
@@ -311,7 +322,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 			fmt.Sprintf("127.0.0.1:%d", listenPort),
 			grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
 			grpc.WithBlock(),
-			grpc.WithChainUnaryInterceptor(ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...)),
+			grpc.WithChainUnaryInterceptor(ratelimit2.UnaryInterceptor(cw.now, cw.opts.rlDescriptors...)),
 		)
 		if err != nil {
 			dialErr = err

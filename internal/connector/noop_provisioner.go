@@ -3,10 +3,16 @@ package connector
 import (
 	"context"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
+
+var _ v2.GrantManagerServiceServer = (*noopProvisioner)(nil)
+var _ v2.ResourceManagerServiceServer = (*noopProvisioner)(nil)
+var _ v2.AccountManagerServiceServer = (*noopProvisioner)(nil)
+var _ v2.CredentialManagerServiceServer = (*noopProvisioner)(nil)
 
 type noopProvisioner struct{}
 
