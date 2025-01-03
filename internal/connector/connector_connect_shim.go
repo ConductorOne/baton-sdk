@@ -31,7 +31,8 @@ func NewConnectorConnectShim(
 	ticketingEnabled bool,
 ) *connectorConnectShim {
 	s := &connectorConnectShim{
-		server: server,
+		server:      server,
+		rateLimiter: rateLimiter,
 	}
 
 	if ticketingEnabled {

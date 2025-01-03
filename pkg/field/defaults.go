@@ -31,6 +31,7 @@ var (
 	ticketTemplatePathField    = StringField("ticket-template-path", WithHidden(true), WithDescription("A JSON file describing the ticket to create"), WithPersistent(true))
 	logLevelField              = StringField("log-level", WithDefaultValue("info"), WithDescription("The log level: debug, info, warn, error"), WithPersistent(true))
 	skipFullSync               = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true))
+	useConnectExperimental     = BoolField("use-connect-experiment", WithDescription("This must be set to enable the experimental connect transport"), WithHidden(true), WithPersistent(true))
 )
 
 // DefaultFields list the default fields expected in every single connector.
@@ -62,6 +63,7 @@ var DefaultFields = []SchemaField{
 	ticketTemplatePathField,
 	logLevelField,
 	skipFullSync,
+	useConnectExperimental,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {

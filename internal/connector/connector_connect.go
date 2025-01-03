@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"golang.org/x/net/http2/h2c"
 
 	"golang.org/x/net/http2"
@@ -58,6 +59,7 @@ func NewWrapperConnect(ctx context.Context, server interface{}, optfunc ...Optio
 }
 
 func (cw *wrapperConnect) Run(ctx context.Context, serverCfg *connectorwrapperV1.ServerConfig) error {
+	ctxzap.Extract(ctx).Warn("connect enabled!")
 	rl, err := ratelimit2.NewLimiter(ctx, cw.now, serverCfg.RateLimiterConfig)
 	if err != nil {
 		return err
