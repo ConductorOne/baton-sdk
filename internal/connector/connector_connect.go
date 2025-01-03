@@ -102,7 +102,7 @@ func (cw *wrapperConnect) Run(ctx context.Context, serverCfg *connectorwrapperV1
 	mux.Handle(path, handler)
 
 	listenPort := fmt.Sprintf("%d", serverCfg.ListenPort)
-	l, err := net.Listen("tcp", listenPort)
+	l, err := net.Listen("tcp", net.JoinHostPort("localhost", listenPort))
 	if err != nil {
 		return fmt.Errorf("wrapper.Run: failed to listen: %w", err)
 	}
