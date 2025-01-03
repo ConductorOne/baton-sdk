@@ -943,20 +943,17 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 func (b *builderImpl) OnStart(ctx context.Context, request *v2.OnStartRequest) (*v2.OnStartResponse, error) {
 	start := b.nowFunc()
 	tt := tasks.OnStart
-	rb, ok := b.lifeCycleManager[request.ResourceTypeId]
-
 	resp := &v2.OnStartResponse{}
+
+	rb, ok := b.lifeCycleManager[request.ResourceTypeId]
 	// If there is no lifecycle manager for the resource type, return success.
-	if !ok {
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return resp, nil
-	}
+	if ok {
+		err := rb.OnStart(ctx)
 
-	err := rb.OnStart(ctx)
-
-	if err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return resp, fmt.Errorf("error: on start failed: %w", err)
+		if err != nil {
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			return resp, fmt.Errorf("error: on start failed: %w", err)
+		}
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
@@ -966,20 +963,17 @@ func (b *builderImpl) OnStart(ctx context.Context, request *v2.OnStartRequest) (
 func (b *builderImpl) OnResume(ctx context.Context, request *v2.OnResumeRequest) (*v2.OnResumeResponse, error) {
 	start := b.nowFunc()
 	tt := tasks.OnResume
-	rb, ok := b.lifeCycleManager[request.ResourceTypeId]
-
 	resp := &v2.OnResumeResponse{}
+
+	rb, ok := b.lifeCycleManager[request.ResourceTypeId]
 	// If there is no lifecycle manager for the resource type, return success.
-	if !ok {
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return resp, nil
-	}
+	if ok {
+		err := rb.OnResume(ctx)
 
-	err := rb.OnResume(ctx)
-
-	if err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return resp, fmt.Errorf("error: on resume failed: %w", err)
+		if err != nil {
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			return resp, fmt.Errorf("error: on resume failed: %w", err)
+		}
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
@@ -989,21 +983,18 @@ func (b *builderImpl) OnResume(ctx context.Context, request *v2.OnResumeRequest)
 func (b *builderImpl) OnEnd(ctx context.Context, request *v2.OnEndRequest) (*v2.OnEndResponse, error) {
 	start := b.nowFunc()
 	tt := tasks.OnEnd
-	rb, ok := b.lifeCycleManager[request.ResourceTypeId]
-
 	resp := &v2.OnEndResponse{}
 
+	rb, ok := b.lifeCycleManager[request.ResourceTypeId]
+
 	// If there is no lifecycle manager for the resource type, return success.
-	if !ok {
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return resp, nil
-	}
+	if ok {
+		err := rb.OnEnd(ctx)
 
-	err := rb.OnEnd(ctx)
-
-	if err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return resp, fmt.Errorf("error: on end failed: %w", err)
+		if err != nil {
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			return resp, fmt.Errorf("error: on end failed: %w", err)
+		}
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
