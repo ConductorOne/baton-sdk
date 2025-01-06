@@ -605,13 +605,13 @@ func (s *syncer) SyncResources(ctx context.Context, newSync bool) error {
 		}
 
 		for _, rt := range resp.List {
+			s.state.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: rt.Id})
+
 			if newSync {
 				s.state.PushAction(ctx, Action{Op: OnStartSyncOp, ResourceTypeID: rt.Id})
 			} else {
 				s.state.PushAction(ctx, Action{Op: OnResumeSyncOp, ResourceTypeID: rt.Id})
 			}
-
-			s.state.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: rt.Id})
 		}
 
 		return nil

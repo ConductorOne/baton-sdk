@@ -367,7 +367,7 @@ func TestLifecycle(t *testing.T) {
 	callStart := false
 	callResume := false
 
-	mc.ConnectorLifeCycleClient = &connectorLifeCycleClientMock{
+	mc.ConnectorLifeCycleServiceClient = &connectorLifeCycleServiceClientMock{
 		onStart: func(ctx context.Context, in *v2.OnStartRequest, opts ...grpc.CallOption) (*v2.OnStartResponse, error) {
 			callStart = true
 			return &v2.OnStartResponse{}, nil
@@ -396,12 +396,12 @@ func TestLifecycle(t *testing.T) {
 
 func newMockConnector() *mockConnector {
 	mc := &mockConnector{
-		rtDB:                     make([]*v2.ResourceType, 0),
-		resourceDB:               make([]*v2.Resource, 0),
-		entDB:                    make(map[string][]*v2.Entitlement),
-		userDB:                   make([]*v2.Resource, 0),
-		grantDB:                  make(map[string][]*v2.Grant),
-		ConnectorLifeCycleClient: &connectorLifeCycleClientMock{},
+		rtDB:                            make([]*v2.ResourceType, 0),
+		resourceDB:                      make([]*v2.Resource, 0),
+		entDB:                           make(map[string][]*v2.Entitlement),
+		userDB:                          make([]*v2.Resource, 0),
+		grantDB:                         make(map[string][]*v2.Grant),
+		ConnectorLifeCycleServiceClient: &connectorLifeCycleServiceClientMock{},
 	}
 	return mc
 }
@@ -420,7 +420,7 @@ type mockConnector struct {
 	v2.CredentialManagerServiceClient
 	v2.EventServiceClient
 	v2.TicketsServiceClient
-	v2.ConnectorLifeCycleClient
+	v2.ConnectorLifeCycleServiceClient
 }
 
 func (mc *mockConnector) AddGroup(ctx context.Context, groupId string) (*v2.Resource, *v2.Entitlement, error) {
@@ -522,13 +522,13 @@ func (mc *mockConnector) Cleanup(ctx context.Context, in *v2.ConnectorServiceCle
 	return &v2.ConnectorServiceCleanupResponse{}, nil
 }
 
-type connectorLifeCycleClientMock struct {
+type connectorLifeCycleServiceClientMock struct {
 	onStart  func(ctx context.Context, in *v2.OnStartRequest, opts ...grpc.CallOption) (*v2.OnStartResponse, error)
 	onResume func(ctx context.Context, in *v2.OnResumeRequest, opts ...grpc.CallOption) (*v2.OnResumeResponse, error)
 	onEnd    func(ctx context.Context, in *v2.OnEndRequest, opts ...grpc.CallOption) (*v2.OnEndResponse, error)
 }
 
-func (clc *connectorLifeCycleClientMock) OnStart(ctx context.Context, in *v2.OnStartRequest, opts ...grpc.CallOption) (*v2.OnStartResponse, error) {
+func (clc *connectorLifeCycleServiceClientMock) OnStart(ctx context.Context, in *v2.OnStartRequest, opts ...grpc.CallOption) (*v2.OnStartResponse, error) {
 	if clc.onStart != nil {
 		return clc.onStart(ctx, in, opts...)
 	}
@@ -536,7 +536,7 @@ func (clc *connectorLifeCycleClientMock) OnStart(ctx context.Context, in *v2.OnS
 	return &v2.OnStartResponse{}, nil
 }
 
-func (clc *connectorLifeCycleClientMock) OnResume(ctx context.Context, in *v2.OnResumeRequest, opts ...grpc.CallOption) (*v2.OnResumeResponse, error) {
+func (clc *connectorLifeCycleServiceClientMock) OnResume(ctx context.Context, in *v2.OnResumeRequest, opts ...grpc.CallOption) (*v2.OnResumeResponse, error) {
 	if clc.onResume != nil {
 		return clc.onResume(ctx, in, opts...)
 	}
@@ -544,7 +544,7 @@ func (clc *connectorLifeCycleClientMock) OnResume(ctx context.Context, in *v2.On
 	return &v2.OnResumeResponse{}, nil
 }
 
-func (clc *connectorLifeCycleClientMock) OnEnd(ctx context.Context, in *v2.OnEndRequest, opts ...grpc.CallOption) (*v2.OnEndResponse, error) {
+func (clc *connectorLifeCycleServiceClientMock) OnEnd(ctx context.Context, in *v2.OnEndRequest, opts ...grpc.CallOption) (*v2.OnEndResponse, error) {
 	if clc.onEnd != nil {
 		return clc.onEnd(ctx, in, opts...)
 	}
