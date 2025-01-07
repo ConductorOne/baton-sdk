@@ -299,8 +299,8 @@ type runnerConfig struct {
 	listTicketSchemasConfig *listTicketSchemasConfig
 	getTicketConfig         *getTicketConfig
 	skipFullSync            bool
-
-	useConnect bool
+	useConnect              bool
+	connectEndpoint         string
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -317,6 +317,15 @@ func WithRateLimiterConfig(cfg *ratelimitV1.RateLimiterConfig) Option {
 // WithConnectExperiment uses the Connect transport for connector communication.
 func WithConnectExperiment() Option {
 	return func(ctx context.Context, w *runnerConfig) error {
+		w.useConnect = true
+		return nil
+	}
+}
+
+// WithConnectExperiment uses the Connect transport for connector communication.
+func WithConnectEndpoint(endpoint string) Option {
+	return func(ctx context.Context, w *runnerConfig) error {
+		w.connectEndpoint = endpoint
 		w.useConnect = true
 		return nil
 	}
@@ -568,9 +577,11 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 	var cw types.ClientWrapper
 	var err error
+
 	if cfg.useConnect {
 		// FIXME(morgabra): Make this a top level option/select a port from the OS in the wrapper if unset.
-		wrapperOpts = append(wrapperOpts, connector.WithConnectListenPort(8000))
+		wrapperOpts = append(wrapperOpts, connector.WithConnectListenPort(8000), connector.WithConnectEndpoint(cfg.connectEndpoint))
+
 		cw, err = connector.NewWrapperConnect(ctx, c, wrapperOpts...)
 		if err != nil {
 			return nil, err

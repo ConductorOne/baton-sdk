@@ -170,6 +170,10 @@ func MakeMainCommand(
 			opts = append(opts, connectorrunner.WithConnectExperiment())
 		}
 
+		if v.GetString("connect-endpoint") != "" {
+			opts = append(opts, connectorrunner.WithConnectEndpoint(v.GetString("connect-endpoint")))
+		}
+
 		// NOTE(shackra): top-most in the execution flow for connectors
 		r, err := connectorrunner.NewConnectorRunner(runCtx, c, opts...)
 		if err != nil {

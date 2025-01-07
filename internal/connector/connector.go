@@ -72,6 +72,14 @@ type wrapperOptions struct {
 	ticketingEnabled    bool
 
 	connectListenPort uint32
+	connectEndpoint   string
+}
+
+func WithConnectEndpoint(endpoint string) Option {
+	return func(ctx context.Context, w *wrapperOptions) error {
+		w.connectEndpoint = endpoint
+		return nil
+	}
 }
 
 func WithRateLimiterConfig(cfg *ratelimitV1.RateLimiterConfig) Option {

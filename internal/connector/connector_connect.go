@@ -5,22 +5,24 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+
 	"sync"
 	"time"
 
 	"connectrpc.com/connect"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"golang.org/x/net/http2/h2c"
-
-	"golang.org/x/net/http2"
 
 	"github.com/conductorone/baton-sdk/pb/c1/connector/v2/v2connect"
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1/v1connect"
+
 	ratelimit2 "github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"go.uber.org/zap"
+
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 type wrapperConnect struct {
@@ -146,6 +148,13 @@ func (cw *wrapperConnect) C(ctx context.Context) (types.ConnectorClient, error) 
 
 	// We have the write lock now, so double check someone else didn't create a client for us.
 	if cw.client != nil {
+		return cw.client, nil
+	}
+
+	// If we have an endpoint, don't launch the server.
+	if cw.opts.connectEndpoint != "" {
+		// If we have an endpoint, don't launch the server.
+		cw.client = NewConnectorConnectClientShim(ctx, cw.opts.connectEndpoint)
 		return cw.client, nil
 	}
 
