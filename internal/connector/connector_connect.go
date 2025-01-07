@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"connectrpc.com/connect"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"golang.org/x/net/http2/h2c"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1/v1connect"
 	ratelimit2 "github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"go.uber.org/zap"
 )
 
 type wrapperConnect struct {
@@ -58,8 +60,23 @@ func NewWrapperConnect(ctx context.Context, server interface{}, optfunc ...Optio
 	return w, nil
 }
 
+func LogInterceptor(lctx context.Context) connect.UnaryInterceptorFunc {
+	l := ctxzap.Extract(lctx)
+	interceptor := func(next connect.UnaryFunc) connect.UnaryFunc {
+		return connect.UnaryFunc(func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			ctx = ctxzap.ToContext(ctx, l)
+			l.Info("received request", zap.String("method", req.Spec().Procedure))
+			return next(ctx, req)
+		})
+	}
+	return connect.UnaryInterceptorFunc(interceptor)
+}
+
 func (cw *wrapperConnect) Run(ctx context.Context, serverCfg *connectorwrapperV1.ServerConfig) error {
 	ctxzap.Extract(ctx).Warn("connect enabled!")
+
+	interceptors := connect.WithInterceptors(LogInterceptor(ctx))
+
 	rl, err := ratelimit2.NewLimiter(ctx, cw.now, serverCfg.RateLimiterConfig)
 	if err != nil {
 		return err
@@ -70,41 +87,42 @@ func (cw *wrapperConnect) Run(ctx context.Context, serverCfg *connectorwrapperV1
 	mux := http.NewServeMux()
 
 	// Ratelimiter
-	path, handler := v1connect.NewRateLimiterServiceHandler(server)
+	path, handler := v1connect.NewRateLimiterServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
 
 	// Connector
-	path, handler = v2connect.NewConnectorServiceHandler(server)
+	path, handler = v2connect.NewConnectorServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
-	path, handler = v2connect.NewGrantsServiceHandler(server)
+	path, handler = v2connect.NewGrantsServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
-	path, handler = v2connect.NewEntitlementsServiceHandler(server)
+	path, handler = v2connect.NewEntitlementsServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
-	path, handler = v2connect.NewResourcesServiceHandler(server)
+	path, handler = v2connect.NewResourcesServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
-	path, handler = v2connect.NewResourceTypesServiceHandler(server)
+	path, handler = v2connect.NewResourceTypesServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
-	path, handler = v2connect.NewAssetServiceHandler(server)
+	path, handler = v2connect.NewAssetServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
-	path, handler = v2connect.NewEventServiceHandler(server)
+	path, handler = v2connect.NewEventServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
 
 	// Tickets
-	path, handler = v2connect.NewTicketsServiceHandler(server)
+	path, handler = v2connect.NewTicketsServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
 
 	// Provisioning
-	path, handler = v2connect.NewGrantManagerServiceHandler(server)
+	path, handler = v2connect.NewGrantManagerServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
-	path, handler = v2connect.NewResourceManagerServiceHandler(server)
+	path, handler = v2connect.NewResourceManagerServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
-	path, handler = v2connect.NewAccountManagerServiceHandler(server)
+	path, handler = v2connect.NewAccountManagerServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
-	path, handler = v2connect.NewCredentialManagerServiceHandler(server)
+	path, handler = v2connect.NewCredentialManagerServiceHandler(server, interceptors)
 	mux.Handle(path, handler)
 
 	listenPort := fmt.Sprintf("%d", serverCfg.ListenPort)
-	l, err := net.Listen("tcp", net.JoinHostPort("localhost", listenPort))
+	ctxzap.Extract(ctx).Warn("listening on ", zap.String("port", listenPort))
+	l, err := net.Listen("tcp", net.JoinHostPort("0.0.0.0", listenPort))
 	if err != nil {
 		return fmt.Errorf("wrapper.Run: failed to listen: %w", err)
 	}

@@ -386,7 +386,7 @@ func MakeConnectServerCommand(
 		serverCfg := &v1.ServerConfig{
 			Credential:        nil,
 			RateLimiterConfig: nil,
-			ListenPort:        8000,
+			ListenPort:        8080,
 		}
 		return cw.Run(runCtx, serverCfg)
 	}
