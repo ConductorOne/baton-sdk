@@ -361,7 +361,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 
 			if connectorLifeCycleManager, ok := rb.(ConnectorLifeCycle); ok {
 				if _, ok := ret.lifeCycleManager[rType.Id]; ok {
-					return nil, fmt.Errorf("error: duplicate resource type found for life cycle manager%s", rType.Id)
+					return nil, fmt.Errorf("error: duplicate resource type found for life cycle manager %s", rType.Id)
 				}
 				ret.lifeCycleManager[rType.Id] = connectorLifeCycleManager
 			}

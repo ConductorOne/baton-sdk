@@ -50,6 +50,12 @@ func (tt TaskType) String() string {
 		return "bulk_create_tickets"
 	case BulkGetTicketsType:
 		return "bulk_get_tickets"
+	case OnStart:
+		return "on_start"
+	case OnResume:
+		return "on_resume"
+	case OnEnd:
+		return "on_end"
 	default:
 		return "unknown"
 	}
