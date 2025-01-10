@@ -132,22 +132,22 @@ message Task {
 
 message BatonServiceHelloRequest {
   string host_id = 1 [(validate.rules).string = {
-    min_len: 1,
+    min_len: 1
     max_len: 256
   }];
   string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}|$"}]; // You may say Hello anytime, but if you are responding to a task, you must provide the task_id
 
   message BuildInfo {
     string lang_version = 1 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
     string package = 2 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
     string package_version = 3 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
   }
@@ -155,35 +155,35 @@ message BatonServiceHelloRequest {
 
   message OSInfo {
     string hostname = 1 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
     string os = 2 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
     string platform = 3 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
     string platform_version = 4 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
     string platform_family = 5 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
     string kernel_version = 6 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
     string kernel_arch = 7 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
     string virtualization_system = 8 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
   }
@@ -199,7 +199,7 @@ message BatonServiceHelloResponse {
 
 message BatonServiceGetTaskRequest {
   string host_id = 1 [(validate.rules).string = {
-    min_len: 1,
+    min_len: 1
     max_len: 256
   }];
 }
@@ -213,7 +213,7 @@ message BatonServiceGetTaskResponse {
 
 message BatonServiceHeartbeatRequest {
   string host_id = 1 [(validate.rules).string = {
-    min_len: 1,
+    min_len: 1
     max_len: 256
   }];
   string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
@@ -229,7 +229,7 @@ message BatonServiceHeartbeatResponse {
 message BatonServiceUploadAssetRequest {
   message UploadMetadata {
     string host_id = 1 [(validate.rules).string = {
-      min_len: 1,
+      min_len: 1
       max_len: 256
     }];
     string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
@@ -239,8 +239,8 @@ message BatonServiceUploadAssetRequest {
   message UploadData {
     // 1MB limit
     bytes data = 1 [(validate.rules).bytes = {
-      min_len: 1,
-      max_len: 1048576,
+      min_len: 1
+      max_len: 1048576
     }];
   }
 
@@ -264,7 +264,7 @@ message BatonServiceUploadAssetResponse {
 // Connector submits a task has been finished. It should always be removed from the queue, and if it isn't a fatal error, we should re-add it to the queue to try again.
 message BatonServiceFinishTaskRequest {
   string host_id = 1 [(validate.rules).string = {
-    min_len: 1,
+    min_len: 1
     max_len: 256
   }];
   string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];

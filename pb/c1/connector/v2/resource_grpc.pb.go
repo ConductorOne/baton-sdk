@@ -186,6 +186,162 @@ var ResourcesService_ServiceDesc = grpc.ServiceDesc{
 	Metadata: "c1/connector/v2/resource.proto",
 }
 
+// ConnectorLifeCycleServiceClient is the client API for ConnectorLifeCycleService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ConnectorLifeCycleServiceClient interface {
+	OnStart(ctx context.Context, in *OnStartRequest, opts ...grpc.CallOption) (*OnStartResponse, error)
+	OnResume(ctx context.Context, in *OnResumeRequest, opts ...grpc.CallOption) (*OnResumeResponse, error)
+	OnEnd(ctx context.Context, in *OnEndRequest, opts ...grpc.CallOption) (*OnEndResponse, error)
+}
+
+type connectorLifeCycleServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewConnectorLifeCycleServiceClient(cc grpc.ClientConnInterface) ConnectorLifeCycleServiceClient {
+	return &connectorLifeCycleServiceClient{cc}
+}
+
+func (c *connectorLifeCycleServiceClient) OnStart(ctx context.Context, in *OnStartRequest, opts ...grpc.CallOption) (*OnStartResponse, error) {
+	out := new(OnStartResponse)
+	err := c.cc.Invoke(ctx, "/c1.connector.v2.ConnectorLifeCycleService/OnStart", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *connectorLifeCycleServiceClient) OnResume(ctx context.Context, in *OnResumeRequest, opts ...grpc.CallOption) (*OnResumeResponse, error) {
+	out := new(OnResumeResponse)
+	err := c.cc.Invoke(ctx, "/c1.connector.v2.ConnectorLifeCycleService/OnResume", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *connectorLifeCycleServiceClient) OnEnd(ctx context.Context, in *OnEndRequest, opts ...grpc.CallOption) (*OnEndResponse, error) {
+	out := new(OnEndResponse)
+	err := c.cc.Invoke(ctx, "/c1.connector.v2.ConnectorLifeCycleService/OnEnd", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ConnectorLifeCycleServiceServer is the server API for ConnectorLifeCycleService service.
+// All implementations should embed UnimplementedConnectorLifeCycleServiceServer
+// for forward compatibility
+type ConnectorLifeCycleServiceServer interface {
+	OnStart(context.Context, *OnStartRequest) (*OnStartResponse, error)
+	OnResume(context.Context, *OnResumeRequest) (*OnResumeResponse, error)
+	OnEnd(context.Context, *OnEndRequest) (*OnEndResponse, error)
+}
+
+// UnimplementedConnectorLifeCycleServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedConnectorLifeCycleServiceServer struct {
+}
+
+func (UnimplementedConnectorLifeCycleServiceServer) OnStart(context.Context, *OnStartRequest) (*OnStartResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method OnStart not implemented")
+}
+func (UnimplementedConnectorLifeCycleServiceServer) OnResume(context.Context, *OnResumeRequest) (*OnResumeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method OnResume not implemented")
+}
+func (UnimplementedConnectorLifeCycleServiceServer) OnEnd(context.Context, *OnEndRequest) (*OnEndResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method OnEnd not implemented")
+}
+
+// UnsafeConnectorLifeCycleServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ConnectorLifeCycleServiceServer will
+// result in compilation errors.
+type UnsafeConnectorLifeCycleServiceServer interface {
+	mustEmbedUnimplementedConnectorLifeCycleServiceServer()
+}
+
+func RegisterConnectorLifeCycleServiceServer(s grpc.ServiceRegistrar, srv ConnectorLifeCycleServiceServer) {
+	s.RegisterService(&ConnectorLifeCycleService_ServiceDesc, srv)
+}
+
+func _ConnectorLifeCycleService_OnStart_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OnStartRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConnectorLifeCycleServiceServer).OnStart(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/c1.connector.v2.ConnectorLifeCycleService/OnStart",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConnectorLifeCycleServiceServer).OnStart(ctx, req.(*OnStartRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ConnectorLifeCycleService_OnResume_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OnResumeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConnectorLifeCycleServiceServer).OnResume(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/c1.connector.v2.ConnectorLifeCycleService/OnResume",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConnectorLifeCycleServiceServer).OnResume(ctx, req.(*OnResumeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ConnectorLifeCycleService_OnEnd_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(OnEndRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConnectorLifeCycleServiceServer).OnEnd(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/c1.connector.v2.ConnectorLifeCycleService/OnEnd",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConnectorLifeCycleServiceServer).OnEnd(ctx, req.(*OnEndRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ConnectorLifeCycleService_ServiceDesc is the grpc.ServiceDesc for ConnectorLifeCycleService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ConnectorLifeCycleService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.connector.v2.ConnectorLifeCycleService",
+	HandlerType: (*ConnectorLifeCycleServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "OnStart",
+			Handler:    _ConnectorLifeCycleService_OnStart_Handler,
+		},
+		{
+			MethodName: "OnResume",
+			Handler:    _ConnectorLifeCycleService_OnResume_Handler,
+		},
+		{
+			MethodName: "OnEnd",
+			Handler:    _ConnectorLifeCycleService_OnEnd_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "c1/connector/v2/resource.proto",
+}
+
 // ResourceManagerServiceClient is the client API for ResourceManagerService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
