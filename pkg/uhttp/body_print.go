@@ -38,15 +38,3 @@ func (pr *printReader) Read(p []byte) (int, error) {
 func wrapPrintBody(body io.Reader) io.Reader {
 	return &printReader{reader: body}
 }
-
-type printBodyOption struct {
-	debugPrintBody bool
-}
-
-func (o printBodyOption) Apply(c *BaseHttpClient) {
-	c.debugPrintBody = o.debugPrintBody
-}
-
-func WithPrintBody(shouldPrint bool) WrapperOption {
-	return printBodyOption{debugPrintBody: shouldPrint}
-}

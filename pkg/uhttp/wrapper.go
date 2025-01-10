@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"syscall"
 	"time"
 
@@ -91,10 +92,9 @@ type (
 		NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error)
 	}
 	BaseHttpClient struct {
-		HttpClient     *http.Client
-		rateLimiter    uRateLimit.Limiter
-		baseHttpCache  icache
-		debugPrintBody bool
+		HttpClient    *http.Client
+		rateLimiter   uRateLimit.Limiter
+		baseHttpCache icache
 	}
 
 	DoOption      func(resp *WrapperResponse) error
@@ -342,7 +342,8 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	// Replace resp.Body with a no-op closer so nobody has to worry about closing the reader.
-	if c.debugPrintBody {
+	shouldPrint := os.Getenv("BATON_DEBUG_PRINT_RESPONSE_BODY")
+	if shouldPrint != "" {
 		resp.Body = io.NopCloser(wrapPrintBody(bytes.NewBuffer(body)))
 	} else {
 		resp.Body = io.NopCloser(bytes.NewBuffer(body))
