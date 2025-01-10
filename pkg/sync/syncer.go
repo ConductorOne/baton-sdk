@@ -1367,7 +1367,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 
 	graph := s.state.EntitlementGraph(ctx)
 	l = l.With(zap.Int("depth", graph.Depth))
-	l.Debug("runGrantExpandActions: start", zap.Any("graph", graph))
 
 	// Peek the next action on the stack
 	if len(graph.Actions) == 0 {
