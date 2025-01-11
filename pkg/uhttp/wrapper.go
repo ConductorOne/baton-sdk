@@ -34,8 +34,6 @@ const (
 	authorizationHeader       = "Authorization"
 )
 
-const maxBodySize = 4096
-
 type WrapperResponse struct {
 	Header     http.Header
 	Body       []byte
@@ -141,8 +139,8 @@ func WithJSONResponse(response interface{}) DoOption {
 
 		if !IsJSONContentType(contentHeader) {
 			if len(resp.Body) != 0 {
-				// we want to see the body regardless
-				return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d. body: «%s»", contentHeader, resp.StatusCode, logBody(resp.Body, maxBodySize))
+				// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
+				return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d", contentHeader, resp.StatusCode)
 			}
 			return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d", contentHeader, resp.StatusCode)
 		}
@@ -151,7 +149,8 @@ func WithJSONResponse(response interface{}) DoOption {
 		}
 		err := json.Unmarshal(resp.Body, response)
 		if err != nil {
-			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d. body %v", err, resp.StatusCode, logBody(resp.Body, maxBodySize))
+			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
+			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d", err, resp.StatusCode)
 		}
 		return nil
 	}
@@ -165,17 +164,11 @@ func WithAlwaysJSONResponse(response interface{}) DoOption {
 		}
 		err := json.Unmarshal(resp.Body, response)
 		if err != nil {
-			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d. body %v", err, resp.StatusCode, logBody(resp.Body, maxBodySize))
+			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
+			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d", err, resp.StatusCode)
 		}
 		return nil
 	}
-}
-
-func logBody(body []byte, size int) string {
-	if len(body) > size {
-		return string(body[:size]) + " ..."
-	}
-	return string(body)
 }
 
 type ErrorResponse interface {
@@ -191,12 +184,14 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 		contentHeader := resp.Header.Get(ContentType)
 
 		if !IsJSONContentType(contentHeader) {
-			return fmt.Errorf("unexpected content type for JSON error response: %s. status code: %d. body: «%s»", contentHeader, resp.StatusCode, logBody(resp.Body, maxBodySize))
+			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
+			return fmt.Errorf("unexpected content type for JSON error response: %s. status code: %d", contentHeader, resp.StatusCode)
 		}
 
 		// Decode the JSON response body into the ErrorResponse
 		if err := json.Unmarshal(resp.Body, &resource); err != nil {
-			return fmt.Errorf("failed to unmarshal JSON error response: %w. status code: %d. body %v", err, resp.StatusCode, logBody(resp.Body, maxBodySize))
+			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
+			return fmt.Errorf("failed to unmarshal JSON error response: %w. status code: %d", err, resp.StatusCode)
 		}
 
 		// Construct a more detailed error message
