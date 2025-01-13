@@ -45,6 +45,7 @@ message ConnectorMetadata {
     ignore_empty: true
   }];
   ConnectorCapabilities capabilities = 8;
+  AccountCreationSchema account_creation_schema = 9;
 }
 
 enum Capability {
@@ -105,4 +106,51 @@ message ConnectorServiceValidateRequest {}
 // for things like 401/403/500, etc
 message ConnectorServiceValidateResponse {
   repeated google.protobuf.Any annotations = 1;
+}
+
+message AccountCreationSchema {
+  map<string, AccountCreationField> field_map = 1;
+}
+
+message AccountCreationField {
+  string display_name = 1;
+  bool required = 2;
+  string description = 3;
+  string placeholder = 4;
+  uint32 order = 5;
+  bool deprecated = 6;
+  oneof field {
+    AccountCreationStringField str = 100;
+    AccountCreationBoolField bool = 101;
+    AccountCreationStringListField str_list = 102;
+    AccountCreationInt64Field i = 103;
+    AccountCreationMapField m = 104;
+  }
+}
+
+message AccountCreationStringField {
+  // If secret, value is write-only in UI and a password-type form is used.
+  bool secret = 1;
+  validate.StringRules value_validator = 2;
+  optional string default_value = 3;
+}
+
+message AccountCreationBoolField {
+  bool value = 1;
+  optional bool default_value = 2;
+}
+
+message AccountCreationStringListField {
+  validate.StringRules value_validator = 1;
+  repeated string default_value = 2;
+}
+
+message AccountCreationInt64Field {
+  validate.Int64Rules value_validator = 1;
+  optional int64 default_value = 2;
+}
+
+message AccountCreationMapField {
+  validate.MapRules value_validator = 1;
+  map<string, AccountCreationField> default_value = 2;
 }

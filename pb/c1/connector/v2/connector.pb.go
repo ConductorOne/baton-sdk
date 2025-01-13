@@ -7,13 +7,14 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	reflect "reflect"
+	sync "sync"
+
+	validate "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
 	structpb "google.golang.org/protobuf/types/known/structpb"
-	reflect "reflect"
-	sync "sync"
 )
 
 const (
@@ -244,14 +245,15 @@ type ConnectorMetadata struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	DisplayName  string                 `protobuf:"bytes,1,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	HelpUrl      string                 `protobuf:"bytes,2,opt,name=help_url,json=helpUrl,proto3" json:"help_url,omitempty"`
-	Icon         *AssetRef              `protobuf:"bytes,3,opt,name=icon,proto3" json:"icon,omitempty"`
-	Logo         *AssetRef              `protobuf:"bytes,4,opt,name=logo,proto3" json:"logo,omitempty"`
-	Profile      *structpb.Struct       `protobuf:"bytes,5,opt,name=profile,proto3" json:"profile,omitempty"`
-	Annotations  []*anypb.Any           `protobuf:"bytes,6,rep,name=annotations,proto3" json:"annotations,omitempty"`
-	Description  string                 `protobuf:"bytes,7,opt,name=description,proto3" json:"description,omitempty"`
-	Capabilities *ConnectorCapabilities `protobuf:"bytes,8,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	DisplayName           string                 `protobuf:"bytes,1,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	HelpUrl               string                 `protobuf:"bytes,2,opt,name=help_url,json=helpUrl,proto3" json:"help_url,omitempty"`
+	Icon                  *AssetRef              `protobuf:"bytes,3,opt,name=icon,proto3" json:"icon,omitempty"`
+	Logo                  *AssetRef              `protobuf:"bytes,4,opt,name=logo,proto3" json:"logo,omitempty"`
+	Profile               *structpb.Struct       `protobuf:"bytes,5,opt,name=profile,proto3" json:"profile,omitempty"`
+	Annotations           []*anypb.Any           `protobuf:"bytes,6,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	Description           string                 `protobuf:"bytes,7,opt,name=description,proto3" json:"description,omitempty"`
+	Capabilities          *ConnectorCapabilities `protobuf:"bytes,8,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
+	AccountCreationSchema *AccountCreationSchema `protobuf:"bytes,9,opt,name=account_creation_schema,json=accountCreationSchema,proto3" json:"account_creation_schema,omitempty"`
 }
 
 func (x *ConnectorMetadata) Reset() {
@@ -338,6 +340,13 @@ func (x *ConnectorMetadata) GetDescription() string {
 func (x *ConnectorMetadata) GetCapabilities() *ConnectorCapabilities {
 	if x != nil {
 		return x.Capabilities
+	}
+	return nil
+}
+
+func (x *ConnectorMetadata) GetAccountCreationSchema() *AccountCreationSchema {
+	if x != nil {
+		return x.AccountCreationSchema
 	}
 	return nil
 }
@@ -797,6 +806,508 @@ func (x *ConnectorServiceValidateResponse) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+type AccountCreationSchema struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	FieldMap map[string]*AccountCreationField `protobuf:"bytes,1,rep,name=field_map,json=fieldMap,proto3" json:"field_map,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+}
+
+func (x *AccountCreationSchema) Reset() {
+	*x = AccountCreationSchema{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_c1_connector_v2_connector_proto_msgTypes[12]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AccountCreationSchema) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountCreationSchema) ProtoMessage() {}
+
+func (x *AccountCreationSchema) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[12]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountCreationSchema.ProtoReflect.Descriptor instead.
+func (*AccountCreationSchema) Descriptor() ([]byte, []int) {
+	return file_c1_connector_v2_connector_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AccountCreationSchema) GetFieldMap() map[string]*AccountCreationField {
+	if x != nil {
+		return x.FieldMap
+	}
+	return nil
+}
+
+type AccountCreationField struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	DisplayName string `protobuf:"bytes,1,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Required    bool   `protobuf:"varint,2,opt,name=required,proto3" json:"required,omitempty"`
+	Description string `protobuf:"bytes,3,opt,name=description,proto3" json:"description,omitempty"`
+	Placeholder string `protobuf:"bytes,4,opt,name=placeholder,proto3" json:"placeholder,omitempty"`
+	Order       uint32 `protobuf:"varint,5,opt,name=order,proto3" json:"order,omitempty"`
+	Deprecated  bool   `protobuf:"varint,6,opt,name=deprecated,proto3" json:"deprecated,omitempty"`
+	// Types that are assignable to Field:
+	//
+	//	*AccountCreationField_Str
+	//	*AccountCreationField_Bool
+	//	*AccountCreationField_StrList
+	//	*AccountCreationField_I
+	//	*AccountCreationField_M
+	Field isAccountCreationField_Field `protobuf_oneof:"field"`
+}
+
+func (x *AccountCreationField) Reset() {
+	*x = AccountCreationField{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_c1_connector_v2_connector_proto_msgTypes[13]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AccountCreationField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountCreationField) ProtoMessage() {}
+
+func (x *AccountCreationField) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[13]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountCreationField.ProtoReflect.Descriptor instead.
+func (*AccountCreationField) Descriptor() ([]byte, []int) {
+	return file_c1_connector_v2_connector_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *AccountCreationField) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *AccountCreationField) GetRequired() bool {
+	if x != nil {
+		return x.Required
+	}
+	return false
+}
+
+func (x *AccountCreationField) GetDescription() string {
+	if x != nil {
+		return x.Description
+	}
+	return ""
+}
+
+func (x *AccountCreationField) GetPlaceholder() string {
+	if x != nil {
+		return x.Placeholder
+	}
+	return ""
+}
+
+func (x *AccountCreationField) GetOrder() uint32 {
+	if x != nil {
+		return x.Order
+	}
+	return 0
+}
+
+func (x *AccountCreationField) GetDeprecated() bool {
+	if x != nil {
+		return x.Deprecated
+	}
+	return false
+}
+
+func (m *AccountCreationField) GetField() isAccountCreationField_Field {
+	if m != nil {
+		return m.Field
+	}
+	return nil
+}
+
+func (x *AccountCreationField) GetStr() *AccountCreationStringField {
+	if x, ok := x.GetField().(*AccountCreationField_Str); ok {
+		return x.Str
+	}
+	return nil
+}
+
+func (x *AccountCreationField) GetBool() *AccountCreationBoolField {
+	if x, ok := x.GetField().(*AccountCreationField_Bool); ok {
+		return x.Bool
+	}
+	return nil
+}
+
+func (x *AccountCreationField) GetStrList() *AccountCreationStringListField {
+	if x, ok := x.GetField().(*AccountCreationField_StrList); ok {
+		return x.StrList
+	}
+	return nil
+}
+
+func (x *AccountCreationField) GetI() *AccountCreationInt64Field {
+	if x, ok := x.GetField().(*AccountCreationField_I); ok {
+		return x.I
+	}
+	return nil
+}
+
+func (x *AccountCreationField) GetM() *AccountCreationMapField {
+	if x, ok := x.GetField().(*AccountCreationField_M); ok {
+		return x.M
+	}
+	return nil
+}
+
+type isAccountCreationField_Field interface {
+	isAccountCreationField_Field()
+}
+
+type AccountCreationField_Str struct {
+	Str *AccountCreationStringField `protobuf:"bytes,100,opt,name=str,proto3,oneof"`
+}
+
+type AccountCreationField_Bool struct {
+	Bool *AccountCreationBoolField `protobuf:"bytes,101,opt,name=bool,proto3,oneof"`
+}
+
+type AccountCreationField_StrList struct {
+	StrList *AccountCreationStringListField `protobuf:"bytes,102,opt,name=str_list,json=strList,proto3,oneof"`
+}
+
+type AccountCreationField_I struct {
+	I *AccountCreationInt64Field `protobuf:"bytes,103,opt,name=i,proto3,oneof"`
+}
+
+type AccountCreationField_M struct {
+	M *AccountCreationMapField `protobuf:"bytes,104,opt,name=m,proto3,oneof"`
+}
+
+func (*AccountCreationField_Str) isAccountCreationField_Field() {}
+
+func (*AccountCreationField_Bool) isAccountCreationField_Field() {}
+
+func (*AccountCreationField_StrList) isAccountCreationField_Field() {}
+
+func (*AccountCreationField_I) isAccountCreationField_Field() {}
+
+func (*AccountCreationField_M) isAccountCreationField_Field() {}
+
+type AccountCreationStringField struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// If secret, value is write-only in UI and a password-type form is used.
+	Secret         bool                  `protobuf:"varint,1,opt,name=secret,proto3" json:"secret,omitempty"`
+	ValueValidator *validate.StringRules `protobuf:"bytes,2,opt,name=value_validator,json=valueValidator,proto3" json:"value_validator,omitempty"`
+	DefaultValue   *string               `protobuf:"bytes,3,opt,name=default_value,json=defaultValue,proto3,oneof" json:"default_value,omitempty"`
+}
+
+func (x *AccountCreationStringField) Reset() {
+	*x = AccountCreationStringField{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_c1_connector_v2_connector_proto_msgTypes[14]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AccountCreationStringField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountCreationStringField) ProtoMessage() {}
+
+func (x *AccountCreationStringField) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[14]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountCreationStringField.ProtoReflect.Descriptor instead.
+func (*AccountCreationStringField) Descriptor() ([]byte, []int) {
+	return file_c1_connector_v2_connector_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *AccountCreationStringField) GetSecret() bool {
+	if x != nil {
+		return x.Secret
+	}
+	return false
+}
+
+func (x *AccountCreationStringField) GetValueValidator() *validate.StringRules {
+	if x != nil {
+		return x.ValueValidator
+	}
+	return nil
+}
+
+func (x *AccountCreationStringField) GetDefaultValue() string {
+	if x != nil && x.DefaultValue != nil {
+		return *x.DefaultValue
+	}
+	return ""
+}
+
+type AccountCreationBoolField struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Value        bool  `protobuf:"varint,1,opt,name=value,proto3" json:"value,omitempty"`
+	DefaultValue *bool `protobuf:"varint,2,opt,name=default_value,json=defaultValue,proto3,oneof" json:"default_value,omitempty"`
+}
+
+func (x *AccountCreationBoolField) Reset() {
+	*x = AccountCreationBoolField{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_c1_connector_v2_connector_proto_msgTypes[15]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AccountCreationBoolField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountCreationBoolField) ProtoMessage() {}
+
+func (x *AccountCreationBoolField) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[15]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountCreationBoolField.ProtoReflect.Descriptor instead.
+func (*AccountCreationBoolField) Descriptor() ([]byte, []int) {
+	return file_c1_connector_v2_connector_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *AccountCreationBoolField) GetValue() bool {
+	if x != nil {
+		return x.Value
+	}
+	return false
+}
+
+func (x *AccountCreationBoolField) GetDefaultValue() bool {
+	if x != nil && x.DefaultValue != nil {
+		return *x.DefaultValue
+	}
+	return false
+}
+
+type AccountCreationStringListField struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	ValueValidator *validate.StringRules `protobuf:"bytes,1,opt,name=value_validator,json=valueValidator,proto3" json:"value_validator,omitempty"`
+	DefaultValue   []string              `protobuf:"bytes,2,rep,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty"`
+}
+
+func (x *AccountCreationStringListField) Reset() {
+	*x = AccountCreationStringListField{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_c1_connector_v2_connector_proto_msgTypes[16]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AccountCreationStringListField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountCreationStringListField) ProtoMessage() {}
+
+func (x *AccountCreationStringListField) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[16]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountCreationStringListField.ProtoReflect.Descriptor instead.
+func (*AccountCreationStringListField) Descriptor() ([]byte, []int) {
+	return file_c1_connector_v2_connector_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *AccountCreationStringListField) GetValueValidator() *validate.StringRules {
+	if x != nil {
+		return x.ValueValidator
+	}
+	return nil
+}
+
+func (x *AccountCreationStringListField) GetDefaultValue() []string {
+	if x != nil {
+		return x.DefaultValue
+	}
+	return nil
+}
+
+type AccountCreationInt64Field struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	ValueValidator *validate.Int64Rules `protobuf:"bytes,1,opt,name=value_validator,json=valueValidator,proto3" json:"value_validator,omitempty"`
+	DefaultValue   *int64               `protobuf:"varint,2,opt,name=default_value,json=defaultValue,proto3,oneof" json:"default_value,omitempty"`
+}
+
+func (x *AccountCreationInt64Field) Reset() {
+	*x = AccountCreationInt64Field{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_c1_connector_v2_connector_proto_msgTypes[17]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AccountCreationInt64Field) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountCreationInt64Field) ProtoMessage() {}
+
+func (x *AccountCreationInt64Field) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[17]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountCreationInt64Field.ProtoReflect.Descriptor instead.
+func (*AccountCreationInt64Field) Descriptor() ([]byte, []int) {
+	return file_c1_connector_v2_connector_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *AccountCreationInt64Field) GetValueValidator() *validate.Int64Rules {
+	if x != nil {
+		return x.ValueValidator
+	}
+	return nil
+}
+
+func (x *AccountCreationInt64Field) GetDefaultValue() int64 {
+	if x != nil && x.DefaultValue != nil {
+		return *x.DefaultValue
+	}
+	return 0
+}
+
+type AccountCreationMapField struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	ValueValidator *validate.MapRules               `protobuf:"bytes,1,opt,name=value_validator,json=valueValidator,proto3" json:"value_validator,omitempty"`
+	DefaultValue   map[string]*AccountCreationField `protobuf:"bytes,2,rep,name=default_value,json=defaultValue,proto3" json:"default_value,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+}
+
+func (x *AccountCreationMapField) Reset() {
+	*x = AccountCreationMapField{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_c1_connector_v2_connector_proto_msgTypes[18]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AccountCreationMapField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountCreationMapField) ProtoMessage() {}
+
+func (x *AccountCreationMapField) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[18]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountCreationMapField.ProtoReflect.Descriptor instead.
+func (*AccountCreationMapField) Descriptor() ([]byte, []int) {
+	return file_c1_connector_v2_connector_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *AccountCreationMapField) GetValueValidator() *validate.MapRules {
+	if x != nil {
+		return x.ValueValidator
+	}
+	return nil
+}
+
+func (x *AccountCreationMapField) GetDefaultValue() map[string]*AccountCreationField {
+	if x != nil {
+		return x.DefaultValue
+	}
+	return nil
+}
+
 var File_c1_connector_v2_connector_proto protoreflect.FileDescriptor
 
 var file_c1_connector_v2_connector_proto_rawDesc = []byte{
@@ -823,7 +1334,7 @@ var file_c1_connector_v2_connector_proto_rawDesc = []byte{
 	0x0a, 0x0b, 0x61, 0x6e, 0x6e, 0x6f, 0x74, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0x01, 0x20,
 	0x03, 0x28, 0x0b, 0x32, 0x14, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f,
 	0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x41, 0x6e, 0x79, 0x52, 0x0b, 0x61, 0x6e, 0x6e, 0x6f, 0x74,
-	0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x22, 0xbf, 0x03, 0x0a, 0x11, 0x43, 0x6f, 0x6e, 0x6e, 0x65,
+	0x61, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x22, 0x9f, 0x04, 0x0a, 0x11, 0x43, 0x6f, 0x6e, 0x6e, 0x65,
 	0x63, 0x74, 0x6f, 0x72, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0x12, 0x2d, 0x0a, 0x0c,
 	0x64, 0x69, 0x73, 0x70, 0x6c, 0x61, 0x79, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01,
 	0x28, 0x09, 0x42, 0x0a, 0xfa, 0x42, 0x07, 0x72, 0x05, 0x20, 0x01, 0x28, 0x80, 0x08, 0x52, 0x0b,
@@ -851,7 +1362,13 @@ var file_c1_connector_v2_connector_proto_rawDesc = []byte{
 	0x28, 0x0b, 0x32, 0x26, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f,
 	0x72, 0x2e, 0x76, 0x32, 0x2e, 0x43, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x43, 0x61,
 	0x70, 0x61, 0x62, 0x69, 0x6c, 0x69, 0x74, 0x69, 0x65, 0x73, 0x52, 0x0c, 0x63, 0x61, 0x70, 0x61,
-	0x62, 0x69, 0x6c, 0x69, 0x74, 0x69, 0x65, 0x73, 0x22, 0x8e, 0x02, 0x0a, 0x11, 0x43, 0x72, 0x65,
+	0x62, 0x69, 0x6c, 0x69, 0x74, 0x69, 0x65, 0x73, 0x12, 0x5e, 0x0a, 0x17, 0x61, 0x63, 0x63, 0x6f,
+	0x75, 0x6e, 0x74, 0x5f, 0x63, 0x72, 0x65, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x73, 0x63, 0x68,
+	0x65, 0x6d, 0x61, 0x18, 0x09, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x26, 0x2e, 0x63, 0x31, 0x2e, 0x63,
+	0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x2e, 0x76, 0x32, 0x2e, 0x41, 0x63, 0x63, 0x6f,
+	0x75, 0x6e, 0x74, 0x43, 0x72, 0x65, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x63, 0x68, 0x65, 0x6d,
+	0x61, 0x52, 0x15, 0x61, 0x63, 0x63, 0x6f, 0x75, 0x6e, 0x74, 0x43, 0x72, 0x65, 0x61, 0x74, 0x69,
+	0x6f, 0x6e, 0x53, 0x63, 0x68, 0x65, 0x6d, 0x61, 0x22, 0x8e, 0x02, 0x0a, 0x11, 0x43, 0x72, 0x65,
 	0x64, 0x65, 0x6e, 0x74, 0x69, 0x61, 0x6c, 0x44, 0x65, 0x74, 0x61, 0x69, 0x6c, 0x73, 0x12, 0x7d,
 	0x0a, 0x1f, 0x63, 0x61, 0x70, 0x61, 0x62, 0x69, 0x6c, 0x69, 0x74, 0x79, 0x5f, 0x61, 0x63, 0x63,
 	0x6f, 0x75, 0x6e, 0x74, 0x5f, 0x70, 0x72, 0x6f, 0x76, 0x69, 0x73, 0x69, 0x6f, 0x6e, 0x69, 0x6e,
@@ -1025,7 +1542,7 @@ func file_c1_connector_v2_connector_proto_rawDescGZIP() []byte {
 }
 
 var file_c1_connector_v2_connector_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_c1_connector_v2_connector_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_c1_connector_v2_connector_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_c1_connector_v2_connector_proto_goTypes = []interface{}{
 	(Capability)(0),                              // 0: c1.connector.v2.Capability
 	(CapabilityDetailCredentialOption)(0),        // 1: c1.connector.v2.CapabilityDetailCredentialOption
@@ -1041,43 +1558,69 @@ var file_c1_connector_v2_connector_proto_goTypes = []interface{}{
 	(*ConnectorServiceGetMetadataResponse)(nil),  // 11: c1.connector.v2.ConnectorServiceGetMetadataResponse
 	(*ConnectorServiceValidateRequest)(nil),      // 12: c1.connector.v2.ConnectorServiceValidateRequest
 	(*ConnectorServiceValidateResponse)(nil),     // 13: c1.connector.v2.ConnectorServiceValidateResponse
-	(*anypb.Any)(nil),                            // 14: google.protobuf.Any
-	(*AssetRef)(nil),                             // 15: c1.connector.v2.AssetRef
-	(*structpb.Struct)(nil),                      // 16: google.protobuf.Struct
-	(*ResourceType)(nil),                         // 17: c1.connector.v2.ResourceType
+	(*AccountCreationSchema)(nil),                // 14: c1.connector.v2.AccountCreationSchema
+	(*AccountCreationField)(nil),                 // 15: c1.connector.v2.AccountCreationField
+	(*AccountCreationStringField)(nil),           // 16: c1.connector.v2.AccountCreationStringField
+	(*AccountCreationBoolField)(nil),             // 17: c1.connector.v2.AccountCreationBoolField
+	(*AccountCreationStringListField)(nil),       // 18: c1.connector.v2.AccountCreationStringListField
+	(*AccountCreationInt64Field)(nil),            // 19: c1.connector.v2.AccountCreationInt64Field
+	(*AccountCreationMapField)(nil),              // 20: c1.connector.v2.AccountCreationMapField
+	nil,                                          // 21: c1.connector.v2.AccountCreationSchema.FieldMapEntry
+	nil,                                          // 22: c1.connector.v2.AccountCreationMapField.DefaultValueEntry
+	(*anypb.Any)(nil),                            // 23: google.protobuf.Any
+	(*AssetRef)(nil),                             // 24: c1.connector.v2.AssetRef
+	(*structpb.Struct)(nil),                      // 25: google.protobuf.Struct
+	(*ResourceType)(nil),                         // 26: c1.connector.v2.ResourceType
+	(*validate.StringRules)(nil),                 // 27: validate.StringRules
+	(*validate.Int64Rules)(nil),                  // 28: validate.Int64Rules
+	(*validate.MapRules)(nil),                    // 29: validate.MapRules
 }
 var file_c1_connector_v2_connector_proto_depIdxs = []int32{
-	14, // 0: c1.connector.v2.ConnectorServiceCleanupRequest.annotations:type_name -> google.protobuf.Any
-	14, // 1: c1.connector.v2.ConnectorServiceCleanupResponse.annotations:type_name -> google.protobuf.Any
-	15, // 2: c1.connector.v2.ConnectorMetadata.icon:type_name -> c1.connector.v2.AssetRef
-	15, // 3: c1.connector.v2.ConnectorMetadata.logo:type_name -> c1.connector.v2.AssetRef
-	16, // 4: c1.connector.v2.ConnectorMetadata.profile:type_name -> google.protobuf.Struct
-	14, // 5: c1.connector.v2.ConnectorMetadata.annotations:type_name -> google.protobuf.Any
+	23, // 0: c1.connector.v2.ConnectorServiceCleanupRequest.annotations:type_name -> google.protobuf.Any
+	23, // 1: c1.connector.v2.ConnectorServiceCleanupResponse.annotations:type_name -> google.protobuf.Any
+	24, // 2: c1.connector.v2.ConnectorMetadata.icon:type_name -> c1.connector.v2.AssetRef
+	24, // 3: c1.connector.v2.ConnectorMetadata.logo:type_name -> c1.connector.v2.AssetRef
+	25, // 4: c1.connector.v2.ConnectorMetadata.profile:type_name -> google.protobuf.Struct
+	23, // 5: c1.connector.v2.ConnectorMetadata.annotations:type_name -> google.protobuf.Any
 	8,  // 6: c1.connector.v2.ConnectorMetadata.capabilities:type_name -> c1.connector.v2.ConnectorCapabilities
-	6,  // 7: c1.connector.v2.CredentialDetails.capability_account_provisioning:type_name -> c1.connector.v2.CredentialDetailsAccountProvisioning
-	7,  // 8: c1.connector.v2.CredentialDetails.capability_credential_rotation:type_name -> c1.connector.v2.CredentialDetailsCredentialRotation
-	1,  // 9: c1.connector.v2.CredentialDetailsAccountProvisioning.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	1,  // 10: c1.connector.v2.CredentialDetailsAccountProvisioning.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	1,  // 11: c1.connector.v2.CredentialDetailsCredentialRotation.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	1,  // 12: c1.connector.v2.CredentialDetailsCredentialRotation.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
-	9,  // 13: c1.connector.v2.ConnectorCapabilities.resource_type_capabilities:type_name -> c1.connector.v2.ResourceTypeCapability
-	0,  // 14: c1.connector.v2.ConnectorCapabilities.connector_capabilities:type_name -> c1.connector.v2.Capability
-	5,  // 15: c1.connector.v2.ConnectorCapabilities.credential_details:type_name -> c1.connector.v2.CredentialDetails
-	17, // 16: c1.connector.v2.ResourceTypeCapability.resource_type:type_name -> c1.connector.v2.ResourceType
-	0,  // 17: c1.connector.v2.ResourceTypeCapability.capabilities:type_name -> c1.connector.v2.Capability
-	4,  // 18: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
-	14, // 19: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
-	10, // 20: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
-	12, // 21: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
-	2,  // 22: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
-	11, // 23: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
-	13, // 24: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
-	3,  // 25: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
-	23, // [23:26] is the sub-list for method output_type
-	20, // [20:23] is the sub-list for method input_type
-	20, // [20:20] is the sub-list for extension type_name
-	20, // [20:20] is the sub-list for extension extendee
-	0,  // [0:20] is the sub-list for field type_name
+	14, // 7: c1.connector.v2.ConnectorMetadata.account_creation_schema:type_name -> c1.connector.v2.AccountCreationSchema
+	6,  // 8: c1.connector.v2.CredentialDetails.capability_account_provisioning:type_name -> c1.connector.v2.CredentialDetailsAccountProvisioning
+	7,  // 9: c1.connector.v2.CredentialDetails.capability_credential_rotation:type_name -> c1.connector.v2.CredentialDetailsCredentialRotation
+	1,  // 10: c1.connector.v2.CredentialDetailsAccountProvisioning.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 11: c1.connector.v2.CredentialDetailsAccountProvisioning.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 12: c1.connector.v2.CredentialDetailsCredentialRotation.supported_credential_options:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	1,  // 13: c1.connector.v2.CredentialDetailsCredentialRotation.preferred_credential_option:type_name -> c1.connector.v2.CapabilityDetailCredentialOption
+	9,  // 14: c1.connector.v2.ConnectorCapabilities.resource_type_capabilities:type_name -> c1.connector.v2.ResourceTypeCapability
+	0,  // 15: c1.connector.v2.ConnectorCapabilities.connector_capabilities:type_name -> c1.connector.v2.Capability
+	5,  // 16: c1.connector.v2.ConnectorCapabilities.credential_details:type_name -> c1.connector.v2.CredentialDetails
+	26, // 17: c1.connector.v2.ResourceTypeCapability.resource_type:type_name -> c1.connector.v2.ResourceType
+	0,  // 18: c1.connector.v2.ResourceTypeCapability.capabilities:type_name -> c1.connector.v2.Capability
+	4,  // 19: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
+	23, // 20: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
+	21, // 21: c1.connector.v2.AccountCreationSchema.field_map:type_name -> c1.connector.v2.AccountCreationSchema.FieldMapEntry
+	16, // 22: c1.connector.v2.AccountCreationField.str:type_name -> c1.connector.v2.AccountCreationStringField
+	17, // 23: c1.connector.v2.AccountCreationField.bool:type_name -> c1.connector.v2.AccountCreationBoolField
+	18, // 24: c1.connector.v2.AccountCreationField.str_list:type_name -> c1.connector.v2.AccountCreationStringListField
+	19, // 25: c1.connector.v2.AccountCreationField.i:type_name -> c1.connector.v2.AccountCreationInt64Field
+	20, // 26: c1.connector.v2.AccountCreationField.m:type_name -> c1.connector.v2.AccountCreationMapField
+	27, // 27: c1.connector.v2.AccountCreationStringField.value_validator:type_name -> validate.StringRules
+	27, // 28: c1.connector.v2.AccountCreationStringListField.value_validator:type_name -> validate.StringRules
+	28, // 29: c1.connector.v2.AccountCreationInt64Field.value_validator:type_name -> validate.Int64Rules
+	29, // 30: c1.connector.v2.AccountCreationMapField.value_validator:type_name -> validate.MapRules
+	22, // 31: c1.connector.v2.AccountCreationMapField.default_value:type_name -> c1.connector.v2.AccountCreationMapField.DefaultValueEntry
+	15, // 32: c1.connector.v2.AccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.AccountCreationField
+	15, // 33: c1.connector.v2.AccountCreationMapField.DefaultValueEntry.value:type_name -> c1.connector.v2.AccountCreationField
+	10, // 34: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
+	12, // 35: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
+	2,  // 36: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
+	11, // 37: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
+	13, // 38: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
+	3,  // 39: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
+	37, // [37:40] is the sub-list for method output_type
+	34, // [34:37] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_connector_proto_init() }
@@ -1232,14 +1775,108 @@ func file_c1_connector_v2_connector_proto_init() {
 				return nil
 			}
 		}
+		file_c1_connector_v2_connector_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*AccountCreationSchema); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_c1_connector_v2_connector_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*AccountCreationField); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_c1_connector_v2_connector_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*AccountCreationStringField); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_c1_connector_v2_connector_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*AccountCreationBoolField); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_c1_connector_v2_connector_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*AccountCreationStringListField); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_c1_connector_v2_connector_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*AccountCreationInt64Field); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_c1_connector_v2_connector_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*AccountCreationMapField); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
+	file_c1_connector_v2_connector_proto_msgTypes[13].OneofWrappers = []interface{}{
+		(*AccountCreationField_Str)(nil),
+		(*AccountCreationField_Bool)(nil),
+		(*AccountCreationField_StrList)(nil),
+		(*AccountCreationField_I)(nil),
+		(*AccountCreationField_M)(nil),
+	}
+	file_c1_connector_v2_connector_proto_msgTypes[14].OneofWrappers = []interface{}{}
+	file_c1_connector_v2_connector_proto_msgTypes[15].OneofWrappers = []interface{}{}
+	file_c1_connector_v2_connector_proto_msgTypes[17].OneofWrappers = []interface{}{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_c1_connector_v2_connector_proto_rawDesc,
 			NumEnums:      2,
-			NumMessages:   12,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
