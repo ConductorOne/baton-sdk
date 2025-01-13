@@ -31,9 +31,9 @@ func WithSecretExpiresAt(expiresAt time.Time) SecretTraitOption {
 	}
 }
 
-func WithSecretCreatedByID(ownerUserID string) SecretTraitOption {
+func WithSecretCreatedByID(createdById *v2.ResourceId) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.CreatedById = ownerUserID
+		t.CreatedById = createdById
 		return nil
 	}
 }
