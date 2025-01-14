@@ -29,6 +29,7 @@ message ResourceType {
     TRAIT_GROUP = 2;
     TRAIT_ROLE = 3;
     TRAIT_APP = 4;
+    TRAIT_SECRET = 5;
   }
   repeated Trait traits = 3 [(validate.rules).repeated = {
     unique: true

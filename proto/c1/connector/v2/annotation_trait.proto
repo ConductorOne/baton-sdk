@@ -3,6 +3,7 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "c1/connector/v2/asset.proto";
+import "c1/connector/v2/resource.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
@@ -90,4 +91,12 @@ message AppTrait {
     APP_FLAG_BOOKMARK = 5;
   }
   repeated AppFlag flags = 5;
+}
+
+message SecretTrait {
+  google.protobuf.Struct profile = 1;
+  google.protobuf.Timestamp created_at = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  google.protobuf.Timestamp last_used_at = 4;
+  connector.v2.ResourceId created_by_id = 5;
 }
