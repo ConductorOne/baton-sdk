@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const timeoutIn = time.Millisecond * 1
+const timeoutIn = time.Microsecond * 1
 
 func TestEntryPoint(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
