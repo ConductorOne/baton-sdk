@@ -18,10 +18,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/internal/aggregate"
 )
 
-var (
-	zeroInstrumentKind InstrumentKind
-	zeroScope          instrumentation.Scope
-)
+var zeroScope instrumentation.Scope
 
 // InstrumentKind is the identifier of a group of instruments that all
 // performing the same function.
@@ -77,11 +74,11 @@ type Instrument struct {
 	nonComparable // nolint: unused
 }
 
-// empty returns if all fields of i are their zero-value.
-func (i Instrument) empty() bool {
+// IsEmpty returns if all Instrument fields are their zero-value.
+func (i Instrument) IsEmpty() bool {
 	return i.Name == "" &&
 		i.Description == "" &&
-		i.Kind == zeroInstrumentKind &&
+		i.Kind == instrumentKindUndefined &&
 		i.Unit == "" &&
 		i.Scope == zeroScope
 }
@@ -112,7 +109,7 @@ func (i Instrument) matchesDescription(other Instrument) bool {
 // matchesKind returns true if the Kind of i is its zero-value or it equals the
 // Kind of other, otherwise false.
 func (i Instrument) matchesKind(other Instrument) bool {
-	return i.Kind == zeroInstrumentKind || i.Kind == other.Kind
+	return i.Kind == instrumentKindUndefined || i.Kind == other.Kind
 }
 
 // matchesUnit returns true if the Unit of i is its zero-value or it equals the
@@ -237,8 +234,8 @@ func (i *float64Inst) aggregate(ctx context.Context, val float64, s attribute.Se
 	}
 }
 
-// observablID is a comparable unique identifier of an observable.
-type observablID[N int64 | float64] struct {
+// observableID is a comparable unique identifier of an observable.
+type observableID[N int64 | float64] struct {
 	name        string
 	description string
 	kind        InstrumentKind
@@ -290,7 +287,7 @@ func newInt64Observable(m *meter, kind InstrumentKind, name, desc, u string) int
 
 type observable[N int64 | float64] struct {
 	metric.Observable
-	observablID[N]
+	observableID[N]
 
 	meter           *meter
 	measures        measures[N]
@@ -299,7 +296,7 @@ type observable[N int64 | float64] struct {
 
 func newObservable[N int64 | float64](m *meter, kind InstrumentKind, name, desc, u string) *observable[N] {
 	return &observable[N]{
-		observablID: observablID[N]{
+		observableID: observableID[N]{
 			name:        name,
 			description: desc,
 			kind:        kind,
