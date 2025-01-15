@@ -9,7 +9,7 @@ import (
 )
 
 func TestCallSubCommand(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
+	ctx, cancel := context.WithTimeout(context.Background(), 0)
 	defer cancel()
 
 	requiredField := field.StringField("name", field.WithRequired(true))

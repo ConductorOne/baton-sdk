@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -361,7 +362,7 @@ func (cw *wrapper) Close() error {
 
 	if cw.serverStdin != nil {
 		err = cw.serverStdin.Close()
-		if err != nil {
+		if err != nil && !strings.Contains(err.Error(), "already closed") {
 			return fmt.Errorf("error closing connector service stdin: %w", err)
 		}
 	}
