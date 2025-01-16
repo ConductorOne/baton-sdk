@@ -140,8 +140,11 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			// Acquire a worker slot before we call Next() so we don't claim a task before we can actually process it.
 			err = sem.Acquire(ctx, 1)
 			if err != nil {
-				// Any error returned from Acquire() is due to the context being cancelled.
-				sem.Release(1)
+				if errors.Is(err, context.Canceled) {
+					// Any error returned from Acquire() is due to the context being cancelled.
+					// Except for some tests where error is context deadline exceeded
+					sem.Release(1)
+				}
 				return c.handleContextCancel(ctx)
 			}
 			l.Debug("runner: worker claimed, checking for next task")

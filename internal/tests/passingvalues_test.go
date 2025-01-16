@@ -3,16 +3,14 @@ package tests
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/stretchr/testify/require"
 )
 
-const timeoutIn = time.Microsecond * 1
-
 func TestEntryPoint(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeoutIn)
+	// We want a context that is already DeadlineExceeded so that entrypoint() doesn't hang
+	ctx, cancel := context.WithTimeout(context.Background(), 0)
 	defer cancel()
 
 	stringRequiredField := field.StringField(

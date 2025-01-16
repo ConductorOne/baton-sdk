@@ -361,7 +361,7 @@ func (cw *wrapper) Close() error {
 
 	if cw.serverStdin != nil {
 		err = cw.serverStdin.Close()
-		if err != nil {
+		if err != nil && errors.Is(err, os.ErrClosed) {
 			return fmt.Errorf("error closing connector service stdin: %w", err)
 		}
 	}
