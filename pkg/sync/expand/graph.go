@@ -288,3 +288,24 @@ func (g *EntitlementGraph) AddEdge(
 	g.DestinationsToSources[dstNode.Id][srcNode.Id] = edge.EdgeID
 	return nil
 }
+
+func (g *EntitlementGraph) DeleteEdge(ctx context.Context, srcEntitlementID string, dstEntitlementID string) error {
+	srcNode := g.GetNode(srcEntitlementID)
+	if srcNode == nil {
+		return ErrNoEntitlement
+	}
+	dstNode := g.GetNode(dstEntitlementID)
+	if dstNode == nil {
+		return ErrNoEntitlement
+	}
+
+	if destinations, ok := g.SourcesToDestinations[srcNode.Id]; ok {
+		if edgeID, ok := destinations[dstNode.Id]; ok {
+			delete(destinations, dstNode.Id)
+			delete(g.DestinationsToSources[dstNode.Id], srcNode.Id)
+			delete(g.Edges, edgeID)
+			return nil
+		}
+	}
+	return nil
+}

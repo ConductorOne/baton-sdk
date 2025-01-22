@@ -12,6 +12,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/logging"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -78,6 +79,81 @@ func TestExpandGrants(t *testing.T) {
 	require.NoError(t, err)
 	err = syncer.Close(ctx)
 	require.NoError(t, err)
+	_ = os.Remove(c1zpath)
+}
+
+func TestExpandGrantBadEntitlement(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctx, err := logging.Init(ctx)
+	require.NoError(t, err)
+
+	mc := newMockConnector()
+
+	var badResourceType = &v2.ResourceType{
+		Id:          "bad",
+		DisplayName: "Bad",
+		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
+	}
+	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType, badResourceType)
+
+	group1, _, err := mc.AddGroup(ctx, "test_group_1")
+	require.NoError(t, err)
+	group2, group2Ent, err := mc.AddGroup(ctx, "test_group_2")
+	require.NoError(t, err)
+
+	user1, err := mc.AddUser(ctx, "user_1")
+	require.NoError(t, err)
+	user2, err := mc.AddUser(ctx, "user_2")
+	require.NoError(t, err)
+
+	// Add all users to group 2
+	_ = mc.AddGroupMember(ctx, group2, user1)
+	_ = mc.AddGroupMember(ctx, group2, user2)
+
+	// Add group 2 to group 1 with an incorrect entitlement id
+	badEntResource, err := rs.NewGroupResource(
+		"bad_group",
+		badResourceType,
+		"bad_group",
+		[]rs.GroupTraitOption{},
+	)
+	require.NoError(t, err)
+	mc.AddResource(ctx, badEntResource)
+	badEnt := et.NewAssignmentEntitlement(
+		badEntResource,
+		"bad_member",
+		et.WithGrantableTo(groupResourceType, userResourceType, badResourceType),
+	)
+	grantOpts := gt.WithAnnotation(&v2.GrantExpandable{
+		EntitlementIds: []string{
+			group2Ent.Id,
+		},
+	})
+
+	badGrant := gt.NewGrant(
+		badEntResource,
+		"bad_member",
+		group2,
+		grantOpts,
+	)
+	mc.grantDB[badEntResource.Id.Resource] = append(mc.grantDB[badEntResource.Id.Resource], badGrant)
+	// _ = mc.AddGroupMember(ctx, group2, badEntResource)
+
+	_ = mc.AddGroupMember(ctx, group1, group2, badEnt)
+
+	tempDir, err := os.MkdirTemp("", "baton-expand-grant-bad-entitlement")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+	c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
+	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	err = syncer.Sync(ctx)
+	require.NoError(t, err)
+	err = syncer.Close(ctx)
+	require.NoError(t, err)
+
 	_ = os.Remove(c1zpath)
 }
 
@@ -359,9 +435,8 @@ func BenchmarkExpandCircle(b *testing.B) {
 func newMockConnector() *mockConnector {
 	mc := &mockConnector{
 		rtDB:       make([]*v2.ResourceType, 0),
-		resourceDB: make([]*v2.Resource, 0),
+		resourceDB: make(map[string][]*v2.Resource, 0),
 		entDB:      make(map[string][]*v2.Entitlement),
-		userDB:     make([]*v2.Resource, 0),
 		grantDB:    make(map[string][]*v2.Grant),
 	}
 	return mc
@@ -370,10 +445,9 @@ func newMockConnector() *mockConnector {
 type mockConnector struct {
 	metadata   *v2.ConnectorMetadata
 	rtDB       []*v2.ResourceType
-	resourceDB []*v2.Resource
+	resourceDB map[string][]*v2.Resource
 	entDB      map[string][]*v2.Entitlement // resource id to entitlements
-	userDB     []*v2.Resource
-	grantDB    map[string][]*v2.Grant // resource id to grants
+	grantDB    map[string][]*v2.Grant       // resource id to grants
 	v2.AssetServiceClient
 	v2.GrantManagerServiceClient
 	v2.ResourceManagerServiceClient
@@ -394,7 +468,7 @@ func (mc *mockConnector) AddGroup(ctx context.Context, groupId string) (*v2.Reso
 		return nil, nil, err
 	}
 
-	mc.resourceDB = append(mc.resourceDB, group)
+	mc.resourceDB[groupResourceType.Id] = append(mc.resourceDB[groupResourceType.Id], group)
 
 	ent := et.NewAssignmentEntitlement(
 		group,
@@ -419,8 +493,16 @@ func (mc *mockConnector) AddUser(ctx context.Context, userId string) (*v2.Resour
 		return nil, err
 	}
 
-	mc.userDB = append(mc.userDB, user)
+	mc.resourceDB[userResourceType.Id] = append(mc.resourceDB[userResourceType.Id], user)
 	return user, nil
+}
+
+func (mc *mockConnector) AddResource(ctx context.Context, resource *v2.Resource) {
+	mc.resourceDB[resource.Id.ResourceType] = append(mc.resourceDB[resource.Id.ResourceType], resource)
+}
+
+func (mc *mockConnector) AddResourceType(ctx context.Context, resourceType *v2.ResourceType) {
+	mc.rtDB = append(mc.rtDB, resourceType)
 }
 
 func (mc *mockConnector) AddGroupMember(ctx context.Context, resource *v2.Resource, principal *v2.Resource, expandEnts ...*v2.Entitlement) *v2.Grant {
@@ -451,13 +533,11 @@ func (mc *mockConnector) ListResourceTypes(context.Context, *v2.ResourceTypesSer
 }
 
 func (mc *mockConnector) ListResources(ctx context.Context, in *v2.ResourcesServiceListResourcesRequest, opts ...grpc.CallOption) (*v2.ResourcesServiceListResourcesResponse, error) {
-	if in.ResourceTypeId == "group" {
-		return &v2.ResourcesServiceListResourcesResponse{List: mc.resourceDB}, nil
+	resources := mc.resourceDB[in.ResourceTypeId]
+	if resources == nil {
+		resources = []*v2.Resource{}
 	}
-	if in.ResourceTypeId == "user" {
-		return &v2.ResourcesServiceListResourcesResponse{List: mc.userDB}, nil
-	}
-	return nil, fmt.Errorf("unknown resource type %s", in.ResourceTypeId)
+	return &v2.ResourcesServiceListResourcesResponse{List: resources}, nil
 }
 
 func (mc *mockConnector) ListEntitlements(ctx context.Context, in *v2.EntitlementsServiceListEntitlementsRequest, opts ...grpc.CallOption) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
