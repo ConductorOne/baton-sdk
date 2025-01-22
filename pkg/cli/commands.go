@@ -7,13 +7,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/conductorone/baton-sdk/internal/connector"
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
-	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
-	"github.com/conductorone/baton-sdk/pkg/field"
-	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -21,6 +14,15 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/conductorone/baton-sdk/internal/connector"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/field"
+	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
 type GetConnectorFunc func(context.Context, *viper.Viper) (types.ConnectorServer, error)
@@ -113,12 +115,21 @@ func MakeMainCommand(
 			case v.GetBool("event-feed"):
 				opts = append(opts, connectorrunner.WithOnDemandEventStream())
 			case v.GetString("create-account-login") != "":
+				profileMap := v.GetStringMap("create-account-profile")
+				if profileMap == nil {
+					profileMap = make(map[string]interface{})
+				}
+				profile, err := structpb.NewStruct(profileMap)
+				if err != nil {
+					return err
+				}
 				opts = append(opts,
 					connectorrunner.WithProvisioningEnabled(),
 					connectorrunner.WithOnDemandCreateAccount(
 						v.GetString("file"),
 						v.GetString("create-account-login"),
 						v.GetString("create-account-email"),
+						profile,
 					))
 			case v.GetString("delete-resource") != "":
 				opts = append(opts,

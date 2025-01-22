@@ -6,6 +6,7 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -29,8 +30,9 @@ type Provisioner struct {
 
 	revokeGrantID string
 
-	createAccountLogin string
-	createAccountEmail string
+	createAccountLogin   string
+	createAccountEmail   string
+	createAccountProfile *structpb.Struct
 
 	deleteResourceID   string
 	deleteResourceType string
@@ -319,12 +321,13 @@ func NewResourceDeleter(c types.ConnectorClient, dbPath string, resourceId strin
 	}
 }
 
-func NewCreateAccountManager(c types.ConnectorClient, dbPath string, login string, email string) *Provisioner {
+func NewCreateAccountManager(c types.ConnectorClient, dbPath string, login string, email string, profile *structpb.Struct) *Provisioner {
 	return &Provisioner{
-		dbPath:             dbPath,
-		connector:          c,
-		createAccountLogin: login,
-		createAccountEmail: email,
+		dbPath:               dbPath,
+		connector:            c,
+		createAccountLogin:   login,
+		createAccountEmail:   email,
+		createAccountProfile: profile,
 	}
 }
 
