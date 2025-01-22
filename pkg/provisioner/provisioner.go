@@ -241,8 +241,9 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 
 	_, err = p.connector.CreateAccount(ctx, &v2.CreateAccountRequest{
 		AccountInfo: &v2.AccountInfo{
-			Emails: emails,
-			Login:  p.createAccountLogin,
+			Emails:  emails,
+			Login:   p.createAccountLogin,
+			Profile: p.createAccountProfile,
 		},
 		CredentialOptions: opts,
 		EncryptionConfigs: config,
