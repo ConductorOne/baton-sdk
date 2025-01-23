@@ -121,26 +121,24 @@ message ConnectorAccountCreationSchema {
 
     bool deprecated = 6;
     oneof field {
-      StringField str = 100;
-      BoolField bool = 101;
-      StringListField str_list = 102;
-      IntField i = 103;
-      MapField m = 104;
+      StringField string_field = 100;
+      BoolField bool_field = 101;
+      StringListField string_list_field = 102;
+      IntField int_field = 103;
+      MapField map_field = 104;
     }
   }
 
   message StringField {
-    bool secret = 1;
-    optional string default_value = 2;
-  }
-
-  message StringListField {
-    // validator rules for value. may be empty.
-    repeated string default_value = 1;
+    optional string default_value = 1;
   }
 
   message BoolField {
     optional bool default_value = 1;
+  }
+
+  message StringListField {
+    repeated string default_value = 1;
   }
 
   message IntField {
