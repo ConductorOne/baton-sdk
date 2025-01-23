@@ -6,7 +6,6 @@ import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
-import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
