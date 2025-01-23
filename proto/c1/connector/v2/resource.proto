@@ -134,12 +134,11 @@ message AccountInfo {
 message CredentialOptions {
   message RandomPassword {
     int64 length = 1 [(validate.rules).int64 = {
-      gte: 8,
+      gte: 8
       lte: 64
     }];
   }
-  message NoPassword {
-  }
+  message NoPassword {}
   message SSO {
     string sso_provider = 1;
   }
