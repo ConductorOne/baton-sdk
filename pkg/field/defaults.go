@@ -12,10 +12,14 @@ var (
 	TicketingField              = BoolField("ticketing", WithDescription("This must be set to enable ticketing support"), WithPersistent(true))
 	c1zTmpDirField              = StringField("c1z-temp-dir", WithHidden(true), WithDescription("The directory to store temporary files in. It must exist, "+
 		"and write access is required. Defaults to the OS temporary directory."), WithPersistent(true))
-	clientIDField              = StringField("client-id", WithDescription("The client ID used to authenticate with ConductorOne"), WithPersistent(true))
-	clientSecretField          = StringField("client-secret", WithDescription("The client secret used to authenticate with ConductorOne"), WithPersistent(true))
-	createAccountEmailField    = StringField("create-account-email", WithHidden(true), WithDescription("The email of the account to create"), WithPersistent(true))
-	createAccountLoginField    = StringField("create-account-login", WithHidden(true), WithDescription("The login of the account to create"), WithPersistent(true))
+	clientIDField             = StringField("client-id", WithDescription("The client ID used to authenticate with ConductorOne"), WithPersistent(true))
+	clientSecretField         = StringField("client-secret", WithDescription("The client secret used to authenticate with ConductorOne"), WithPersistent(true))
+	createAccountEmailField   = StringField("create-account-email", WithHidden(true), WithDescription("The email of the account to create"), WithPersistent(true))
+	createAccountLoginField   = StringField("create-account-login", WithHidden(true), WithDescription("The login of the account to create"), WithPersistent(true))
+	createAccountProfileField = StringField("create-account-profile",
+		WithHidden(true),
+		WithDescription("JSON-formatted object of map keys and values like '{ 'key': 'value' }'"),
+		WithPersistent(true))
 	deleteResourceField        = StringField("delete-resource", WithHidden(true), WithDescription("The id of the resource to delete"), WithPersistent(true))
 	deleteResourceTypeField    = StringField("delete-resource-type", WithHidden(true), WithDescription("The type of the resource to delete"), WithPersistent(true))
 	eventFeedField             = StringField("event-feed", WithHidden(true), WithDescription("Read feed events to stdout"), WithPersistent(true))
@@ -47,6 +51,7 @@ var DefaultFields = []SchemaField{
 	clientSecretField,
 	createAccountEmailField,
 	createAccountLoginField,
+	createAccountProfileField,
 	deleteResourceField,
 	deleteResourceTypeField,
 	eventFeedField,

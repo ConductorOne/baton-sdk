@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/semaphore"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -263,8 +264,9 @@ type revokeConfig struct {
 }
 
 type createAccountConfig struct {
-	login string
-	email string
+	login   string
+	email   string
+	profile *structpb.Struct
 }
 
 type deleteResourceConfig struct {
@@ -411,13 +413,14 @@ func WithOnDemandRevoke(c1zPath string, grantID string) Option {
 	}
 }
 
-func WithOnDemandCreateAccount(c1zPath string, login string, email string) Option {
+func WithOnDemandCreateAccount(c1zPath string, login string, email string, profile *structpb.Struct) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
 		cfg.c1zPath = c1zPath
 		cfg.createAccountConfig = &createAccountConfig{
-			login: login,
-			email: email,
+			login:   login,
+			email:   email,
+			profile: profile,
 		}
 		return nil
 	}
@@ -586,7 +589,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewRevoker(ctx, cfg.c1zPath, cfg.revokeConfig.grantID)
 
 		case cfg.createAccountConfig != nil:
-			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email)
+			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email, cfg.createAccountConfig.profile)
 
 		case cfg.deleteResourceConfig != nil:
 			tm = local.NewResourceDeleter(ctx, cfg.c1zPath, cfg.deleteResourceConfig.resourceId, cfg.deleteResourceConfig.resourceType)
