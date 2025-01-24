@@ -36,6 +36,7 @@ linters-settings:
         arguments:
           - fmt.Printf
           - fmt.Println
+          - fmt.Fprint
           - fmt.Fprintf
           - fmt.Fprintln
           - os.Stderr.Sync
