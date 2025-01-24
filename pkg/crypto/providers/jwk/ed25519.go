@@ -4,11 +4,12 @@ import (
 	"crypto/ed25519"
 	"fmt"
 
+	"filippo.io/age"
 	"filippo.io/age/agessh"
 	"golang.org/x/crypto/ssh"
 )
 
-func EncryptED25519(pubKey ed25519.PublicKey, plaintext []byte) ([]byte, error) {
+func CreateED25519Recipient(pubKey ed25519.PublicKey) (*agessh.Ed25519Recipient, error) {
 	sshPubKey, err := ssh.NewPublicKey(pubKey)
 	if err != nil {
 		return nil, fmt.Errorf("jwk-ed25519: failed to convert public key to ssh format: %w", err)
@@ -18,8 +19,16 @@ func EncryptED25519(pubKey ed25519.PublicKey, plaintext []byte) ([]byte, error) 
 	if err != nil {
 		return nil, fmt.Errorf("jwk-ed25519: failed to create recipient: %w", err)
 	}
+	return recipient, nil
+}
 
-	ciphertext, err := ageEncrypt(recipient, plaintext)
+func EncryptED25519(pubKey ed25519.PublicKey, plaintext []byte) ([]byte, error) {
+	recipient, err := CreateED25519Recipient(pubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	ciphertext, err := ageEncrypt([]age.Recipient{recipient}, plaintext)
 	if err != nil {
 		return nil, fmt.Errorf("jwk-ed25519: %w", err)
 	}

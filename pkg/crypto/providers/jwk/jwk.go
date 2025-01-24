@@ -72,49 +72,83 @@ func (j *JWKEncryptionProvider) GenerateKey(ctx context.Context) (*v2.Encryption
 	}, privKeyJWKBytes, nil
 }
 
-func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plainText *v2.PlaintextData) (*v2.EncryptedData, error) {
-	jwk, err := unmarshalJWK(conf.GetJwkPublicKeyConfig().GetPubKey())
-	if err != nil {
-		return nil, err
-	}
+func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, configs []*v2.EncryptionConfig, plainText *v2.PlaintextData) ([]*v2.EncryptedData, error) {
+	recipients := make([]age.Recipient, 0, len(configs))
+	recipientThumbs := make([]string, 0, len(configs))
+	encrypted := make([]*v2.EncryptedData, 0, len(configs))
 
-	var ciphertext []byte
-	switch pubKey := jwk.Public().Key.(type) {
-	case ed25519.PublicKey:
-		ciphertext, err = EncryptED25519(pubKey, plainText.Bytes)
+	for _, config := range configs {
+		jwk, err := unmarshalJWK(config.GetJwkPublicKeyConfig().GetPubKey())
 		if err != nil {
 			return nil, err
 		}
-	case *ecdsa.PublicKey:
-		ciphertext, err = EncryptECDSA(pubKey, plainText.Bytes)
-		if err != nil {
-			return nil, err
+
+		switch pubKey := jwk.Public().Key.(type) {
+		case ed25519.PublicKey:
+			tp, err := thumbprint(jwk)
+			if err != nil {
+				return nil, err
+			}
+			recipientThumbs = append(recipientThumbs, tp)
+			recipient, err := CreateED25519Recipient(pubKey)
+			if err != nil {
+				return nil, err
+			}
+			recipients = append(recipients, recipient)
+		case *rsa.PublicKey:
+			tp, err := thumbprint(jwk)
+			if err != nil {
+				return nil, err
+			}
+			recipientThumbs = append(recipientThumbs, tp)
+			recipient, err := CreateRSARecipient(pubKey)
+			if err != nil {
+				return nil, err
+			}
+			recipients = append(recipients, recipient)
+		case *ecdsa.PublicKey:
+			tp, err := thumbprint(jwk)
+			if err != nil {
+				return nil, err
+			}
+			ciphertext, err := EncryptECDSA(pubKey, plainText.Bytes)
+			if err != nil {
+				return nil, err
+			}
+			encCipherText := base64.StdEncoding.EncodeToString(ciphertext)
+			encrypted = append(encrypted, &v2.EncryptedData{
+				Provider:       EncryptionProviderJwk,
+				KeyId:          tp, // MJP remove me once we've depricated fully
+				Name:           plainText.Name,
+				Description:    plainText.Description,
+				Schema:         plainText.Schema,
+				EncryptedBytes: []byte(encCipherText),
+				KeyIds:         []string{tp},
+			})
+
+		default:
+			return nil, JWKUnsupportedKeyTypeError
 		}
-	case *rsa.PublicKey:
-		ciphertext, err = EncryptRSA(pubKey, plainText.Bytes)
-		if err != nil {
-			return nil, err
-		}
-	default:
-		return nil, JWKUnsupportedKeyTypeError
 	}
 
-	tp, err := thumbprint(jwk)
-	if err != nil {
-		return nil, err
+	if len(recipients) > 0 {
+		ciphertext, err := ageEncrypt(recipients, plainText.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("jwk: %w", err)
+		}
+		encCipherText := base64.StdEncoding.EncodeToString(ciphertext)
+
+		encrypted = append(encrypted, &v2.EncryptedData{
+			Provider:       EncryptionProviderJwk,
+			KeyId:          recipientThumbs[0], // MJP remove me once we've depricated fully
+			Name:           plainText.Name,
+			Description:    plainText.Description,
+			Schema:         plainText.Schema,
+			EncryptedBytes: []byte(encCipherText),
+			KeyIds:         recipientThumbs,
+		})
 	}
-
-	encCipherText := base64.StdEncoding.EncodeToString(ciphertext)
-
-	return &v2.EncryptedData{
-		Provider:       EncryptionProviderJwk,
-		KeyId:          tp,
-		Name:           plainText.Name,
-		Description:    plainText.Description,
-		Schema:         plainText.Schema,
-		EncryptedBytes: []byte(encCipherText),
-		KeyIds:         []string{tp},
-	}, nil
+	return encrypted, nil
 }
 
 func (j *JWKEncryptionProvider) Decrypt(ctx context.Context, cipherText *v2.EncryptedData, privateKey []byte) (*v2.PlaintextData, error) {
@@ -169,9 +203,9 @@ func thumbprint(jwk *jose.JSONWebKey) (string, error) {
 	return hex.EncodeToString(tp), nil
 }
 
-func ageEncrypt(r age.Recipient, plaintext []byte) ([]byte, error) {
+func ageEncrypt(r []age.Recipient, plaintext []byte) ([]byte, error) {
 	ciphertext := &bytes.Buffer{}
-	w, err := age.Encrypt(ciphertext, r)
+	w, err := age.Encrypt(ciphertext, r...)
 	if err != nil {
 		return nil, fmt.Errorf("age: failed to encrypt: %w", err)
 	}

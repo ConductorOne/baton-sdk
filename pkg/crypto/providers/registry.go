@@ -12,7 +12,7 @@ import (
 var EncryptionProviderNotRegisteredError = fmt.Errorf("crypto/providers: encryption provider not registered")
 
 type EncryptionProvider interface {
-	Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plainText *v2.PlaintextData) (*v2.EncryptedData, error)
+	Encrypt(ctx context.Context, conf []*v2.EncryptionConfig, plainText *v2.PlaintextData) ([]*v2.EncryptedData, error)
 	Decrypt(ctx context.Context, cipherText *v2.EncryptedData, privateKey []byte) (*v2.PlaintextData, error)
 
 	GenerateKey(ctx context.Context) (*v2.EncryptionConfig, []byte, error)
@@ -34,11 +34,7 @@ func GetEncryptionProvider(name string) (EncryptionProvider, error) {
 	return provider, nil
 }
 
-// GetEncryptionProviderForConfig returns the encryption provider for the given config.
-// If the config specifies a provider, we will fetch it directly by name and return an error if it's not found.
-// If the config contains a non-nil well-known configuration (like JWKPublicKeyConfig), we will return the provider for that by name.
-// If we can't find a provider, we return an EncryptionProviderNotRegisteredError.
-func GetEncryptionProviderForConfig(ctx context.Context, conf *v2.EncryptionConfig) (EncryptionProvider, error) {
+func GetEncryptionProviderName(ctx context.Context, conf *v2.EncryptionConfig) (string, error) {
 	providerName := normalizeProviderName(conf.GetProvider())
 
 	// We weren't given an explicit provider, so we can try to infer one based on the config.
@@ -49,9 +45,17 @@ func GetEncryptionProviderForConfig(ctx context.Context, conf *v2.EncryptionConf
 		}
 	}
 
-	// If we don't have a provider by now, bail.
-	if providerName == "" {
-		return nil, EncryptionProviderNotRegisteredError
+	return providerName, nil
+}
+
+// GetEncryptionProviderForConfig returns the encryption provider for the given config.
+// If the config specifies a provider, we will fetch it directly by name and return an error if it's not found.
+// If the config contains a non-nil well-known configuration (like JWKPublicKeyConfig), we will return the provider for that by name.
+// If we can't find a provider, we return an EncryptionProviderNotRegisteredError.
+func GetEncryptionProviderForConfig(ctx context.Context, conf *v2.EncryptionConfig) (EncryptionProvider, error) {
+	providerName, err := GetEncryptionProviderName(ctx, conf)
+	if err != nil {
+		return nil, err
 	}
 
 	return GetEncryptionProvider(providerName)

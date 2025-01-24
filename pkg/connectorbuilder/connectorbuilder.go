@@ -837,7 +837,7 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
 	}
 
-	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	pkem, err := crypto.NewEncryptionManager(ctx, request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
@@ -889,7 +889,7 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 		return nil, fmt.Errorf("error: create account failed: %w", err)
 	}
 
-	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	pkem, err := crypto.NewEncryptionManager(ctx, request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
