@@ -186,6 +186,92 @@ var ResourcesService_ServiceDesc = grpc.ServiceDesc{
 	Metadata: "c1/connector/v2/resource.proto",
 }
 
+// ResourceLookupServiceClient is the client API for ResourceLookupService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+type ResourceLookupServiceClient interface {
+	// This will return the resource associated with the opaque token, or an error
+	LookupResource(ctx context.Context, in *ResourceLookupServiceLookupResourceRequest, opts ...grpc.CallOption) (*ResourceLookupServiceLookupResourceResponse, error)
+}
+
+type resourceLookupServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewResourceLookupServiceClient(cc grpc.ClientConnInterface) ResourceLookupServiceClient {
+	return &resourceLookupServiceClient{cc}
+}
+
+func (c *resourceLookupServiceClient) LookupResource(ctx context.Context, in *ResourceLookupServiceLookupResourceRequest, opts ...grpc.CallOption) (*ResourceLookupServiceLookupResourceResponse, error) {
+	out := new(ResourceLookupServiceLookupResourceResponse)
+	err := c.cc.Invoke(ctx, "/c1.connector.v2.ResourceLookupService/LookupResource", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ResourceLookupServiceServer is the server API for ResourceLookupService service.
+// All implementations should embed UnimplementedResourceLookupServiceServer
+// for forward compatibility
+type ResourceLookupServiceServer interface {
+	// This will return the resource associated with the opaque token, or an error
+	LookupResource(context.Context, *ResourceLookupServiceLookupResourceRequest) (*ResourceLookupServiceLookupResourceResponse, error)
+}
+
+// UnimplementedResourceLookupServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedResourceLookupServiceServer struct {
+}
+
+func (UnimplementedResourceLookupServiceServer) LookupResource(context.Context, *ResourceLookupServiceLookupResourceRequest) (*ResourceLookupServiceLookupResourceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LookupResource not implemented")
+}
+
+// UnsafeResourceLookupServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ResourceLookupServiceServer will
+// result in compilation errors.
+type UnsafeResourceLookupServiceServer interface {
+	mustEmbedUnimplementedResourceLookupServiceServer()
+}
+
+func RegisterResourceLookupServiceServer(s grpc.ServiceRegistrar, srv ResourceLookupServiceServer) {
+	s.RegisterService(&ResourceLookupService_ServiceDesc, srv)
+}
+
+func _ResourceLookupService_LookupResource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResourceLookupServiceLookupResourceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResourceLookupServiceServer).LookupResource(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/c1.connector.v2.ResourceLookupService/LookupResource",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResourceLookupServiceServer).LookupResource(ctx, req.(*ResourceLookupServiceLookupResourceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ResourceLookupService_ServiceDesc is the grpc.ServiceDesc for ResourceLookupService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ResourceLookupService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.connector.v2.ResourceLookupService",
+	HandlerType: (*ResourceLookupServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "LookupResource",
+			Handler:    _ResourceLookupService_LookupResource_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "c1/connector/v2/resource.proto",
+}
+
 // ResourceManagerServiceClient is the client API for ResourceManagerService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.

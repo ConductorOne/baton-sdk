@@ -4,6 +4,8 @@ package c1.connector.v2;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
@@ -72,6 +74,24 @@ message ResourceTypesServiceListResourceTypesResponse {
 
 service ResourcesService {
   rpc ListResources(ResourcesServiceListResourcesRequest) returns (ResourcesServiceListResourcesResponse);
+}
+
+// ResourceLookupService is used in conjunction with create account flows to confirm confirmation or status of created accounts
+// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with the token
+service ResourceLookupService {
+  // This will return the resource associated with the opaque token, or an error
+  rpc LookupResource(ResourceLookupServiceLookupResourceRequest) returns (ResourceLookupServiceLookupResourceResponse);
+}
+
+message ResourceLookupServiceLookupResourceRequest {
+  string lookup_token = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 8192
+  }];
+}
+
+message ResourceLookupServiceLookupResourceResponse {
+  Resource resource = 1;
 }
 
 service ResourceManagerService {
@@ -149,6 +169,49 @@ message CredentialOptions {
   }
 }
 
+
+message ConnectorAccountCreationSchema {
+  map<string, Field> field_map = 1;
+
+  message Field {
+    string display_name = 1;
+    bool required = 2;
+    string description = 3;
+    string placeholder = 4;
+    int32 order = 5;
+
+    bool deprecated = 6;
+    oneof field {
+      StringField string_field = 100;
+      BoolField bool_field = 101;
+      StringListField string_list_field = 102;
+      IntField int_field = 103;
+      MapField map_field = 104;
+    }
+  }
+
+  message StringField {
+    optional string default_value = 1;
+  }
+
+  message BoolField {
+    optional bool default_value = 1;
+  }
+
+  message StringListField {
+    repeated string default_value = 1;
+  }
+
+  message IntField {
+    optional int32 default_value = 1;
+  }
+
+  message MapField {
+    map<string, Field> default_value = 1;
+  }
+}
+
+
 message CreateAccountRequest {
   AccountInfo account_info = 1;
   CredentialOptions credential_options = 2;
@@ -160,10 +223,22 @@ message CreateAccountResponse {
     Resource resource = 1;
     bool is_create_account_result = 2;
   }
+
+  message PollForConfirmation {
+    google.protobuf.Duration polling_interval = 1;
+    google.protobuf.Timestamp timeout = 2;
+    string polling_token = 3;
+    string description = 4;
+  }
+
   message ActionRequiredResult {
     Resource resource = 1;
     string message = 2;
     bool is_create_account_result = 3;
+    oneof next_step {
+      ConnectorAccountCreationSchema requires_additional_input = 100;
+      PollForConfirmation poll_for_confirmation = 101;
+    }
   }
   oneof result {
     SuccessResult success = 100;

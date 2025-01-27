@@ -331,7 +331,7 @@ type UserTraitMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m UserTraitMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -488,7 +488,7 @@ type GroupTraitMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m GroupTraitMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -616,7 +616,7 @@ type RoleTraitMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m RoleTraitMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -849,7 +849,7 @@ type AppTraitMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m AppTraitMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1093,7 +1093,7 @@ type SecretTraitMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m SecretTraitMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1257,7 +1257,7 @@ type UserTrait_EmailMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m UserTrait_EmailMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1383,7 +1383,7 @@ type UserTrait_StatusMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m UserTrait_StatusMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1485,7 +1485,7 @@ type UserTrait_MFAStatusMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m UserTrait_MFAStatusMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1589,7 +1589,7 @@ type UserTrait_SSOStatusMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m UserTrait_SSOStatusMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
