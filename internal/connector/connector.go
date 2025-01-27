@@ -43,6 +43,7 @@ type connectorClient struct {
 	connectorV2.GrantManagerServiceClient
 	connectorV2.ResourceManagerServiceClient
 	connectorV2.AccountManagerServiceClient
+	connectorV2.ResourceLookupServiceClient
 	connectorV2.CredentialManagerServiceClient
 	connectorV2.EventServiceClient
 	connectorV2.TicketsServiceClient
@@ -183,12 +184,14 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		connectorV2.RegisterResourceManagerServiceServer(server, cw.server)
 		connectorV2.RegisterAccountManagerServiceServer(server, cw.server)
 		connectorV2.RegisterCredentialManagerServiceServer(server, cw.server)
+		connectorV2.RegisterResourceLookupServiceServer(server, cw.server)
 	} else {
 		noop := &noopProvisioner{}
 		connectorV2.RegisterGrantManagerServiceServer(server, noop)
 		connectorV2.RegisterResourceManagerServiceServer(server, noop)
 		connectorV2.RegisterAccountManagerServiceServer(server, noop)
 		connectorV2.RegisterCredentialManagerServiceServer(server, noop)
+		connectorV2.RegisterResourceLookupServiceServer(server, cw.server)
 	}
 
 	rl, err := ratelimit2.NewLimiter(ctx, cw.now, serverCfg.RateLimiterConfig)
