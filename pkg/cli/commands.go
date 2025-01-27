@@ -23,14 +23,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
-
-	"github.com/conductorone/baton-sdk/internal/connector"
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
-	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
-	"github.com/conductorone/baton-sdk/pkg/field"
-	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
 type GetConnectorFunc func(context.Context, *viper.Viper) (types.ConnectorServer, error)
