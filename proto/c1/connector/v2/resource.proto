@@ -88,10 +88,12 @@ message ResourceLookupServiceLookupResourceRequest {
     min_bytes: 1
     max_bytes: 8192
   }];
+  repeated google.protobuf.Any annotations = 2;
 }
 
 message ResourceLookupServiceLookupResourceResponse {
   Resource resource = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
 
 service ResourceManagerService {

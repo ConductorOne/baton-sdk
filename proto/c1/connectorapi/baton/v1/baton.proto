@@ -71,6 +71,10 @@ message Task {
     repeated connector.v2.EncryptionConfig encryption_configs = 3;
   }
 
+  message LookupResourceTask {
+    string lookup_token = 1;
+  }
+
   message CreateResourceTask {
     connector.v2.Resource resource = 1;
   }
@@ -126,6 +130,7 @@ message Task {
     GetTicketTask get_ticket = 112;
     BulkCreateTicketsTask bulk_create_tickets = 113;
     BulkGetTicketsTask bulk_get_tickets = 114;
+    LookupResourceTask lookup_resource = 115;
   }
   bool debug = 3;
 }

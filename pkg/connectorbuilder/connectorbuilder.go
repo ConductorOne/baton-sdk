@@ -62,6 +62,10 @@ type AccountManager interface {
 	CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error)
 }
 
+type ResourceLookupManager interface {
+	LookupResource(ctx context.Context, lookupToken string) (*v2.Resource, annotations.Annotations, error)
+}
+
 type CredentialManager interface {
 	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
 	RotateCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error)
@@ -92,6 +96,7 @@ type builderImpl struct {
 	resourceProvisionersV2 map[string]ResourceProvisionerV2
 	resourceManagers       map[string]ResourceManager
 	accountManager         AccountManager
+	resourceLookupManager  ResourceLookupManager
 	credentialManagers     map[string]CredentialManager
 	eventFeed              EventProvider
 	cb                     ConnectorBuilder
@@ -301,6 +306,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			resourceProvisionersV2: make(map[string]ResourceProvisionerV2),
 			resourceManagers:       make(map[string]ResourceManager),
 			accountManager:         nil,
+			resourceLookupManager:  nil,
 			credentialManagers:     make(map[string]CredentialManager),
 			cb:                     c,
 			ticketManager:          nil,
@@ -363,6 +369,13 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 					return nil, fmt.Errorf("error: duplicate resource type found for account manager %s", rType.Id)
 				}
 				ret.accountManager = accountManager
+			}
+
+			if resourceLookupManager, ok := rb.(ResourceLookupManager); ok {
+				if ret.resourceLookupManager != nil {
+					return nil, fmt.Errorf("error: duplicate resource type found for resource lookup manager %s", rType.Id)
+				}
+				ret.resourceLookupManager = resourceLookupManager
 			}
 
 			if credentialManagers, ok := rb.(CredentialManager); ok {
@@ -986,4 +999,27 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return rv, nil
+}
+
+func (b *builderImpl) LookupResource(ctx context.Context, request *v2.ResourceLookupServiceLookupResourceRequest) (*v2.ResourceLookupServiceLookupResourceResponse, error) {
+	start := b.nowFunc()
+	tt := tasks.LookupResourceType
+	l := ctxzap.Extract(ctx)
+	if b.resourceLookupManager == nil {
+		l.Error("error: connector does not have resource lookup manager configured")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, status.Error(codes.Unimplemented, "connector does not have resource lookup manager configured")
+	}
+
+	resource, annos, err := b.resourceLookupManager.LookupResource(ctx, request.LookupToken)
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, err
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return &v2.ResourceLookupServiceLookupResourceResponse{
+		Resource:    resource,
+		Annotations: annos,
+	}, nil
 }
