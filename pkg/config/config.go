@@ -9,12 +9,13 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/conductorone/baton-sdk/pkg/cli"
-	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
-	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+
+	"github.com/conductorone/baton-sdk/pkg/cli"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/field"
 )
 
 func DefineConfiguration(

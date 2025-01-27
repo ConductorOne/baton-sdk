@@ -35,7 +35,31 @@ var (
 	ticketTemplatePathField    = StringField("ticket-template-path", WithHidden(true), WithDescription("A JSON file describing the ticket to create"), WithPersistent(true))
 	logLevelField              = StringField("log-level", WithDefaultValue("info"), WithDescription("The log level: debug, info, warn, error"), WithPersistent(true))
 	skipFullSync               = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true))
+
+	lambdaClientEndpointField = StringField("lambda-endpoint", WithDescription("The endpoint to use for the lambda service"), WithPersistent(true))
+	lambdaClientFunctionField = StringField("lambda-function", WithRequired(true), WithDescription("The name of the lambda function to invoke"), WithPersistent(true))
+
+	lambdaServerConfigurationEndpointField      = StringField("lambda-configuration-endpoint", WithRequired(true), WithDescription("The endpoint lambda connector servers use to fetch configuration"), WithPersistent(true))
+	lambdaServerConfigurationEndpointTokenField = StringField("lambda-configuration-endpoint-token", WithRequired(true), WithDescription("The authentication token to use with the configuration endpoint"), WithPersistent(true))
 )
+
+func LambdaServerFields() []SchemaField {
+	return []SchemaField{
+		lambdaServerConfigurationEndpointField,
+		lambdaServerConfigurationEndpointTokenField,
+	}
+}
+
+var LambdaServerRelationships = make([]SchemaFieldRelationship, 0)
+
+func LambdaClientFields() []SchemaField {
+	return []SchemaField{
+		lambdaClientEndpointField,
+		lambdaClientFunctionField,
+	}
+}
+
+var LambdaClientRelationships = make([]SchemaFieldRelationship, 0)
 
 // DefaultFields list the default fields expected in every single connector.
 var DefaultFields = []SchemaField{

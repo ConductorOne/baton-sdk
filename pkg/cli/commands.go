@@ -23,6 +23,14 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
+
+	"github.com/conductorone/baton-sdk/internal/connector"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/field"
+	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
 type GetConnectorFunc func(context.Context, *viper.Viper) (types.ConnectorServer, error)
@@ -68,11 +76,6 @@ func MakeMainCommand(
 
 		// validate required fields and relationship constraints
 		if err := field.Validate(confschema, v); err != nil {
-			return err
-		}
-
-		c, err := getconnector(runCtx, v)
-		if err != nil {
 			return err
 		}
 
@@ -174,6 +177,11 @@ func MakeMainCommand(
 				return fmt.Errorf("the specified c1z temp dir does not exist: %s", c1zTmpDir)
 			}
 			opts = append(opts, connectorrunner.WithTempDir(v.GetString("c1z-temp-dir")))
+		}
+
+		c, err := getconnector(runCtx, v)
+		if err != nil {
+			return err
 		}
 
 		// NOTE(shackra): top-most in the execution flow for connectors

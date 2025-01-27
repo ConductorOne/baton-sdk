@@ -531,6 +531,104 @@ func WithTempDir(tempDir string) Option {
 	}
 }
 
+// TODO(morgabra) Refactor all the changes here - lot's of copy/paste.
+func NewClientOnlyConnectorRunner(ctx context.Context, c types.ConnectorClient, opts ...Option) (*connectorRunner, error) {
+	runner := &connectorRunner{}
+	cfg := &runnerConfig{}
+
+	for _, o := range opts {
+		err := o(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var wrapperOpts []connector.Option
+	wrapperOpts = append(wrapperOpts, connector.WithRateLimiterConfig(cfg.rlCfg))
+
+	for _, d := range cfg.rlDescriptors {
+		wrapperOpts = append(wrapperOpts, connector.WithRateLimitDescriptor(d))
+	}
+
+	if cfg.provisioningEnabled {
+		wrapperOpts = append(wrapperOpts, connector.WithProvisioningEnabled())
+	}
+
+	if cfg.ticketingEnabled {
+		wrapperOpts = append(wrapperOpts, connector.WithTicketingEnabled())
+	}
+
+	if cfg.skipFullSync {
+		wrapperOpts = append(wrapperOpts, connector.WithFullSyncDisabled())
+	}
+
+	cw, err := connector.NewClientOnlyWrapper(ctx, c, wrapperOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	runner.cw = cw
+
+	if cfg.onDemand {
+		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil && cfg.bulkCreateTicketConfig == nil {
+			return nil, errors.New("c1zPath must be set when in on-demand mode")
+		}
+
+		var tm tasks.Manager
+		switch {
+		case cfg.grantConfig != nil:
+			tm = local.NewGranter(
+				ctx,
+				cfg.c1zPath,
+				cfg.grantConfig.entitlementID,
+				cfg.grantConfig.principalID,
+				cfg.grantConfig.principalType,
+			)
+
+		case cfg.revokeConfig != nil:
+			tm = local.NewRevoker(ctx, cfg.c1zPath, cfg.revokeConfig.grantID)
+
+		case cfg.createAccountConfig != nil:
+			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email)
+
+		case cfg.deleteResourceConfig != nil:
+			tm = local.NewResourceDeleter(ctx, cfg.c1zPath, cfg.deleteResourceConfig.resourceId, cfg.deleteResourceConfig.resourceType)
+
+		case cfg.rotateCredentialsConfig != nil:
+			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
+
+		case cfg.eventFeedConfig != nil:
+			tm = local.NewEventFeed(ctx)
+		case cfg.createTicketConfig != nil:
+			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
+		case cfg.listTicketSchemasConfig != nil:
+			tm = local.NewListTicketSchema(ctx)
+		case cfg.getTicketConfig != nil:
+			tm = local.NewGetTicket(ctx, cfg.getTicketConfig.ticketID)
+		case cfg.bulkCreateTicketConfig != nil:
+			tm = local.NewBulkTicket(ctx, cfg.bulkCreateTicketConfig.templatePath)
+		default:
+			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		runner.tasks = tm
+
+		runner.oneShot = true
+		return runner, nil
+	}
+
+	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync)
+	if err != nil {
+		return nil, err
+	}
+	runner.tasks = tm
+
+	return runner, nil
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
