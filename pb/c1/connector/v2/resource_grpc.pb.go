@@ -219,6 +219,114 @@ var ResourcesService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	ResourceLookupService_LookupResource_FullMethodName = "/c1.connector.v2.ResourceLookupService/LookupResource"
+)
+
+// ResourceLookupServiceClient is the client API for ResourceLookupService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// ResourceLookupService is used in conjunction with create account flows to confirm confirmation or status of created accounts
+// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with the token
+type ResourceLookupServiceClient interface {
+	// This will return the resource associated with the opaque token, or an error
+	LookupResource(ctx context.Context, in *ResourceLookupServiceLookupResourceRequest, opts ...grpc.CallOption) (*ResourceLookupServiceLookupResourceResponse, error)
+}
+
+type resourceLookupServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewResourceLookupServiceClient(cc grpc.ClientConnInterface) ResourceLookupServiceClient {
+	return &resourceLookupServiceClient{cc}
+}
+
+func (c *resourceLookupServiceClient) LookupResource(ctx context.Context, in *ResourceLookupServiceLookupResourceRequest, opts ...grpc.CallOption) (*ResourceLookupServiceLookupResourceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResourceLookupServiceLookupResourceResponse)
+	err := c.cc.Invoke(ctx, ResourceLookupService_LookupResource_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ResourceLookupServiceServer is the server API for ResourceLookupService service.
+// All implementations should embed UnimplementedResourceLookupServiceServer
+// for forward compatibility.
+//
+// ResourceLookupService is used in conjunction with create account flows to confirm confirmation or status of created accounts
+// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with the token
+type ResourceLookupServiceServer interface {
+	// This will return the resource associated with the opaque token, or an error
+	LookupResource(context.Context, *ResourceLookupServiceLookupResourceRequest) (*ResourceLookupServiceLookupResourceResponse, error)
+}
+
+// UnimplementedResourceLookupServiceServer should be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedResourceLookupServiceServer struct{}
+
+func (UnimplementedResourceLookupServiceServer) LookupResource(context.Context, *ResourceLookupServiceLookupResourceRequest) (*ResourceLookupServiceLookupResourceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LookupResource not implemented")
+}
+func (UnimplementedResourceLookupServiceServer) testEmbeddedByValue() {}
+
+// UnsafeResourceLookupServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ResourceLookupServiceServer will
+// result in compilation errors.
+type UnsafeResourceLookupServiceServer interface {
+	mustEmbedUnimplementedResourceLookupServiceServer()
+}
+
+func RegisterResourceLookupServiceServer(s grpc.ServiceRegistrar, srv ResourceLookupServiceServer) {
+	// If the following call pancis, it indicates UnimplementedResourceLookupServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&ResourceLookupService_ServiceDesc, srv)
+}
+
+func _ResourceLookupService_LookupResource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResourceLookupServiceLookupResourceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResourceLookupServiceServer).LookupResource(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResourceLookupService_LookupResource_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResourceLookupServiceServer).LookupResource(ctx, req.(*ResourceLookupServiceLookupResourceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// ResourceLookupService_ServiceDesc is the grpc.ServiceDesc for ResourceLookupService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var ResourceLookupService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.connector.v2.ResourceLookupService",
+	HandlerType: (*ResourceLookupServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "LookupResource",
+			Handler:    _ResourceLookupService_LookupResource_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "c1/connector/v2/resource.proto",
+}
+
+const (
 	ResourceManagerService_CreateResource_FullMethodName = "/c1.connector.v2.ResourceManagerService/CreateResource"
 	ResourceManagerService_DeleteResource_FullMethodName = "/c1.connector.v2.ResourceManagerService/DeleteResource"
 )
