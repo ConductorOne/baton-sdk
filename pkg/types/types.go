@@ -18,6 +18,7 @@ type ConnectorServer interface {
 	connectorV2.GrantManagerServiceServer
 	connectorV2.ResourceManagerServiceServer
 	connectorV2.AccountManagerServiceServer
+	connectorV2.ResourceLookupServiceServer
 	connectorV2.CredentialManagerServiceServer
 	connectorV2.EventServiceServer
 	connectorV2.TicketsServiceServer
@@ -34,6 +35,7 @@ type ConnectorClient interface {
 	connectorV2.GrantManagerServiceClient
 	connectorV2.ResourceManagerServiceClient
 	connectorV2.AccountManagerServiceClient
+	connectorV2.ResourceLookupServiceClient
 	connectorV2.CredentialManagerServiceClient
 	connectorV2.EventServiceClient
 	connectorV2.TicketsServiceClient

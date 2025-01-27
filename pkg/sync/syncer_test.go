@@ -8,6 +8,9 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -16,8 +19,6 @@ import (
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
-	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 )
 
 var groupResourceType = &v2.ResourceType{
@@ -452,6 +453,7 @@ type mockConnector struct {
 	v2.GrantManagerServiceClient
 	v2.ResourceManagerServiceClient
 	v2.AccountManagerServiceClient
+	v2.ResourceLookupServiceClient
 	v2.CredentialManagerServiceClient
 	v2.EventServiceClient
 	v2.TicketsServiceClient
