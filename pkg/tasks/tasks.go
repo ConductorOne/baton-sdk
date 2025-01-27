@@ -42,6 +42,8 @@ func Is(task *v1.Task, target taskTypes.TaskType) bool {
 		_, ok = task.GetTaskType().(*v1.Task_None)
 	case taskTypes.CreateAccountType:
 		_, ok = task.GetTaskType().(*v1.Task_CreateAccount)
+	case taskTypes.LookupResourceType:
+		_, ok = task.GetTaskType().(*v1.Task_LookupResource)
 	case taskTypes.CreateResourceType:
 		_, ok = task.GetTaskType().(*v1.Task_CreateResource)
 	case taskTypes.DeleteResourceType:
@@ -85,6 +87,8 @@ func GetType(task *v1.Task) taskTypes.TaskType {
 		return taskTypes.NoneType
 	case *v1.Task_CreateAccount:
 		return taskTypes.CreateAccountType
+	case *v1.Task_LookupResource:
+		return taskTypes.LookupResourceType
 	case *v1.Task_CreateResource:
 		return taskTypes.CreateResourceType
 	case *v1.Task_DeleteResource:
