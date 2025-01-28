@@ -678,6 +678,47 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
+	case *Task_LookupResource:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetLookupResource()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "LookupResource",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "LookupResource",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetLookupResource()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "LookupResource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -695,7 +736,7 @@ type TaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m TaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -982,7 +1023,7 @@ type BatonServiceHelloRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHelloRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1120,7 +1161,7 @@ type BatonServiceHelloResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHelloResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1233,7 +1274,7 @@ type BatonServiceGetTaskRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceGetTaskRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1456,7 +1497,7 @@ type BatonServiceGetTaskResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceGetTaskResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1626,7 +1667,7 @@ type BatonServiceHeartbeatRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHeartbeatRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1796,7 +1837,7 @@ type BatonServiceHeartbeatResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHeartbeatResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2041,7 +2082,7 @@ type BatonServiceUploadAssetRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceUploadAssetRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2178,7 +2219,7 @@ type BatonServiceUploadAssetResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceUploadAssetResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2432,7 +2473,7 @@ type BatonServiceFinishTaskRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceFinishTaskRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2571,7 +2612,7 @@ type BatonServiceFinishTaskResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceFinishTaskResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2674,7 +2715,7 @@ type StartDebuggingRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m StartDebuggingRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2778,7 +2819,7 @@ type StartDebuggingResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m StartDebuggingResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2914,7 +2955,7 @@ type Task_NoneTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_NoneTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3048,7 +3089,7 @@ type Task_HelloTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_HelloTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3182,7 +3223,7 @@ type Task_SyncFullTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_SyncFullTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3347,7 +3388,7 @@ type Task_EventFeedTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_EventFeedTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3570,7 +3611,7 @@ type Task_GrantTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_GrantTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3733,7 +3774,7 @@ type Task_RevokeTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_RevokeTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3925,7 +3966,7 @@ type Task_CreateAccountTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_CreateAccountTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3990,6 +4031,110 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = Task_CreateAccountTaskValidationError{}
+
+// Validate checks the field values on Task_LookupResourceTask with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *Task_LookupResourceTask) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task_LookupResourceTask with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// Task_LookupResourceTaskMultiError, or nil if none found.
+func (m *Task_LookupResourceTask) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_LookupResourceTask) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for LookupToken
+
+	if len(errors) > 0 {
+		return Task_LookupResourceTaskMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_LookupResourceTaskMultiError is an error wrapping multiple validation
+// errors returned by Task_LookupResourceTask.ValidateAll() if the designated
+// constraints aren't met.
+type Task_LookupResourceTaskMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_LookupResourceTaskMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_LookupResourceTaskMultiError) AllErrors() []error { return m }
+
+// Task_LookupResourceTaskValidationError is the validation error returned by
+// Task_LookupResourceTask.Validate if the designated constraints aren't met.
+type Task_LookupResourceTaskValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_LookupResourceTaskValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_LookupResourceTaskValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_LookupResourceTaskValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_LookupResourceTaskValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_LookupResourceTaskValidationError) ErrorName() string {
+	return "Task_LookupResourceTaskValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e Task_LookupResourceTaskValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_LookupResourceTask.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_LookupResourceTaskValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_LookupResourceTaskValidationError{}
 
 // Validate checks the field values on Task_CreateResourceTask with the rules
 // defined in the proto definition for this message. If any rules are
@@ -4056,7 +4201,7 @@ type Task_CreateResourceTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_CreateResourceTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4187,7 +4332,7 @@ type Task_DeleteResourceTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_DeleteResourceTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4381,7 +4526,7 @@ type Task_RotateCredentialsTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_RotateCredentialsTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4575,7 +4720,7 @@ type Task_CreateTicketTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_CreateTicketTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4711,7 +4856,7 @@ type Task_BulkCreateTicketsTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_BulkCreateTicketsTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4847,7 +4992,7 @@ type Task_BulkGetTicketsTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_BulkGetTicketsTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4983,7 +5128,7 @@ type Task_ListTicketSchemasTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_ListTicketSchemasTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5121,7 +5266,7 @@ type Task_GetTicketTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_GetTicketTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5258,7 +5403,7 @@ type BatonServiceHelloRequest_BuildInfoMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHelloRequest_BuildInfoMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5449,7 +5594,7 @@ type BatonServiceHelloRequest_OSInfoMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHelloRequest_OSInfoMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5622,7 +5767,7 @@ type BatonServiceUploadAssetRequest_UploadMetadataMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceUploadAssetRequest_UploadMetadataMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5744,7 +5889,7 @@ type BatonServiceUploadAssetRequest_UploadDataMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceUploadAssetRequest_UploadDataMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5906,7 +6051,7 @@ type BatonServiceUploadAssetRequest_UploadEOFMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceUploadAssetRequest_UploadEOFMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -6087,7 +6232,7 @@ type BatonServiceFinishTaskRequest_ErrorMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceFinishTaskRequest_ErrorMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -6266,7 +6411,7 @@ type BatonServiceFinishTaskRequest_SuccessMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceFinishTaskRequest_SuccessMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}

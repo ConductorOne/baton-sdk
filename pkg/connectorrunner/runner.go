@@ -304,6 +304,8 @@ type runnerConfig struct {
 	listTicketSchemasConfig *listTicketSchemasConfig
 	getTicketConfig         *getTicketConfig
 	skipFullSync            bool
+	lookupResourceToken     string
+	lookupResourceEnabled   bool
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -422,6 +424,15 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string, profi
 			email:   email,
 			profile: profile,
 		}
+		return nil
+	}
+}
+
+func WithOnDemandLookupResource(lookupToken string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.lookupResourceEnabled = true
+		cfg.lookupResourceToken = lookupToken
 		return nil
 	}
 }
@@ -596,6 +607,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.rotateCredentialsConfig != nil:
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
+
+		case cfg.lookupResourceToken != "":
+			tm = local.NewResourceLookerUpper(ctx, cfg.lookupResourceToken)
 
 		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx)
