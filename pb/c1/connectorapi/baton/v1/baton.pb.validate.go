@@ -695,7 +695,7 @@ type TaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m TaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -982,7 +982,7 @@ type BatonServiceHelloRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHelloRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1120,7 +1120,7 @@ type BatonServiceHelloResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHelloResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1233,7 +1233,7 @@ type BatonServiceGetTaskRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceGetTaskRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1456,7 +1456,7 @@ type BatonServiceGetTaskResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceGetTaskResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1626,7 +1626,7 @@ type BatonServiceHeartbeatRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHeartbeatRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1796,7 +1796,7 @@ type BatonServiceHeartbeatResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHeartbeatResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2041,7 +2041,7 @@ type BatonServiceUploadAssetRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceUploadAssetRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2178,7 +2178,7 @@ type BatonServiceUploadAssetResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceUploadAssetResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2432,7 +2432,7 @@ type BatonServiceFinishTaskRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceFinishTaskRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2571,7 +2571,7 @@ type BatonServiceFinishTaskResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceFinishTaskResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2674,7 +2674,7 @@ type StartDebuggingRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m StartDebuggingRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2778,7 +2778,7 @@ type StartDebuggingResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m StartDebuggingResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2914,7 +2914,7 @@ type Task_NoneTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_NoneTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3048,7 +3048,7 @@ type Task_HelloTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_HelloTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3182,7 +3182,7 @@ type Task_SyncFullTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_SyncFullTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3347,7 +3347,7 @@ type Task_EventFeedTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_EventFeedTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3570,7 +3570,7 @@ type Task_GrantTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_GrantTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3733,7 +3733,7 @@ type Task_RevokeTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_RevokeTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -3925,7 +3925,7 @@ type Task_CreateAccountTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_CreateAccountTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4056,7 +4056,7 @@ type Task_CreateResourceTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_CreateResourceTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4187,7 +4187,7 @@ type Task_DeleteResourceTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_DeleteResourceTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4381,7 +4381,7 @@ type Task_RotateCredentialsTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_RotateCredentialsTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4575,7 +4575,7 @@ type Task_CreateTicketTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_CreateTicketTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4711,7 +4711,7 @@ type Task_BulkCreateTicketsTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_BulkCreateTicketsTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4847,7 +4847,7 @@ type Task_BulkGetTicketsTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_BulkGetTicketsTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -4983,7 +4983,7 @@ type Task_ListTicketSchemasTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_ListTicketSchemasTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5121,7 +5121,7 @@ type Task_GetTicketTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m Task_GetTicketTaskMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5258,7 +5258,7 @@ type BatonServiceHelloRequest_BuildInfoMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHelloRequest_BuildInfoMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5449,7 +5449,7 @@ type BatonServiceHelloRequest_OSInfoMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceHelloRequest_OSInfoMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5622,7 +5622,7 @@ type BatonServiceUploadAssetRequest_UploadMetadataMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceUploadAssetRequest_UploadMetadataMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5744,7 +5744,7 @@ type BatonServiceUploadAssetRequest_UploadDataMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceUploadAssetRequest_UploadDataMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -5906,7 +5906,7 @@ type BatonServiceUploadAssetRequest_UploadEOFMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceUploadAssetRequest_UploadEOFMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -6087,7 +6087,7 @@ type BatonServiceFinishTaskRequest_ErrorMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceFinishTaskRequest_ErrorMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -6266,7 +6266,7 @@ type BatonServiceFinishTaskRequest_SuccessMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m BatonServiceFinishTaskRequest_SuccessMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}

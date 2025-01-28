@@ -38,6 +38,13 @@ func WithSecretCreatedByID(createdById *v2.ResourceId) SecretTraitOption {
 	}
 }
 
+func WithSecretIdentityID(identityId *v2.ResourceId) SecretTraitOption {
+	return func(t *v2.SecretTrait) error {
+		t.IdentityId = identityId
+		return nil
+	}
+}
+
 // NewSecretTrait creates a new `SecretTrait` with the given options.
 func NewSecretTrait(opts ...SecretTraitOption) (*v2.SecretTrait, error) {
 	SecretTrait := &v2.SecretTrait{}
