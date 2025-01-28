@@ -20,6 +20,11 @@ var (
 		WithHidden(true),
 		WithDescription("JSON-formatted object of map keys and values like '{ 'key': 'value' }'"),
 		WithPersistent(true))
+
+	lookupResourceField = StringField("lookup-resource-token", WithDescription("Opaque token provided by create-account calls to lookup if the new account has been created"),
+		WithHidden(true),
+		WithPersistent(true))
+
 	deleteResourceField        = StringField("delete-resource", WithHidden(true), WithDescription("The id of the resource to delete"), WithPersistent(true))
 	deleteResourceTypeField    = StringField("delete-resource-type", WithHidden(true), WithDescription("The type of the resource to delete"), WithPersistent(true))
 	eventFeedField             = StringField("event-feed", WithHidden(true), WithDescription("Read feed events to stdout"), WithPersistent(true))

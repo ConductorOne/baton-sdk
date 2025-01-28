@@ -159,9 +159,8 @@ func MakeMainCommand(
 						v.GetString("rotate-credentials"),
 						v.GetString("rotate-credentials-type"),
 					))
-			case v.GetString("lookup-resource") != "":
+			case v.GetString("lookup-resource-token") != "":
 				opts = append(opts,
-					connectorrunner.WithLookupResourceEnabled(),
 					connectorrunner.WithOnDemandLookupResource(
 						v.GetString("lookup-resource-token"),
 					),
