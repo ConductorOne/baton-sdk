@@ -291,6 +291,7 @@ type runnerConfig struct {
 	clientID                string
 	clientSecret            string
 	provisioningEnabled     bool
+	lookupResourceEnabled   bool
 	ticketingEnabled        bool
 	grantConfig             *grantConfig
 	revokeConfig            *revokeConfig
@@ -303,6 +304,7 @@ type runnerConfig struct {
 	bulkCreateTicketConfig  *bulkCreateTicketConfig
 	listTicketSchemasConfig *listTicketSchemasConfig
 	getTicketConfig         *getTicketConfig
+	lookupResourceToken     string
 	skipFullSync            bool
 }
 
@@ -426,6 +428,14 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string, profi
 	}
 }
 
+func WithOnDemandLookupResource(lookupToken string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.lookupResourceToken = lookupToken
+		return nil
+	}
+}
+
 func WithOnDemandDeleteResource(c1zPath string, resourceId string, resourceType string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
@@ -468,6 +478,13 @@ func WithOnDemandEventStream() Option {
 func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.provisioningEnabled = true
+		return nil
+	}
+}
+
+func WithLookupResourceEnabled() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.lookupResourceEnabled = true
 		return nil
 	}
 }
@@ -596,6 +613,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.rotateCredentialsConfig != nil:
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
+
+		case cfg.lookupResourceToken != "":
+			tm = local.NewResourceLookerUpper(ctx, cfg.lookupResourceToken)
 
 		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx)
