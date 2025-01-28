@@ -291,7 +291,6 @@ type runnerConfig struct {
 	clientID                string
 	clientSecret            string
 	provisioningEnabled     bool
-	lookupResourceEnabled   bool
 	ticketingEnabled        bool
 	grantConfig             *grantConfig
 	revokeConfig            *revokeConfig
@@ -304,8 +303,9 @@ type runnerConfig struct {
 	bulkCreateTicketConfig  *bulkCreateTicketConfig
 	listTicketSchemasConfig *listTicketSchemasConfig
 	getTicketConfig         *getTicketConfig
-	lookupResourceToken     string
 	skipFullSync            bool
+	lookupResourceToken     string
+	lookupResourceEnabled   bool
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -431,6 +431,7 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string, profi
 func WithOnDemandLookupResource(lookupToken string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
+		cfg.lookupResourceEnabled = true
 		cfg.lookupResourceToken = lookupToken
 		return nil
 	}
@@ -478,13 +479,6 @@ func WithOnDemandEventStream() Option {
 func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.provisioningEnabled = true
-		return nil
-	}
-}
-
-func WithLookupResourceEnabled() Option {
-	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.lookupResourceEnabled = true
 		return nil
 	}
 }
