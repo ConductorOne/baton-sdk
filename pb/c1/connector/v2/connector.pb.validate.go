@@ -105,7 +105,7 @@ type ConnectorServiceCleanupRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorServiceCleanupRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -242,7 +242,7 @@ type ConnectorServiceCleanupResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorServiceCleanupResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -597,7 +597,7 @@ type ConnectorMetadataMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorMetadataMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -757,7 +757,7 @@ type CredentialDetailsMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m CredentialDetailsMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -863,7 +863,7 @@ type CredentialDetailsAccountProvisioningMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m CredentialDetailsAccountProvisioningMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -970,7 +970,7 @@ type CredentialDetailsCredentialRotationMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m CredentialDetailsCredentialRotationMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1136,7 +1136,7 @@ type ConnectorCapabilitiesMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorCapabilitiesMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1267,7 +1267,7 @@ type ResourceTypeCapabilityMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ResourceTypeCapabilityMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1371,7 +1371,7 @@ type ConnectorServiceGetMetadataRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorServiceGetMetadataRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1505,7 +1505,7 @@ type ConnectorServiceGetMetadataResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorServiceGetMetadataResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1608,7 +1608,7 @@ type ConnectorServiceValidateRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorServiceValidateRequestMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1747,7 +1747,7 @@ type ConnectorServiceValidateResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorServiceValidateResponseMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -1896,7 +1896,7 @@ type ConnectorAccountCreationSchemaMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorAccountCreationSchemaMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2223,7 +2223,7 @@ type ConnectorAccountCreationSchema_FieldMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorAccountCreationSchema_FieldMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2333,7 +2333,7 @@ type ConnectorAccountCreationSchema_StringFieldMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorAccountCreationSchema_StringFieldMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2443,7 +2443,7 @@ type ConnectorAccountCreationSchema_BoolFieldMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorAccountCreationSchema_BoolFieldMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2549,7 +2549,7 @@ type ConnectorAccountCreationSchema_StringListFieldMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorAccountCreationSchema_StringListFieldMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2662,7 +2662,7 @@ type ConnectorAccountCreationSchema_IntFieldMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorAccountCreationSchema_IntFieldMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
@@ -2814,7 +2814,7 @@ type ConnectorAccountCreationSchema_MapFieldMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
 func (m ConnectorAccountCreationSchema_MapFieldMultiError) Error() string {
-	var msgs []string
+	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
 	}
