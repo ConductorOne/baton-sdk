@@ -297,8 +297,9 @@ func MakeLambdaServerCommand(
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
-	confschema field.Configuration,
-	getconnector GetConnectorFunc,
+	lambdaConfSchema field.Configuration,
+	getConnector GetConnectorFunc,
+	connectorConfSchema field.Configuration,
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		err := v.BindPFlags(cmd.Flags())
@@ -313,6 +314,10 @@ func MakeLambdaServerCommand(
 			logging.WithLogLevel(v.GetString("log-level")),
 		)
 		if err != nil {
+			return err
+		}
+
+		if err := field.Validate(lambdaConfSchema, v); err != nil {
 			return err
 		}
 
@@ -331,7 +336,7 @@ func MakeLambdaServerCommand(
 
 		// For each thing in the schema, see if it exists in the config with the correct type.
 		// If it does, set the value.
-		for _, f := range confschema.Fields {
+		for _, f := range connectorConfSchema.Fields {
 			// Fetch the config value by field name.
 			// TODO(morgabra): Normalization here?
 			cv, ok := config.GetConfig().GetFields()[f.FieldName]
@@ -357,20 +362,19 @@ func MakeLambdaServerCommand(
 			}
 		}
 
-		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, v); err != nil {
+		if err := field.Validate(connectorConfSchema, v); err != nil {
 			return err
 		}
 
-		c, err := getconnector(runCtx, v)
+		c, err := getConnector(runCtx, v)
 		if err != nil {
 			return err
 		}
 
 		opts := &connector.RegisterOps{
-			Ratelimiter:         nil,
-			ProvisioningEnabled: v.GetBool("provisioning"),
-			TicketingEnabled:    v.GetBool("ticketing"),
+			Ratelimiter:         nil,  // FIXME(morgabra/kans): ???
+			ProvisioningEnabled: true, // FIXME(morgabra/kans): ??? - these are `--provisioning` flags to the server binary - do we still want to expose these via the config service?
+			TicketingEnabled:    true, // FIXME(morgabra/kans): ???
 		}
 
 		s := c1_lambda_grpc.NewServer(nil)

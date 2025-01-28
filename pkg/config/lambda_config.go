@@ -19,7 +19,7 @@ func DefineLambdaServerConfiguration(
 	ctx context.Context,
 	connectorName string,
 	connector cli.GetConnectorFunc,
-	schema field.Configuration,
+	connectorConfSchema field.Configuration,
 	options ...connectorrunner.Option,
 ) (*viper.Viper, *cobra.Command, error) {
 	v := viper.New()
@@ -27,17 +27,7 @@ func DefineLambdaServerConfiguration(
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	v.AutomaticEnv()
 
-	confschema := schema
-	confschema.Fields = append(field.LambdaServerFields(), confschema.Fields...)
-	// Ensure unique fields
-	uniqueFields := make(map[string]field.SchemaField)
-	for _, f := range confschema.Fields {
-		uniqueFields[f.FieldName] = f
-	}
-	confschema.Fields = make([]field.SchemaField, 0, len(uniqueFields))
-	for _, f := range uniqueFields {
-		confschema.Fields = append(confschema.Fields, f)
-	}
+	lambdaConfSchema := field.NewConfiguration(field.LambdaServerFields(), field.LambdaServerRelationships...)
 
 	// setup CLI with cobra
 	mainCMD := &cobra.Command{
@@ -45,16 +35,11 @@ func DefineLambdaServerConfiguration(
 		Short:         connectorName,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE:          cli.MakeLambdaServerCommand(ctx, connectorName, v, confschema, connector),
-	}
-	// set persistent flags only on the main subcommand
-	err := setFlagsAndConstraints(mainCMD, field.NewConfiguration(field.LambdaServerFields(), field.LambdaServerRelationships...))
-	if err != nil {
-		return nil, nil, err
+		RunE:          cli.MakeLambdaServerCommand(ctx, connectorName, v, lambdaConfSchema, connector, connectorConfSchema),
 	}
 
-	// set the rest of flags
-	err = setFlagsAndConstraints(mainCMD, schema)
+	// set persistent flags only on the main subcommand
+	err := setFlagsAndConstraints(mainCMD, lambdaConfSchema)
 	if err != nil {
 		return nil, nil, err
 	}
