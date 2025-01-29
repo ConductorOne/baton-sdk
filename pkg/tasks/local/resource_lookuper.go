@@ -13,7 +13,7 @@ import (
 
 type localResourceLookuper struct {
 	lookupToken string
-	o           sync.Onc
+	o           sync.Once
 }
 
 func (m *localResourceLookuper) GetTempDir() string {
