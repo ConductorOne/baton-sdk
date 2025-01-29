@@ -1,4 +1,4 @@
-package config
+package ugrpc
 
 import (
 	"bytes"
@@ -57,9 +57,11 @@ func CreateSigv4STSGetCallerIdentityRequest(ctx context.Context, cfg aws.Config)
 
 	// Use the AWS SigV4 signer
 	signer := v4.NewSigner(func(options *v4.SignerOptions) {
-		// options.DisableSessionToken = true
 		options.DisableHeaderHoisting = true // maybe only applicable to presigned requests
 	})
+
+	// NOTE(morgabra/kans): Expiration is sort of whack, and it appears only s3 respects the expiration header, so we can't actually clamp it down.
+	// It appears anecdotally that most services expire the request after 15 minutes.
 	err = signer.SignHTTP(ctx, credentials, req, Sha256AndHexEncode(body), service, region, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("create-sigv4-sts-get-caller-identity-request: failed to sign request: %w", err)
@@ -76,10 +78,6 @@ func CreateSigv4STSGetCallerIdentityRequest(ctx context.Context, cfg aws.Config)
 		signedHeaders = append(signedHeaders, signedHeader)
 	}
 
-	// signedHeaders = append(signedHeaders, &pb_connector_manager.SignedHeader{
-	// 	Key:   "Content-Length",
-	// 	Value: []string{"32"},
-	// })
 	return &pb_connector_manager.Sigv4SignedRequestSTSGetCallerIdentity{
 		Method:   method,
 		Endpoint: endpoint,

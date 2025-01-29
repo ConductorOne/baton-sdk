@@ -180,6 +180,8 @@ github.com/ductone/c1-lambda/pb/c1/transport/v1
 github.com/ductone/c1-lambda/pkg/config
 github.com/ductone/c1-lambda/pkg/grpc
 github.com/ductone/c1-lambda/pkg/grpc/transport
+github.com/ductone/c1-lambda/pkg/ugrpc
+github.com/ductone/c1-lambda/pkg/uhttp
 # github.com/dustin/go-humanize v1.0.1
 ## explicit; go 1.16
 github.com/dustin/go-humanize
@@ -201,6 +203,11 @@ github.com/glebarez/go-sqlite
 github.com/go-jose/go-jose/v3
 github.com/go-jose/go-jose/v3/cipher
 github.com/go-jose/go-jose/v3/json
+# github.com/go-jose/go-jose/v4 v4.0.4
+## explicit; go 1.21
+github.com/go-jose/go-jose/v4
+github.com/go-jose/go-jose/v4/cipher
+github.com/go-jose/go-jose/v4/json
 # github.com/go-logr/logr v1.4.2
 ## explicit; go 1.18
 github.com/go-logr/logr
@@ -309,8 +316,8 @@ github.com/pmezard/go-difflib/difflib
 # github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55
 ## explicit; go 1.14
 github.com/power-devops/perfstat
-# github.com/pquerna/xjwt v0.2.0
-## explicit; go 1.20
+# github.com/pquerna/xjwt v0.3.0
+## explicit; go 1.23
 github.com/pquerna/xjwt
 # github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec
 ## explicit; go 1.12
