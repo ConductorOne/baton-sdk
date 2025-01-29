@@ -298,6 +298,8 @@ func MakeGRPCServerCommand(
 			copts = append(copts, connector.WithTicketingEnabled())
 		case v.GetBool("get-ticket"):
 			copts = append(copts, connector.WithTicketingEnabled())
+		case v.GetString("lookup-resource-token") != "":
+			copts = append(copts, connector.WithLookupEnabled())
 		}
 
 		cw, err := connector.NewWrapper(runCtx, c, copts...)

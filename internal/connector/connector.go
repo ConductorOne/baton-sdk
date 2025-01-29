@@ -103,7 +103,6 @@ func WithProvisioningEnabled() Option {
 func WithLookupEnabled() Option {
 	return func(ctx context.Context, w *wrapper) error {
 		w.resourceLookupEnabled = true
-
 		return nil
 	}
 }
