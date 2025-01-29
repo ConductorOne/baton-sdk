@@ -321,18 +321,24 @@ func MakeLambdaServerCommand(
 			return err
 		}
 
-		// Get configuration, convert it to viper flag values, then proceed.
-		// TODO(morgabra): Should we start the lambda handler first? What are the timeouts for startup?
-		config, err := c1_lambda_config.GetConnectorConfig(
+		client, err := c1_lambda_config.GetConnectorManagerClient(
 			ctx,
 			v.GetString("lambda-configuration-endpoint"),
-			v.GetString("lambda-configuration-endpoint-token"),
+			v.GetString("lambda-configuration-endpoint-client-id"),
+			v.GetString("lambda-configuration-endpoint-client-secret"),
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to get connector manager client: %w", err)
 		}
 
-		spew.Dump("GOT CONFIG: ", config)
+		// Get configuration, convert it to viper flag values, then proceed.
+		// TODO(morgabra): Should we start the lambda handler first? What are the timeouts for startup?
+		config, err := c1_lambda_config.GetConnectorConfig(ctx, client)
+		if err != nil {
+			return fmt.Errorf("failed to get connector config: %w", err)
+		}
+
+		fmt.Println("Received config: ", spew.Sdump(config))
 
 		// For each thing in the schema, see if it exists in the config with the correct type.
 		// If it does, set the value.

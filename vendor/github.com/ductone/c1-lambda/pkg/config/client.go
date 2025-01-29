@@ -5,8 +5,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"net"
-	"os"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -15,20 +13,10 @@ import (
 	"github.com/ductone/c1-lambda/pkg/ugrpc"
 )
 
-func ConnectorManagerClient(ctx context.Context, clientID string, clientSecret string) (pb_connector_manager.ConnectorManagerClient, error) {
-	credProvider, clientName, tokenHost, err := ugrpc.NewC1LambdaCredentialProvider(ctx, clientID, clientSecret)
+func GetConnectorManagerClient(ctx context.Context, endpoint string, clientID string, clientSecret string) (pb_connector_manager.ConnectorManagerClient, error) {
+	credProvider, clientName, _, err := ugrpc.NewC1LambdaCredentialProvider(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, err
-	}
-
-	if envHost, ok := os.LookupEnv("BATON_C1_API_HOST"); ok {
-		tokenHost = envHost
-	}
-	// assume the token host does not have a port set, and we should use the default https port
-	addr := ugrpc.HostPort(tokenHost, "443")
-	host, port, err := net.SplitHostPort(tokenHost)
-	if err == nil {
-		addr = ugrpc.HostPort(host, port)
 	}
 
 	systemCertPool, err := x509.SystemCertPool()
@@ -50,7 +38,7 @@ func ConnectorManagerClient(ctx context.Context, clientID string, clientSecret s
 		grpc.WithBlock(),
 	}
 
-	client, err := grpc.NewClient(addr, dialOpts...)
+	client, err := grpc.NewClient(endpoint, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("connector-manager-client: failed to create client: %w", err)
 	}
