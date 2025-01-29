@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ductone/c1-lambda/pkg/uhttp"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/pquerna/xjwt"
@@ -27,6 +26,8 @@ import (
 	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/json"
 	"gopkg.in/square/go-jose.v2/jwt"
+
+	"github.com/ductone/c1-lambda/pkg/uhttp"
 )
 
 const (
@@ -187,7 +188,7 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 	}
 
 	tokenHost := c.tokenHost
-	if envHost, ok := os.LookupEnv("BATON_C1_API_HOST"); ok {
+	if envHost, ok := os.LookupEnv("BATON_LAMBDA_TOKEN_HOST"); ok {
 		tokenHost = envHost
 	}
 	tokenUrl := url.URL{

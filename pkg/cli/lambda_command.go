@@ -324,8 +324,8 @@ func MakeLambdaServerCommand(
 		client, err := c1_lambda_config.GetConnectorManagerClient(
 			ctx,
 			v.GetString("lambda-configuration-endpoint"),
-			v.GetString("lambda-configuration-endpoint-client-id"),
-			v.GetString("lambda-configuration-endpoint-client-secret"),
+			v.GetString("lambda-client-id"),
+			v.GetString("lambda-client-secret"),
 		)
 		if err != nil {
 			return fmt.Errorf("failed to get connector manager client: %w", err)

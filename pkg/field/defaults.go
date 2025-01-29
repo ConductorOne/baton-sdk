@@ -39,16 +39,16 @@ var (
 	lambdaClientEndpointField = StringField("lambda-endpoint", WithDescription("The endpoint to use for the lambda service"), WithPersistent(true))
 	lambdaClientFunctionField = StringField("lambda-function", WithRequired(true), WithDescription("The name of the lambda function to invoke"), WithPersistent(true))
 
-	lambdaServerConfigurationEndpointField             = StringField("lambda-configuration-endpoint", WithRequired(true), WithDescription("The endpoint lambda connector servers use to fetch configuration"), WithPersistent(true))
-	lambdaServerConfigurationEndpointClientIDField     = StringField("lambda-configuration-endpoint-client-id", WithRequired(true), WithDescription("The oauth client id to use with the configuration endpoint"), WithPersistent(true))
-	lambdaServerConfigurationEndpointClientSecretField = StringField("lambda-configuration-endpoint-client-secret", WithRequired(true), WithDescription("The oauth client secret to use with the configuration endpoint"), WithPersistent(true))
+	lambdaServerConfigurationEndpointField = StringField("lambda-configuration-endpoint", WithRequired(true), WithDescription("The endpoint lambda connector servers use to fetch configuration"), WithPersistent(true))
+	lambdaServerClientIDField              = StringField("lambda-client-id", WithRequired(true), WithDescription("The oauth client id to use with the configuration endpoint"), WithPersistent(true))
+	lambdaServerClientSecretField          = StringField("lambda-client-secret", WithRequired(true), WithDescription("The oauth client secret to use with the configuration endpoint"), WithPersistent(true))
 )
 
 func LambdaServerFields() []SchemaField {
 	return []SchemaField{
 		lambdaServerConfigurationEndpointField,
-		lambdaServerConfigurationEndpointClientIDField,
-		lambdaServerConfigurationEndpointClientSecretField,
+		lambdaServerClientIDField,
+		lambdaServerClientSecretField,
 	}
 }
 
