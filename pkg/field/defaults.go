@@ -72,6 +72,7 @@ var DefaultFields = []SchemaField{
 	ticketTemplatePathField,
 	logLevelField,
 	skipFullSync,
+	lookupResourceField,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {
