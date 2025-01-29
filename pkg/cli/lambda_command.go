@@ -321,7 +321,7 @@ func MakeLambdaServerCommand(
 			return err
 		}
 
-		client, err := c1_lambda_config.GetConnectorManagerClient(
+		client, err := c1_lambda_config.GetConnectorConfigServiceClient(
 			ctx,
 			v.GetString("lambda-configuration-endpoint"),
 			v.GetString("lambda-client-id"),

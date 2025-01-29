@@ -19,87 +19,87 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ConnectorManager_GetConnectorConfig_FullMethodName = "/c1.svc.connector_manager.v1.ConnectorManager/GetConnectorConfig"
+	ConnectorConfigService_GetConnectorConfig_FullMethodName = "/c1.svc.connector_manager.v1.ConnectorConfigService/GetConnectorConfig"
 )
 
-// ConnectorManagerClient is the client API for ConnectorManager service.
+// ConnectorConfigServiceClient is the client API for ConnectorConfigService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type ConnectorManagerClient interface {
+type ConnectorConfigServiceClient interface {
 	GetConnectorConfig(ctx context.Context, in *GetConnectorConfigRequest, opts ...grpc.CallOption) (*GetConnectorConfigResponse, error)
 }
 
-type connectorManagerClient struct {
+type connectorConfigServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewConnectorManagerClient(cc grpc.ClientConnInterface) ConnectorManagerClient {
-	return &connectorManagerClient{cc}
+func NewConnectorConfigServiceClient(cc grpc.ClientConnInterface) ConnectorConfigServiceClient {
+	return &connectorConfigServiceClient{cc}
 }
 
-func (c *connectorManagerClient) GetConnectorConfig(ctx context.Context, in *GetConnectorConfigRequest, opts ...grpc.CallOption) (*GetConnectorConfigResponse, error) {
+func (c *connectorConfigServiceClient) GetConnectorConfig(ctx context.Context, in *GetConnectorConfigRequest, opts ...grpc.CallOption) (*GetConnectorConfigResponse, error) {
 	out := new(GetConnectorConfigResponse)
-	err := c.cc.Invoke(ctx, ConnectorManager_GetConnectorConfig_FullMethodName, in, out, opts...)
+	err := c.cc.Invoke(ctx, ConnectorConfigService_GetConnectorConfig_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// ConnectorManagerServer is the server API for ConnectorManager service.
-// All implementations should embed UnimplementedConnectorManagerServer
+// ConnectorConfigServiceServer is the server API for ConnectorConfigService service.
+// All implementations should embed UnimplementedConnectorConfigServiceServer
 // for forward compatibility
-type ConnectorManagerServer interface {
+type ConnectorConfigServiceServer interface {
 	GetConnectorConfig(context.Context, *GetConnectorConfigRequest) (*GetConnectorConfigResponse, error)
 }
 
-// UnimplementedConnectorManagerServer should be embedded to have forward compatible implementations.
-type UnimplementedConnectorManagerServer struct {
+// UnimplementedConnectorConfigServiceServer should be embedded to have forward compatible implementations.
+type UnimplementedConnectorConfigServiceServer struct {
 }
 
-func (UnimplementedConnectorManagerServer) GetConnectorConfig(context.Context, *GetConnectorConfigRequest) (*GetConnectorConfigResponse, error) {
+func (UnimplementedConnectorConfigServiceServer) GetConnectorConfig(context.Context, *GetConnectorConfigRequest) (*GetConnectorConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConnectorConfig not implemented")
 }
 
-// UnsafeConnectorManagerServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to ConnectorManagerServer will
+// UnsafeConnectorConfigServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ConnectorConfigServiceServer will
 // result in compilation errors.
-type UnsafeConnectorManagerServer interface {
-	mustEmbedUnimplementedConnectorManagerServer()
+type UnsafeConnectorConfigServiceServer interface {
+	mustEmbedUnimplementedConnectorConfigServiceServer()
 }
 
-func RegisterConnectorManagerServer(s grpc.ServiceRegistrar, srv ConnectorManagerServer) {
-	s.RegisterService(&ConnectorManager_ServiceDesc, srv)
+func RegisterConnectorConfigServiceServer(s grpc.ServiceRegistrar, srv ConnectorConfigServiceServer) {
+	s.RegisterService(&ConnectorConfigService_ServiceDesc, srv)
 }
 
-func _ConnectorManager_GetConnectorConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ConnectorConfigService_GetConnectorConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetConnectorConfigRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ConnectorManagerServer).GetConnectorConfig(ctx, in)
+		return srv.(ConnectorConfigServiceServer).GetConnectorConfig(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ConnectorManager_GetConnectorConfig_FullMethodName,
+		FullMethod: ConnectorConfigService_GetConnectorConfig_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ConnectorManagerServer).GetConnectorConfig(ctx, req.(*GetConnectorConfigRequest))
+		return srv.(ConnectorConfigServiceServer).GetConnectorConfig(ctx, req.(*GetConnectorConfigRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// ConnectorManager_ServiceDesc is the grpc.ServiceDesc for ConnectorManager service.
+// ConnectorConfigService_ServiceDesc is the grpc.ServiceDesc for ConnectorConfigService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var ConnectorManager_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "c1.svc.connector_manager.v1.ConnectorManager",
-	HandlerType: (*ConnectorManagerServer)(nil),
+var ConnectorConfigService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.svc.connector_manager.v1.ConnectorConfigService",
+	HandlerType: (*ConnectorConfigServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "GetConnectorConfig",
-			Handler:    _ConnectorManager_GetConnectorConfig_Handler,
+			Handler:    _ConnectorConfigService_GetConnectorConfig_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
