@@ -5,10 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/types/known/structpb"
-
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	"github.com/conductorone/baton-sdk/pkg/provisioner"
 	"github.com/conductorone/baton-sdk/pkg/resource_lookup"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
@@ -16,6 +13,7 @@ import (
 
 type localResourceLookuper struct {
 	lookupToken string
+	o           sync.Onc
 }
 
 func (m *localResourceLookuper) GetTempDir() string {

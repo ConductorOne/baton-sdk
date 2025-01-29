@@ -74,6 +74,7 @@ var DefaultFields = []SchemaField{
 	logLevelField,
 	skipFullSync,
 	otelCollectorEndpoint,
+	lookupResourceField,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {
