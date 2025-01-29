@@ -305,7 +305,6 @@ type runnerConfig struct {
 	getTicketConfig         *getTicketConfig
 	skipFullSync            bool
 	lookupResourceToken     string
-	lookupResourceEnabled   bool
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -431,7 +430,6 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string, profi
 func WithOnDemandLookupResource(lookupToken string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
-		cfg.lookupResourceEnabled = true
 		cfg.lookupResourceToken = lookupToken
 		return nil
 	}
@@ -571,6 +569,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 	if cfg.skipFullSync {
 		wrapperOpts = append(wrapperOpts, connector.WithFullSyncDisabled())
+	}
+
+	if cfg.lookupResourceToken != "" {
+		wrapperOpts = append(wrapperOpts, connector.WithLookupEnabled())
 	}
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
