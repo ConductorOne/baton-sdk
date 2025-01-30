@@ -323,7 +323,6 @@ func MakeLambdaServerCommand(
 
 		client, err := c1_lambda_config.GetConnectorConfigServiceClient(
 			ctx,
-			v.GetString("lambda-configuration-endpoint"),
 			v.GetString("lambda-client-id"),
 			v.GetString("lambda-client-secret"),
 		)

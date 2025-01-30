@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"os"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -13,8 +14,8 @@ import (
 	"github.com/ductone/c1-lambda/pkg/ugrpc"
 )
 
-func GetConnectorConfigServiceClient(ctx context.Context, endpoint string, clientID string, clientSecret string) (pb_connector_manager.ConnectorConfigServiceClient, error) {
-	credProvider, clientName, _, err := ugrpc.NewC1LambdaCredentialProvider(ctx, clientID, clientSecret)
+func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clientSecret string) (pb_connector_manager.ConnectorConfigServiceClient, error) {
+	credProvider, clientName, clientHost, err := ugrpc.NewC1LambdaCredentialProvider(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +39,11 @@ func GetConnectorConfigServiceClient(ctx context.Context, endpoint string, clien
 		grpc.WithBlock(),
 	}
 
-	client, err := grpc.NewClient(endpoint, dialOpts...)
+	if envHost, ok := os.LookupEnv("BATON_LAMBDA_CONFIGURATION_HOST"); ok {
+		clientHost = envHost
+	}
+
+	client, err := grpc.NewClient(clientHost, dialOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("connector-manager-client: failed to create client: %w", err)
 	}
