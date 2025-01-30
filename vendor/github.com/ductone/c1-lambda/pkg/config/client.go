@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	pb_connector_manager "github.com/ductone/c1-lambda/pb/c1/svc/connector_manager/v1"
+	pb_connector_manager "github.com/ductone/c1-lambda/pb/c1/connectorapi/baton/v1"
 	"github.com/ductone/c1-lambda/pkg/ugrpc"
 )
 

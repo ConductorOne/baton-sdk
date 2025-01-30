@@ -175,7 +175,7 @@ github.com/doug-martin/goqu/v9/internal/util
 github.com/doug-martin/goqu/v9/sqlgen
 # github.com/ductone/c1-lambda v0.0.0-00010101000000-000000000000 => ../../conductorone/c1-lambda
 ## explicit; go 1.23.4
-github.com/ductone/c1-lambda/pb/c1/svc/connector_manager/v1
+github.com/ductone/c1-lambda/pb/c1/connectorapi/baton/v1
 github.com/ductone/c1-lambda/pb/c1/transport/v1
 github.com/ductone/c1-lambda/pkg/config
 github.com/ductone/c1-lambda/pkg/grpc

@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.3.0
 // - protoc             (unknown)
-// source: c1/svc/connector_manager/v1/connector_manager.proto
+// source: c1/connectorapi/baton/v1/config.proto
 
 package v1
 
@@ -19,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ConnectorConfigService_GetConnectorConfig_FullMethodName = "/c1.svc.connector_manager.v1.ConnectorConfigService/GetConnectorConfig"
+	ConnectorConfigService_GetConnectorConfig_FullMethodName = "/c1.connectorapi.baton.v1.ConnectorConfigService/GetConnectorConfig"
 )
 
 // ConnectorConfigServiceClient is the client API for ConnectorConfigService service.
@@ -94,7 +94,7 @@ func _ConnectorConfigService_GetConnectorConfig_Handler(srv interface{}, ctx con
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var ConnectorConfigService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "c1.svc.connector_manager.v1.ConnectorConfigService",
+	ServiceName: "c1.connectorapi.baton.v1.ConnectorConfigService",
 	HandlerType: (*ConnectorConfigServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
@@ -103,5 +103,5 @@ var ConnectorConfigService_ServiceDesc = grpc.ServiceDesc{
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
-	Metadata: "c1/svc/connector_manager/v1/connector_manager.proto",
+	Metadata: "c1/connectorapi/baton/v1/config.proto",
 }

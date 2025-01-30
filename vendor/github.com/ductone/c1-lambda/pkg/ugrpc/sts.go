@@ -13,7 +13,7 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 
-	pb_connector_manager "github.com/ductone/c1-lambda/pb/c1/svc/connector_manager/v1"
+	pb_connector_manager "github.com/ductone/c1-lambda/pb/c1/connectorapi/baton/v1"
 )
 
 func Sha256AndHexEncode(input string) string {
