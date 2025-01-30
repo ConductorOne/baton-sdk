@@ -15,7 +15,7 @@ import (
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
-// This operation is not supported by directory buckets.
+// This operation is not supported for directory buckets.
 //
 // Sets the accelerate configuration of an existing bucket. Amazon S3 Transfer
 // Acceleration is a bucket-level feature that enables you to perform faster data
@@ -103,6 +103,7 @@ type PutBucketAccelerateConfigurationInput struct {
 }
 
 func (in *PutBucketAccelerateConfigurationInput) bindEndpointParams(p *EndpointParameters) {
+
 	p.Bucket = in.Bucket
 	p.UseS3ExpressControlEndpoint = ptr.Bool(true)
 }
@@ -157,6 +158,9 @@ func (c *Client) addOperationPutBucketAccelerateConfigurationMiddlewares(stack *
 	if err = addRecordResponseTiming(stack); err != nil {
 		return err
 	}
+	if err = addSpanRetryLoop(stack, options); err != nil {
+		return err
+	}
 	if err = addClientUserAgent(stack, options); err != nil {
 		return err
 	}
@@ -170,6 +174,18 @@ func (c *Client) addOperationPutBucketAccelerateConfigurationMiddlewares(stack *
 		return err
 	}
 	if err = addPutBucketContextMiddleware(stack); err != nil {
+		return err
+	}
+	if err = addTimeOffsetBuild(stack, c); err != nil {
+		return err
+	}
+	if err = addUserAgentRetryMode(stack, options); err != nil {
+		return err
+	}
+	if err = addIsExpressUserAgent(stack); err != nil {
+		return err
+	}
+	if err = addRequestChecksumMetricsTracking(stack, options); err != nil {
 		return err
 	}
 	if err = addOpPutBucketAccelerateConfigurationValidationMiddleware(stack); err != nil {
@@ -208,6 +224,18 @@ func (c *Client) addOperationPutBucketAccelerateConfigurationMiddlewares(stack *
 	if err = addSerializeImmutableHostnameBucketMiddleware(stack, options); err != nil {
 		return err
 	}
+	if err = addSpanInitializeStart(stack); err != nil {
+		return err
+	}
+	if err = addSpanInitializeEnd(stack); err != nil {
+		return err
+	}
+	if err = addSpanBuildRequestStart(stack); err != nil {
+		return err
+	}
+	if err = addSpanBuildRequestEnd(stack); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -237,9 +265,10 @@ func getPutBucketAccelerateConfigurationRequestAlgorithmMember(input interface{}
 }
 
 func addPutBucketAccelerateConfigurationInputChecksumMiddlewares(stack *middleware.Stack, options Options) error {
-	return internalChecksum.AddInputMiddleware(stack, internalChecksum.InputMiddlewareOptions{
+	return addInputChecksumMiddleware(stack, internalChecksum.InputMiddlewareOptions{
 		GetAlgorithm:                     getPutBucketAccelerateConfigurationRequestAlgorithmMember,
 		RequireChecksum:                  false,
+		RequestChecksumCalculation:       options.RequestChecksumCalculation,
 		EnableTrailingChecksum:           false,
 		EnableComputeSHA256PayloadHash:   true,
 		EnableDecodedContentLengthHeader: true,
