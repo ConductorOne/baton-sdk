@@ -139,6 +139,6 @@ func TestEncryptionProviderJWKSymmetric(t *testing.T) {
 		Bytes:       []byte("hunter2"),
 	}
 	cipherText, err := provider.Encrypt(ctx, config, plainText)
-	require.ErrorIs(t, err, jwk.JWKUnsupportedKeyTypeError)
+	require.ErrorIs(t, err, jwk.ErrJWKUnsupportedKeyType)
 	require.Nil(t, cipherText)
 }
