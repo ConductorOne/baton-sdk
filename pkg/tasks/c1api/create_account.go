@@ -26,6 +26,9 @@ type createAccountTaskHandler struct {
 }
 
 func (g *createAccountTaskHandler) HandleTask(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "createAccountTaskHandler.HandleTask")
+	defer span.End()
+
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.Id), zap.Stringer("task_type", tasks.GetType(g.task)))
 
 	t := g.task.GetCreateAccount()

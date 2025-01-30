@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector:0.84.0
+    command: [ "--config=/etc/otel-collector-config.yaml" ]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml
+    ports:
+      - "4317:4317"
+      - "9888:9888" # OpenTelemetry collector metrics endpoint for Prometheus
+    links:
+      - tempo
+    networks:
+      - otel-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090" # Prometheus UI
+    depends_on:
+      - otel-collector
+    links:
+      - otel-collector
+      - loki
+      - tempo
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    networks:
+      - otel-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000" # Grafana UI
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana_provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana_provisioning/dashboards:/etc/grafana/provisioning/dashboards
+    links:
+      - prometheus
+      - tempo
+      - loki
+    # Ensure provisioning is mounted before starting
+    entrypoint: [ "sh", "-c", "while ! [ -f /etc/grafana/provisioning/datasources/datasource.yml ]; do sleep 1; done; /run.sh" ]
+    networks:
+      - otel-network
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100" # Loki endpoint for log data
+    volumes:
+      - ./loki-config.yaml:/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - otel-network
+
+  memcached:
+    image: memcached:1.6.29
+    container_name: memcached
+    networks:
+      - otel-network
+    ports:
+      - "11211:11211"
+    environment:
+      - MEMCACHED_MAX_MEMORY=64m  # Set the maximum memory usage
+      - MEMCACHED_THREADS=4       # Number of threads to use
+
+  tempo:
+    image: grafana/tempo:latest
+    container_name: tempo
+    ports:
+      - "3200:3200" # Tempo UI
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml
+      - tempo-data:/var/lib/tempo
+    command:
+      - "-config.file=/etc/tempo.yaml"
+    links:
+      - memcached
+    networks:
+      - otel-network
+
+volumes:
+  grafana-data:
+    driver: local
+  tempo-data:
+    driver: local
+
+networks:
+  otel-network:
+    driver: bridge

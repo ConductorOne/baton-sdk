@@ -13,6 +13,9 @@ func newStartDebugging(tm *c1ApiTaskManager) *debugHandler {
 }
 
 func (c *debugHandler) HandleTask(ctx context.Context) error {
+	_, span := tracer.Start(ctx, "debugHandler.HandleTask")
+	defer span.End()
+
 	c.taskmanager.runnerShouldDebug = true
 	return nil
 }

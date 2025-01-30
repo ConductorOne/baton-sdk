@@ -28,6 +28,9 @@ type revokeTaskHandler struct {
 }
 
 func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "revokeTaskHandler.HandleTask")
+	defer span.End()
+
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", r.task.Id), zap.Stringer("task_type", tasks.GetType(r.task)))
 
 	if r.task.GetRevoke() == nil || r.task.GetRevoke().GetGrant() == nil {

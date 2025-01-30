@@ -23,6 +23,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type GetConnectorFunc func(context.Context, *viper.Viper) (types.ConnectorServer, error)
@@ -56,6 +57,17 @@ func MakeMainCommand(
 		}
 
 		l := ctxzap.Extract(runCtx)
+
+		otelShutdown, err := uotel.InitOtel(context.Background(), v.GetString("otel-collector-endpoint"), name)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			err := otelShutdown(context.Background())
+			if err != nil {
+				l.Error("error shutting down otel", zap.Error(err))
+			}
+		}()
 
 		if isService() {
 			l.Debug("running as service", zap.String("name", name))
@@ -221,6 +233,22 @@ func MakeGRPCServerCommand(
 			return err
 		}
 
+		l := ctxzap.Extract(runCtx)
+
+		otelShutdown, err := uotel.InitOtel(
+			context.Background(),
+			v.GetString("otel-collector-endpoint"),
+			fmt.Sprintf("%s-server", name),
+		)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			err := otelShutdown(context.Background())
+			if err != nil {
+				l.Error("error shutting down otel", zap.Error(err))
+			}
+		}()
 		// validate required fields and relationship constraints
 		if err := field.Validate(confschema, v); err != nil {
 			return err

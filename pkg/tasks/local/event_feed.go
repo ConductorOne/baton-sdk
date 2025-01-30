@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -39,6 +40,9 @@ func (m *localEventFeed) Next(ctx context.Context) (*v1.Task, time.Duration, err
 }
 
 func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+	ctx, span := tracer.Start(ctx, "localEventFeed.Process", trace.WithNewRoot())
+	defer span.End()
+
 	var pageToken string
 	for {
 		resp, err := cc.ListEvents(ctx, &v2.ListEventsRequest{

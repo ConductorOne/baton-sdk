@@ -35,6 +35,7 @@ var (
 	ticketTemplatePathField    = StringField("ticket-template-path", WithHidden(true), WithDescription("A JSON file describing the ticket to create"), WithPersistent(true))
 	logLevelField              = StringField("log-level", WithDefaultValue("info"), WithDescription("The log level: debug, info, warn, error"), WithPersistent(true))
 	skipFullSync               = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true))
+	otelCollectorEndpoint      = StringField("otel-collector-endpoint", WithDescription("The endpoint of the OpenTelemetry collector to send observability data to"), WithPersistent(true))
 )
 
 // DefaultFields list the default fields expected in every single connector.
@@ -67,6 +68,7 @@ var DefaultFields = []SchemaField{
 	ticketTemplatePathField,
 	logLevelField,
 	skipFullSync,
+	otelCollectorEndpoint,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {

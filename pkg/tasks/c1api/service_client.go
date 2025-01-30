@@ -65,7 +65,7 @@ func (c *c1ServiceClient) getHostID() string {
 func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.BatonServiceClient, func(), error) {
 	dialCtx, cancel := context.WithTimeout(ctx, time.Second*30)
 	defer cancel()
-	cc, err := grpc.DialContext(
+	cc, err := grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
 		dialCtx,
 		c.addr,
 		c.dialOpts...,
@@ -83,6 +83,9 @@ func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.BatonServiceCli
 }
 
 func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloRequest) (*v1.BatonServiceHelloResponse, error) {
+	ctx, span := tracer.Start(ctx, "c1ServiceClient.Hello")
+	defer span.End()
+
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -95,6 +98,9 @@ func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloReq
 }
 
 func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTaskRequest) (*v1.BatonServiceGetTaskResponse, error) {
+	ctx, span := tracer.Start(ctx, "c1ServiceClient.GetTask")
+	defer span.End()
+
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -107,6 +113,9 @@ func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTas
 }
 
 func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHeartbeatRequest) (*v1.BatonServiceHeartbeatResponse, error) {
+	ctx, span := tracer.Start(ctx, "c1ServiceClient.Heartbeat")
+	defer span.End()
+
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -119,6 +128,9 @@ func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHear
 }
 
 func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFinishTaskRequest) (*v1.BatonServiceFinishTaskResponse, error) {
+	ctx, span := tracer.Start(ctx, "c1ServiceClient.FinishTask")
+	defer span.End()
+
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -131,6 +143,9 @@ func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFin
 }
 
 func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error {
+	ctx, span := tracer.Start(ctx, "c1ServiceClient.Upload")
+	defer span.End()
+
 	l := ctxzap.Extract(ctx)
 
 	client, done, err := c.getClientConn(ctx)
@@ -248,7 +263,7 @@ func newServiceClient(ctx context.Context, clientID string, clientSecret string)
 		})),
 		grpc.WithPerRPCCredentials(credProvider),
 		grpc.WithUserAgent(fmt.Sprintf("%s baton-sdk/%s", clientName, sdk.Version)),
-		grpc.WithBlock(),
+		grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
 	}
 
 	return &c1ServiceClient{

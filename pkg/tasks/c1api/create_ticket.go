@@ -25,6 +25,9 @@ type createTicketTaskHandler struct {
 }
 
 func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "createTicketTaskHandler.HandleTask")
+	defer span.End()
+
 	l := ctxzap.Extract(ctx)
 
 	t := c.task.GetCreateTicketTask()

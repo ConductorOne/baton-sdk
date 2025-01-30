@@ -13,6 +13,8 @@ import (
 
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/propagation"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -152,6 +154,14 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx)...),
 		grpc.ChainStreamInterceptor(ugrpc.StreamServerInterceptors(ctx)...),
+		grpc.StatsHandler(otelgrpc.NewServerHandler(
+			otelgrpc.WithPropagators(
+				propagation.NewCompositeTextMapPropagator(
+					propagation.TraceContext{},
+					propagation.Baggage{},
+				),
+			),
+		)),
 	)
 	connectorV2.RegisterConnectorServiceServer(server, cw.server)
 	connectorV2.RegisterGrantsServiceServer(server, cw.server)
@@ -306,12 +316,20 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	var dialErr error
 	var conn *grpc.ClientConn
 	for {
-		conn, err = grpc.DialContext(
+		conn, err = grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
 			ctx,
 			fmt.Sprintf("127.0.0.1:%d", listenPort),
 			grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
-			grpc.WithBlock(),
+			grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
 			grpc.WithChainUnaryInterceptor(ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...)),
+			grpc.WithStatsHandler(otelgrpc.NewClientHandler(
+				otelgrpc.WithPropagators(
+					propagation.NewCompositeTextMapPropagator(
+						propagation.TraceContext{},
+						propagation.Baggage{},
+					),
+				),
+			)),
 		)
 		if err != nil {
 			dialErr = err

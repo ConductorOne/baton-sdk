@@ -13,16 +13,18 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/conductorone/baton-sdk/pkg/field"
-	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"github.com/spf13/cobra"
 	"go.uber.org/zap"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/debug"
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
 	"gopkg.in/yaml.v2"
+
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/spf13/cobra"
+
+	"github.com/conductorone/baton-sdk/pkg/field"
+	"github.com/conductorone/baton-sdk/pkg/logging"
 )
 
 const (
