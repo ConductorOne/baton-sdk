@@ -64,7 +64,7 @@ func TestInvalidKeyType(t *testing.T) {
 	jwk, err := unmarshalJWK(privKey)
 	require.NoError(t, err)
 
-	jwk.Key = "invalid key type"
+	jwk.Key = []byte("invalid key type")
 	privKeyBytes, err := jwk.MarshalJSON()
 	require.NoError(t, err)
 
