@@ -9,11 +9,12 @@ import (
 	"crypto/rsa"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 
 	"filippo.io/age"
-	"github.com/go-jose/go-jose/v3"
+	"github.com/go-jose/go-jose/v4"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
@@ -21,8 +22,8 @@ import (
 // TODO(morgabra): Fix the circular dependency/entire registry pattern here.
 const EncryptionProviderJwk = "baton/jwk/v1"
 
-var JWKInvalidKeyTypeError = fmt.Errorf("jwk: invalid key type")
-var JWKUnsupportedKeyTypeError = fmt.Errorf("jwk: unsupported key type")
+var ErrJWKInvalidKeyType = errors.New("jwk: invalid key type")
+var ErrJWKUnsupportedKeyType = errors.New("jwk: unsupported key type")
 
 func unmarshalJWK(jwkBytes []byte) (*jose.JSONWebKey, error) {
 	jwk := &jose.JSONWebKey{}
@@ -44,6 +45,10 @@ func (j *JWKEncryptionProvider) GenerateKey(ctx context.Context) (*v2.Encryption
 	privKeyJWK := &jose.JSONWebKey{
 		Key: privKey,
 	}
+	return j.marshalKey(ctx, privKeyJWK)
+}
+
+func (j *JWKEncryptionProvider) marshalKey(ctx context.Context, privKeyJWK *jose.JSONWebKey) (*v2.EncryptionConfig, []byte, error) {
 	privKeyJWKBytes, err := privKeyJWK.MarshalJSON()
 	if err != nil {
 		return nil, nil, fmt.Errorf("jwk: failed to marshal private key: %w", err)
@@ -62,7 +67,7 @@ func (j *JWKEncryptionProvider) GenerateKey(ctx context.Context) (*v2.Encryption
 
 	return &v2.EncryptionConfig{
 		Principal: nil,
-		Provider:  "baton/jwk/v1", // TODO(morgabra): Fix the circular dependency/entire registry pattern.
+		Provider:  EncryptionProviderJwk, // TODO(morgabra): Fix the circular dependency/entire registry pattern.
 		KeyId:     kid,
 		Config: &v2.EncryptionConfig_JwkPublicKeyConfig{
 			JwkPublicKeyConfig: &v2.EncryptionConfig_JWKPublicKeyConfig{
@@ -96,7 +101,7 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, conf *v2.Encryption
 			return nil, err
 		}
 	default:
-		return nil, JWKUnsupportedKeyTypeError
+		return nil, ErrJWKUnsupportedKeyType
 	}
 
 	tp, err := thumbprint(jwk)
@@ -124,7 +129,7 @@ func (j *JWKEncryptionProvider) Decrypt(ctx context.Context, cipherText *v2.Encr
 	}
 
 	if jwk.IsPublic() {
-		return nil, fmt.Errorf("%w: key is public", JWKInvalidKeyTypeError)
+		return nil, fmt.Errorf("%w: key is public", ErrJWKInvalidKeyType)
 	}
 
 	decCipherText, err := base64.StdEncoding.DecodeString(string(cipherText.EncryptedBytes))
@@ -150,7 +155,7 @@ func (j *JWKEncryptionProvider) Decrypt(ctx context.Context, cipherText *v2.Encr
 			return nil, err
 		}
 	default:
-		return nil, JWKUnsupportedKeyTypeError
+		return nil, ErrJWKUnsupportedKeyType
 	}
 
 	return &v2.PlaintextData{
