@@ -22,11 +22,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
-
-type GetConnectorFunc func(context.Context, *viper.Viper) (types.ConnectorServer, error)
 
 func MakeMainCommand(
 	ctx context.Context,

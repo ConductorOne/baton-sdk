@@ -9,13 +9,17 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/conductorone/baton-sdk/pkg/cli"
-	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
-	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+
+	"github.com/conductorone/baton-sdk/pkg/cli"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/field"
 )
+
+type GetConnectorFunc = cli.GetConnectorFunc
+type ConnectorConfig = cli.ConnectorConfig
 
 func DefineConfiguration(
 	ctx context.Context,
@@ -23,20 +27,20 @@ func DefineConfiguration(
 	connector cli.GetConnectorFunc,
 	schema field.Configuration,
 	options ...connectorrunner.Option,
-) (*viper.Viper, *cobra.Command, error) {
+) (*cobra.Command, error) {
 	v := viper.New()
 	v.SetConfigType("yaml")
 
 	path, name, err := cleanOrGetConfigPath(os.Getenv("BATON_CONFIG_PATH"))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	v.SetConfigName(name)
 	v.AddConfigPath(path)
 	if err := v.ReadInConfig(); err != nil {
 		if errors.Is(err, viper.ConfigFileNotFoundError{}) {
-			return nil, nil, err
+			return nil, err
 		}
 	}
 	v.SetEnvPrefix("baton")
@@ -65,13 +69,13 @@ func DefineConfiguration(
 	// set persistent flags only on the main subcommand
 	err = setFlagsAndConstraints(mainCMD, field.NewConfiguration(field.DefaultFields, field.DefaultRelationships...))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// set the rest of flags
 	err = setFlagsAndConstraints(mainCMD, schema)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	grpcServerCmd := &cobra.Command{
@@ -82,7 +86,7 @@ func DefineConfiguration(
 	}
 	err = setFlagsAndConstraints(grpcServerCmd, schema)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	mainCMD.AddCommand(grpcServerCmd)
 
@@ -93,7 +97,7 @@ func DefineConfiguration(
 	}
 	err = setFlagsAndConstraints(capabilitiesCmd, schema)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	mainCMD.AddCommand(capabilitiesCmd)
 
@@ -124,7 +128,7 @@ func DefineConfiguration(
 		}
 	})
 
-	return v, mainCMD, nil
+	return mainCMD, nil
 }
 
 func listFieldConstrainsAsStrings(constrains field.SchemaFieldRelationship) []string {
