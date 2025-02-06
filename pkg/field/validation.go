@@ -2,7 +2,9 @@ package field
 
 import (
 	"fmt"
-	"reflect"
+	"net"
+	"net/url"
+	"regexp"
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/ustrings"
@@ -11,6 +13,332 @@ import (
 
 type ErrConfigurationMissingFields struct {
 	errors []error
+}
+
+type IntRules struct {
+	Required bool
+	Eq       *int64
+	Lt       *int64
+	Lte      *int64
+	Gt       *int64
+	Gte      *int64
+	In       []int64
+	NotIn    []int64
+}
+
+func (r *IntRules) Validate(v int64) error {
+	if r == nil {
+		return nil
+	}
+	if r.Eq != nil && *r.Eq != v {
+		return fmt.Errorf("expected %v but got %v", *r.Eq, v)
+	}
+	if r.Lt != nil && v >= *r.Lt {
+		return fmt.Errorf("value must be less than %d but got %d", *r.Lt, v)
+	}
+	if r.Lte != nil && v > *r.Lte {
+		return fmt.Errorf("value must be less than or equal to %d but got %d", *r.Lte, v)
+	}
+	if r.Gt != nil && v <= *r.Gt {
+		return fmt.Errorf("value must be greater than %d but got %d", *r.Gt, v)
+	}
+	if r.Gte != nil && v < *r.Gte {
+		return fmt.Errorf("value must be greater than or equal to %d but got %d", *r.Gte, v)
+	}
+	if r.In != nil {
+		found := false
+		for _, val := range r.In {
+			if v == val {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("value must be one of %v but got %d", r.In, v)
+		}
+	}
+	if r.NotIn != nil {
+		for _, val := range r.NotIn {
+			if v == val {
+				return fmt.Errorf("value must not be one of %v but got %d", r.NotIn, v)
+			}
+		}
+	}
+	return nil
+}
+
+type UintRules struct {
+	Required bool
+	Eq       *uint64
+	Lt       *uint64
+	Lte      *uint64
+	Gt       *uint64
+	Gte      *uint64
+	In       []uint64
+	NotIn    []uint64
+}
+
+func (r *UintRules) Validate(v uint64) error {
+	if r == nil {
+		return nil
+	}
+	if r.Eq != nil && *r.Eq != v {
+		return fmt.Errorf("expected %v but got %v", *r.Eq, v)
+	}
+	if r.Lt != nil && v >= *r.Lt {
+		return fmt.Errorf("value must be less than %d but got %d", *r.Lt, v)
+	}
+	if r.Lte != nil && v > *r.Lte {
+		return fmt.Errorf("value must be less than or equal to %d but got %d", *r.Lte, v)
+	}
+	if r.Gt != nil && v <= *r.Gt {
+		return fmt.Errorf("value must be greater than %d but got %d", *r.Gt, v)
+	}
+	if r.Gte != nil && v < *r.Gte {
+		return fmt.Errorf("value must be greater than or equal to %d but got %d", *r.Gte, v)
+	}
+	if r.In != nil {
+		found := false
+		for _, val := range r.In {
+			if v == val {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("value must be one of %v but got %d", r.In, v)
+		}
+	}
+	if r.NotIn != nil {
+		for _, val := range r.NotIn {
+			if v == val {
+				return fmt.Errorf("value must not be one of %v but got %d", r.NotIn, v)
+			}
+		}
+	}
+	return nil
+}
+
+type BoolRules struct {
+	Eq *bool
+}
+
+func (r *BoolRules) Validate(v bool) error {
+	if r == nil {
+		return nil
+	}
+	if r.Eq != nil && *r.Eq != v {
+		return fmt.Errorf("expected %v but got %v", *r.Eq, v)
+	}
+	return nil
+}
+
+type StringRules struct {
+	Required    *bool
+	Eq          *string
+	Len         *uint64
+	MinLen      *uint64
+	MaxLen      *uint64
+	Pattern     *string
+	Prefix      *string
+	Suffix      *string
+	Contains    *string
+	NotContains *string
+	In          []string
+	NotIn       []string
+	WellKnown   *WellKnownStrings
+	IgnoreEmpty bool
+}
+
+func (r *StringRules) Validate(v string) error {
+	if r == nil {
+		return nil
+	}
+
+	if r.IgnoreEmpty && v == "" {
+		return nil
+	}
+
+	if r.Eq != nil && *r.Eq != v {
+		return fmt.Errorf("expected %v but got %v", *r.Eq, v)
+	}
+	if r.Len != nil && uint64(len(v)) != *r.Len {
+		return fmt.Errorf("value must be exactly %d characters long but got %d", *r.Len, len(v))
+	}
+	if r.MinLen != nil && uint64(len(v)) < *r.MinLen {
+		return fmt.Errorf("value must be at least %d characters long but got %d", *r.MinLen, len(v))
+	}
+	if r.MaxLen != nil && uint64(len(v)) > *r.MaxLen {
+		return fmt.Errorf("value must be at most %d characters long but got %d", *r.MaxLen, len(v))
+	}
+	if r.Pattern != nil {
+		pattern, err := regexp.CompilePOSIX(*r.Pattern)
+		if err != nil {
+			return fmt.Errorf("invalid pattern: %w", err)
+		}
+		if !pattern.MatchString(v) {
+			return fmt.Errorf("value must match pattern %s but got %s", pattern.String(), v)
+		}
+	}
+	if r.Prefix != nil && !strings.HasPrefix(v, *r.Prefix) {
+		return fmt.Errorf("value must have prefix %s but got %s", *r.Prefix, v)
+	}
+	if r.Suffix != nil && !strings.HasSuffix(v, *r.Suffix) {
+		return fmt.Errorf("value must have suffix %s but got %s", *r.Suffix, v)
+	}
+	if r.Contains != nil && !strings.Contains(v, *r.Contains) {
+		return fmt.Errorf("value must contain %s but got %s", *r.Contains, v)
+	}
+	if r.In != nil {
+		found := false
+		for _, val := range r.In {
+			if v == val {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("value must be one of %v but got %s", r.In, v)
+		}
+	}
+	if r.NotIn != nil {
+		for _, val := range r.NotIn {
+			if v == val {
+				return fmt.Errorf("value must not be one of %v but got %s", r.NotIn, v)
+			}
+		}
+	}
+	if r.WellKnown == nil {
+		return nil
+	}
+
+	switch *r.WellKnown {
+	case WellKnownEmailString:
+		const emailRegex = `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`
+		re := regexp.MustCompile(emailRegex)
+		if !re.MatchString(v) {
+			return fmt.Errorf("value must be a valid email address but got %s", v)
+		}
+
+	case WellKnownURIString:
+		_, err := url.ParseRequestURI(v)
+		if err != nil {
+			return fmt.Errorf("value must be a valid URL but got %s", v)
+		}
+	case WellKnownUUIDString:
+		const uuidRegex = `^[a-fA-F0-9]{8}\-[a-fA-F0-9]{4}\-[a-fA-F0-9]{4}\-[a-fA-F0-9]{4}\-[a-fA-F0-9]{12}$`
+		re := regexp.MustCompile(uuidRegex)
+		if !re.MatchString(v) {
+			return fmt.Errorf("value must be a valid UUID but got %s", v)
+		}
+	case WellKnownHostnameString:
+		const hostnameRegex = `^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$`
+		re := regexp.MustCompile(hostnameRegex)
+		if !re.MatchString(v) {
+			return fmt.Errorf("value must be a valid hostname but got %s", v)
+		}
+	case WellKnownIPString:
+		if net.ParseIP(v) == nil {
+			return fmt.Errorf("value must be a valid IP address but got %s", v)
+		}
+	case WellKnownIpv4String:
+		const ipv4Regex = `^(\d{1,3}\.){3}\d{1,3}$`
+		re := regexp.MustCompile(ipv4Regex)
+		if !re.MatchString(v) {
+			return fmt.Errorf("value must be a valid IPv4 address but got %s", v)
+		}
+	case WellKnownIpv6String:
+		const ipv6Regex = `^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$`
+		re := regexp.MustCompile(ipv6Regex)
+		if !re.MatchString(v) {
+			return fmt.Errorf("value must be a valid IPv6 address but got %s", v)
+		}
+
+	default:
+		return fmt.Errorf("unknown well-known validation rule: %T", r.WellKnown)
+	}
+
+	return nil
+}
+
+type EnumRules struct {
+	Eq    *int32
+	In    []int32
+	NotIn []int32
+}
+
+type RepeatedRules[T StringRules] struct {
+	Required    *bool
+	MinItems    *uint64
+	MaxItems    *uint64
+	UniqueItems *bool
+	Items       *StringRules
+	IgnoreEmpty bool
+}
+
+type WellKnownStrings string
+
+const (
+	WellKnownEmailString = "EMAIL"
+	// Hostname specifies that the field must be a valid hostname as
+	// defined by RFC 1034. This constraint does not support
+	// internationalized domain names (IDNs).
+	WellKnownHostnameString = "HOSTNAME"
+	// Ip specifies that the field must be a valid IP (v4 or v6) address.
+	// Valid IPv6 addresses should not include surrounding square brackets.
+	WellKnownIPString = "IP"
+	// Ipv4 specifies that the field must be a valid IPv4 address.
+	WellKnownIpv4String = "IPv4"
+	// Ipv6 specifies that the field must be a valid IPv6 address. Valid
+	// IPv6 addresses should not include surrounding square brackets.
+	WellKnownIpv6String = "IPv6"
+	// Uri specifies that the field must be a valid, absolute URI as defined
+	// by RFC 3986
+	WellKnownURIString = "URI"
+	// // UriRef specifies that the field must be a valid URI as defined by RFC
+	// // 3986 and may be relative or absolute.
+	// WellKnownURI_refString = 7
+	// Address specifies that the field must be either a valid hostname as
+	// defined by RFC 1034 (which does not support internationalized domain
+	// names or IDNs), or it can be a valid IP (v4 or v6).
+	// WellKnownAddressString = 8
+	// Uuid specifies that the field must be a valid UUID as defined by
+	// RFC 4122
+	WellKnownUUIDString = "UUID"
+)
+
+func (r *RepeatedRules[StringRules]) Validate(v []string) error {
+	if r == nil {
+		return nil
+	}
+	if r.IgnoreEmpty && len(v) == 0 {
+		return nil
+	}
+
+	if r.MinItems != nil && uint64(len(v)) < *r.MinItems {
+		return fmt.Errorf("value must have at least %d items but got %d", *r.MinItems, len(v))
+	}
+	if r.MaxItems != nil && uint64(len(v)) > *r.MaxItems {
+		return fmt.Errorf("value must have at most %d items but got %d", *r.MaxItems, len(v))
+	}
+	if r.UniqueItems != nil {
+		uniqueValues := make(map[string]struct{})
+		for _, item := range v {
+			if _, exists := uniqueValues[item]; exists {
+				return fmt.Errorf("value must not contain duplicate items but got %s", item)
+			}
+			uniqueValues[item] = struct{}{}
+		}
+	}
+	if r.Items == nil {
+		return nil
+	}
+	for _, item := range v {
+		if err := r.Items.Validate(item); err != nil {
+			return fmt.Errorf("invalid item in repeated field: %w", err)
+		}
+	}
+	return nil
 }
 
 func (e *ErrConfigurationMissingFields) Error() string {
@@ -34,41 +362,32 @@ func (e *ErrConfigurationMissingFields) Push(err error) {
 //     together at the same time
 func Validate(c Configuration, v *viper.Viper) error {
 	present := make(map[string]int)
-	missingFieldsError := &ErrConfigurationMissingFields{}
+	validationErrors := &ErrConfigurationMissingFields{}
 
 	// check if required fields are present
 	for _, f := range c.Fields {
-		isNonZero := false
-		switch f.FieldType {
-		case reflect.Bool:
-			isNonZero = v.GetBool(f.FieldName)
-		case reflect.Int:
-			isNonZero = v.GetInt(f.FieldName) != 0
-		case reflect.String:
-			isNonZero = v.GetString(f.FieldName) != ""
-		case reflect.Slice:
-			isNonZero = len(v.GetStringSlice(f.FieldName)) != 0
+		var isValid error
+		switch f.Variant {
+		case BoolVariant:
+			isValid = f.Validate(v.GetBool(f.FieldName))
+		case IntVariant:
+			isValid = f.Validate(v.GetInt64(f.FieldName))
+		case UintVariant:
+			isValid = f.Validate(v.GetUint64(f.FieldName))
+		case StringVariant:
+			isValid = f.Validate(v.GetString(f.FieldName))
+		case StringSliceVariant:
+			isValid = f.Validate(v.GetStringSlice(f.FieldName))
 		default:
 			return fmt.Errorf("field %s has unsupported type %s", f.FieldName, f.FieldType)
 		}
-
-		if isNonZero {
-			present[f.FieldName] = 1
-		}
-
-		if f.Required && !isNonZero {
-			missingFieldsError.Push(
-				fmt.Errorf(
-					"field %s of type %s is marked as required but it has a zero-value",
-					f.FieldName,
-					f.FieldType,
-				),
-			)
+		if isValid != nil {
+			validationErrors.Push(isValid)
 		}
 	}
 
-	if len(missingFieldsError.errors) > 0 {
-		return missingFieldsError
+	if len(validationErrors.errors) > 0 {
+		return validationErrors
 	}
 
 	// check constraints
