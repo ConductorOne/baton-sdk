@@ -126,12 +126,46 @@ func MakeMainCommand(
 					))
 			case v.GetBool("event-feed"):
 				opts = append(opts, connectorrunner.WithOnDemandEventStream())
-			case v.GetString("create-account-login") != "":
+			case v.GetString("create-account-profile") != "":
 				profileMap := v.GetStringMap("create-account-profile")
 				if profileMap == nil {
-					profileMap = make(map[string]interface{})
+					return fmt.Errorf("create-account-profile is empty or incorrectly formatted: %v", v.GetString("create-account-profile"))
+				}
+				if v.GetString("create-account-login") != "" {
+					if _, ok := profileMap["login"]; !ok {
+						profileMap["login"] = v.GetString("create-account-login")
+					}
+				}
+				if v.GetString("create-account-email") != "" {
+					if _, ok := profileMap["email"]; !ok {
+						profileMap["email"] = v.GetString("create-account-email")
+					}
+				}
+				login, email := "", ""
+				if l, ok := profileMap["login"]; ok {
+					login = l.(string)
+				}
+				if e, ok := profileMap["email"]; ok {
+					email = e.(string)
 				}
 				profile, err := structpb.NewStruct(profileMap)
+				if err != nil {
+					return err
+				}
+				opts = append(opts,
+					connectorrunner.WithProvisioningEnabled(),
+					connectorrunner.WithOnDemandCreateAccount(
+						v.GetString("file"),
+						login,
+						email,
+						profile,
+					))
+			case v.GetString("create-account-login") != "":
+				// should only be here if no create-account-profile is provided, so lets make one.
+				profile, err := structpb.NewStruct(map[string]any{
+					"login": v.GetString("create-account-login"),
+					"email": v.GetString("create-account-email"),
+				})
 				if err != nil {
 					return err
 				}
