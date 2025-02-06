@@ -118,13 +118,14 @@ func TestHelpers_OAuth2_ClientCredentials_GetClient(t *testing.T) {
 
 		ctx := context.Background()
 		client, err := cc.GetClient(ctx)
-
 		require.NoError(t, err)
 		require.NotNil(t, client)
 
-		// To invoke token request
-		client.Get("https://test-url") //nolint:errcheck,revive,bodyclose,noctx //nolint
-
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://test-url", nil)
+		res, _ := client.Do(req)
+		if res != nil {
+			defer res.Body.Close()
+		}
 		require.True(t, hitServer)
 	}
 }
@@ -189,8 +190,15 @@ func TestHelpers_OAuth2_JWT_GetClient(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, client)
 
+		require.NoError(t, err)
+		require.NotNil(t, client)
+
 		// To invoke token request
-		client.Get("https://test-url") //nolint:errcheck,revive,bodyclose,noctx //nolint
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://test-url", nil)
+		res, _ := client.Do(req)
+		if res != nil {
+			defer res.Body.Close()
+		}
 		require.True(t, hitServer)
 	}
 }
