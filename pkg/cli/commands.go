@@ -312,6 +312,8 @@ func MakeGRPCServerCommand(
 			copts = append(copts, connector.WithProvisioningEnabled())
 		case v.GetString("revoke-grant") != "":
 			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("create-account-profile") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
 		case v.GetString("create-account-login") != "" || v.GetString("create-account-email") != "":
 			copts = append(copts, connector.WithProvisioningEnabled())
 		case v.GetString("delete-resource") != "" || v.GetString("delete-resource-type") != "":
