@@ -55,17 +55,17 @@ type SchemaField struct {
 }
 
 type BaseFieldSchema struct {
-	FieldName    string `json:"FieldName"`
-	FieldType    string `json:"FieldType"`
-	CLIShortHand string `json:"CLIShortHand"`
-	Required     bool   `json:"Required"`
-	Hidden       bool   `json:"Hidden"`
-	Persistent   bool   `json:"Persistent"`
-	Description  string `json:"Description"`
-	Secret       bool   `json:"Secret"`
-	HelpURL      string `json:"HelpURL"`
-	DisplayName  string `json:"DisplayName"`
-	Placeholder  string `json:"Placeholder"`
+	FieldName    string  `json:"FieldName"`
+	FieldType    string  `json:"FieldType"`
+	CLIShortHand *string `json:"CLIShortHand,omitempty"`
+	DisplayName  *string `json:"DisplayName,omitempty"`
+	Required     *bool   `json:"Required,omitempty"`
+	Hidden       *bool   `json:"Hidden,omitempty"`
+	Persistent   *bool   `json:"Persistent,omitempty"`
+	Description  *string `json:"Description,omitempty"`
+	Secret       *bool   `json:"Secret,omitempty"`
+	HelpURL      *string `json:"HelpURL,omitempty"`
+	Placeholder  *string `json:"Placeholder,omitempty"`
 }
 
 type StringFieldSchema struct {
@@ -108,17 +108,31 @@ func GetDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
 }
 
 func (s SchemaField) MarshalJSON() ([]byte, error) {
+
+	omitEmpty := func(s string) *string {
+		if s == "" {
+			return nil
+		}
+		return &s
+	}
+	omitFalse := func(b bool) *bool {
+		if !b {
+			return nil
+		}
+		return &b
+	}
+
 	b := BaseFieldSchema{
 		FieldName:    s.FieldName,
-		CLIShortHand: s.CLIShortHand,
-		Required:     s.Required,
-		Hidden:       s.Hidden,
-		Persistent:   s.Persistent,
-		Description:  s.Description,
-		Secret:       s.Secret,
-		HelpURL:      s.HelpURL,
-		DisplayName:  s.DisplayName,
-		Placeholder:  s.Placeholder,
+		CLIShortHand: omitEmpty(s.CLIShortHand),
+		Required:     omitFalse(s.Required),
+		Hidden:       omitFalse(s.Hidden),
+		Secret:       omitFalse(s.Secret),
+		Persistent:   omitFalse(s.Persistent),
+		Description:  omitEmpty(s.Description),
+		HelpURL:      omitEmpty(s.HelpURL),
+		DisplayName:  omitEmpty(s.DisplayName),
+		Placeholder:  omitEmpty(s.Placeholder),
 	}
 	switch s.Variant {
 	case StringVariant:
@@ -130,10 +144,15 @@ func (s SchemaField) MarshalJSON() ([]byte, error) {
 				if s.DefaultValue == nil {
 					return nil
 				}
-				if val, ok := s.DefaultValue.(string); ok {
-					return &val
+				val, ok := s.DefaultValue.(string)
+				if !ok {
+					panic("unable to cast any to string for a stringfield")
 				}
-				return nil
+				if val == "" {
+					return nil
+				}
+
+				return &val
 			}(),
 		})
 	case IntVariant:
@@ -145,10 +164,14 @@ func (s SchemaField) MarshalJSON() ([]byte, error) {
 				if s.DefaultValue == nil {
 					return nil
 				}
-				if val, ok := s.DefaultValue.(int); ok {
-					return &val
+				val, ok := s.DefaultValue.(int)
+				if !ok {
+					panic("unable to cast any to int for an IntField")
 				}
-				return nil
+				if val == 0 {
+					return nil
+				}
+				return &val
 			}(),
 		})
 	case BoolVariant:
@@ -160,10 +183,14 @@ func (s SchemaField) MarshalJSON() ([]byte, error) {
 				if s.DefaultValue == nil {
 					return nil
 				}
-				if val, ok := s.DefaultValue.(bool); ok {
-					return &val
+				val, ok := s.DefaultValue.(bool)
+				if !ok {
+					panic("unable to cast any default value to bool for a BoolField")
 				}
-				return nil
+				if !val {
+					return nil
+				}
+				return &val
 			}(),
 		})
 	case UintVariant:
@@ -175,10 +202,14 @@ func (s SchemaField) MarshalJSON() ([]byte, error) {
 				if s.DefaultValue == nil {
 					return nil
 				}
-				if val, ok := s.DefaultValue.(uint); ok {
-					return &val
+				val, ok := s.DefaultValue.(uint)
+				if !ok {
+					panic("unable to cast any to uint for a UintField")
 				}
-				return nil
+				if val == 0 {
+					return nil
+				}
+				return &val
 			}(),
 		})
 	case StringSliceVariant:
@@ -190,10 +221,14 @@ func (s SchemaField) MarshalJSON() ([]byte, error) {
 				if s.DefaultValue == nil {
 					return nil
 				}
-				if val, ok := s.DefaultValue.([]string); ok {
-					return &val
+				val, ok := s.DefaultValue.([]string)
+				if !ok {
+					panic("unable to cast any to []string for a StringSliceField")
 				}
-				return nil
+				if len(val) == 0 {
+					return nil
+				}
+				return &val
 			}(),
 		})
 	default:
