@@ -318,6 +318,35 @@ func (m *UserTrait) validate(all bool) error {
 		}
 	}
 
+	if all {
+		switch v := interface{}(m.GetFullName()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, UserTraitValidationError{
+					field:  "FullName",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, UserTraitValidationError{
+					field:  "FullName",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetFullName()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return UserTraitValidationError{
+				field:  "FullName",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
 	if len(errors) > 0 {
 		return UserTraitMultiError(errors)
 	}
@@ -1683,3 +1712,113 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = UserTrait_SSOStatusValidationError{}
+
+// Validate checks the field values on UserTrait_FullName with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *UserTrait_FullName) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on UserTrait_FullName with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// UserTrait_FullNameMultiError, or nil if none found.
+func (m *UserTrait_FullName) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *UserTrait_FullName) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for GivenName
+
+	// no validation rules for FamilyName
+
+	// no validation rules for Prefix
+
+	// no validation rules for Suffix
+
+	if len(errors) > 0 {
+		return UserTrait_FullNameMultiError(errors)
+	}
+
+	return nil
+}
+
+// UserTrait_FullNameMultiError is an error wrapping multiple validation errors
+// returned by UserTrait_FullName.ValidateAll() if the designated constraints
+// aren't met.
+type UserTrait_FullNameMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m UserTrait_FullNameMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m UserTrait_FullNameMultiError) AllErrors() []error { return m }
+
+// UserTrait_FullNameValidationError is the validation error returned by
+// UserTrait_FullName.Validate if the designated constraints aren't met.
+type UserTrait_FullNameValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e UserTrait_FullNameValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e UserTrait_FullNameValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e UserTrait_FullNameValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e UserTrait_FullNameValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e UserTrait_FullNameValidationError) ErrorName() string {
+	return "UserTrait_FullNameValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e UserTrait_FullNameValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sUserTrait_FullName.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = UserTrait_FullNameValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = UserTrait_FullNameValidationError{}

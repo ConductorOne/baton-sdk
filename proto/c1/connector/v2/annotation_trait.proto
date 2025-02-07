@@ -60,6 +60,15 @@ message UserTrait {
   }
   MFAStatus mfa_status = 10;
   SSOStatus sso_status = 11;
+
+  message FullName {
+    string given_name = 1;
+    string family_name = 2;
+    repeated string middle_names = 3;
+    string prefix = 4;
+    string suffix = 5;
+  }
+  FullName full_name = 12;
 }
 
 message GroupTrait {
