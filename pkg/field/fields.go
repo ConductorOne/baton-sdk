@@ -38,6 +38,7 @@ type FieldRule struct {
 // UIHints should be JSON??
 
 type CLIConfig struct {
+	Required   bool
 	Ignore     bool
 	Hidden     bool
 	ShortHand  string
@@ -46,9 +47,13 @@ type CLIConfig struct {
 }
 
 type WebConfig struct {
+	DisplayName string
+	Required    bool
 	Ignore      bool
 	Hidden      bool
 	Secret      bool
+	Ops         bool
+	HelpURL     string
 	Placeholder string
 	FieldType   WebFieldType
 	// Generalize this
@@ -60,8 +65,6 @@ type SchemaField struct {
 	Required     bool
 	DefaultValue any
 	Description  string
-	DisplayName  string
-	HelpURL      string
 
 	Variant Variant
 	Rules   FieldRule

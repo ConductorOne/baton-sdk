@@ -58,6 +58,7 @@ type baseFieldSchema struct {
 	Hidden      *bool   `json:"Hidden,omitempty"`
 	Secret      *bool   `json:"Secret,omitempty"`
 	Placeholder *string `json:"Placeholder,omitempty"`
+	Ops         *bool   `json:"Ops,omitempty"`
 }
 
 type stringFieldSchema struct {
@@ -100,13 +101,14 @@ func (s SchemaField) MarshalJSON() ([]byte, error) {
 
 	b := baseFieldSchema{
 		FieldName:   s.FieldName,
-		Required:    omitFalse(s.Required),
+		HelpURL:     omitEmpty(s.WebConfig.HelpURL),
+		DisplayName: omitEmpty(s.WebConfig.DisplayName),
+		Placeholder: omitEmpty(s.WebConfig.Placeholder),
 		Description: omitEmpty(s.Description),
-		HelpURL:     omitEmpty(s.HelpURL),
-		DisplayName: omitEmpty(s.DisplayName),
 		Hidden:      omitFalse(s.WebConfig.Hidden),
 		Secret:      omitFalse(s.WebConfig.Secret),
-		Placeholder: omitEmpty(s.WebConfig.Placeholder),
+		Ops:         omitFalse(s.WebConfig.Ops),
+		Required:    omitFalse(s.Required || s.WebConfig.Required),
 	}
 	switch s.Variant {
 	case StringVariant:

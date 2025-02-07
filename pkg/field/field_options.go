@@ -17,6 +17,13 @@ func WithDescription(description string) fieldOption {
 	}
 }
 
+func WithDisplayName(displayName string) fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.WebConfig.DisplayName = displayName
+		return o
+	}
+}
+
 func WithDefaultValue(value any) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.DefaultValue = value
@@ -33,9 +40,16 @@ func WithHidden(hidden bool) fieldOption {
 	}
 }
 
-func WithIgnoreWeb() fieldOption {
+func WithOnlyCLI() fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.WebConfig.Ignore = true
+		return o
+	}
+}
+
+func WithIsOps() fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.WebConfig.Ops = true
 		return o
 	}
 }
