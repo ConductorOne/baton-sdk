@@ -22,6 +22,12 @@
                     }
                 ]
             }
+        },
+        "Constraints": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/Constraint"
+            }
         }
     },
     "$defs": {
@@ -194,6 +200,39 @@
                 "Placeholder": {
                     "type": "string",
                     "description": "The placeholder of the Connector."
+                }
+            }
+        },
+        "Constraint": {
+            "type": "object",
+            "required": [
+                "Kind",
+                "Fields"
+            ],
+            "properties": {
+                "Kind": {
+                    "type": "string",
+                    "enum": [
+                        "INVALID",
+                        "REQUIRED_TOGETHER",
+                        "MUTUALLY_EXCLUSIVE",
+                        "AT_LEAST_ONE",
+                        "DEPENDENT_ON"
+                    ]
+                },
+                "Fields": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "ExpectedFields": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         }

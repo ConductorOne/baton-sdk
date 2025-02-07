@@ -7,13 +7,16 @@ import (
 )
 
 func TestConfiguration_MarshalJSON(t *testing.T) {
-	fields := []SchemaField{
-		StringField("ss", WithDescription("Field 1"), WithDefaultValue("default")),
-		IntField("if", WithDescription("Field 2"), WithDefaultValue(42)),
-		BoolField("bf", WithDescription("Field 3"), WithDefaultValue(true)),
-		StringSliceField("ssf", WithDescription("Field 4"), WithDefaultValue([]string{"default"})),
+	ss := StringField("ss", WithDescription("Field 1"), WithDefaultValue("default"))
+	intF := IntField("if", WithDescription("Field 2"), WithDefaultValue(42))
+	bf := BoolField("bf", WithDescription("Field 3"), WithDefaultValue(true))
+	ssf := StringSliceField("ssf", WithDescription("Field 4"), WithDefaultValue([]string{"default"}))
+
+	fields := []SchemaField{ss, intF, bf, ssf}
+	constraints := []SchemaFieldRelationship{
+		FieldsMutuallyExclusive(ss, intF),
+		FieldsRequiredTogether(bf, ssf),
 	}
-	constraints := []SchemaFieldRelationship{}
 
 	config := NewConfiguration(fields, constraints...)
 
