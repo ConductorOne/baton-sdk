@@ -125,6 +125,13 @@ func DefineConfiguration[T any](
 
 	mainCMD.AddCommand(cli.AdditionalCommands(connectorName, schema.Fields)...)
 
+	configCmd := &cobra.Command{
+		Use:   "config",
+		Short: "Get connector config",
+		RunE:  cli.MakeConfigSchemaCommand(ctx, connectorName, v, confschema, connector),
+	}
+	mainCMD.AddCommand(configCmd)
+
 	// NOTE(shackra): Set all values from Viper to the flags so
 	// that Cobra won't complain that a flag is missing in case we
 	// pass values through environment variables

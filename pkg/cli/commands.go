@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"reflect"
@@ -413,6 +414,26 @@ func MakeCapabilitiesCommand[T any](
 			return err
 		}
 
+		return nil
+	}
+}
+
+func MakeConfigSchemaCommand[T any](
+	ctx context.Context,
+	name string,
+	v *viper.Viper,
+	confschema field.Configuration,
+	getconnector GetConnectorFunc[T],
+) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		b, err := json.Marshal(confschema)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprint(os.Stdout, string(b))
+		if err != nil {
+			return err
+		}
 		return nil
 	}
 }
