@@ -143,10 +143,14 @@ func MakeMainCommand(
 				}
 				login, email := "", ""
 				if l, ok := profileMap["login"]; ok {
-					login = l.(string)
+					if l, ok := l.(string); ok {
+						login = l
+					}
 				}
 				if e, ok := profileMap["email"]; ok {
-					email = e.(string)
+					if e, ok := e.(string); ok {
+						email = e
+					}
 				}
 				profile, err := structpb.NewStruct(profileMap)
 				if err != nil {
