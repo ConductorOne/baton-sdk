@@ -1739,8 +1739,6 @@ func (m *UserTrait_FullName) validate(all bool) error {
 
 	// no validation rules for FamilyName
 
-	// no validation rules for MiddleName
-
 	// no validation rules for Prefix
 
 	// no validation rules for Suffix

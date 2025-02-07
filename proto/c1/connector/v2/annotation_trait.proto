@@ -64,7 +64,7 @@ message UserTrait {
   message FullName {
     string given_name = 1;
     string family_name = 2;
-    string middle_name = 3;
+    repeated string middle_names = 3;
     string prefix = 4;
     string suffix = 5;
   }
