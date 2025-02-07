@@ -1,0 +1,240 @@
+{
+    "$id": "https://conductorone.com/connector.schema.json",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Connector Schema",
+    "type": "object",
+    "required": [
+        "Fields"
+    ],
+    "properties": {
+        "Fields": {
+            "type": "array",
+            "items": {
+                "anyOf": [
+                    {
+                        "$ref": "#/$defs/StringField"
+                    },
+                    {
+                        "$ref": "#/$defs/BoolField"
+                    },
+                    {
+                        "$ref": "#/$defs/IntField"
+                    }
+                ]
+            }
+        },
+        "Constraints": {
+            "type": "array",
+            "items": {
+                "$ref": "#/$defs/Constraint"
+            }
+        }
+    },
+    "$defs": {
+        "IntField": {
+            "required": [
+                "FieldType"
+            ],
+            "allOf": [
+                {
+                    "$ref": "#/$defs/BaseField"
+                }
+            ],
+            "type": "object",
+            "properties": {
+                "FieldType": {
+                    "const": "IntField"
+                },
+                "DefaultValue": {
+                    "type": "integer"
+                }
+            }
+        },
+        "BoolField": {
+            "required": [
+                "FieldType"
+            ],
+            "allOf": [
+                {
+                    "$ref": "#/$defs/BaseField"
+                }
+            ],
+            "type": "object",
+            "properties": {
+                "FieldType": {
+                    "const": "BoolField"
+                },
+                "DefaultValue": {
+                    "type": "boolean"
+                }
+            }
+        },
+        "StringField": {
+            "required": [
+                "FieldType"
+            ],
+            "allOf": [
+                {
+                    "$ref": "#/$defs/BaseField"
+                }
+            ],
+            "type": "object",
+            "properties": {
+                "FieldType": {
+                    "const": "StringField"
+                },
+                "DefaultValue": {
+                    "type": "string"
+                },
+                "Rules": {
+                    "type": "object",
+                    "properties": {
+                        "Required": {
+                            "type": "boolean"
+                        },
+                        "Eq": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "Len": {
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "MinLen": {
+                            "minimum": 0,
+                            "type": "integer"
+                        },
+                        "MaxLen": {
+                            "minimum": 1,
+                            "type": "integer"
+                        },
+                        "Pattern": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "Prefix": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "Suffix": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "Contains": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "NotContains": {
+                            "minLength": 1,
+                            "type": "string"
+                        },
+                        "In": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "NotIn": {
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
+                        },
+                        "WellKnown": {
+                            "type": "string",
+                            "enum": [
+                                "UNKNOWN",
+                                "EMAIL",
+                                "HOSTNAME",
+                                "IP",
+                                "IPv4",
+                                "IPv6",
+                                "URI",
+                                "UUID"
+                            ]
+                        },
+                        "IgnoreEmpty": {
+                            "type": "boolean"
+                        }
+                    }
+                }
+            }
+        },
+        "BaseField": {
+            "type": "object",
+            "required": [
+                "FieldName",
+                "Description",
+                "CLIShortHand",
+                "DisplayName"
+            ],
+            "properties": {
+                "FieldName": {
+                    "type": "string",
+                    "description": "The name of the Connector."
+                },
+                "Description": {
+                    "type": "string",
+                    "description": "The description of the Connector."
+                },
+                "CLIShortHand": {
+                    "type": "string",
+                    "description": "The short hand for the CLI."
+                },
+                "Hidden": {
+                    "type": "boolean",
+                    "description": "The description of the Connector."
+                },
+                "Secret": {
+                    "type": "boolean",
+                    "description": "Is this a secret value"
+                },
+                "DisplayName": {
+                    "type": "string",
+                    "description": "The display name of the Connector."
+                },
+                "HelpURL": {
+                    "type": "string",
+                    "description": "The help URL of the Connector."
+                },
+                "Placeholder": {
+                    "type": "string",
+                    "description": "The placeholder of the Connector."
+                }
+            }
+        },
+        "Constraint": {
+            "type": "object",
+            "required": [
+                "Kind",
+                "Fields"
+            ],
+            "properties": {
+                "Kind": {
+                    "type": "string",
+                    "enum": [
+                        "INVALID",
+                        "REQUIRED_TOGETHER",
+                        "MUTUALLY_EXCLUSIVE",
+                        "AT_LEAST_ONE",
+                        "DEPENDENT_ON"
+                    ]
+                },
+                "Fields": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "ExpectedFields": {
+                    "type": "array",
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        }
+    }
+}

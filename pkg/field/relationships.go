@@ -1,5 +1,7 @@
 package field
 
+import "encoding/json"
+
 type Relationship int
 
 const (
@@ -13,7 +15,41 @@ const (
 type SchemaFieldRelationship struct {
 	Kind           Relationship
 	Fields         []SchemaField
-	ExpectedFields []SchemaField
+	ExpectedFields []SchemaField // Not really expected, just another field bag
+}
+
+func listFieldNames(fields []SchemaField) []string {
+	names := make([]string, len(fields))
+	for i, field := range fields {
+		names[i] = field.FieldName
+	}
+	return names
+}
+
+type SchemaFieldRelationshipSchema struct {
+	Kind            string   `json:"Kind"`
+	Fields          []string `json:"Fields"`
+	DependentFields []string `json:"DependentFields,omitempty"`
+}
+
+func (r SchemaFieldRelationship) MarshalJSON() ([]byte, error) {
+	kind := map[Relationship]string{
+		Invalid:           "INVALID",
+		RequiredTogether:  "REQUIRED_TOGETHER",
+		MutuallyExclusive: "MUTUALLY_EXCLUSIVE",
+		AtLeastOne:        "AT_LEAST_ONE",
+		Dependents:        "DEPENDENT_ON",
+	}[r.Kind]
+
+	df := listFieldNames(r.ExpectedFields)
+	if len(df) == 0 {
+		df = nil
+	}
+	return json.Marshal(SchemaFieldRelationshipSchema{
+		Kind:            kind,
+		Fields:          listFieldNames(r.Fields),
+		DependentFields: df,
+	})
 }
 
 func countFieldNames(fields ...SchemaField) int {

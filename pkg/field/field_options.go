@@ -17,6 +17,13 @@ func WithDescription(description string) fieldOption {
 	}
 }
 
+func WithDisplayName(displayName string) fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.WebConfig.DisplayName = displayName
+		return o
+	}
+}
+
 func WithDefaultValue(value any) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.DefaultValue = value
@@ -27,15 +34,36 @@ func WithDefaultValue(value any) fieldOption {
 
 func WithHidden(hidden bool) fieldOption {
 	return func(o SchemaField) SchemaField {
-		o.Hidden = hidden
+		o.CLIConfig.Hidden = hidden
+		o.WebConfig.Ignore = true
+		return o
+	}
+}
 
+func WithOnlyCLI() fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.WebConfig.Ignore = true
+		return o
+	}
+}
+
+func WithIsOps() fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.WebConfig.Ops = true
+		return o
+	}
+}
+
+func WithWebConf(wc WebConfig) fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.WebConfig = wc
 		return o
 	}
 }
 
 func WithShortHand(sh string) fieldOption {
 	return func(o SchemaField) SchemaField {
-		o.CLIShortHand = sh
+		o.CLIConfig.ShortHand = sh
 
 		return o
 	}
@@ -43,7 +71,7 @@ func WithShortHand(sh string) fieldOption {
 
 func WithPersistent(value bool) fieldOption {
 	return func(o SchemaField) SchemaField {
-		o.Persistent = value
+		o.CLIConfig.Persistent = value
 
 		return o
 	}

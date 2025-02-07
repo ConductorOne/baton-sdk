@@ -9,55 +9,88 @@ import (
 
 var WrongValueTypeErr = errors.New("unable to cast any to concrete type")
 
+type Variant string
+
+const (
+	StringVariant      Variant = "StringField"
+	BoolVariant        Variant = "BoolField"
+	IntVariant         Variant = "IntField"
+	StringSliceVariant Variant = "StringSliceField"
+)
+
+type WebFieldType string
+
+const (
+	Randomize               WebFieldType = "RANDOMIZE"
+	OAuth2                  WebFieldType = "OAUTH2"
+	ConnectorDerivedOptions WebFieldType = "CONNECTOR_DERIVED_OPTIONS"
+	FileUpload              WebFieldType = "FILE_UPLOAD"
+)
+
+type FieldRule struct {
+	s *StringRules
+	// e  *EnumRules
+	ss *RepeatedRules[StringRules]
+	b  *BoolRules
+	i  *IntRules
+}
+
+// UIHints should be JSON??
+
+type CLIConfig struct {
+	Required   bool
+	Ignore     bool
+	Hidden     bool
+	ShortHand  string
+	Persistent bool
+	FieldType  reflect.Kind // deprecated
+}
+
+type WebConfig struct {
+	DisplayName string
+	Required    bool
+	Ignore      bool
+	Hidden      bool
+	Secret      bool
+	Ops         bool
+	HelpURL     string
+	Placeholder string
+	FieldType   WebFieldType
+	// Generalize this
+	// AllowedExtensions []string
+}
+
 type SchemaField struct {
 	FieldName    string
-	FieldType    reflect.Kind
-	CLIShortHand string
 	Required     bool
-	Hidden       bool
-	Persistent   bool
-	Description  string
 	DefaultValue any
+	Description  string
+
+	Variant Variant
+	Rules   FieldRule
+
+	CLIConfig CLIConfig
+	WebConfig WebConfig
 }
 
-// Bool returns the default value as a boolean.
-func (s SchemaField) Bool() (bool, error) {
-	value, ok := s.DefaultValue.(bool)
-	if !ok {
-		return false, WrongValueTypeErr
-	}
-
-	return value, nil
+type SchemaTypes interface {
+	~string | ~bool | ~int | ~uint | ~[]string
 }
 
-// Int returns the default value as a integer.
-func (s SchemaField) Int() (int, error) {
-	value, ok := s.DefaultValue.(int)
-	if !ok {
-		return 0, WrongValueTypeErr
-	}
-
-	return value, nil
+func (s SchemaField) GetName() string {
+	return s.FieldName
 }
 
-// String returns the default value as a string.
-func (s SchemaField) String() (string, error) {
-	value, ok := s.DefaultValue.(string)
-	if !ok {
-		return "", WrongValueTypeErr
-	}
-
-	return value, nil
+func (s SchemaField) GetCLIShortHand() string {
+	return s.CLIConfig.ShortHand
 }
 
-// StringSlice returns the default value as a string array.
-func (s SchemaField) StringSlice() ([]string, error) {
-	value, ok := s.DefaultValue.([]string)
-	if !ok {
-		return nil, WrongValueTypeErr
-	}
+func (s SchemaField) IsPersistent() bool {
+	return s.CLIConfig.Persistent
+}
 
-	return value, nil
+func (s SchemaField) IsHidden() bool {
+	return s.CLIConfig.Hidden
 }
 
 func (s SchemaField) GetDescription() string {
@@ -75,19 +108,59 @@ func (s SchemaField) GetDescription() string {
 	return line
 }
 
-func (s SchemaField) GetName() string {
-	return s.FieldName
+func (s SchemaField) Validate(value any) error {
+	switch s.Variant {
+	case StringVariant:
+		v, ok := value.(string)
+		if !ok {
+			return WrongValueTypeErr
+		}
+		return s.Rules.s.Validate(v)
+	case BoolVariant:
+		v, ok := value.(bool)
+		if !ok {
+			return WrongValueTypeErr
+		}
+		return s.Rules.b.Validate(v)
+	case IntVariant:
+		v, ok := value.(int64)
+		if !ok {
+			return WrongValueTypeErr
+		}
+		return s.Rules.i.Validate(v)
+	case StringSliceVariant:
+		v, ok := value.([]string)
+		if !ok {
+			return WrongValueTypeErr
+		}
+		return s.Rules.ss.Validate(v)
+	default:
+		return fmt.Errorf("unknown field type %s", s.Variant)
+	}
 }
 
-func (s SchemaField) GetType() reflect.Kind {
-	return s.FieldType
+func toUpperCase(i string) string {
+	return strings.ReplaceAll(strings.ToUpper(i), "-", "_")
+}
+
+// SchemaField can't be generic over SchemaTypes without breaking backwards compatibility :-/
+func GetDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
+	value, ok := s.DefaultValue.(T)
+	if !ok {
+		return nil, WrongValueTypeErr
+	}
+	return &value, nil
 }
 
 func BoolField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
-		FieldName:    name,
-		FieldType:    reflect.Bool,
+		FieldName: name,
+		// FieldType:    reflect.Bool,
+		Variant:      BoolVariant,
 		DefaultValue: false,
+		Rules:        FieldRule{
+			// b: &BoolRules{},
+		},
 	}
 
 	for _, o := range optional {
@@ -95,7 +168,7 @@ func BoolField(name string, optional ...fieldOption) SchemaField {
 	}
 
 	if field.Required {
-		panic(fmt.Sprintf("requiring %s of type %s does not make sense", field.FieldName, field.FieldType))
+		panic(fmt.Sprintf("requiring %s of type %s does not make sense", field.FieldName, field.Variant))
 	}
 
 	return field
@@ -104,8 +177,15 @@ func BoolField(name string, optional ...fieldOption) SchemaField {
 func StringField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:    name,
-		FieldType:    reflect.String,
+		Variant:      StringVariant,
 		DefaultValue: "",
+		Rules:        FieldRule{
+			// s: &StringRules{},
+		},
+		WebConfig: WebConfig{},
+		CLIConfig: CLIConfig{
+			FieldType: reflect.String,
+		},
 	}
 
 	for _, o := range optional {
@@ -118,8 +198,15 @@ func StringField(name string, optional ...fieldOption) SchemaField {
 func IntField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:    name,
-		FieldType:    reflect.Int,
+		Variant:      IntVariant,
 		DefaultValue: 0,
+		Rules:        FieldRule{
+			// i: &IntRules{},
+		},
+		WebConfig: WebConfig{},
+		CLIConfig: CLIConfig{
+			FieldType: reflect.Int,
+		},
 	}
 
 	for _, o := range optional {
@@ -132,8 +219,15 @@ func IntField(name string, optional ...fieldOption) SchemaField {
 func StringSliceField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:    name,
-		FieldType:    reflect.Slice,
+		Variant:      StringSliceVariant,
 		DefaultValue: []string{},
+		Rules:        FieldRule{
+			// ss: &RepeatedRules[StringRules]{},
+		},
+		WebConfig: WebConfig{},
+		CLIConfig: CLIConfig{
+			FieldType: reflect.Slice,
+		},
 	}
 
 	for _, o := range optional {
@@ -143,6 +237,23 @@ func StringSliceField(name string, optional ...fieldOption) SchemaField {
 	return field
 }
 
-func toUpperCase(i string) string {
-	return strings.ReplaceAll(strings.ToUpper(i), "-", "_")
+func SelectField(name string, options []string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:    name,
+		Variant:      StringVariant,
+		DefaultValue: "",
+		Rules: FieldRule{
+			s: &StringRules{In: options},
+		},
+		WebConfig: WebConfig{},
+		CLIConfig: CLIConfig{
+			FieldType: reflect.String,
+		},
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
 }
