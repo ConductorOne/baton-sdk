@@ -28,7 +28,21 @@ func WithDefaultValue(value any) fieldOption {
 func WithHidden(hidden bool) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.CLIConfig.Hidden = hidden
+		o.WebConfig.Ignore = true
+		return o
+	}
+}
 
+func WithIgnoreWeb() fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.WebConfig.Ignore = true
+		return o
+	}
+}
+
+func WithWebConf(wc WebConfig) fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.WebConfig = wc
 		return o
 	}
 }

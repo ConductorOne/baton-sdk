@@ -67,58 +67,6 @@ func (r *IntRules) Validate(v int64) error {
 	return nil
 }
 
-type UintRules struct {
-	Required *bool    `json:"Required,omitempty"`
-	Eq       *uint64  `json:"Eq,omitempty"`
-	Lt       *uint64  `json:"Lt,omitempty"`
-	Lte      *uint64  `json:"Lte,omitempty"`
-	Gt       *uint64  `json:"Gt,omitempty"`
-	Gte      *uint64  `json:"Gte,omitempty"`
-	In       []uint64 `json:"In,omitempty"`
-	NotIn    []uint64 `json:"NotIn,omitempty"`
-}
-
-func (r *UintRules) Validate(v uint64) error {
-	if r == nil {
-		return nil
-	}
-	if r.Eq != nil && *r.Eq != v {
-		return fmt.Errorf("expected %v but got %v", *r.Eq, v)
-	}
-	if r.Lt != nil && v >= *r.Lt {
-		return fmt.Errorf("value must be less than %d but got %d", *r.Lt, v)
-	}
-	if r.Lte != nil && v > *r.Lte {
-		return fmt.Errorf("value must be less than or equal to %d but got %d", *r.Lte, v)
-	}
-	if r.Gt != nil && v <= *r.Gt {
-		return fmt.Errorf("value must be greater than %d but got %d", *r.Gt, v)
-	}
-	if r.Gte != nil && v < *r.Gte {
-		return fmt.Errorf("value must be greater than or equal to %d but got %d", *r.Gte, v)
-	}
-	if r.In != nil {
-		found := false
-		for _, val := range r.In {
-			if v == val {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("value must be one of %v but got %d", r.In, v)
-		}
-	}
-	if r.NotIn != nil {
-		for _, val := range r.NotIn {
-			if v == val {
-				return fmt.Errorf("value must not be one of %v but got %d", r.NotIn, v)
-			}
-		}
-	}
-	return nil
-}
-
 type BoolRules struct {
 	Eq *bool `json:"Eq,omitempty"`
 }
@@ -373,8 +321,6 @@ func Validate(c Configuration, v *viper.Viper) error {
 			isValid = f.Validate(v.GetBool(f.FieldName))
 		case IntVariant:
 			isValid = f.Validate(v.GetInt64(f.FieldName))
-		case UintVariant:
-			isValid = f.Validate(v.GetUint64(f.FieldName))
 		case StringVariant:
 			isValid = f.Validate(v.GetString(f.FieldName))
 		case StringSliceVariant:

@@ -231,23 +231,6 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 				command.Flags().
 					IntP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			}
-		case field.UintVariant:
-			value, err := field.GetDefaultValue[uint](f)
-			if err != nil {
-				return fmt.Errorf(
-					"field %s, %s: %w",
-					f.FieldName,
-					f.Variant,
-					err,
-				)
-			}
-			if f.IsPersistent() {
-				command.PersistentFlags().
-					UintP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
-			} else {
-				command.Flags().
-					UintP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
-			}
 		case field.StringVariant:
 			value, err := field.GetDefaultValue[string](f)
 			if err != nil {

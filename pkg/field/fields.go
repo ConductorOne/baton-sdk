@@ -15,7 +15,6 @@ const (
 	StringVariant      Variant = "StringField"
 	BoolVariant        Variant = "BoolField"
 	IntVariant         Variant = "IntField"
-	UintVariant        Variant = "UintField"
 	StringSliceVariant Variant = "StringSliceField"
 )
 
@@ -34,7 +33,6 @@ type FieldRule struct {
 	ss *RepeatedRules[StringRules]
 	b  *BoolRules
 	i  *IntRules
-	ui *UintRules
 }
 
 // UIHints should be JSON??
@@ -74,15 +72,6 @@ type SchemaField struct {
 
 type SchemaTypes interface {
 	~string | ~bool | ~int | ~uint | ~[]string
-}
-
-// SchemaField can't be generic over SchemaTypes without breaking backwards compatibility :-/
-func GetDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
-	value, ok := s.DefaultValue.(T)
-	if !ok {
-		return nil, WrongValueTypeErr
-	}
-	return &value, nil
 }
 
 func (s SchemaField) GetName() string {
@@ -136,12 +125,6 @@ func (s SchemaField) Validate(value any) error {
 			return WrongValueTypeErr
 		}
 		return s.Rules.i.Validate(v)
-	case UintVariant:
-		v, ok := value.(uint64)
-		if !ok {
-			return WrongValueTypeErr
-		}
-		return s.Rules.ui.Validate(v)
 	case StringSliceVariant:
 		v, ok := value.([]string)
 		if !ok {
@@ -155,6 +138,15 @@ func (s SchemaField) Validate(value any) error {
 
 func toUpperCase(i string) string {
 	return strings.ReplaceAll(strings.ToUpper(i), "-", "_")
+}
+
+// SchemaField can't be generic over SchemaTypes without breaking backwards compatibility :-/
+func GetDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
+	value, ok := s.DefaultValue.(T)
+	if !ok {
+		return nil, WrongValueTypeErr
+	}
+	return &value, nil
 }
 
 func BoolField(name string, optional ...fieldOption) SchemaField {

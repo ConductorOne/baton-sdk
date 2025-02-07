@@ -1,6 +1,52 @@
 package field
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
+
+func (c Configuration) MarshalJSON() ([]byte, error) {
+
+	o := struct {
+		Fields      []SchemaField             `json:"Fields"`
+		Constraints []SchemaFieldRelationship `json:"Constraints"`
+	}{
+		Fields:      []SchemaField{},
+		Constraints: []SchemaFieldRelationship{},
+	}
+
+	ignore := make(map[string]struct{})
+	for _, f := range c.Fields {
+		if f.WebConfig.Ignore {
+			ignore[f.FieldName] = struct{}{}
+			continue
+		}
+		o.Fields = append(o.Fields, f)
+	}
+
+	for _, rel := range c.Constraints {
+		v := true
+		for _, f := range rel.Fields {
+			if _, ok := ignore[f.FieldName]; ok {
+				v = false
+				break
+			}
+		}
+
+		for _, f := range rel.ExpectedFields {
+			if _, ok := ignore[f.FieldName]; ok {
+				v = false
+				break
+			}
+		}
+
+		if !v {
+			continue
+		}
+
+		o.Constraints = append(o.Constraints, rel)
+	}
+	return json.Marshal(o)
+}
 
 type baseFieldSchema struct {
 	FieldName   string  `json:"FieldName"`
@@ -26,12 +72,6 @@ type intFieldSchema struct {
 	DefaultValue *int      `json:"DefaultValue,omitempty"`
 }
 
-type uintFieldSchema struct {
-	baseFieldSchema
-	Rules        UintRules `json:"Rules,omitempty"`
-	DefaultValue *uint     `json:"DefaultValue,omitempty"`
-}
-
 type boolFieldSchema struct {
 	baseFieldSchema
 	Rules        *BoolRules `json:"Rules,omitempty"`
@@ -45,10 +85,6 @@ type stringSliceFieldSchema struct {
 }
 
 func (s SchemaField) MarshalJSON() ([]byte, error) {
-	if s.WebConfig.Ignore {
-		return []byte{}, nil
-	}
-
 	omitEmpty := func(s string) *string {
 		if s == "" {
 			return nil
@@ -126,25 +162,6 @@ func (s SchemaField) MarshalJSON() ([]byte, error) {
 					panic("unable to cast any default value to bool for a BoolField")
 				}
 				if !val {
-					return nil
-				}
-				return &val
-			}(),
-		})
-	case UintVariant:
-		b.FieldType = "UintField"
-		return json.Marshal(uintFieldSchema{
-			baseFieldSchema: b,
-			Rules:           *s.Rules.ui,
-			DefaultValue: func() *uint {
-				if s.DefaultValue == nil {
-					return nil
-				}
-				val, ok := s.DefaultValue.(uint)
-				if !ok {
-					panic("unable to cast any to uint for a UintField")
-				}
-				if val == 0 {
 					return nil
 				}
 				return &val
