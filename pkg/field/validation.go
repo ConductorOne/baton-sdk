@@ -380,7 +380,7 @@ func Validate(c Configuration, v *viper.Viper) error {
 		case StringSliceVariant:
 			isValid = f.Validate(v.GetStringSlice(f.FieldName))
 		default:
-			return fmt.Errorf("field %s has unsupported type %s", f.FieldName, f.FieldType)
+			return fmt.Errorf("field %s has unsupported type %s", f.FieldName, f.Variant)
 		}
 		if isValid != nil {
 			validationErrors.Push(isValid)

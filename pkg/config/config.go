@@ -203,16 +203,16 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 				return fmt.Errorf(
 					"field %s, %s: %w",
 					f.FieldName,
-					f.FieldType,
+					f.Variant,
 					err,
 				)
 			}
-			if f.Persistent {
+			if f.IsPersistent() {
 				command.PersistentFlags().
-					BoolP(f.FieldName, f.CLIShortHand, *value, f.GetDescription())
+					BoolP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			} else {
 				command.Flags().
-					BoolP(f.FieldName, f.CLIShortHand, *value, f.GetDescription())
+					BoolP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			}
 		case field.IntVariant:
 			value, err := field.GetDefaultValue[int](f)
@@ -220,16 +220,16 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 				return fmt.Errorf(
 					"field %s, %s: %w",
 					f.FieldName,
-					f.FieldType,
+					f.Variant,
 					err,
 				)
 			}
-			if f.Persistent {
+			if f.IsPersistent() {
 				command.PersistentFlags().
-					IntP(f.FieldName, f.CLIShortHand, *value, f.GetDescription())
+					IntP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			} else {
 				command.Flags().
-					IntP(f.FieldName, f.CLIShortHand, *value, f.GetDescription())
+					IntP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			}
 		case field.UintVariant:
 			value, err := field.GetDefaultValue[uint](f)
@@ -237,16 +237,16 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 				return fmt.Errorf(
 					"field %s, %s: %w",
 					f.FieldName,
-					f.FieldType,
+					f.Variant,
 					err,
 				)
 			}
-			if f.Persistent {
+			if f.IsPersistent() {
 				command.PersistentFlags().
-					UintP(f.FieldName, f.CLIShortHand, *value, f.GetDescription())
+					UintP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			} else {
 				command.Flags().
-					UintP(f.FieldName, f.CLIShortHand, *value, f.GetDescription())
+					UintP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			}
 		case field.StringVariant:
 			value, err := field.GetDefaultValue[string](f)
@@ -254,16 +254,16 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 				return fmt.Errorf(
 					"field %s, %s: %w",
 					f.FieldName,
-					f.FieldType,
+					f.Variant,
 					err,
 				)
 			}
-			if f.Persistent {
+			if f.IsPersistent() {
 				command.PersistentFlags().
-					StringP(f.FieldName, f.CLIShortHand, *value, f.GetDescription())
+					StringP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			} else {
 				command.Flags().
-					StringP(f.FieldName, f.CLIShortHand, *value, f.GetDescription())
+					StringP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			}
 
 		case field.StringSliceVariant:
@@ -272,34 +272,34 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 				return fmt.Errorf(
 					"field %s, %s: %w",
 					f.FieldName,
-					f.FieldType,
+					f.Variant,
 					err,
 				)
 			}
-			if f.Persistent {
+			if f.IsPersistent() {
 				command.PersistentFlags().
-					StringSliceP(f.FieldName, f.CLIShortHand, *value, f.GetDescription())
+					StringSliceP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			} else {
 				command.Flags().
-					StringSliceP(f.FieldName, f.CLIShortHand, *value, f.GetDescription())
+					StringSliceP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			}
 		default:
 			return fmt.Errorf(
 				"field %s, %s is not yet supported",
 				f.FieldName,
-				f.FieldType,
+				f.Variant,
 			)
 		}
 
 		// mark hidden
-		if f.Hidden {
-			if f.Persistent {
+		if f.IsHidden() {
+			if f.IsPersistent() {
 				err := command.PersistentFlags().MarkHidden(f.FieldName)
 				if err != nil {
 					return fmt.Errorf(
 						"cannot hide persistent field %s, %s: %w",
 						f.FieldName,
-						f.FieldType,
+						f.Variant,
 						err,
 					)
 				}
@@ -309,7 +309,7 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 					return fmt.Errorf(
 						"cannot hide field %s, %s: %w",
 						f.FieldName,
-						f.FieldType,
+						f.Variant,
 						err,
 					)
 				}
@@ -318,17 +318,17 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 
 		// mark required
 		if f.Required {
-			if f.FieldType == reflect.Bool {
-				return fmt.Errorf("requiring %s of type %s does not make sense", f.FieldName, f.FieldType)
+			if f.Variant == field.BoolVariant {
+				return fmt.Errorf("requiring %s of type %s does not make sense", f.FieldName, f.Variant)
 			}
 
-			if f.Persistent {
+			if f.IsPersistent() {
 				err := command.MarkPersistentFlagRequired(f.FieldName)
 				if err != nil {
 					return fmt.Errorf(
 						"cannot require persistent field %s, %s: %w",
 						f.FieldName,
-						f.FieldType,
+						f.Variant,
 						err,
 					)
 				}
@@ -338,7 +338,7 @@ func setFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 					return fmt.Errorf(
 						"cannot require field %s, %s: %w",
 						f.FieldName,
-						f.FieldType,
+						f.Variant,
 						err,
 					)
 				}

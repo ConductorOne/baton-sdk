@@ -1,7 +1,6 @@
 package field
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -10,19 +9,23 @@ import (
 
 var WrongValueTypeErr = errors.New("unable to cast any to concrete type")
 
-type SchemaTypes interface {
-	~string | ~bool | ~int | ~uint | ~[]string
-}
-
-type Variant uint
+type Variant string
 
 const (
-	InvalidVariant Variant = iota
-	StringVariant
-	BoolVariant
-	IntVariant
-	UintVariant
-	StringSliceVariant
+	StringVariant      Variant = "StringField"
+	BoolVariant        Variant = "BoolField"
+	IntVariant         Variant = "IntField"
+	UintVariant        Variant = "UintField"
+	StringSliceVariant Variant = "StringSliceField"
+)
+
+type WebFieldType string
+
+const (
+	Randomize               WebFieldType = "RANDOMIZE"
+	OAuth2                  WebFieldType = "OAUTH2"
+	ConnectorDerivedOptions WebFieldType = "CONNECTOR_DERIVED_OPTIONS"
+	FileUpload              WebFieldType = "FILE_UPLOAD"
 )
 
 type FieldRule struct {
@@ -34,68 +37,43 @@ type FieldRule struct {
 	ui *UintRules
 }
 
+// UIHints should be JSON??
+
+type CLIConfig struct {
+	Ignore     bool
+	Hidden     bool
+	ShortHand  string
+	Persistent bool
+	FieldType  reflect.Kind // deprecated
+}
+
+type WebConfig struct {
+	Ignore      bool
+	Hidden      bool
+	Secret      bool
+	Placeholder string
+	FieldType   WebFieldType
+	// Generalize this
+	// AllowedExtensions []string
+}
+
 type SchemaField struct {
-	FieldName string
-	// deprecated
-	FieldType    reflect.Kind
-	CLIShortHand string
+	FieldName    string
 	Required     bool
-	Hidden       bool
-	Persistent   bool
-	Description  string
-	Secret       bool
 	DefaultValue any
+	Description  string
+	DisplayName  string
+	HelpURL      string
 
 	Variant Variant
+	Rules   FieldRule
 
-	HelpURL     string
-	DisplayName string
-	Placeholder string
-	Rules       FieldRule
+	CLIConfig CLIConfig
+	WebConfig WebConfig
 }
 
-type BaseFieldSchema struct {
-	FieldName    string  `json:"FieldName"`
-	FieldType    string  `json:"FieldType"`
-	CLIShortHand *string `json:"CLIShortHand,omitempty"`
-	DisplayName  *string `json:"DisplayName,omitempty"`
-	Required     *bool   `json:"Required,omitempty"`
-	Hidden       *bool   `json:"Hidden,omitempty"`
-	Persistent   *bool   `json:"Persistent,omitempty"`
-	Description  *string `json:"Description,omitempty"`
-	Secret       *bool   `json:"Secret,omitempty"`
-	HelpURL      *string `json:"HelpURL,omitempty"`
-	Placeholder  *string `json:"Placeholder,omitempty"`
-}
-
-type StringFieldSchema struct {
-	BaseFieldSchema
-	Rules        StringRules `json:"Rules"`
-	DefaultValue *string     `json:"DefaultValue,omitempty"`
-}
-
-type IntFieldSchema struct {
-	BaseFieldSchema
-	Rules        IntRules `json:"Rules"`
-	DefaultValue *int     `json:"DefaultValue,omitempty"`
-}
-
-type UintFieldSchema struct {
-	BaseFieldSchema
-	Rules        UintRules `json:"Rules"`
-	DefaultValue *uint     `json:"DefaultValue,omitempty"`
-}
-
-type BoolFieldSchema struct {
-	BaseFieldSchema
-	Rules        BoolRules `json:"Rules"`
-	DefaultValue *bool     `json:"DefaultValue,omitempty"`
-}
-
-type StringSliceFieldSchema struct {
-	BaseFieldSchema
-	Rules        RepeatedRules[StringRules] `json:"Rules"`
-	DefaultValue *[]string                  `json:"DefaultValue,omitempty"`
+type SchemaTypes interface {
+	~string | ~bool | ~int | ~uint | ~[]string
 }
 
 // SchemaField can't be generic over SchemaTypes without breaking backwards compatibility :-/
@@ -107,133 +85,20 @@ func GetDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
 	return &value, nil
 }
 
-func (s SchemaField) MarshalJSON() ([]byte, error) {
+func (s SchemaField) GetName() string {
+	return s.FieldName
+}
 
-	omitEmpty := func(s string) *string {
-		if s == "" {
-			return nil
-		}
-		return &s
-	}
-	omitFalse := func(b bool) *bool {
-		if !b {
-			return nil
-		}
-		return &b
-	}
+func (s SchemaField) GetCLIShortHand() string {
+	return s.CLIConfig.ShortHand
+}
 
-	b := BaseFieldSchema{
-		FieldName:    s.FieldName,
-		CLIShortHand: omitEmpty(s.CLIShortHand),
-		Required:     omitFalse(s.Required),
-		Hidden:       omitFalse(s.Hidden),
-		Secret:       omitFalse(s.Secret),
-		Persistent:   omitFalse(s.Persistent),
-		Description:  omitEmpty(s.Description),
-		HelpURL:      omitEmpty(s.HelpURL),
-		DisplayName:  omitEmpty(s.DisplayName),
-		Placeholder:  omitEmpty(s.Placeholder),
-	}
-	switch s.Variant {
-	case StringVariant:
-		b.FieldType = "StringField"
-		return json.Marshal(StringFieldSchema{
-			BaseFieldSchema: b,
-			Rules:           *s.Rules.s,
-			DefaultValue: func() *string {
-				if s.DefaultValue == nil {
-					return nil
-				}
-				val, ok := s.DefaultValue.(string)
-				if !ok {
-					panic("unable to cast any to string for a stringfield")
-				}
-				if val == "" {
-					return nil
-				}
+func (s SchemaField) IsPersistent() bool {
+	return s.CLIConfig.Persistent
+}
 
-				return &val
-			}(),
-		})
-	case IntVariant:
-		b.FieldType = "IntField"
-		return json.Marshal(IntFieldSchema{
-			BaseFieldSchema: b,
-			Rules:           *s.Rules.i,
-			DefaultValue: func() *int {
-				if s.DefaultValue == nil {
-					return nil
-				}
-				val, ok := s.DefaultValue.(int)
-				if !ok {
-					panic("unable to cast any to int for an IntField")
-				}
-				if val == 0 {
-					return nil
-				}
-				return &val
-			}(),
-		})
-	case BoolVariant:
-		b.FieldType = "BoolField"
-		return json.Marshal(BoolFieldSchema{
-			BaseFieldSchema: b,
-			Rules:           *s.Rules.b,
-			DefaultValue: func() *bool {
-				if s.DefaultValue == nil {
-					return nil
-				}
-				val, ok := s.DefaultValue.(bool)
-				if !ok {
-					panic("unable to cast any default value to bool for a BoolField")
-				}
-				if !val {
-					return nil
-				}
-				return &val
-			}(),
-		})
-	case UintVariant:
-		b.FieldType = "UintField"
-		return json.Marshal(UintFieldSchema{
-			BaseFieldSchema: b,
-			Rules:           *s.Rules.ui,
-			DefaultValue: func() *uint {
-				if s.DefaultValue == nil {
-					return nil
-				}
-				val, ok := s.DefaultValue.(uint)
-				if !ok {
-					panic("unable to cast any to uint for a UintField")
-				}
-				if val == 0 {
-					return nil
-				}
-				return &val
-			}(),
-		})
-	case StringSliceVariant:
-		b.FieldType = "StringSliceField"
-		return json.Marshal(StringSliceFieldSchema{
-			BaseFieldSchema: b,
-			Rules:           *s.Rules.ss,
-			DefaultValue: func() *[]string {
-				if s.DefaultValue == nil {
-					return nil
-				}
-				val, ok := s.DefaultValue.([]string)
-				if !ok {
-					panic("unable to cast any to []string for a StringSliceField")
-				}
-				if len(val) == 0 {
-					return nil
-				}
-				return &val
-			}(),
-		})
-	default:
-		return json.Marshal(b)
-	}
+func (s SchemaField) IsHidden() bool {
+	return s.CLIConfig.Hidden
 }
 
 func (s SchemaField) GetDescription() string {
@@ -249,10 +114,6 @@ func (s SchemaField) GetDescription() string {
 	}
 
 	return line
-}
-
-func (s SchemaField) GetName() string {
-	return s.FieldName
 }
 
 func (s SchemaField) Validate(value any) error {
@@ -288,7 +149,7 @@ func (s SchemaField) Validate(value any) error {
 		}
 		return s.Rules.ss.Validate(v)
 	default:
-		return fmt.Errorf("unknown field variant %d", s.Variant)
+		return fmt.Errorf("unknown field type %s", s.Variant)
 	}
 }
 
@@ -302,8 +163,8 @@ func BoolField(name string, optional ...fieldOption) SchemaField {
 		// FieldType:    reflect.Bool,
 		Variant:      BoolVariant,
 		DefaultValue: false,
-		Rules: FieldRule{
-			b: &BoolRules{},
+		Rules:        FieldRule{
+			// b: &BoolRules{},
 		},
 	}
 
@@ -312,7 +173,7 @@ func BoolField(name string, optional ...fieldOption) SchemaField {
 	}
 
 	if field.Required {
-		panic(fmt.Sprintf("requiring %s of type %s does not make sense", field.FieldName, field.FieldType))
+		panic(fmt.Sprintf("requiring %s of type %s does not make sense", field.FieldName, field.Variant))
 	}
 
 	return field
@@ -321,11 +182,14 @@ func BoolField(name string, optional ...fieldOption) SchemaField {
 func StringField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:    name,
-		FieldType:    reflect.String,
 		Variant:      StringVariant,
 		DefaultValue: "",
-		Rules: FieldRule{
-			s: &StringRules{},
+		Rules:        FieldRule{
+			// s: &StringRules{},
+		},
+		WebConfig: WebConfig{},
+		CLIConfig: CLIConfig{
+			FieldType: reflect.String,
 		},
 	}
 
@@ -339,11 +203,14 @@ func StringField(name string, optional ...fieldOption) SchemaField {
 func IntField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:    name,
-		FieldType:    reflect.Int,
 		Variant:      IntVariant,
 		DefaultValue: 0,
-		Rules: FieldRule{
-			i: &IntRules{},
+		Rules:        FieldRule{
+			// i: &IntRules{},
+		},
+		WebConfig: WebConfig{},
+		CLIConfig: CLIConfig{
+			FieldType: reflect.Int,
 		},
 	}
 
@@ -357,11 +224,14 @@ func IntField(name string, optional ...fieldOption) SchemaField {
 func StringSliceField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:    name,
-		FieldType:    reflect.Slice,
 		Variant:      StringSliceVariant,
 		DefaultValue: []string{},
-		Rules: FieldRule{
-			ss: &RepeatedRules[StringRules]{},
+		Rules:        FieldRule{
+			// ss: &RepeatedRules[StringRules]{},
+		},
+		WebConfig: WebConfig{},
+		CLIConfig: CLIConfig{
+			FieldType: reflect.Slice,
 		},
 	}
 
@@ -375,33 +245,14 @@ func StringSliceField(name string, optional ...fieldOption) SchemaField {
 func SelectField(name string, options []string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:    name,
-		FieldType:    reflect.String,
 		Variant:      StringVariant,
 		DefaultValue: "",
 		Rules: FieldRule{
-			s: &StringRules{
-				In: options,
-			},
+			s: &StringRules{In: options},
 		},
-	}
-
-	for _, o := range optional {
-		field = o(field)
-	}
-
-	return field
-}
-
-func OptionsField(name string, options []string, optional ...fieldOption) SchemaField {
-	field := SchemaField{
-		FieldName:    name,
-		FieldType:    reflect.Slice,
-		Variant:      StringSliceVariant,
-		DefaultValue: "",
-		Rules: FieldRule{
-			s: &StringRules{
-				In: options,
-			},
+		WebConfig: WebConfig{},
+		CLIConfig: CLIConfig{
+			FieldType: reflect.String,
 		},
 	}
 

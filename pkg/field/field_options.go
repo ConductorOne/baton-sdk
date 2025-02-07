@@ -27,7 +27,7 @@ func WithDefaultValue(value any) fieldOption {
 
 func WithHidden(hidden bool) fieldOption {
 	return func(o SchemaField) SchemaField {
-		o.Hidden = hidden
+		o.CLIConfig.Hidden = hidden
 
 		return o
 	}
@@ -35,7 +35,7 @@ func WithHidden(hidden bool) fieldOption {
 
 func WithShortHand(sh string) fieldOption {
 	return func(o SchemaField) SchemaField {
-		o.CLIShortHand = sh
+		o.CLIConfig.ShortHand = sh
 
 		return o
 	}
@@ -43,7 +43,7 @@ func WithShortHand(sh string) fieldOption {
 
 func WithPersistent(value bool) fieldOption {
 	return func(o SchemaField) SchemaField {
-		o.Persistent = value
+		o.CLIConfig.Persistent = value
 
 		return o
 	}
