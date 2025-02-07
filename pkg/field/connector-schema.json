@@ -87,30 +87,39 @@
                             "type": "boolean"
                         },
                         "Eq": {
+                            "minLength": 1,
                             "type": "string"
                         },
                         "Len": {
+                            "minimum": 1,
                             "type": "integer"
                         },
                         "MinLen": {
+                            "minimum": 0,
                             "type": "integer"
                         },
                         "MaxLen": {
+                            "minimum": 1,
                             "type": "integer"
                         },
                         "Pattern": {
+                            "minLength": 1,
                             "type": "string"
                         },
                         "Prefix": {
+                            "minLength": 1,
                             "type": "string"
                         },
                         "Suffix": {
+                            "minLength": 1,
                             "type": "string"
                         },
                         "Contains": {
+                            "minLength": 1,
                             "type": "string"
                         },
                         "NotContains": {
+                            "minLength": 1,
                             "type": "string"
                         },
                         "In": {

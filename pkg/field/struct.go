@@ -1,7 +1,7 @@
 package field
 
 type Configuration struct {
-	Fields      []SchemaField
+	Fields      []SchemaField `json:"Fields"`
 	Constraints []SchemaFieldRelationship
 }
 

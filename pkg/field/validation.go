@@ -16,14 +16,14 @@ type ErrConfigurationMissingFields struct {
 }
 
 type IntRules struct {
-	Required bool
-	Eq       *int64
-	Lt       *int64
-	Lte      *int64
-	Gt       *int64
-	Gte      *int64
-	In       []int64
-	NotIn    []int64
+	Required *bool   `json:"Required,omitempty"`
+	Eq       *int64  `json:"Eq,omitempty"`
+	Lt       *int64  `json:"Lt,omitempty"`
+	Lte      *int64  `json:"Lte,omitempty"`
+	Gt       *int64  `json:"Gt,omitempty"`
+	Gte      *int64  `json:"Gte,omitempty"`
+	In       []int64 `json:"In,omitempty"`
+	NotIn    []int64 `json:"NotIn,omitempty"`
 }
 
 func (r *IntRules) Validate(v int64) error {
@@ -68,14 +68,14 @@ func (r *IntRules) Validate(v int64) error {
 }
 
 type UintRules struct {
-	Required bool
-	Eq       *uint64
-	Lt       *uint64
-	Lte      *uint64
-	Gt       *uint64
-	Gte      *uint64
-	In       []uint64
-	NotIn    []uint64
+	Required *bool    `json:"Required,omitempty"`
+	Eq       *uint64  `json:"Eq,omitempty"`
+	Lt       *uint64  `json:"Lt,omitempty"`
+	Lte      *uint64  `json:"Lte,omitempty"`
+	Gt       *uint64  `json:"Gt,omitempty"`
+	Gte      *uint64  `json:"Gte,omitempty"`
+	In       []uint64 `json:"In,omitempty"`
+	NotIn    []uint64 `json:"NotIn,omitempty"`
 }
 
 func (r *UintRules) Validate(v uint64) error {
@@ -120,7 +120,7 @@ func (r *UintRules) Validate(v uint64) error {
 }
 
 type BoolRules struct {
-	Eq *bool
+	Eq *bool `json:"Eq,omitempty"`
 }
 
 func (r *BoolRules) Validate(v bool) error {
@@ -134,20 +134,20 @@ func (r *BoolRules) Validate(v bool) error {
 }
 
 type StringRules struct {
-	Required    *bool
-	Eq          *string
-	Len         *uint64
-	MinLen      *uint64
-	MaxLen      *uint64
-	Pattern     *string
-	Prefix      *string
-	Suffix      *string
-	Contains    *string
-	NotContains *string
-	In          []string
-	NotIn       []string
-	WellKnown   *WellKnownStrings
-	IgnoreEmpty bool
+	Required    *bool             `json:"Required,omitempty"`
+	Eq          *string           `json:"Eq,omitempty"`
+	Len         *uint64           `json:"Len,omitempty"`
+	MinLen      *uint64           `json:"MinLen,omitempty"`
+	MaxLen      *uint64           `json:"MaxLen,omitempty"`
+	Pattern     *string           `json:"Pattern,omitempty"`
+	Prefix      *string           `json:"Prefix,omitempty"`
+	Suffix      *string           `json:"Suffix,omitempty"`
+	Contains    *string           `json:"Contains,omitempty"`
+	NotContains *string           `json:"NotContains,omitempty"`
+	In          []string          `json:"In,omitempty"`
+	NotIn       []string          `json:"NotIn,omitempty"`
+	WellKnown   *WellKnownStrings `json:"WellKnown,omitempty"`
+	IgnoreEmpty bool              `json:"IgnoreEmpty,omitempty"`
 }
 
 func (r *StringRules) Validate(v string) error {
@@ -262,18 +262,19 @@ func (r *StringRules) Validate(v string) error {
 }
 
 type EnumRules struct {
-	Eq    *int32
-	In    []int32
-	NotIn []int32
+	Required *bool   `json:"Required,omitempty"`
+	Eq       *int32  `json:"Eq,omitempty"`
+	In       []int32 `json:"In,omitempty"`
+	NotIn    []int32 `json:"NotIn,omitempty"`
 }
 
 type RepeatedRules[T StringRules] struct {
-	Required    *bool
-	MinItems    *uint64
-	MaxItems    *uint64
-	UniqueItems *bool
-	Items       *StringRules
-	IgnoreEmpty bool
+	Required    *bool        `json:"Required,omitempty"`
+	MinItems    *uint64      `json:"MinItems,omitempty"`
+	MaxItems    *uint64      `json:"MaxItems,omitempty"`
+	UniqueItems *bool        `json:"UniqueItems,omitempty"`
+	Items       *StringRules `json:"Items,omitempty"`
+	IgnoreEmpty bool         `json:"IgnoreEmpty,omitempty"`
 }
 
 type WellKnownStrings string
