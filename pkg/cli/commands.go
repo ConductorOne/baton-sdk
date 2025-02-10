@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
+	"text/template"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
@@ -414,6 +416,92 @@ func MakeCapabilitiesCommand[T any](
 			return err
 		}
 
+		return nil
+	}
+}
+
+const structTemplate = `package generated
+
+type {{ .StructName }} struct {
+	{{- range .Fields }}
+	{{ .FieldName }} {{ .FieldType }} ` + "`mapstructure:\"{{ .Tag }}\"`" + `
+	{{- end }}
+}
+`
+
+// Converts kebab-case ("foo-bar-baz") to PascalCase ("FooBarBaz")
+func ToPascalCase(input string) string {
+	words := strings.Split(input, "-") // Split into words
+	for i, word := range words {
+		words[i] = strings.Title(word) // Capitalize each word
+	}
+	return strings.Join(words, "") // Join without spaces
+}
+
+func structize(name string, conf field.Configuration) {
+	type Field struct {
+		FieldName string
+		FieldType string
+		Tag       string
+	}
+
+	type StructInfo struct {
+		StructName string
+		Fields     []Field
+	}
+
+	name = ToPascalCase(strings.Split(name, "baton-")[1] + "-config")
+
+	data := StructInfo{
+		StructName: name,
+		Fields:     []Field{},
+	}
+
+	for _, f := range conf.Fields {
+		if f.WebConfig.Ignore || f.WebConfig.Ops {
+			continue
+		}
+		nf := Field{
+			FieldName: ToPascalCase(f.FieldName),
+			Tag:       f.FieldName,
+		}
+		switch f.Variant {
+		case field.StringVariant:
+			nf.FieldType = "string"
+		case field.BoolVariant:
+			nf.FieldType = "bool"
+		case field.IntVariant:
+			nf.FieldType = "int"
+		case field.StringSliceVariant:
+			nf.FieldType = "[]string"
+		}
+		data.Fields = append(data.Fields, nf)
+	}
+
+	tmpl, err := template.New("struct").Parse(structTemplate)
+	if err != nil {
+		panic(err)
+	}
+
+	// Create output file
+	f, err := os.Create("conf.go")
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+
+	// Execute the template and write to file
+	if err := tmpl.Execute(f, data); err != nil {
+		panic(err)
+	}
+}
+
+func MakeConfigStruct(
+	ctx context.Context,
+	name string,
+	confschema field.Configuration) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		structize(name, confschema)
 		return nil
 	}
 }
