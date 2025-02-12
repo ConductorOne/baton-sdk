@@ -988,9 +988,9 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 	}
 
 	switch r := result.(type) {
-	case *v2.CreateAccountSuccessResult:
+	case *v2.CreateAccountResponse_SuccessResult:
 		rv.Result = &v2.CreateAccountResponse_Success{Success: r}
-	case *v2.CreateAccountActionRequiredResult:
+	case *v2.CreateAccountResponse_ActionRequiredResult:
 		rv.Result = &v2.CreateAccountResponse_ActionRequired{ActionRequired: r}
 	default:
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))

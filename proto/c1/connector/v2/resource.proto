@@ -245,9 +245,31 @@ message GetAccountCreationStatusResponse {
 }
 
 message CreateAccountResponse {
+  message SuccessResult {
+    Resource resource = 1;
+    bool is_create_account_result = 2;
+  }
+  
+  message PollForConfirmation {
+    google.protobuf.Duration polling_interval = 1;
+    google.protobuf.Duration timeout = 2;
+    string task_id = 3;
+    string description = 4;
+  }
+  
+  message ActionRequiredResult {
+    Resource resource = 1;
+    string message = 2;
+    bool is_create_account_result = 3;
+    oneof next_step {
+      ConnectorAccountCreationSchema requires_additional_input = 100;
+      PollForConfirmation poll_for_confirmation = 101;
+    }
+  }
+  
   oneof result {
-    CreateAccountSuccessResult success = 100;
-    CreateAccountActionRequiredResult action_required = 101;
+    SuccessResult success = 100;
+    ActionRequiredResult action_required = 101;
   }
   repeated EncryptedData encrypted_data = 2;
   repeated google.protobuf.Any annotations = 3;

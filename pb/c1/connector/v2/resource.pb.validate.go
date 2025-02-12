@@ -6199,6 +6199,536 @@ var _ interface {
 	ErrorName() string
 } = ConnectorAccountCreationSchema_MapFieldValidationError{}
 
+// Validate checks the field values on CreateAccountResponse_SuccessResult with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *CreateAccountResponse_SuccessResult) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CreateAccountResponse_SuccessResult
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// CreateAccountResponse_SuccessResultMultiError, or nil if none found.
+func (m *CreateAccountResponse_SuccessResult) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CreateAccountResponse_SuccessResult) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetResource()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CreateAccountResponse_SuccessResultValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CreateAccountResponse_SuccessResultValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CreateAccountResponse_SuccessResultValidationError{
+				field:  "Resource",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for IsCreateAccountResult
+
+	if len(errors) > 0 {
+		return CreateAccountResponse_SuccessResultMultiError(errors)
+	}
+
+	return nil
+}
+
+// CreateAccountResponse_SuccessResultMultiError is an error wrapping multiple
+// validation errors returned by
+// CreateAccountResponse_SuccessResult.ValidateAll() if the designated
+// constraints aren't met.
+type CreateAccountResponse_SuccessResultMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CreateAccountResponse_SuccessResultMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CreateAccountResponse_SuccessResultMultiError) AllErrors() []error { return m }
+
+// CreateAccountResponse_SuccessResultValidationError is the validation error
+// returned by CreateAccountResponse_SuccessResult.Validate if the designated
+// constraints aren't met.
+type CreateAccountResponse_SuccessResultValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CreateAccountResponse_SuccessResultValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CreateAccountResponse_SuccessResultValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CreateAccountResponse_SuccessResultValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CreateAccountResponse_SuccessResultValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CreateAccountResponse_SuccessResultValidationError) ErrorName() string {
+	return "CreateAccountResponse_SuccessResultValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CreateAccountResponse_SuccessResultValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCreateAccountResponse_SuccessResult.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CreateAccountResponse_SuccessResultValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CreateAccountResponse_SuccessResultValidationError{}
+
+// Validate checks the field values on
+// CreateAccountResponse_PollForConfirmation with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *CreateAccountResponse_PollForConfirmation) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// CreateAccountResponse_PollForConfirmation with the rules defined in the
+// proto definition for this message. If any rules are violated, the result is
+// a list of violation errors wrapped in
+// CreateAccountResponse_PollForConfirmationMultiError, or nil if none found.
+func (m *CreateAccountResponse_PollForConfirmation) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CreateAccountResponse_PollForConfirmation) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetPollingInterval()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CreateAccountResponse_PollForConfirmationValidationError{
+					field:  "PollingInterval",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CreateAccountResponse_PollForConfirmationValidationError{
+					field:  "PollingInterval",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetPollingInterval()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CreateAccountResponse_PollForConfirmationValidationError{
+				field:  "PollingInterval",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetTimeout()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CreateAccountResponse_PollForConfirmationValidationError{
+					field:  "Timeout",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CreateAccountResponse_PollForConfirmationValidationError{
+					field:  "Timeout",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTimeout()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CreateAccountResponse_PollForConfirmationValidationError{
+				field:  "Timeout",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for TaskId
+
+	// no validation rules for Description
+
+	if len(errors) > 0 {
+		return CreateAccountResponse_PollForConfirmationMultiError(errors)
+	}
+
+	return nil
+}
+
+// CreateAccountResponse_PollForConfirmationMultiError is an error wrapping
+// multiple validation errors returned by
+// CreateAccountResponse_PollForConfirmation.ValidateAll() if the designated
+// constraints aren't met.
+type CreateAccountResponse_PollForConfirmationMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CreateAccountResponse_PollForConfirmationMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CreateAccountResponse_PollForConfirmationMultiError) AllErrors() []error { return m }
+
+// CreateAccountResponse_PollForConfirmationValidationError is the validation
+// error returned by CreateAccountResponse_PollForConfirmation.Validate if the
+// designated constraints aren't met.
+type CreateAccountResponse_PollForConfirmationValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CreateAccountResponse_PollForConfirmationValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CreateAccountResponse_PollForConfirmationValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CreateAccountResponse_PollForConfirmationValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CreateAccountResponse_PollForConfirmationValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CreateAccountResponse_PollForConfirmationValidationError) ErrorName() string {
+	return "CreateAccountResponse_PollForConfirmationValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CreateAccountResponse_PollForConfirmationValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCreateAccountResponse_PollForConfirmation.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CreateAccountResponse_PollForConfirmationValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CreateAccountResponse_PollForConfirmationValidationError{}
+
+// Validate checks the field values on
+// CreateAccountResponse_ActionRequiredResult with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *CreateAccountResponse_ActionRequiredResult) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// CreateAccountResponse_ActionRequiredResult with the rules defined in the
+// proto definition for this message. If any rules are violated, the result is
+// a list of violation errors wrapped in
+// CreateAccountResponse_ActionRequiredResultMultiError, or nil if none found.
+func (m *CreateAccountResponse_ActionRequiredResult) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CreateAccountResponse_ActionRequiredResult) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetResource()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CreateAccountResponse_ActionRequiredResultValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CreateAccountResponse_ActionRequiredResultValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CreateAccountResponse_ActionRequiredResultValidationError{
+				field:  "Resource",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for Message
+
+	// no validation rules for IsCreateAccountResult
+
+	switch v := m.NextStep.(type) {
+	case *CreateAccountResponse_ActionRequiredResult_RequiresAdditionalInput:
+		if v == nil {
+			err := CreateAccountResponse_ActionRequiredResultValidationError{
+				field:  "NextStep",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetRequiresAdditionalInput()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CreateAccountResponse_ActionRequiredResultValidationError{
+						field:  "RequiresAdditionalInput",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CreateAccountResponse_ActionRequiredResultValidationError{
+						field:  "RequiresAdditionalInput",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetRequiresAdditionalInput()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CreateAccountResponse_ActionRequiredResultValidationError{
+					field:  "RequiresAdditionalInput",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *CreateAccountResponse_ActionRequiredResult_PollForConfirmation:
+		if v == nil {
+			err := CreateAccountResponse_ActionRequiredResultValidationError{
+				field:  "NextStep",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetPollForConfirmation()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CreateAccountResponse_ActionRequiredResultValidationError{
+						field:  "PollForConfirmation",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CreateAccountResponse_ActionRequiredResultValidationError{
+						field:  "PollForConfirmation",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetPollForConfirmation()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CreateAccountResponse_ActionRequiredResultValidationError{
+					field:  "PollForConfirmation",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	default:
+		_ = v // ensures v is used
+	}
+
+	if len(errors) > 0 {
+		return CreateAccountResponse_ActionRequiredResultMultiError(errors)
+	}
+
+	return nil
+}
+
+// CreateAccountResponse_ActionRequiredResultMultiError is an error wrapping
+// multiple validation errors returned by
+// CreateAccountResponse_ActionRequiredResult.ValidateAll() if the designated
+// constraints aren't met.
+type CreateAccountResponse_ActionRequiredResultMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CreateAccountResponse_ActionRequiredResultMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CreateAccountResponse_ActionRequiredResultMultiError) AllErrors() []error { return m }
+
+// CreateAccountResponse_ActionRequiredResultValidationError is the validation
+// error returned by CreateAccountResponse_ActionRequiredResult.Validate if
+// the designated constraints aren't met.
+type CreateAccountResponse_ActionRequiredResultValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CreateAccountResponse_ActionRequiredResultValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CreateAccountResponse_ActionRequiredResultValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CreateAccountResponse_ActionRequiredResultValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CreateAccountResponse_ActionRequiredResultValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CreateAccountResponse_ActionRequiredResultValidationError) ErrorName() string {
+	return "CreateAccountResponse_ActionRequiredResultValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CreateAccountResponse_ActionRequiredResultValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCreateAccountResponse_ActionRequiredResult.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CreateAccountResponse_ActionRequiredResultValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CreateAccountResponse_ActionRequiredResultValidationError{}
+
 // Validate checks the field values on EncryptionConfig_JWKPublicKeyConfig with
 // the rules defined in the proto definition for this message. If any rules
 // are violated, the first error encountered is returned, or nil if there are
