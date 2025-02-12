@@ -988,9 +988,9 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 	}
 
 	switch r := result.(type) {
-	case *v2.CreateAccountResponse_SuccessResult:
+	case *v2.CreateAccountSuccessResult:
 		rv.Result = &v2.CreateAccountResponse_Success{Success: r}
-	case *v2.CreateAccountResponse_ActionRequiredResult:
+	case *v2.CreateAccountActionRequiredResult:
 		rv.Result = &v2.CreateAccountResponse_ActionRequired{ActionRequired: r}
 	default:
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
@@ -1001,7 +1001,7 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 	return rv, nil
 }
 
-func (b *builderImpl) GetAccountCreationStatus(ctx context.Context, request *v2.GetAccountCreationStatusRequest) (*v2.CreateAccountResponse, error) {
+func (b *builderImpl) GetAccountCreationStatus(ctx context.Context, request *v2.GetAccountCreationStatusRequest) (*v2.GetAccountCreationStatusResponse, error) {
 	start := b.nowFunc()
 	tt := tasks.GetAccountCreationStatusType
 	l := ctxzap.Extract(ctx)
@@ -1018,9 +1018,9 @@ func (b *builderImpl) GetAccountCreationStatus(ctx context.Context, request *v2.
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-	return &v2.CreateAccountResponse{
-		Result: &v2.CreateAccountResponse_Success{
-			Success: &v2.CreateAccountResponse_SuccessResult{
+	return &v2.GetAccountCreationStatusResponse{
+		Result: &v2.GetAccountCreationStatusResponse_Success{
+			Success: &v2.CreateAccountSuccessResult{
 				Resource: resource,
 			},
 		},

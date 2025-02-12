@@ -229,7 +229,7 @@ const (
 // AccountCreationStatusService is used in conjunction with create account flows to confirm confirmation or status of created accounts
 // For example, github would send an invite as part of its flow and return "poll for invite acceptance" with a task id
 type AccountCreationStatusServiceClient interface {
-	GetAccountCreationStatus(ctx context.Context, in *GetAccountCreationStatusRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error)
+	GetAccountCreationStatus(ctx context.Context, in *GetAccountCreationStatusRequest, opts ...grpc.CallOption) (*GetAccountCreationStatusResponse, error)
 }
 
 type accountCreationStatusServiceClient struct {
@@ -240,9 +240,9 @@ func NewAccountCreationStatusServiceClient(cc grpc.ClientConnInterface) AccountC
 	return &accountCreationStatusServiceClient{cc}
 }
 
-func (c *accountCreationStatusServiceClient) GetAccountCreationStatus(ctx context.Context, in *GetAccountCreationStatusRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error) {
+func (c *accountCreationStatusServiceClient) GetAccountCreationStatus(ctx context.Context, in *GetAccountCreationStatusRequest, opts ...grpc.CallOption) (*GetAccountCreationStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CreateAccountResponse)
+	out := new(GetAccountCreationStatusResponse)
 	err := c.cc.Invoke(ctx, AccountCreationStatusService_GetAccountCreationStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -257,7 +257,7 @@ func (c *accountCreationStatusServiceClient) GetAccountCreationStatus(ctx contex
 // AccountCreationStatusService is used in conjunction with create account flows to confirm confirmation or status of created accounts
 // For example, github would send an invite as part of its flow and return "poll for invite acceptance" with a task id
 type AccountCreationStatusServiceServer interface {
-	GetAccountCreationStatus(context.Context, *GetAccountCreationStatusRequest) (*CreateAccountResponse, error)
+	GetAccountCreationStatus(context.Context, *GetAccountCreationStatusRequest) (*GetAccountCreationStatusResponse, error)
 }
 
 // UnimplementedAccountCreationStatusServiceServer should be embedded to have
@@ -267,7 +267,7 @@ type AccountCreationStatusServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedAccountCreationStatusServiceServer struct{}
 
-func (UnimplementedAccountCreationStatusServiceServer) GetAccountCreationStatus(context.Context, *GetAccountCreationStatusRequest) (*CreateAccountResponse, error) {
+func (UnimplementedAccountCreationStatusServiceServer) GetAccountCreationStatus(context.Context, *GetAccountCreationStatusRequest) (*GetAccountCreationStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountCreationStatus not implemented")
 }
 func (UnimplementedAccountCreationStatusServiceServer) testEmbeddedByValue() {}
