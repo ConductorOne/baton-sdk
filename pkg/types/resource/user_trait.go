@@ -114,6 +114,13 @@ func WithSSOStatus(ssoStatus *v2.UserTrait_SSOStatus) UserTraitOption {
 	}
 }
 
+func WithStructuredName(structuredName *v2.UserTrait_StructuredName) UserTraitOption {
+	return func(ut *v2.UserTrait) error {
+		ut.StructuredName = structuredName
+		return nil
+	}
+}
+
 // NewUserTrait creates a new `UserTrait`.
 func NewUserTrait(opts ...UserTraitOption) (*v2.UserTrait, error) {
 	userTrait := &v2.UserTrait{}
