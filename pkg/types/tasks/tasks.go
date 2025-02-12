@@ -18,8 +18,8 @@ func (tt TaskType) String() string {
 		return "none"
 	case CreateAccountType:
 		return "create_account"
-	case LookupResourceType:
-		return "lookup_resource"
+	case GetAccountCreationStatusType:
+		return "get_account_creation_status"
 	case CreateResourceType:
 		return "create_resource"
 	case DeleteResourceType:
@@ -82,5 +82,5 @@ const (
 	StartDebugging
 	BulkCreateTicketsType
 	BulkGetTicketsType
-	LookupResourceType
+	GetAccountCreationStatusType
 )

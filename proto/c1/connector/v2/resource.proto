@@ -76,23 +76,17 @@ service ResourcesService {
   rpc ListResources(ResourcesServiceListResourcesRequest) returns (ResourcesServiceListResourcesResponse);
 }
 
-// ResourceLookupService is used in conjunction with create account flows to confirm confirmation or status of created accounts
-// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with the token
-service ResourceLookupService {
-  // This will return the resource associated with the opaque token, or an error
-  rpc LookupResource(ResourceLookupServiceLookupResourceRequest) returns (ResourceLookupServiceLookupResourceResponse);
+// AccountCreationStatusService is used in conjunction with create account flows to confirm confirmation or status of created accounts
+// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with a task id
+service AccountCreationStatusService {
+  rpc GetAccountCreationStatus(GetAccountCreationStatusRequest) returns (CreateAccountResponse);
 }
 
-message ResourceLookupServiceLookupResourceRequest {
-  string lookup_token = 1 [(validate.rules).string = {
+message GetAccountCreationStatusRequest {
+  string task_id = 1 [(validate.rules).string = {
     min_bytes: 1
     max_bytes: 8192
   }];
-  repeated google.protobuf.Any annotations = 2;
-}
-
-message ResourceLookupServiceLookupResourceResponse {
-  Resource resource = 1;
   repeated google.protobuf.Any annotations = 2;
 }
 
@@ -228,8 +222,8 @@ message CreateAccountResponse {
 
   message PollForConfirmation {
     google.protobuf.Duration polling_interval = 1;
-    google.protobuf.Timestamp timeout = 2;
-    string polling_token = 3;
+    google.protobuf.Duration timeout = 2;
+    string task_id = 3;
     string description = 4;
   }
 

@@ -159,10 +159,10 @@ func MakeMainCommand(
 						v.GetString("rotate-credentials"),
 						v.GetString("rotate-credentials-type"),
 					))
-			case v.GetString("lookup-resource-token") != "":
+			case v.GetString("get-account-creation-status") != "":
 				opts = append(opts,
-					connectorrunner.WithOnDemandLookupResource(
-						v.GetString("lookup-resource-token"),
+					connectorrunner.WithOnDemandGetAccountCreationStatus(
+						v.GetString("get-account-creation-status"),
 					),
 				)
 			case v.GetBool("create-ticket"):
@@ -298,8 +298,8 @@ func MakeGRPCServerCommand(
 			copts = append(copts, connector.WithTicketingEnabled())
 		case v.GetBool("get-ticket"):
 			copts = append(copts, connector.WithTicketingEnabled())
-		case v.GetString("lookup-resource-token") != "":
-			copts = append(copts, connector.WithLookupEnabled())
+		case v.GetString("get-account-creation-task") != "":
+			copts = append(copts, connector.WithAccountCreationStatusEnabled())
 		}
 
 		cw, err := connector.NewWrapper(runCtx, c, copts...)

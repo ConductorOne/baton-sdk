@@ -21,7 +21,7 @@ var (
 		WithDescription("JSON-formatted object of map keys and values like '{ 'key': 'value' }'"),
 		WithPersistent(true))
 
-	lookupResourceField = StringField("lookup-resource-token", WithDescription("Opaque token provided by create-account calls to lookup if the new account has been created"),
+	accountCreationTaskField = StringField("account-creation-task", WithDescription("Opaque task ID returned by create-account calls to look up if the new account has been created"),
 		WithHidden(true),
 		WithPersistent(true))
 
@@ -74,7 +74,7 @@ var DefaultFields = []SchemaField{
 	logLevelField,
 	skipFullSync,
 	otelCollectorEndpoint,
-	lookupResourceField,
+	accountCreationTaskField,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {

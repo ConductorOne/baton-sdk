@@ -634,33 +634,31 @@ var _ interface {
 	ErrorName() string
 } = ResourceTypesServiceListResourceTypesResponseValidationError{}
 
-// Validate checks the field values on
-// ResourceLookupServiceLookupResourceRequest with the rules defined in the
-// proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *ResourceLookupServiceLookupResourceRequest) Validate() error {
+// Validate checks the field values on GetAccountCreationStatusRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GetAccountCreationStatusRequest) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on
-// ResourceLookupServiceLookupResourceRequest with the rules defined in the
-// proto definition for this message. If any rules are violated, the result is
-// a list of violation errors wrapped in
-// ResourceLookupServiceLookupResourceRequestMultiError, or nil if none found.
-func (m *ResourceLookupServiceLookupResourceRequest) ValidateAll() error {
+// ValidateAll checks the field values on GetAccountCreationStatusRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// GetAccountCreationStatusRequestMultiError, or nil if none found.
+func (m *GetAccountCreationStatusRequest) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *ResourceLookupServiceLookupResourceRequest) validate(all bool) error {
+func (m *GetAccountCreationStatusRequest) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	if l := len(m.GetLookupToken()); l < 1 || l > 8192 {
-		err := ResourceLookupServiceLookupResourceRequestValidationError{
-			field:  "LookupToken",
+	if l := len(m.GetTaskId()); l < 1 || l > 8192 {
+		err := GetAccountCreationStatusRequestValidationError{
+			field:  "TaskId",
 			reason: "value length must be between 1 and 8192 bytes, inclusive",
 		}
 		if !all {
@@ -676,7 +674,7 @@ func (m *ResourceLookupServiceLookupResourceRequest) validate(all bool) error {
 			switch v := interface{}(item).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ResourceLookupServiceLookupResourceRequestValidationError{
+					errors = append(errors, GetAccountCreationStatusRequestValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -684,7 +682,7 @@ func (m *ResourceLookupServiceLookupResourceRequest) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, ResourceLookupServiceLookupResourceRequestValidationError{
+					errors = append(errors, GetAccountCreationStatusRequestValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -693,7 +691,7 @@ func (m *ResourceLookupServiceLookupResourceRequest) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return ResourceLookupServiceLookupResourceRequestValidationError{
+				return GetAccountCreationStatusRequestValidationError{
 					field:  fmt.Sprintf("Annotations[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -704,20 +702,19 @@ func (m *ResourceLookupServiceLookupResourceRequest) validate(all bool) error {
 	}
 
 	if len(errors) > 0 {
-		return ResourceLookupServiceLookupResourceRequestMultiError(errors)
+		return GetAccountCreationStatusRequestMultiError(errors)
 	}
 
 	return nil
 }
 
-// ResourceLookupServiceLookupResourceRequestMultiError is an error wrapping
-// multiple validation errors returned by
-// ResourceLookupServiceLookupResourceRequest.ValidateAll() if the designated
-// constraints aren't met.
-type ResourceLookupServiceLookupResourceRequestMultiError []error
+// GetAccountCreationStatusRequestMultiError is an error wrapping multiple
+// validation errors returned by GetAccountCreationStatusRequest.ValidateAll()
+// if the designated constraints aren't met.
+type GetAccountCreationStatusRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m ResourceLookupServiceLookupResourceRequestMultiError) Error() string {
+func (m GetAccountCreationStatusRequestMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -726,12 +723,12 @@ func (m ResourceLookupServiceLookupResourceRequestMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m ResourceLookupServiceLookupResourceRequestMultiError) AllErrors() []error { return m }
+func (m GetAccountCreationStatusRequestMultiError) AllErrors() []error { return m }
 
-// ResourceLookupServiceLookupResourceRequestValidationError is the validation
-// error returned by ResourceLookupServiceLookupResourceRequest.Validate if
-// the designated constraints aren't met.
-type ResourceLookupServiceLookupResourceRequestValidationError struct {
+// GetAccountCreationStatusRequestValidationError is the validation error
+// returned by GetAccountCreationStatusRequest.Validate if the designated
+// constraints aren't met.
+type GetAccountCreationStatusRequestValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -739,24 +736,24 @@ type ResourceLookupServiceLookupResourceRequestValidationError struct {
 }
 
 // Field function returns field value.
-func (e ResourceLookupServiceLookupResourceRequestValidationError) Field() string { return e.field }
+func (e GetAccountCreationStatusRequestValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e ResourceLookupServiceLookupResourceRequestValidationError) Reason() string { return e.reason }
+func (e GetAccountCreationStatusRequestValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e ResourceLookupServiceLookupResourceRequestValidationError) Cause() error { return e.cause }
+func (e GetAccountCreationStatusRequestValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e ResourceLookupServiceLookupResourceRequestValidationError) Key() bool { return e.key }
+func (e GetAccountCreationStatusRequestValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e ResourceLookupServiceLookupResourceRequestValidationError) ErrorName() string {
-	return "ResourceLookupServiceLookupResourceRequestValidationError"
+func (e GetAccountCreationStatusRequestValidationError) ErrorName() string {
+	return "GetAccountCreationStatusRequestValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e ResourceLookupServiceLookupResourceRequestValidationError) Error() string {
+func (e GetAccountCreationStatusRequestValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -768,14 +765,14 @@ func (e ResourceLookupServiceLookupResourceRequestValidationError) Error() strin
 	}
 
 	return fmt.Sprintf(
-		"invalid %sResourceLookupServiceLookupResourceRequest.%s: %s%s",
+		"invalid %sGetAccountCreationStatusRequest.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = ResourceLookupServiceLookupResourceRequestValidationError{}
+var _ error = GetAccountCreationStatusRequestValidationError{}
 
 var _ interface {
 	Field() string
@@ -783,176 +780,7 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = ResourceLookupServiceLookupResourceRequestValidationError{}
-
-// Validate checks the field values on
-// ResourceLookupServiceLookupResourceResponse with the rules defined in the
-// proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *ResourceLookupServiceLookupResourceResponse) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on
-// ResourceLookupServiceLookupResourceResponse with the rules defined in the
-// proto definition for this message. If any rules are violated, the result is
-// a list of violation errors wrapped in
-// ResourceLookupServiceLookupResourceResponseMultiError, or nil if none found.
-func (m *ResourceLookupServiceLookupResourceResponse) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *ResourceLookupServiceLookupResourceResponse) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	if all {
-		switch v := interface{}(m.GetResource()).(type) {
-		case interface{ ValidateAll() error }:
-			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, ResourceLookupServiceLookupResourceResponseValidationError{
-					field:  "Resource",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		case interface{ Validate() error }:
-			if err := v.Validate(); err != nil {
-				errors = append(errors, ResourceLookupServiceLookupResourceResponseValidationError{
-					field:  "Resource",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		}
-	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
-		if err := v.Validate(); err != nil {
-			return ResourceLookupServiceLookupResourceResponseValidationError{
-				field:  "Resource",
-				reason: "embedded message failed validation",
-				cause:  err,
-			}
-		}
-	}
-
-	for idx, item := range m.GetAnnotations() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ResourceLookupServiceLookupResourceResponseValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, ResourceLookupServiceLookupResourceResponseValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return ResourceLookupServiceLookupResourceResponseValidationError{
-					field:  fmt.Sprintf("Annotations[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
-	if len(errors) > 0 {
-		return ResourceLookupServiceLookupResourceResponseMultiError(errors)
-	}
-
-	return nil
-}
-
-// ResourceLookupServiceLookupResourceResponseMultiError is an error wrapping
-// multiple validation errors returned by
-// ResourceLookupServiceLookupResourceResponse.ValidateAll() if the designated
-// constraints aren't met.
-type ResourceLookupServiceLookupResourceResponseMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m ResourceLookupServiceLookupResourceResponseMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m ResourceLookupServiceLookupResourceResponseMultiError) AllErrors() []error { return m }
-
-// ResourceLookupServiceLookupResourceResponseValidationError is the validation
-// error returned by ResourceLookupServiceLookupResourceResponse.Validate if
-// the designated constraints aren't met.
-type ResourceLookupServiceLookupResourceResponseValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e ResourceLookupServiceLookupResourceResponseValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e ResourceLookupServiceLookupResourceResponseValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e ResourceLookupServiceLookupResourceResponseValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e ResourceLookupServiceLookupResourceResponseValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e ResourceLookupServiceLookupResourceResponseValidationError) ErrorName() string {
-	return "ResourceLookupServiceLookupResourceResponseValidationError"
-}
-
-// Error satisfies the builtin error interface
-func (e ResourceLookupServiceLookupResourceResponseValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sResourceLookupServiceLookupResourceResponse.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = ResourceLookupServiceLookupResourceResponseValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = ResourceLookupServiceLookupResourceResponseValidationError{}
+} = GetAccountCreationStatusRequestValidationError{}
 
 // Validate checks the field values on CreateResourceRequest with the rules
 // defined in the proto definition for this message. If any rules are
@@ -5807,7 +5635,7 @@ func (m *CreateAccountResponse_PollForConfirmation) validate(all bool) error {
 		}
 	}
 
-	// no validation rules for PollingToken
+	// no validation rules for TaskId
 
 	// no validation rules for Description
 

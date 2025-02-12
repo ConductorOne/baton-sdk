@@ -219,107 +219,105 @@ var ResourcesService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ResourceLookupService_LookupResource_FullMethodName = "/c1.connector.v2.ResourceLookupService/LookupResource"
+	AccountCreationStatusService_GetAccountCreationStatus_FullMethodName = "/c1.connector.v2.AccountCreationStatusService/GetAccountCreationStatus"
 )
 
-// ResourceLookupServiceClient is the client API for ResourceLookupService service.
+// AccountCreationStatusServiceClient is the client API for AccountCreationStatusService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
-// ResourceLookupService is used in conjunction with create account flows to confirm confirmation or status of created accounts
-// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with the token
-type ResourceLookupServiceClient interface {
-	// This will return the resource associated with the opaque token, or an error
-	LookupResource(ctx context.Context, in *ResourceLookupServiceLookupResourceRequest, opts ...grpc.CallOption) (*ResourceLookupServiceLookupResourceResponse, error)
+// AccountCreationStatusService is used in conjunction with create account flows to confirm confirmation or status of created accounts
+// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with a task id
+type AccountCreationStatusServiceClient interface {
+	GetAccountCreationStatus(ctx context.Context, in *GetAccountCreationStatusRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error)
 }
 
-type resourceLookupServiceClient struct {
+type accountCreationStatusServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewResourceLookupServiceClient(cc grpc.ClientConnInterface) ResourceLookupServiceClient {
-	return &resourceLookupServiceClient{cc}
+func NewAccountCreationStatusServiceClient(cc grpc.ClientConnInterface) AccountCreationStatusServiceClient {
+	return &accountCreationStatusServiceClient{cc}
 }
 
-func (c *resourceLookupServiceClient) LookupResource(ctx context.Context, in *ResourceLookupServiceLookupResourceRequest, opts ...grpc.CallOption) (*ResourceLookupServiceLookupResourceResponse, error) {
+func (c *accountCreationStatusServiceClient) GetAccountCreationStatus(ctx context.Context, in *GetAccountCreationStatusRequest, opts ...grpc.CallOption) (*CreateAccountResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ResourceLookupServiceLookupResourceResponse)
-	err := c.cc.Invoke(ctx, ResourceLookupService_LookupResource_FullMethodName, in, out, cOpts...)
+	out := new(CreateAccountResponse)
+	err := c.cc.Invoke(ctx, AccountCreationStatusService_GetAccountCreationStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// ResourceLookupServiceServer is the server API for ResourceLookupService service.
-// All implementations should embed UnimplementedResourceLookupServiceServer
+// AccountCreationStatusServiceServer is the server API for AccountCreationStatusService service.
+// All implementations should embed UnimplementedAccountCreationStatusServiceServer
 // for forward compatibility.
 //
-// ResourceLookupService is used in conjunction with create account flows to confirm confirmation or status of created accounts
-// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with the token
-type ResourceLookupServiceServer interface {
-	// This will return the resource associated with the opaque token, or an error
-	LookupResource(context.Context, *ResourceLookupServiceLookupResourceRequest) (*ResourceLookupServiceLookupResourceResponse, error)
+// AccountCreationStatusService is used in conjunction with create account flows to confirm confirmation or status of created accounts
+// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with a task id
+type AccountCreationStatusServiceServer interface {
+	GetAccountCreationStatus(context.Context, *GetAccountCreationStatusRequest) (*CreateAccountResponse, error)
 }
 
-// UnimplementedResourceLookupServiceServer should be embedded to have
+// UnimplementedAccountCreationStatusServiceServer should be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedResourceLookupServiceServer struct{}
+type UnimplementedAccountCreationStatusServiceServer struct{}
 
-func (UnimplementedResourceLookupServiceServer) LookupResource(context.Context, *ResourceLookupServiceLookupResourceRequest) (*ResourceLookupServiceLookupResourceResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method LookupResource not implemented")
+func (UnimplementedAccountCreationStatusServiceServer) GetAccountCreationStatus(context.Context, *GetAccountCreationStatusRequest) (*CreateAccountResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountCreationStatus not implemented")
 }
-func (UnimplementedResourceLookupServiceServer) testEmbeddedByValue() {}
+func (UnimplementedAccountCreationStatusServiceServer) testEmbeddedByValue() {}
 
-// UnsafeResourceLookupServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to ResourceLookupServiceServer will
+// UnsafeAccountCreationStatusServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AccountCreationStatusServiceServer will
 // result in compilation errors.
-type UnsafeResourceLookupServiceServer interface {
-	mustEmbedUnimplementedResourceLookupServiceServer()
+type UnsafeAccountCreationStatusServiceServer interface {
+	mustEmbedUnimplementedAccountCreationStatusServiceServer()
 }
 
-func RegisterResourceLookupServiceServer(s grpc.ServiceRegistrar, srv ResourceLookupServiceServer) {
-	// If the following call pancis, it indicates UnimplementedResourceLookupServiceServer was
+func RegisterAccountCreationStatusServiceServer(s grpc.ServiceRegistrar, srv AccountCreationStatusServiceServer) {
+	// If the following call pancis, it indicates UnimplementedAccountCreationStatusServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&ResourceLookupService_ServiceDesc, srv)
+	s.RegisterService(&AccountCreationStatusService_ServiceDesc, srv)
 }
 
-func _ResourceLookupService_LookupResource_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ResourceLookupServiceLookupResourceRequest)
+func _AccountCreationStatusService_GetAccountCreationStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountCreationStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ResourceLookupServiceServer).LookupResource(ctx, in)
+		return srv.(AccountCreationStatusServiceServer).GetAccountCreationStatus(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ResourceLookupService_LookupResource_FullMethodName,
+		FullMethod: AccountCreationStatusService_GetAccountCreationStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ResourceLookupServiceServer).LookupResource(ctx, req.(*ResourceLookupServiceLookupResourceRequest))
+		return srv.(AccountCreationStatusServiceServer).GetAccountCreationStatus(ctx, req.(*GetAccountCreationStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// ResourceLookupService_ServiceDesc is the grpc.ServiceDesc for ResourceLookupService service.
+// AccountCreationStatusService_ServiceDesc is the grpc.ServiceDesc for AccountCreationStatusService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var ResourceLookupService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "c1.connector.v2.ResourceLookupService",
-	HandlerType: (*ResourceLookupServiceServer)(nil),
+var AccountCreationStatusService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.connector.v2.AccountCreationStatusService",
+	HandlerType: (*AccountCreationStatusServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "LookupResource",
-			Handler:    _ResourceLookupService_LookupResource_Handler,
+			MethodName: "GetAccountCreationStatus",
+			Handler:    _AccountCreationStatusService_GetAccountCreationStatus_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

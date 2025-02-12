@@ -678,7 +678,7 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
-	case *Task_LookupResource:
+	case *Task_GetAccountCreationStatus:
 		if v == nil {
 			err := TaskValidationError{
 				field:  "TaskType",
@@ -691,11 +691,11 @@ func (m *Task) validate(all bool) error {
 		}
 
 		if all {
-			switch v := interface{}(m.GetLookupResource()).(type) {
+			switch v := interface{}(m.GetGetAccountCreationStatus()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
 					errors = append(errors, TaskValidationError{
-						field:  "LookupResource",
+						field:  "GetAccountCreationStatus",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -703,16 +703,16 @@ func (m *Task) validate(all bool) error {
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
 					errors = append(errors, TaskValidationError{
-						field:  "LookupResource",
+						field:  "GetAccountCreationStatus",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
 				}
 			}
-		} else if v, ok := interface{}(m.GetLookupResource()).(interface{ Validate() error }); ok {
+		} else if v, ok := interface{}(m.GetGetAccountCreationStatus()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
 				return TaskValidationError{
-					field:  "LookupResource",
+					field:  "GetAccountCreationStatus",
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
@@ -4032,44 +4032,44 @@ var _ interface {
 	ErrorName() string
 } = Task_CreateAccountTaskValidationError{}
 
-// Validate checks the field values on Task_LookupResourceTask with the rules
-// defined in the proto definition for this message. If any rules are
+// Validate checks the field values on Task_AccountCreationStatusTask with the
+// rules defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
-func (m *Task_LookupResourceTask) Validate() error {
+func (m *Task_AccountCreationStatusTask) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on Task_LookupResourceTask with the
-// rules defined in the proto definition for this message. If any rules are
-// violated, the result is a list of violation errors wrapped in
-// Task_LookupResourceTaskMultiError, or nil if none found.
-func (m *Task_LookupResourceTask) ValidateAll() error {
+// ValidateAll checks the field values on Task_AccountCreationStatusTask with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// Task_AccountCreationStatusTaskMultiError, or nil if none found.
+func (m *Task_AccountCreationStatusTask) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *Task_LookupResourceTask) validate(all bool) error {
+func (m *Task_AccountCreationStatusTask) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	// no validation rules for LookupToken
+	// no validation rules for TaskId
 
 	if len(errors) > 0 {
-		return Task_LookupResourceTaskMultiError(errors)
+		return Task_AccountCreationStatusTaskMultiError(errors)
 	}
 
 	return nil
 }
 
-// Task_LookupResourceTaskMultiError is an error wrapping multiple validation
-// errors returned by Task_LookupResourceTask.ValidateAll() if the designated
-// constraints aren't met.
-type Task_LookupResourceTaskMultiError []error
+// Task_AccountCreationStatusTaskMultiError is an error wrapping multiple
+// validation errors returned by Task_AccountCreationStatusTask.ValidateAll()
+// if the designated constraints aren't met.
+type Task_AccountCreationStatusTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m Task_LookupResourceTaskMultiError) Error() string {
+func (m Task_AccountCreationStatusTaskMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -4078,11 +4078,12 @@ func (m Task_LookupResourceTaskMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m Task_LookupResourceTaskMultiError) AllErrors() []error { return m }
+func (m Task_AccountCreationStatusTaskMultiError) AllErrors() []error { return m }
 
-// Task_LookupResourceTaskValidationError is the validation error returned by
-// Task_LookupResourceTask.Validate if the designated constraints aren't met.
-type Task_LookupResourceTaskValidationError struct {
+// Task_AccountCreationStatusTaskValidationError is the validation error
+// returned by Task_AccountCreationStatusTask.Validate if the designated
+// constraints aren't met.
+type Task_AccountCreationStatusTaskValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -4090,24 +4091,24 @@ type Task_LookupResourceTaskValidationError struct {
 }
 
 // Field function returns field value.
-func (e Task_LookupResourceTaskValidationError) Field() string { return e.field }
+func (e Task_AccountCreationStatusTaskValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e Task_LookupResourceTaskValidationError) Reason() string { return e.reason }
+func (e Task_AccountCreationStatusTaskValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e Task_LookupResourceTaskValidationError) Cause() error { return e.cause }
+func (e Task_AccountCreationStatusTaskValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e Task_LookupResourceTaskValidationError) Key() bool { return e.key }
+func (e Task_AccountCreationStatusTaskValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e Task_LookupResourceTaskValidationError) ErrorName() string {
-	return "Task_LookupResourceTaskValidationError"
+func (e Task_AccountCreationStatusTaskValidationError) ErrorName() string {
+	return "Task_AccountCreationStatusTaskValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e Task_LookupResourceTaskValidationError) Error() string {
+func (e Task_AccountCreationStatusTaskValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -4119,14 +4120,14 @@ func (e Task_LookupResourceTaskValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sTask_LookupResourceTask.%s: %s%s",
+		"invalid %sTask_AccountCreationStatusTask.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = Task_LookupResourceTaskValidationError{}
+var _ error = Task_AccountCreationStatusTaskValidationError{}
 
 var _ interface {
 	Field() string
@@ -4134,7 +4135,7 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = Task_LookupResourceTaskValidationError{}
+} = Task_AccountCreationStatusTaskValidationError{}
 
 // Validate checks the field values on Task_CreateResourceTask with the rules
 // defined in the proto definition for this message. If any rules are

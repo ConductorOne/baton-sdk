@@ -62,8 +62,8 @@ type AccountManager interface {
 	CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error)
 }
 
-type ResourceLookupManager interface {
-	LookupResource(ctx context.Context, lookupToken string) (*v2.Resource, annotations.Annotations, error)
+type AccountCreationStatusManager interface {
+	GetAccountCreationStatus(ctx context.Context, taskId string) (*v2.Resource, annotations.Annotations, error)
 }
 
 type CredentialManager interface {
@@ -91,19 +91,19 @@ type ConnectorBuilder interface {
 }
 
 type builderImpl struct {
-	resourceBuilders       map[string]ResourceSyncer
-	resourceProvisioners   map[string]ResourceProvisioner
-	resourceProvisionersV2 map[string]ResourceProvisionerV2
-	resourceManagers       map[string]ResourceManager
-	accountManager         AccountManager
-	resourceLookupManager  ResourceLookupManager
-	credentialManagers     map[string]CredentialManager
-	eventFeed              EventProvider
-	cb                     ConnectorBuilder
-	ticketManager          TicketManager
-	ticketingEnabled       bool
-	m                      *metrics.M
-	nowFunc                func() time.Time
+	resourceBuilders             map[string]ResourceSyncer
+	resourceProvisioners         map[string]ResourceProvisioner
+	resourceProvisionersV2       map[string]ResourceProvisionerV2
+	resourceManagers             map[string]ResourceManager
+	accountManager               AccountManager
+	accountCreationStatusManager AccountCreationStatusManager
+	credentialManagers           map[string]CredentialManager
+	eventFeed                    EventProvider
+	cb                           ConnectorBuilder
+	ticketManager                TicketManager
+	ticketingEnabled             bool
+	m                            *metrics.M
+	nowFunc                      func() time.Time
 }
 
 func (b *builderImpl) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketsRequest) (*v2.TicketsServiceBulkCreateTicketsResponse, error) {
@@ -301,16 +301,16 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	switch c := in.(type) {
 	case ConnectorBuilder:
 		ret := &builderImpl{
-			resourceBuilders:       make(map[string]ResourceSyncer),
-			resourceProvisioners:   make(map[string]ResourceProvisioner),
-			resourceProvisionersV2: make(map[string]ResourceProvisionerV2),
-			resourceManagers:       make(map[string]ResourceManager),
-			accountManager:         nil,
-			resourceLookupManager:  nil,
-			credentialManagers:     make(map[string]CredentialManager),
-			cb:                     c,
-			ticketManager:          nil,
-			nowFunc:                time.Now,
+			resourceBuilders:             make(map[string]ResourceSyncer),
+			resourceProvisioners:         make(map[string]ResourceProvisioner),
+			resourceProvisionersV2:       make(map[string]ResourceProvisionerV2),
+			resourceManagers:             make(map[string]ResourceManager),
+			accountManager:               nil,
+			accountCreationStatusManager: nil,
+			credentialManagers:           make(map[string]CredentialManager),
+			cb:                           c,
+			ticketManager:                nil,
+			nowFunc:                      time.Now,
 		}
 
 		err := ret.options(opts...)
@@ -371,11 +371,11 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 				ret.accountManager = accountManager
 			}
 
-			if resourceLookupManager, ok := rb.(ResourceLookupManager); ok {
-				if ret.resourceLookupManager != nil {
-					return nil, fmt.Errorf("error: duplicate resource type found for resource lookup manager %s", rType.Id)
+			if accountCreationStatusManager, ok := rb.(AccountCreationStatusManager); ok {
+				if ret.accountCreationStatusManager != nil {
+					return nil, fmt.Errorf("error: duplicate resource type found for account creation status manager %s", rType.Id)
 				}
-				ret.resourceLookupManager = resourceLookupManager
+				ret.accountCreationStatusManager = accountCreationStatusManager
 			}
 
 			if credentialManagers, ok := rb.(CredentialManager); ok {
@@ -1001,25 +1001,29 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 	return rv, nil
 }
 
-func (b *builderImpl) LookupResource(ctx context.Context, request *v2.ResourceLookupServiceLookupResourceRequest) (*v2.ResourceLookupServiceLookupResourceResponse, error) {
+func (b *builderImpl) GetAccountCreationStatus(ctx context.Context, request *v2.GetAccountCreationStatusRequest) (*v2.CreateAccountResponse, error) {
 	start := b.nowFunc()
-	tt := tasks.LookupResourceType
+	tt := tasks.GetAccountCreationStatusType
 	l := ctxzap.Extract(ctx)
-	if b.resourceLookupManager == nil {
-		l.Error("error: connector does not have resource lookup manager configured")
+	if b.accountCreationStatusManager == nil {
+		l.Error("error: connector does not have an account creation status manager configured")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, status.Error(codes.Unimplemented, "connector does not have resource lookup manager configured")
+		return nil, status.Error(codes.Unimplemented, "connector does not have an account creation status manager configured")
 	}
 
-	resource, annos, err := b.resourceLookupManager.LookupResource(ctx, request.LookupToken)
+	resource, annos, err := b.accountCreationStatusManager.GetAccountCreationStatus(ctx, request.TaskId)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, err
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-	return &v2.ResourceLookupServiceLookupResourceResponse{
-		Resource:    resource,
+	return &v2.CreateAccountResponse{
+		Result: &v2.CreateAccountResponse_Success{
+			Success: &v2.CreateAccountResponse_SuccessResult{
+				Resource: resource,
+			},
+		},
 		Annotations: annos,
 	}, nil
 }

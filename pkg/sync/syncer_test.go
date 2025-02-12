@@ -453,7 +453,7 @@ type mockConnector struct {
 	v2.GrantManagerServiceClient
 	v2.ResourceManagerServiceClient
 	v2.AccountManagerServiceClient
-	v2.ResourceLookupServiceClient
+	v2.AccountCreationStatusServiceClient
 	v2.CredentialManagerServiceClient
 	v2.EventServiceClient
 	v2.TicketsServiceClient

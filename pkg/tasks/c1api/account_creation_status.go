@@ -15,30 +15,30 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
-type lookupResourceHelpers interface {
+type accountCreationStatusHelpers interface {
 	ConnectorClient() types.ConnectorClient
 	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
 }
 
-type lookupResourceTaskHandler struct {
+type AccountCreationStatusTaskHandler struct {
 	task    *v1.Task
-	helpers lookupResourceHelpers
+	helpers accountCreationStatusHelpers
 }
 
-func (g *lookupResourceTaskHandler) HandleTask(ctx context.Context) error {
+func (g *AccountCreationStatusTaskHandler) HandleTask(ctx context.Context) error {
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.Id), zap.Stringer("task_type", tasks.GetType(g.task)))
 
-	t := g.task.GetLookupResource()
-	if t == nil || t.GetLookupToken() == "" {
+	t := g.task.GetGetAccountCreationStatus()
+	if t == nil || t.GetTaskId() == "" {
 		l.Error(
-			"lookup token was nil or empty",
+			"task ID was nil or empty",
 		)
-		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed lookup token task"), ErrTaskNonRetryable))
+		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed get account creation status task"), ErrTaskNonRetryable))
 	}
 
 	cc := g.helpers.ConnectorClient()
-	resp, err := cc.LookupResource(ctx, &v2.ResourceLookupServiceLookupResourceRequest{
-		LookupToken: t.GetLookupToken(),
+	resp, err := cc.GetAccountCreationStatus(ctx, &v2.GetAccountCreationStatusRequest{
+		TaskId: t.GetTaskId(),
 	})
 	if err != nil {
 		l.Error("failed looking up resource", zap.Error(err))
@@ -48,8 +48,8 @@ func (g *lookupResourceTaskHandler) HandleTask(ctx context.Context) error {
 	return g.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
 }
 
-func newLookupResourceTaskHandler(task *v1.Task, helpers lookupResourceHelpers) tasks.TaskHandler {
-	return &lookupResourceTaskHandler{
+func newAccountCreationStatusTaskHandler(task *v1.Task, helpers accountCreationStatusHelpers) tasks.TaskHandler {
+	return &AccountCreationStatusTaskHandler{
 		task:    task,
 		helpers: helpers,
 	}

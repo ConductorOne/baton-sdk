@@ -304,7 +304,7 @@ type runnerConfig struct {
 	listTicketSchemasConfig *listTicketSchemasConfig
 	getTicketConfig         *getTicketConfig
 	skipFullSync            bool
-	lookupResourceToken     string
+	accountCreationTaskId   string
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -427,10 +427,10 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string, profi
 	}
 }
 
-func WithOnDemandLookupResource(lookupToken string) Option {
+func WithOnDemandGetAccountCreationStatus(taskId string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
-		cfg.lookupResourceToken = lookupToken
+		cfg.accountCreationTaskId = taskId
 		return nil
 	}
 }
@@ -571,8 +571,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		wrapperOpts = append(wrapperOpts, connector.WithFullSyncDisabled())
 	}
 
-	if cfg.lookupResourceToken != "" {
-		wrapperOpts = append(wrapperOpts, connector.WithLookupEnabled())
+	if cfg.accountCreationTaskId != "" {
+		wrapperOpts = append(wrapperOpts, connector.WithAccountCreationStatusEnabled())
 	}
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
@@ -610,8 +610,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		case cfg.rotateCredentialsConfig != nil:
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
 
-		case cfg.lookupResourceToken != "":
-			tm = local.NewResourceLookerUpper(ctx, cfg.lookupResourceToken)
+		case cfg.accountCreationTaskId != "":
+			tm = local.NewAccountCreationStatuser(ctx, cfg.accountCreationTaskId)
 
 		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx)
