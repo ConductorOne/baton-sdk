@@ -1,4 +1,4 @@
-package resource_lookup
+package resourcelookup
 
 import (
 	"context"

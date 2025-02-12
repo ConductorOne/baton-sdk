@@ -6,7 +6,7 @@ import (
 	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	"github.com/conductorone/baton-sdk/pkg/resource_lookup"
+	"github.com/conductorone/baton-sdk/pkg/resourcelookup"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
@@ -35,7 +35,7 @@ func (m *localResourceLookuper) Next(ctx context.Context) (*v1.Task, time.Durati
 }
 
 func (m *localResourceLookuper) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
-	accountManager := resource_lookup.NewResourceLookupper(cc, m.lookupToken)
+	accountManager := resourcelookup.NewResourceLookupper(cc, m.lookupToken)
 
 	err := accountManager.Run(ctx)
 	if err != nil {
