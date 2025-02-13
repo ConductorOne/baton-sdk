@@ -304,6 +304,7 @@ type runnerConfig struct {
 	listTicketSchemasConfig *listTicketSchemasConfig
 	getTicketConfig         *getTicketConfig
 	skipFullSync            bool
+	accountCreationTaskId   string
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -422,6 +423,14 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string, profi
 			email:   email,
 			profile: profile,
 		}
+		return nil
+	}
+}
+
+func WithOnDemandGetAccountCreationStatus(taskId string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.accountCreationTaskId = taskId
 		return nil
 	}
 }
@@ -562,6 +571,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		wrapperOpts = append(wrapperOpts, connector.WithFullSyncDisabled())
 	}
 
+	if cfg.accountCreationTaskId != "" {
+		wrapperOpts = append(wrapperOpts, connector.WithAccountCreationStatusEnabled())
+	}
+
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {
 		return nil, err
@@ -596,6 +609,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.rotateCredentialsConfig != nil:
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
+
+		case cfg.accountCreationTaskId != "":
+			tm = local.NewAccountCreationStatuser(ctx, cfg.accountCreationTaskId)
 
 		case cfg.eventFeedConfig != nil:
 			tm = local.NewEventFeed(ctx)

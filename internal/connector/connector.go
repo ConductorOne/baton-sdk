@@ -43,6 +43,7 @@ type connectorClient struct {
 	connectorV2.GrantManagerServiceClient
 	connectorV2.ResourceManagerServiceClient
 	connectorV2.AccountManagerServiceClient
+	connectorV2.AccountCreationStatusServiceClient
 	connectorV2.CredentialManagerServiceClient
 	connectorV2.EventServiceClient
 	connectorV2.TicketsServiceClient
@@ -53,13 +54,14 @@ var ErrConnectorNotImplemented = errors.New("client does not implement connector
 type wrapper struct {
 	mtx sync.RWMutex
 
-	server              types.ConnectorServer
-	client              types.ConnectorClient
-	serverStdin         io.WriteCloser
-	conn                *grpc.ClientConn
-	provisioningEnabled bool
-	ticketingEnabled    bool
-	fullSyncDisabled    bool
+	server                          types.ConnectorServer
+	client                          types.ConnectorClient
+	serverStdin                     io.WriteCloser
+	conn                            *grpc.ClientConn
+	provisioningEnabled             bool
+	ticketingEnabled                bool
+	fullSyncDisabled                bool
+	getAccountCreationStatusEnabled bool
 
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
@@ -94,6 +96,13 @@ func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, w *wrapper) error {
 		w.provisioningEnabled = true
 
+		return nil
+	}
+}
+
+func WithAccountCreationStatusEnabled() Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.getAccountCreationStatusEnabled = true
 		return nil
 	}
 }
@@ -176,6 +185,10 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	} else {
 		noop := &noopTicketing{}
 		connectorV2.RegisterTicketsServiceServer(server, noop)
+	}
+
+	if cw.getAccountCreationStatusEnabled {
+		connectorV2.RegisterResourceManagerServiceServer(server, cw.server)
 	}
 
 	if cw.provisioningEnabled {

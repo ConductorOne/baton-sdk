@@ -37,6 +37,8 @@ type Provisioner struct {
 	createAccountEmail   string
 	createAccountProfile *structpb.Struct
 
+	createAccountTaskId string
+
 	deleteResourceID   string
 	deleteResourceType string
 
@@ -83,6 +85,8 @@ func (p *Provisioner) Run(ctx context.Context) error {
 		return p.deleteResource(ctx)
 	case p.rotateCredentialsId != "" && p.rotateCredentialsType != "":
 		return p.rotateCredentials(ctx)
+	case p.createAccountTaskId != "":
+		return p.getAccountCreationStatus(ctx)
 	default:
 		return errors.New("unknown provisioning action")
 	}
@@ -278,6 +282,26 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 	return nil
 }
 
+func (p *Provisioner) getAccountCreationStatus(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "Provisioner.getAccountCreationStatus")
+	defer span.End()
+
+	l := ctxzap.Extract(ctx)
+
+	resp, err := p.connector.GetAccountCreationStatus(ctx, &v2.GetAccountCreationStatusRequest{
+		TaskId:      p.createAccountTaskId,
+		Annotations: nil,
+	})
+	if err != nil {
+		l.Error("Failed to find create account task", zap.Error(err))
+		return err
+	}
+
+	l.Debug("Create account status result", zap.Any("resource", resp), zap.Any("annotations", resp.GetAnnotations()))
+
+	return nil
+}
+
 func (p *Provisioner) deleteResource(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.deleteResource")
 	defer span.End()
@@ -365,5 +389,12 @@ func NewCredentialRotator(c types.ConnectorClient, dbPath string, resourceId str
 		connector:             c,
 		rotateCredentialsId:   resourceId,
 		rotateCredentialsType: resourceType,
+	}
+}
+
+func NewAccountCreationStatuser(c types.ConnectorClient, taskId string) *Provisioner {
+	return &Provisioner{
+		connector:           c,
+		createAccountTaskId: taskId,
 	}
 }

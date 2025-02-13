@@ -253,6 +253,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newRevokeTaskHandler(task, tHelpers)
 	case taskTypes.CreateAccountType:
 		handler = newCreateAccountTaskHandler(task, tHelpers)
+	case taskTypes.GetAccountCreationStatusType:
+		handler = newAccountCreationStatusTaskHandler(task, tHelpers)
 	case taskTypes.CreateResourceType:
 		handler = newCreateResourceTaskHandler(task, tHelpers)
 	case taskTypes.DeleteResourceType:

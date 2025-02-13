@@ -219,6 +219,112 @@ var ResourcesService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
+	AccountCreationStatusService_GetAccountCreationStatus_FullMethodName = "/c1.connector.v2.AccountCreationStatusService/GetAccountCreationStatus"
+)
+
+// AccountCreationStatusServiceClient is the client API for AccountCreationStatusService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// AccountCreationStatusService is used in conjunction with create account flows to confirm confirmation or status of created accounts
+// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with a task id
+type AccountCreationStatusServiceClient interface {
+	GetAccountCreationStatus(ctx context.Context, in *GetAccountCreationStatusRequest, opts ...grpc.CallOption) (*GetAccountCreationStatusResponse, error)
+}
+
+type accountCreationStatusServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewAccountCreationStatusServiceClient(cc grpc.ClientConnInterface) AccountCreationStatusServiceClient {
+	return &accountCreationStatusServiceClient{cc}
+}
+
+func (c *accountCreationStatusServiceClient) GetAccountCreationStatus(ctx context.Context, in *GetAccountCreationStatusRequest, opts ...grpc.CallOption) (*GetAccountCreationStatusResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetAccountCreationStatusResponse)
+	err := c.cc.Invoke(ctx, AccountCreationStatusService_GetAccountCreationStatus_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// AccountCreationStatusServiceServer is the server API for AccountCreationStatusService service.
+// All implementations should embed UnimplementedAccountCreationStatusServiceServer
+// for forward compatibility.
+//
+// AccountCreationStatusService is used in conjunction with create account flows to confirm confirmation or status of created accounts
+// For example, github would send an invite as part of its flow and return "poll for invite acceptance" with a task id
+type AccountCreationStatusServiceServer interface {
+	GetAccountCreationStatus(context.Context, *GetAccountCreationStatusRequest) (*GetAccountCreationStatusResponse, error)
+}
+
+// UnimplementedAccountCreationStatusServiceServer should be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedAccountCreationStatusServiceServer struct{}
+
+func (UnimplementedAccountCreationStatusServiceServer) GetAccountCreationStatus(context.Context, *GetAccountCreationStatusRequest) (*GetAccountCreationStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountCreationStatus not implemented")
+}
+func (UnimplementedAccountCreationStatusServiceServer) testEmbeddedByValue() {}
+
+// UnsafeAccountCreationStatusServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to AccountCreationStatusServiceServer will
+// result in compilation errors.
+type UnsafeAccountCreationStatusServiceServer interface {
+	mustEmbedUnimplementedAccountCreationStatusServiceServer()
+}
+
+func RegisterAccountCreationStatusServiceServer(s grpc.ServiceRegistrar, srv AccountCreationStatusServiceServer) {
+	// If the following call pancis, it indicates UnimplementedAccountCreationStatusServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&AccountCreationStatusService_ServiceDesc, srv)
+}
+
+func _AccountCreationStatusService_GetAccountCreationStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountCreationStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AccountCreationStatusServiceServer).GetAccountCreationStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AccountCreationStatusService_GetAccountCreationStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AccountCreationStatusServiceServer).GetAccountCreationStatus(ctx, req.(*GetAccountCreationStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// AccountCreationStatusService_ServiceDesc is the grpc.ServiceDesc for AccountCreationStatusService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var AccountCreationStatusService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.connector.v2.AccountCreationStatusService",
+	HandlerType: (*AccountCreationStatusServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetAccountCreationStatus",
+			Handler:    _AccountCreationStatusService_GetAccountCreationStatus_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "c1/connector/v2/resource.proto",
+}
+
+const (
 	ResourceManagerService_CreateResource_FullMethodName = "/c1.connector.v2.ResourceManagerService/CreateResource"
 	ResourceManagerService_DeleteResource_FullMethodName = "/c1.connector.v2.ResourceManagerService/DeleteResource"
 )

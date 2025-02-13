@@ -3,9 +3,10 @@ package connector
 import (
 	"context"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 type noopProvisioner struct{}
