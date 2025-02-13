@@ -378,7 +378,7 @@ func TestStringRules_Validate(t *testing.T) {
 	})
 
 	t.Run("ignore empty value", func(t *testing.T) {
-		err := run("", &v1_conf.StringRules{IgnoreEmpty: true, Eq: sP("test")})
+		err := run("", &v1_conf.StringRules{Eq: sP("test")})
 		require.NoError(t, err)
 	})
 

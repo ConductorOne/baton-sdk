@@ -36,7 +36,7 @@ message Int64Rules {
 
     // IgnoreEmpty specifies that the validation rules of this field should be
     // evaluated only if the field is not empty
-    bool ignore_empty = 8;
+    bool validate_empty = 8;
     bool is_required = 9;
 }
 
@@ -75,7 +75,7 @@ message RepeatedRules {
 
     // IgnoreEmpty specifies that the validation rules of this field should be
     // evaluated only if the field is not empty
-    bool ignore_empty = 4;
+    bool validate_empty = 4;
     bool is_required = 5;
 }
 
@@ -95,7 +95,7 @@ message RepeatedStringRules {
     StringRules item_rules = 4;
     // IgnoreEmpty specifies that the validation rules of this field should be
     // evaluated only if the field is not empty
-    bool ignore_empty = 5;
+    bool validate_empty = 5;
     bool is_required = 6;
     // repeated string eq = 7;
 }
@@ -184,6 +184,6 @@ message StringRules {
     WellKnownString well_known = 12;
     // IgnoreEmpty specifies that the validation rules of this field should be
     // evaluated only if the field is not empty
-    bool ignore_empty = 26;
+    bool validate_empty = 26;
     bool is_required = 27;
 }

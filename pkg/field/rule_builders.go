@@ -1,6 +1,9 @@
 package field
 
 import (
+	"fmt"
+	"regexp"
+
 	v1_conf "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 )
 
@@ -47,8 +50,8 @@ func (b *IntRuler) NotIn(values []int64) *IntRuler {
 	return b
 }
 
-func (b *IntRuler) IgnoreEmpty(ignoreEmpty bool) *IntRuler {
-	b.rules.IgnoreEmpty = ignoreEmpty
+func (b *IntRuler) ValidateEmpty(value bool) *IntRuler {
+	b.rules.ValidateEmpty = value
 	return b
 }
 
@@ -94,6 +97,10 @@ func (b *StringRuler) MaxLen(value uint64) *StringRuler {
 }
 
 func (b *StringRuler) Pattern(value string) *StringRuler {
+	_, err := regexp.CompilePOSIX(value)
+	if err != nil {
+		panic(fmt.Errorf("invalid regex: %w", err))
+	}
 	b.rules.Pattern = &value
 	return b
 }
@@ -219,6 +226,11 @@ func (b *StringSliceRuler) MaxItems(value uint64) *StringSliceRuler {
 
 func (b *StringSliceRuler) Unique(unique bool) *StringSliceRuler {
 	b.rules.Unique = unique
+	return b
+}
+
+func (b *StringSliceRuler) ValidateEmpty(value bool) *StringSliceRuler {
+	b.rules.ValidateEmpty = value
 	return b
 }
 

@@ -28,6 +28,10 @@ func ValidateIntRules(r *v1_conf.Int64Rules, vInt int, name string) error {
 	if r.IsRequired && v == 0 {
 		return fmt.Errorf("field %s of type int is marked as required but it has a zero-value", name)
 	}
+
+	if !r.ValidateEmpty && v == 0 {
+		return nil
+	}
 	if r.Eq != nil && *r.Eq != v {
 		return fmt.Errorf("field %s: expected %v but got %v", name, *r.Eq, v)
 	}
@@ -135,7 +139,7 @@ func ValidateStringRules(r *v1_conf.StringRules, v string, name string) error {
 		return fmt.Errorf("field %s of type string is marked as required but it has a zero-value", name)
 	}
 
-	if r.IgnoreEmpty && v == "" {
+	if !r.ValidateEmpty && v == "" {
 		return nil
 	}
 
@@ -257,7 +261,7 @@ func ValidateRepeatedStringRules(r *v1_conf.RepeatedStringRules, v []string, nam
 		return fmt.Errorf("field %s of type []string is marked as required but it has a zero-value", name)
 	}
 
-	if r.IgnoreEmpty && len(v) == 0 {
+	if !r.ValidateEmpty && len(v) == 0 {
 		return nil
 	}
 

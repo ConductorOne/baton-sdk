@@ -57,7 +57,7 @@ func (m *Int64Rules) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for IgnoreEmpty
+	// no validation rules for ValidateEmpty
 
 	// no validation rules for IsRequired
 
@@ -285,7 +285,7 @@ func (m *RepeatedRules) validate(all bool) error {
 
 	// no validation rules for Unique
 
-	// no validation rules for IgnoreEmpty
+	// no validation rules for ValidateEmpty
 
 	// no validation rules for IsRequired
 
@@ -556,7 +556,7 @@ func (m *RepeatedStringRules) validate(all bool) error {
 		}
 	}
 
-	// no validation rules for IgnoreEmpty
+	// no validation rules for ValidateEmpty
 
 	// no validation rules for IsRequired
 
@@ -672,7 +672,7 @@ func (m *StringRules) validate(all bool) error {
 
 	// no validation rules for WellKnown
 
-	// no validation rules for IgnoreEmpty
+	// no validation rules for ValidateEmpty
 
 	// no validation rules for IsRequired
 
