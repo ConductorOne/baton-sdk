@@ -327,6 +327,41 @@ func TestStringRules_Validate(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("value contains only digits", func(t *testing.T) {
+		err := run("12345", &v1_conf.StringRules{Pattern: sP("^[0-9]+$")})
+		require.NoError(t, err)
+	})
+
+	t.Run("value starts with 'abc'", func(t *testing.T) {
+		err := run("abcdef", &v1_conf.StringRules{Pattern: sP("^abc.*")})
+		require.NoError(t, err)
+	})
+
+	t.Run("value ends with 'xyz'", func(t *testing.T) {
+		err := run("pqrxyz", &v1_conf.StringRules{Pattern: sP(".*xyz$")})
+		require.NoError(t, err)
+	})
+
+	t.Run("value matches a specific format", func(t *testing.T) {
+		err := run("2022-01-01", &v1_conf.StringRules{Pattern: sP("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")})
+		require.NoError(t, err)
+	})
+
+	t.Run("value does not match pattern", func(t *testing.T) {
+		err := run("123", &v1_conf.StringRules{Pattern: sP("^[a-z]+$")})
+		require.EqualError(t, err, "field TestField: value must match pattern ^[a-z]+$ but got '123'")
+	})
+
+	t.Run("value does not match pattern with special characters", func(t *testing.T) {
+		err := run("123@", &v1_conf.StringRules{Pattern: sP("^[a-z]+$")})
+		require.EqualError(t, err, "field TestField: value must match pattern ^[a-z]+$ but got '123@'")
+	})
+
+	t.Run("value does not match pattern with multiple conditions", func(t *testing.T) {
+		err := run("123", &v1_conf.StringRules{Pattern: sP("^[a-z]+$")})
+		require.EqualError(t, err, "field TestField: value must match pattern ^[a-z]+$ but got '123'")
+	})
+
 	t.Run("required field with zero-value", func(t *testing.T) {
 		err := run("", &v1_conf.StringRules{IsRequired: true})
 		require.EqualError(t, err, "field TestField of type string is marked as required but it has a zero-value")
