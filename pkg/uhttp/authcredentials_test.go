@@ -123,7 +123,7 @@ func TestHelpers_OAuth2_ClientCredentials_GetClient(t *testing.T) {
 		require.NotNil(t, client)
 
 		// To invoke token request
-		client.Get("https://test-url") //nolint:errcheck,revive,bodyclose,noctx //nolint
+		client.Get("https://test-url") //nolint:errcheck,bodyclose,noctx //nolint
 
 		require.True(t, hitServer)
 	}
@@ -190,7 +190,7 @@ func TestHelpers_OAuth2_JWT_GetClient(t *testing.T) {
 		require.NotNil(t, client)
 
 		// To invoke token request
-		client.Get("https://test-url") //nolint:errcheck,revive,bodyclose,noctx //nolint
+		client.Get("https://test-url") //nolint:errcheck,bodyclose,noctx //nolint
 		require.True(t, hitServer)
 	}
 }
