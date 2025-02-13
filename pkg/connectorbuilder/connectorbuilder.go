@@ -63,7 +63,7 @@ type AccountManager interface {
 }
 
 type AccountCreationStatusManager interface {
-	GetAccountCreationStatus(ctx context.Context, taskId string) (*v2.Resource, annotations.Annotations, error)
+	GetAccountCreationStatus(ctx context.Context, taskId string) (CreateAccountResponse, annotations.Annotations, error)
 }
 
 type CredentialManager interface {
@@ -1011,19 +1011,26 @@ func (b *builderImpl) GetAccountCreationStatus(ctx context.Context, request *v2.
 		return nil, status.Error(codes.Unimplemented, "connector does not have an account creation status manager configured")
 	}
 
-	resource, annos, err := b.accountCreationStatusManager.GetAccountCreationStatus(ctx, request.TaskId)
+	result, annos, err := b.accountCreationStatusManager.GetAccountCreationStatus(ctx, request.TaskId)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, err
 	}
 
-	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-	return &v2.GetAccountCreationStatusResponse{
-		Result: &v2.GetAccountCreationStatusResponse_Success{
-			Success: &v2.CreateAccountSuccessResult{
-				Resource: resource,
-			},
-		},
+	rv := &v2.GetAccountCreationStatusResponse{
 		Annotations: annos,
-	}, nil
+	}
+
+	switch r := result.(type) {
+	case *v2.CreateAccountSuccessResult:
+		rv.Result = &v2.GetAccountCreationStatusResponse_Success{Success: r}
+	case *v2.CreateAccountActionRequiredResult:
+		rv.Result = &v2.GetAccountCreationStatusResponse_ActionRequired{ActionRequired: r}
+	default:
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("unknown result type: %T", result))
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return rv, nil
 }

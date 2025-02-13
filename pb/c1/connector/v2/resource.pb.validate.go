@@ -2692,6 +2692,8 @@ func (m *PollForConfirmation) validate(all bool) error {
 
 	// no validation rules for Description
 
+	// no validation rules for IsCreateAccountResult
+
 	if len(errors) > 0 {
 		return PollForConfirmationMultiError(errors)
 	}

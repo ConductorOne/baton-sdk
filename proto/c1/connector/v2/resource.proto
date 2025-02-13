@@ -223,6 +223,7 @@ message PollForConfirmation {
   google.protobuf.Duration timeout = 2;
   string task_id = 3;
   string description = 4;
+  bool is_create_account_result = 5;
 }
 
 message CreateAccountActionRequiredResult {
