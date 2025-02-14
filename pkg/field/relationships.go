@@ -13,7 +13,7 @@ const (
 type SchemaFieldRelationship struct {
 	Kind           Relationship
 	Fields         []SchemaField
-	ExpectedFields []SchemaField
+	ExpectedFields []SchemaField // Not really expected, just another field bag.
 }
 
 func countFieldNames(fields ...SchemaField) int {

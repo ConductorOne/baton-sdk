@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+import "c1/config/v1/rules.proto";
+
+package c1.config.v1;
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/config/v1";
+
+message Configuration {
+    repeated Field fields = 1;
+    repeated Constraint constraints = 2;
+
+    string display_name = 3;
+    string help_url = 4;
+    string icon_url = 5;
+    bool is_directory = 7;
+    string catalog_id = 8;
+}
+
+enum ConstraintKind {
+    CONSTRAINT_KIND_UNSPECIFIED = 0;
+    CONSTRAINT_KIND_REQUIRED_TOGETHER = 1;
+    CONSTRAINT_KIND_AT_LEAST_ONE = 2;
+    CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE = 3;
+    CONSTRAINT_KIND_DEPENDENT_ON = 4;
+}
+
+message Constraint {
+    ConstraintKind kind = 1;
+    repeated string field_names = 2;
+    repeated string secondary_field_names = 3;
+    string name = 4; // optional
+    string help_text = 5; // optional
+    bool is_field_group = 6;
+}
+
+message Field {
+    string name = 1; // canonical name, typically in snake
+    string display_name = 2;
+    string description = 3;
+    string placeholder = 4;
+    bool is_required = 5;
+    bool is_ops = 6;
+    bool is_secret = 7;
+
+    oneof field {
+        StringField string_field = 100;
+        IntField int_field = 101;
+        BoolField bool_field = 102;
+        StringSliceField string_slice_field = 103;
+    }
+}
+
+message IntField {
+    // rules 
+    int64 default_value = 1;
+    optional Int64Rules rules = 2;
+}
+
+message BoolField {
+    bool default_value = 1;
+    optional BoolRules rules = 2;
+}
+
+message StringSliceField {
+    repeated string default_value = 1;
+    optional RepeatedStringRules rules = 2;
+}
+
+enum StringFieldType {
+    STRING_FIELD_TYPE_TEXT_UNSPECIFIED = 0; // default/catch all.  Its a text field.
+    STRING_FIELD_TYPE_RANDOM = 1;
+    STRING_FIELD_TYPE_OAUTH2 = 2;
+    STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS = 3;
+    STRING_FIELD_TYPE_FILE_UPLOAD = 4;
+}
+
+message StringFieldOption {
+    string name = 1;
+    string value = 2;
+    string display_name = 3;
+}
+
+message StringField {
+    string default_value = 1;
+    optional StringRules rules = 2;
+    StringFieldType type = 3;
+
+    // only used for FileUpload atm, oneofs are evil
+    repeated string allowed_extensions = 4;
+    repeated StringFieldOption options = 5;
+}
