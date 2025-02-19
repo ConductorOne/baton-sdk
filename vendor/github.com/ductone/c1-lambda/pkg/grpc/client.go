@@ -25,8 +25,6 @@ func (c *clientConn) Invoke(ctx context.Context, method string, args any, reply 
 	// https://github.com/grpc/grpc-go/blob/9dc22c029c2592b5b6235d9ef6f14d62ecd6a509/internal/transport/http2_client.go#L541
 	md, _ := metadata.FromOutgoingContext(ctx)
 
-	// TODO(morgabra): call opts here, some are probably important (e.g. PerRPCCredsCallOption, etc)
-
 	treq, err := NewRequest(method, req, md)
 	if err != nil {
 		return status.Errorf(codes.Unknown, "failed creating request: %s", err)
@@ -51,6 +49,7 @@ func (c *clientConn) Invoke(ctx context.Context, method string, args any, reply 
 		return err
 	}
 
+	// TODO(morgabra): call opts here, some are probably important (e.g. PerRPCCredsCallOption, etc)
 	for _, opt := range opts {
 		switch o := opt.(type) {
 		case grpc.HeaderCallOption:

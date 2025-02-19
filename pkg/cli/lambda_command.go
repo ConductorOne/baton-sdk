@@ -12,6 +12,7 @@ import (
 	lambda_sdk "github.com/aws/aws-sdk-go-v2/service/lambda"
 	aws_transport "github.com/aws/smithy-go/endpoints"
 	"github.com/davecgh/go-spew/spew"
+	pb_connector_api "github.com/ductone/c1-lambda/pb/c1/connectorapi/baton/v1"
 	c1_lambda_config "github.com/ductone/c1-lambda/pkg/config"
 	c1_lambda_grpc "github.com/ductone/c1-lambda/pkg/grpc"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -332,7 +333,7 @@ func MakeLambdaServerCommand(
 
 		// Get configuration, convert it to viper flag values, then proceed.
 		// TODO(morgabra): Should we start the lambda handler first? What are the timeouts for startup?
-		config, err := c1_lambda_config.GetConnectorConfig(ctx, client)
+		config, err := client.GetConnectorConfig(ctx, &pb_connector_api.GetConnectorConfigRequest{})
 		if err != nil {
 			return fmt.Errorf("failed to get connector config: %w", err)
 		}

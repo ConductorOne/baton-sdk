@@ -180,6 +180,7 @@ github.com/ductone/c1-lambda/pb/c1/transport/v1
 github.com/ductone/c1-lambda/pkg/config
 github.com/ductone/c1-lambda/pkg/grpc
 github.com/ductone/c1-lambda/pkg/grpc/transport
+github.com/ductone/c1-lambda/pkg/udpop
 github.com/ductone/c1-lambda/pkg/ugrpc
 github.com/ductone/c1-lambda/pkg/uhttp
 # github.com/dustin/go-humanize v1.0.1
@@ -208,6 +209,7 @@ github.com/go-jose/go-jose/v3/json
 github.com/go-jose/go-jose/v4
 github.com/go-jose/go-jose/v4/cipher
 github.com/go-jose/go-jose/v4/json
+github.com/go-jose/go-jose/v4/jwt
 # github.com/go-logr/logr v1.4.2
 ## explicit; go 1.18
 github.com/go-logr/logr

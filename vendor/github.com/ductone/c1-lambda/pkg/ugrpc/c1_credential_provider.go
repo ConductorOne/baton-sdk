@@ -27,6 +27,7 @@ import (
 	"gopkg.in/square/go-jose.v2/json"
 	"gopkg.in/square/go-jose.v2/jwt"
 
+	"github.com/ductone/c1-lambda/pkg/udpop"
 	"github.com/ductone/c1-lambda/pkg/uhttp"
 )
 
@@ -53,6 +54,10 @@ type c1TokenSource struct {
 	clientSecret *jose.JSONWebKey
 	tokenHost    string
 	httpClient   *http.Client
+	dpopSigner   *udpop.DPoPSigner
+
+	token          *oauth2.Token
+	tokenExpiresAt time.Time
 }
 
 func parseClientID(input string) (string, string, error) {
@@ -197,11 +202,20 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 		Path:   "auth/v1/token",
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, tokenUrl.String(), strings.NewReader(body.Encode()))
+	method := http.MethodPost
+	dpopProof, err := c.dpopSigner.Proof(method, tokenUrl.String(), "", "")
+	if err != nil {
+		return nil, status.Errorf(codes.Unauthenticated, "failed to get token: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(context.Background(), method, tokenUrl.String(), strings.NewReader(body.Encode()))
 	if err != nil {
 		return nil, err
 	}
+
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("DPoP", dpopProof)
+
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -229,7 +243,7 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 	}, nil
 }
 
-func newC1TokenSource(ctx context.Context, clientID string, clientSecret string, awsConfig aws.Config) (oauth2.TokenSource, string, string, error) {
+func newC1TokenSource(ctx context.Context, dpopSigner *udpop.DPoPSigner, clientID string, clientSecret string, awsConfig aws.Config) (*c1TokenSource, string, string, error) {
 	clientName, tokenHost, err := parseClientID(clientID)
 	if err != nil {
 		return nil, "", "", err
@@ -244,17 +258,20 @@ func newC1TokenSource(ctx context.Context, clientID string, clientSecret string,
 	if err != nil {
 		return nil, "", "", err
 	}
-	return oauth2.ReuseTokenSource(nil, &c1TokenSource{
+
+	return &c1TokenSource{
 		awsConfig:    awsConfig,
 		clientID:     clientID,
 		clientSecret: secret,
 		tokenHost:    tokenHost,
 		httpClient:   httpClient,
-	}), clientName, tokenHost, nil
+		dpopSigner:   dpopSigner,
+	}, clientName, tokenHost, nil
 }
 
 type c1CredentialProvider struct {
 	tokenSource oauth2.TokenSource
+	dpopSigner  *udpop.DPoPSigner
 }
 
 func (c *c1CredentialProvider) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
@@ -266,11 +283,29 @@ func (c *c1CredentialProvider) GetRequestMetadata(ctx context.Context, uri ...st
 	ri, _ := credentials.RequestInfoFromContext(ctx)
 	err = credentials.CheckSecurityLevel(ri.AuthInfo, credentials.PrivacyAndIntegrity)
 	if err != nil {
-		return nil, errors.New("connection is not secure enough to send credentials")
+		return nil, status.Errorf(codes.Unauthenticated, "connection is not secure enough to send credentials")
+	}
+
+	if len(uri) != 1 {
+		return nil, status.Errorf(codes.InvalidArgument, "exactly one URI must be specified")
+	}
+
+	// FIXME(morgabra/kans): There must be a better way... maybe just set this directly?
+	// uri here is just scheme://hostname/service, but we need to sign scheme://hostname/service/method
+	parsedURI, err := url.Parse(uri[0])
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid URI: %s", err)
+	}
+	parsedURI.Path = ri.Method
+
+	dpopProof, err := c.dpopSigner.Proof(http.MethodPost, parsedURI.String(), token.AccessToken, "")
+	if err != nil {
+		return nil, status.Errorf(codes.Unauthenticated, "failed to get dpop proof: %w", err)
 	}
 
 	return map[string]string{
 		"authorization": token.Type() + " " + token.AccessToken,
+		"dpop":          dpopProof,
 	}, nil
 }
 
@@ -278,18 +313,43 @@ func (c *c1CredentialProvider) RequireTransportSecurity() bool {
 	return true
 }
 
-func NewC1LambdaCredentialProvider(ctx context.Context, clientID string, clientSecret string) (credentials.PerRPCCredentials, string, string, error) {
+func NewC1LambdaTokenSource(ctx context.Context, dpopPrivateKey ed25519.PrivateKey, clientID string, clientSecret string) (oauth2.TokenSource, string, string, error) {
 	cfg, err := LoadDefaultAWSConfig(ctx)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("c1-credential-provider: failed to load AWS config: %w", err)
 	}
 
-	tokenSource, clientName, tokenHost, err := newC1TokenSource(ctx, clientID, clientSecret, cfg)
+	dpopSigner, err := udpop.NewDPoPSigner(dpopPrivateKey)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	tokenSource, clientName, tokenHost, err := newC1TokenSource(ctx, dpopSigner, clientID, clientSecret, cfg)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	return oauth2.ReuseTokenSource(nil, tokenSource), clientName, tokenHost, nil
+}
+
+func NewC1LambdaCredentialProvider(ctx context.Context, dpopPrivateKey ed25519.PrivateKey, clientID string, clientSecret string) (credentials.PerRPCCredentials, string, string, error) {
+	cfg, err := LoadDefaultAWSConfig(ctx)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("c1-credential-provider: failed to load AWS config: %w", err)
+	}
+
+	dpopSigner, err := udpop.NewDPoPSigner(dpopPrivateKey)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	tokenSource, clientName, tokenHost, err := newC1TokenSource(ctx, dpopSigner, clientID, clientSecret, cfg)
 	if err != nil {
 		return nil, "", "", err
 	}
 
 	return &c1CredentialProvider{
 		tokenSource: tokenSource,
+		dpopSigner:  tokenSource.dpopSigner,
 	}, clientName, tokenHost, nil
 }

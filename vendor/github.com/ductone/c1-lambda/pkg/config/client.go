@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -14,10 +15,29 @@ import (
 	"github.com/ductone/c1-lambda/pkg/ugrpc"
 )
 
-func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clientSecret string) (pb_connector_manager.ConnectorConfigServiceClient, error) {
-	credProvider, clientName, clientHost, err := ugrpc.NewC1LambdaCredentialProvider(ctx, clientID, clientSecret)
+type ConnectorConfigServiceClient struct {
+	privateKey ed25519.PrivateKey
+	c          pb_connector_manager.ConnectorConfigServiceClient
+}
+
+func (c *ConnectorConfigServiceClient) GetConnectorConfig(ctx context.Context, in *pb_connector_manager.GetConnectorConfigRequest, opts ...grpc.CallOption) (*pb_connector_manager.GetConnectorConfigResponse, error) {
+	// TODO(morgabra/kans): We use dpop with the c.privateKey, so config responses will be encrypted. We shim the response here so we can do that decryption.
+	return c.c.GetConnectorConfig(ctx, in, opts...)
+}
+
+func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clientSecret string) (*ConnectorConfigServiceClient, error) {
+	_, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf(
+			"connector-manager-client: failed to generate ed25519 key: %w",
+			err)
+	}
+
+	credProvider, clientName, clientHost, err := ugrpc.NewC1LambdaCredentialProvider(ctx, privateKey, clientID, clientSecret)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"connector-manager-client: failed to create c1 lambda credential provider: %w",
+			err)
 	}
 
 	systemCertPool, err := x509.SystemCertPool()
@@ -48,9 +68,8 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 		return nil, fmt.Errorf("connector-manager-client: failed to create client: %w", err)
 	}
 
-	return pb_connector_manager.NewConnectorConfigServiceClient(client), nil
-}
-
-func GetConnectorConfig(ctx context.Context, client pb_connector_manager.ConnectorConfigServiceClient) (*pb_connector_manager.GetConnectorConfigResponse, error) {
-	return client.GetConnectorConfig(ctx, &pb_connector_manager.GetConnectorConfigRequest{})
+	return &ConnectorConfigServiceClient{
+		privateKey: privateKey,
+		c:          pb_connector_manager.NewConnectorConfigServiceClient(client),
+	}, nil
 }
