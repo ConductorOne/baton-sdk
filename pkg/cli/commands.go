@@ -30,7 +30,7 @@ import (
 
 type GetConnectorFunc[T any] func(context.Context, *T) (types.ConnectorServer, error)
 
-func makeGenericConfiguration[T any](v *viper.Viper) (*T, error) {
+func MakeGenericConfiguration[T any](v *viper.Viper) (*T, error) {
 	// Create an instance of the struct type T using reflection
 	var config T // Create a zero-value instance of T
 	// Ensure T is a struct (or pointer to struct)
@@ -67,7 +67,7 @@ func MakeMainCommand[T any](
 			return err
 		}
 
-		runCtx, err := initLogger(
+		runCtx, err := InitLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
@@ -204,7 +204,7 @@ func MakeMainCommand[T any](
 			opts = append(opts, connectorrunner.WithTempDir(v.GetString("c1z-temp-dir")))
 		}
 
-		t, err := makeGenericConfiguration[T](v)
+		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
@@ -249,7 +249,7 @@ func MakeGRPCServerCommand[T any](
 			return err
 		}
 
-		runCtx, err := initLogger(
+		runCtx, err := InitLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
@@ -280,7 +280,7 @@ func MakeGRPCServerCommand[T any](
 		if err := field.Validate(confschema, v); err != nil {
 			return err
 		}
-		t, err := makeGenericConfiguration[T](v)
+		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
@@ -387,7 +387,7 @@ func MakeCapabilitiesCommand[T any](
 			return err
 		}
 
-		runCtx, err := initLogger(
+		runCtx, err := InitLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
@@ -401,7 +401,7 @@ func MakeCapabilitiesCommand[T any](
 		if err := field.Validate(confschema, v); err != nil {
 			return err
 		}
-		t, err := makeGenericConfiguration[T](v)
+		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}

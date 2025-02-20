@@ -31,7 +31,7 @@ type ClaimsAdjuster interface {
 	Marshal(claims *jwt.Claims) ([]byte, error)
 }
 
-func NewTokenSource(ctx context.Context, dpopSigner *DPoPProofer, clientID string, clientSecret *jose.JSONWebKey, tokenURL *url.URL, client *http.Client, claimsAdjuster ClaimsAdjuster) (*tokenSource, error) {
+func NewTokenSource(ctx context.Context, dpopSigner *DPoPProofer, tokenURL *url.URL, clientID string, clientSecret *jose.JSONWebKey, claimsAdjuster ClaimsAdjuster, client *http.Client) (*tokenSource, error) {
 	if dpopSigner == nil {
 		return nil, errors.New("new-token-source: dpop-signer is required")
 	}

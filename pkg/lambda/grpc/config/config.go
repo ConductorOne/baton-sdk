@@ -13,12 +13,14 @@ import (
 	"os"
 	"strings"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-
 	pb_connector_manager "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
+	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	dpop_grpc "github.com/conductorone/dpop/pkg/ugrpc"
 	"github.com/go-jose/go-jose/v4"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 var (
@@ -53,7 +55,13 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 		return nil, err
 	}
 
-	o, err := dpop_grpc.WithNewDPoPSigner(ctx, tokenUrl, clientID, claimsAdjuster, secret, nil)
+	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)), uhttp.WithUserAgent("baton-c1-dpop-client"))
+	if err != nil {
+		return nil, fmt.Errorf("connector-manager-client: failed to create http client: %w", err)
+	}
+
+	options := dpop_grpc.SignerOptions{HttpClient: httpClient}
+	o, err := dpop_grpc.WithNewDPoPSigner(ctx, tokenUrl, clientID, secret, claimsAdjuster, options)
 	if err != nil {
 		return nil, fmt.Errorf("connector-manager-client: failed to create dpop signer: %w", err)
 	}
@@ -79,11 +87,6 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 	}
 
 	return pb_connector_manager.NewConnectorConfigServiceClient(client), nil
-
-	// return &ConnectorConfigServiceClient{
-	// 	privateKey: privateKey,
-	// 	c:          ,
-	// }, nil
 }
 
 func parseClientID(input string) (string, string, error) {

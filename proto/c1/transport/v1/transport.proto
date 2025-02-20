@@ -2,11 +2,11 @@ syntax = "proto3";
 
 package c1.svc.transport.v1;
 
-import "google/protobuf/timestamp.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/any.proto";
 
-option go_package = "github.com/ductone/c1-lambda/pb/c1/svc/transport/v1";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/svc/transport/v1";
 
 message Request {
   string method = 1;

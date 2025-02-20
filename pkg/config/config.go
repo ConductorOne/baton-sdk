@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/cli"
+	lambda_support "github.com/conductorone/baton-sdk/pkg/cli/lambda_support"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/spf13/cobra"
@@ -70,7 +71,7 @@ func DefineLambdaServerConfiguration[T any](
 		Short:         connectorName,
 		SilenceErrors: true,
 		SilenceUsage:  true,
-		RunE:          cli.MakeLambdaServerCommand(ctx, connectorName, v, connector, lambdaConfSchema, connectorConfSchema),
+		RunE:          lambda_support.MakeLambdaServerCommand(ctx, connectorName, v, connector, lambdaConfSchema, connectorConfSchema),
 	}
 
 	// set persistent flags only on the main subcommand
@@ -125,22 +126,6 @@ func DefineConfiguration[T any](
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	v.AutomaticEnv()
 
-	lambdaConfSchema := field.NewConfiguration(field.LambdaServerFields(), field.LambdaServerRelationships...)
-
-	lambdaCommand := &cobra.Command{
-		Use:           "lambda",
-		Short:         "lambda",
-		SilenceErrors: true,
-		SilenceUsage:  true,
-		RunE:          cli.MakeLambdaServerCommand(ctx, connectorName, v, connector, lambdaConfSchema, schema),
-	}
-
-	// set persistent flags only on the main subcommand
-	err = setFlagsAndConstraints(lambdaCommand, lambdaConfSchema)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	confschema := schema
 	confschema.Fields = append(field.DefaultFields, confschema.Fields...)
 	// Ensure unique fields
@@ -160,6 +145,24 @@ func DefineConfiguration[T any](
 		SilenceUsage:  true,
 		RunE:          cli.MakeMainCommand(ctx, connectorName, v, confschema, connector, options...),
 	}
+
+	lambdaConfSchema := field.NewConfiguration(field.LambdaServerFields(), field.LambdaServerRelationships...)
+
+	lambdaCommand := &cobra.Command{
+		Use:           "lambda",
+		Short:         "lambda",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		RunE:          lambda_support.MakeLambdaServerCommand(ctx, connectorName, v, connector, lambdaConfSchema, schema),
+	}
+
+	// set persistent flags only on the main subcommand
+	err = setFlagsAndConstraints(lambdaCommand, lambdaConfSchema)
+	if err != nil {
+		return nil, nil, err
+	}
+	lambda_support.AddCommand(mainCMD, lambdaCommand)
+
 	// set persistent flags only on the main subcommand
 	err = setFlagsAndConstraints(mainCMD, field.NewConfiguration(field.DefaultFields, field.DefaultRelationships...))
 	if err != nil {
@@ -199,7 +202,7 @@ func DefineConfiguration[T any](
 
 	configCmd := &cobra.Command{
 		Use:   "config",
-		Short: "Get connector config",
+		Short: "Get the connector config schema",
 		RunE:  cli.MakeConfigSchemaCommand(ctx, connectorName, v, confschema, connector),
 	}
 	mainCMD.AddCommand(configCmd)

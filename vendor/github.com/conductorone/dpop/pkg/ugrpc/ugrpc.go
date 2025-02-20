@@ -9,9 +9,7 @@ import (
 	"time"
 
 	dpop "github.com/conductorone/dpop/pkg"
-	"github.com/conductorone/dpop/pkg/uhttp"
 	"github.com/go-jose/go-jose/v4"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -19,7 +17,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func WithNewDPoPSigner(ctx context.Context, tokenURL *url.URL, clientID string, claimsAdjuster dpop.ClaimsAdjuster, clientSecret *jose.JSONWebKey, httpClient *http.Client) (grpc.DialOption, error) {
+type SignerOptions struct {
+	HttpClient *http.Client
+}
+
+func WithNewDPoPSigner(ctx context.Context, tokenURL *url.URL, clientID string, clientSecret *jose.JSONWebKey, claimsAdjuster dpop.ClaimsAdjuster, opts ...SignerOptions) (grpc.DialOption, error) {
+	if len(opts) > 1 {
+		return nil, fmt.Errorf("with-dpop: only one option is allowed")
+	}
 	_, privateKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		return nil, fmt.Errorf("with-dpop: failed to generate ed25519 key: %w", err)
@@ -29,15 +34,15 @@ func WithNewDPoPSigner(ctx context.Context, tokenURL *url.URL, clientID string, 
 	if err != nil {
 		return nil, fmt.Errorf("with-dpop: failed to create c1 lambda credential provider: %w", err)
 	}
-
-	if httpClient == nil {
-		httpClient, err = uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)), uhttp.WithUserAgent("c1-dpop-client"))
-		if err != nil {
-			return nil, err
+	httpClient := http.DefaultClient
+	if len(opts) == 1 {
+		o := opts[0]
+		if o.HttpClient != nil {
+			httpClient = o.HttpClient
 		}
 	}
 
-	tokenSource, err := dpop.NewTokenSource(ctx, dpopSigner, clientID, clientSecret, tokenURL, httpClient, claimsAdjuster)
+	tokenSource, err := dpop.NewTokenSource(ctx, dpopSigner, tokenURL, clientID, clientSecret, claimsAdjuster, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("with-dpop: failed to create c1 token source: %w", err)
 	}

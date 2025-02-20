@@ -57,8 +57,13 @@ func Generate(name string, schema field.Configuration) {
 		if f.ExportTarget != field.ExportTargetGUI && f.ExportTarget != field.ExportTargetOps && f.ExportTarget != field.ExportTargetCLIOnly {
 			continue
 		}
+		fieldName := f.StructFieldName
+		if fieldName == "" {
+			fieldName = toPascalCase(f.FieldName)
+		}
+
 		nf := FieldInfo{
-			FieldName: toPascalCase(f.FieldName),
+			FieldName: fieldName,
 			Tag:       f.FieldName,
 		}
 		switch f.Variant {
