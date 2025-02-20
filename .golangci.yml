@@ -51,9 +51,6 @@ linters-settings:
   tenv:
     all: true
 
-  varcheck:
-    exported-fields: false # this appears to improperly detect exported variables as unused when they are used from a package with the same name
-
 
 linters:
   disable-all: true
