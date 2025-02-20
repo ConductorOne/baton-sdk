@@ -10,91 +10,12 @@ import (
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/cli"
-	lambda_support "github.com/conductorone/baton-sdk/pkg/cli/lambda_support"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 )
-
-func verifyStructFields[T any](schema field.Configuration) error {
-	// Verify that every field in the confschema has a corresponding struct tag in the struct defined in getconnector of type T
-	//  or that it obeys the old interface, a *viper.Viper
-	var config T // Create a zero-value instance of T
-	tType := reflect.TypeOf(config)
-	// Viper doesn't do struct fields
-	if tType == reflect.TypeOf(viper.Viper{}) {
-		return nil
-	}
-	configType := reflect.TypeOf(config)
-	if configType.Kind() == reflect.Ptr {
-		configType = configType.Elem()
-	}
-	if configType.Kind() != reflect.Struct {
-		return fmt.Errorf("T must be a struct type, got %v", configType.Kind())
-	}
-	for _, field := range schema.Fields {
-		fieldFound := false
-		for i := 0; i < configType.NumField(); i++ {
-			structField := configType.Field(i)
-			if structField.Tag.Get("mapstructure") == field.FieldName {
-				fieldFound = true
-				break
-			}
-		}
-		if !fieldFound {
-			// This means a connector may not set an export target of none.
-			return fmt.Errorf("field %s in confschema does not have a corresponding struct tag in the configuration struct", field.FieldName)
-		}
-	}
-	return nil
-}
-
-func DefineLambdaServerConfiguration[T any](
-	ctx context.Context,
-	connectorName string,
-	connector cli.GetConnectorFunc[T],
-	connectorConfSchema field.Configuration,
-	options ...connectorrunner.Option,
-) (*viper.Viper, *cobra.Command, error) {
-	v := viper.New()
-	v.SetEnvPrefix("BATON")
-	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	v.AutomaticEnv()
-
-	lambdaConfSchema := field.NewConfiguration(field.LambdaServerFields(), field.LambdaServerRelationships...)
-
-	// setup CLI with cobra
-	mainCMD := &cobra.Command{
-		Use:           connectorName,
-		Short:         connectorName,
-		SilenceErrors: true,
-		SilenceUsage:  true,
-		RunE:          lambda_support.MakeLambdaServerCommand(ctx, connectorName, v, connector, lambdaConfSchema, connectorConfSchema),
-	}
-
-	// set persistent flags only on the main subcommand
-	err := setFlagsAndConstraints(mainCMD, lambdaConfSchema)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// main subcommand
-	mainCMD.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		if v.IsSet(f.Name) {
-			_ = mainCMD.PersistentFlags().Set(f.Name, v.GetString(f.Name))
-		}
-	})
-
-	mainCMD.Flags().VisitAll(func(f *pflag.Flag) {
-		if v.IsSet(f.Name) {
-			_ = mainCMD.Flags().Set(f.Name, v.GetString(f.Name))
-		}
-	})
-
-	return v, mainCMD, nil
-}
 
 func DefineConfiguration[T any](
 	ctx context.Context,
@@ -145,24 +66,6 @@ func DefineConfiguration[T any](
 		SilenceUsage:  true,
 		RunE:          cli.MakeMainCommand(ctx, connectorName, v, confschema, connector, options...),
 	}
-
-	lambdaConfSchema := field.NewConfiguration(field.LambdaServerFields(), field.LambdaServerRelationships...)
-
-	lambdaCommand := &cobra.Command{
-		Use:           "lambda",
-		Short:         "lambda",
-		SilenceErrors: true,
-		SilenceUsage:  true,
-		RunE:          lambda_support.MakeLambdaServerCommand(ctx, connectorName, v, connector, lambdaConfSchema, schema),
-	}
-
-	// set persistent flags only on the main subcommand
-	err = setFlagsAndConstraints(lambdaCommand, lambdaConfSchema)
-	if err != nil {
-		return nil, nil, err
-	}
-	lambda_support.AddCommand(mainCMD, lambdaCommand)
-
 	// set persistent flags only on the main subcommand
 	err = setFlagsAndConstraints(mainCMD, field.NewConfiguration(field.DefaultFields, field.DefaultRelationships...))
 	if err != nil {
@@ -174,6 +77,8 @@ func DefineConfiguration[T any](
 	if err != nil {
 		return nil, nil, err
 	}
+
+	cli.OptionallyAddLambdaCommand(ctx, connectorName, v, connector, confschema, setFlagsAndConstraints, mainCMD)
 
 	grpcServerCmd := &cobra.Command{
 		Use:    "_connector-service",
@@ -233,6 +138,39 @@ func DefineConfiguration[T any](
 	})
 
 	return v, mainCMD, nil
+}
+
+func verifyStructFields[T any](schema field.Configuration) error {
+	// Verify that every field in the confschema has a corresponding struct tag in the struct defined in getconnector of type T
+	//  or that it obeys the old interface, a *viper.Viper
+	var config T // Create a zero-value instance of T
+	tType := reflect.TypeOf(config)
+	// Viper doesn't do struct fields
+	if tType == reflect.TypeOf(viper.Viper{}) {
+		return nil
+	}
+	configType := reflect.TypeOf(config)
+	if configType.Kind() == reflect.Ptr {
+		configType = configType.Elem()
+	}
+	if configType.Kind() != reflect.Struct {
+		return fmt.Errorf("T must be a struct type, got %v", configType.Kind())
+	}
+	for _, field := range schema.Fields {
+		fieldFound := false
+		for i := 0; i < configType.NumField(); i++ {
+			structField := configType.Field(i)
+			if structField.Tag.Get("mapstructure") == field.FieldName {
+				fieldFound = true
+				break
+			}
+		}
+		if !fieldFound {
+			// This means a connector may not set an export target of none.
+			return fmt.Errorf("field %s in confschema does not have a corresponding struct tag in the configuration struct", field.FieldName)
+		}
+	}
+	return nil
 }
 
 func listFieldConstrainsAsStrings(constrains field.SchemaFieldRelationship) []string {

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"reflect"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
@@ -24,30 +23,10 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
-type GetConnectorFunc[T any] func(context.Context, *T) (types.ConnectorServer, error)
-
-func MakeGenericConfiguration[T any](v *viper.Viper) (*T, error) {
-	// Create an instance of the struct type T using reflection
-	var config T // Create a zero-value instance of T
-	// Ensure T is a struct (or pointer to struct)
-	tType := reflect.TypeOf(config)
-	if tType == reflect.TypeOf(viper.Viper{}) {
-		return any(v).(*T), nil
-	}
-	if tType.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("T must be a struct, but got %s", tType.Kind())
-	}
-	// Unmarshal into the config struct
-	err := v.Unmarshal(&config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-	return &config, nil
-}
+type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
 func MakeMainCommand[T any](
 	ctx context.Context,
@@ -67,7 +46,7 @@ func MakeMainCommand[T any](
 			return err
 		}
 
-		runCtx, err := InitLogger(
+		runCtx, err := initLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
@@ -249,7 +228,7 @@ func MakeGRPCServerCommand[T any](
 			return err
 		}
 
-		runCtx, err := InitLogger(
+		runCtx, err := initLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
@@ -387,7 +366,7 @@ func MakeCapabilitiesCommand[T any](
 			return err
 		}
 
-		runCtx, err := InitLogger(
+		runCtx, err := initLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),

@@ -19,7 +19,7 @@ func runService(ctx context.Context, _ string) (context.Context, error) {
 	return ctx, nil
 }
 
-func InitLogger(ctx context.Context, _ string, opts ...logging.Option) (context.Context, error) {
+func initLogger(ctx context.Context, _ string, opts ...logging.Option) (context.Context, error) {
 	return logging.Init(ctx, opts...)
 }
 

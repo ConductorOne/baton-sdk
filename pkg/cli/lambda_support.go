@@ -1,6 +1,6 @@
-//go:build compile_lambda_support
+//go:build build_lambda_support
 
-package lambdasupport
+package cli
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	pb_connector_api "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	c1_lambda_grpc "github.com/conductorone/baton-sdk/pkg/lambda/grpc"
 	c1_lambda_config "github.com/conductorone/baton-sdk/pkg/lambda/grpc/config"
@@ -31,24 +30,38 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-func AddCommand(mainCMD *cobra.Command, subCMD *cobra.Command) {
+func AddLambdaCommand(mainCMD *cobra.Command, subCMD *cobra.Command) {
 	mainCMD.AddCommand(subCMD)
 }
 
-func MakeLambdaServerCommand[T any](
+func OptionallyAddLambdaCommand[T any](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
-	getconnector cli.GetConnectorFunc[T],
-	lambdaSchema field.Configuration,
+	getconnector GetConnectorFunc[T],
 	connectorSchema field.Configuration,
-) func(*cobra.Command, []string) error {
-	return func(cmd *cobra.Command, args []string) error {
+	constraintSetter ContrainstSetter,
+	mainCmd *cobra.Command,
+) *cobra.Command {
+	lambdaSchema := field.NewConfiguration(field.LambdaServerFields(), field.LambdaServerRelationships...)
+
+	cmd := &cobra.Command{
+		Use:           "lambda",
+		Short:         "lambda",
+		SilenceErrors: true,
+		SilenceUsage:  true,
+	}
+
+	constraintSetter(cmd, lambdaSchema)
+
+	mainCmd.AddCommand(cmd)
+
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		err := v.BindPFlags(cmd.Flags())
 		if err != nil {
 			return err
 		}
-		runCtx, err := cli.InitLogger(
+		runCtx, err := initLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
@@ -80,7 +93,7 @@ func MakeLambdaServerCommand[T any](
 			return fmt.Errorf("failed to get connector config: %w", err)
 		}
 
-		t, err := cli.MakeGenericConfiguration[T](v)
+		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make generic configuration: %w", err)
 		}
@@ -110,6 +123,63 @@ func MakeLambdaServerCommand[T any](
 		connector.Register(ctx, s, c, opts)
 
 		lambda.Start(s.Handler)
+		return nil
+	}
+	return cmd
+}
+
+func MakeLambdaMetadataCommand[T any](
+	ctx context.Context,
+	name string,
+	v *viper.Viper,
+	getconnector GetConnectorFunc[T],
+	confschema field.Configuration,
+) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		err := v.BindPFlags(cmd.Flags())
+		if err != nil {
+			return err
+		}
+
+		runCtx, err := initLogger(
+			ctx,
+			name,
+			logging.WithLogFormat(v.GetString("log-format")),
+			logging.WithLogLevel(v.GetString("log-level")),
+		)
+		if err != nil {
+			return err
+		}
+
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, v); err != nil {
+			return err
+		}
+
+		c, err := lambdaConnectorClient(runCtx, v.GetString("lambda-endpoint"), v.GetString("lambda-function"))
+		if err != nil {
+			return err
+		}
+		md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
+		if err != nil {
+			return err
+		}
+
+		protoMarshaller := protojson.MarshalOptions{
+			Multiline: true,
+			Indent:    "  ",
+		}
+
+		outBytes, err := protoMarshaller.Marshal(md)
+		if err != nil {
+			return err
+		}
+
+		_, err = fmt.Fprint(os.Stdout, string(outBytes))
+		if err != nil {
+			return err
+		}
+
 		return nil
 	}
 }
@@ -154,60 +224,4 @@ func lambdaConnectorClient(ctx context.Context, endpoint string, function string
 	}
 	cc := c1_lambda_grpc.NewClientConn(lambdaTransport)
 	return connector.NewConnectorClient(ctx, cc), nil
-}
-
-func MakeLambdaMetadataCommand[T any](
-	ctx context.Context,
-	name string,
-	v *viper.Viper,
-	getconnector cli.GetConnectorFunc[T],
-	confschema field.Configuration,
-) func(*cobra.Command, []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		err := v.BindPFlags(cmd.Flags())
-		if err != nil {
-			return err
-		}
-
-		runCtx, err := cli.InitLogger(
-			ctx,
-			name,
-			logging.WithLogFormat(v.GetString("log-format")),
-			logging.WithLogLevel(v.GetString("log-level")),
-		)
-		if err != nil {
-			return err
-		}
-
-		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, v); err != nil {
-			return err
-		}
-
-		c, err := lambdaConnectorClient(runCtx, v.GetString("lambda-endpoint"), v.GetString("lambda-function"))
-		if err != nil {
-			return err
-		}
-		md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
-		if err != nil {
-			return err
-		}
-
-		protoMarshaller := protojson.MarshalOptions{
-			Multiline: true,
-			Indent:    "  ",
-		}
-
-		outBytes, err := protoMarshaller.Marshal(md)
-		if err != nil {
-			return err
-		}
-
-		_, err = fmt.Fprint(os.Stdout, string(outBytes))
-		if err != nil {
-			return err
-		}
-
-		return nil
-	}
 }
