@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"os"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	pb_connector_api "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	c1_lambda_grpc "github.com/conductorone/baton-sdk/pkg/lambda/grpc"
@@ -14,6 +16,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/lambda/grpc/transport"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/mitchellh/mapstructure"
 
@@ -38,7 +41,7 @@ func (l *staticLambdaResolver) ResolveEndpoint(ctx context.Context, params lambd
 func newStaticLambdaResolver(endpoint string) (lambda_sdk.EndpointResolverV2, error) {
 	uri, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse endpoint: %v", err)
+		return nil, fmt.Errorf("failed to parse endpoint: %w", err)
 	}
 	return &staticLambdaResolver{endpoint: uri}, nil
 }
@@ -142,6 +145,62 @@ func MakeLambdaServerCommand[T any](
 		connector.Register(ctx, s, c, opts)
 
 		lambda.Start(s.Handler)
+		return nil
+	}
+}
+
+func MakeLambdaMetadataCommand[T any](
+	ctx context.Context,
+	name string,
+	v *viper.Viper,
+	getconnector GetConnectorFunc[T],
+	confschema field.Configuration,
+) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		err := v.BindPFlags(cmd.Flags())
+		if err != nil {
+			return err
+		}
+
+		runCtx, err := initLogger(
+			ctx,
+			name,
+			logging.WithLogFormat(v.GetString("log-format")),
+			logging.WithLogLevel(v.GetString("log-level")),
+		)
+		if err != nil {
+			return err
+		}
+
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, v); err != nil {
+			return err
+		}
+
+		c, err := lambdaConnectorClient(runCtx, v.GetString("lambda-endpoint"), v.GetString("lambda-function"))
+		if err != nil {
+			return err
+		}
+		md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
+		if err != nil {
+			return err
+		}
+
+		protoMarshaller := protojson.MarshalOptions{
+			Multiline: true,
+			Indent:    "  ",
+		}
+
+		outBytes, err := protoMarshaller.Marshal(md)
+		if err != nil {
+			return err
+		}
+
+		_, err = fmt.Fprint(os.Stdout, string(outBytes))
+		if err != nil {
+			return err
+		}
+
 		return nil
 	}
 }

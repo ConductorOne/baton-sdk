@@ -251,7 +251,9 @@ func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
 	resp, err := method.Handler(service.serviceImpl, ctx, df, s.unaryInterceptor)
 	if err != nil {
 		appStatus, ok := status.FromError(err)
-		if !ok {
+		if ok {
+			err = appStatus.Err()
+		} else {
 			// Convert non-status application error to a status error with code
 			// Unknown, but handle context errors specifically.
 			appStatus = status.FromContextError(err)

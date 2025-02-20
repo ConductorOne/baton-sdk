@@ -57,7 +57,6 @@ func DefineLambdaServerConfiguration[T any](
 	connectorConfSchema field.Configuration,
 	options ...connectorrunner.Option,
 ) (*viper.Viper, *cobra.Command, error) {
-
 	v := viper.New()
 	v.SetEnvPrefix("BATON")
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))

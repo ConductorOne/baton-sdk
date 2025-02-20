@@ -68,7 +68,7 @@ func (a *adjuster) Marshal(claims *jwt.Claims) ([]byte, error) {
 	return json.Marshal(claimsWithIDAtt)
 }
 
-// getIdentityAttestation creates a signed sts GetCallerIdentity request and marshals it to a base64 encoded string
+// getIdentityAttestation creates a signed sts GetCallerIdentity request and marshals it to a base64 encoded string.
 func (a *adjuster) getIdentityAttestation() (string, error) {
 	req, err := createSigv4STSGetCallerIdentityRequest(context.Background(), a.awsConfig)
 	if err != nil {

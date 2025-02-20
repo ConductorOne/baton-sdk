@@ -18,7 +18,7 @@ type lambdaTransport struct {
 func (l *lambdaTransport) RoundTrip(ctx context.Context, req *lambda_grpc.Request) (*lambda_grpc.Response, error) {
 	payload, err := req.MarshalJSON()
 	if err != nil {
-		return nil, fmt.Errorf("lambda_transport: failed to marshal frame: %v", err)
+		return nil, fmt.Errorf("lambda_transport: failed to marshal frame: %w", err)
 	}
 
 	input := &lambda.InvokeInput{
@@ -29,7 +29,7 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *lambda_grpc.Reques
 	// Invoke the Lambda function.
 	invokeResp, err := l.lambdaClient.Invoke(ctx, input)
 	if err != nil {
-		return nil, fmt.Errorf("lambda_transport: failed to invoke lambda function: %v", err)
+		return nil, fmt.Errorf("lambda_transport: failed to invoke lambda function: %w", err)
 	}
 
 	// Check if the function returned an error.
@@ -40,7 +40,7 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *lambda_grpc.Reques
 	resp := &lambda_grpc.Response{}
 	err = json.Unmarshal(invokeResp.Payload, resp)
 	if err != nil {
-		return nil, fmt.Errorf("lambda_transport: failed to unmarshal response: %v", err)
+		return nil, fmt.Errorf("lambda_transport: failed to unmarshal response: %w", err)
 	}
 
 	return resp, err

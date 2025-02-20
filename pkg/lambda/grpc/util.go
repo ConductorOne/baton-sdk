@@ -28,7 +28,7 @@ const (
 	nanosecond  timeoutUnit = 'n'
 )
 
-func timeoutUnitToDuration(u timeoutUnit) (d time.Duration, ok bool) {
+func timeoutUnitToDuration(u timeoutUnit) (time.Duration, bool) {
 	switch u {
 	case hour:
 		return time.Hour, true
@@ -43,11 +43,11 @@ func timeoutUnitToDuration(u timeoutUnit) (d time.Duration, ok bool) {
 	case nanosecond:
 		return time.Nanosecond, true
 	default:
+		return 0, false
 	}
-	return
 }
 
-// NOTE(morgabra): straight lift of a private function :/
+// NOTE(morgabra): straight lift of a private function :/.
 func decodeTimeout(s string) (time.Duration, error) {
 	size := len(s)
 	if size < 2 {
@@ -124,7 +124,6 @@ func UnmarshalMetadata(s *structpb.Struct) metadata.MD {
 			}
 		}
 		md.Append(k, values...)
-
 	}
 	return md
 }

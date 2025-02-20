@@ -60,22 +60,17 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	systemCertPool, err := x509.SystemCertPool()
 	if err != nil || systemCertPool == nil {
-		return nil, fmt.Errorf("connector-manager-client: failed to load system cert pool: %v", err)
+		return nil, fmt.Errorf("connector-manager-client: failed to load system cert pool: %w", err)
 	}
-	tlsConfig := &tls.Config{
-		RootCAs: systemCertPool,
-	}
-	creds := credentials.NewTLS(tlsConfig)
-	// dpop.WithNewDPoPSigner()
+	creds := credentials.NewTLS(&tls.Config{
+		RootCAs:    systemCertPool,
+		MinVersion: tls.VersionTLS12,
+	})
 	dialOpts := []grpc.DialOption{
-		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{
-			MinVersion: tls.VersionTLS12,
-		})),
-		o,
-		grpc.WithUserAgent(fmt.Sprintf("%s baton-lambda/%s", clientName, "v0.0.1")),
 		grpc.WithTransportCredentials(creds),
+		grpc.WithUserAgent(fmt.Sprintf("%s baton-lambda/%s", clientName, "v0.0.1")),
 		o,
-		grpc.WithBlock(),
+		// grpc.WithBlock(),
 	}
 
 	client, err := grpc.NewClient(tokenHost, dialOpts...)
