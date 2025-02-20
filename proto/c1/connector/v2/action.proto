@@ -1,0 +1,77 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/struct.proto";
+import "c1/config/v1/config.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+
+service ActionService {
+  rpc Invoke(ActionServiceInvokeRequest) returns (ActionServiceInvokeResponse);
+  rpc Status(ActionServiceStatusRequest) returns (ActionServiceStatusResponse);
+  rpc GetSchema(ActionServiceGetSchemaRequest) returns (ActionServiceGetSchemaResponse);
+  rpc ListSchemas(ActionServiceListSchemasRequest) returns (ActionServiceListSchemasResponse);
+}
+
+enum BatonActionStatus {
+  BATON_ACTION_STATUS_UNSPECIFIED = 0;
+  BATON_ACTION_STATUS_UNKNOWN = 1;
+  BATON_ACTION_STATUS_PENDING = 2;
+  BATON_ACTION_STATUS_RUNNING = 3;
+  BATON_ACTION_STATUS_COMPLETE = 4;
+  BATON_ACTION_STATUS_FAILED = 5;
+}
+
+message BatonActionSchema {
+  string function_name = 1;
+  repeated c1.config.v1.Field arguments = 2;
+  repeated c1.config.v1.Constraint constraints = 3;
+
+  repeated c1.config.v1.Field return_types = 4;
+}
+
+message ActionServiceInvokeRequest {
+  string name = 1;
+  google.protobuf.Struct args = 2;
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message ActionServiceInvokeResponse {
+  string id = 1;
+  BatonActionStatus status = 2;
+  repeated google.protobuf.Any annotations = 3;
+}
+
+
+message ActionServiceStatusRequest {
+  string name = 1;
+  string id = 2;
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message ActionServiceStatusResponse {
+  string name = 1;
+  string id = 2;
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message ActionServiceGetSchemaRequest {
+  string name = 1;
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message ActionServiceGetSchemaResponse {
+  repeated c1.config.v1.Field arguments = 1;
+  repeated c1.config.v1.Field return_types = 2;
+}
+
+message ActionServiceListSchemasRequest {
+  repeated google.protobuf.Any annotations = 1;
+}
+
+message ActionServiceListSchemasResponse {
+  repeated BatonActionSchema schemas = 1;
+}
