@@ -21,15 +21,3 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 ) error {
 	return nil
 }
-
-func MakeLambdaMetadataCommand[T field.Configurable](
-	ctx context.Context,
-	name string,
-	v *viper.Viper,
-	getconnector GetConnectorFunc[T],
-	confschema field.Configuration,
-) func(*cobra.Command, []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		return nil
-	}
-}

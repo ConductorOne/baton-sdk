@@ -10,7 +10,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -126,25 +125,6 @@ func UnmarshalMetadata(s *structpb.Struct) metadata.MD {
 		md.Append(k, values...)
 	}
 	return md
-}
-
-func MarshalAny(m proto.Message) (*anypb.Any, error) {
-	a := &anypb.Any{}
-	err := anypb.MarshalFrom(a, m, proto.MarshalOptions{Deterministic: true})
-	if err != nil {
-		return nil, err
-	}
-	return a, nil
-}
-
-func UnmarshalAny[T proto.Message](a *anypb.Any) (T, error) {
-	var rv T
-	inst := rv.ProtoReflect().New().Interface().(T)
-	err := a.UnmarshalTo(inst)
-	if err != nil {
-		return rv, err
-	}
-	return inst, nil
 }
 
 // ErrorResponse converts a given error to a status.Status and returns a *pbtransport.Response.
