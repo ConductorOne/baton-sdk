@@ -13,14 +13,14 @@ import (
 	"os"
 	"strings"
 
+	"github.com/go-jose/go-jose/v4"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+
 	pb_connector_manager "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	dpop_grpc "github.com/conductorone/dpop/pkg/ugrpc"
-	"github.com/go-jose/go-jose/v4"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 )
 
 var (
@@ -47,7 +47,7 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	claimsAdjuster, err := NewAdjuster(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("connector-manager-client: failed to create claims adjuster: %w", err)
+		return nil, fmt.Errorf("get-connector-service-client: failed to create claims adjuster: %w", err)
 	}
 
 	secret, err := parseSecret([]byte(clientSecret))
@@ -57,18 +57,18 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	httpClient, err := uhttp.NewClient(ctx, uhttp.WithLogger(true, ctxzap.Extract(ctx)), uhttp.WithUserAgent("baton-c1-dpop-client"))
 	if err != nil {
-		return nil, fmt.Errorf("connector-manager-client: failed to create http client: %w", err)
+		return nil, fmt.Errorf("get-connector-service-client: failed to create http client: %w", err)
 	}
 
 	options := dpop_grpc.SignerOptions{HttpClient: httpClient}
 	o, err := dpop_grpc.WithNewDPoPSigner(ctx, tokenUrl, clientID, secret, claimsAdjuster, options)
 	if err != nil {
-		return nil, fmt.Errorf("connector-manager-client: failed to create dpop signer: %w", err)
+		return nil, fmt.Errorf("get-connector-service-client: failed to create dpop signer: %w", err)
 	}
 
 	systemCertPool, err := x509.SystemCertPool()
 	if err != nil || systemCertPool == nil {
-		return nil, fmt.Errorf("connector-manager-client: failed to load system cert pool: %w", err)
+		return nil, fmt.Errorf("get-connector-service-client: failed to load system cert pool: %w", err)
 	}
 	creds := credentials.NewTLS(&tls.Config{
 		RootCAs:    systemCertPool,

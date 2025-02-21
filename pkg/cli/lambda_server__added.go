@@ -5,20 +5,18 @@ package cli
 import (
 	"context"
 	"fmt"
-	"log"
 
-	"github.com/aws/aws-lambda-go/lambda"
+	aws_lambda "github.com/aws/aws-lambda-go/lambda"
+	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/mitchellh/mapstructure"
+	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
+
 	"github.com/conductorone/baton-sdk/internal/connector"
 	pb_connector_api "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	c1_lambda_grpc "github.com/conductorone/baton-sdk/pkg/lambda/grpc"
 	c1_lambda_config "github.com/conductorone/baton-sdk/pkg/lambda/grpc/config"
-
-	"github.com/mitchellh/mapstructure"
-
-	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 func OptionallyAddLambdaCommand[T field.Configurable](
@@ -33,7 +31,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 
 	lambdaCmd, err := AddCommand(mainCmd, v, &lambdaSchema, &cobra.Command{
 		Use:           "lambda",
-		Short:         "lambda",
+		Short:         "run a server for a AWS Lambda function",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	})
@@ -58,47 +56,45 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 
-		// l := ctxzap.Extract(runCtx)
-
 		if err := field.Validate(lambdaSchema, v); err != nil {
 			return err
 		}
 
 		client, err := c1_lambda_config.GetConnectorConfigServiceClient(
 			ctx,
-			v.GetString("lambda-client-id"),
-			v.GetString("lambda-client-secret"),
+			v.GetString(field.LambdaServerClientIDField.GetName()),
+			v.GetString(field.LambdaServerClientSecretField.GetName()),
 		)
 		if err != nil {
-			return fmt.Errorf("failed to get connector manager client: %w", err)
+			return fmt.Errorf("lambda-run: failed to get connector manager client: %w", err)
 		}
 
 		// Get configuration, convert it to viper flag values, then proceed.
 		config, err := client.GetConnectorConfig(ctx, &pb_connector_api.GetConnectorConfigRequest{})
 		if err != nil {
-			return fmt.Errorf("failed to get connector config: %w", err)
+			return fmt.Errorf("lambda-run: failed to get connector config: %w", err)
 		}
 
 		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
-			return fmt.Errorf("failed to make generic configuration: %w", err)
+			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
 		}
 
 		err = mapstructure.Decode(config.Config.AsMap(), t)
 		if err != nil {
-			log.Fatalf("Error decoding: %v", err)
+			return fmt.Errorf("lambda-run: failed to decode config: %w", err)
 		}
 
 		if err := field.Validate(connectorSchema, t); err != nil {
-			return err
+			return fmt.Errorf("lambda-run: failed to validate config: %w", err)
 		}
 
 		c, err := getconnector(runCtx, t)
 		if err != nil {
-			return err
+			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
 		}
 
-		// TODO(morgabra/kans): This seems to be OK in practice - just don't invoke the unimplemented methods
+		// TODO(morgabra/kans): This seems to be OK in practice - just don't invoke the unimplemented methods.
 		opts := &connector.RegisterOps{
 			Ratelimiter:         nil,
 			ProvisioningEnabled: true,
@@ -108,7 +104,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		s := c1_lambda_grpc.NewServer(nil)
 		connector.Register(ctx, s, c, opts)
 
-		lambda.Start(s.Handler)
+		aws_lambda.Start(s.Handler)
 		return nil
 	}
 	return nil

@@ -5,10 +5,10 @@ package cli
 import (
 	"context"
 
-	"github.com/conductorone/baton-sdk/pkg/field"
-
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"github.com/conductorone/baton-sdk/pkg/field"
 )
 
 func OptionallyAddLambdaCommand[T field.Configurable](

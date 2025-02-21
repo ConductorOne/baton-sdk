@@ -49,16 +49,16 @@ var (
 	otelCollectorEndpoint = StringField("otel-collector-endpoint", WithDescription("The endpoint of the OpenTelemetry collector to send observability data to"),
 		WithPersistent(true), WithExportTarget(ExportTargetOps))
 
-	lambdaServerClientIDField = StringField("lambda-client-id", WithRequired(true), WithDescription("The oauth client id to use with the configuration endpoint"),
+	LambdaServerClientIDField = StringField("lambda-client-id", WithRequired(true), WithDescription("The oauth client id to use with the configuration endpoint"),
 		WithExportTarget(ExportTargetNone))
-	lambdaServerClientSecretField = StringField("lambda-client-secret", WithRequired(true), WithDescription("The oauth client secret to use with the configuration endpoint"),
+	LambdaServerClientSecretField = StringField("lambda-client-secret", WithRequired(true), WithDescription("The oauth client secret to use with the configuration endpoint"),
 		WithExportTarget(ExportTargetNone))
 )
 
 func LambdaServerFields() []SchemaField {
 	return []SchemaField{
-		lambdaServerClientIDField,
-		lambdaServerClientSecretField,
+		LambdaServerClientIDField,
+		LambdaServerClientSecretField,
 	}
 }
 
