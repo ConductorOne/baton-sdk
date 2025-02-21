@@ -30,37 +30,33 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 )
 
-func AddLambdaCommand(mainCMD *cobra.Command, subCMD *cobra.Command) {
-	mainCMD.AddCommand(subCMD)
-}
-
 func OptionallyAddLambdaCommand[T any](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
 	getconnector GetConnectorFunc[T],
 	connectorSchema field.Configuration,
-	constraintSetter ContrainstSetter,
 	mainCmd *cobra.Command,
-) *cobra.Command {
+) error {
 	lambdaSchema := field.NewConfiguration(field.LambdaServerFields(), field.LambdaServerRelationships...)
 
-	cmd := &cobra.Command{
+	lambdaCmd, err := AddCommand(mainCmd, v, &lambdaSchema, &cobra.Command{
 		Use:           "lambda",
 		Short:         "lambda",
 		SilenceErrors: true,
 		SilenceUsage:  true,
+	})
+
+	if err != nil {
+		return err
 	}
 
-	constraintSetter(cmd, lambdaSchema)
-
-	mainCmd.AddCommand(cmd)
-
-	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+	lambdaCmd.RunE = func(cmd *cobra.Command, args []string) error {
 		err := v.BindPFlags(cmd.Flags())
 		if err != nil {
 			return err
 		}
+
 		runCtx, err := initLogger(
 			ctx,
 			name,
@@ -125,7 +121,7 @@ func OptionallyAddLambdaCommand[T any](
 		lambda.Start(s.Handler)
 		return nil
 	}
-	return cmd
+	return nil
 }
 
 func MakeLambdaMetadataCommand[T any](

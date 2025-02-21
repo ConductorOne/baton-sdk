@@ -50,9 +50,9 @@ var (
 		WithPersistent(true), WithExportTarget(ExportTargetOps))
 
 	lambdaServerClientIDField = StringField("lambda-client-id", WithRequired(true), WithDescription("The oauth client id to use with the configuration endpoint"),
-		WithPersistent(true), WithExportTarget(ExportTargetNone))
+		WithExportTarget(ExportTargetNone))
 	lambdaServerClientSecretField = StringField("lambda-client-secret", WithRequired(true), WithDescription("The oauth client secret to use with the configuration endpoint"),
-		WithPersistent(true), WithExportTarget(ExportTargetNone))
+		WithExportTarget(ExportTargetNone))
 )
 
 func LambdaServerFields() []SchemaField {

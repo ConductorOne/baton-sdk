@@ -11,19 +11,15 @@ import (
 	"github.com/spf13/viper"
 )
 
-func AddLambdaCommand(_ *cobra.Command, _ *cobra.Command) {
-}
-
 func OptionallyAddLambdaCommand[T any](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
 	getconnector GetConnectorFunc[T],
 	connectorSchema field.Configuration,
-	constraintSetter ContrainstSetter,
 	mainCmd *cobra.Command,
-) *cobra.Command {
-	return &cobra.Command{}
+) error {
+	return nil
 }
 
 func MakeLambdaMetadataCommand[T any](
