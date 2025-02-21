@@ -175,7 +175,6 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		TicketingEnabled:    cw.ticketingEnabled,
 	}
 	Register(ctx, server, cw.server, opts)
-	ratelimitV1.RegisterRateLimiterServiceServer(server, cw.rateLimiter)
 	return server.Serve(l)
 }
 

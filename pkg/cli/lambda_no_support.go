@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func OptionallyAddLambdaCommand[T any](
+func OptionallyAddLambdaCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
@@ -22,7 +22,7 @@ func OptionallyAddLambdaCommand[T any](
 	return nil
 }
 
-func MakeLambdaMetadataCommand[T any](
+func MakeLambdaMetadataCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,

@@ -28,7 +28,7 @@ import (
 
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
-func MakeMainCommand[T any](
+func MakeMainCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
@@ -211,7 +211,7 @@ func MakeMainCommand[T any](
 	}
 }
 
-func MakeGRPCServerCommand[T any](
+func MakeGRPCServerCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
@@ -349,7 +349,7 @@ func MakeGRPCServerCommand[T any](
 	}
 }
 
-func MakeCapabilitiesCommand[T any](
+func MakeCapabilitiesCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
@@ -424,7 +424,7 @@ func MakeCapabilitiesCommand[T any](
 	}
 }
 
-func MakeConfigSchemaCommand[T any](
+func MakeConfigSchemaCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,

@@ -121,12 +121,10 @@ func (c* {{ .StructName }}) findFieldByTag(tagValue string) (any, bool) {
 	return nil, false
 }
 
-
-
 func (c *{{ .StructName }}) GetStringSlice(fieldName string) []string {
 	v, ok := c.findFieldByTag(fieldName)
 	if !ok {
-		panic("could not find field by tag")
+		return []string{}
 	}
 	t, ok := v.([]string)
 	if !ok {
@@ -138,7 +136,7 @@ func (c *{{ .StructName }}) GetStringSlice(fieldName string) []string {
 func (c *{{ .StructName }}) GetString(fieldName string) string {
 	v, ok := c.findFieldByTag(fieldName)
 	if !ok {
-		panic("could not find field by tag")
+		return ""
 	}
 	t, ok := v.(string)
 	if !ok {
@@ -150,7 +148,7 @@ func (c *{{ .StructName }}) GetString(fieldName string) string {
 func (c *{{ .StructName }}) GetInt(fieldName string) int {
 	v, ok := c.findFieldByTag(fieldName)
 	if !ok {
-		panic("could not find field by tag")
+		return 0
 	}
 	t, ok := v.(int)
 	if !ok {
@@ -162,7 +160,7 @@ func (c *{{ .StructName }}) GetInt(fieldName string) int {
 func (c *{{ .StructName }}) GetBool(fieldName string) bool {
 	v, ok := c.findFieldByTag(fieldName)
 	if !ok {
-		panic("could not find field by tag")
+		return false
 	}
 	t, ok := v.(bool)
 	if !ok {

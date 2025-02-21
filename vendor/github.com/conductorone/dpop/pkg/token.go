@@ -101,7 +101,7 @@ func (c *tokenSource) Token() (*oauth2.Token, error) {
 	if c.claimsAdjuster == nil {
 		marshalledClaims, err = json.Marshal(claims)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("token-source: failed to marshal claims: %w", err)
 		}
 	} else {
 		err = c.claimsAdjuster.AdjustClaims(claims)
@@ -118,17 +118,17 @@ func (c *tokenSource) Token() (*oauth2.Token, error) {
 	method := http.MethodPost
 	dpopProof, err := c.dpopSigner.Proof(method, c.tokenURL.String(), "", "")
 	if err != nil {
-		return nil, status.Errorf(codes.Unauthenticated, "failed to get token: %s", err)
+		return nil, fmt.Errorf("failed to get token: %w", err)
 	}
 
 	rv, err := jsigner.Sign(marshalledClaims)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to sign proof: %w", err)
 	}
 
 	s, err := rv.CompactSerialize()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to serialize proof: %w", err)
 	}
 
 	body := url.Values{
@@ -139,13 +139,13 @@ func (c *tokenSource) Token() (*oauth2.Token, error) {
 	}
 
 	var encodeable Encodable
-	if c.claimsAdjuster != nil {
+	if c.claimsAdjuster == nil {
+		encodeable = &body
+	} else {
 		encodeable, err = c.claimsAdjuster.AdjustBody(&body)
 		if err != nil {
 			return nil, fmt.Errorf("token-source: failed to adjust body: %w", err)
 		}
-	} else {
-		encodeable = &body
 	}
 
 	req, err := http.NewRequestWithContext(context.Background(), method, c.tokenURL.String(), strings.NewReader(encodeable.Encode()))

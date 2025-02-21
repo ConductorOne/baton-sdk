@@ -57,8 +57,10 @@ func WithNewDPoPSigner(ctx context.Context, tokenURL *url.URL, clientID string, 
 
 type dpopPerRPCCredentials struct {
 	tokenSource oauth2.TokenSource
-	dpopSigner  *dpop.DPoPProofer
+	// access token from the source
 	accessToken *oauth2.Token
+	// signs proofs with the token
+	dpopSigner *dpop.DPoPProofer
 }
 
 func (c *dpopPerRPCCredentials) RequireTransportSecurity() bool {
@@ -66,16 +68,18 @@ func (c *dpopPerRPCCredentials) RequireTransportSecurity() bool {
 }
 
 func (c *dpopPerRPCCredentials) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
-	token := c.accessToken
 	if c.accessToken == nil || c.accessToken.Expiry.Before(time.Now().Add(1*time.Minute)) {
-		token, err := c.tokenSource.Token()
+		var err error
+		c.accessToken, err = c.tokenSource.Token()
 		if err != nil {
 			return nil, err
 		}
-		c.accessToken = token
 	}
 
-	ri, _ := credentials.RequestInfoFromContext(ctx)
+	ri, ok := credentials.RequestInfoFromContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "failed to get grpc request info from context")
+	}
 	err := credentials.CheckSecurityLevel(ri.AuthInfo, credentials.PrivacyAndIntegrity)
 	if err != nil {
 		return nil, status.Errorf(codes.Unauthenticated, "connection is not secure enough to send credentials")
@@ -93,6 +97,7 @@ func (c *dpopPerRPCCredentials) GetRequestMetadata(ctx context.Context, uri ...s
 	}
 	parsedURI.Path = ri.Method
 
+	token := c.accessToken
 	dpopProof, err := c.dpopSigner.Proof(http.MethodPost, parsedURI.String(), token.AccessToken, "")
 	if err != nil {
 		return nil, status.Errorf(codes.Unauthenticated, "failed to get dpop proof: %s", err)

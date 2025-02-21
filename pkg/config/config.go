@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func DefineConfiguration[T any](
+func DefineConfiguration[T field.Configurable](
 	ctx context.Context,
 	connectorName string,
 	connector cli.GetConnectorFunc[T],
@@ -121,13 +121,13 @@ func DefineConfiguration[T any](
 	return v, mainCMD, nil
 }
 
-func verifyStructFields[T any](schema field.Configuration) error {
+func verifyStructFields[T field.Configurable](schema field.Configuration) error {
 	// Verify that every field in the confschema has a corresponding struct tag in the struct defined in getconnector of type T
 	//  or that it obeys the old interface, a *viper.Viper
 	var config T // Create a zero-value instance of T
 	tType := reflect.TypeOf(config)
 	// Viper doesn't do struct fields
-	if tType == reflect.TypeOf(viper.Viper{}) {
+	if tType == reflect.TypeOf(&viper.Viper{}) {
 		return nil
 	}
 	configType := reflect.TypeOf(config)
@@ -147,7 +147,6 @@ func verifyStructFields[T any](schema field.Configuration) error {
 			}
 		}
 		if !fieldFound {
-			// This means a connector may not set an export target of none.
 			return fmt.Errorf("field %s in confschema does not have a corresponding struct tag in the configuration struct", field.FieldName)
 		}
 	}
