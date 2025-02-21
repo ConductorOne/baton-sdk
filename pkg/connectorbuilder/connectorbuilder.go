@@ -972,6 +972,7 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 	rv := &v2.CreateAccountResponse{
 		EncryptedData: encryptedDatas,
 		Annotations:   annos,
+		ContextId:     request.GetContextId(),
 	}
 
 	switch r := result.(type) {

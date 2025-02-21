@@ -153,6 +153,7 @@ message CreateAccountRequest {
   AccountInfo account_info = 1;
   CredentialOptions credential_options = 2;
   repeated EncryptionConfig encryption_configs = 3;
+  string context_id = 4;
 }
 
 message CreateAccountResponse {
@@ -171,6 +172,7 @@ message CreateAccountResponse {
   }
   repeated EncryptedData encrypted_data = 2;
   repeated google.protobuf.Any annotations = 3;
+  string context_id = 4;
 }
 
 message EncryptedData {
