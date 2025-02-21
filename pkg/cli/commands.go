@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"reflect"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
@@ -24,32 +23,12 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
-type GetConnectorFunc[T any] func(context.Context, *T) (types.ConnectorServer, error)
+type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
-func makeGenericConfiguration[T any](v *viper.Viper) (*T, error) {
-	// Create an instance of the struct type T using reflection
-	var config T // Create a zero-value instance of T
-	// Ensure T is a struct (or pointer to struct)
-	tType := reflect.TypeOf(config)
-	if tType == reflect.TypeOf(viper.Viper{}) {
-		return any(v).(*T), nil
-	}
-	if tType.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("T must be a struct, but got %s", tType.Kind())
-	}
-	// Unmarshal into the config struct
-	err := v.Unmarshal(&config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
-	}
-	return &config, nil
-}
-
-func MakeMainCommand[T any](
+func MakeMainCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
@@ -204,7 +183,7 @@ func MakeMainCommand[T any](
 			opts = append(opts, connectorrunner.WithTempDir(v.GetString("c1z-temp-dir")))
 		}
 
-		t, err := makeGenericConfiguration[T](v)
+		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
@@ -232,7 +211,7 @@ func MakeMainCommand[T any](
 	}
 }
 
-func MakeGRPCServerCommand[T any](
+func MakeGRPCServerCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
@@ -280,7 +259,7 @@ func MakeGRPCServerCommand[T any](
 		if err := field.Validate(confschema, v); err != nil {
 			return err
 		}
-		t, err := makeGenericConfiguration[T](v)
+		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
@@ -370,7 +349,7 @@ func MakeGRPCServerCommand[T any](
 	}
 }
 
-func MakeCapabilitiesCommand[T any](
+func MakeCapabilitiesCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
@@ -401,7 +380,7 @@ func MakeCapabilitiesCommand[T any](
 		if err := field.Validate(confschema, v); err != nil {
 			return err
 		}
-		t, err := makeGenericConfiguration[T](v)
+		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
@@ -445,7 +424,7 @@ func MakeCapabilitiesCommand[T any](
 	}
 }
 
-func MakeConfigSchemaCommand[T any](
+func MakeConfigSchemaCommand[T field.Configurable](
 	ctx context.Context,
 	name string,
 	v *viper.Viper,
