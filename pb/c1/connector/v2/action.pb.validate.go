@@ -241,22 +241,22 @@ var _ interface {
 	ErrorName() string
 } = BatonActionSchemaValidationError{}
 
-// Validate checks the field values on ActionServiceInvokeRequest with the
-// rules defined in the proto definition for this message. If any rules are
+// Validate checks the field values on InvokeActionRequest with the rules
+// defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
-func (m *ActionServiceInvokeRequest) Validate() error {
+func (m *InvokeActionRequest) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on ActionServiceInvokeRequest with the
-// rules defined in the proto definition for this message. If any rules are
+// ValidateAll checks the field values on InvokeActionRequest with the rules
+// defined in the proto definition for this message. If any rules are
 // violated, the result is a list of violation errors wrapped in
-// ActionServiceInvokeRequestMultiError, or nil if none found.
-func (m *ActionServiceInvokeRequest) ValidateAll() error {
+// InvokeActionRequestMultiError, or nil if none found.
+func (m *InvokeActionRequest) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *ActionServiceInvokeRequest) validate(all bool) error {
+func (m *InvokeActionRequest) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -269,7 +269,7 @@ func (m *ActionServiceInvokeRequest) validate(all bool) error {
 		switch v := interface{}(m.GetArgs()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, ActionServiceInvokeRequestValidationError{
+				errors = append(errors, InvokeActionRequestValidationError{
 					field:  "Args",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -277,7 +277,7 @@ func (m *ActionServiceInvokeRequest) validate(all bool) error {
 			}
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
-				errors = append(errors, ActionServiceInvokeRequestValidationError{
+				errors = append(errors, InvokeActionRequestValidationError{
 					field:  "Args",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -286,7 +286,7 @@ func (m *ActionServiceInvokeRequest) validate(all bool) error {
 		}
 	} else if v, ok := interface{}(m.GetArgs()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
-			return ActionServiceInvokeRequestValidationError{
+			return InvokeActionRequestValidationError{
 				field:  "Args",
 				reason: "embedded message failed validation",
 				cause:  err,
@@ -301,7 +301,7 @@ func (m *ActionServiceInvokeRequest) validate(all bool) error {
 			switch v := interface{}(item).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ActionServiceInvokeRequestValidationError{
+					errors = append(errors, InvokeActionRequestValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -309,7 +309,7 @@ func (m *ActionServiceInvokeRequest) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, ActionServiceInvokeRequestValidationError{
+					errors = append(errors, InvokeActionRequestValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -318,7 +318,7 @@ func (m *ActionServiceInvokeRequest) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return ActionServiceInvokeRequestValidationError{
+				return InvokeActionRequestValidationError{
 					field:  fmt.Sprintf("Annotations[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -329,595 +329,32 @@ func (m *ActionServiceInvokeRequest) validate(all bool) error {
 	}
 
 	if len(errors) > 0 {
-		return ActionServiceInvokeRequestMultiError(errors)
+		return InvokeActionRequestMultiError(errors)
 	}
 
 	return nil
 }
 
-// ActionServiceInvokeRequestMultiError is an error wrapping multiple
-// validation errors returned by ActionServiceInvokeRequest.ValidateAll() if
-// the designated constraints aren't met.
-type ActionServiceInvokeRequestMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m ActionServiceInvokeRequestMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m ActionServiceInvokeRequestMultiError) AllErrors() []error { return m }
-
-// ActionServiceInvokeRequestValidationError is the validation error returned
-// by ActionServiceInvokeRequest.Validate if the designated constraints aren't met.
-type ActionServiceInvokeRequestValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e ActionServiceInvokeRequestValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e ActionServiceInvokeRequestValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e ActionServiceInvokeRequestValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e ActionServiceInvokeRequestValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e ActionServiceInvokeRequestValidationError) ErrorName() string {
-	return "ActionServiceInvokeRequestValidationError"
-}
-
-// Error satisfies the builtin error interface
-func (e ActionServiceInvokeRequestValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sActionServiceInvokeRequest.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = ActionServiceInvokeRequestValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = ActionServiceInvokeRequestValidationError{}
-
-// Validate checks the field values on ActionServiceInvokeResponse with the
-// rules defined in the proto definition for this message. If any rules are
-// violated, the first error encountered is returned, or nil if there are no violations.
-func (m *ActionServiceInvokeResponse) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on ActionServiceInvokeResponse with the
-// rules defined in the proto definition for this message. If any rules are
-// violated, the result is a list of violation errors wrapped in
-// ActionServiceInvokeResponseMultiError, or nil if none found.
-func (m *ActionServiceInvokeResponse) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *ActionServiceInvokeResponse) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for Id
-
-	// no validation rules for Status
-
-	for idx, item := range m.GetAnnotations() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ActionServiceInvokeResponseValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, ActionServiceInvokeResponseValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return ActionServiceInvokeResponseValidationError{
-					field:  fmt.Sprintf("Annotations[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
-	if len(errors) > 0 {
-		return ActionServiceInvokeResponseMultiError(errors)
-	}
-
-	return nil
-}
-
-// ActionServiceInvokeResponseMultiError is an error wrapping multiple
-// validation errors returned by ActionServiceInvokeResponse.ValidateAll() if
-// the designated constraints aren't met.
-type ActionServiceInvokeResponseMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m ActionServiceInvokeResponseMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m ActionServiceInvokeResponseMultiError) AllErrors() []error { return m }
-
-// ActionServiceInvokeResponseValidationError is the validation error returned
-// by ActionServiceInvokeResponse.Validate if the designated constraints
-// aren't met.
-type ActionServiceInvokeResponseValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e ActionServiceInvokeResponseValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e ActionServiceInvokeResponseValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e ActionServiceInvokeResponseValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e ActionServiceInvokeResponseValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e ActionServiceInvokeResponseValidationError) ErrorName() string {
-	return "ActionServiceInvokeResponseValidationError"
-}
-
-// Error satisfies the builtin error interface
-func (e ActionServiceInvokeResponseValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sActionServiceInvokeResponse.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = ActionServiceInvokeResponseValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = ActionServiceInvokeResponseValidationError{}
-
-// Validate checks the field values on ActionServiceStatusRequest with the
-// rules defined in the proto definition for this message. If any rules are
-// violated, the first error encountered is returned, or nil if there are no violations.
-func (m *ActionServiceStatusRequest) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on ActionServiceStatusRequest with the
-// rules defined in the proto definition for this message. If any rules are
-// violated, the result is a list of violation errors wrapped in
-// ActionServiceStatusRequestMultiError, or nil if none found.
-func (m *ActionServiceStatusRequest) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *ActionServiceStatusRequest) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for Name
-
-	// no validation rules for Id
-
-	for idx, item := range m.GetAnnotations() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ActionServiceStatusRequestValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, ActionServiceStatusRequestValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return ActionServiceStatusRequestValidationError{
-					field:  fmt.Sprintf("Annotations[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
-	if len(errors) > 0 {
-		return ActionServiceStatusRequestMultiError(errors)
-	}
-
-	return nil
-}
-
-// ActionServiceStatusRequestMultiError is an error wrapping multiple
-// validation errors returned by ActionServiceStatusRequest.ValidateAll() if
-// the designated constraints aren't met.
-type ActionServiceStatusRequestMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m ActionServiceStatusRequestMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m ActionServiceStatusRequestMultiError) AllErrors() []error { return m }
-
-// ActionServiceStatusRequestValidationError is the validation error returned
-// by ActionServiceStatusRequest.Validate if the designated constraints aren't met.
-type ActionServiceStatusRequestValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e ActionServiceStatusRequestValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e ActionServiceStatusRequestValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e ActionServiceStatusRequestValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e ActionServiceStatusRequestValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e ActionServiceStatusRequestValidationError) ErrorName() string {
-	return "ActionServiceStatusRequestValidationError"
-}
-
-// Error satisfies the builtin error interface
-func (e ActionServiceStatusRequestValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sActionServiceStatusRequest.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = ActionServiceStatusRequestValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = ActionServiceStatusRequestValidationError{}
-
-// Validate checks the field values on ActionServiceStatusResponse with the
-// rules defined in the proto definition for this message. If any rules are
-// violated, the first error encountered is returned, or nil if there are no violations.
-func (m *ActionServiceStatusResponse) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on ActionServiceStatusResponse with the
-// rules defined in the proto definition for this message. If any rules are
-// violated, the result is a list of violation errors wrapped in
-// ActionServiceStatusResponseMultiError, or nil if none found.
-func (m *ActionServiceStatusResponse) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *ActionServiceStatusResponse) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for Name
-
-	// no validation rules for Id
-
-	// no validation rules for Status
-
-	for idx, item := range m.GetAnnotations() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ActionServiceStatusResponseValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, ActionServiceStatusResponseValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return ActionServiceStatusResponseValidationError{
-					field:  fmt.Sprintf("Annotations[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
-	if len(errors) > 0 {
-		return ActionServiceStatusResponseMultiError(errors)
-	}
-
-	return nil
-}
-
-// ActionServiceStatusResponseMultiError is an error wrapping multiple
-// validation errors returned by ActionServiceStatusResponse.ValidateAll() if
-// the designated constraints aren't met.
-type ActionServiceStatusResponseMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m ActionServiceStatusResponseMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m ActionServiceStatusResponseMultiError) AllErrors() []error { return m }
-
-// ActionServiceStatusResponseValidationError is the validation error returned
-// by ActionServiceStatusResponse.Validate if the designated constraints
-// aren't met.
-type ActionServiceStatusResponseValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e ActionServiceStatusResponseValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e ActionServiceStatusResponseValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e ActionServiceStatusResponseValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e ActionServiceStatusResponseValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e ActionServiceStatusResponseValidationError) ErrorName() string {
-	return "ActionServiceStatusResponseValidationError"
-}
-
-// Error satisfies the builtin error interface
-func (e ActionServiceStatusResponseValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sActionServiceStatusResponse.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = ActionServiceStatusResponseValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = ActionServiceStatusResponseValidationError{}
-
-// Validate checks the field values on ActionServiceGetSchemaRequest with the
-// rules defined in the proto definition for this message. If any rules are
-// violated, the first error encountered is returned, or nil if there are no violations.
-func (m *ActionServiceGetSchemaRequest) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on ActionServiceGetSchemaRequest with
-// the rules defined in the proto definition for this message. If any rules
-// are violated, the result is a list of violation errors wrapped in
-// ActionServiceGetSchemaRequestMultiError, or nil if none found.
-func (m *ActionServiceGetSchemaRequest) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *ActionServiceGetSchemaRequest) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for Name
-
-	for idx, item := range m.GetAnnotations() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ActionServiceGetSchemaRequestValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, ActionServiceGetSchemaRequestValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return ActionServiceGetSchemaRequestValidationError{
-					field:  fmt.Sprintf("Annotations[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
-	if len(errors) > 0 {
-		return ActionServiceGetSchemaRequestMultiError(errors)
-	}
-
-	return nil
-}
-
-// ActionServiceGetSchemaRequestMultiError is an error wrapping multiple
-// validation errors returned by ActionServiceGetSchemaRequest.ValidateAll()
-// if the designated constraints aren't met.
-type ActionServiceGetSchemaRequestMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m ActionServiceGetSchemaRequestMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m ActionServiceGetSchemaRequestMultiError) AllErrors() []error { return m }
-
-// ActionServiceGetSchemaRequestValidationError is the validation error
-// returned by ActionServiceGetSchemaRequest.Validate if the designated
+// InvokeActionRequestMultiError is an error wrapping multiple validation
+// errors returned by InvokeActionRequest.ValidateAll() if the designated
 // constraints aren't met.
-type ActionServiceGetSchemaRequestValidationError struct {
+type InvokeActionRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m InvokeActionRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m InvokeActionRequestMultiError) AllErrors() []error { return m }
+
+// InvokeActionRequestValidationError is the validation error returned by
+// InvokeActionRequest.Validate if the designated constraints aren't met.
+type InvokeActionRequestValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -925,24 +362,24 @@ type ActionServiceGetSchemaRequestValidationError struct {
 }
 
 // Field function returns field value.
-func (e ActionServiceGetSchemaRequestValidationError) Field() string { return e.field }
+func (e InvokeActionRequestValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e ActionServiceGetSchemaRequestValidationError) Reason() string { return e.reason }
+func (e InvokeActionRequestValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e ActionServiceGetSchemaRequestValidationError) Cause() error { return e.cause }
+func (e InvokeActionRequestValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e ActionServiceGetSchemaRequestValidationError) Key() bool { return e.key }
+func (e InvokeActionRequestValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e ActionServiceGetSchemaRequestValidationError) ErrorName() string {
-	return "ActionServiceGetSchemaRequestValidationError"
+func (e InvokeActionRequestValidationError) ErrorName() string {
+	return "InvokeActionRequestValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e ActionServiceGetSchemaRequestValidationError) Error() string {
+func (e InvokeActionRequestValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -954,14 +391,14 @@ func (e ActionServiceGetSchemaRequestValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sActionServiceGetSchemaRequest.%s: %s%s",
+		"invalid %sInvokeActionRequest.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = ActionServiceGetSchemaRequestValidationError{}
+var _ error = InvokeActionRequestValidationError{}
 
 var _ interface {
 	Field() string
@@ -969,24 +406,584 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = ActionServiceGetSchemaRequestValidationError{}
+} = InvokeActionRequestValidationError{}
 
-// Validate checks the field values on ActionServiceGetSchemaResponse with the
-// rules defined in the proto definition for this message. If any rules are
+// Validate checks the field values on InvokeActionResponse with the rules
+// defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
-func (m *ActionServiceGetSchemaResponse) Validate() error {
+func (m *InvokeActionResponse) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on ActionServiceGetSchemaResponse with
-// the rules defined in the proto definition for this message. If any rules
-// are violated, the result is a list of violation errors wrapped in
-// ActionServiceGetSchemaResponseMultiError, or nil if none found.
-func (m *ActionServiceGetSchemaResponse) ValidateAll() error {
+// ValidateAll checks the field values on InvokeActionResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// InvokeActionResponseMultiError, or nil if none found.
+func (m *InvokeActionResponse) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
+func (m *InvokeActionResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Id
+
+	// no validation rules for Status
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, InvokeActionResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, InvokeActionResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return InvokeActionResponseValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return InvokeActionResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// InvokeActionResponseMultiError is an error wrapping multiple validation
+// errors returned by InvokeActionResponse.ValidateAll() if the designated
+// constraints aren't met.
+type InvokeActionResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m InvokeActionResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m InvokeActionResponseMultiError) AllErrors() []error { return m }
+
+// InvokeActionResponseValidationError is the validation error returned by
+// InvokeActionResponse.Validate if the designated constraints aren't met.
+type InvokeActionResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e InvokeActionResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e InvokeActionResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e InvokeActionResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e InvokeActionResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e InvokeActionResponseValidationError) ErrorName() string {
+	return "InvokeActionResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e InvokeActionResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sInvokeActionResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = InvokeActionResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = InvokeActionResponseValidationError{}
+
+// Validate checks the field values on GetActionStatusRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GetActionStatusRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetActionStatusRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// GetActionStatusRequestMultiError, or nil if none found.
+func (m *GetActionStatusRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetActionStatusRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Name
+
+	// no validation rules for Id
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, GetActionStatusRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, GetActionStatusRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return GetActionStatusRequestValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return GetActionStatusRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetActionStatusRequestMultiError is an error wrapping multiple validation
+// errors returned by GetActionStatusRequest.ValidateAll() if the designated
+// constraints aren't met.
+type GetActionStatusRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetActionStatusRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetActionStatusRequestMultiError) AllErrors() []error { return m }
+
+// GetActionStatusRequestValidationError is the validation error returned by
+// GetActionStatusRequest.Validate if the designated constraints aren't met.
+type GetActionStatusRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetActionStatusRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetActionStatusRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetActionStatusRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetActionStatusRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetActionStatusRequestValidationError) ErrorName() string {
+	return "GetActionStatusRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetActionStatusRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetActionStatusRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetActionStatusRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetActionStatusRequestValidationError{}
+
+// Validate checks the field values on GetActionStatusResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GetActionStatusResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetActionStatusResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// GetActionStatusResponseMultiError, or nil if none found.
+func (m *GetActionStatusResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetActionStatusResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Name
+
+	// no validation rules for Id
+
+	// no validation rules for Status
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, GetActionStatusResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, GetActionStatusResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return GetActionStatusResponseValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return GetActionStatusResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetActionStatusResponseMultiError is an error wrapping multiple validation
+// errors returned by GetActionStatusResponse.ValidateAll() if the designated
+// constraints aren't met.
+type GetActionStatusResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetActionStatusResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetActionStatusResponseMultiError) AllErrors() []error { return m }
+
+// GetActionStatusResponseValidationError is the validation error returned by
+// GetActionStatusResponse.Validate if the designated constraints aren't met.
+type GetActionStatusResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetActionStatusResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetActionStatusResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetActionStatusResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetActionStatusResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetActionStatusResponseValidationError) ErrorName() string {
+	return "GetActionStatusResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetActionStatusResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetActionStatusResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetActionStatusResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetActionStatusResponseValidationError{}
+
+// Validate checks the field values on GetActionSchemaRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GetActionSchemaRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetActionSchemaRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// GetActionSchemaRequestMultiError, or nil if none found.
+func (m *GetActionSchemaRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetActionSchemaRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Name
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, GetActionSchemaRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, GetActionSchemaRequestValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return GetActionSchemaRequestValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return GetActionSchemaRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetActionSchemaRequestMultiError is an error wrapping multiple validation
+// errors returned by GetActionSchemaRequest.ValidateAll() if the designated
+// constraints aren't met.
+type GetActionSchemaRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetActionSchemaRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetActionSchemaRequestMultiError) AllErrors() []error { return m }
+
+// GetActionSchemaRequestValidationError is the validation error returned by
+// GetActionSchemaRequest.Validate if the designated constraints aren't met.
+type GetActionSchemaRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetActionSchemaRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetActionSchemaRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetActionSchemaRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetActionSchemaRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetActionSchemaRequestValidationError) ErrorName() string {
+	return "GetActionSchemaRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetActionSchemaRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetActionSchemaRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetActionSchemaRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetActionSchemaRequestValidationError{}
+
+// Validate checks the field values on GetActionSchemaResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GetActionSchemaResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetActionSchemaResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// GetActionSchemaResponseMultiError, or nil if none found.
+func (m *GetActionSchemaResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetActionSchemaResponse) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -997,7 +994,7 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 		switch v := interface{}(m.GetSchema()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, ActionServiceGetSchemaResponseValidationError{
+				errors = append(errors, GetActionSchemaResponseValidationError{
 					field:  "Schema",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1005,7 +1002,7 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 			}
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
-				errors = append(errors, ActionServiceGetSchemaResponseValidationError{
+				errors = append(errors, GetActionSchemaResponseValidationError{
 					field:  "Schema",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1014,7 +1011,7 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 		}
 	} else if v, ok := interface{}(m.GetSchema()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
-			return ActionServiceGetSchemaResponseValidationError{
+			return GetActionSchemaResponseValidationError{
 				field:  "Schema",
 				reason: "embedded message failed validation",
 				cause:  err,
@@ -1029,7 +1026,7 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 			switch v := interface{}(item).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ActionServiceGetSchemaResponseValidationError{
+					errors = append(errors, GetActionSchemaResponseValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -1037,7 +1034,7 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, ActionServiceGetSchemaResponseValidationError{
+					errors = append(errors, GetActionSchemaResponseValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -1046,7 +1043,7 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return ActionServiceGetSchemaResponseValidationError{
+				return GetActionSchemaResponseValidationError{
 					field:  fmt.Sprintf("Annotations[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1057,19 +1054,19 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 	}
 
 	if len(errors) > 0 {
-		return ActionServiceGetSchemaResponseMultiError(errors)
+		return GetActionSchemaResponseMultiError(errors)
 	}
 
 	return nil
 }
 
-// ActionServiceGetSchemaResponseMultiError is an error wrapping multiple
-// validation errors returned by ActionServiceGetSchemaResponse.ValidateAll()
-// if the designated constraints aren't met.
-type ActionServiceGetSchemaResponseMultiError []error
+// GetActionSchemaResponseMultiError is an error wrapping multiple validation
+// errors returned by GetActionSchemaResponse.ValidateAll() if the designated
+// constraints aren't met.
+type GetActionSchemaResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m ActionServiceGetSchemaResponseMultiError) Error() string {
+func (m GetActionSchemaResponseMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -1078,12 +1075,11 @@ func (m ActionServiceGetSchemaResponseMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m ActionServiceGetSchemaResponseMultiError) AllErrors() []error { return m }
+func (m GetActionSchemaResponseMultiError) AllErrors() []error { return m }
 
-// ActionServiceGetSchemaResponseValidationError is the validation error
-// returned by ActionServiceGetSchemaResponse.Validate if the designated
-// constraints aren't met.
-type ActionServiceGetSchemaResponseValidationError struct {
+// GetActionSchemaResponseValidationError is the validation error returned by
+// GetActionSchemaResponse.Validate if the designated constraints aren't met.
+type GetActionSchemaResponseValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -1091,24 +1087,24 @@ type ActionServiceGetSchemaResponseValidationError struct {
 }
 
 // Field function returns field value.
-func (e ActionServiceGetSchemaResponseValidationError) Field() string { return e.field }
+func (e GetActionSchemaResponseValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e ActionServiceGetSchemaResponseValidationError) Reason() string { return e.reason }
+func (e GetActionSchemaResponseValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e ActionServiceGetSchemaResponseValidationError) Cause() error { return e.cause }
+func (e GetActionSchemaResponseValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e ActionServiceGetSchemaResponseValidationError) Key() bool { return e.key }
+func (e GetActionSchemaResponseValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e ActionServiceGetSchemaResponseValidationError) ErrorName() string {
-	return "ActionServiceGetSchemaResponseValidationError"
+func (e GetActionSchemaResponseValidationError) ErrorName() string {
+	return "GetActionSchemaResponseValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e ActionServiceGetSchemaResponseValidationError) Error() string {
+func (e GetActionSchemaResponseValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -1120,14 +1116,14 @@ func (e ActionServiceGetSchemaResponseValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sActionServiceGetSchemaResponse.%s: %s%s",
+		"invalid %sGetActionSchemaResponse.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = ActionServiceGetSchemaResponseValidationError{}
+var _ error = GetActionSchemaResponseValidationError{}
 
 var _ interface {
 	Field() string
@@ -1135,24 +1131,24 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = ActionServiceGetSchemaResponseValidationError{}
+} = GetActionSchemaResponseValidationError{}
 
-// Validate checks the field values on ActionServiceListSchemasRequest with the
-// rules defined in the proto definition for this message. If any rules are
+// Validate checks the field values on ListActionSchemasRequest with the rules
+// defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
-func (m *ActionServiceListSchemasRequest) Validate() error {
+func (m *ListActionSchemasRequest) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on ActionServiceListSchemasRequest with
-// the rules defined in the proto definition for this message. If any rules
-// are violated, the result is a list of violation errors wrapped in
-// ActionServiceListSchemasRequestMultiError, or nil if none found.
-func (m *ActionServiceListSchemasRequest) ValidateAll() error {
+// ValidateAll checks the field values on ListActionSchemasRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ListActionSchemasRequestMultiError, or nil if none found.
+func (m *ListActionSchemasRequest) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *ActionServiceListSchemasRequest) validate(all bool) error {
+func (m *ListActionSchemasRequest) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -1166,7 +1162,7 @@ func (m *ActionServiceListSchemasRequest) validate(all bool) error {
 			switch v := interface{}(item).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ActionServiceListSchemasRequestValidationError{
+					errors = append(errors, ListActionSchemasRequestValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -1174,7 +1170,7 @@ func (m *ActionServiceListSchemasRequest) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, ActionServiceListSchemasRequestValidationError{
+					errors = append(errors, ListActionSchemasRequestValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -1183,7 +1179,7 @@ func (m *ActionServiceListSchemasRequest) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return ActionServiceListSchemasRequestValidationError{
+				return ListActionSchemasRequestValidationError{
 					field:  fmt.Sprintf("Annotations[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1194,19 +1190,19 @@ func (m *ActionServiceListSchemasRequest) validate(all bool) error {
 	}
 
 	if len(errors) > 0 {
-		return ActionServiceListSchemasRequestMultiError(errors)
+		return ListActionSchemasRequestMultiError(errors)
 	}
 
 	return nil
 }
 
-// ActionServiceListSchemasRequestMultiError is an error wrapping multiple
-// validation errors returned by ActionServiceListSchemasRequest.ValidateAll()
-// if the designated constraints aren't met.
-type ActionServiceListSchemasRequestMultiError []error
+// ListActionSchemasRequestMultiError is an error wrapping multiple validation
+// errors returned by ListActionSchemasRequest.ValidateAll() if the designated
+// constraints aren't met.
+type ListActionSchemasRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m ActionServiceListSchemasRequestMultiError) Error() string {
+func (m ListActionSchemasRequestMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -1215,12 +1211,11 @@ func (m ActionServiceListSchemasRequestMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m ActionServiceListSchemasRequestMultiError) AllErrors() []error { return m }
+func (m ListActionSchemasRequestMultiError) AllErrors() []error { return m }
 
-// ActionServiceListSchemasRequestValidationError is the validation error
-// returned by ActionServiceListSchemasRequest.Validate if the designated
-// constraints aren't met.
-type ActionServiceListSchemasRequestValidationError struct {
+// ListActionSchemasRequestValidationError is the validation error returned by
+// ListActionSchemasRequest.Validate if the designated constraints aren't met.
+type ListActionSchemasRequestValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -1228,24 +1223,24 @@ type ActionServiceListSchemasRequestValidationError struct {
 }
 
 // Field function returns field value.
-func (e ActionServiceListSchemasRequestValidationError) Field() string { return e.field }
+func (e ListActionSchemasRequestValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e ActionServiceListSchemasRequestValidationError) Reason() string { return e.reason }
+func (e ListActionSchemasRequestValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e ActionServiceListSchemasRequestValidationError) Cause() error { return e.cause }
+func (e ListActionSchemasRequestValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e ActionServiceListSchemasRequestValidationError) Key() bool { return e.key }
+func (e ListActionSchemasRequestValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e ActionServiceListSchemasRequestValidationError) ErrorName() string {
-	return "ActionServiceListSchemasRequestValidationError"
+func (e ListActionSchemasRequestValidationError) ErrorName() string {
+	return "ListActionSchemasRequestValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e ActionServiceListSchemasRequestValidationError) Error() string {
+func (e ListActionSchemasRequestValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -1257,14 +1252,14 @@ func (e ActionServiceListSchemasRequestValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sActionServiceListSchemasRequest.%s: %s%s",
+		"invalid %sListActionSchemasRequest.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = ActionServiceListSchemasRequestValidationError{}
+var _ error = ListActionSchemasRequestValidationError{}
 
 var _ interface {
 	Field() string
@@ -1272,25 +1267,24 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = ActionServiceListSchemasRequestValidationError{}
+} = ListActionSchemasRequestValidationError{}
 
-// Validate checks the field values on ActionServiceListSchemasResponse with
-// the rules defined in the proto definition for this message. If any rules
-// are violated, the first error encountered is returned, or nil if there are
-// no violations.
-func (m *ActionServiceListSchemasResponse) Validate() error {
+// Validate checks the field values on ListActionSchemasResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ListActionSchemasResponse) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on ActionServiceListSchemasResponse with
-// the rules defined in the proto definition for this message. If any rules
-// are violated, the result is a list of violation errors wrapped in
-// ActionServiceListSchemasResponseMultiError, or nil if none found.
-func (m *ActionServiceListSchemasResponse) ValidateAll() error {
+// ValidateAll checks the field values on ListActionSchemasResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ListActionSchemasResponseMultiError, or nil if none found.
+func (m *ListActionSchemasResponse) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *ActionServiceListSchemasResponse) validate(all bool) error {
+func (m *ListActionSchemasResponse) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -1304,7 +1298,7 @@ func (m *ActionServiceListSchemasResponse) validate(all bool) error {
 			switch v := interface{}(item).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ActionServiceListSchemasResponseValidationError{
+					errors = append(errors, ListActionSchemasResponseValidationError{
 						field:  fmt.Sprintf("Schemas[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -1312,7 +1306,7 @@ func (m *ActionServiceListSchemasResponse) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, ActionServiceListSchemasResponseValidationError{
+					errors = append(errors, ListActionSchemasResponseValidationError{
 						field:  fmt.Sprintf("Schemas[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -1321,7 +1315,7 @@ func (m *ActionServiceListSchemasResponse) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return ActionServiceListSchemasResponseValidationError{
+				return ListActionSchemasResponseValidationError{
 					field:  fmt.Sprintf("Schemas[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1338,7 +1332,7 @@ func (m *ActionServiceListSchemasResponse) validate(all bool) error {
 			switch v := interface{}(item).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ActionServiceListSchemasResponseValidationError{
+					errors = append(errors, ListActionSchemasResponseValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -1346,7 +1340,7 @@ func (m *ActionServiceListSchemasResponse) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, ActionServiceListSchemasResponseValidationError{
+					errors = append(errors, ListActionSchemasResponseValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -1355,7 +1349,7 @@ func (m *ActionServiceListSchemasResponse) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return ActionServiceListSchemasResponseValidationError{
+				return ListActionSchemasResponseValidationError{
 					field:  fmt.Sprintf("Annotations[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1366,20 +1360,19 @@ func (m *ActionServiceListSchemasResponse) validate(all bool) error {
 	}
 
 	if len(errors) > 0 {
-		return ActionServiceListSchemasResponseMultiError(errors)
+		return ListActionSchemasResponseMultiError(errors)
 	}
 
 	return nil
 }
 
-// ActionServiceListSchemasResponseMultiError is an error wrapping multiple
-// validation errors returned by
-// ActionServiceListSchemasResponse.ValidateAll() if the designated
-// constraints aren't met.
-type ActionServiceListSchemasResponseMultiError []error
+// ListActionSchemasResponseMultiError is an error wrapping multiple validation
+// errors returned by ListActionSchemasResponse.ValidateAll() if the
+// designated constraints aren't met.
+type ListActionSchemasResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m ActionServiceListSchemasResponseMultiError) Error() string {
+func (m ListActionSchemasResponseMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -1388,12 +1381,11 @@ func (m ActionServiceListSchemasResponseMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m ActionServiceListSchemasResponseMultiError) AllErrors() []error { return m }
+func (m ListActionSchemasResponseMultiError) AllErrors() []error { return m }
 
-// ActionServiceListSchemasResponseValidationError is the validation error
-// returned by ActionServiceListSchemasResponse.Validate if the designated
-// constraints aren't met.
-type ActionServiceListSchemasResponseValidationError struct {
+// ListActionSchemasResponseValidationError is the validation error returned by
+// ListActionSchemasResponse.Validate if the designated constraints aren't met.
+type ListActionSchemasResponseValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -1401,24 +1393,24 @@ type ActionServiceListSchemasResponseValidationError struct {
 }
 
 // Field function returns field value.
-func (e ActionServiceListSchemasResponseValidationError) Field() string { return e.field }
+func (e ListActionSchemasResponseValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e ActionServiceListSchemasResponseValidationError) Reason() string { return e.reason }
+func (e ListActionSchemasResponseValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e ActionServiceListSchemasResponseValidationError) Cause() error { return e.cause }
+func (e ListActionSchemasResponseValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e ActionServiceListSchemasResponseValidationError) Key() bool { return e.key }
+func (e ListActionSchemasResponseValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e ActionServiceListSchemasResponseValidationError) ErrorName() string {
-	return "ActionServiceListSchemasResponseValidationError"
+func (e ListActionSchemasResponseValidationError) ErrorName() string {
+	return "ListActionSchemasResponseValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e ActionServiceListSchemasResponseValidationError) Error() string {
+func (e ListActionSchemasResponseValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -1430,14 +1422,14 @@ func (e ActionServiceListSchemasResponseValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sActionServiceListSchemasResponse.%s: %s%s",
+		"invalid %sListActionSchemasResponse.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = ActionServiceListSchemasResponseValidationError{}
+var _ error = ListActionSchemasResponseValidationError{}
 
 var _ interface {
 	Field() string
@@ -1445,4 +1437,4 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = ActionServiceListSchemasResponseValidationError{}
+} = ListActionSchemasResponseValidationError{}
