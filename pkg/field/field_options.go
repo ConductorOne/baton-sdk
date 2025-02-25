@@ -14,7 +14,9 @@ func WithRequired(required bool) fieldOption {
 
 		switch o.Variant {
 		case BoolVariant:
-			panic(fmt.Sprintf("required cannot be set on bool field: %s", o.FieldName))
+			if required {
+				panic(fmt.Sprintf("required cannot be set on bool field: %s", o.FieldName))
+			}
 		case IntVariant:
 			if o.Rules.i == nil {
 				o.Rules.i = &v1_conf.Int64Rules{}
