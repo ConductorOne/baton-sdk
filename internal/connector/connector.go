@@ -379,6 +379,8 @@ func Register(ctx context.Context, s grpc.ServiceRegistrar, srv types.ConnectorS
 		connectorV2.RegisterTicketsServiceServer(s, noop)
 	}
 
+	connectorV2.RegisterActionServiceServer(s, srv)
+
 	if opts.ProvisioningEnabled {
 		connectorV2.RegisterGrantManagerServiceServer(s, srv)
 		connectorV2.RegisterResourceManagerServiceServer(s, srv)
