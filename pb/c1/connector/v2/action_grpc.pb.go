@@ -29,10 +29,10 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ActionServiceClient interface {
-	InvokeAction(ctx context.Context, in *ActionServiceInvokeRequest, opts ...grpc.CallOption) (*ActionServiceInvokeResponse, error)
-	GetActionStatus(ctx context.Context, in *ActionServiceStatusRequest, opts ...grpc.CallOption) (*ActionServiceStatusResponse, error)
-	GetActionSchema(ctx context.Context, in *ActionServiceGetSchemaRequest, opts ...grpc.CallOption) (*ActionServiceGetSchemaResponse, error)
-	ListActionSchemas(ctx context.Context, in *ActionServiceListSchemasRequest, opts ...grpc.CallOption) (*ActionServiceListSchemasResponse, error)
+	InvokeAction(ctx context.Context, in *InvokeActionRequest, opts ...grpc.CallOption) (*InvokeActionResponse, error)
+	GetActionStatus(ctx context.Context, in *GetActionStatusRequest, opts ...grpc.CallOption) (*GetActionStatusResponse, error)
+	GetActionSchema(ctx context.Context, in *GetActionSchemaRequest, opts ...grpc.CallOption) (*GetActionSchemaResponse, error)
+	ListActionSchemas(ctx context.Context, in *ListActionSchemasRequest, opts ...grpc.CallOption) (*ListActionSchemasResponse, error)
 }
 
 type actionServiceClient struct {
@@ -43,9 +43,9 @@ func NewActionServiceClient(cc grpc.ClientConnInterface) ActionServiceClient {
 	return &actionServiceClient{cc}
 }
 
-func (c *actionServiceClient) InvokeAction(ctx context.Context, in *ActionServiceInvokeRequest, opts ...grpc.CallOption) (*ActionServiceInvokeResponse, error) {
+func (c *actionServiceClient) InvokeAction(ctx context.Context, in *InvokeActionRequest, opts ...grpc.CallOption) (*InvokeActionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ActionServiceInvokeResponse)
+	out := new(InvokeActionResponse)
 	err := c.cc.Invoke(ctx, ActionService_InvokeAction_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -53,9 +53,9 @@ func (c *actionServiceClient) InvokeAction(ctx context.Context, in *ActionServic
 	return out, nil
 }
 
-func (c *actionServiceClient) GetActionStatus(ctx context.Context, in *ActionServiceStatusRequest, opts ...grpc.CallOption) (*ActionServiceStatusResponse, error) {
+func (c *actionServiceClient) GetActionStatus(ctx context.Context, in *GetActionStatusRequest, opts ...grpc.CallOption) (*GetActionStatusResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ActionServiceStatusResponse)
+	out := new(GetActionStatusResponse)
 	err := c.cc.Invoke(ctx, ActionService_GetActionStatus_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -63,9 +63,9 @@ func (c *actionServiceClient) GetActionStatus(ctx context.Context, in *ActionSer
 	return out, nil
 }
 
-func (c *actionServiceClient) GetActionSchema(ctx context.Context, in *ActionServiceGetSchemaRequest, opts ...grpc.CallOption) (*ActionServiceGetSchemaResponse, error) {
+func (c *actionServiceClient) GetActionSchema(ctx context.Context, in *GetActionSchemaRequest, opts ...grpc.CallOption) (*GetActionSchemaResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ActionServiceGetSchemaResponse)
+	out := new(GetActionSchemaResponse)
 	err := c.cc.Invoke(ctx, ActionService_GetActionSchema_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -73,9 +73,9 @@ func (c *actionServiceClient) GetActionSchema(ctx context.Context, in *ActionSer
 	return out, nil
 }
 
-func (c *actionServiceClient) ListActionSchemas(ctx context.Context, in *ActionServiceListSchemasRequest, opts ...grpc.CallOption) (*ActionServiceListSchemasResponse, error) {
+func (c *actionServiceClient) ListActionSchemas(ctx context.Context, in *ListActionSchemasRequest, opts ...grpc.CallOption) (*ListActionSchemasResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ActionServiceListSchemasResponse)
+	out := new(ListActionSchemasResponse)
 	err := c.cc.Invoke(ctx, ActionService_ListActionSchemas_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -87,10 +87,10 @@ func (c *actionServiceClient) ListActionSchemas(ctx context.Context, in *ActionS
 // All implementations should embed UnimplementedActionServiceServer
 // for forward compatibility.
 type ActionServiceServer interface {
-	InvokeAction(context.Context, *ActionServiceInvokeRequest) (*ActionServiceInvokeResponse, error)
-	GetActionStatus(context.Context, *ActionServiceStatusRequest) (*ActionServiceStatusResponse, error)
-	GetActionSchema(context.Context, *ActionServiceGetSchemaRequest) (*ActionServiceGetSchemaResponse, error)
-	ListActionSchemas(context.Context, *ActionServiceListSchemasRequest) (*ActionServiceListSchemasResponse, error)
+	InvokeAction(context.Context, *InvokeActionRequest) (*InvokeActionResponse, error)
+	GetActionStatus(context.Context, *GetActionStatusRequest) (*GetActionStatusResponse, error)
+	GetActionSchema(context.Context, *GetActionSchemaRequest) (*GetActionSchemaResponse, error)
+	ListActionSchemas(context.Context, *ListActionSchemasRequest) (*ListActionSchemasResponse, error)
 }
 
 // UnimplementedActionServiceServer should be embedded to have
@@ -100,16 +100,16 @@ type ActionServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedActionServiceServer struct{}
 
-func (UnimplementedActionServiceServer) InvokeAction(context.Context, *ActionServiceInvokeRequest) (*ActionServiceInvokeResponse, error) {
+func (UnimplementedActionServiceServer) InvokeAction(context.Context, *InvokeActionRequest) (*InvokeActionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InvokeAction not implemented")
 }
-func (UnimplementedActionServiceServer) GetActionStatus(context.Context, *ActionServiceStatusRequest) (*ActionServiceStatusResponse, error) {
+func (UnimplementedActionServiceServer) GetActionStatus(context.Context, *GetActionStatusRequest) (*GetActionStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetActionStatus not implemented")
 }
-func (UnimplementedActionServiceServer) GetActionSchema(context.Context, *ActionServiceGetSchemaRequest) (*ActionServiceGetSchemaResponse, error) {
+func (UnimplementedActionServiceServer) GetActionSchema(context.Context, *GetActionSchemaRequest) (*GetActionSchemaResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetActionSchema not implemented")
 }
-func (UnimplementedActionServiceServer) ListActionSchemas(context.Context, *ActionServiceListSchemasRequest) (*ActionServiceListSchemasResponse, error) {
+func (UnimplementedActionServiceServer) ListActionSchemas(context.Context, *ListActionSchemasRequest) (*ListActionSchemasResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListActionSchemas not implemented")
 }
 func (UnimplementedActionServiceServer) testEmbeddedByValue() {}
@@ -133,7 +133,7 @@ func RegisterActionServiceServer(s grpc.ServiceRegistrar, srv ActionServiceServe
 }
 
 func _ActionService_InvokeAction_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ActionServiceInvokeRequest)
+	in := new(InvokeActionRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -145,13 +145,13 @@ func _ActionService_InvokeAction_Handler(srv interface{}, ctx context.Context, d
 		FullMethod: ActionService_InvokeAction_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ActionServiceServer).InvokeAction(ctx, req.(*ActionServiceInvokeRequest))
+		return srv.(ActionServiceServer).InvokeAction(ctx, req.(*InvokeActionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _ActionService_GetActionStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ActionServiceStatusRequest)
+	in := new(GetActionStatusRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -163,13 +163,13 @@ func _ActionService_GetActionStatus_Handler(srv interface{}, ctx context.Context
 		FullMethod: ActionService_GetActionStatus_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ActionServiceServer).GetActionStatus(ctx, req.(*ActionServiceStatusRequest))
+		return srv.(ActionServiceServer).GetActionStatus(ctx, req.(*GetActionStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _ActionService_GetActionSchema_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ActionServiceGetSchemaRequest)
+	in := new(GetActionSchemaRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -181,13 +181,13 @@ func _ActionService_GetActionSchema_Handler(srv interface{}, ctx context.Context
 		FullMethod: ActionService_GetActionSchema_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ActionServiceServer).GetActionSchema(ctx, req.(*ActionServiceGetSchemaRequest))
+		return srv.(ActionServiceServer).GetActionSchema(ctx, req.(*GetActionSchemaRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
 func _ActionService_ListActionSchemas_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ActionServiceListSchemasRequest)
+	in := new(ListActionSchemasRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -199,7 +199,7 @@ func _ActionService_ListActionSchemas_Handler(srv interface{}, ctx context.Conte
 		FullMethod: ActionService_ListActionSchemas_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ActionServiceServer).ListActionSchemas(ctx, req.(*ActionServiceListSchemasRequest))
+		return srv.(ActionServiceServer).ListActionSchemas(ctx, req.(*ListActionSchemasRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

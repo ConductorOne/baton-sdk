@@ -1011,7 +1011,7 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 	return rv, nil
 }
 
-func (b *builderImpl) ListActionSchemas(ctx context.Context, request *v2.ActionServiceListSchemasRequest) (*v2.ActionServiceListSchemasResponse, error) {
+func (b *builderImpl) ListActionSchemas(ctx context.Context, request *v2.ListActionSchemasRequest) (*v2.ListActionSchemasResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.ListActionSchemas")
 	defer span.End()
 
@@ -1028,7 +1028,7 @@ func (b *builderImpl) ListActionSchemas(ctx context.Context, request *v2.ActionS
 		return nil, fmt.Errorf("error: listing action schemas failed: %w", err)
 	}
 
-	rv := &v2.ActionServiceListSchemasResponse{
+	rv := &v2.ListActionSchemasResponse{
 		Schemas:     actionSchemas,
 		Annotations: annos,
 	}
@@ -1037,7 +1037,7 @@ func (b *builderImpl) ListActionSchemas(ctx context.Context, request *v2.ActionS
 	return rv, nil
 }
 
-func (b *builderImpl) GetActionSchema(ctx context.Context, request *v2.ActionServiceGetSchemaRequest) (*v2.ActionServiceGetSchemaResponse, error) {
+func (b *builderImpl) GetActionSchema(ctx context.Context, request *v2.GetActionSchemaRequest) (*v2.GetActionSchemaResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.GetActionSchema")
 	defer span.End()
 
@@ -1054,7 +1054,7 @@ func (b *builderImpl) GetActionSchema(ctx context.Context, request *v2.ActionSer
 		return nil, fmt.Errorf("error: getting action schema failed: %w", err)
 	}
 
-	rv := &v2.ActionServiceGetSchemaResponse{
+	rv := &v2.GetActionSchemaResponse{
 		Schema:      actionSchema,
 		Annotations: annos,
 	}
@@ -1063,7 +1063,7 @@ func (b *builderImpl) GetActionSchema(ctx context.Context, request *v2.ActionSer
 	return rv, nil
 }
 
-func (b *builderImpl) InvokeAction(ctx context.Context, request *v2.ActionServiceInvokeRequest) (*v2.ActionServiceInvokeResponse, error) {
+func (b *builderImpl) InvokeAction(ctx context.Context, request *v2.InvokeActionRequest) (*v2.InvokeActionResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.InvokeAction")
 	defer span.End()
 
@@ -1080,7 +1080,7 @@ func (b *builderImpl) InvokeAction(ctx context.Context, request *v2.ActionServic
 		return nil, fmt.Errorf("error: invoking action failed: %w", err)
 	}
 
-	rv := &v2.ActionServiceInvokeResponse{
+	rv := &v2.InvokeActionResponse{
 		Id:          id,
 		Status:      status,
 		Annotations: annos,
@@ -1090,7 +1090,7 @@ func (b *builderImpl) InvokeAction(ctx context.Context, request *v2.ActionServic
 	return rv, nil
 }
 
-func (b *builderImpl) GetActionStatus(ctx context.Context, request *v2.ActionServiceStatusRequest) (*v2.ActionServiceStatusResponse, error) {
+func (b *builderImpl) GetActionStatus(ctx context.Context, request *v2.GetActionStatusRequest) (*v2.GetActionStatusResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.GetActionStatus")
 	defer span.End()
 
@@ -1107,7 +1107,7 @@ func (b *builderImpl) GetActionStatus(ctx context.Context, request *v2.ActionSer
 		return nil, fmt.Errorf("error: getting action status failed: %w", err)
 	}
 
-	rv := &v2.ActionServiceStatusResponse{
+	rv := &v2.GetActionStatusResponse{
 		Status:      status,
 		Annotations: annos,
 	}
