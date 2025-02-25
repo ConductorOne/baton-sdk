@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -80,6 +81,13 @@ type TicketManager interface {
 	BulkGetTickets(context.Context, *v2.TicketsServiceBulkGetTicketsRequest) (*v2.TicketsServiceBulkGetTicketsResponse, error)
 }
 
+type ActionManager interface {
+	ListActionSchemas(ctx context.Context) ([]*v2.BatonActionSchema, annotations.Annotations, error)
+	GetActionSchema(ctx context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error)
+	InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, annotations.Annotations, error)
+	GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, annotations.Annotations, error)
+}
+
 type ConnectorBuilder interface {
 	Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 	Validate(ctx context.Context) (annotations.Annotations, error)
@@ -92,6 +100,7 @@ type builderImpl struct {
 	resourceProvisionersV2 map[string]ResourceProvisionerV2
 	resourceManagers       map[string]ResourceManager
 	accountManager         AccountManager
+	actionManager          ActionManager
 	credentialManagers     map[string]CredentialManager
 	eventFeed              EventProvider
 	cb                     ConnectorBuilder
@@ -301,6 +310,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			resourceProvisionersV2: make(map[string]ResourceProvisionerV2),
 			resourceManagers:       make(map[string]ResourceManager),
 			accountManager:         nil,
+			actionManager:          nil,
 			credentialManagers:     make(map[string]CredentialManager),
 			cb:                     c,
 			ticketManager:          nil,
@@ -370,6 +380,13 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 					return nil, fmt.Errorf("error: duplicate resource type found for credential manager %s", rType.Id)
 				}
 				ret.credentialManagers[rType.Id] = credentialManagers
+			}
+
+			if actionManager, ok := rb.(ActionManager); ok {
+				if ret.actionManager != nil {
+					return nil, fmt.Errorf("error: duplicate resource type found for action manager %s", rType.Id)
+				}
+				ret.actionManager = actionManager
 			}
 		}
 		return ret, nil
@@ -982,6 +999,111 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 	default:
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("unknown result type: %T", result))
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return rv, nil
+}
+
+func (b *builderImpl) ListActionSchemas(ctx context.Context, request *v2.ActionServiceListSchemasRequest) (*v2.ActionServiceListSchemasResponse, error) {
+	ctx, span := tracer.Start(ctx, "builderImpl.ListActionSchemas")
+	defer span.End()
+
+	start := b.nowFunc()
+	tt := tasks.ActionListSchemasType
+	if b.actionManager == nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: action manager not implemented")
+	}
+
+	actionSchemas, annos, err := b.actionManager.ListActionSchemas(ctx)
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: listing action schemas failed: %w", err)
+	}
+
+	rv := &v2.ActionServiceListSchemasResponse{
+		Schemas:     actionSchemas,
+		Annotations: annos,
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return rv, nil
+}
+
+func (b *builderImpl) GetActionSchema(ctx context.Context, request *v2.ActionServiceGetSchemaRequest) (*v2.ActionServiceGetSchemaResponse, error) {
+	ctx, span := tracer.Start(ctx, "builderImpl.GetActionSchema")
+	defer span.End()
+
+	start := b.nowFunc()
+	tt := tasks.ActionGetSchemaType
+	if b.actionManager == nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: action manager not implemented")
+	}
+
+	actionSchema, annos, err := b.actionManager.GetActionSchema(ctx, request.GetName())
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: getting action schema failed: %w", err)
+	}
+
+	rv := &v2.ActionServiceGetSchemaResponse{
+		Schema:      actionSchema,
+		Annotations: annos,
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return rv, nil
+}
+
+func (b *builderImpl) InvokeAction(ctx context.Context, request *v2.ActionServiceInvokeRequest) (*v2.ActionServiceInvokeResponse, error) {
+	ctx, span := tracer.Start(ctx, "builderImpl.InvokeAction")
+	defer span.End()
+
+	start := b.nowFunc()
+	tt := tasks.ActionInvokeType
+	if b.actionManager == nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: action manager not implemented")
+	}
+
+	id, status, annos, err := b.actionManager.InvokeAction(ctx, request.GetName(), request.GetArgs())
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: invoking action failed: %w", err)
+	}
+
+	rv := &v2.ActionServiceInvokeResponse{
+		Id:          id,
+		Status:      status,
+		Annotations: annos,
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return rv, nil
+}
+
+func (b *builderImpl) GetActionStatus(ctx context.Context, request *v2.ActionServiceStatusRequest) (*v2.ActionServiceStatusResponse, error) {
+	ctx, span := tracer.Start(ctx, "builderImpl.GetActionStatus")
+	defer span.End()
+
+	start := b.nowFunc()
+	tt := tasks.ActionStatusType
+	if b.actionManager == nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: action manager not implemented")
+	}
+
+	status, annos, err := b.actionManager.GetActionStatus(ctx, request.GetId())
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: getting action status failed: %w", err)
+	}
+
+	rv := &v2.ActionServiceStatusResponse{
+		Status:      status,
+		Annotations: annos,
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
