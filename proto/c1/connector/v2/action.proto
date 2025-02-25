@@ -10,10 +10,10 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 
 service ActionService {
-  rpc InvokeAction(ActionServiceInvokeRequest) returns (ActionServiceInvokeResponse);
-  rpc GetActionStatus(ActionServiceStatusRequest) returns (ActionServiceStatusResponse);
-  rpc GetActionSchema(ActionServiceGetSchemaRequest) returns (ActionServiceGetSchemaResponse);
-  rpc ListActionSchemas(ActionServiceListSchemasRequest) returns (ActionServiceListSchemasResponse);
+  rpc InvokeAction(InvokeActionRequest) returns (InvokeActionResponse);
+  rpc GetActionStatus(GetActionStatusRequest) returns (GetActionStatusResponse);
+  rpc GetActionSchema(GetActionSchemaRequest) returns (GetActionSchemaResponse);
+  rpc ListActionSchemas(ListActionSchemasRequest) returns (ListActionSchemasResponse);
 }
 
 enum BatonActionStatus {
@@ -33,47 +33,47 @@ message BatonActionSchema {
   repeated c1.config.v1.Field return_types = 4;
 }
 
-message ActionServiceInvokeRequest {
+message InvokeActionRequest {
   string name = 1;
   google.protobuf.Struct args = 2;
   repeated google.protobuf.Any annotations = 3;
 }
 
-message ActionServiceInvokeResponse {
+message InvokeActionResponse {
   string id = 1;
   BatonActionStatus status = 2;
   repeated google.protobuf.Any annotations = 3;
 }
 
 
-message ActionServiceStatusRequest {
+message GetActionStatusRequest {
   string name = 1;
   string id = 2;
   repeated google.protobuf.Any annotations = 3;
 }
 
-message ActionServiceStatusResponse {
+message GetActionStatusResponse {
   string name = 1;
   string id = 2;
   BatonActionStatus status = 3;
   repeated google.protobuf.Any annotations = 4;
 }
 
-message ActionServiceGetSchemaRequest {
+message GetActionSchemaRequest {
   string name = 1;
   repeated google.protobuf.Any annotations = 2;
 }
 
-message ActionServiceGetSchemaResponse {
+message GetActionSchemaResponse {
   BatonActionSchema schema = 1;
   repeated google.protobuf.Any annotations = 2;
 }
 
-message ActionServiceListSchemasRequest {
+message ListActionSchemasRequest {
   repeated google.protobuf.Any annotations = 1;
 }
 
-message ActionServiceListSchemasResponse {
+message ListActionSchemasResponse {
   repeated BatonActionSchema schemas = 1;
   repeated google.protobuf.Any annotations = 2;
 }

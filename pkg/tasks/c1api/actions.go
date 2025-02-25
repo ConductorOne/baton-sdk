@@ -32,7 +32,7 @@ func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
 
 	cc := c.helpers.ConnectorClient()
 
-	resp, err := cc.ListActionSchemas(ctx, &v2.ActionServiceListSchemasRequest{})
+	resp, err := cc.ListActionSchemas(ctx, &v2.ListActionSchemasRequest{})
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
@@ -72,7 +72,7 @@ func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action name required"))
 	}
 
-	resp, err := cc.GetActionSchema(ctx, &v2.ActionServiceGetSchemaRequest{
+	resp, err := cc.GetActionSchema(ctx, &v2.GetActionSchemaRequest{
 		Name: t.GetName(),
 	})
 	if err != nil {
@@ -117,7 +117,7 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, errors.New("args required"))
 	}
 
-	resp, err := cc.InvokeAction(ctx, &v2.ActionServiceInvokeRequest{
+	resp, err := cc.InvokeAction(ctx, &v2.InvokeActionRequest{
 		Name:        t.GetName(),
 		Args:        t.GetArgs(),
 		Annotations: t.GetAnnotations(),
@@ -161,7 +161,7 @@ func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action id required"))
 	}
 
-	resp, err := cc.GetActionStatus(ctx, &v2.ActionServiceStatusRequest{
+	resp, err := cc.GetActionStatus(ctx, &v2.GetActionStatusRequest{
 		Name:        t.GetName(),
 		Id:          t.GetId(),
 		Annotations: t.GetAnnotations(),
