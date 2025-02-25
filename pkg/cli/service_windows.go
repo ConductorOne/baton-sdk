@@ -93,11 +93,12 @@ func getExePath() (string, error) {
 
 func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option) (context.Context, error) {
 	if isService() {
-		loggingOpts = []logging.Option{
+		defaultLoggingOpts := []logging.Option{
 			logging.WithLogFormat(logging.LogFormatJSON),
 			logging.WithLogLevel("info"),
 			logging.WithOutputPaths([]string{filepath.Join(getConfigDir(name), "baton.log")}),
 		}
+		loggingOpts = append(defaultLoggingOpts, loggingOpts...)
 	}
 
 	return logging.Init(ctx, loggingOpts...)
