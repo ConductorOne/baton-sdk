@@ -1,4 +1,4 @@
-//go:build !build_lambda_support
+//go:build !baton_lambda_support
 
 package cli
 
