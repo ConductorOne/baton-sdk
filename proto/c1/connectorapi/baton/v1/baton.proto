@@ -9,6 +9,7 @@ import "c1/connector/v2/resource.proto";
 import "c1/connector/v2/ticket.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/duration.proto";
+import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/rpc/status.proto";
 import "validate/validate.proto";
@@ -108,6 +109,27 @@ message Task {
     repeated google.protobuf.Any annotations = 2;
   }
 
+  message ActionListSchemasTask {
+    repeated google.protobuf.Any annotations = 1;
+  }
+
+  message ActionGetSchemaTask {
+    string name = 1;
+    repeated google.protobuf.Any annotations = 2;
+  }
+
+  message ActionInvokeTask {
+    string name = 1;
+    google.protobuf.Struct args = 2;
+    repeated google.protobuf.Any annotations = 3;
+  }
+
+  message ActionStatusTask {
+    string name = 1;
+    string id = 2;
+    repeated google.protobuf.Any annotations = 3;
+  }
+
   string id = 1;
   Status status = 2;
   oneof task_type {
@@ -126,6 +148,10 @@ message Task {
     GetTicketTask get_ticket = 112;
     BulkCreateTicketsTask bulk_create_tickets = 113;
     BulkGetTicketsTask bulk_get_tickets = 114;
+    ActionListSchemasTask action_list_schemas = 115;
+    ActionGetSchemaTask action_get_schema = 116;
+    ActionInvokeTask action_invoke = 117;
+    ActionStatusTask action_status = 118;
   }
   bool debug = 3;
 }

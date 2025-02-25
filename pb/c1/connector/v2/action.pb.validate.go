@@ -57,7 +57,7 @@ func (m *BatonActionSchema) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for FunctionName
+	// no validation rules for Name
 
 	for idx, item := range m.GetArguments() {
 		_, _ = idx, item
@@ -715,6 +715,8 @@ func (m *ActionServiceStatusResponse) validate(all bool) error {
 
 	// no validation rules for Id
 
+	// no validation rules for Status
+
 	for idx, item := range m.GetAnnotations() {
 		_, _ = idx, item
 
@@ -991,41 +993,36 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 
 	var errors []error
 
-	for idx, item := range m.GetArguments() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ActionServiceGetSchemaResponseValidationError{
-						field:  fmt.Sprintf("Arguments[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, ActionServiceGetSchemaResponseValidationError{
-						field:  fmt.Sprintf("Arguments[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return ActionServiceGetSchemaResponseValidationError{
-					field:  fmt.Sprintf("Arguments[%v]", idx),
+	if all {
+		switch v := interface{}(m.GetSchema()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ActionServiceGetSchemaResponseValidationError{
+					field:  "Schema",
 					reason: "embedded message failed validation",
 					cause:  err,
-				}
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ActionServiceGetSchemaResponseValidationError{
+					field:  "Schema",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
 			}
 		}
-
+	} else if v, ok := interface{}(m.GetSchema()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ActionServiceGetSchemaResponseValidationError{
+				field:  "Schema",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
 	}
 
-	for idx, item := range m.GetReturnTypes() {
+	for idx, item := range m.GetAnnotations() {
 		_, _ = idx, item
 
 		if all {
@@ -1033,7 +1030,7 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
 					errors = append(errors, ActionServiceGetSchemaResponseValidationError{
-						field:  fmt.Sprintf("ReturnTypes[%v]", idx),
+						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -1041,7 +1038,7 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
 					errors = append(errors, ActionServiceGetSchemaResponseValidationError{
-						field:  fmt.Sprintf("ReturnTypes[%v]", idx),
+						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -1050,7 +1047,7 @@ func (m *ActionServiceGetSchemaResponse) validate(all bool) error {
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
 				return ActionServiceGetSchemaResponseValidationError{
-					field:  fmt.Sprintf("ReturnTypes[%v]", idx),
+					field:  fmt.Sprintf("Annotations[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
@@ -1326,6 +1323,40 @@ func (m *ActionServiceListSchemasResponse) validate(all bool) error {
 			if err := v.Validate(); err != nil {
 				return ActionServiceListSchemasResponseValidationError{
 					field:  fmt.Sprintf("Schemas[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ActionServiceListSchemasResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ActionServiceListSchemasResponseValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ActionServiceListSchemasResponseValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
