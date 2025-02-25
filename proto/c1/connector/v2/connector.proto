@@ -59,6 +59,7 @@ enum Capability {
   CAPABILITY_RESOURCE_CREATE = 7;
   CAPABILITY_RESOURCE_DELETE = 8;
   CAPABILITY_SYNC_SECRETS = 9;
+  CAPABILITY_ACTIONS = 10;
 }
 
 enum CapabilityDetailCredentialOption {
