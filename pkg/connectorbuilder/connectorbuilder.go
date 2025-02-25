@@ -84,7 +84,7 @@ type TicketManager interface {
 type ActionManager interface {
 	ListActionSchemas(ctx context.Context) ([]*v2.BatonActionSchema, annotations.Annotations, error)
 	GetActionSchema(ctx context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error)
-	InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, annotations.Annotations, error)
+	InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
 	GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, annotations.Annotations, error)
 }
 
@@ -337,6 +337,13 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			ret.ticketManager = ticketManager
 		}
 
+		if actionManager, ok := c.(ActionManager); ok {
+			if ret.actionManager != nil {
+				return nil, fmt.Errorf("error: cannot set multiple action managers")
+			}
+			ret.actionManager = actionManager
+		}
+
 		for _, rb := range c.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)
 			if _, ok := ret.resourceBuilders[rType.Id]; ok {
@@ -381,13 +388,13 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 				}
 				ret.credentialManagers[rType.Id] = credentialManagers
 			}
-
-			if actionManager, ok := rb.(ActionManager); ok {
-				if ret.actionManager != nil {
-					return nil, fmt.Errorf("error: duplicate resource type found for action manager %s", rType.Id)
-				}
-				ret.actionManager = actionManager
-			}
+			// This should be on the connector level?
+			// if actionManager, ok := rb.(ActionManager); ok {
+			//	if ret.actionManager != nil {
+			//		return nil, fmt.Errorf("error: duplicate resource type found for action manager %s", rType.Id)
+			//	}
+			//	ret.actionManager = actionManager
+			//}
 		}
 		return ret, nil
 
@@ -1074,7 +1081,7 @@ func (b *builderImpl) InvokeAction(ctx context.Context, request *v2.InvokeAction
 		return nil, fmt.Errorf("error: action manager not implemented")
 	}
 
-	id, status, annos, err := b.actionManager.InvokeAction(ctx, request.GetName(), request.GetArgs())
+	id, status, resp, annos, err := b.actionManager.InvokeAction(ctx, request.GetName(), request.GetArgs())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: invoking action failed: %w", err)
@@ -1084,6 +1091,7 @@ func (b *builderImpl) InvokeAction(ctx context.Context, request *v2.InvokeAction
 		Id:          id,
 		Status:      status,
 		Annotations: annos,
+		Response:    resp,
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))

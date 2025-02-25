@@ -43,6 +43,7 @@ message InvokeActionResponse {
   string id = 1;
   BatonActionStatus status = 2;
   repeated google.protobuf.Any annotations = 3;
+  google.protobuf.Struct response = 4;
 }
 
 
