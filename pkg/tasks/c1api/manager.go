@@ -271,6 +271,14 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newBulkCreateTicketTaskHandler(task, tHelpers)
 	case taskTypes.BulkGetTicketsType:
 		handler = newBulkGetTicketTaskHandler(task, tHelpers)
+	case taskTypes.ActionListSchemasType:
+		handler = newActionListSchemasTaskHandler(task, tHelpers)
+	case taskTypes.ActionGetSchemaType:
+		handler = newActionGetSchemaTaskHandler(task, tHelpers)
+	case taskTypes.ActionInvokeType:
+		handler = newActionInvokeTaskHandler(task, tHelpers)
+	case taskTypes.ActionStatusType:
+		handler = newActionStatusTaskHandler(task, tHelpers)
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
 	}

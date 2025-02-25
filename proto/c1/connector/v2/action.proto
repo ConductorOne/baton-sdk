@@ -10,10 +10,10 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 
 service ActionService {
-  rpc Invoke(ActionServiceInvokeRequest) returns (ActionServiceInvokeResponse);
-  rpc Status(ActionServiceStatusRequest) returns (ActionServiceStatusResponse);
-  rpc GetSchema(ActionServiceGetSchemaRequest) returns (ActionServiceGetSchemaResponse);
-  rpc ListSchemas(ActionServiceListSchemasRequest) returns (ActionServiceListSchemasResponse);
+  rpc InvokeAction(ActionServiceInvokeRequest) returns (ActionServiceInvokeResponse);
+  rpc GetActionStatus(ActionServiceStatusRequest) returns (ActionServiceStatusResponse);
+  rpc GetActionSchema(ActionServiceGetSchemaRequest) returns (ActionServiceGetSchemaResponse);
+  rpc ListActionSchemas(ActionServiceListSchemasRequest) returns (ActionServiceListSchemasResponse);
 }
 
 enum BatonActionStatus {
@@ -26,7 +26,7 @@ enum BatonActionStatus {
 }
 
 message BatonActionSchema {
-  string function_name = 1;
+  string name = 1;
   repeated c1.config.v1.Field arguments = 2;
   repeated c1.config.v1.Constraint constraints = 3;
 
@@ -55,7 +55,8 @@ message ActionServiceStatusRequest {
 message ActionServiceStatusResponse {
   string name = 1;
   string id = 2;
-  repeated google.protobuf.Any annotations = 3;
+  BatonActionStatus status = 3;
+  repeated google.protobuf.Any annotations = 4;
 }
 
 message ActionServiceGetSchemaRequest {
@@ -64,8 +65,8 @@ message ActionServiceGetSchemaRequest {
 }
 
 message ActionServiceGetSchemaResponse {
-  repeated c1.config.v1.Field arguments = 1;
-  repeated c1.config.v1.Field return_types = 2;
+  BatonActionSchema schema = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
 
 message ActionServiceListSchemasRequest {
@@ -74,4 +75,5 @@ message ActionServiceListSchemasRequest {
 
 message ActionServiceListSchemasResponse {
   repeated BatonActionSchema schemas = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
