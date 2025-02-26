@@ -93,9 +93,9 @@ func (t *taskHelpers) HeartbeatTask(ctx context.Context, annos annotations.Annot
 
 	go func() {
 		attempts := 0
+		l = l.With(zap.Int("attempts", attempts))
 		for {
 			attempts++
-			l = l.With(zap.Int("attempts", attempts))
 
 			if attempts >= taskMaximumHeartbeatFailures {
 				l.Error("heartbeat: failed after 10 attempts")
