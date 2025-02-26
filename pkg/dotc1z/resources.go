@@ -114,7 +114,11 @@ func (c *C1File) PutResources(ctx context.Context, resourceObjs ...*v2.Resource)
 				"external_id":      fmt.Sprintf("%s:%s", resource.Id.ResourceType, resource.Id.Resource),
 			}
 
-			if resource.ParentResourceId != nil {
+			// If we bulk insert some resources with parent ids and some without, goqu errors because of the different number of fields.
+			if resource.ParentResourceId == nil {
+				fields["parent_resource_type_id"] = nil
+				fields["parent_resource_id"] = nil
+			} else {
 				fields["parent_resource_type_id"] = resource.ParentResourceId.ResourceType
 				fields["parent_resource_id"] = resource.ParentResourceId.Resource
 			}
