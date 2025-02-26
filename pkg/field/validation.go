@@ -13,7 +13,6 @@ import (
 
 	v1_conf "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	"github.com/conductorone/baton-sdk/pkg/ustrings"
-	"github.com/spf13/viper"
 )
 
 type ErrConfigurationMissingFields struct {
@@ -306,12 +305,19 @@ func (e *ErrConfigurationMissingFields) Push(err error) {
 	e.errors = append(e.errors, err)
 }
 
+type Configurable interface {
+	GetString(key string) string
+	GetBool(key string) bool
+	GetInt(key string) int
+	GetStringSlice(key string) []string
+}
+
 // Validate perform validation of field requirement and constraints
 // relationships after the configuration is read.
 // We don't check the following:
 //   - if sets of fields are mutually exclusive and required
 //     together at the same time
-func Validate(c Configuration, v *viper.Viper) error {
+func Validate(c Configuration, v Configurable) error {
 	present := make(map[string]int)
 	validationErrors := &ErrConfigurationMissingFields{}
 

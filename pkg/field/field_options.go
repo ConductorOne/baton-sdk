@@ -193,3 +193,10 @@ func WithStringSlice(f stringSliceRuleMaker) fieldOption {
 		return o
 	}
 }
+
+func WithStructFieldName(name string) fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.StructFieldName = name
+		return o
+	}
+}

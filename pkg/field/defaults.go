@@ -48,7 +48,21 @@ var (
 	skipFullSync          = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	otelCollectorEndpoint = StringField("otel-collector-endpoint", WithDescription("The endpoint of the OpenTelemetry collector to send observability data to"),
 		WithPersistent(true), WithExportTarget(ExportTargetOps))
+
+	LambdaServerClientIDField = StringField("lambda-client-id", WithRequired(true), WithDescription("The oauth client id to use with the configuration endpoint"),
+		WithExportTarget(ExportTargetNone))
+	LambdaServerClientSecretField = StringField("lambda-client-secret", WithRequired(true), WithDescription("The oauth client secret to use with the configuration endpoint"),
+		WithExportTarget(ExportTargetNone))
 )
+
+func LambdaServerFields() []SchemaField {
+	return []SchemaField{
+		LambdaServerClientIDField,
+		LambdaServerClientSecretField,
+	}
+}
+
+var LambdaServerRelationships = make([]SchemaFieldRelationship, 0)
 
 // DefaultFields list the default fields expected in every single connector.
 var DefaultFields = []SchemaField{
