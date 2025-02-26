@@ -388,13 +388,6 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 				}
 				ret.credentialManagers[rType.Id] = credentialManagers
 			}
-			// This should be on the connector level?
-			// if actionManager, ok := rb.(ActionManager); ok {
-			//	if ret.actionManager != nil {
-			//		return nil, fmt.Errorf("error: duplicate resource type found for action manager %s", rType.Id)
-			//	}
-			//	ret.actionManager = actionManager
-			//}
 		}
 		return ret, nil
 
@@ -691,11 +684,6 @@ func getCapabilities(ctx context.Context, b *builderImpl) (*v2.ConnectorCapabili
 			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
 		}
 
-		if _, ok := rb.(ActionManager); ok {
-			connectorCaps[v2.Capability_CAPABILITY_ACTIONS] = struct{}{}
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_ACTIONS)
-		}
-
 		resourceTypeCapabilities = append(resourceTypeCapabilities, resourceTypeCapability)
 	}
 	sort.Slice(resourceTypeCapabilities, func(i, j int) bool {
@@ -708,6 +696,10 @@ func getCapabilities(ctx context.Context, b *builderImpl) (*v2.ConnectorCapabili
 
 	if b.ticketManager != nil {
 		connectorCaps[v2.Capability_CAPABILITY_TICKETING] = struct{}{}
+	}
+
+	if b.actionManager != nil {
+		connectorCaps[v2.Capability_CAPABILITY_ACTIONS] = struct{}{}
 	}
 
 	var caps []v2.Capability
