@@ -46,6 +46,7 @@ type connectorClient struct {
 	connectorV2.CredentialManagerServiceClient
 	connectorV2.EventServiceClient
 	connectorV2.TicketsServiceClient
+	connectorV2.ActionServiceClient
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")
@@ -177,6 +178,8 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		noop := &noopTicketing{}
 		connectorV2.RegisterTicketsServiceServer(server, noop)
 	}
+
+	connectorV2.RegisterActionServiceServer(server, cw.server)
 
 	if cw.provisioningEnabled {
 		connectorV2.RegisterGrantManagerServiceServer(server, cw.server)
@@ -359,6 +362,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		CredentialManagerServiceClient: connectorV2.NewCredentialManagerServiceClient(cw.conn),
 		EventServiceClient:             connectorV2.NewEventServiceClient(cw.conn),
 		TicketsServiceClient:           connectorV2.NewTicketsServiceClient(cw.conn),
+		ActionServiceClient:            connectorV2.NewActionServiceClient(cw.conn),
 	}
 
 	return cw.client, nil
