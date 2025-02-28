@@ -81,11 +81,15 @@ type TicketManager interface {
 	BulkGetTickets(context.Context, *v2.TicketsServiceBulkGetTicketsRequest) (*v2.TicketsServiceBulkGetTicketsResponse, error)
 }
 
-type ActionManager interface {
+type CustomActionManager interface {
 	ListActionSchemas(ctx context.Context) ([]*v2.BatonActionSchema, annotations.Annotations, error)
 	GetActionSchema(ctx context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error)
 	InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
 	GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, annotations.Annotations, error)
+}
+
+type RegisterActionManager interface {
+	RegisterActionManager(ctx context.Context) (CustomActionManager, error)
 }
 
 type ConnectorBuilder interface {
@@ -100,7 +104,7 @@ type builderImpl struct {
 	resourceProvisionersV2 map[string]ResourceProvisionerV2
 	resourceManagers       map[string]ResourceManager
 	accountManager         AccountManager
-	actionManager          ActionManager
+	actionManager          CustomActionManager
 	credentialManagers     map[string]CredentialManager
 	eventFeed              EventProvider
 	cb                     ConnectorBuilder
@@ -337,9 +341,23 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			ret.ticketManager = ticketManager
 		}
 
-		if actionManager, ok := c.(ActionManager); ok {
+		if actionManager, ok := c.(CustomActionManager); ok {
 			if ret.actionManager != nil {
 				return nil, fmt.Errorf("error: cannot set multiple action managers")
+			}
+			ret.actionManager = actionManager
+		}
+
+		if registerActionManager, ok := c.(RegisterActionManager); ok {
+			if ret.actionManager != nil {
+				return nil, fmt.Errorf("error: cannot register multiple action managers")
+			}
+			actionManager, err := registerActionManager.RegisterActionManager(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("error: registering action manager failed: %w", err)
+			}
+			if actionManager == nil {
+				return nil, fmt.Errorf("error: action manager is nil")
 			}
 			ret.actionManager = actionManager
 		}
