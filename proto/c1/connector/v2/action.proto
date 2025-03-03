@@ -58,6 +58,7 @@ message GetActionStatusResponse {
   string id = 2;
   BatonActionStatus status = 3;
   repeated google.protobuf.Any annotations = 4;
+  google.protobuf.Struct response = 5;
 }
 
 message GetActionSchemaRequest {
