@@ -2469,6 +2469,35 @@ func (m *EncryptedData) validate(all bool) error {
 
 	// no validation rules for EncryptedBytes
 
+	if all {
+		switch v := interface{}(m.GetExpirationDuration()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, EncryptedDataValidationError{
+					field:  "ExpirationDuration",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, EncryptedDataValidationError{
+					field:  "ExpirationDuration",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetExpirationDuration()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return EncryptedDataValidationError{
+				field:  "ExpirationDuration",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
 	if len(errors) > 0 {
 		return EncryptedDataMultiError(errors)
 	}
@@ -2709,6 +2738,35 @@ func (m *EncryptionConfig) validate(all bool) error {
 	// no validation rules for Provider
 
 	// no validation rules for KeyId
+
+	if all {
+		switch v := interface{}(m.GetExpirationDuration()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, EncryptionConfigValidationError{
+					field:  "ExpirationDuration",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, EncryptionConfigValidationError{
+					field:  "ExpirationDuration",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetExpirationDuration()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return EncryptionConfigValidationError{
+				field:  "ExpirationDuration",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
 
 	switch v := m.Config.(type) {
 	case *EncryptionConfig_JwkPublicKeyConfig:
