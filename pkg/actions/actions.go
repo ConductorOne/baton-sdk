@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -137,12 +138,27 @@ func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *str
 	}
 	a.actions[actionId] = oa
 
-	oa.Rv, oa.Annos, oa.Err = handler(ctx, args)
-	if oa.Err == nil {
-		oa.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE
-	} else {
-		oa.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
-	}
+	done := make(chan struct{})
 
-	return actionId, oa.Status, oa.Rv, oa.Annos, oa.Err
+	// If handler exits within a second, return result.
+	// If handler takes longer than a second, return status pending.
+	go func() {
+		oa.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
+		oa.Rv, oa.Annos, oa.Err = handler(ctx, args)
+		if oa.Err == nil {
+			oa.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE
+		} else {
+			oa.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
+		}
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-done:
+		return actionId, oa.Status, oa.Rv, oa.Annos, oa.Err
+	case <-time.After(1 * time.Second):
+		return actionId, oa.Status, oa.Rv, oa.Annos, oa.Err
+	case <-ctx.Done():
+		return actionId, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, ctx.Err()
+	}
 }
