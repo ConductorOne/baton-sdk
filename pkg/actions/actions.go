@@ -31,14 +31,14 @@ type ActionManager struct {
 	actionId uint64
 	schemas  map[string]*v2.BatonActionSchema // map of action name to schema
 	handlers map[string]ActionHandler
-	actions  map[string]OutstandingAction // map of actions IDs
+	actions  map[string]*OutstandingAction // map of actions IDs
 }
 
 func NewActionManager(_ context.Context) *ActionManager {
 	return &ActionManager{
 		schemas:  make(map[string]*v2.BatonActionSchema),
 		handlers: make(map[string]ActionHandler),
-		actions:  make(map[string]OutstandingAction),
+		actions:  make(map[string]*OutstandingAction),
 	}
 }
 
@@ -117,8 +117,8 @@ func (a *ActionManager) GetActionSchema(ctx context.Context, name string) (*v2.B
 }
 
 func (a *ActionManager) GetActionStatus(ctx context.Context, actionId string) (v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
-	oa, ok := a.actions[actionId]
-	if !ok {
+	oa := a.actions[actionId]
+	if oa == nil {
 		return v2.BatonActionStatus_BATON_ACTION_STATUS_UNKNOWN, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("action id %s not found", actionId))
 	}
 
@@ -136,7 +136,7 @@ func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *str
 		Name:   name,
 		Status: v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING,
 	}
-	a.actions[actionId] = oa
+	a.actions[actionId] = &oa
 
 	done := make(chan struct{})
 
