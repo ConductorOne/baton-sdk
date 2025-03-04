@@ -46,6 +46,7 @@ type connectorClient struct {
 	connectorV2.CredentialManagerServiceClient
 	connectorV2.EventServiceClient
 	connectorV2.TicketsServiceClient
+	connectorV2.ActionServiceClient
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")
@@ -378,6 +379,8 @@ func Register(ctx context.Context, s grpc.ServiceRegistrar, srv types.ConnectorS
 		connectorV2.RegisterTicketsServiceServer(s, noop)
 	}
 
+	connectorV2.RegisterActionServiceServer(s, srv)
+
 	if opts.ProvisioningEnabled {
 		connectorV2.RegisterGrantManagerServiceServer(s, srv)
 		connectorV2.RegisterResourceManagerServiceServer(s, srv)
@@ -413,5 +416,6 @@ func NewConnectorClient(ctx context.Context, cc grpc.ClientConnInterface) types.
 		CredentialManagerServiceClient: connectorV2.NewCredentialManagerServiceClient(cc),
 		EventServiceClient:             connectorV2.NewEventServiceClient(cc),
 		TicketsServiceClient:           connectorV2.NewTicketsServiceClient(cc),
+		ActionServiceClient:            connectorV2.NewActionServiceClient(cc),
 	}
 }
