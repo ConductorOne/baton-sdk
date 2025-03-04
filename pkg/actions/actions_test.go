@@ -38,7 +38,7 @@ func testActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.St
 		return nil, nil, fmt.Errorf("missing dn")
 	}
 
-	time.Sleep(2 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
 
 	var userStruct structpb.Struct = structpb.Struct{
 		Fields: map[string]*structpb.Value{

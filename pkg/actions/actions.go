@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
+	"sort"
+	"sync"
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,16 +21,43 @@ import (
 type ActionHandler func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error)
 
 type OutstandingAction struct {
-	Name   string
-	Status v2.BatonActionStatus
-	Rv     *structpb.Struct
-	Annos  annotations.Annotations
-	Err    error
+	Id        string
+	Name      string
+	Status    v2.BatonActionStatus
+	Rv        *structpb.Struct
+	Annos     annotations.Annotations
+	Err       error
+	StartedAt time.Time
+	sync.Mutex
 }
 
-// TODO: use syncmaps here
+func NewOutstandingAction(id, name string) *OutstandingAction {
+	return &OutstandingAction{
+		Id:        id,
+		Name:      name,
+		Status:    v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING,
+		StartedAt: time.Now(),
+	}
+}
+
+func (oa *OutstandingAction) SetStatus(status v2.BatonActionStatus) error {
+	oa.Mutex.Lock()
+	defer oa.Mutex.Unlock()
+	if oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+		return errors.New("cannot set status on completed action")
+	}
+	if status == v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING && oa.Status != v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING {
+		return errors.New("cannot set status to running unless action is pending")
+	}
+
+	oa.Status = status
+	return nil
+}
+
+const maxOldActions = 1000
+
+// TODO: use syncmaps or some other sort of locking mechanism
 type ActionManager struct {
-	actionId uint64
 	schemas  map[string]*v2.BatonActionSchema // map of action name to schema
 	handlers map[string]ActionHandler
 	actions  map[string]*OutstandingAction // map of actions IDs
@@ -43,8 +72,45 @@ func NewActionManager(_ context.Context) *ActionManager {
 }
 
 func (a *ActionManager) GetNewActionId() string {
-	a.actionId++
-	return strconv.FormatUint(a.actionId, 10)
+	uid := ksuid.New()
+	return uid.String()
+}
+
+func (a *ActionManager) GetNewAction(name string) *OutstandingAction {
+	actionId := a.GetNewActionId()
+	oa := NewOutstandingAction(actionId, name)
+	a.actions[actionId] = oa
+	return oa
+}
+
+func (a *ActionManager) CleanupOldActions(ctx context.Context) {
+	if len(a.actions) < maxOldActions {
+		return
+	}
+
+	l := ctxzap.Extract(ctx)
+	l.Debug("cleaning up old actions")
+	// Create a slice to hold the actions
+	actionList := make([]*OutstandingAction, 0, len(a.actions))
+	for _, action := range a.actions {
+		actionList = append(actionList, action)
+	}
+
+	// Sort the actions by StartedAt time
+	sort.Slice(actionList, func(i, j int) bool {
+		return actionList[i].StartedAt.Before(actionList[j].StartedAt)
+	})
+
+	count := 0
+	// Delete the oldest actions
+	for i := 0; i < len(actionList)-maxOldActions; i++ {
+		action := actionList[i]
+		if action.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || action.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+			count++
+			delete(a.actions, actionList[i].Id)
+		}
+	}
+	l.Debug("cleaned up old actions", zap.Int("count", count))
 }
 
 func (a *ActionManager) registerActionSchema(ctx context.Context, name string, schema *v2.BatonActionSchema) error {
@@ -131,34 +197,30 @@ func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *str
 		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found", name))
 	}
 
-	actionId := a.GetNewActionId()
-	oa := OutstandingAction{
-		Name:   name,
-		Status: v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING,
-	}
-	a.actions[actionId] = &oa
+	oa := a.GetNewAction(name)
 
 	done := make(chan struct{})
 
 	// If handler exits within a second, return result.
 	// If handler takes longer than a second, return status pending.
 	go func() {
-		oa.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING
+		oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
 		oa.Rv, oa.Annos, oa.Err = handler(ctx, args)
 		if oa.Err == nil {
-			oa.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE
+			oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
 		} else {
-			oa.Status = v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED
+			oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
 		}
 		done <- struct{}{}
 	}()
 
 	select {
 	case <-done:
-		return actionId, oa.Status, oa.Rv, oa.Annos, oa.Err
+		return oa.Id, oa.Status, oa.Rv, oa.Annos, oa.Err
 	case <-time.After(1 * time.Second):
-		return actionId, oa.Status, oa.Rv, oa.Annos, oa.Err
+		return oa.Id, oa.Status, oa.Rv, oa.Annos, oa.Err
 	case <-ctx.Done():
-		return actionId, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, ctx.Err()
+		oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
+		return oa.Id, oa.Status, nil, nil, ctx.Err()
 	}
 }
