@@ -121,12 +121,50 @@ func MakeMainCommand[T field.Configurable](
 					))
 			case v.GetBool("event-feed"):
 				opts = append(opts, connectorrunner.WithOnDemandEventStream())
-			case v.GetString("create-account-login") != "":
+			case v.GetString("create-account-profile") != "":
 				profileMap := v.GetStringMap("create-account-profile")
 				if profileMap == nil {
-					profileMap = make(map[string]interface{})
+					return fmt.Errorf("create-account-profile is empty or incorrectly formatted: %v", v.GetString("create-account-profile"))
+				}
+				if v.GetString("create-account-login") != "" {
+					if _, ok := profileMap["login"]; !ok {
+						profileMap["login"] = v.GetString("create-account-login")
+					}
+				}
+				if v.GetString("create-account-email") != "" {
+					if _, ok := profileMap["email"]; !ok {
+						profileMap["email"] = v.GetString("create-account-email")
+					}
+				}
+				login, email := "", ""
+				if l, ok := profileMap["login"]; ok {
+					if l, ok := l.(string); ok {
+						login = l
+					}
+				}
+				if e, ok := profileMap["email"]; ok {
+					if e, ok := e.(string); ok {
+						email = e
+					}
 				}
 				profile, err := structpb.NewStruct(profileMap)
+				if err != nil {
+					return err
+				}
+				opts = append(opts,
+					connectorrunner.WithProvisioningEnabled(),
+					connectorrunner.WithOnDemandCreateAccount(
+						v.GetString("file"),
+						login,
+						email,
+						profile,
+					))
+			case v.GetString("create-account-login") != "":
+				// should only be here if no create-account-profile is provided, so lets make one.
+				profile, err := structpb.NewStruct(map[string]any{
+					"login": v.GetString("create-account-login"),
+					"email": v.GetString("create-account-email"),
+				})
 				if err != nil {
 					return err
 				}
@@ -286,6 +324,8 @@ func MakeGRPCServerCommand[T field.Configurable](
 		case v.GetString("grant-entitlement") != "":
 			copts = append(copts, connector.WithProvisioningEnabled())
 		case v.GetString("revoke-grant") != "":
+			copts = append(copts, connector.WithProvisioningEnabled())
+		case v.GetString("create-account-profile") != "":
 			copts = append(copts, connector.WithProvisioningEnabled())
 		case v.GetString("create-account-login") != "" || v.GetString("create-account-email") != "":
 			copts = append(copts, connector.WithProvisioningEnabled())
