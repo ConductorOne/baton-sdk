@@ -206,4 +206,3 @@ func ageDecrypt(identity age.Identity, ciphertext []byte) ([]byte, error) {
 
 	return plaintext.Bytes(), nil
 }
-
