@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package c1.connectorapi.baton.v1;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
+
+service ConnectorConfigService {
+  rpc GetConnectorConfig(GetConnectorConfigRequest) returns (GetConnectorConfigResponse);
+}
+
+message GetConnectorConfigRequest {}
+
+message GetConnectorConfigResponse {
+  google.protobuf.Struct config = 1;
+  google.protobuf.Timestamp last_updated = 2;
+}
+
+message SignedHeader {
+  string key = 1;
+  repeated string value = 2;
+}
+
+message Sigv4SignedRequestSTSGetCallerIdentity {
+  string method = 1;
+  string endpoint = 2;
+  repeated SignedHeader headers = 3;
+  bytes body = 4;
+}
