@@ -631,7 +631,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			if err != nil {
 				return nil, err
 			}
-
 		}
 
 		runner.tasks = tm

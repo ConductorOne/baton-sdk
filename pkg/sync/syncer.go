@@ -659,6 +659,7 @@ func (s *syncer) SyncResources(ctx context.Context) error {
 		for _, rt := range resp.List {
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: rt.Id})
 		}
+
 		return nil
 	}
 
