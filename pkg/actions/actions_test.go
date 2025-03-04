@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -37,8 +36,6 @@ func testActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.St
 	if !ok {
 		return nil, nil, fmt.Errorf("missing dn")
 	}
-
-	time.Sleep(10 * time.Millisecond)
 
 	var userStruct structpb.Struct = structpb.Struct{
 		Fields: map[string]*structpb.Value{

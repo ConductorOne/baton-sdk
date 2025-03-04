@@ -202,10 +202,12 @@ func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *str
 	done := make(chan struct{})
 
 	// If handler exits within a second, return result.
-	// If handler takes longer than a second, return status pending.
+	// If handler takes longer than 10 seconds, return status pending.
+	// If handler takes longer than an hour, return status failed.
+	handlerCtx, _ := context.WithTimeoutCause(ctx, 1*time.Hour, errors.New("action handler timed out"))
 	go func() {
 		oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
-		oa.Rv, oa.Annos, oa.Err = handler(ctx, args)
+		oa.Rv, oa.Annos, oa.Err = handler(handlerCtx, args)
 		if oa.Err == nil {
 			oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
 		} else {
@@ -217,7 +219,7 @@ func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *str
 	select {
 	case <-done:
 		return oa.Id, oa.Status, oa.Rv, oa.Annos, oa.Err
-	case <-time.After(1 * time.Second):
+	case <-time.After(10 * time.Second):
 		return oa.Id, oa.Status, oa.Rv, oa.Annos, oa.Err
 	case <-ctx.Done():
 		oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
