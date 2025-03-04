@@ -112,14 +112,14 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, conf *v2.Encryption
 	encCipherText := base64.StdEncoding.EncodeToString(ciphertext)
 
 	return &v2.EncryptedData{
-		Provider:           EncryptionProviderJwk,
-		KeyId:              tp,
-		Name:               plainText.Name,
-		Description:        plainText.Description,
-		Schema:             plainText.Schema,
-		EncryptedBytes:     []byte(encCipherText),
-		KeyIds:             []string{tp},
-		ExpirationDuration: conf.ExpirationDuration,
+		Provider:       EncryptionProviderJwk,
+		KeyId:          tp,
+		Name:           plainText.Name,
+		Description:    plainText.Description,
+		Schema:         plainText.Schema,
+		EncryptedBytes: []byte(encCipherText),
+		KeyIds:         []string{tp},
+		TimeToLive:     conf.LifetimeDuration,
 	}, nil
 }
 
@@ -206,3 +206,4 @@ func ageDecrypt(identity age.Identity, ciphertext []byte) ([]byte, error) {
 
 	return plaintext.Bytes(), nil
 }
+

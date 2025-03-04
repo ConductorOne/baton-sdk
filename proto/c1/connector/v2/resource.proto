@@ -182,7 +182,7 @@ message EncryptedData {
   string schema = 5; // optional
   bytes encrypted_bytes = 6; // if 'schema' is set, this should be JSON.
   repeated string key_ids = 7;
-  google.protobuf.Duration expiration_duration = 8;
+  google.protobuf.Duration time_to_live = 8;
 }
 
 message PlaintextData {
@@ -205,7 +205,7 @@ message EncryptionConfig {
     JWKPublicKeyConfig jwk_public_key_config = 100;
   }
 
-  google.protobuf.Duration expiration_duration = 4; // expiration duration for credentials
+  google.protobuf.Duration lifetime_duration = 4; // lifetime duration for encrypted data
 }
 
 message ResourceId {

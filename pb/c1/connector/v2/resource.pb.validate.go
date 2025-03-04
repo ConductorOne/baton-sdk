@@ -2470,11 +2470,11 @@ func (m *EncryptedData) validate(all bool) error {
 	// no validation rules for EncryptedBytes
 
 	if all {
-		switch v := interface{}(m.GetExpirationDuration()).(type) {
+		switch v := interface{}(m.GetTimeToLive()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, EncryptedDataValidationError{
-					field:  "ExpirationDuration",
+					field:  "TimeToLive",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -2482,16 +2482,16 @@ func (m *EncryptedData) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, EncryptedDataValidationError{
-					field:  "ExpirationDuration",
+					field:  "TimeToLive",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetExpirationDuration()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetTimeToLive()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return EncryptedDataValidationError{
-				field:  "ExpirationDuration",
+				field:  "TimeToLive",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -2740,11 +2740,11 @@ func (m *EncryptionConfig) validate(all bool) error {
 	// no validation rules for KeyId
 
 	if all {
-		switch v := interface{}(m.GetExpirationDuration()).(type) {
+		switch v := interface{}(m.GetLifetimeDuration()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, EncryptionConfigValidationError{
-					field:  "ExpirationDuration",
+					field:  "LifetimeDuration",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -2752,16 +2752,16 @@ func (m *EncryptionConfig) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, EncryptionConfigValidationError{
-					field:  "ExpirationDuration",
+					field:  "LifetimeDuration",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetExpirationDuration()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetLifetimeDuration()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return EncryptionConfigValidationError{
-				field:  "ExpirationDuration",
+				field:  "LifetimeDuration",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
