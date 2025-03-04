@@ -635,7 +635,6 @@ func (s *syncer) SyncResources(ctx context.Context) error {
 
 		return nil
 	}
-
 	return s.syncResources(ctx)
 }
 
@@ -1483,17 +1482,17 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	ents := make([]*v2.Entitlement, 0)
 	principals := make([]*v2.Resource, 0)
 	resourceTypes := make([]*v2.ResourceType, 0)
-	resourceTypeIds := mapset.NewSet[string]()
-	resourceIds := make(map[string]*v2.ResourceId)
+	resourceTypeIDs := mapset.NewSet[string]()
+	resourceIDs := make(map[string]*v2.ResourceId)
 
 	grantsForEnts := make([]*v2.Grant, 0)
 
 	for _, g := range grants {
-		resourceTypeIds.Add(g.Principal.Id.ResourceType)
-		resourceIds[g.Principal.Id.Resource] = g.Principal.Id
+		resourceTypeIDs.Add(g.Principal.Id.ResourceType)
+		resourceIDs[g.Principal.Id.Resource] = g.Principal.Id
 	}
 
-	for _, resourceTypeId := range resourceTypeIds.ToSlice() {
+	for _, resourceTypeId := range resourceTypeIDs.ToSlice() {
 		resourceTypeResp, err := s.externalResourceReader.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{ResourceTypeId: resourceTypeId})
 		if err != nil {
 			return err
@@ -1511,7 +1510,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		skipEGForResourceType[resourceTypeResp.ResourceType.Id] = skipEntitlements
 	}
 
-	for _, resourceId := range resourceIds {
+	for _, resourceId := range resourceIDs {
 		resourceResp, err := s.externalResourceReader.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{ResourceId: resourceId})
 		if err != nil {
 			return err
@@ -1525,7 +1524,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	}
 
 	for _, principal := range principals {
-		skipEnts, _ := skipEGForResourceType[principal.Id.ResourceType]
+		skipEnts := skipEGForResourceType[principal.Id.ResourceType]
 		if skipEnts {
 			continue
 		}
@@ -1628,7 +1627,7 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 	}
 
 	for _, principal := range principals {
-		skipEnts, _ := skipEGForResourceType[principal.Id.ResourceType]
+		skipEnts := skipEGForResourceType[principal.Id.ResourceType]
 		if skipEnts {
 			continue
 		}
@@ -1829,6 +1828,8 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					if !ok {
 						continue
 					}
+				default:
+					return errors.New("unexpected external resource type")
 				}
 
 				newGrant := &v2.Grant{
@@ -1934,6 +1935,8 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						// break out of principal list iteration since we found a match
 						break
 					}
+				default:
+					return errors.New("unexpected external resource type")
 				}
 			}
 
