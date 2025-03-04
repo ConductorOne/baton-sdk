@@ -60,7 +60,6 @@ func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActio
 
 const maxOldActions = 1000
 
-// TODO: use syncmaps or some other sort of locking mechanism
 type ActionManager struct {
 	schemas  map[string]*v2.BatonActionSchema // map of action name to schema
 	handlers map[string]ActionHandler
@@ -192,7 +191,8 @@ func (a *ActionManager) GetActionStatus(ctx context.Context, actionId string) (v
 		return v2.BatonActionStatus_BATON_ACTION_STATUS_UNKNOWN, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("action id %s not found", actionId))
 	}
 
-	return oa.Status, oa.Rv, nil, nil
+	// Don't return oa.Err here because error is for GetActionStatus, not the action itself.
+	return oa.Status, oa.Rv, oa.Annos, nil
 }
 
 func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
