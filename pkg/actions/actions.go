@@ -40,18 +40,22 @@ func NewOutstandingAction(id, name string) *OutstandingAction {
 	}
 }
 
-func (oa *OutstandingAction) SetStatus(status v2.BatonActionStatus) error {
+func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActionStatus) {
 	oa.Mutex.Lock()
 	defer oa.Mutex.Unlock()
+	l := ctxzap.Extract(ctx).With(
+		zap.String("action_id", oa.Id),
+		zap.String("action_name", oa.Name),
+		zap.String("status", status.String()),
+	)
 	if oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE || oa.Status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
-		return errors.New("cannot set status on completed action")
+		l.Error("cannot set status on completed action")
 	}
 	if status == v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING && oa.Status != v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING {
-		return errors.New("cannot set status to running unless action is pending")
+		l.Error("cannot set status to running unless action is pending")
 	}
 
 	oa.Status = status
-	return nil
 }
 
 const maxOldActions = 1000
@@ -204,14 +208,15 @@ func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *str
 	// If handler exits within a second, return result.
 	// If handler takes longer than 10 seconds, return status pending.
 	// If handler takes longer than an hour, return status failed.
-	handlerCtx, _ := context.WithTimeoutCause(ctx, 1*time.Hour, errors.New("action handler timed out"))
 	go func() {
-		oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+		handlerCtx, cancel := context.WithTimeoutCause(ctx, 1*time.Hour, errors.New("action handler timed out"))
+		defer cancel()
 		oa.Rv, oa.Annos, oa.Err = handler(handlerCtx, args)
 		if oa.Err == nil {
-			oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
+			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
 		} else {
-			oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
+			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
 		}
 		done <- struct{}{}
 	}()
@@ -222,7 +227,7 @@ func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *str
 	case <-time.After(10 * time.Second):
 		return oa.Id, oa.Status, oa.Rv, oa.Annos, oa.Err
 	case <-ctx.Done():
-		oa.SetStatus(v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
+		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED)
 		return oa.Id, oa.Status, nil, nil, ctx.Err()
 	}
 }
