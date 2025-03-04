@@ -92,3 +92,20 @@ func NewGrant(resource *v2.Resource, entitlementName string, principal GrantPrin
 
 	return grant
 }
+
+func NewGrantID(principal GrantPrincipal, entitlement *v2.Entitlement) string {
+	var resourceID *v2.ResourceId
+	switch p := principal.(type) {
+	case *v2.ResourceId:
+		resourceID = p
+	case *v2.Resource:
+		resourceID = p.Id
+	default:
+		panic("unexpected principal type")
+	}
+
+	if resourceID == nil {
+		panic("principal resource must have a valid resource ID")
+	}
+	return fmt.Sprintf("%s:%s:%s", entitlement.Id, resourceID.ResourceType, resourceID.Resource)
+}

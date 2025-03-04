@@ -221,6 +221,20 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithTempDir(v.GetString("c1z-temp-dir")))
 		}
 
+		if v.GetString("external-resource-c1z") != "" {
+			externalResourceC1ZPath := v.GetString("external-resource-c1z")
+			_, err := os.Open(externalResourceC1ZPath)
+			if err != nil {
+				return fmt.Errorf("the specified external resource c1z file does not exist: %s", externalResourceC1ZPath)
+			}
+			opts = append(opts, connectorrunner.WithExternalResourceC1Z(externalResourceC1ZPath))
+		}
+
+		if v.GetString("external-resource-entitlement-id-filter") != "" {
+			externalResourceEntitlementIdFilter := v.GetString("external-resource-entitlement-id-filter")
+			opts = append(opts, connectorrunner.WithExternalResourceEntitlementFilter(externalResourceEntitlementIdFilter))
+		}
+
 		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)

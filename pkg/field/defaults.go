@@ -48,6 +48,14 @@ var (
 	skipFullSync          = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	otelCollectorEndpoint = StringField("otel-collector-endpoint", WithDescription("The endpoint of the OpenTelemetry collector to send observability data to"),
 		WithPersistent(true), WithExportTarget(ExportTargetOps))
+	externalResourceC1ZField = StringField("external-resource-c1z",
+		WithDescription("The path to the c1z file to sync external baton resources with"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
+	externalResourceEntitlementIdFilter = StringField("external-resource-entitlement-id-filter",
+		WithDescription("The entitlement that external users, groups must have access to sync external baton resources"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 
 	LambdaServerClientIDField = StringField("lambda-client-id", WithRequired(true), WithDescription("The oauth client id to use with the configuration endpoint"),
 		WithExportTarget(ExportTargetNone))
@@ -95,6 +103,8 @@ var DefaultFields = []SchemaField{
 	logLevelField,
 	skipFullSync,
 	otelCollectorEndpoint,
+	externalResourceC1ZField,
+	externalResourceEntitlementIdFilter,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {

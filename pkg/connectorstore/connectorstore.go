@@ -46,4 +46,5 @@ type Writer interface {
 	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
+	DeleteGrant(ctx context.Context, grantId string) error
 }

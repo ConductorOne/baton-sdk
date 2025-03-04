@@ -43,13 +43,15 @@ var (
 )
 
 type c1ApiTaskManager struct {
-	mtx               sync.Mutex
-	started           bool
-	queue             []*v1.Task
-	serviceClient     BatonServiceClient
-	tempDir           string
-	skipFullSync      bool
-	runnerShouldDebug bool
+	mtx                                 sync.Mutex
+	started                             bool
+	queue                               []*v1.Task
+	serviceClient                       BatonServiceClient
+	tempDir                             string
+	skipFullSync                        bool
+	runnerShouldDebug                   bool
+	externalResourceC1Z                 string
+	externalResourceEntitlementIdFilter string
 }
 
 // getHeartbeatInterval returns an appropriate heartbeat interval. If the interval is 0, it will return the default heartbeat interval.
@@ -244,7 +246,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	var handler tasks.TaskHandler
 	switch tasks.GetType(task) {
 	case taskTypes.FullSyncType:
-		handler = newFullSyncTaskHandler(task, tHelpers, c.skipFullSync)
+		handler = newFullSyncTaskHandler(task, tHelpers, c.skipFullSync, c.externalResourceC1Z, c.externalResourceEntitlementIdFilter)
 	case taskTypes.HelloType:
 		handler = newHelloTaskHandler(task, tHelpers)
 	case taskTypes.GrantType:
@@ -292,15 +294,19 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	return nil
 }
 
-func NewC1TaskManager(ctx context.Context, clientID string, clientSecret string, tempDir string, skipFullSync bool) (tasks.Manager, error) {
+func NewC1TaskManager(
+	ctx context.Context, clientID string, clientSecret string, tempDir string, skipFullSync bool,
+	externalC1Z string, externalResourceEntitlementIdFilter string) (tasks.Manager, error) {
 	serviceClient, err := newServiceClient(ctx, clientID, clientSecret)
 	if err != nil {
 		return nil, err
 	}
 
 	return &c1ApiTaskManager{
-		serviceClient: serviceClient,
-		tempDir:       tempDir,
-		skipFullSync:  skipFullSync,
+		serviceClient:                       serviceClient,
+		tempDir:                             tempDir,
+		skipFullSync:                        skipFullSync,
+		externalResourceC1Z:                 externalC1Z,
+		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
 	}, nil
 }
