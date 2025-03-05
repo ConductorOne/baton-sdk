@@ -168,7 +168,7 @@ func MetadataForRequest(req *Request) metadata.MD {
 	// https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md
 	// emulate grpc-go's behavior of setting these headers.
 	// TODO(morgabra): what do here?
-	rv.Set("content-type ", "application/grpc+proto")
+	rv.Set("content-type", "application/grpc+proto")
 	rv.Set(":method", "POST")
 	rv.Set(":path", req.Method())
 	rv.Set(":authority", "localhost")

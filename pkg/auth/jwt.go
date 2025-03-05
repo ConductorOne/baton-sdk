@@ -17,7 +17,7 @@ type Config struct {
 	Subject              string        // Expected subject (optional)
 	Audience             string        // Expected audience (optional)
 	Nonce                string        // Expected nonce (optional)
-	MaxExpirationFromNow time.Duration // Maximum expiration time from now (optional, defaults to 5 minutes)
+	MaxExpirationFromNow time.Duration // Maximum expiration time from now (optional, defaults to 24 hours)
 }
 
 // Validator handles JWT validation with a specific configuration
@@ -47,7 +47,7 @@ func NewValidator(config Config) (*Validator, error) {
 
 	// Set default MaxExpiry if not specified
 	if config.MaxExpirationFromNow == 0 {
-		config.MaxExpirationFromNow = 5 * time.Minute
+		config.MaxExpirationFromNow = 24 * time.Hour // TODO(morgabra): ??
 	}
 
 	return &Validator{
