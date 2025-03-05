@@ -62,7 +62,7 @@ func testAsyncActionHandler(ctx context.Context, args *structpb.Struct) (*struct
 		case <-ctx.Done():
 			return nil, nil, status.Error(codes.Canceled, "context canceled")
 		default:
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
@@ -105,7 +105,7 @@ func testAsyncCancelActionHandler(ctx context.Context, args *structpb.Struct) (*
 		case <-childCtx.Done():
 			return nil, nil, status.Error(codes.Canceled, "context canceled")
 		default:
-			time.Sleep(1 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
@@ -186,7 +186,7 @@ func TestAsyncActionHandler(t *testing.T) {
 	require.Equal(t, "lock_account", name)
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, status)
 
-	time.Sleep(11 * time.Second)
+	time.Sleep(1 * time.Second)
 
 	status, name, rv, _, err = m.GetActionStatus(ctx, actionId)
 	require.NoError(t, err)
@@ -216,7 +216,7 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, status)
 
 		// Wait for completion
-		time.Sleep(12 * time.Second)
+		time.Sleep(1 * time.Second)
 
 		// Check final status
 		status, name, _, _, err := m.GetActionStatus(ctx, actionId)
