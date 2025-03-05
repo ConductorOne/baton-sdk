@@ -56,8 +56,13 @@ var (
 
 	// JWT Authentication Fields
 	LambdaServerAuthJWTSigner = StringField("lambda-auth-jwt-signer",
-		WithRequired(true),
-		WithDescription("The JWK format public key used to verify JWT signatures"),
+		WithRequired(false),
+		WithDescription("The JWK format public key used to verify JWT signatures (mutually exclusive with lambda-auth-jwt-jwks-url)"),
+		WithExportTarget(ExportTargetNone))
+
+	LambdaServerAuthJWTJWKSUrl = StringField("lambda-auth-jwt-jwks-url",
+		WithRequired(false),
+		WithDescription("The URL to the JWKS endpoint for JWT verification (mutually exclusive with lambda-auth-jwt-signer)"),
 		WithExportTarget(ExportTargetNone))
 
 	LambdaServerAuthJWTExpectedIssuerField = StringField("lambda-auth-jwt-expected-issuer",
@@ -81,6 +86,7 @@ func LambdaServerFields() []SchemaField {
 		LambdaServerClientIDField,
 		LambdaServerClientSecretField,
 		LambdaServerAuthJWTSigner,
+		LambdaServerAuthJWTJWKSUrl,
 		LambdaServerAuthJWTExpectedIssuerField,
 		LambdaServerAuthJWTExpectedSubjectField,
 		LambdaServerAuthJWTExpectedAudienceField,

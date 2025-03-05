@@ -14,8 +14,8 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	pb_connector_api "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	"github.com/conductorone/baton-sdk/pkg/auth"
 	"github.com/conductorone/baton-sdk/pkg/field"
+	"github.com/conductorone/baton-sdk/pkg/lambda/auth"
 	c1_lambda_grpc "github.com/conductorone/baton-sdk/pkg/lambda/grpc"
 	c1_lambda_config "github.com/conductorone/baton-sdk/pkg/lambda/grpc/config"
 	"github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware"
@@ -96,8 +96,16 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
 		}
 
+		// Ensure only one auth method is provided
+		jwk := v.GetString(field.LambdaServerAuthJWTSigner.GetName())
+		jwksUrl := v.GetString(field.LambdaServerAuthJWTJWKSUrl.GetName())
+		if (jwk == "" && jwksUrl == "") || (jwk != "" && jwksUrl != "") {
+			return fmt.Errorf("lambda-run: must specify exactly one of %s or %s", field.LambdaServerAuthJWTSigner.GetName(), field.LambdaServerAuthJWTJWKSUrl.GetName())
+		}
+
 		authConfig := auth.Config{
-			PublicKeyJWK: v.GetString(field.LambdaServerAuthJWTSigner.GetName()),
+			PublicKeyJWK: jwk,
+			JWKSUrl:      jwksUrl,
 			Issuer:       v.GetString(field.LambdaServerAuthJWTExpectedIssuerField.GetName()),
 			Subject:      v.GetString(field.LambdaServerAuthJWTExpectedSubjectField.GetName()),
 			Audience:     v.GetString(field.LambdaServerAuthJWTExpectedAudienceField.GetName()),

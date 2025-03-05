@@ -8,11 +8,13 @@ import (
 
 	"github.com/go-jose/go-jose/v4"
 	"github.com/pquerna/xjwt"
+	"github.com/pquerna/xjwt/xkeyset"
 )
 
 // Config holds the configuration for JWT validation
 type Config struct {
 	PublicKeyJWK         string        // JWK format public key
+	JWKSUrl              string        // URL to JWKS endpoint (mutually exclusive with PublicKeyJWK)
 	Issuer               string        // Expected issuer
 	Subject              string        // Expected subject (optional)
 	Audience             string        // Expected audience (optional)
@@ -20,29 +22,70 @@ type Config struct {
 	MaxExpirationFromNow time.Duration // Maximum expiration time from now (optional, defaults to 24 hours)
 }
 
+type KeySet interface {
+	Get() (*jose.JSONWebKeySet, error)
+}
+
 // Validator handles JWT validation with a specific configuration
 type Validator struct {
 	config Config
-	keySet *jose.JSONWebKeySet
+	keySet KeySet
 
 	now func() time.Time
 }
 
+type staticKeySet struct {
+	keyset *jose.JSONWebKeySet
+}
+
+func (s *staticKeySet) Get() (*jose.JSONWebKeySet, error) {
+	return s.keyset, nil
+}
+
 // NewValidator creates a new JWT validator with the given configuration
-func NewValidator(config Config) (*Validator, error) {
-	// Parse the JWK
-	var jwk jose.JSONWebKey
-	if err := json.Unmarshal([]byte(config.PublicKeyJWK), &jwk); err != nil {
-		return nil, fmt.Errorf("failed to parse JWK: %w", err)
+func NewValidator(ctx context.Context, config Config) (*Validator, error) {
+	// Ensure only one key source is provided
+	if config.PublicKeyJWK != "" && config.JWKSUrl != "" {
+		return nil, fmt.Errorf("cannot specify both PublicKeyJWK and JWKSUrl")
+	}
+	if config.PublicKeyJWK == "" && config.JWKSUrl == "" {
+		return nil, fmt.Errorf("must specify either PublicKeyJWK or JWKSUrl")
 	}
 
-	if !jwk.Valid() {
-		return nil, fmt.Errorf("invalid JWK")
-	}
+	var keySet KeySet
+	if config.PublicKeyJWK != "" {
+		// Parse the JWK
+		var jwk jose.JSONWebKey
+		if err := json.Unmarshal([]byte(config.PublicKeyJWK), &jwk); err != nil {
+			return nil, fmt.Errorf("failed to parse JWK: %w", err)
+		}
 
-	// Create a key set with the single key
-	keySet := &jose.JSONWebKeySet{
-		Keys: []jose.JSONWebKey{jwk},
+		if !jwk.Valid() {
+			return nil, fmt.Errorf("invalid JWK")
+		}
+
+		// Create a key set with the single key
+		keySet = &staticKeySet{
+			keyset: &jose.JSONWebKeySet{
+				Keys: []jose.JSONWebKey{jwk},
+			},
+		}
+	} else {
+		// Use JWKS URL
+		remoteKeySet, err := xkeyset.New(ctx, xkeyset.Options{
+			URL:            config.JWKSUrl,
+			RefreshContext: ctx,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create keyset from JWKS URL: %w", err)
+		}
+
+		// Load the cache
+		_, err = remoteKeySet.Get()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get keyset from JWKS URL: %w", err)
+		}
+		keySet = remoteKeySet
 	}
 
 	// Set default MaxExpiry if not specified
@@ -63,13 +106,18 @@ func (v *Validator) ValidateToken(ctx context.Context, token string) (map[string
 		return nil, fmt.Errorf("token is empty")
 	}
 
+	keyset, err := v.keySet.Get()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get keyset: %w", err)
+	}
+
 	// Now validate the token
 	vc := xjwt.VerifyConfig{
 		ExpectedIssuer:             v.config.Issuer,
 		ExpectedSubject:            v.config.Subject,
 		ExpectedAudience:           v.config.Audience,
 		ExpectedNonce:              v.config.Nonce,
-		KeySet:                     v.keySet,
+		KeySet:                     keyset,
 		Now:                        v.now,
 		MaxExpirationFromNow:       v.config.MaxExpirationFromNow,
 		ExpectSSignatureAlgorithms: []jose.SignatureAlgorithm{},
