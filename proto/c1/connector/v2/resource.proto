@@ -5,7 +5,6 @@ package c1.connector.v2;
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
 import "validate/validate.proto";
-import "google/protobuf/duration.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
@@ -182,7 +181,6 @@ message EncryptedData {
   string schema = 5; // optional
   bytes encrypted_bytes = 6; // if 'schema' is set, this should be JSON.
   repeated string key_ids = 7;
-  google.protobuf.Duration time_to_live = 8;
 }
 
 message PlaintextData {
@@ -204,8 +202,6 @@ message EncryptionConfig {
   oneof config {
     JWKPublicKeyConfig jwk_public_key_config = 100;
   }
-
-  google.protobuf.Duration lifetime_duration = 4; // lifetime duration for encrypted data
 }
 
 message ResourceId {
