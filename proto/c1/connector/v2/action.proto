@@ -48,7 +48,7 @@ message InvokeActionResponse {
 
 
 message GetActionStatusRequest {
-  string name = 1;
+  string name = 1 [deprecated = true];
   string id = 2;
   repeated google.protobuf.Any annotations = 3;
 }
