@@ -78,10 +78,17 @@ func TestActionHandler(t *testing.T) {
 	require.True(t, ok)
 	require.True(t, success.BoolValue)
 
-	_, status, _, _, err = m.InvokeAction(ctx, "lock_account", &structpb.Struct{
+	_, status, rv, _, err := m.InvokeAction(ctx, "lock_account", &structpb.Struct{
 		Fields: map[string]*structpb.Value{},
 	})
-
-	require.Error(t, err)
+	expectedRv := &structpb.Struct{
+		Fields: map[string]*structpb.Value{
+			"error": {
+				Kind: &structpb.Value_StringValue{StringValue: "missing dn"},
+			},
+		},
+	}
+	require.NoError(t, err)
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, status)
+	require.Equal(t, expectedRv, rv)
 }
