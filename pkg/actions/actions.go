@@ -201,15 +201,15 @@ func (a *ActionManager) GetActionSchema(ctx context.Context, name string) (*v2.B
 	return schema, nil, nil
 }
 
-func (a *ActionManager) GetActionStatus(ctx context.Context, actionId string) (v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+func (a *ActionManager) GetActionStatus(ctx context.Context, actionId string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
 	oa := a.actions[actionId]
 	if oa == nil {
-		return v2.BatonActionStatus_BATON_ACTION_STATUS_UNKNOWN, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("action id %s not found", actionId))
+		return v2.BatonActionStatus_BATON_ACTION_STATUS_UNKNOWN, "", nil, nil, status.Error(codes.NotFound, fmt.Sprintf("action id %s not found", actionId))
 	}
 
 	// Don't return oa.Err here because error is for GetActionStatus, not the action itself.
 	// oa.Rv contains any error.
-	return oa.Status, oa.Rv, oa.Annos, nil
+	return oa.Status, oa.Name, oa.Rv, oa.Annos, nil
 }
 
 func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
