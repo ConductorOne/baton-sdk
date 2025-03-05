@@ -59,6 +59,8 @@ func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActio
 }
 
 func (oa *OutstandingAction) SetError(ctx context.Context, err error) {
+	oa.Mutex.Lock()
+	defer oa.Mutex.Unlock()
 	if oa.Rv == nil {
 		oa.Rv = &structpb.Struct{}
 	}
