@@ -48,12 +48,12 @@ func cloneTableQuery(tableName string) (string, error) {
 // 3. Execute an ATTACH query to bring our empty sqlite db into the context of our db connection
 // 4. Select directly from the cloned db and insert directly into the new database.
 // 5. Close and save the new database as a c1z at the configured path.
-func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) error {
+func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) (err error) {
 	ctx, span := tracer.Start(ctx, "C1File.CloneSync")
 	defer span.End()
 
 	// Be sure that the output path is empty else return an error
-	_, err := os.Stat(outPath)
+	_, err = os.Stat(outPath)
 	if err == nil || !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("output path (%s) must not exist for cloning to proceed", outPath)
 	}
@@ -62,6 +62,14 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) e
 	if err != nil {
 		return err
 	}
+
+	// Always clean up the temp dir and return an error if that fails
+	defer func() {
+		cleanupErr := os.RemoveAll(tmpDir)
+		if cleanupErr != nil {
+			err = errors.Join(err, fmt.Errorf("error cleaning up temp dir: %w", cleanupErr))
+		}
+	}()
 
 	dbPath := filepath.Join(tmpDir, "db")
 	out, err := NewC1File(ctx, dbPath)
@@ -124,11 +132,5 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) e
 		return err
 	}
 
-	// Clean up
-	err = os.RemoveAll(tmpDir)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
