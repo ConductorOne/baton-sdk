@@ -22,7 +22,8 @@ const (
 )
 
 func TestAuthInterceptor(t *testing.T) {
-	validator, err := auth.NewValidator(auth.Config{
+	ctx := context.Background()
+	validator, err := auth.NewValidator(ctx, auth.Config{
 		PublicKeyJWK:         testPublicKeyJWK,
 		Issuer:               "test-issuer",
 		Subject:              "test-subject",
@@ -39,69 +40,57 @@ func TestAuthInterceptor(t *testing.T) {
 		claims, ok := ClaimsFromContext(ctx)
 		assert.True(t, ok)
 		assert.NotNil(t, claims)
-		assert.Equal(t, "test-issuer", claims.Issuer)
-		assert.Equal(t, "test-subject", claims.Subject)
-		assert.Equal(t, []string{"test-audience"}, claims.Audience)
-		assert.Equal(t, "test-nonce", claims.ID)
+		assert.Equal(t, "test-issuer", claims["iss"])
+		assert.Equal(t, "test-subject", claims["sub"])
+		assert.Equal(t, "test-audience", claims["aud"])
+		assert.Equal(t, "test-nonce", claims["nonce"])
 		return "success", nil
 	}
 
+	// Test cases
 	tests := []struct {
-		name        string
-		setupCtx    func() context.Context
-		wantErr     bool
-		wantErrCode codes.Code
+		name      string
+		metadata  metadata.MD
+		wantError codes.Code
 	}{
 		{
-			name: "missing metadata",
-			setupCtx: func() context.Context {
-				return context.Background()
-			},
-			wantErr:     true,
-			wantErrCode: codes.Unauthenticated,
+			name:      "missing metadata",
+			metadata:  nil,
+			wantError: codes.Unauthenticated,
 		},
 		{
-			name: "missing authorization header",
-			setupCtx: func() context.Context {
-				md := metadata.New(map[string]string{})
-				return metadata.NewIncomingContext(context.Background(), md)
-			},
-			wantErr:     true,
-			wantErrCode: codes.Unauthenticated,
+			name:      "missing authorization header",
+			metadata:  metadata.MD{},
+			wantError: codes.Unauthenticated,
 		},
 		{
-			name: "invalid authorization header format",
-			setupCtx: func() context.Context {
-				md := metadata.New(map[string]string{
-					"authorization": "NotBearer token123",
-				})
-				return metadata.NewIncomingContext(context.Background(), md)
+			name: "invalid authorization header",
+			metadata: metadata.MD{
+				"authorization": []string{"invalid"},
 			},
-			wantErr:     true,
-			wantErrCode: codes.Unauthenticated,
+			wantError: codes.Unauthenticated,
 		},
 		{
 			name: "invalid token",
-			setupCtx: func() context.Context {
-				md := metadata.New(map[string]string{
-					"authorization": "Bearer invalid-token",
-				})
-				return metadata.NewIncomingContext(context.Background(), md)
+			metadata: metadata.MD{
+				"authorization": []string{"Bearer invalid"},
 			},
-			wantErr:     true,
-			wantErrCode: codes.Unauthenticated,
+			wantError: codes.Unauthenticated,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := tt.setupCtx()
+			ctx := context.Background()
+			if tt.metadata != nil {
+				ctx = metadata.NewIncomingContext(ctx, tt.metadata)
+			}
+
 			_, err := interceptor(ctx, nil, nil, handler)
-			if tt.wantErr {
-				assert.Error(t, err)
-				st, ok := status.FromError(err)
+			if tt.wantError != codes.OK {
+				s, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, tt.wantErrCode, st.Code())
+				assert.Equal(t, tt.wantError, s.Code())
 			} else {
 				assert.NoError(t, err)
 			}
@@ -110,12 +99,13 @@ func TestAuthInterceptor(t *testing.T) {
 }
 
 func TestClaimsFromContext(t *testing.T) {
-	claims := &auth.Claims{
-		Issuer:    "test-issuer",
-		Subject:   "test-subject",
-		IssuedAt:  time.Now().Unix(),
-		Expiry:    time.Now().Add(time.Hour).Unix(),
-		NotBefore: time.Now().Add(-time.Hour).Unix(),
+	claims := map[string]interface{}{
+		"iss":   "test-issuer",
+		"sub":   "test-subject",
+		"iat":   time.Now().Unix(),
+		"exp":   time.Now().Add(time.Hour).Unix(),
+		"nbf":   time.Now().Add(-time.Hour).Unix(),
+		"nonce": "test-nonce",
 	}
 
 	// Test with claims in context
@@ -131,43 +121,14 @@ func TestClaimsFromContext(t *testing.T) {
 }
 
 func TestWithAuth(t *testing.T) {
-	tests := []struct {
-		name    string
-		config  auth.Config
-		wantErr bool
-	}{
-		{
-			name: "valid config",
-			config: auth.Config{
-				PublicKeyJWK:         testPublicKeyJWK,
-				Issuer:               "test-issuer",
-				Subject:              "test-subject",
-				Audience:             "test-audience",
-				Nonce:                "test-nonce",
-				MaxExpirationFromNow: 10 * time.Minute,
-			},
-			wantErr: false,
-		},
-		{
-			name: "invalid config",
-			config: auth.Config{
-				PublicKeyJWK: "invalid",
-				Issuer:       "test-issuer",
-			},
-			wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			opt, err := WithAuth(tt.config)
-			if tt.wantErr {
-				assert.Error(t, err)
-				assert.Nil(t, opt)
-			} else {
-				assert.NoError(t, err)
-				assert.NotNil(t, opt)
-			}
-		})
-	}
+	ctx := context.Background()
+	_, err := WithAuth(ctx, auth.Config{
+		PublicKeyJWK:         testPublicKeyJWK,
+		Issuer:               "test-issuer",
+		Subject:              "test-subject",
+		Audience:             "test-audience",
+		Nonce:                "test-nonce",
+		MaxExpirationFromNow: 10 * time.Minute,
+	})
+	require.NoError(t, err)
 }

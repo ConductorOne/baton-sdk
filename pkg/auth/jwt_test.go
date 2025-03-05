@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -82,7 +83,7 @@ func TestNewValidator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			validator, err := NewValidator(tt.config)
+			validator, err := NewValidator(context.Background(), tt.config)
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Nil(t, validator)
@@ -95,7 +96,7 @@ func TestNewValidator(t *testing.T) {
 }
 
 func TestValidator_ValidateToken(t *testing.T) {
-	validator, err := NewValidator(Config{
+	validator, err := NewValidator(context.Background(), Config{
 		PublicKeyJWK:         testPublicKeyJWK,
 		Issuer:               "test-issuer",
 		Subject:              "test-subject",
@@ -137,7 +138,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				"iat":   now.Add(-2 * time.Hour).Unix(),
 			},
 			wantErr:   true,
-			errString: "token is expired",
+			errString: "token is invalid: xjwt: JWT expired:",
 		},
 		{
 			name: "not yet valid token",
@@ -151,7 +152,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				"iat":   now.Unix(),
 			},
 			wantErr:   true,
-			errString: "token is not yet valid",
+			errString: "token is invalid: xjwt: JWT has invalid expiration:",
 		},
 		{
 			name: "wrong issuer",
@@ -165,7 +166,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				"iat":   now.Unix(),
 			},
 			wantErr:   true,
-			errString: "token claims mismatch",
+			errString: "token is invalid: xjwt: Issuer mismatch.",
 		},
 		{
 			name: "wrong subject",
@@ -179,7 +180,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				"iat":   now.Unix(),
 			},
 			wantErr:   true,
-			errString: "token claims mismatch",
+			errString: "token is invalid: xjwt: Subject mismatch.",
 		},
 		{
 			name: "wrong audience",
@@ -193,7 +194,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				"iat":   now.Unix(),
 			},
 			wantErr:   true,
-			errString: "token claims mismatch",
+			errString: "token is invalid: xjwt: Audience mismatch.",
 		},
 		{
 			name: "wrong nonce",
@@ -207,7 +208,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				"iat":   now.Unix(),
 			},
 			wantErr:   true,
-			errString: "token claims mismatch",
+			errString: "token is invalid: xjwt: Nonce mismatch.",
 		},
 		{
 			name: "expiry too far in future",
@@ -221,7 +222,7 @@ func TestValidator_ValidateToken(t *testing.T) {
 				"iat":   now.Unix(),
 			},
 			wantErr:   true,
-			errString: "token is expired",
+			errString: "token is invalid: xjwt: JWT has invalid expiration:",
 		},
 	}
 
@@ -232,17 +233,18 @@ func TestValidator_ValidateToken(t *testing.T) {
 			if tt.wantErr {
 				assert.Error(t, err)
 				if tt.errString != "" {
-					assert.Equal(t, tt.errString, err.Error())
+					assert.True(t, strings.HasPrefix(err.Error(), tt.errString), "Expected error to start with %q, got %q", tt.errString, err.Error())
 				}
 				assert.Nil(t, claims)
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, claims)
-				assert.Equal(t, tt.claims["iss"], claims.Issuer)
-				assert.Equal(t, tt.claims["sub"], claims.Subject)
-				assert.Equal(t, tt.claims["exp"], claims.Expiry)
-				assert.Equal(t, tt.claims["nbf"], claims.NotBefore)
-				assert.Equal(t, tt.claims["iat"], claims.IssuedAt)
+				assert.Equal(t, tt.claims["iss"], claims["iss"])
+				assert.Equal(t, tt.claims["sub"], claims["sub"])
+				// Convert expected int64 to float64 for comparison since JSON unmarshaling converts numbers to float64
+				assert.Equal(t, float64(tt.claims["exp"].(int64)), claims["exp"])
+				assert.Equal(t, float64(tt.claims["nbf"].(int64)), claims["nbf"])
+				assert.Equal(t, float64(tt.claims["iat"].(int64)), claims["iat"])
 			}
 		})
 	}

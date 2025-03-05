@@ -55,8 +55,8 @@ func AuthInterceptor(validator *auth.Validator) grpc.UnaryServerInterceptor {
 }
 
 // WithAuth creates a new unary interceptor for JWT authentication
-func WithAuth(config auth.Config) (grpc.UnaryServerInterceptor, error) {
-	validator, err := auth.NewValidator(config)
+func WithAuth(ctx context.Context, config auth.Config) (grpc.UnaryServerInterceptor, error) {
+	validator, err := auth.NewValidator(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create JWT validator: %w", err)
 	}

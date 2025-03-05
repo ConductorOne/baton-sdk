@@ -111,7 +111,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			Audience:     v.GetString(field.LambdaServerAuthJWTExpectedAudienceField.GetName()),
 		}
 
-		authOpt, err := middleware.WithAuth(authConfig)
+		authOpt, err := middleware.WithAuth(runCtx, authConfig)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to create auth middleware: %w", err)
 		}
