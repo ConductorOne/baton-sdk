@@ -15,9 +15,11 @@ import (
 )
 
 type localSyncer struct {
-	dbPath string
-	o      sync.Once
-	tmpDir string
+	dbPath                              string
+	o                                   sync.Once
+	tmpDir                              string
+	externalResourceC1Z                 string
+	externalResourceEntitlementIdFilter string
 }
 
 type Option func(*localSyncer)
@@ -25,6 +27,18 @@ type Option func(*localSyncer)
 func WithTmpDir(tmpDir string) Option {
 	return func(m *localSyncer) {
 		m.tmpDir = tmpDir
+	}
+}
+
+func WithExternalResourceC1Z(externalResourceC1Z string) Option {
+	return func(m *localSyncer) {
+		m.externalResourceC1Z = externalResourceC1Z
+	}
+}
+
+func WithExternalResourceEntitlementIdFilter(entitlementId string) Option {
+	return func(m *localSyncer) {
+		m.externalResourceEntitlementIdFilter = entitlementId
 	}
 }
 
@@ -50,7 +64,11 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	ctx, span := tracer.Start(ctx, "localSyncer.Process", trace.WithNewRoot())
 	defer span.End()
 
-	syncer, err := sdkSync.NewSyncer(ctx, cc, sdkSync.WithC1ZPath(m.dbPath), sdkSync.WithTmpDir(m.tmpDir))
+	syncer, err := sdkSync.NewSyncer(ctx, cc,
+		sdkSync.WithC1ZPath(m.dbPath),
+		sdkSync.WithTmpDir(m.tmpDir),
+		sdkSync.WithExternalResourceC1ZPath(m.externalResourceC1Z),
+		sdkSync.WithExternalResourceEntitlementIdFilter(m.externalResourceEntitlementIdFilter))
 	if err != nil {
 		return err
 	}

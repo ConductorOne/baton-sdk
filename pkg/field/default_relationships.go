@@ -27,6 +27,10 @@ var DefaultRelationships = []SchemaFieldRelationship{
 		eventFeedField,
 		ListTicketSchemasField,
 	),
+	FieldsDependentOn(
+		[]SchemaField{externalResourceEntitlementIdFilter},
+		[]SchemaField{externalResourceC1ZField},
+	),
 }
 
 func EnsureDefaultRelationships(original []SchemaFieldRelationship) []SchemaFieldRelationship {
