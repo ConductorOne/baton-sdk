@@ -497,6 +497,8 @@ func (m *InvokeActionResponse) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for Name
+
 	if len(errors) > 0 {
 		return InvokeActionResponseMultiError(errors)
 	}

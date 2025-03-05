@@ -44,11 +44,12 @@ message InvokeActionResponse {
   BatonActionStatus status = 2;
   repeated google.protobuf.Any annotations = 3;
   google.protobuf.Struct response = 4;
+  string name = 5;
 }
 
 
 message GetActionStatusRequest {
-  string name = 1;
+  string name = 1 [deprecated = true];
   string id = 2;
   repeated google.protobuf.Any annotations = 3;
 }

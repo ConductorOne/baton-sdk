@@ -85,7 +85,7 @@ type CustomActionManager interface {
 	ListActionSchemas(ctx context.Context) ([]*v2.BatonActionSchema, annotations.Annotations, error)
 	GetActionSchema(ctx context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error)
 	InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
-	GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
+	GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error)
 }
 
 type RegisterActionManager interface {
@@ -1099,6 +1099,7 @@ func (b *builderImpl) InvokeAction(ctx context.Context, request *v2.InvokeAction
 
 	rv := &v2.InvokeActionResponse{
 		Id:          id,
+		Name:        request.GetName(),
 		Status:      status,
 		Annotations: annos,
 		Response:    resp,
@@ -1119,7 +1120,7 @@ func (b *builderImpl) GetActionStatus(ctx context.Context, request *v2.GetAction
 		return nil, fmt.Errorf("error: action manager not implemented")
 	}
 
-	status, rv, annos, err := b.actionManager.GetActionStatus(ctx, request.GetId())
+	status, name, rv, annos, err := b.actionManager.GetActionStatus(ctx, request.GetId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: getting action status failed: %w", err)
@@ -1127,7 +1128,7 @@ func (b *builderImpl) GetActionStatus(ctx context.Context, request *v2.GetAction
 
 	resp := &v2.GetActionStatusResponse{
 		Id:          request.GetId(),
-		Name:        request.GetName(),
+		Name:        name,
 		Status:      status,
 		Annotations: annos,
 		Response:    rv,
