@@ -53,12 +53,37 @@ var (
 		WithExportTarget(ExportTargetNone))
 	LambdaServerClientSecretField = StringField("lambda-client-secret", WithRequired(true), WithDescription("The oauth client secret to use with the configuration endpoint"),
 		WithExportTarget(ExportTargetNone))
+
+	// JWT Authentication Fields
+	LambdaServerAuthJWTSigner = StringField("lambda-auth-jwt-signer",
+		WithRequired(true),
+		WithDescription("The JWK format public key used to verify JWT signatures"),
+		WithExportTarget(ExportTargetNone))
+
+	LambdaServerAuthJWTExpectedIssuerField = StringField("lambda-auth-jwt-expected-issuer",
+		WithRequired(true),
+		WithDescription("The expected issuer claim in the JWT"),
+		WithExportTarget(ExportTargetNone))
+
+	LambdaServerAuthJWTExpectedSubjectField = StringField("lambda-auth-jwt-expected-subject",
+		WithRequired(true),
+		WithDescription("The expected subject claim in the JWT (optional)"),
+		WithExportTarget(ExportTargetNone))
+
+	LambdaServerAuthJWTExpectedAudienceField = StringField("lambda-auth-jwt-expected-audience",
+		WithRequired(true),
+		WithDescription("The expected audience claim in the JWT (optional)"),
+		WithExportTarget(ExportTargetNone))
 )
 
 func LambdaServerFields() []SchemaField {
 	return []SchemaField{
 		LambdaServerClientIDField,
 		LambdaServerClientSecretField,
+		LambdaServerAuthJWTSigner,
+		LambdaServerAuthJWTExpectedIssuerField,
+		LambdaServerAuthJWTExpectedSubjectField,
+		LambdaServerAuthJWTExpectedAudienceField,
 	}
 }
 

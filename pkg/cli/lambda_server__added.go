@@ -14,9 +14,11 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	pb_connector_api "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
+	"github.com/conductorone/baton-sdk/pkg/auth"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	c1_lambda_grpc "github.com/conductorone/baton-sdk/pkg/lambda/grpc"
 	c1_lambda_config "github.com/conductorone/baton-sdk/pkg/lambda/grpc/config"
+	"github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware"
 )
 
 func OptionallyAddLambdaCommand[T field.Configurable](
@@ -94,6 +96,18 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
 		}
 
+		authConfig := auth.Config{
+			PublicKeyJWK: v.GetString(field.LambdaServerAuthJWTSigner.GetName()),
+			Issuer:       v.GetString(field.LambdaServerAuthJWTExpectedIssuerField.GetName()),
+			Subject:      v.GetString(field.LambdaServerAuthJWTExpectedSubjectField.GetName()),
+			Audience:     v.GetString(field.LambdaServerAuthJWTExpectedAudienceField.GetName()),
+		}
+
+		authOpt, err := middleware.WithAuth(authConfig)
+		if err != nil {
+			return fmt.Errorf("lambda-run: failed to create auth middleware: %w", err)
+		}
+
 		// TODO(morgabra/kans): This seems to be OK in practice - just don't invoke the unimplemented methods.
 		opts := &connector.RegisterOps{
 			Ratelimiter:         nil,
@@ -101,7 +115,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			TicketingEnabled:    true,
 		}
 
-		s := c1_lambda_grpc.NewServer(nil)
+		s := c1_lambda_grpc.NewServer(authOpt)
 		connector.Register(ctx, s, c, opts)
 
 		aws_lambda.Start(s.Handler)
