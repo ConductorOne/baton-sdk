@@ -14,14 +14,14 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.75.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.10
 	github.com/aws/smithy-go v1.22.2
-	github.com/conductorone/dpop v0.1.4
+	github.com/conductorone/dpop v0.2.0
 	github.com/conductorone/dpop/integrations/dpop_grpc v0.1.4
-	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.1.4
+	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.0
 	github.com/deckarep/golang-set/v2 v2.7.0
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/envoyproxy/protoc-gen-validate v1.2.1
 	github.com/glebarez/go-sqlite v1.22.0
-	github.com/go-jose/go-jose/v4 v4.0.4
+	github.com/go-jose/go-jose/v4 v4.0.5
 	github.com/google/go-cmp v0.6.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
@@ -41,18 +41,18 @@ require (
 	go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.27.0
 	go.opentelemetry.io/otel/metric v1.34.0
 	go.opentelemetry.io/otel/sdk v1.34.0
-	go.opentelemetry.io/otel/sdk/metric v1.32.0
+	go.opentelemetry.io/otel/sdk/metric v1.34.0
 	go.opentelemetry.io/otel/trace v1.34.0
 	go.uber.org/ratelimit v0.3.1
 	go.uber.org/zap v1.27.0
-	golang.org/x/crypto v0.34.0
-	golang.org/x/net v0.35.0
-	golang.org/x/oauth2 v0.26.0
-	golang.org/x/sync v0.11.0
-	golang.org/x/sys v0.30.0
-	golang.org/x/text v0.22.0
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250219182151-9fdb1cabc7b2
-	google.golang.org/grpc v1.70.0
+	golang.org/x/crypto v0.36.0
+	golang.org/x/net v0.36.0
+	golang.org/x/oauth2 v0.28.0
+	golang.org/x/sync v0.12.0
+	golang.org/x/sys v0.31.0
+	golang.org/x/text v0.23.0
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb
+	google.golang.org/grpc v1.71.0
 	google.golang.org/protobuf v1.36.5
 	gopkg.in/yaml.v2 v2.4.0
 )

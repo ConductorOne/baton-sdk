@@ -10,10 +10,10 @@ import (
 	"github.com/jellydator/ttlcache/v3"
 )
 
-// CheckAndStoreJTI validates and stores a JTI with a nonce.
-// Returns error if the JTI+nonce combination has been seen before.
+// CheckAndStoreJTI validates and stores a JTI.
+// Returns error if the JTI has been seen before.
 // The implementation should enforce a reasonable TTL and handle cleanup.
-type CheckAndStoreJTI func(ctx context.Context, jti string, nonce string) error
+type CheckAndStoreJTI func(ctx context.Context, jti string) error
 
 // MemoryJTIStore is a simple in-memory implementation of JTIStore using ttlcache
 type MemoryJTIStore struct {
@@ -61,32 +61,26 @@ func (s *MemoryJTIStore) Stop() {
 	s.cache.Stop()
 }
 
-// makeKey creates a composite key from JTI and Nonce
-func (s *MemoryJTIStore) makeKey(nonce string, jti string) string {
+// makeKey creates a key from JTI
+func (s *MemoryJTIStore) makeKey(jti string) string {
 	h := sha256.New()
-	h.Write([]byte(nonce))
 	h.Write([]byte(jti))
 	return base64.RawURLEncoding.EncodeToString(h.Sum(nil))
 }
 
 // CheckAndStoreJTI implements JTIStore.CheckAndStoreJTI
-func (s *MemoryJTIStore) CheckAndStoreJTI(ctx context.Context, jti string, nonce string) error {
+func (s *MemoryJTIStore) CheckAndStoreJTI(ctx context.Context, jti string) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 
-	if nonce == "" {
-		// If no nonce is provided, we don't track the JTI
-		return nil
-	}
-
 	s.cache.DeleteExpired()
-	key := s.makeKey(nonce, jti)
+	key := s.makeKey(jti)
 
 	_, found := s.cache.GetOrSet(key, struct{}{})
 
 	if found {
-		return fmt.Errorf("duplicate jti for this nonce")
+		return fmt.Errorf("duplicate jti")
 	}
 
 	return nil
