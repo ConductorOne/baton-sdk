@@ -32,10 +32,11 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
-const maxDepth = 8
-
 var tracer = otel.Tracer("baton-sdk/sync")
 
+const defaultMaxDepth int64 = 10
+
+var maxDepth, _ = strconv.ParseInt(os.Getenv("BATON_GRAPH_EXPAND_MAX_DEPTH"), 10, 64)
 var dontFixCycles, _ = strconv.ParseBool(os.Getenv("BATON_DONT_FIX_CYCLES"))
 
 var ErrSyncNotComplete = fmt.Errorf("sync exited without finishing")
@@ -1649,11 +1650,15 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		return nil
 	}
 
-	if graph.Depth > maxDepth {
+	if maxDepth == 0 {
+		maxDepth = defaultMaxDepth
+	}
+
+	if int64(graph.Depth) > maxDepth {
 		l.Error(
 			"expandGrantsForEntitlements: exceeded max depth",
 			zap.Any("graph", graph),
-			zap.Int("max_depth", maxDepth),
+			zap.Int64("max_depth", maxDepth),
 		)
 		s.state.FinishAction(ctx)
 		return fmt.Errorf("exceeded max depth")
