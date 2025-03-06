@@ -444,6 +444,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	}
 
 	if c.currentSyncID != "" {
+		l.Warn("current sync is running, skipping cleanup of old syncs", zap.String("current_sync_id", c.currentSyncID))
 		return nil
 	}
 
