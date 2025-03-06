@@ -449,6 +449,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 		}
 	}
 
+	// Force a checkpoint to clear sync_token.
 	err = s.Checkpoint(ctx, true)
 	if err != nil {
 		return err
