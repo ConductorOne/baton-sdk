@@ -151,14 +151,14 @@ github.com/benbjohnson/clock
 # github.com/cenkalti/backoff/v4 v4.3.0
 ## explicit; go 1.18
 github.com/cenkalti/backoff/v4
-# github.com/conductorone/dpop v0.1.4
-## explicit; go 1.23.6
+# github.com/conductorone/dpop v0.2.2
+## explicit; go 1.23.4
 github.com/conductorone/dpop/pkg/dpop
-# github.com/conductorone/dpop/integrations/dpop_grpc v0.1.4
-## explicit; go 1.23.6
+# github.com/conductorone/dpop/integrations/dpop_grpc v0.2.2
+## explicit; go 1.23.4
 github.com/conductorone/dpop/integrations/dpop_grpc
-# github.com/conductorone/dpop/integrations/dpop_oauth2 v0.1.4
-## explicit; go 1.23.6
+# github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.2
+## explicit; go 1.23.4
 github.com/conductorone/dpop/integrations/dpop_oauth2
 # github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 ## explicit

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"github.com/conductorone/dpop/pkg/dpop"
 	"google.golang.org/grpc"
@@ -20,6 +21,18 @@ var (
 
 	// ErrInvalidDPoPHeader is returned when the DPoP header is invalid
 	ErrInvalidDPoPHeader = errors.New("invalid DPoP header")
+
+	// ErrInvalidAuthScheme is returned when the Authorization header has an invalid scheme
+	ErrInvalidAuthScheme = errors.New("invalid authorization scheme")
+)
+
+const (
+	// AuthorizationHeader is the standard HTTP header for authorization
+	AuthorizationHeader = "authorization"
+	// DPoPScheme is the scheme used for DPoP bound tokens
+	DPoPScheme = "DPoP"
+	// BearerScheme is the scheme used for Bearer tokens
+	BearerScheme = "Bearer"
 )
 
 // serverOptions configures the behavior of the DPoP interceptor
@@ -90,17 +103,51 @@ func ServerUnaryInterceptor(opts ...ServerOption) grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "missing metadata")
 		}
 
+		// Get DPoP proof and Authorization header
 		proofs := md.Get(dpop.HeaderName)
+		authHeaders := md.Get(AuthorizationHeader)
+
+		// Parse Authorization header if present
+		var authScheme, accessToken string
+		if len(authHeaders) > 0 {
+			parts := strings.SplitN(authHeaders[0], " ", 2)
+			if len(parts) != 2 {
+				return nil, status.Error(codes.Unauthenticated, "invalid authorization scheme")
+			}
+			authScheme = parts[0]
+			accessToken = parts[1]
+		}
+
+		// If there's no DPoP proof and no DPoP Authorization header, proceed with the request
+		// This allows the interceptor to be used where some endpoints don't require DPoP
+		if len(proofs) == 0 && authScheme != DPoPScheme {
+			return handler(ctx, req)
+		}
+
+		// Here, we know this request must be DPoP validated, so make sure we have a proof
 		if len(proofs) == 0 {
 			return nil, status.Error(codes.Unauthenticated, "missing DPoP header")
 		}
 
+		// If we have an Authorization header, it must be DPoP
+		if len(authHeaders) > 0 && authScheme != DPoPScheme {
+			return nil, status.Error(codes.Unauthenticated, "invalid authorization scheme")
+		}
+
+		// Prepare validation options
+		var validationOpts []dpop.ValidationProofOption
+		if authScheme == DPoPScheme {
+			// If using DPoP scheme, the proof MUST be bound to the access token
+			validationOpts = append(validationOpts, dpop.WithProofExpectedAccessToken(accessToken))
+		}
+
+		// Validate the proof
 		fullURL := url.URL{
 			Scheme: "https",
 			Host:   options.authority,
 			Path:   info.FullMethod,
 		}
-		claims, err := validator.ValidateProof(ctx, proofs[0], "POST", fullURL.String())
+		claims, err := validator.ValidateProof(ctx, proofs[0], "POST", fullURL.String(), validationOpts...)
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, fmt.Sprintf("invalid DPoP proof: %v", err))
 		}
@@ -141,9 +188,42 @@ func ServerStreamInterceptor(opts ...ServerOption) grpc.StreamServerInterceptor 
 			return status.Error(codes.Unauthenticated, "missing metadata")
 		}
 
+		// Get DPoP proof and Authorization header
 		proofs := md.Get(dpop.HeaderName)
+		authHeaders := md.Get(AuthorizationHeader)
+
+		// Parse Authorization header if present
+		var authScheme, accessToken string
+		if len(authHeaders) > 0 {
+			parts := strings.SplitN(authHeaders[0], " ", 2)
+			if len(parts) != 2 {
+				return status.Error(codes.Unauthenticated, "invalid authorization scheme")
+			}
+			authScheme = parts[0]
+			accessToken = parts[1]
+		}
+
+		// If there's no DPoP proof and no DPoP Authorization header, proceed with the request
+		// This allows the interceptor to be used where some endpoints don't require DPoP
+		if len(proofs) == 0 && authScheme != DPoPScheme {
+			return handler(srv, ss)
+		}
+
+		// Here, we know this request must be DPoP validated, so make sure we have a proof
 		if len(proofs) == 0 {
 			return status.Error(codes.Unauthenticated, "missing DPoP header")
+		}
+
+		// If we have an Authorization header, it must be DPoP
+		if len(authHeaders) > 0 && authScheme != DPoPScheme {
+			return status.Error(codes.Unauthenticated, "invalid authorization scheme")
+		}
+
+		// Prepare validation options
+		var validationOpts []dpop.ValidationProofOption
+		if authScheme == DPoPScheme {
+			// If using DPoP scheme, the proof MUST be bound to the access token
+			validationOpts = append(validationOpts, dpop.WithProofExpectedAccessToken(accessToken))
 		}
 
 		// Validate the proof
@@ -152,9 +232,9 @@ func ServerStreamInterceptor(opts ...ServerOption) grpc.StreamServerInterceptor 
 			Host:   options.authority,
 			Path:   info.FullMethod,
 		}
-		claims, err := validator.ValidateProof(ctx, proofs[0], "POST", fullURL.String())
+		claims, err := validator.ValidateProof(ctx, proofs[0], "POST", fullURL.String(), validationOpts...)
 		if err != nil {
-			return status.Error(codes.Unauthenticated, "invalid DPoP proof")
+			return status.Error(codes.Unauthenticated, fmt.Sprintf("invalid DPoP proof: %v", err))
 		}
 
 		// Store the validated claims in the context
