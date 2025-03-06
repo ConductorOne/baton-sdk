@@ -180,8 +180,8 @@ type syncer struct {
 const minCheckpointInterval = 10 * time.Second
 
 // Checkpoint marshals the current state and stores it.
-func (s *syncer) Checkpoint(ctx context.Context) error {
-	if !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < minCheckpointInterval {
+func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
+	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < minCheckpointInterval {
 		return nil
 	}
 	ctx, span := tracer.Start(ctx, "syncer.Checkpoint")
@@ -342,7 +342,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	var warnings []error
 	for s.state.Current() != nil {
-		err = s.Checkpoint(ctx)
+		err = s.Checkpoint(ctx, false)
 		if err != nil {
 			return err
 		}
@@ -378,7 +378,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
 			s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
 
-			err = s.Checkpoint(ctx)
+			err = s.Checkpoint(ctx, true)
 			if err != nil {
 				return err
 			}
@@ -446,6 +446,11 @@ func (s *syncer) Sync(ctx context.Context) error {
 		default:
 			return fmt.Errorf("unexpected sync step")
 		}
+	}
+
+	err = s.Checkpoint(ctx, true)
+	if err != nil {
+		return err
 	}
 
 	err = s.store.EndSync(ctx)
