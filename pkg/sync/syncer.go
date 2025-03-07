@@ -1819,7 +1819,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					continue
 				}
 				switch matchResourceMatchAllAnno.ResourceType {
-				case v2.ExternalResourceType_EXTERNAL_RESOURCE_TYPE_USER:
+				case v2.ResourceType_TRAIT_USER:
 					userTrait := &v2.UserTrait{}
 					ok, err := rAnnos.Pick(userTrait)
 					if err != nil {
@@ -1828,7 +1828,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					if !ok {
 						continue
 					}
-				case v2.ExternalResourceType_EXTERNAL_RESOURCE_TYPE_GROUP:
+				case v2.ResourceType_TRAIT_GROUP:
 					groupTrait := &v2.GroupTrait{}
 					ok, err := rAnnos.Pick(groupTrait)
 					if err != nil {
@@ -1866,7 +1866,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					continue
 				}
 				switch matchExternalResource.ResourceType {
-				case v2.ExternalResourceType_EXTERNAL_RESOURCE_TYPE_USER:
+				case v2.ResourceType_TRAIT_USER:
 					userTrait := &v2.UserTrait{}
 					ok, err := rAnnos.Pick(userTrait)
 					if err != nil {
@@ -1909,7 +1909,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						// break out of principal list iteration since we found a match
 						break
 					}
-				case v2.ExternalResourceType_EXTERNAL_RESOURCE_TYPE_GROUP:
+				case v2.ResourceType_TRAIT_GROUP:
 					groupTrait := &v2.GroupTrait{}
 					ok, err := rAnnos.Pick(groupTrait)
 					if err != nil {
