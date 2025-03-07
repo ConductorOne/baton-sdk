@@ -31,6 +31,9 @@ message BatonActionSchema {
   repeated c1.config.v1.Constraint constraints = 3;
 
   repeated c1.config.v1.Field return_types = 4;
+
+  string display_name = 5;
+  string description = 6;
 }
 
 message InvokeActionRequest {
