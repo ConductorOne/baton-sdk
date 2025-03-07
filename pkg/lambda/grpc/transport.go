@@ -1,8 +1,6 @@
 package grpc
 
 import (
-	"context"
-
 	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -13,10 +11,6 @@ import (
 
 	pbtransport "github.com/conductorone/baton-sdk/pb/c1/transport/v1"
 )
-
-type ClientTransport interface {
-	RoundTrip(context.Context, *Request) (*Response, error)
-}
 
 type Request struct {
 	msg *pbtransport.Request
