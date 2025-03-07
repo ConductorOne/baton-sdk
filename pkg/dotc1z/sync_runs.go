@@ -475,6 +475,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		syncLimit = int(customSyncLimit)
 	}
 
+	l.Debug("found syncs", zap.Int("count", len(ret)), zap.Int("sync_limit", syncLimit))
 	if len(ret) <= syncLimit {
 		return nil
 	}
