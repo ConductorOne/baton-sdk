@@ -32,14 +32,20 @@ func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
 
 	cc := c.helpers.ConnectorClient()
 
-	resp, err := cc.ListActionSchemas(ctx, &v2.ListActionSchemasRequest{})
+	t := c.task.GetActionListSchemas()
+	resp, err := cc.ListActionSchemas(ctx, &v2.ListActionSchemasRequest{
+		Annotations: t.GetAnnotations(),
+	})
 	if err != nil {
-		return c.helpers.FinishTask(ctx, nil, nil, err)
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), err)
 	}
 
 	l.Debug("ActionListSchemas response", zap.Any("resp", resp))
 
-	return c.helpers.FinishTask(ctx, resp, nil, nil)
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	respAnnos.Merge(t.GetAnnotations()...)
+
+	return c.helpers.FinishTask(ctx, resp, respAnnos, nil)
 }
 
 func newActionListSchemasTaskHandler(task *v1.Task, helpers actionListSchemasTaskHelpers) *actionListSchemasTaskHandler {
@@ -69,19 +75,23 @@ func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) error {
 
 	t := c.task.GetActionGetSchema()
 	if t == nil || t.GetName() == "" {
-		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action name required"))
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), errors.New("action name required"))
 	}
 
 	resp, err := cc.GetActionSchema(ctx, &v2.GetActionSchemaRequest{
-		Name: t.GetName(),
+		Name:        t.GetName(),
+		Annotations: t.GetAnnotations(),
 	})
 	if err != nil {
-		return c.helpers.FinishTask(ctx, nil, nil, err)
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), err)
 	}
 
 	l.Debug("ActionGetSchema response", zap.Any("resp", resp))
 
-	return c.helpers.FinishTask(ctx, resp, nil, nil)
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	respAnnos.Merge(t.GetAnnotations()...)
+
+	return c.helpers.FinishTask(ctx, resp, respAnnos, nil)
 }
 
 func newActionGetSchemaTaskHandler(task *v1.Task, helpers actionGetSchemaTaskHelpers) *actionGetSchemaTaskHandler {
@@ -111,10 +121,10 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 
 	t := c.task.GetActionInvoke()
 	if t == nil || t.GetName() == "" {
-		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action name required"))
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), errors.New("action name required"))
 	}
 	if t.GetArgs() == nil {
-		return c.helpers.FinishTask(ctx, nil, nil, errors.New("args required"))
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), errors.New("args required"))
 	}
 
 	resp, err := cc.InvokeAction(ctx, &v2.InvokeActionRequest{
@@ -123,12 +133,15 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 		Annotations: t.GetAnnotations(),
 	})
 	if err != nil {
-		return c.helpers.FinishTask(ctx, nil, nil, err)
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), err)
 	}
 
 	l.Debug("ActionInvoke response", zap.Any("resp", resp))
 
-	return c.helpers.FinishTask(ctx, resp, nil, nil)
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	respAnnos.Merge(t.GetAnnotations()...)
+
+	return c.helpers.FinishTask(ctx, resp, respAnnos, nil)
 }
 
 func newActionInvokeTaskHandler(task *v1.Task, helpers actionInvokeTaskHelpers) *actionInvokeTaskHandler {
@@ -158,7 +171,7 @@ func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 
 	t := c.task.GetActionStatus()
 	if t == nil || t.GetId() == "" {
-		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action id required"))
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), errors.New("action id required"))
 	}
 
 	resp, err := cc.GetActionStatus(ctx, &v2.GetActionStatusRequest{
@@ -167,12 +180,15 @@ func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 		Annotations: t.GetAnnotations(),
 	})
 	if err != nil {
-		return c.helpers.FinishTask(ctx, nil, nil, err)
+		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), err)
 	}
 
 	l.Debug("ActionInvoke response", zap.Any("resp", resp))
 
-	return c.helpers.FinishTask(ctx, resp, nil, nil)
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	respAnnos.Merge(t.GetAnnotations()...)
+
+	return c.helpers.FinishTask(ctx, resp, respAnnos, nil)
 }
 
 func newActionStatusTaskHandler(task *v1.Task, helpers actionStatusTaskHelpers) *actionStatusTaskHandler {
