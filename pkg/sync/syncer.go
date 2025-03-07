@@ -1798,6 +1798,8 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return nil
 	}
 
+	grantsToDelete := make([]string, 0)
+
 	grants, err := s.listAllGrants(ctx)
 	if err != nil {
 		return err
@@ -1848,10 +1850,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				}
 				expandedGrants = append(expandedGrants, newGrant)
 			}
-			err = s.store.DeleteGrant(ctx, grant.Id)
-			if err != nil {
-				return err
-			}
+			grantsToDelete = append(grantsToDelete, grant.Id)
 			continue
 		}
 
@@ -1890,10 +1889,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 									Annotations: grant.Annotations,
 								}
 								expandedGrants = append(expandedGrants, newGrant)
-								err = s.store.DeleteGrant(ctx, grant.Id)
-								if err != nil {
-									return err
-								}
+								grantsToDelete = append(grantsToDelete, grant.Id)
 								// break out of principal list iteration since we found a match
 								break
 							}
@@ -1909,10 +1905,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 							Annotations: grant.Annotations,
 						}
 						expandedGrants = append(expandedGrants, newGrant)
-						err = s.store.DeleteGrant(ctx, grant.Id)
-						if err != nil {
-							return err
-						}
+						grantsToDelete = append(grantsToDelete, grant.Id)
 						// break out of principal list iteration since we found a match
 						break
 					}
@@ -1935,10 +1928,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 							Annotations: grant.Annotations,
 						}
 						expandedGrants = append(expandedGrants, newGrant)
-						err = s.store.DeleteGrant(ctx, grant.Id)
-						if err != nil {
-							return err
-						}
+						grantsToDelete = append(grantsToDelete, grant.Id)
 						// break out of principal list iteration since we found a match
 						break
 					}
@@ -1948,16 +1938,20 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			}
 
 			// We still want to delete the grant even if there are no matches
-			err = s.store.DeleteGrant(ctx, grant.Id)
-			if err != nil {
-				return err
-			}
+			grantsToDelete = append(grantsToDelete, grant.Id)
 		}
 	}
 
 	err = s.store.PutGrants(ctx, expandedGrants...)
 	if err != nil {
 		return err
+	}
+
+	for _, grantId := range grantsToDelete {
+		err = s.store.DeleteGrant(ctx, grantId)
+		if err != nil {
+			return err
+		}
 	}
 
 	s.state.FinishAction(ctx)
