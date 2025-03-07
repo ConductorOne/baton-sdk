@@ -32,7 +32,13 @@ func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
 
 	cc := c.helpers.ConnectorClient()
 
-	resp, err := cc.ListActionSchemas(ctx, &v2.ListActionSchemasRequest{})
+	t := c.task.GetActionListSchemas()
+	if t == nil {
+		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action list schemas task is nil"))
+	}
+	resp, err := cc.ListActionSchemas(ctx, &v2.ListActionSchemasRequest{
+		Annotations: t.GetAnnotations(),
+	})
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
@@ -73,7 +79,8 @@ func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	resp, err := cc.GetActionSchema(ctx, &v2.GetActionSchemaRequest{
-		Name: t.GetName(),
+		Name:        t.GetName(),
+		Annotations: t.GetAnnotations(),
 	})
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
