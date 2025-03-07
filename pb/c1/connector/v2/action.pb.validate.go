@@ -161,6 +161,10 @@ func (m *BatonActionSchema) validate(all bool) error {
 
 	}
 
+	// no validation rules for DisplayName
+
+	// no validation rules for Description
+
 	if len(errors) > 0 {
 		return BatonActionSchemaMultiError(errors)
 	}
