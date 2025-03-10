@@ -34,7 +34,7 @@ import (
 
 var tracer = otel.Tracer("baton-sdk/sync")
 
-const defaultMaxDepth int64 = 10
+const defaultMaxDepth int64 = 15
 
 var maxDepth, _ = strconv.ParseInt(os.Getenv("BATON_GRAPH_EXPAND_MAX_DEPTH"), 10, 64)
 var dontFixCycles, _ = strconv.ParseBool(os.Getenv("BATON_DONT_FIX_CYCLES"))
