@@ -27,6 +27,8 @@ type State interface {
 	Unmarshal(input string) error
 	NeedsExpansion() bool
 	SetNeedsExpansion()
+	HasExternalResourcesGrants() bool
+	SetHasExternalResourcesGrants()
 }
 
 // ActionOp represents a sync operation.
@@ -45,6 +47,8 @@ func (s ActionOp) String() string {
 		return "list-entitlements"
 	case SyncGrantsOp:
 		return "list-grants"
+	case SyncExternalResourcesOp:
+		return "list-external-resources"
 	case SyncAssetsOp:
 		return "fetch-assets"
 	case SyncGrantExpansionOp:
@@ -88,6 +92,8 @@ func newActionOp(str string) ActionOp {
 		return SyncAssetsOp
 	case SyncGrantExpansionOp.String():
 		return SyncGrantExpansionOp
+	case SyncExternalResourcesOp.String():
+		return SyncExternalResourcesOp
 	default:
 		return UnknownOp
 	}
@@ -101,6 +107,7 @@ const (
 	SyncEntitlementsOp
 	ListResourcesForEntitlementsOp
 	SyncGrantsOp
+	SyncExternalResourcesOp
 	SyncAssetsOp
 	SyncGrantExpansionOp
 )
@@ -117,11 +124,12 @@ type Action struct {
 
 // state is an object used for tracking the current status of a connector sync. It operates like a stack.
 type state struct {
-	mtx              sync.RWMutex
-	actions          []Action
-	currentAction    *Action
-	entitlementGraph *expand.EntitlementGraph
-	needsExpansion   bool
+	mtx                       sync.RWMutex
+	actions                   []Action
+	currentAction             *Action
+	entitlementGraph          *expand.EntitlementGraph
+	needsExpansion            bool
+	hasExternalResourceGrants bool
 }
 
 // serializedToken is used to serialize the token to JSON. This separate object is used to avoid having exported fields
@@ -260,6 +268,14 @@ func (st *state) NeedsExpansion() bool {
 
 func (st *state) SetNeedsExpansion() {
 	st.needsExpansion = true
+}
+
+func (st *state) HasExternalResourcesGrants() bool {
+	return st.hasExternalResourceGrants
+}
+
+func (st *state) SetHasExternalResourcesGrants() {
+	st.hasExternalResourceGrants = true
 }
 
 // PageToken returns the page token for the current action.
