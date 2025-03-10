@@ -55,7 +55,7 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) (
 	// Be sure that the output path is empty else return an error
 	_, err = os.Stat(outPath)
 	if err == nil || !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("output path (%s) must not exist for cloning to proceed", outPath)
+		return fmt.Errorf("clone-sync: output path (%s) must not exist for cloning to proceed", outPath)
 	}
 
 	tmpDir, err := os.MkdirTemp(c.tempDir, "c1zclone")
@@ -67,7 +67,7 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) (
 	defer func() {
 		cleanupErr := os.RemoveAll(tmpDir)
 		if cleanupErr != nil {
-			err = errors.Join(err, fmt.Errorf("error cleaning up temp dir: %w", cleanupErr))
+			err = errors.Join(err, fmt.Errorf("clone-sync: error cleaning up temp dir: %w", cleanupErr))
 		}
 	}()
 
@@ -88,6 +88,19 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) (
 		if err != nil {
 			return err
 		}
+	}
+
+	sync, err := c.getSync(ctx, syncID)
+	if err != nil {
+		return err
+	}
+
+	if sync == nil {
+		return fmt.Errorf("clone-sync: sync not found")
+	}
+
+	if sync.EndedAt == nil {
+		return fmt.Errorf("clone-sync: sync is not ended")
 	}
 
 	qCtx, canc := context.WithCancel(ctx)
