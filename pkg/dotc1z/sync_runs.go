@@ -434,6 +434,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
 	if skipCleanup, _ := strconv.ParseBool(os.Getenv("BATON_SKIP_CLEANUP")); skipCleanup {
+		l.Info("BATON_SKIP_CLEANUP is set, skipping cleanup of old syncs")
 		return nil
 	}
 
@@ -443,6 +444,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	}
 
 	if c.currentSyncID != "" {
+		l.Warn("current sync is running, skipping cleanup of old syncs", zap.String("current_sync_id", c.currentSyncID))
 		return nil
 	}
 
@@ -473,6 +475,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		syncLimit = int(customSyncLimit)
 	}
 
+	l.Debug("found syncs", zap.Int("count", len(ret)), zap.Int("sync_limit", syncLimit))
 	if len(ret) <= syncLimit {
 		return nil
 	}

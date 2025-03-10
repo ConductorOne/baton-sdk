@@ -187,7 +187,7 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 	}
 
 	chunkCount := int(math.Ceil(float64(rLen) / float64(fileChunkSize)))
-	for i := 0; i < chunkCount; i++ {
+	for i := range chunkCount {
 		l.Debug(
 			"sending upload chunk",
 			zap.Int("chunk", i),
@@ -237,6 +237,7 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 		return err
 	}
 
+	l.Info("uploaded asset", zap.String("task_id", task.Id), zap.Int64("size", rLen))
 	return nil
 }
 
