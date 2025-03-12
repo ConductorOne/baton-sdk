@@ -34,7 +34,7 @@ import (
 
 var tracer = otel.Tracer("baton-sdk/sync")
 
-const defaultMaxDepth int64 = 15
+const defaultMaxDepth int64 = 20
 
 var maxDepth, _ = strconv.ParseInt(os.Getenv("BATON_GRAPH_EXPAND_MAX_DEPTH"), 10, 64)
 var dontFixCycles, _ = strconv.ParseBool(os.Getenv("BATON_DONT_FIX_CYCLES"))
@@ -1662,7 +1662,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 			zap.Int64("max_depth", maxDepth),
 		)
 		s.state.FinishAction(ctx)
-		return fmt.Errorf("exceeded max depth")
+		return fmt.Errorf("expandGrantsForEntitlements: exceeded max depth (%d)", maxDepth)
 	}
 
 	// TODO(morgabra) Yield here after some amount of work?
