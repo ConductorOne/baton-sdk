@@ -46,7 +46,7 @@ func (r *grantsTable) Name() string {
 func (r *grantsTable) Schema() (string, []interface{}) {
 	return grantsTableSchema, []interface{}{
 		r.Name(),
-		fmt.Sprintf("idx_resource_types_external_sync_v%s", r.Version()),
+		fmt.Sprintf("idx_grants_resource_type_id_resource_id_v%s", r.Version()),
 		r.Name(),
 		fmt.Sprintf("idx_grants_principal_id_v%s", r.Version()),
 		r.Name(),
