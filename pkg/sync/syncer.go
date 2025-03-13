@@ -1132,8 +1132,8 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 			l.Warn(
 				"cycle detected in entitlement graph",
 				zap.Any("cycle", cycle),
-				zap.Any("initial graph", entitlementGraph),
 			)
+			l.Debug("initial graph", zap.Any("initial graph", entitlementGraph))
 			if dontFixCycles {
 				return fmt.Errorf("cycles detected in entitlement graph")
 			}
