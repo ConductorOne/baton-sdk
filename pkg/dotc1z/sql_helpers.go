@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -68,6 +70,23 @@ type hasPrincipalIdListRequest interface {
 type protoHasID interface {
 	proto.Message
 	GetId() string
+}
+
+// throttledWarnSlowQuery logs a warning about a slow query at most once per minute per request type.
+func (c *C1File) throttledWarnSlowQuery(ctx context.Context, query string, duration time.Duration) {
+	c.slowQueryLogTimesMu.Lock()
+	defer c.slowQueryLogTimesMu.Unlock()
+
+	now := time.Now()
+	lastLogTime, exists := c.slowQueryLogTimes[query]
+	if !exists || now.Sub(lastLogTime) > c.slowQueryLogFrequency {
+		ctxzap.Extract(ctx).Warn(
+			"slow query detected",
+			zap.String("query", query),
+			zap.Duration("duration", duration),
+		)
+		c.slowQueryLogTimes[query] = now
+	}
 }
 
 // listConnectorObjects uses a connector list request to fetch the corresponding data from the local db.
@@ -203,11 +222,23 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 		return nil, "", err
 	}
 
+	// Start timing the query execution
+	queryStartTime := time.Now()
+
+	// Execute the query
 	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, "", err
 	}
 	defer rows.Close()
+
+	// Calculate the query duration
+	queryDuration := time.Since(queryStartTime)
+
+	// If the query took longer than the threshold, log a warning (rate-limited)
+	if queryDuration > c.slowQueryThreshold {
+		c.throttledWarnSlowQuery(ctx, query, queryDuration)
+	}
 
 	var count uint32 = 0
 	lastRow := 0
