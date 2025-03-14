@@ -122,12 +122,14 @@ message Task {
     string name = 1;
     google.protobuf.Struct args = 2;
     repeated google.protobuf.Any annotations = 3;
+    string caller_ref = 4;
   }
 
   message ActionStatusTask {
     string name = 1;
     string id = 2;
     repeated google.protobuf.Any annotations = 3;
+    string caller_ref = 4;
   }
 
   string id = 1;

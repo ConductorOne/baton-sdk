@@ -5712,6 +5712,8 @@ func (m *Task_ActionInvokeTask) validate(all bool) error {
 
 	}
 
+	// no validation rules for CallerRef
+
 	if len(errors) > 0 {
 		return Task_ActionInvokeTaskMultiError(errors)
 	}
@@ -5851,6 +5853,8 @@ func (m *Task_ActionStatusTask) validate(all bool) error {
 		}
 
 	}
+
+	// no validation rules for CallerRef
 
 	if len(errors) > 0 {
 		return Task_ActionStatusTaskMultiError(errors)

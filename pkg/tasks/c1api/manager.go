@@ -194,6 +194,7 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 			Error: &v1.BatonServiceFinishTaskRequest_Error{
 				NonRetryable: errors.Is(err, ErrTaskNonRetryable),
 				Annotations:  annos,
+				Response:     marshalledResp,
 			},
 		},
 	})

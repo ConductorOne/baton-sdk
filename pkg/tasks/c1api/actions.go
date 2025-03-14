@@ -113,15 +113,24 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-
 	cc := c.helpers.ConnectorClient()
 
 	t := c.task.GetActionInvoke()
-	if t == nil || t.GetName() == "" {
-		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action name required"))
+	if t == nil {
+		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action invoke task is nil"))
 	}
+
+	// Create a response with the caller ref
+	errResp := &v2.InvokeActionResponse{
+		CallerRef: t.GetCallerRef(),
+	}
+
+	if t.GetName() == "" {
+		return c.helpers.FinishTask(ctx, errResp, nil, errors.New("action name required"))
+	}
+
 	if t.GetArgs() == nil {
-		return c.helpers.FinishTask(ctx, nil, nil, errors.New("args required"))
+		return c.helpers.FinishTask(ctx, errResp, nil, errors.New("args required"))
 	}
 
 	resp, err := cc.InvokeAction(ctx, &v2.InvokeActionRequest{
@@ -130,8 +139,14 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 		Annotations: t.GetAnnotations(),
 	})
 	if err != nil {
-		return c.helpers.FinishTask(ctx, nil, nil, err)
+		return c.helpers.FinishTask(ctx, errResp, nil, err)
 	}
+
+	// Append the response to the caller ref
+	if resp == nil {
+		resp = &v2.InvokeActionResponse{}
+	}
+	resp.CallerRef = t.GetCallerRef()
 
 	l.Debug("ActionInvoke response", zap.Any("resp", resp))
 
@@ -160,12 +175,19 @@ func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-
 	cc := c.helpers.ConnectorClient()
-
 	t := c.task.GetActionStatus()
-	if t == nil || t.GetId() == "" {
-		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action id required"))
+	if t == nil {
+		return c.helpers.FinishTask(ctx, nil, nil, errors.New("action status task is nil"))
+	}
+
+	// Create a response with the caller ref
+	errResp := &v2.GetActionStatusResponse{
+		CallerRef: t.GetCallerRef(),
+	}
+
+	if t.GetId() == "" {
+		return c.helpers.FinishTask(ctx, errResp, nil, errors.New("action id required"))
 	}
 
 	resp, err := cc.GetActionStatus(ctx, &v2.GetActionStatusRequest{
@@ -174,10 +196,16 @@ func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 		Annotations: t.GetAnnotations(),
 	})
 	if err != nil {
-		return c.helpers.FinishTask(ctx, nil, nil, err)
+		return c.helpers.FinishTask(ctx, errResp, nil, err)
 	}
 
-	l.Debug("ActionInvoke response", zap.Any("resp", resp))
+	l.Debug("ActionStatus response", zap.Any("resp", resp))
+
+	// Append the response to the caller ref
+	if resp == nil {
+		resp = &v2.GetActionStatusResponse{}
+	}
+	resp.CallerRef = t.GetCallerRef()
 
 	return c.helpers.FinishTask(ctx, resp, nil, nil)
 }
