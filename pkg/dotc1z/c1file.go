@@ -3,7 +3,9 @@ package dotc1z
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -21,6 +23,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/progress"
 )
 
 type pragma struct {
@@ -207,6 +210,102 @@ func (c *C1File) init(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (c *C1File) ProgressCounts(ctx context.Context, syncID string) (*progress.ProgressCounts, error) {
+	ctx, span := tracer.Start(ctx, "C1File.ProgressCounts")
+	defer span.End()
+
+	// Check if sync ID exists
+	_, err := c.getSync(ctx, syncID)
+	if err != nil {
+		return nil, err
+	}
+
+	counts := progress.NewProgressCounts()
+
+	var rtStats []*v2.ResourceType
+	pageToken := ""
+	for {
+		resp, err := c.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{PageToken: pageToken})
+		if err != nil {
+			return nil, err
+		}
+
+		rtStats = append(rtStats, resp.List...)
+
+		if resp.NextPageToken == "" {
+			break
+		}
+
+		pageToken = resp.NextPageToken
+	}
+	counts.ResourceTypes = len(rtStats)
+	for _, rt := range rtStats {
+		resourceCount, err := c.db.From(resources.Name()).
+			Where(goqu.C("resource_type_id").Eq(rt.Id)).
+			Where(goqu.C("sync_id").Eq(syncID)).
+			CountContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if resourceCount > math.MaxInt {
+			return nil, fmt.Errorf("resource count for %s is too large", rt.Id)
+		}
+		counts.Resources[rt.Id] = int(resourceCount)
+
+		query, args, err := c.db.From(entitlements.Name()).
+			Select(goqu.COUNT(goqu.DISTINCT(goqu.C("resource_id")))).
+			Where(goqu.C("resource_type_id").Eq(rt.Id)).
+			Where(goqu.C("sync_id").Eq(syncID)).
+			ToSQL()
+		if err != nil {
+			return nil, err
+		}
+
+		row := c.db.QueryRowContext(ctx, query, args...)
+		if row == nil {
+			continue
+		}
+		var entitlementsCount int64
+		err = row.Scan(&entitlementsCount)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return nil, err
+		}
+		counts.EntitlementsProgress[rt.Id] = int(entitlementsCount)
+
+		query, args, err = c.db.From(grants.Name()).
+			Select(goqu.COUNT(goqu.DISTINCT(goqu.C("resource_id")))).
+			Where(goqu.C("resource_type_id").Eq(rt.Id)).
+			Where(goqu.C("sync_id").Eq(syncID)).
+			ToSQL()
+		if err != nil {
+			return nil, err
+		}
+
+		row = c.db.QueryRowContext(ctx, query, args...)
+		if row == nil {
+			continue
+		}
+		var grantsCount int64
+		err = row.Scan(&grantsCount)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return nil, err
+		}
+
+		if grantsCount > math.MaxInt {
+			return nil, fmt.Errorf("grants count for %s is too large", rt.Id)
+		}
+		counts.GrantsProgress[rt.Id] = int(grantsCount)
+	}
+
+	return counts, nil
 }
 
 // Stats introspects the database and returns the count of objects for the given sync run.
