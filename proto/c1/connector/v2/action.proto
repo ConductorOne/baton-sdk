@@ -48,6 +48,7 @@ message InvokeActionResponse {
   repeated google.protobuf.Any annotations = 3;
   google.protobuf.Struct response = 4;
   string name = 5;
+  string caller_ref = 6;
 }
 
 
@@ -63,6 +64,7 @@ message GetActionStatusResponse {
   BatonActionStatus status = 3;
   repeated google.protobuf.Any annotations = 4;
   google.protobuf.Struct response = 5;
+  string caller_ref = 6;
 }
 
 message GetActionSchemaRequest {

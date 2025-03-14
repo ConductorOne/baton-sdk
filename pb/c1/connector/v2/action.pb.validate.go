@@ -503,6 +503,8 @@ func (m *InvokeActionResponse) validate(all bool) error {
 
 	// no validation rules for Name
 
+	// no validation rules for CallerRef
+
 	if len(errors) > 0 {
 		return InvokeActionResponseMultiError(errors)
 	}
@@ -813,6 +815,8 @@ func (m *GetActionStatusResponse) validate(all bool) error {
 			}
 		}
 	}
+
+	// no validation rules for CallerRef
 
 	if len(errors) > 0 {
 		return GetActionStatusResponseMultiError(errors)
