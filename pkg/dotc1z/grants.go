@@ -9,6 +9,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 )
 
 const grantsTableVersion = "1"
@@ -87,8 +88,11 @@ func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderSe
 	defer span.End()
 
 	ret := &v2.Grant{}
-
-	err := c.getConnectorObject(ctx, grants.Name(), request.GrantId, ret)
+	syncId, err := annotations.GetSyncIdFromAnnotations(request.GetAnnotations())
+	if err != nil {
+		return nil, fmt.Errorf("error getting sync id from annotations for grant '%s': %w", request.GrantId, err)
+	}
+	err = c.getConnectorObject(ctx, grants.Name(), request.GrantId, syncId, ret)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching grant '%s': %w", request.GetGrantId(), err)
 	}

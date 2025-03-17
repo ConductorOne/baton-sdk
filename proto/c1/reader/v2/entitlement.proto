@@ -3,6 +3,7 @@ syntax = "proto3";
 package c1.reader.v2;
 
 import "c1/connector/v2/entitlement.proto";
+import "google/protobuf/any.proto";
 import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
@@ -16,6 +17,7 @@ message EntitlementsReaderServiceGetEntitlementRequest {
     min_bytes: 1
     max_bytes: 1024
   }];
+  repeated google.protobuf.Any annotations = 2;
 }
 
 message EntitlementsReaderServiceGetEntitlementResponse {
