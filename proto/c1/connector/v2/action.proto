@@ -25,6 +25,11 @@ enum BatonActionStatus {
   BATON_ACTION_STATUS_FAILED = 5;
 }
 
+enum BatonActionTrait {
+  BATON_ACTION_TRAIT_UNSPECIFIED = 0;
+  BATON_ACTION_TRAIT_DEACTIVATE_ACCOUNT = 1;
+}
+
 message BatonActionSchema {
   string name = 1;
   repeated c1.config.v1.Field arguments = 2;
@@ -34,6 +39,8 @@ message BatonActionSchema {
 
   string display_name = 5;
   string description = 6;
+
+  repeated BatonActionTrait traits = 7;
 }
 
 message InvokeActionRequest {
