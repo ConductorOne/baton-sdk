@@ -21,6 +21,7 @@ message GrantsReaderServiceGetGrantRequest {
     min_bytes: 1
     max_bytes: 1024
   }];
+  repeated google.protobuf.Any annotations = 2;
 }
 
 message GrantsReaderServiceGetGrantResponse {

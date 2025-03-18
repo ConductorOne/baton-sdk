@@ -12,7 +12,6 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -106,19 +105,16 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 		return nil, "", fmt.Errorf("c1file: invalid list request")
 	}
 
-	reqAnnos := annotations.Annotations(listReq.GetAnnotations())
-
-	var reqSyncID string
-	syncDetails := &c1zpb.SyncDetails{}
-	hasSyncIdAnno, err := reqAnnos.Pick(syncDetails)
+	annoSyncID, err := annotations.GetSyncIdFromAnnotations(listReq.GetAnnotations())
 	if err != nil {
-		return nil, "", fmt.Errorf("c1file: failed to get sync id annotation: %w", err)
+		return nil, "", fmt.Errorf("error getting sync id from annotations for list request: %w", err)
 	}
 
+	var reqSyncID string
 	switch {
 	// If the request has a sync id annotation, use that
-	case hasSyncIdAnno && syncDetails.GetId() != "":
-		reqSyncID = syncDetails.GetId()
+	case annoSyncID != "":
+		reqSyncID = annoSyncID
 
 	// We are currently syncing, so use the current sync id
 	case c.currentSyncID != "":
@@ -400,7 +396,7 @@ func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceI
 	return nil
 }
 
-func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id string, m proto.Message) error {
+func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id string, syncID string, m proto.Message) error {
 	ctx, span := tracer.Start(ctx, "C1File.getConnectorObject")
 	defer span.End()
 
@@ -414,6 +410,8 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	q = q.Where(goqu.C("external_id").Eq(id))
 
 	switch {
+	case syncID != "":
+		q = q.Where(goqu.C("sync_id").Eq(syncID))
 	case c.currentSyncID != "":
 		q = q.Where(goqu.C("sync_id").Eq(c.currentSyncID))
 	case c.viewSyncID != "":

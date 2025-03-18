@@ -14,6 +14,7 @@ service ResourceTypesReaderService {
 
 message ResourceTypesReaderServiceGetResourceTypeRequest {
   string resource_type_id = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
 
 message ResourceTypesReaderServiceGetResourceTypeResponse {
