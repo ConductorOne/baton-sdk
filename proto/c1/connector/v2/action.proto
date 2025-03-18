@@ -2,12 +2,11 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
+import "c1/config/v1/config.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
-import "c1/config/v1/config.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
-
 
 service ActionService {
   rpc InvokeAction(InvokeActionRequest) returns (InvokeActionResponse);
@@ -49,7 +48,6 @@ message InvokeActionResponse {
   google.protobuf.Struct response = 4;
   string name = 5;
 }
-
 
 message GetActionStatusRequest {
   string name = 1 [deprecated = true];
