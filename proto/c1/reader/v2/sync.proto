@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package c1.reader.v2;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
+
+message SyncRun {
+  string id = 1;
+  google.protobuf.Timestamp started_at = 2;
+  google.protobuf.Timestamp ended_at = 3;
+  string sync_token = 4;
+}
+
+service SyncsReaderService {
+  rpc GetSync(SyncsReaderServiceGetSyncRequest) returns (SyncsReaderServiceGetSyncResponse);
+  rpc ListSyncs(SyncsReaderServiceListSyncsRequest) returns (SyncsReaderServiceListSyncsResponse);
+  rpc GetLatestFinishedSync(SyncsReaderServiceGetLatestFinishedSyncRequest) returns (SyncsReaderServiceGetLatestFinishedSyncResponse);
+}
+
+message SyncsReaderServiceGetSyncRequest {
+  string sync_id = 1;
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message SyncsReaderServiceGetSyncResponse {
+  SyncRun sync = 1;
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message SyncsReaderServiceListSyncsRequest {
+  uint32 page_size = 1 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 250
+  }];
+  string page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
+  }];
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message SyncsReaderServiceListSyncsResponse {
+  repeated SyncRun syncs = 1;
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 2048
+  }];
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message SyncsReaderServiceGetLatestFinishedSyncRequest {
+  repeated google.protobuf.Any annotations = 1;
+}
+
+message SyncsReaderServiceGetLatestFinishedSyncResponse {
+  SyncRun sync = 1;
+  repeated google.protobuf.Any annotations = 2;
+}

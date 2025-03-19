@@ -1,191 +1,191 @@
 syntax = "proto3";
 
 package c1.config.v1;
+
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/config/v1";
 
 // Int64Rules describes the constraints applied to `int64` values
 message Int64Rules {
-    // Const specifies that this field must be exactly the specified value
-    optional int64 eq = 1;
+  // Const specifies that this field must be exactly the specified value
+  optional int64 eq = 1;
 
-    // Lt specifies that this field must be less than the specified value,
-    // exclusive
-     optional int64 lt = 2;
+  // Lt specifies that this field must be less than the specified value,
+  // exclusive
+  optional int64 lt = 2;
 
-    // Lte specifies that this field must be less than or equal to the
-    // specified value, inclusive
-     optional int64 lte = 3;
+  // Lte specifies that this field must be less than or equal to the
+  // specified value, inclusive
+  optional int64 lte = 3;
 
-    // Gt specifies that this field must be greater than the specified value,
-    // exclusive. If the value of Gt is larger than a specified Lt or Lte, the
-    // range is reversed.
-     optional int64 gt = 4;
+  // Gt specifies that this field must be greater than the specified value,
+  // exclusive. If the value of Gt is larger than a specified Lt or Lte, the
+  // range is reversed.
+  optional int64 gt = 4;
 
-    // Gte specifies that this field must be greater than or equal to the
-    // specified value, inclusive. If the value of Gte is larger than a
-    // specified Lt or Lte, the range is reversed.
-     optional int64 gte = 5;
+  // Gte specifies that this field must be greater than or equal to the
+  // specified value, inclusive. If the value of Gte is larger than a
+  // specified Lt or Lte, the range is reversed.
+  optional int64 gte = 5;
 
-    // In specifies that this field must be equal to one of the specified
-    // values
-    repeated int64 in = 6;
+  // In specifies that this field must be equal to one of the specified
+  // values
+  repeated int64 in = 6;
 
-    // NotIn specifies that this field cannot be equal to one of the specified
-    // values
-    repeated int64 not_in = 7;
+  // NotIn specifies that this field cannot be equal to one of the specified
+  // values
+  repeated int64 not_in = 7;
 
-    // IgnoreEmpty specifies that the validation rules of this field should be
-    // evaluated only if the field is not empty
-    bool validate_empty = 8;
-    bool is_required = 9;
+  // IgnoreEmpty specifies that the validation rules of this field should be
+  // evaluated only if the field is not empty
+  bool validate_empty = 8;
+  bool is_required = 9;
 }
 
 // BoolRules describes the constraints applied to `bool` values
 message BoolRules {
-    // Const specifies that this field must be exactly the specified value
-    optional bool eq = 1;
+  // Const specifies that this field must be exactly the specified value
+  optional bool eq = 1;
 }
-
 
 // RepeatedRules describe the constraints applied to `repeated` values
 message RepeatedRules {
-    // MinItems specifies that this field must have the specified number of
-    // items at a minimum
-    optional uint64 min_items = 1;
+  // MinItems specifies that this field must have the specified number of
+  // items at a minimum
+  optional uint64 min_items = 1;
 
-    // MaxItems specifies that this field must have the specified number of
-    // items at a maximum
-    optional uint64 max_items = 2;
+  // MaxItems specifies that this field must have the specified number of
+  // items at a maximum
+  optional uint64 max_items = 2;
 
-    // Unique specifies that all elements in this field must be unique. This
-    // constraint is only applicable to scalar and enum types (messages are not
-    // supported).
-     bool   unique    = 3;
+  // Unique specifies that all elements in this field must be unique. This
+  // constraint is only applicable to scalar and enum types (messages are not
+  // supported).
+  bool unique = 3;
 
-    // Items specifies the constraints to be applied to each item in the field.
-    // Repeated message fields will still execute validation against each item
-    // unless skip is specified here.
-    oneof item_rules {
-        // Scalar Field Types
-        Int64Rules    int64    = 100;
-        BoolRules     bool     = 101;
-        StringRules   string   = 102;
-        // RepeatedRules repeated = 103;
-    }
+  // Items specifies the constraints to be applied to each item in the field.
+  // Repeated message fields will still execute validation against each item
+  // unless skip is specified here.
+  oneof item_rules {
+    // Scalar Field Types
+    Int64Rules int64 = 100;
+    BoolRules bool = 101;
+    StringRules string = 102;
+    // RepeatedRules repeated = 103;
+  }
 
-    // IgnoreEmpty specifies that the validation rules of this field should be
-    // evaluated only if the field is not empty
-    bool validate_empty = 4;
-    bool is_required = 5;
+  // IgnoreEmpty specifies that the validation rules of this field should be
+  // evaluated only if the field is not empty
+  bool validate_empty = 4;
+  bool is_required = 5;
 }
 
 message RepeatedStringRules {
-        // MinItems specifies that this field must have the specified number of
-    // items at a minimum
-    optional uint64 min_items = 1;
+  // MinItems specifies that this field must have the specified number of
+  // items at a minimum
+  optional uint64 min_items = 1;
 
-    // MaxItems specifies that this field must have the specified number of
-    // items at a maximum
-    optional uint64 max_items = 2;
+  // MaxItems specifies that this field must have the specified number of
+  // items at a maximum
+  optional uint64 max_items = 2;
 
-    // Unique specifies that all elements in this field must be unique. This
-    // constraint is only applicable to scalar and enum types (messages are not
-    // supported).
-    bool   unique    = 3;
-    StringRules item_rules = 4;
-    // IgnoreEmpty specifies that the validation rules of this field should be
-    // evaluated only if the field is not empty
-    bool validate_empty = 5;
-    bool is_required = 6;
-    // repeated string eq = 7;
+  // Unique specifies that all elements in this field must be unique. This
+  // constraint is only applicable to scalar and enum types (messages are not
+  // supported).
+  bool unique = 3;
+  StringRules item_rules = 4;
+  // IgnoreEmpty specifies that the validation rules of this field should be
+  // evaluated only if the field is not empty
+  bool validate_empty = 5;
+  bool is_required = 6;
+  // repeated string eq = 7;
 }
 
 enum WellKnownString {
-    WELL_KNOWN_STRING_UNSPECIFIED = 0;
-    // Email specifies that the field must be a valid email address as
-    // defined by RFC 5322
-    WELL_KNOWN_STRING_EMAIL    = 1;
-    
-    // Hostname specifies that the field must be a valid hostname as
-    // defined by RFC 1034. This constraint does not support
-    // internationalized domain names (IDNs).
-    WELL_KNOWN_STRING_HOSTNAME = 2;
+  WELL_KNOWN_STRING_UNSPECIFIED = 0;
+  // Email specifies that the field must be a valid email address as
+  // defined by RFC 5322
+  WELL_KNOWN_STRING_EMAIL = 1;
 
-    // Ip specifies that the field must be a valid IP (v4 or v6) address.
-    // Valid IPv6 addresses should not include surrounding square brackets.
-    WELL_KNOWN_STRING_IP       = 3;
+  // Hostname specifies that the field must be a valid hostname as
+  // defined by RFC 1034. This constraint does not support
+  // internationalized domain names (IDNs).
+  WELL_KNOWN_STRING_HOSTNAME = 2;
 
-    // Ipv4 specifies that the field must be a valid IPv4 address.
-    WELL_KNOWN_STRING_IPV4     = 4;
+  // Ip specifies that the field must be a valid IP (v4 or v6) address.
+  // Valid IPv6 addresses should not include surrounding square brackets.
+  WELL_KNOWN_STRING_IP = 3;
 
-    // Ipv6 specifies that the field must be a valid IPv6 address. Valid
-    // IPv6 addresses should not include surrounding square brackets.
-    WELL_KNOWN_STRING_IPV6     = 5;
+  // Ipv4 specifies that the field must be a valid IPv4 address.
+  WELL_KNOWN_STRING_IPV4 = 4;
 
-    WELL_KNOWN_STRING_URI      = 6;
+  // Ipv6 specifies that the field must be a valid IPv6 address. Valid
+  // IPv6 addresses should not include surrounding square brackets.
+  WELL_KNOWN_STRING_IPV6 = 5;
 
-    // Address specifies that the field must be either a valid hostname as
-    // defined by RFC 1034 (which does not support internationalized domain
-    // names or IDNs), or it can be a valid IP (v4 or v6).
-    WELL_KNOWN_STRING_ADDRESS  = 7;
+  WELL_KNOWN_STRING_URI = 6;
 
-    // Uuid specifies that the field must be a valid UUID as defined by
-    // RFC 4122
-    WELL_KNOWN_STRING_UUID     = 8;
+  // Address specifies that the field must be either a valid hostname as
+  // defined by RFC 1034 (which does not support internationalized domain
+  // names or IDNs), or it can be a valid IP (v4 or v6).
+  WELL_KNOWN_STRING_ADDRESS = 7;
+
+  // Uuid specifies that the field must be a valid UUID as defined by
+  // RFC 4122
+  WELL_KNOWN_STRING_UUID = 8;
 }
 message StringRules {
-    // Const specifies that this field must be exactly the specified value
-     optional string eq = 1;
+  // Const specifies that this field must be exactly the specified value
+  optional string eq = 1;
 
-    // Len specifies that this field must be the specified number of
-    // characters (Unicode code points). Note that the number of
-    // characters may differ from the number of bytes in the string.
-     optional uint64 len = 19;
+  // Len specifies that this field must be the specified number of
+  // characters (Unicode code points). Note that the number of
+  // characters may differ from the number of bytes in the string.
+  optional uint64 len = 19;
 
-    // MinLen specifies that this field must be the specified number of
-    // characters (Unicode code points) at a minimum. Note that the number of
-    // characters may differ from the number of bytes in the string.
-     optional uint64 min_len = 2;
+  // MinLen specifies that this field must be the specified number of
+  // characters (Unicode code points) at a minimum. Note that the number of
+  // characters may differ from the number of bytes in the string.
+  optional uint64 min_len = 2;
 
-    // MaxLen specifies that this field must be the specified number of
-    // characters (Unicode code points) at a maximum. Note that the number of
-    // characters may differ from the number of bytes in the string.
-     optional uint64 max_len = 3;
+  // MaxLen specifies that this field must be the specified number of
+  // characters (Unicode code points) at a maximum. Note that the number of
+  // characters may differ from the number of bytes in the string.
+  optional uint64 max_len = 3;
 
-    // Pattern specifies that this field must match against the specified
-    // regular expression (RE2 syntax). The included expression should elide
-    // any delimiters.
-    optional string pattern  = 6;
+  // Pattern specifies that this field must match against the specified
+  // regular expression (RE2 syntax). The included expression should elide
+  // any delimiters.
+  optional string pattern = 6;
 
-    // Prefix specifies that this field must have the specified substring at
-    // the beginning of the string.
-    optional string prefix   = 7;
+  // Prefix specifies that this field must have the specified substring at
+  // the beginning of the string.
+  optional string prefix = 7;
 
-    // Suffix specifies that this field must have the specified substring at
-    // the end of the string.
-    optional string suffix   = 8;
+  // Suffix specifies that this field must have the specified substring at
+  // the end of the string.
+  optional string suffix = 8;
 
-    // Contains specifies that this field must have the specified substring
-    // anywhere in the string.
-    optional string contains = 9;
+  // Contains specifies that this field must have the specified substring
+  // anywhere in the string.
+  optional string contains = 9;
 
-    // NotContains specifies that this field cannot have the specified substring
-    // anywhere in the string.
-    optional string not_contains = 23;
+  // NotContains specifies that this field cannot have the specified substring
+  // anywhere in the string.
+  optional string not_contains = 23;
 
-    // In specifies that this field must be equal to one of the specified
-    // values
-    repeated string in     = 10;
+  // In specifies that this field must be equal to one of the specified
+  // values
+  repeated string in = 10;
 
-    // NotIn specifies that this field cannot be equal to one of the specified
-    // values
-    repeated string not_in = 11;
+  // NotIn specifies that this field cannot be equal to one of the specified
+  // values
+  repeated string not_in = 11;
 
-    WellKnownString well_known = 12;
-    // IgnoreEmpty specifies that the validation rules of this field should be
-    // evaluated only if the field is not empty
-    bool validate_empty = 26;
-    bool is_required = 27;
+  WellKnownString well_known = 12;
+  // IgnoreEmpty specifies that the validation rules of this field should be
+  // evaluated only if the field is not empty
+  bool validate_empty = 26;
+  bool is_required = 27;
 }
 
 message StringMapRules {
