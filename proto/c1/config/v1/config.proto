@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "c1/config/v1/rules.proto";
+import "google/protobuf/any.proto";
 
 package c1.config.v1;
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/config/v1";
@@ -47,6 +48,7 @@ message Field {
         IntField int_field = 101;
         BoolField bool_field = 102;
         StringSliceField string_slice_field = 103;
+        StringMapField string_map_field = 104;
     }
 }
 
@@ -64,6 +66,11 @@ message BoolField {
 message StringSliceField {
     repeated string default_value = 1;
     optional RepeatedStringRules rules = 2;
+}
+
+message StringMapField {
+    map<string, google.protobuf.Any> default_value = 1;
+    optional StringMapRules rules = 2;
 }
 
 enum StringFieldType {

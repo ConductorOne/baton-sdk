@@ -520,6 +520,47 @@ func (m *Field) validate(all bool) error {
 			}
 		}
 
+	case *Field_StringMapField:
+		if v == nil {
+			err := FieldValidationError{
+				field:  "Field",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetStringMapField()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, FieldValidationError{
+						field:  "StringMapField",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, FieldValidationError{
+						field:  "StringMapField",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetStringMapField()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return FieldValidationError{
+					field:  "StringMapField",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -1001,6 +1042,185 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = StringSliceFieldValidationError{}
+
+// Validate checks the field values on StringMapField with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *StringMapField) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on StringMapField with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in StringMapFieldMultiError,
+// or nil if none found.
+func (m *StringMapField) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *StringMapField) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	{
+		sorted_keys := make([]string, len(m.GetDefaultValue()))
+		i := 0
+		for key := range m.GetDefaultValue() {
+			sorted_keys[i] = key
+			i++
+		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetDefaultValue()[key]
+			_ = val
+
+			// no validation rules for DefaultValue[key]
+
+			if all {
+				switch v := interface{}(val).(type) {
+				case interface{ ValidateAll() error }:
+					if err := v.ValidateAll(); err != nil {
+						errors = append(errors, StringMapFieldValidationError{
+							field:  fmt.Sprintf("DefaultValue[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				case interface{ Validate() error }:
+					if err := v.Validate(); err != nil {
+						errors = append(errors, StringMapFieldValidationError{
+							field:  fmt.Sprintf("DefaultValue[%v]", key),
+							reason: "embedded message failed validation",
+							cause:  err,
+						})
+					}
+				}
+			} else if v, ok := interface{}(val).(interface{ Validate() error }); ok {
+				if err := v.Validate(); err != nil {
+					return StringMapFieldValidationError{
+						field:  fmt.Sprintf("DefaultValue[%v]", key),
+						reason: "embedded message failed validation",
+						cause:  err,
+					}
+				}
+			}
+
+		}
+	}
+
+	if m.Rules != nil {
+
+		if all {
+			switch v := interface{}(m.GetRules()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, StringMapFieldValidationError{
+						field:  "Rules",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, StringMapFieldValidationError{
+						field:  "Rules",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetRules()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return StringMapFieldValidationError{
+					field:  "Rules",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return StringMapFieldMultiError(errors)
+	}
+
+	return nil
+}
+
+// StringMapFieldMultiError is an error wrapping multiple validation errors
+// returned by StringMapField.ValidateAll() if the designated constraints
+// aren't met.
+type StringMapFieldMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m StringMapFieldMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m StringMapFieldMultiError) AllErrors() []error { return m }
+
+// StringMapFieldValidationError is the validation error returned by
+// StringMapField.Validate if the designated constraints aren't met.
+type StringMapFieldValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e StringMapFieldValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e StringMapFieldValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e StringMapFieldValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e StringMapFieldValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e StringMapFieldValidationError) ErrorName() string { return "StringMapFieldValidationError" }
+
+// Error satisfies the builtin error interface
+func (e StringMapFieldValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sStringMapField.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = StringMapFieldValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = StringMapFieldValidationError{}
 
 // Validate checks the field values on StringFieldOption with the rules defined
 // in the proto definition for this message. If any rules are violated, the

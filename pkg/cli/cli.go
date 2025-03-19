@@ -130,6 +130,38 @@ func SetFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 				command.Flags().
 					StringSliceP(f.FieldName, f.GetCLIShortHand(), *value, f.GetDescription())
 			}
+		case field.StringMapVariant:
+			value, err := field.GetDefaultValue[map[string]any](f)
+			if err != nil {
+				return fmt.Errorf(
+					"field %s, %s: %w",
+					f.FieldName,
+					f.Variant,
+					err,
+				)
+			}
+			strMap := make(map[string]string)
+			for k, v := range *value {
+				switch val := v.(type) {
+				case string:
+					strMap[k] = val
+				case int:
+					strMap[k] = fmt.Sprintf("%d", val)
+				case bool:
+					strMap[k] = fmt.Sprintf("%v", val)
+				case float64:
+					strMap[k] = fmt.Sprintf("%g", val)
+				default:
+					strMap[k] = fmt.Sprintf("%v", val)
+				}
+			}
+			if f.IsPersistent() {
+				command.PersistentFlags().
+					StringToStringP(f.FieldName, f.GetCLIShortHand(), strMap, f.GetDescription())
+			} else {
+				command.Flags().
+					StringToStringP(f.FieldName, f.GetCLIShortHand(), strMap, f.GetDescription())
+			}
 		default:
 			return fmt.Errorf(
 				"field %s, %s is not yet supported",

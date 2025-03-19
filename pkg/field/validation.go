@@ -291,6 +291,21 @@ func ValidateRepeatedStringRules(r *v1_conf.RepeatedStringRules, v []string, nam
 	return nil
 }
 
+func ValidateStringMapRules(r *v1_conf.StringMapRules, v map[string]any, name string) error {
+	if r == nil {
+		return nil
+	}
+	if r.IsRequired && len(v) == 0 {
+		return fmt.Errorf("field %s of type map[string]any is marked as required but it has a zero-value", name)
+	}
+
+	if !r.ValidateEmpty && len(v) == 0 {
+		return nil
+	}
+
+	return nil
+}
+
 func (e *ErrConfigurationMissingFields) Error() string {
 	var messages []string
 
@@ -310,6 +325,7 @@ type Configurable interface {
 	GetBool(key string) bool
 	GetInt(key string) int
 	GetStringSlice(key string) []string
+	GetStringMap(key string) map[string]any
 }
 
 // Validate perform validation of field requirement and constraints
@@ -335,6 +351,8 @@ func Validate(c Configuration, v Configurable) error {
 			isPresent, validationError = ValidateField(&f, v.GetInt(f.FieldName))
 		case StringSliceVariant:
 			isPresent, validationError = ValidateField(&f, v.GetStringSlice(f.FieldName))
+		case StringMapVariant:
+			isPresent, validationError = ValidateField(&f, v.GetStringMap(f.FieldName))
 		default:
 			return fmt.Errorf("unknown field type %s", f.Variant)
 		}

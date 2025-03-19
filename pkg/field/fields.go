@@ -17,6 +17,7 @@ const (
 	BoolVariant        Variant = "BoolField"
 	IntVariant         Variant = "IntField"
 	StringSliceVariant Variant = "StringSliceField"
+	StringMapVariant   Variant = "StringMapField"
 )
 
 type WebFieldType string
@@ -34,6 +35,7 @@ type FieldRule struct {
 	ss *v1_conf.RepeatedStringRules
 	b  *v1_conf.BoolRules
 	i  *v1_conf.Int64Rules
+	sm *v1_conf.StringMapRules
 }
 
 type syncerConfig struct {
@@ -73,7 +75,7 @@ type SchemaField struct {
 }
 
 type SchemaTypes interface {
-	~string | ~bool | ~int | ~[]string
+	~string | ~bool | ~int | ~[]string | ~map[string]any
 }
 
 func (s SchemaField) GetName() string {
@@ -138,6 +140,12 @@ func (s SchemaField) validate(value any) (bool, error) {
 			return false, WrongValueTypeErr
 		}
 		return len(v) != 0, ValidateRepeatedStringRules(s.Rules.ss, v, s.FieldName)
+	case StringMapVariant:
+		v, ok := value.(map[string]any)
+		if !ok {
+			return false, WrongValueTypeErr
+		}
+		return len(v) != 0, ValidateStringMapRules(s.Rules.sm, v, s.FieldName)
 	default:
 		return false, fmt.Errorf("unknown field type %s", s.Variant)
 	}
@@ -219,6 +227,24 @@ func StringSliceField(name string, optional ...fieldOption) SchemaField {
 		FieldName:       name,
 		Variant:         StringSliceVariant,
 		DefaultValue:    []string{},
+		ExportTarget:    ExportTargetGUI,
+		Rules:           FieldRule{},
+		SyncerConfig:    syncerConfig{},
+		ConnectorConfig: connectorConfig{},
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
+}
+
+func StringMapField(name string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:       name,
+		Variant:         StringMapVariant,
+		DefaultValue:    map[string]any{},
 		ExportTarget:    ExportTargetGUI,
 		Rules:           FieldRule{},
 		SyncerConfig:    syncerConfig{},

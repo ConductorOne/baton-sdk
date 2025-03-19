@@ -546,3 +546,28 @@ func TestBoolValidation(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+func TestStringMapRules_Validate(t *testing.T) {
+	run := func(value map[string]any, r *v1_conf.StringMapRules) error {
+		return ValidateStringMapRules(r, value, "TestField")
+	}
+
+	t.Run("string map", func(t *testing.T) {
+		err := run(map[string]any{"key1": "value1", "key2": "value2"}, &v1_conf.StringMapRules{})
+		require.NoError(t, err)
+
+		err = run(map[string]any{}, &v1_conf.StringMapRules{})
+		require.NoError(t, err)
+	})
+
+	t.Run("required string map", func(t *testing.T) {
+		err := run(map[string]any{}, &v1_conf.StringMapRules{
+			IsRequired: true,
+		})
+		require.EqualError(t, err, "field TestField of type map[string]any is marked as required but it has a zero-value")
+		err = run(map[string]any{"key1": "value1"}, &v1_conf.StringMapRules{
+			IsRequired: true,
+		})
+		require.NoError(t, err)
+	})
+}
