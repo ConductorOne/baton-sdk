@@ -32,6 +32,11 @@ func WithRequired(required bool) fieldOption {
 				o.Rules.ss = &v1_conf.RepeatedStringRules{}
 			}
 			o.Rules.ss.IsRequired = required
+		case StringMapVariant:
+			if o.Rules.sm == nil {
+				o.Rules.sm = &v1_conf.StringMapRules{}
+			}
+			o.Rules.sm.IsRequired = required
 		default:
 			panic(fmt.Sprintf("field %s has unsupported type %s", o.FieldName, o.Variant))
 		}
@@ -194,9 +199,41 @@ func WithStringSlice(f stringSliceRuleMaker) fieldOption {
 	}
 }
 
+type stringMapRuleMaker func(r *StringMapRuler)
+
+func WithStringMap(f stringMapRuleMaker) fieldOption {
+	return func(o SchemaField) SchemaField {
+		rules := o.Rules.sm
+		if rules == nil {
+			rules = &v1_conf.StringMapRules{}
+		}
+		o.Rules.sm = rules
+		f(NewStringMapBuilder(rules))
+		return o
+	}
+}
+
 func WithStructFieldName(name string) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.StructFieldName = name
 		return o
 	}
+}
+
+type StringMapRuler struct {
+	rules *v1_conf.StringMapRules
+}
+
+func NewStringMapBuilder(rules *v1_conf.StringMapRules) *StringMapRuler {
+	return &StringMapRuler{rules: rules}
+}
+
+func (r *StringMapRuler) WithRequired(required bool) *StringMapRuler {
+	r.rules.IsRequired = required
+	return r
+}
+
+func (r *StringMapRuler) WithValidateEmpty(validateEmpty bool) *StringMapRuler {
+	r.rules.ValidateEmpty = validateEmpty
+	return r
 }

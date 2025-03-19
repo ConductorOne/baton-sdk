@@ -75,6 +75,8 @@ func Generate(name string, schema field.Configuration) {
 			nf.FieldType = "int"
 		case field.StringSliceVariant:
 			nf.FieldType = "[]string"
+		case field.StringMapVariant:
+			nf.FieldType = "map[string]any"
 		}
 		data.Fields = append(data.Fields, nf)
 	}
@@ -163,6 +165,18 @@ func (c *{{ .StructName }}) GetBool(fieldName string) bool {
 		return false
 	}
 	t, ok := v.(bool)
+	if !ok {
+		panic("wrong type")
+	}
+	return t
+}
+
+func (c *{{ .StructName }}) GetStringMap(fieldName string) map[string]any {
+	v, ok := c.findFieldByTag(fieldName)
+	if !ok {
+		return map[string]any{}
+	}
+	t, ok := v.(map[string]any)
 	if !ok {
 		panic("wrong type")
 	}
