@@ -4,13 +4,16 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	aws_lambda "github.com/aws/aws-lambda-go/lambda"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/go-jose/go-jose/v4"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	pb_connector_api "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -60,7 +63,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 
-		client, err := c1_lambda_config.GetConnectorConfigServiceClient(
+		client, jwk, err := c1_lambda_config.GetConnectorConfigServiceClient(
 			ctx,
 			v.GetString(field.LambdaServerClientIDField.GetName()),
 			v.GetString(field.LambdaServerClientSecretField.GetName()),
@@ -80,7 +83,26 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
 		}
 
-		err = mapstructure.Decode(config.Config.AsMap(), t)
+		// Decrypt the config using the private key from the jwk
+		// Parse the JWE from the compact serialized form
+		jwe, err := jose.ParseEncrypted(string(config.Config), []jose.KeyAlgorithm{jose.ECDH_ES_A256KW}, []jose.ContentEncryption{jose.A256GCM})
+		if err != nil {
+			return fmt.Errorf("lambda-run: failed to parse encrypted config: %w", err)
+		}
+
+		// Decrypt the JWE using the private key
+		decrypted, err := jwe.Decrypt(jwk)
+		if err != nil {
+			return fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
+		}
+
+		configStruct := structpb.Struct{}
+		err = json.Unmarshal(decrypted, &configStruct)
+		if err != nil {
+			return fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
+		}
+
+		err = mapstructure.Decode(configStruct.AsMap(), t)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to decode config: %w", err)
 		}
