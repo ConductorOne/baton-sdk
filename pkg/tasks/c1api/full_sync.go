@@ -27,9 +27,11 @@ type fullSyncHelpers interface {
 }
 
 type fullSyncTaskHandler struct {
-	task         *v1.Task
-	helpers      fullSyncHelpers
-	skipFullSync bool
+	task                                *v1.Task
+	helpers                             fullSyncHelpers
+	skipFullSync                        bool
+	externalResourceC1ZPath             string
+	externalResourceEntitlementIdFilter string
 }
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
@@ -41,6 +43,14 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	syncOpts := []sdkSync.SyncOpt{
 		sdkSync.WithC1ZPath(c1zPath),
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
+	}
+
+	if c.externalResourceC1ZPath != "" {
+		syncOpts = append(syncOpts, sdkSync.WithExternalResourceC1ZPath(c.externalResourceC1ZPath))
+	}
+
+	if c.externalResourceEntitlementIdFilter != "" {
+		syncOpts = append(syncOpts, sdkSync.WithExternalResourceEntitlementIdFilter(c.externalResourceEntitlementIdFilter))
 	}
 
 	if c.skipFullSync {
@@ -146,11 +156,13 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	return c.helpers.FinishTask(ctx, nil, nil, nil)
 }
 
-func newFullSyncTaskHandler(task *v1.Task, helpers fullSyncHelpers, skipFullSync bool) tasks.TaskHandler {
+func newFullSyncTaskHandler(task *v1.Task, helpers fullSyncHelpers, skipFullSync bool, externalResourceC1ZPath string, externalResourceEntitlementIdFilter string) tasks.TaskHandler {
 	return &fullSyncTaskHandler{
-		task:         task,
-		helpers:      helpers,
-		skipFullSync: skipFullSync,
+		task:                                task,
+		helpers:                             helpers,
+		skipFullSync:                        skipFullSync,
+		externalResourceC1ZPath:             externalResourceC1ZPath,
+		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
 	}
 }
 

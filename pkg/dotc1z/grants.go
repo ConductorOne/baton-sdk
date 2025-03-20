@@ -208,3 +208,30 @@ func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	c.dbUpdated = true
 	return nil
 }
+
+func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
+	ctx, span := tracer.Start(ctx, "C1File.DeleteGrant")
+	defer span.End()
+
+	err := c.validateSyncDb(ctx)
+	if err != nil {
+		return err
+	}
+
+	q := c.db.Delete(grants.Name())
+	q = q.Where(goqu.C("external_id").Eq(grantId))
+	if c.currentSyncID != "" {
+		q = q.Where(goqu.C("sync_id").Eq(c.currentSyncID))
+	}
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return err
+	}
+
+	_, err = c.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}

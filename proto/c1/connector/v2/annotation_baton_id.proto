@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+import "c1/connector/v2/resource.proto";
+
+message ExternalResourceMatch {
+  c1.connector.v2.ResourceType.Trait resource_type = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message ExternalResourceMatchAll {
+  c1.connector.v2.ResourceType.Trait resource_type = 1;
+}
+
+message BatonID {}

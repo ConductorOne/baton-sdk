@@ -283,27 +283,29 @@ type eventStreamConfig struct {
 }
 
 type runnerConfig struct {
-	rlCfg                   *ratelimitV1.RateLimiterConfig
-	rlDescriptors           []*ratelimitV1.RateLimitDescriptors_Entry
-	onDemand                bool
-	c1zPath                 string
-	clientAuth              bool
-	clientID                string
-	clientSecret            string
-	provisioningEnabled     bool
-	ticketingEnabled        bool
-	grantConfig             *grantConfig
-	revokeConfig            *revokeConfig
-	eventFeedConfig         *eventStreamConfig
-	tempDir                 string
-	createAccountConfig     *createAccountConfig
-	deleteResourceConfig    *deleteResourceConfig
-	rotateCredentialsConfig *rotateCredentialsConfig
-	createTicketConfig      *createTicketConfig
-	bulkCreateTicketConfig  *bulkCreateTicketConfig
-	listTicketSchemasConfig *listTicketSchemasConfig
-	getTicketConfig         *getTicketConfig
-	skipFullSync            bool
+	rlCfg                               *ratelimitV1.RateLimiterConfig
+	rlDescriptors                       []*ratelimitV1.RateLimitDescriptors_Entry
+	onDemand                            bool
+	c1zPath                             string
+	clientAuth                          bool
+	clientID                            string
+	clientSecret                        string
+	provisioningEnabled                 bool
+	ticketingEnabled                    bool
+	grantConfig                         *grantConfig
+	revokeConfig                        *revokeConfig
+	eventFeedConfig                     *eventStreamConfig
+	tempDir                             string
+	createAccountConfig                 *createAccountConfig
+	deleteResourceConfig                *deleteResourceConfig
+	rotateCredentialsConfig             *rotateCredentialsConfig
+	createTicketConfig                  *createTicketConfig
+	bulkCreateTicketConfig              *bulkCreateTicketConfig
+	listTicketSchemasConfig             *listTicketSchemasConfig
+	getTicketConfig                     *getTicketConfig
+	skipFullSync                        bool
+	externalResourceC1Z                 string
+	externalResourceEntitlementIdFilter string
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -531,6 +533,20 @@ func WithTempDir(tempDir string) Option {
 	}
 }
 
+func WithExternalResourceC1Z(externalResourceC1Z string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.externalResourceC1Z = externalResourceC1Z
+		return nil
+	}
+}
+
+func WithExternalResourceEntitlementFilter(entitlementId string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.externalResourceEntitlementIdFilter = entitlementId
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
@@ -608,7 +624,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		case cfg.bulkCreateTicketConfig != nil:
 			tm = local.NewBulkTicket(ctx, cfg.bulkCreateTicketConfig.templatePath)
 		default:
-			tm, err = local.NewSyncer(ctx, cfg.c1zPath, local.WithTmpDir(cfg.tempDir))
+			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
+				local.WithTmpDir(cfg.tempDir),
+				local.WithExternalResourceC1Z(cfg.externalResourceC1Z),
+				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter))
 			if err != nil {
 				return nil, err
 			}
@@ -620,7 +639,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		return runner, nil
 	}
 
-	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync)
+	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync, cfg.externalResourceC1Z, cfg.externalResourceEntitlementIdFilter)
 	if err != nil {
 		return nil, err
 	}
