@@ -2,7 +2,6 @@ syntax = "proto3";
 
 package c1.connectorapi.baton.v1;
 
-import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
@@ -14,7 +13,7 @@ service ConnectorConfigService {
 message GetConnectorConfigRequest {}
 
 message GetConnectorConfigResponse {
-  google.protobuf.Struct config = 1;
+  bytes config = 1;
   google.protobuf.Timestamp last_updated = 2;
 }
 
