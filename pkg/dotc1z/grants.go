@@ -220,6 +220,9 @@ func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
 
 	q := c.db.Delete(grants.Name())
 	q = q.Where(goqu.C("external_id").Eq(grantId))
+	if c.currentSyncID != "" {
+		q = q.Where(goqu.C("sync_id").Eq(c.currentSyncID))
+	}
 	query, args, err := q.ToSQL()
 	if err != nil {
 		return err

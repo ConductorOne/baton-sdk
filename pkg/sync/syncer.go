@@ -1591,11 +1591,11 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		return err
 	}
 
-	l.Info("Synced external resources",
-		zap.Int("resource-types", len(resourceTypes)),
-		zap.Int("resources", len(principals)),
-		zap.Int("entitlements", len(ents)),
-		zap.Int("grants", len(grantsForEnts)),
+	l.Info("Synced external resources for entitlement",
+		zap.Int("resource_type_count", len(resourceTypes)),
+		zap.Int("resource_count", len(principals)),
+		zap.Int("entitlement_count", len(ents)),
+		zap.Int("grant_count", len(grantsForEnts)),
 	)
 
 	err = s.processGrantsWithExternalPrincipals(ctx, principals)
@@ -1695,10 +1695,10 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 	}
 
 	l.Info("Synced external resources",
-		zap.Int("resource-types", len(userAndGroupResourceTypes)),
-		zap.Int("resources", len(principals)),
-		zap.Int("entitlements", len(ents)),
-		zap.Int("grants", len(grantsForEnts)),
+		zap.Int("resource_type_count", len(userAndGroupResourceTypes)),
+		zap.Int("resource_count", len(principals)),
+		zap.Int("entitlement_count", len(ents)),
+		zap.Int("grant_count", len(grantsForEnts)),
 	)
 
 	err = s.processGrantsWithExternalPrincipals(ctx, principals)
