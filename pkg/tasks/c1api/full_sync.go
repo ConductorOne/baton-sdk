@@ -34,7 +34,7 @@ type fullSyncTaskHandler struct {
 	externalResourceEntitlementIdFilter string
 }
 
-func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string, externalResourceC1ZPath string) error {
+func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	ctx, span := tracer.Start(ctx, "fullSyncTaskHandler.sync")
 	defer span.End()
 
@@ -45,9 +45,8 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string, external
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
 	}
 
-	// TODO(lauren) check if this should be c.externalResourceC1ZPath or externalResourceC1ZPath
 	if c.externalResourceC1ZPath != "" {
-		syncOpts = append(syncOpts, sdkSync.WithExternalResourceC1ZPath(externalResourceC1ZPath))
+		syncOpts = append(syncOpts, sdkSync.WithExternalResourceC1ZPath(c.externalResourceC1ZPath))
 	}
 
 	if c.externalResourceEntitlementIdFilter != "" {
@@ -121,7 +120,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return err
 	}
 
-	err = c.sync(ctx, c1zPath, c.externalResourceC1ZPath)
+	err = c.sync(ctx, c1zPath)
 	if err != nil {
 		l.Error("failed to sync", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, err)
