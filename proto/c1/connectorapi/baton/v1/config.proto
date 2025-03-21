@@ -14,7 +14,8 @@ service ConnectorConfigService {
 message GetConnectorConfigRequest {}
 
 message GetConnectorConfigResponse {
-  google.protobuf.Struct config = 1;
+  // google.protobuf.Struct config = 1;
+  bytes config = 1;
   google.protobuf.Timestamp last_updated = 2;
 }
 

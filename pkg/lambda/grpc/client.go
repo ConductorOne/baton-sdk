@@ -2,61 +2,13 @@ package grpc
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/lambda"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
-
-type lambdaTransport struct {
-	lambdaClient *lambda.Client
-	functionName string
-}
-
-func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Response, error) {
-	payload, err := req.MarshalJSON()
-	if err != nil {
-		return nil, fmt.Errorf("lambda_transport: failed to marshal frame: %w", err)
-	}
-
-	input := &lambda.InvokeInput{
-		FunctionName: aws.String(l.functionName),
-		Payload:      payload,
-	}
-
-	// Invoke the Lambda function.
-	invokeResp, err := l.lambdaClient.Invoke(ctx, input)
-	if err != nil {
-		return nil, fmt.Errorf("lambda_transport: failed to invoke lambda function: %w", err)
-	}
-
-	// Check if the function returned an error.
-	if invokeResp.FunctionError != nil {
-		return nil, fmt.Errorf("lambda_transport: function returned error: %v", *invokeResp.FunctionError)
-	}
-
-	resp := &Response{}
-	err = json.Unmarshal(invokeResp.Payload, resp)
-	if err != nil {
-		return nil, fmt.Errorf("lambda_transport: failed to unmarshal response: %w", err)
-	}
-
-	return resp, err
-}
-
-// NewLambdaClientTransport returns a new client transport that invokes a lambda function.
-func NewLambdaClientTransport(ctx context.Context, client *lambda.Client, functionName string) (ClientTransport, error) {
-	return &lambdaTransport{
-		lambdaClient: client,
-		functionName: functionName,
-	}, nil
-}
 
 type ClientTransport interface {
 	RoundTrip(context.Context, *Request) (*Response, error)
