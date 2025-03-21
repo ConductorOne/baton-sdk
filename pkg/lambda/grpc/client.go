@@ -10,6 +10,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+type ClientTransport interface {
+	RoundTrip(context.Context, *Request) (*Response, error)
+}
+
 type clientConn struct {
 	t ClientTransport
 }
