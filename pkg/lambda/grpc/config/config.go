@@ -33,7 +33,7 @@ var (
 )
 
 func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clientSecret string) (pb_connector_manager.ConnectorConfigServiceClient, *jose.JSONWebKey, error) {
-	clientName, tokenHost, err := parseClientID(clientID)
+	_, tokenHost, err := parseClientID(clientID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -99,7 +99,7 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(transportCreds),
-		grpc.WithUserAgent(fmt.Sprintf("%s baton-lambda/%s", clientName, "v0.0.1")),
+		grpc.WithUserAgent(fmt.Sprintf("%s baton-lambda/%s", clientID, "v0.0.1")),
 		grpc.WithPerRPCCredentials(creds),
 	}
 
