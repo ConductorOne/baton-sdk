@@ -79,6 +79,10 @@ service ResourceManagerService {
   rpc DeleteResource(DeleteResourceRequest) returns (DeleteResourceResponse);
 }
 
+service ResourceDeleterService {
+  rpc DeleteResourceV2(DeleteResourceV2Request) returns (DeleteResourceV2Response);
+}
+
 service CredentialManagerService {
   rpc RotateCredential(RotateCredentialRequest) returns (RotateCredentialResponse);
 }
@@ -101,6 +105,14 @@ message DeleteResourceRequest {
 }
 
 message DeleteResourceResponse {
+  repeated google.protobuf.Any annotations = 1;
+}
+
+message DeleteResourceV2Request {
+  ResourceId resource_id = 1;
+}
+
+message DeleteResourceV2Response {
   repeated google.protobuf.Any annotations = 1;
 }
 

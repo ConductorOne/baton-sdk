@@ -26,6 +26,10 @@ func (n *noopProvisioner) DeleteResource(ctx context.Context, request *v2.Delete
 	return nil, status.Error(codes.FailedPrecondition, "provisioning is not enabled")
 }
 
+func (n *noopProvisioner) DeleteResourceV2(ctx context.Context, request *v2.DeleteResourceV2Request) (*v2.DeleteResourceV2Response, error) {
+	return nil, status.Error(codes.FailedPrecondition, "provisioning is not enabled")
+}
+
 func (n *noopProvisioner) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (*v2.RotateCredentialResponse, error) {
 	return nil, status.Error(codes.FailedPrecondition, "provisioning is not enabled")
 }
