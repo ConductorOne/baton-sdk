@@ -42,6 +42,7 @@ type connectorClient struct {
 	ratelimitV1.RateLimiterServiceClient
 	connectorV2.GrantManagerServiceClient
 	connectorV2.ResourceManagerServiceClient
+	connectorV2.ResourceDeleterServiceClient
 	connectorV2.AccountManagerServiceClient
 	connectorV2.CredentialManagerServiceClient
 	connectorV2.EventServiceClient
@@ -384,12 +385,14 @@ func Register(ctx context.Context, s grpc.ServiceRegistrar, srv types.ConnectorS
 	if opts.ProvisioningEnabled {
 		connectorV2.RegisterGrantManagerServiceServer(s, srv)
 		connectorV2.RegisterResourceManagerServiceServer(s, srv)
+		connectorV2.RegisterResourceDeleterServiceServer(s, srv)
 		connectorV2.RegisterAccountManagerServiceServer(s, srv)
 		connectorV2.RegisterCredentialManagerServiceServer(s, srv)
 	} else {
 		noop := &noopProvisioner{}
 		connectorV2.RegisterGrantManagerServiceServer(s, noop)
 		connectorV2.RegisterResourceManagerServiceServer(s, noop)
+		connectorV2.RegisterResourceDeleterServiceServer(s, noop)
 		connectorV2.RegisterAccountManagerServiceServer(s, noop)
 		connectorV2.RegisterCredentialManagerServiceServer(s, noop)
 	}
@@ -412,6 +415,7 @@ func NewConnectorClient(ctx context.Context, cc grpc.ClientConnInterface) types.
 		RateLimiterServiceClient:       ratelimitV1.NewRateLimiterServiceClient(cc),
 		GrantManagerServiceClient:      connectorV2.NewGrantManagerServiceClient(cc),
 		ResourceManagerServiceClient:   connectorV2.NewResourceManagerServiceClient(cc),
+		ResourceDeleterServiceClient:   connectorV2.NewResourceDeleterServiceClient(cc),
 		AccountManagerServiceClient:    connectorV2.NewAccountManagerServiceClient(cc),
 		CredentialManagerServiceClient: connectorV2.NewCredentialManagerServiceClient(cc),
 		EventServiceClient:             connectorV2.NewEventServiceClient(cc),
