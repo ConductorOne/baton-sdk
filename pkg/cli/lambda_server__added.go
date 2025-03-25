@@ -7,14 +7,18 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	aws_lambda "github.com/aws/aws-lambda-go/lambda"
-	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
-	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/structpb"
+
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
+	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	pb_connector_api "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -52,15 +56,35 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 
+		initalLogFields := map[string]interface{}{
+			"tenant":       os.Getenv("tenant"),
+			"connector":    os.Getenv("connector"),
+			"installation": os.Getenv("installation"),
+			"app":          os.Getenv("app"),
+			"version":      os.Getenv("version"),
+		}
+
 		runCtx, err := initLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
+			logging.WithInitialFields(initalLogFields),
 		)
 		if err != nil {
 			return err
 		}
+
+		runCtx, otelShutdown, err := initOtel(context.Background(), name, v, initalLogFields)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			err := otelShutdown(context.Background())
+			if err != nil {
+				zap.L().Error("error shutting down otel", zap.Error(err))
+			}
+		}()
 
 		if err := field.Validate(lambdaSchema, v); err != nil {
 			return err
@@ -81,11 +105,6 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to get connector config: %w", err)
 		}
 
-		t, err := MakeGenericConfiguration[T](v)
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
-		}
-
 		ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
 		if !ok {
 			return fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
@@ -102,9 +121,20 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
 		}
 
-		err = mapstructure.Decode(configStruct.AsMap(), t)
+		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
-			return fmt.Errorf("lambda-run: failed to decode config: %w", err)
+			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
+		}
+		switch cfg := any(t).(type) {
+		case *viper.Viper:
+			for k, v := range configStruct.AsMap() {
+				cfg.Set(k, v)
+			}
+		default:
+			err = mapstructure.Decode(configStruct.AsMap(), cfg)
+			if err != nil {
+				return fmt.Errorf("lambda-run: failed to decode config: %w", err)
+			}
 		}
 
 		if err := field.Validate(connectorSchema, t); err != nil {
@@ -131,10 +161,11 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			Audience:     v.GetString(field.LambdaServerAuthJWTExpectedAudienceField.GetName()),
 		}
 
-		authOpt, err := middleware.WithAuth(runCtx, authConfig)
+		authInterceptor, err := middleware.WithAuth(runCtx, authConfig)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to create auth middleware: %w", err)
 		}
+		interceptors := ugrpc.UnaryServerInterceptor(runCtx, authInterceptor)
 
 		// TODO(morgabra/kans): This seems to be OK in practice - just don't invoke the unimplemented methods.
 		opts := &connector.RegisterOps{
@@ -143,7 +174,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			TicketingEnabled:    true,
 		}
 
-		s := c1_lambda_grpc.NewServer(authOpt)
+		s := c1_lambda_grpc.NewServer(ugrpc.ChainUnaryInterceptors(interceptors...))
 		connector.Register(ctx, s, c, opts)
 
 		aws_lambda.Start(s.Handler)
