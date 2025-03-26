@@ -22,6 +22,7 @@ import (
 
 	"github.com/conductorone/dpop/pkg/dpop"
 
+	"github.com/conductorone/baton-sdk/pkg/sdk"
 	dpop_grpc "github.com/conductorone/dpop/integrations/dpop_grpc"
 	dpop_oauth "github.com/conductorone/dpop/integrations/dpop_oauth2"
 )
@@ -99,7 +100,7 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(transportCreds),
-		grpc.WithUserAgent(fmt.Sprintf("%s baton-lambda/%s", clientID, "v0.0.1")),
+		grpc.WithUserAgent(fmt.Sprintf("baton-lambda/%s %s", clientID, sdk.Version)),
 		grpc.WithPerRPCCredentials(creds),
 	}
 
