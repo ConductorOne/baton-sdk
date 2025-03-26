@@ -10,10 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/conductorone/dpop/pkg/dpop"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/go-jose/go-jose/v4/jwt"
 	"golang.org/x/oauth2"
+
+	"github.com/conductorone/dpop/pkg/dpop"
 )
 
 var (
@@ -34,7 +35,7 @@ var (
 )
 
 const (
-	assertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer-with-identity-attestation"
+	assertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 )
 
 // TokenRequest encapsulates all the data needed for a token request

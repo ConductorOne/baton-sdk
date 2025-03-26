@@ -55,3 +55,27 @@ func recoveryHandler(ctx context.Context, p interface{}) error {
 	)
 	return err
 }
+
+func ChainUnaryInterceptors(interceptors ...grpc.UnaryServerInterceptor) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context,
+		req interface{},
+		info *grpc.UnaryServerInfo,
+		handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		// Start with the final handler
+		chain := handler
+
+		// Wrap each interceptor in reverse order
+		for i := len(interceptors) - 1; i >= 0; i-- {
+			currInterceptor := interceptors[i]
+			next := chain
+			chain = func(ctx context.Context, req interface{}) (interface{}, error) {
+				return currInterceptor(ctx, req, info, next)
+			}
+		}
+
+		// Call the chained interceptors
+		return chain(ctx, req)
+	}
+}
