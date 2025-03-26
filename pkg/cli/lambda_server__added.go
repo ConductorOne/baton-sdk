@@ -81,11 +81,6 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to get connector config: %w", err)
 		}
 
-		t, err := MakeGenericConfiguration[T](v)
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
-		}
-
 		ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
 		if !ok {
 			return fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
@@ -102,9 +97,20 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
 		}
 
-		err = mapstructure.Decode(configStruct.AsMap(), t)
+		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
-			return fmt.Errorf("lambda-run: failed to decode config: %w", err)
+			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
+		}
+		switch cfg := any(t).(type) {
+		case *viper.Viper:
+			for k, v := range configStruct.AsMap() {
+				cfg.Set(k, v)
+			}
+		default:
+			err = mapstructure.Decode(configStruct.AsMap(), cfg)
+			if err != nil {
+				return fmt.Errorf("lambda-run: failed to decode config: %w", err)
+			}
 		}
 
 		if err := field.Validate(connectorSchema, t); err != nil {
