@@ -22,6 +22,7 @@ import (
 
 	"github.com/conductorone/dpop/pkg/dpop"
 
+	"github.com/conductorone/baton-sdk/pkg/sdk"
 	dpop_grpc "github.com/conductorone/dpop/integrations/dpop_grpc"
 	dpop_oauth "github.com/conductorone/dpop/integrations/dpop_oauth2"
 )
@@ -32,10 +33,10 @@ var (
 	v1SecretTokenIdentifier = []byte("v1")
 )
 
-func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clientSecret string) (pb_connector_manager.ConnectorConfigServiceClient, error) {
-	clientName, tokenHost, err := parseClientID(clientID)
+func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clientSecret string) (pb_connector_manager.ConnectorConfigServiceClient, *jose.JSONWebKey, error) {
+	_, tokenHost, err := parseClientID(clientID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if envHost, ok := os.LookupEnv("BATON_LAMBDA_TOKEN_HOST"); ok {
@@ -50,7 +51,7 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	_, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
-		return nil, fmt.Errorf("get-connector-service-client: failed to generate ed25519: %w", err)
+		return nil, nil, fmt.Errorf("get-connector-service-client: failed to generate ed25519: %w", err)
 	}
 
 	jwk := &jose.JSONWebKey{
@@ -62,22 +63,22 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	clientSecretJWK, err := parseSecret([]byte(clientSecret))
 	if err != nil {
-		return nil, fmt.Errorf("get-connector-service-client: failed to unmarshal client secret: %w", err)
+		return nil, nil, fmt.Errorf("get-connector-service-client: failed to unmarshal client secret: %w", err)
 	}
 
 	proofer, err := dpop.NewProofer(jwk)
 	if err != nil {
-		return nil, fmt.Errorf("get-connector-service-client: failed to create proofer: %w", err)
+		return nil, nil, fmt.Errorf("get-connector-service-client: failed to create proofer: %w", err)
 	}
 
 	idAttMarshaller, err := NewIdAttMarshaller(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("get-connector-service-client: failed to create claims adjuster: %w", err)
+		return nil, nil, fmt.Errorf("get-connector-service-client: failed to create claims adjuster: %w", err)
 	}
 	opts := dpop_oauth.WithRequestOption(dpop_oauth.WithCustomMarshaler(idAttMarshaller.Marshal))
 	tokenSource, err := dpop_oauth.NewTokenSource(proofer, tokenURL, clientID, clientSecretJWK, opts)
 	if err != nil {
-		return nil, fmt.Errorf("get-connector-service-client: failed to create token source: %w", err)
+		return nil, nil, fmt.Errorf("get-connector-service-client: failed to create token source: %w", err)
 	}
 
 	creds, err := dpop_grpc.NewDPoPCredentials(proofer, tokenSource, tokenHost, []dpop.ProofOption{
@@ -85,12 +86,12 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 		dpop.WithProofNowFunc(time.Now),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("get-connector-service-client: failed to create dpop credentials: %w", err)
+		return nil, nil, fmt.Errorf("get-connector-service-client: failed to create dpop credentials: %w", err)
 	}
 
 	systemCertPool, err := x509.SystemCertPool()
 	if err != nil || systemCertPool == nil {
-		return nil, fmt.Errorf("get-connector-service-client: failed to load system cert pool: %w", err)
+		return nil, nil, fmt.Errorf("get-connector-service-client: failed to load system cert pool: %w", err)
 	}
 	transportCreds := credentials.NewTLS(&tls.Config{
 		RootCAs:    systemCertPool,
@@ -99,16 +100,16 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(transportCreds),
-		grpc.WithUserAgent(fmt.Sprintf("%s baton-lambda/%s", clientName, "v0.0.1")),
+		grpc.WithUserAgent(fmt.Sprintf("baton-lambda/%s %s", clientID, sdk.Version)),
 		grpc.WithPerRPCCredentials(creds),
 	}
 
 	client, err := grpc.NewClient(tokenHost, dialOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("connector-manager-client: failed to create client: %w", err)
+		return nil, nil, fmt.Errorf("connector-manager-client: failed to create client: %w", err)
 	}
 
-	return pb_connector_manager.NewConnectorConfigServiceClient(client), nil
+	return pb_connector_manager.NewConnectorConfigServiceClient(client), jwk, nil
 }
 
 func parseClientID(input string) (string, string, error) {
