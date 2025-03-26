@@ -93,9 +93,13 @@ func getExePath() (string, error) {
 
 func initLogger(ctx context.Context, name string, loggingOpts ...logging.Option) (context.Context, error) {
 	if isService() {
+		level := os.Getenv("BATON_LOG_LEVEL")
+		if level == "" {
+			level = "info"
+		}
 		defaultLoggingOpts := []logging.Option{
 			logging.WithLogFormat(logging.LogFormatJSON),
-			logging.WithLogLevel("info"),
+			logging.WithLogLevel(level),
 			logging.WithOutputPaths([]string{filepath.Join(getConfigDir(name), "baton.log")}),
 		}
 		loggingOpts = append(defaultLoggingOpts, loggingOpts...)
@@ -113,7 +117,6 @@ func startCmd(name string) *cobra.Command {
 				context.Background(),
 				name,
 				logging.WithLogFormat(logging.LogFormatConsole),
-				logging.WithLogLevel("info"),
 			)
 
 			l := ctxzap.Extract(ctx).With(zap.String("service_name", name))
@@ -147,7 +150,6 @@ func stopCmd(name string) *cobra.Command {
 				context.Background(),
 				name,
 				logging.WithLogFormat(logging.LogFormatConsole),
-				logging.WithLogLevel("info"),
 			)
 
 			l := ctxzap.Extract(ctx).With(zap.String("service_name", name))
@@ -200,7 +202,6 @@ func statusCmd(name string) *cobra.Command {
 				context.Background(),
 				name,
 				logging.WithLogFormat(logging.LogFormatConsole),
-				logging.WithLogLevel("info"),
 			)
 
 			l := ctxzap.Extract(ctx)
@@ -361,7 +362,7 @@ func installCmd(name string, fields []field.SchemaField) *cobra.Command {
 		Use:   "setup",
 		Short: fmt.Sprintf("Setup and configure the %s service", name),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx, err := initLogger(context.Background(), name, logging.WithLogFormat(logging.LogFormatConsole), logging.WithLogLevel("info"))
+			ctx, err := initLogger(context.Background(), name, logging.WithLogFormat(logging.LogFormatConsole))
 			l := ctxzap.Extract(ctx)
 			svcMgr, err := mgr.Connect()
 			if err != nil {
@@ -421,7 +422,6 @@ func uninstallCmd(name string) *cobra.Command {
 				context.Background(),
 				name,
 				logging.WithLogFormat(logging.LogFormatConsole),
-				logging.WithLogLevel("info"),
 			)
 
 			l := ctxzap.Extract(ctx)
@@ -465,7 +465,7 @@ type batonService struct {
 }
 
 func (s *batonService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
-	ctx, err := initLogger(s.ctx, s.name, logging.WithLogFormat(logging.LogFormatConsole), logging.WithLogLevel("info"))
+	ctx, err := initLogger(s.ctx, s.name, logging.WithLogFormat(logging.LogFormatConsole))
 	if err != nil {
 		s.elog.Error(1, fmt.Sprintf("Failed to initialize logger. %v", err))
 		return false, 1
