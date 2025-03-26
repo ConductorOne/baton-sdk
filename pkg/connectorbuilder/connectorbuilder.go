@@ -40,7 +40,7 @@ var tracer = otel.Tracer("baton-sdk/pkg.connectorbuilder")
 // - ResourceManager: For creating and managing resources
 // - ResourceDeleter: For deleting resources
 // - AccountManager: For account provisioning operations
-// - CredentialManager: For credential rotation operations
+// - CredentialManager: For credential rotation operations.
 type ResourceSyncer interface {
 	ResourceType(ctx context.Context) *v2.ResourceType
 	List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error)
@@ -50,7 +50,7 @@ type ResourceSyncer interface {
 
 // ResourceProvisioner extends ResourceSyncer to add capabilities for granting and revoking access.
 //
-// DEPRECATED: New connectors should implement ResourceProvisionerV2 instead, which provides
+// Note: ResourceProvisionerV2 is preferred for new connectors as it provides
 // enhanced grant capabilities.
 //
 // Implementing this interface indicates the connector supports provisioning operations
@@ -149,7 +149,7 @@ type TicketManager interface {
 
 // CustomActionManager defines capabilities for handling custom actions.
 //
-// DEPRECATED: New connectors should implement RegisterActionManager instead.
+// Note: RegisterActionManager is preferred for new connectors.
 //
 // This interface allows connectors to define and execute custom actions
 // that can be triggered from Baton.
@@ -176,7 +176,7 @@ type RegisterActionManager interface {
 // can be added by implementing extension interfaces such as:
 // - RegisterActionManager: For custom action support
 // - EventProvider: For event stream support
-// - TicketManager: For ticket management integration
+// - TicketManager: For ticket management integration.
 type ConnectorBuilder interface {
 	Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
 	Validate(ctx context.Context) (annotations.Annotations, error)
