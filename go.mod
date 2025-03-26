@@ -12,9 +12,9 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.75.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.10
 	github.com/aws/smithy-go v1.22.2
-	github.com/conductorone/dpop v0.2.2
-	github.com/conductorone/dpop/integrations/dpop_grpc v0.2.2
-	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.2
+	github.com/conductorone/dpop v0.2.3
+	github.com/conductorone/dpop/integrations/dpop_grpc v0.2.3
+	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.3
 	github.com/deckarep/golang-set/v2 v2.7.0
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/envoyproxy/protoc-gen-validate v1.2.1
@@ -48,14 +48,14 @@ require (
 	go.uber.org/ratelimit v0.3.1
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.36.0
-	golang.org/x/net v0.36.0
+	golang.org/x/net v0.37.0
 	golang.org/x/oauth2 v0.28.0
 	golang.org/x/sync v0.12.0
 	golang.org/x/sys v0.31.0
 	golang.org/x/text v0.23.0
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250324211829-b45e905df463
 	google.golang.org/grpc v1.71.0
-	google.golang.org/protobuf v1.36.5
+	google.golang.org/protobuf v1.36.6
 	gopkg.in/yaml.v2 v2.4.0
 )
 

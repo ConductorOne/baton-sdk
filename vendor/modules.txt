@@ -151,13 +151,13 @@ github.com/benbjohnson/clock
 # github.com/cenkalti/backoff/v4 v4.3.0
 ## explicit; go 1.18
 github.com/cenkalti/backoff/v4
-# github.com/conductorone/dpop v0.2.2
+# github.com/conductorone/dpop v0.2.3
 ## explicit; go 1.23.4
 github.com/conductorone/dpop/pkg/dpop
-# github.com/conductorone/dpop/integrations/dpop_grpc v0.2.2
+# github.com/conductorone/dpop/integrations/dpop_grpc v0.2.3
 ## explicit; go 1.23.4
 github.com/conductorone/dpop/integrations/dpop_grpc
-# github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.2
+# github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.3
 ## explicit; go 1.23.4
 github.com/conductorone/dpop/integrations/dpop_oauth2
 # github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
@@ -526,7 +526,7 @@ golang.org/x/exp/slices
 golang.org/x/exp/slog
 golang.org/x/exp/slog/internal
 golang.org/x/exp/slog/internal/buffer
-# golang.org/x/net v0.36.0
+# golang.org/x/net v0.37.0
 ## explicit; go 1.23.0
 golang.org/x/net/context/ctxhttp
 golang.org/x/net/http/httpguts
@@ -578,7 +578,7 @@ golang.org/x/text/unicode/norm
 # google.golang.org/genproto/googleapis/api v0.0.0-20250218202821-56aae31c358a
 ## explicit; go 1.22
 google.golang.org/genproto/googleapis/api/httpbody
-# google.golang.org/genproto/googleapis/rpc v0.0.0-20250303144028-a0af3efb3deb
+# google.golang.org/genproto/googleapis/rpc v0.0.0-20250324211829-b45e905df463
 ## explicit; go 1.23.0
 google.golang.org/genproto/googleapis/rpc/errdetails
 google.golang.org/genproto/googleapis/rpc/status
@@ -646,8 +646,8 @@ google.golang.org/grpc/serviceconfig
 google.golang.org/grpc/stats
 google.golang.org/grpc/status
 google.golang.org/grpc/tap
-# google.golang.org/protobuf v1.36.5
-## explicit; go 1.21
+# google.golang.org/protobuf v1.36.6
+## explicit; go 1.22
 google.golang.org/protobuf/encoding/protojson
 google.golang.org/protobuf/encoding/prototext
 google.golang.org/protobuf/encoding/protowire
