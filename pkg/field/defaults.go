@@ -9,14 +9,6 @@ const (
 	OtelCollectorEndpointTLSInsecureFieldName = "otel-collector-endpoint-tls-insecure"
 	OtelTracingDisabledFieldName              = "otel-tracing-disabled"
 	OtelLoggingDisabledFieldName              = "otel-logging-disabled"
-	OtelTracingEndpointFieldName              = "otel-tracing-endpoint"
-	OtelTracingEndpointTLSCertPathFieldName   = "otel-tracing-endpoint-tls-cert-path"
-	OtelTracingEndpointTLSCertFieldName       = "otel-tracing-endpoint-tls-cert"
-	OtelTracingEndpointTLSInsecureFieldName   = "otel-tracing-endpoint-tls-insecure"
-	OtelLoggingEndpointFieldName              = "otel-logging-endpoint"
-	OtelLoggingEndpointTLSCertPathFieldName   = "otel-logging-endpoint-tls-cert-path"
-	OtelLoggingEndpointTLSCertFieldName       = "otel-logging-endpoint-tls-cert"
-	OtelLoggingEndpointTLSInsecureFieldName   = "otel-logging-endpoint-tls-insecure"
 )
 
 var (
@@ -81,30 +73,6 @@ var (
 		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
 	otelLoggingDisabled = BoolField(OtelLoggingDisabledFieldName,
 		WithDescription("Disable OpenTelemetry logging"), WithDefaultValue(false),
-		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
-	otelTracingEndpoint = StringField(OtelTracingEndpointFieldName,
-		WithDescription("The endpoint of the OpenTelemetry collector to send tracing data to (overrides otel-collector-endpoint for tracing)"),
-		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
-	otelTracingEndpointTlSCertPath = StringField(OtelTracingEndpointTLSCertPathFieldName,
-		WithDescription("Path to a file containing a PEM-encoded certificate to use as a CA for TLS connections to the OpenTelemetry tracing collector"),
-		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
-	otelTracingEndpointTlSCert = StringField(OtelTracingEndpointTLSCertFieldName,
-		WithDescription("A PEM-encoded certificate to use as a CA for TLS connections to the OpenTelemetry tracing collector"),
-		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
-	otelTracingEndpointTlSInsecure = BoolField(OtelTracingEndpointTLSInsecureFieldName,
-		WithDescription("Allow insecure connections to the OpenTelemetry tracing collector"),
-		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
-	otelLoggingEndpoint = StringField(OtelLoggingEndpointFieldName,
-		WithDescription("The endpoint of the OpenTelemetry collector to send logging data to (overrides otel-collector-endpoint for logging)"),
-		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
-	otelLoggingEndpointTlSCertPath = StringField(OtelLoggingEndpointTLSCertPathFieldName,
-		WithDescription("Path to a file containing a PEM-encoded certificate to use as a CA for TLS connections to the OpenTelemetry logging collector"),
-		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
-	otelLoggingEndpointTlSCert = StringField(OtelLoggingEndpointTLSCertFieldName,
-		WithDescription("A PEM-encoded certificate to use as a CA for TLS connections to the OpenTelemetry logging collector"),
-		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
-	otelLoggingEndpointTlSInsecure = BoolField(OtelLoggingEndpointTLSInsecureFieldName,
-		WithDescription("Allow insecure connections to the OpenTelemetry logging collector"),
 		WithPersistent(true), WithHidden(true), WithExportTarget(ExportTargetOps))
 
 	externalResourceC1ZField = StringField("external-resource-c1z",
@@ -201,14 +169,6 @@ var DefaultFields = []SchemaField{
 	otelCollectorEndpointTlSInsecure,
 	otelTracingDisabled,
 	otelLoggingDisabled,
-	otelTracingEndpoint,
-	otelTracingEndpointTlSCertPath,
-	otelTracingEndpointTlSCert,
-	otelTracingEndpointTlSInsecure,
-	otelLoggingEndpoint,
-	otelLoggingEndpointTlSCertPath,
-	otelLoggingEndpointTlSCert,
-	otelLoggingEndpointTlSInsecure,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {

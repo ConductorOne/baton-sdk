@@ -264,7 +264,11 @@ func MakeMainCommand[T field.Configurable](
 }
 
 func initOtel(ctx context.Context, name string, v *viper.Viper, initialLogFields map[string]interface{}) (context.Context, func(context.Context) error, error) {
-	// Configure OpenTelemetry
+	otelEndpoint := v.GetString(field.OtelCollectorEndpointFieldName)
+	if otelEndpoint == "" {
+		return ctx, nil, nil
+	}
+
 	var otelOpts []uotel.Option
 	otelOpts = append(otelOpts, uotel.WithServiceName(fmt.Sprintf("%s-server", name)))
 
@@ -272,53 +276,23 @@ func initOtel(ctx context.Context, name string, v *viper.Viper, initialLogFields
 		otelOpts = append(otelOpts, uotel.WithInitialLogFields(initialLogFields))
 	}
 
-	// Global endpoint
-	otelEndpoint := v.GetString(field.OtelCollectorEndpointFieldName)
-	otelTLSCert := v.GetString(field.OtelCollectorEndpointTLSCertFieldName)
-	otelTLSCertPath := v.GetString(field.OtelCollectorEndpointTLSCertPathFieldName)
-	otelTLSInsecure := v.GetBool(field.OtelCollectorEndpointTLSInsecureFieldName)
-
-	if otelEndpoint != "" {
-		if otelTLSInsecure {
-			otelOpts = append(otelOpts, uotel.WithInsecureOtelEndpoint(otelEndpoint))
-		} else {
-			otelOpts = append(otelOpts, uotel.WithOtelEndpoint(otelEndpoint, otelTLSCertPath, otelTLSCert))
-		}
-	}
-
-	// (optional) tracing override
-	otelTracingDisabled := v.GetBool(field.OtelTracingDisabledFieldName)
-	otelTracingEndpoint := v.GetString(field.OtelTracingEndpointFieldName)
-	otelTracingTLSCert := v.GetString(field.OtelTracingEndpointTLSCertFieldName)
-	otelTracingTLSCertPath := v.GetString(field.OtelTracingEndpointTLSCertPathFieldName)
-	otelTracingTLSInsecure := v.GetBool(field.OtelTracingEndpointTLSInsecureFieldName)
-
-	if otelTracingDisabled {
+	if v.GetBool(field.OtelTracingDisabledFieldName) {
 		otelOpts = append(otelOpts, uotel.WithTracingDisabled())
-	} else if otelTracingEndpoint != "" {
-		if otelTracingTLSInsecure {
-			otelOpts = append(otelOpts, uotel.WithInsecureTracingEndpoint(otelTracingEndpoint))
-		} else {
-			otelOpts = append(otelOpts, uotel.WithTracingEndpoint(otelTracingEndpoint, otelTracingTLSCertPath, otelTracingTLSCert))
-		}
 	}
 
-	// (optional) logging overrides
-	otelLoggingDisabled := v.GetBool(field.OtelLoggingDisabledFieldName)
-	otelLoggingEndpoint := v.GetString(field.OtelLoggingEndpointFieldName)
-	otelLoggingTLSCert := v.GetString(field.OtelLoggingEndpointTLSCertFieldName)
-	otelLoggingTLSCertPath := v.GetString(field.OtelLoggingEndpointTLSCertPathFieldName)
-	otelLoggingTLSInsecure := v.GetBool(field.OtelLoggingEndpointTLSInsecureFieldName)
-
-	if otelLoggingDisabled {
+	if v.GetBool(field.OtelLoggingDisabledFieldName) {
 		otelOpts = append(otelOpts, uotel.WithLoggingDisabled())
-	} else if otelLoggingEndpoint != "" {
-		if otelLoggingTLSInsecure {
-			otelOpts = append(otelOpts, uotel.WithInsecureLoggingEndpoint(otelLoggingEndpoint))
-		} else {
-			otelOpts = append(otelOpts, uotel.WithLoggingEndpoint(otelLoggingEndpoint, otelLoggingTLSCertPath, otelLoggingTLSCert))
-		}
 	}
+
+	otelTLSInsecure := v.GetBool(field.OtelCollectorEndpointTLSInsecureFieldName)
+	if otelTLSInsecure {
+		otelOpts = append(otelOpts, uotel.WithInsecureOtelEndpoint(otelEndpoint))
+	} else {
+		otelTLSCert := v.GetString(field.OtelCollectorEndpointTLSCertFieldName)
+		otelTLSCertPath := v.GetString(field.OtelCollectorEndpointTLSCertPathFieldName)
+		otelOpts = append(otelOpts, uotel.WithOtelEndpoint(otelEndpoint, otelTLSCertPath, otelTLSCert))
+	}
+
 	return uotel.InitOtel(context.Background(), otelOpts...)
 }
 

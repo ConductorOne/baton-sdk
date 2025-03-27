@@ -36,25 +36,14 @@ type otelConfig struct {
 	serviceName      string
 	initialLogFields map[string]interface{}
 
-	// Default endpoint for both tracing and logging if specific endpoints are not provided.
+	// endpoint for both tracing and logging
 	endpoint    string
 	tlsCert     string
 	tlsCertPath string
 	tlsInsecure bool
 
-	// Tracing configuration
-	tracingDisabled    bool
-	tracingEndpoint    string
-	tracingTLSCert     string
-	tracingTLSCertPath string
-	tracingTLSInsecure bool
-
-	// Logging configuration
-	loggingDisabled    bool
-	loggingEndpoint    string
-	loggingTLSCert     string
-	loggingTLSCertPath string
-	loggingTLSInsecure bool
+	tracingDisabled bool
+	loggingDisabled bool
 
 	mtx      sync.Mutex
 	resource *resource.Resource
@@ -106,50 +95,10 @@ func WithTracingDisabled() Option {
 	}
 }
 
-// WithTracingEndpoint sets the endpoint and TLS certificate for tracing.
-func WithTracingEndpoint(endpoint string, tlsCertPath string, tlsCert string) Option {
-	return func(c *otelConfig) {
-		c.tracingEndpoint = endpoint
-		c.tracingTLSCert = tlsCert
-		c.tracingTLSCertPath = tlsCertPath
-		c.tracingTLSInsecure = false
-	}
-}
-
-// WithInsecureTracingEndpoint sets the endpoint for tracing with insecure connection.
-func WithInsecureTracingEndpoint(endpoint string) Option {
-	return func(c *otelConfig) {
-		c.tracingEndpoint = endpoint
-		c.tracingTLSCert = ""
-		c.tracingTLSCertPath = ""
-		c.tracingTLSInsecure = true
-	}
-}
-
 // WithLoggingDisabled disables logging.
 func WithLoggingDisabled() Option {
 	return func(c *otelConfig) {
 		c.loggingDisabled = true
-	}
-}
-
-// WithLoggingEndpoint sets the endpoint and TLS certificate for logging.
-func WithLoggingEndpoint(endpoint string, tlsCertPath string, tlsCert string) Option {
-	return func(c *otelConfig) {
-		c.loggingEndpoint = endpoint
-		c.loggingTLSCert = tlsCert
-		c.loggingTLSCertPath = tlsCertPath
-		c.loggingTLSInsecure = false
-	}
-}
-
-// WithInsecureLoggingEndpoint sets the endpoint for logging with insecure connection.
-func WithInsecureLoggingEndpoint(endpoint string) Option {
-	return func(c *otelConfig) {
-		c.loggingEndpoint = endpoint
-		c.loggingTLSCert = ""
-		c.loggingTLSCertPath = ""
-		c.loggingTLSInsecure = true
 	}
 }
 
@@ -170,17 +119,29 @@ func (c *otelConfig) init(ctx context.Context) (context.Context, error) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 
-	ctx, err := c.initLogging(ctx)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"otel: failed to initialize logging: %w",
-			err)
+	if c.endpoint == "" || (c.loggingDisabled && c.tracingDisabled) {
+		zap.L().Debug("otel: no endpoint provided, skipping initialization")
+		return ctx, nil
 	}
-	ctx, err = c.initTracing(ctx)
+	cc, err := c.getConnection()
+
 	if err != nil {
-		return nil, fmt.Errorf(
-			"otel: failed to initialize tracing: %w",
-			err)
+		return nil, fmt.Errorf("otel: failed to create gRPC connection: %w", err)
+	}
+
+	if cc == nil {
+		zap.L().Debug("otel: no endpoint provided, skipping initialization")
+		return ctx, nil
+	}
+
+	ctx, err = c.initLogging(ctx, cc)
+	if err != nil {
+		return nil, fmt.Errorf("otel: failed to initialize logging: %w", err)
+	}
+
+	ctx, err = c.initTracing(ctx, cc)
+	if err != nil {
+		return nil, fmt.Errorf("otel: failed to initialize tracing: %w", err)
 	}
 	return ctx, nil
 }
@@ -188,23 +149,23 @@ func (c *otelConfig) init(ctx context.Context) (context.Context, error) {
 // getConnection returns a gRPC connection for the given endpoint and TLS certificate
 // If a connection already exists for the endpoint, it is reused
 // precondition: c.mtx is locked
-func (c *otelConfig) getConnection(endpoint string, tlsCertPath string, tlsCert string, insecure bool) (*grpc.ClientConn, error) {
-	if endpoint == "" {
+func (c *otelConfig) getConnection() (*grpc.ClientConn, error) {
+	if c.endpoint == "" {
 		return nil, fmt.Errorf("otel: endpoint is required")
 	}
 
-	if tlsCertPath != "" && tlsCert != "" {
+	if c.tlsCertPath != "" && c.tlsCert != "" {
 		return nil, fmt.Errorf("otel: tlsCertPath and tlsCert are mutually exclusive, only one should be provided")
 	}
 
-	key := endpoint
+	key := c.endpoint
 	switch {
-	case tlsCertPath != "":
-		key = fmt.Sprintf("%s:path:%s", endpoint, tlsCertPath)
-	case tlsCert != "":
-		key = fmt.Sprintf("%s:cert:%s", endpoint, tlsCert)
-	case insecure:
-		key = fmt.Sprintf("%s:insecure", endpoint)
+	case c.tlsCertPath != "":
+		key = fmt.Sprintf("%s:path:%s", c.endpoint, c.tlsCertPath)
+	case c.tlsCert != "":
+		key = fmt.Sprintf("%s:cert:%s", c.endpoint, c.tlsCert)
+	case c.tlsInsecure:
+		key = fmt.Sprintf("%s:insecure", c.endpoint)
 	}
 
 	if conn, ok := c.c[key]; ok {
@@ -213,10 +174,10 @@ func (c *otelConfig) getConnection(endpoint string, tlsCertPath string, tlsCert 
 
 	var conn *grpc.ClientConn
 	var err error
-	if insecure {
-		conn, err = createInsecureGRPCConnection(endpoint)
+	if c.tlsInsecure {
+		conn, err = createInsecureGRPCConnection(c.endpoint)
 	} else {
-		conn, err = createGRPCConnection(endpoint, tlsCertPath, tlsCert)
+		conn, err = createGRPCConnection(c.endpoint, c.tlsCertPath, c.tlsCert)
 	}
 
 	if err != nil {
@@ -225,36 +186,6 @@ func (c *otelConfig) getConnection(endpoint string, tlsCertPath string, tlsCert 
 
 	c.c[key] = conn
 	return conn, nil
-}
-
-func (c *otelConfig) getTracingConnection() (*grpc.ClientConn, bool, error) {
-	endpoint := c.tracingEndpoint
-	if endpoint == "" {
-		endpoint = c.endpoint
-	}
-	tlsCertPath := c.tracingTLSCertPath
-	if tlsCertPath == "" {
-		tlsCertPath = c.tlsCertPath
-	}
-	tlsCert := c.tracingTLSCert
-	if tlsCert == "" {
-		tlsCert = c.tlsCert
-	}
-	tlsInsecure := c.tracingTLSInsecure
-	if !tlsInsecure {
-		tlsInsecure = c.tlsInsecure
-	}
-
-	// If we still don't have an endpoint, tracing is not enabled
-	if endpoint == "" {
-		return nil, false, nil
-	}
-
-	cc, err := c.getConnection(endpoint, tlsCertPath, tlsCert, tlsInsecure)
-	if err != nil {
-		return nil, false, err
-	}
-	return cc, true, nil
 }
 
 func (c *otelConfig) getResource(ctx context.Context) (*resource.Resource, error) {
@@ -274,15 +205,7 @@ func (c *otelConfig) getResource(ctx context.Context) (*resource.Resource, error
 	return res, nil
 }
 
-func (c *otelConfig) initTracing(ctx context.Context) (context.Context, error) {
-	cc, tracingEnabled, err := c.getTracingConnection()
-	if err != nil {
-		return nil, err
-	}
-	if !tracingEnabled {
-		return ctx, nil
-	}
-
+func (c *otelConfig) initTracing(ctx context.Context, cc *grpc.ClientConn) (context.Context, error) {
 	res, err := c.getResource(ctx)
 	if err != nil {
 		return nil, err
@@ -313,48 +236,10 @@ func (c *otelConfig) initTracing(ctx context.Context) (context.Context, error) {
 	return ctx, nil
 }
 
-func (c *otelConfig) getLoggingConnection() (*grpc.ClientConn, bool, error) {
-	endpoint := c.loggingEndpoint
-	if endpoint == "" {
-		endpoint = c.endpoint
-	}
-	tlsCertPath := c.loggingTLSCertPath
-	if tlsCertPath == "" {
-		tlsCertPath = c.tlsCertPath
-	}
-	tlsCert := c.loggingTLSCert
-	if tlsCert == "" {
-		tlsCert = c.tlsCert
-	}
-	tlsInsecure := c.loggingTLSInsecure
-	if !tlsInsecure {
-		tlsInsecure = c.tlsInsecure
-	}
-
-	// If we still don't have an endpoint, logging is not enabled
-	if endpoint == "" {
-		return nil, false, nil
-	}
-
-	cc, err := c.getConnection(endpoint, tlsCertPath, tlsCert, tlsInsecure)
-	if err != nil {
-		return nil, false, err
-	}
-	return cc, true, nil
-}
-
 // initLogging sets up a otlp logging exporter using an existing connection and resource.
 // This replaces the current global zap logger with a new one that 'tees' into the otlp logging exporter, as such
 // it is important to set up the zap logger (logging.Init()) before InitOtel().
-func (c *otelConfig) initLogging(ctx context.Context) (context.Context, error) {
-	cc, loggingEnabled, err := c.getLoggingConnection()
-	if err != nil {
-		return nil, err
-	}
-	if !loggingEnabled {
-		return ctx, nil
-	}
-
+func (c *otelConfig) initLogging(ctx context.Context, cc *grpc.ClientConn) (context.Context, error) {
 	res, err := c.getResource(ctx)
 	if err != nil {
 		return nil, err
