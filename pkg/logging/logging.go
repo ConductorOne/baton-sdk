@@ -65,7 +65,6 @@ func Init(ctx context.Context, opts ...Option) (context.Context, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	zap.ReplaceGlobals(l)
 
 	l.Debug("Logger created!", zap.String("log_level", zc.Level.String()))
