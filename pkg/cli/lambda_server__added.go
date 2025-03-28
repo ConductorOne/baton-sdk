@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	aws_lambda "github.com/aws/aws-lambda-go/lambda"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
@@ -14,6 +15,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
@@ -52,15 +54,35 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 
+		initalLogFields := map[string]interface{}{
+			"tenant":       os.Getenv("tenant"),
+			"connector":    os.Getenv("connector"),
+			"installation": os.Getenv("installation"),
+			"app":          os.Getenv("app"),
+			"version":      os.Getenv("version"),
+		}
+
 		runCtx, err := initLogger(
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(v.GetString("log-level")),
+			logging.WithInitialFields(initalLogFields),
 		)
 		if err != nil {
 			return err
 		}
+
+		runCtx, otelShutdown, err := initOtel(context.Background(), name, v, initalLogFields)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			err := otelShutdown(context.Background())
+			if err != nil {
+				zap.L().Error("error shutting down otel", zap.Error(err))
+			}
+		}()
 
 		if err := field.Validate(lambdaSchema, v); err != nil {
 			return err
