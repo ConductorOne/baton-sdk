@@ -49,6 +49,8 @@ message UserTrait {
   // Any additional login aliases for the user
   repeated string login_aliases = 7;
 
+  repeated string employee_ids = 13;
+
   google.protobuf.Timestamp created_at = 8;
   google.protobuf.Timestamp last_login = 9;
 
