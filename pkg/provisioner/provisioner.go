@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -157,6 +158,18 @@ func (p *Provisioner) grant(ctx context.Context) error {
 		return err
 	}
 
+	entitlementResource, err := store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+		ResourceId: entitlement.GetEntitlement().GetResource().GetId(),
+	})
+	if err != nil {
+		return err
+	}
+	entitlementResourceAnnos := entitlementResource.GetResource().GetAnnotations()
+	rAnnos := annotations.Annotations(entitlementResourceAnnos)
+	if rAnnos.Contains(&v2.BatonID{}) {
+		return errors.New("cannot grant entitlement on external resource")
+	}
+
 	principal, err := store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 		ResourceId: &v2.ResourceId{
 			Resource:     p.grantPrincipalID,
@@ -217,6 +230,19 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	entitlementResource, err := store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+		ResourceId: entitlement.GetEntitlement().GetResource().GetId(),
+	})
+	if err != nil {
+		return err
+	}
+	entitlementResourceAnnos := entitlementResource.GetResource().GetAnnotations()
+	rAnnos := annotations.Annotations(entitlementResourceAnnos)
+	if rAnnos.Contains(&v2.BatonID{}) {
+		return errors.New("cannot revoke grant on external resource")
+	}
+
 	resource := &v2.Resource{
 		Id:          principal.Resource.Id,
 		DisplayName: principal.Resource.DisplayName,
