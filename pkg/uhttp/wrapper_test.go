@@ -22,6 +22,11 @@ type example struct {
 	Age  int    `json:"age"`
 }
 
+type xmlExample struct {
+	Name string `xml:"name"`
+	Age  int    `xml:"age"`
+}
+
 var ctx = context.Background()
 
 func TestWrapper_NewBaseHttpClient(t *testing.T) {
@@ -59,6 +64,16 @@ func TestWrapper_WithAcceptJSONHeader(t *testing.T) {
 	require.Equal(t, "application/json", headers["Accept"])
 }
 
+func TestWrapper_WithContentTypeXMLHeader(t *testing.T) {
+	option := WithContentTypeXMLHeader()
+	buffer, headers, err := option()
+
+	require.Nil(t, err)
+	require.Nil(t, buffer)
+	require.Contains(t, headers, "Content-Type")
+	require.Equal(t, "application/xml", headers["Content-Type"])
+}
+
 func TestWrapper_WithAcceptXMLHeader(t *testing.T) {
 	option := WithAcceptXMLHeader()
 	buffer, headers, err := option()
@@ -67,6 +82,26 @@ func TestWrapper_WithAcceptXMLHeader(t *testing.T) {
 	require.Nil(t, buffer)
 	require.Contains(t, headers, "Accept")
 	require.Equal(t, "application/xml", headers["Accept"])
+}
+
+func TestWrapper_WithXMLBody(t *testing.T) {
+	exampleBody := xmlExample{
+		Name: "John",
+		Age:  30,
+	}
+	exampleBodyBuffer := new(bytes.Buffer)
+	err := xml.NewEncoder(exampleBodyBuffer).Encode(exampleBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	option := WithXMLBody(exampleBody)
+	buffer, headers, err := option()
+
+	require.Nil(t, err)
+	require.Equal(t, exampleBodyBuffer, buffer)
+	require.Contains(t, headers, "Content-Type")
+	require.Equal(t, "application/xml", headers["Content-Type"])
 }
 
 func TestWrapper_WithContentTypeJSONHeader(t *testing.T) {
