@@ -78,7 +78,7 @@ func DefineConfiguration[T field.Configurable](
 		return nil, nil, err
 	}
 
-	mainCMD.AddCommand(cli.AdditionalCommands(connectorName, schema.Fields)...)
+	mainCMD.AddCommand(cli.AdditionalCommands(connectorName, confschema.Fields)...)
 	cli.VisitFlags(mainCMD, v)
 
 	err = cli.OptionallyAddLambdaCommand(ctx, connectorName, v, connector, confschema, mainCMD)
