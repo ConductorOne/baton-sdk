@@ -61,12 +61,16 @@ func MakeMainCommand[T field.Configurable](
 			return err
 		}
 		defer func() {
+			if otelShutdown == nil {
+				return
+			}
 			err := otelShutdown(context.Background())
 			if err != nil {
 				zap.L().Error("error shutting down otel", zap.Error(err))
 			}
 		}()
 
+		// NOTE: initOtel may do stuff with the logger
 		l := ctxzap.Extract(runCtx)
 
 		if isService() {
