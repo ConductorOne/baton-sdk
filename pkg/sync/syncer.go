@@ -1419,7 +1419,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
 			s.state.SetNeedsExpansion()
 		}
-		if grantAnnos.Contains(&v2.ExternalResourceMatchAll{}) || grantAnnos.Contains(&v2.ExternalResourceMatch{}) {
+		if grantAnnos.Contains(&v2.ExternalResourceMatchAll{}) || grantAnnos.Contains(&v2.ExternalResourceMatch{}) || grantAnnos.Contains(&v2.ExternalResourceMatchID{}) {
 			s.state.SetHasExternalResourcesGrants()
 		}
 	}
