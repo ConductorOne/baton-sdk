@@ -1819,6 +1819,23 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return nil
 	}
 
+	l := ctxzap.Extract(ctx)
+
+	principalMap := make(map[string]*v2.Resource)
+	for _, principal := range principals {
+		rAnnos := annotations.Annotations(principal.GetAnnotations())
+		batonID := &v2.BatonID{}
+		if !rAnnos.Contains(batonID) {
+			continue
+		}
+		principalID := principal.GetId().GetResource()
+		if principalID == "" {
+			l.Error("principal resource id was empty")
+			continue
+		}
+		principalMap[principalID] = principal
+	}
+
 	grantsToDelete := make([]string, 0)
 
 	grants, err := s.listAllGrants(ctx)
@@ -1833,24 +1850,15 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			return err
 		}
 		if matchResourceMatchIDAnno != nil {
-			for _, principal := range principals {
-				rAnnos := annotations.Annotations(principal.GetAnnotations())
-				batonID := &v2.BatonID{}
-				if !rAnnos.Contains(batonID) {
-					continue
+			if principal, ok := principalMap[matchResourceMatchIDAnno.Id]; ok {
+				newGrant := &v2.Grant{
+					Entitlement: grant.Entitlement,
+					Principal:   principal,
+					Id:          batonGrant.NewGrantID(principal, grant.Entitlement),
+					Sources:     grant.Sources,
+					Annotations: grant.Annotations,
 				}
-				if principal.GetId().GetResource() == matchResourceMatchIDAnno.Id {
-					newGrant := &v2.Grant{
-						Entitlement: grant.Entitlement,
-						Principal:   principal,
-						Id:          batonGrant.NewGrantID(principal, grant.Entitlement),
-						Sources:     grant.Sources,
-						Annotations: grant.Annotations,
-					}
-					expandedGrants = append(expandedGrants, newGrant)
-					// break out of principal list iteration since we found a match
-					break
-				}
+				expandedGrants = append(expandedGrants, newGrant)
 			}
 			// We still want to delete the grant even if there are no matches
 			grantsToDelete = append(grantsToDelete, grant.Id)
