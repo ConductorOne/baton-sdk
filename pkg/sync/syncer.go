@@ -1419,7 +1419,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
 			s.state.SetNeedsExpansion()
 		}
-		if grantAnnos.Contains(&v2.ExternalResourceMatchAll{}) || grantAnnos.Contains(&v2.ExternalResourceMatch{}) {
+		if grantAnnos.Contains(&v2.ExternalResourceMatchAll{}) || grantAnnos.Contains(&v2.ExternalResourceMatch{}) || grantAnnos.Contains(&v2.ExternalResourceMatchID{}) {
 			s.state.SetHasExternalResourcesGrants()
 		}
 	}
@@ -1819,6 +1819,23 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		return nil
 	}
 
+	l := ctxzap.Extract(ctx)
+
+	principalMap := make(map[string]*v2.Resource)
+	for _, principal := range principals {
+		rAnnos := annotations.Annotations(principal.GetAnnotations())
+		batonID := &v2.BatonID{}
+		if !rAnnos.Contains(batonID) {
+			continue
+		}
+		principalID := principal.GetId().GetResource()
+		if principalID == "" {
+			l.Error("principal resource id was empty")
+			continue
+		}
+		principalMap[principalID] = principal
+	}
+
 	grantsToDelete := make([]string, 0)
 
 	grants, err := s.listAllGrants(ctx)
@@ -1828,6 +1845,26 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	expandedGrants := make([]*v2.Grant, 0)
 	for _, grant := range grants {
 		annos := annotations.Annotations(grant.Annotations)
+		matchResourceMatchIDAnno, err := GetExternalResourceMatchIDAnnotation(annos)
+		if err != nil {
+			return err
+		}
+		if matchResourceMatchIDAnno != nil {
+			if principal, ok := principalMap[matchResourceMatchIDAnno.Id]; ok {
+				newGrant := &v2.Grant{
+					Entitlement: grant.Entitlement,
+					Principal:   principal,
+					Id:          batonGrant.NewGrantID(principal, grant.Entitlement),
+					Sources:     grant.Sources,
+					Annotations: grant.Annotations,
+				}
+				expandedGrants = append(expandedGrants, newGrant)
+			}
+			// We still want to delete the grant even if there are no matches
+			grantsToDelete = append(grantsToDelete, grant.Id)
+			continue
+		}
+
 		matchResourceMatchAllAnno, err := GetExternalResourceMatchAllAnnotation(annos)
 		if err != nil {
 			return err
@@ -1996,6 +2033,15 @@ func GetExternalResourceMatchAnnotation(annos annotations.Annotations) (*v2.Exte
 		return nil, err
 	}
 	return externalResourceMatch, nil
+}
+
+func GetExternalResourceMatchIDAnnotation(annos annotations.Annotations) (*v2.ExternalResourceMatchID, error) {
+	externalResourceMatchID := &v2.ExternalResourceMatchID{}
+	ok, err := annos.Pick(externalResourceMatchID)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return externalResourceMatchID, nil
 }
 
 func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {

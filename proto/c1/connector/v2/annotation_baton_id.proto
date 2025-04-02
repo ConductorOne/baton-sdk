@@ -16,4 +16,8 @@ message ExternalResourceMatchAll {
   c1.connector.v2.ResourceType.Trait resource_type = 1;
 }
 
+message ExternalResourceMatchID {
+  string id = 1;
+}
+
 message BatonID {}
