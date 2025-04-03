@@ -533,7 +533,7 @@ func TestExternalResourcePath(t *testing.T) {
 	allGrants, err := store.ListGrants(ctx, allGrantsReq)
 	require.NoError(t, err)
 
-	require.Len(t, allGrants.List, 1)
+	require.Len(t, allGrants.List, 2)
 }
 
 func newMockConnector() *mockConnector {
