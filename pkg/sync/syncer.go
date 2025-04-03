@@ -9,6 +9,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -18,10 +19,9 @@ import (
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	mapset "github.com/deckarep/golang-set/v2"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -1810,7 +1810,6 @@ func (s *syncer) listAllGrants(ctx context.Context) ([]*v2.Grant, error) {
 	return grants, nil
 }
 
-// TODO(lauren) Split up principals by type (user, group)
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
 	defer span.End()
@@ -1821,12 +1820,21 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 	l := ctxzap.Extract(ctx)
 
+	groupPrincipals := make([]*v2.Resource, 0)
+	userPrincipals := make([]*v2.Resource, 0)
 	principalMap := make(map[string]*v2.Resource)
+
 	for _, principal := range principals {
 		rAnnos := annotations.Annotations(principal.GetAnnotations())
 		batonID := &v2.BatonID{}
 		if !rAnnos.Contains(batonID) {
 			continue
+		}
+		if rAnnos.Contains(&v2.UserTrait{}) {
+			userPrincipals = append(userPrincipals, principal)
+		}
+		if rAnnos.Contains(&v2.GroupTrait{}) {
+			groupPrincipals = append(groupPrincipals, principal)
 		}
 		principalID := principal.GetId().GetResource()
 		if principalID == "" {
@@ -1837,167 +1845,111 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	}
 
 	grantsToDelete := make([]string, 0)
+	expandedGrants := make([]*v2.Grant, 0)
 
 	grants, err := s.listAllGrants(ctx)
 	if err != nil {
 		return err
 	}
-	expandedGrants := make([]*v2.Grant, 0)
+
 	for _, grant := range grants {
 		annos := annotations.Annotations(grant.Annotations)
+
+		// Match all
+		matchResourceMatchAllAnno, err := GetExternalResourceMatchAllAnnotation(annos)
+		if err != nil {
+			return err
+		}
+		if matchResourceMatchAllAnno != nil {
+			var processPrincipals []*v2.Resource
+			switch matchResourceMatchAllAnno.ResourceType {
+			case v2.ResourceType_TRAIT_USER:
+				processPrincipals = userPrincipals
+			case v2.ResourceType_TRAIT_GROUP:
+				processPrincipals = groupPrincipals
+			default:
+				l.Error("unexpected external resource type trait", zap.Any("trait", matchResourceMatchAllAnno.ResourceType))
+			}
+			for _, principal := range processPrincipals {
+				newGrant := newGrantForExternalPrincipal(grant, principal)
+				expandedGrants = append(expandedGrants, newGrant)
+			}
+			grantsToDelete = append(grantsToDelete, grant.Id)
+			continue
+		}
+
+		// Match by ID
 		matchResourceMatchIDAnno, err := GetExternalResourceMatchIDAnnotation(annos)
 		if err != nil {
 			return err
 		}
 		if matchResourceMatchIDAnno != nil {
 			if principal, ok := principalMap[matchResourceMatchIDAnno.Id]; ok {
-				newGrant := &v2.Grant{
-					Entitlement: grant.Entitlement,
-					Principal:   principal,
-					Id:          batonGrant.NewGrantID(principal, grant.Entitlement),
-					Sources:     grant.Sources,
-					Annotations: grant.Annotations,
-				}
+				newGrant := newGrantForExternalPrincipal(grant, principal)
 				expandedGrants = append(expandedGrants, newGrant)
 			}
+
 			// We still want to delete the grant even if there are no matches
+			// Since it does not correspond to any known user
 			grantsToDelete = append(grantsToDelete, grant.Id)
+			// TODO(lauren) remove continue here (and only continue if we found a principal with the ID) if we decide
+			// to support using multiple external resource match annos on a single grant (e.g id and key/val match)
 			continue
 		}
 
-		matchResourceMatchAllAnno, err := GetExternalResourceMatchAllAnnotation(annos)
-		if err != nil {
-			return err
-		}
-		if matchResourceMatchAllAnno != nil {
-			for _, principal := range principals {
-				rAnnos := annotations.Annotations(principal.GetAnnotations())
-				batonID := &v2.BatonID{}
-				if !rAnnos.Contains(batonID) {
-					continue
-				}
-				switch matchResourceMatchAllAnno.ResourceType {
-				case v2.ResourceType_TRAIT_USER:
-					userTrait := &v2.UserTrait{}
-					ok, err := rAnnos.Pick(userTrait)
-					if err != nil {
-						return err
-					}
-					if !ok {
-						continue
-					}
-				case v2.ResourceType_TRAIT_GROUP:
-					groupTrait := &v2.GroupTrait{}
-					ok, err := rAnnos.Pick(groupTrait)
-					if err != nil {
-						return err
-					}
-					if !ok {
-						continue
-					}
-				default:
-					return errors.New("unexpected external resource type")
-				}
-
-				newGrant := &v2.Grant{
-					Entitlement: grant.Entitlement,
-					Principal:   principal,
-					Id:          batonGrant.NewGrantID(principal, grant.Entitlement),
-					Sources:     grant.Sources,
-					Annotations: grant.Annotations,
-				}
-				expandedGrants = append(expandedGrants, newGrant)
-			}
-			grantsToDelete = append(grantsToDelete, grant.Id)
-			continue
-		}
-
+		// Match by key/val
 		matchExternalResource, err := GetExternalResourceMatchAnnotation(annos)
 		if err != nil {
 			return err
 		}
 		if matchExternalResource != nil {
-			for _, principal := range principals {
-				rAnnos := annotations.Annotations(principal.GetAnnotations())
-				batonID := &v2.BatonID{}
-				if !rAnnos.Contains(batonID) {
-					continue
-				}
-				switch matchExternalResource.ResourceType {
-				case v2.ResourceType_TRAIT_USER:
-					userTrait := &v2.UserTrait{}
-					ok, err := rAnnos.Pick(userTrait)
+			switch matchExternalResource.ResourceType {
+			case v2.ResourceType_TRAIT_USER:
+				for _, userPrincipal := range userPrincipals {
+					userTrait, err := resource.GetUserTrait(userPrincipal)
 					if err != nil {
-						return err
-					}
-					if !ok {
+						l.Error("error getting user trait", zap.Any("userPrincipal", userPrincipal))
 						continue
 					}
-
 					if matchExternalResource.Key == "email" {
-						// TODO(lauren) Should we only use primary? or should we use profile?
-						for _, email := range userTrait.Emails {
-							// Case insensitive comparison for email
-							if strings.EqualFold(email.Address, matchExternalResource.Value) {
-								newGrant := &v2.Grant{
-									Entitlement: grant.Entitlement,
-									Principal:   principal,
-									Id:          batonGrant.NewGrantID(principal, grant.Entitlement),
-									Sources:     grant.Sources,
-									Annotations: grant.Annotations,
-								}
-								expandedGrants = append(expandedGrants, newGrant)
-								grantsToDelete = append(grantsToDelete, grant.Id)
-								// break out of principal list iteration since we found a match
-								break
-							}
+						if userTraitContainsEmail(userTrait.Emails, matchExternalResource.Value) {
+							newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
+							expandedGrants = append(expandedGrants, newGrant)
+							// continue to next principal since we found an email match
+							continue
 						}
 					}
 					profileVal, ok := resource.GetProfileStringValue(userTrait.Profile, matchExternalResource.Key)
 					if ok && profileVal == matchExternalResource.Value {
-						newGrant := &v2.Grant{
-							Entitlement: grant.Entitlement,
-							Principal:   principal,
-							Id:          batonGrant.NewGrantID(principal, grant.Entitlement),
-							Sources:     grant.Sources,
-							Annotations: grant.Annotations,
-						}
+						newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
 						expandedGrants = append(expandedGrants, newGrant)
-						grantsToDelete = append(grantsToDelete, grant.Id)
-						// break out of principal list iteration since we found a match
-						break
 					}
-				case v2.ResourceType_TRAIT_GROUP:
-					groupTrait := &v2.GroupTrait{}
-					ok, err := rAnnos.Pick(groupTrait)
+				}
+			case v2.ResourceType_TRAIT_GROUP:
+				for _, groupPrincipal := range groupPrincipals {
+					groupTrait, err := resource.GetGroupTrait(groupPrincipal)
 					if err != nil {
-						return err
-					}
-					if !ok {
+						l.Error("error getting group trait", zap.Any("groupPrincipal", groupPrincipal))
 						continue
 					}
 					profileVal, ok := resource.GetProfileStringValue(groupTrait.Profile, matchExternalResource.Key)
 					if ok && profileVal == matchExternalResource.Value {
-						newGrant := &v2.Grant{
-							Entitlement: grant.Entitlement,
-							Principal:   principal,
-							Id:          batonGrant.NewGrantID(principal, grant.Entitlement),
-							Sources:     grant.Sources,
-							Annotations: grant.Annotations,
-						}
+						newGrant := newGrantForExternalPrincipal(grant, groupPrincipal)
 						expandedGrants = append(expandedGrants, newGrant)
-						grantsToDelete = append(grantsToDelete, grant.Id)
-						// break out of principal list iteration since we found a match
-						break
 					}
-				default:
-					return errors.New("unexpected external resource type")
 				}
+			default:
+				l.Error("unexpected external resource type trait", zap.Any("trait", matchExternalResource.ResourceType))
 			}
 
 			// We still want to delete the grant even if there are no matches
 			grantsToDelete = append(grantsToDelete, grant.Id)
 		}
+	}
+
+	newGrantIDs := mapset.NewSet[string]()
+	for _, ng := range expandedGrants {
+		newGrantIDs.Add(ng.Id)
 	}
 
 	err = s.store.PutGrants(ctx, expandedGrants...)
@@ -2006,6 +1958,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	}
 
 	for _, grantId := range grantsToDelete {
+		if newGrantIDs.ContainsOne(grantId) {
+			continue
+		}
 		err = s.store.DeleteGrant(ctx, grantId)
 		if err != nil {
 			return err
@@ -2015,6 +1970,23 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	s.state.FinishAction(ctx)
 
 	return nil
+}
+
+func userTraitContainsEmail(emails []*v2.UserTrait_Email, address string) bool {
+	return slices.ContainsFunc(emails, func(e *v2.UserTrait_Email) bool {
+		return strings.EqualFold(e.Address, address)
+	})
+}
+
+func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {
+	newGrant := &v2.Grant{
+		Entitlement: grant.Entitlement,
+		Principal:   principal,
+		Id:          batonGrant.NewGrantID(principal, grant.Entitlement),
+		Sources:     grant.Sources,
+		Annotations: grant.Annotations,
+	}
+	return newGrant
 }
 
 func GetExternalResourceMatchAllAnnotation(annos annotations.Annotations) (*v2.ExternalResourceMatchAll, error) {
