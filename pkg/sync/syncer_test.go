@@ -432,6 +432,110 @@ func BenchmarkExpandCircle(b *testing.B) {
 	}
 }
 
+func TestExternalResourcePath(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tempDir, err := os.MkdirTemp("", "baton-id-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	internalMc := newMockConnector()
+	internalMc.rtDB = append(internalMc.rtDB, userResourceType, groupResourceType)
+
+	externalMc := newMockConnector()
+	externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
+
+	// internal user
+	internalUserRs, err := internalMc.AddUserProfile(ctx, "1", map[string]any{})
+	require.NoError(t, err)
+
+	internalGroup, _, err := internalMc.AddGroup(ctx, "2")
+	require.NoError(t, err)
+	internalMc.grantDB[internalGroup.Id.Resource] = []*v2.Grant{
+		gt.NewGrant(
+			internalGroup,
+			"member",
+			internalUserRs.Id,
+			// Same id as external user profile key value
+			gt.WithAnnotation(&v2.ExternalResourceMatch{
+				Key:          "external_id_match",
+				Value:        "10",
+				ResourceType: v2.ResourceType_TRAIT_USER,
+			}),
+		),
+	}
+
+	// Id is the same to try to duplicate the grant
+	// this could be an email
+	externalUserRs, err := externalMc.AddUserProfile(ctx, "10", map[string]any{
+		"external_id_match": "10",
+	})
+	require.NoError(t, err)
+
+	externalGroup, _, err := externalMc.AddGroup(ctx, "11")
+	require.NoError(t, err)
+
+	// External resource has a grant to itself
+	externalMc.grantDB[externalGroup.Id.Resource] = []*v2.Grant{
+		gt.NewGrant(
+			externalGroup,
+			"member",
+			externalUserRs.Id,
+			gt.WithAnnotation(&v2.ExternalResourceMatch{
+				Key:          "external_id_match",
+				Value:        "10",
+				ResourceType: v2.ResourceType_TRAIT_USER,
+			}),
+		),
+	}
+
+	// Needs to make external sync
+	externalC1zpath := filepath.Join(tempDir, "external.c1z")
+
+	externalSyncer, err := NewSyncer(ctx, externalMc, WithC1ZPath(externalC1zpath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	err = externalSyncer.Sync(ctx)
+	require.NoError(t, err)
+
+	err = externalSyncer.Close(ctx)
+	require.NoError(t, err)
+	require.NoError(t, err)
+
+	internalC1zpath := filepath.Join(tempDir, "internal.c1z")
+	internalSyncer, err := NewSyncer(ctx, internalMc, WithC1ZPath(internalC1zpath), WithTmpDir(tempDir), WithExternalResourceC1ZPath(externalC1zpath))
+	require.NoError(t, err)
+	err = internalSyncer.Sync(ctx)
+	require.NoError(t, err)
+
+	err = internalSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	c1zManager, err := manager.New(ctx, internalC1zpath)
+	require.NoError(t, err)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	resources, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: userResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Equal(t, len(resources.GetList()), 2)
+
+	entitlements, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+		Resource: internalGroup,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(entitlements.GetList()))
+
+	allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
+	allGrants, err := store.ListGrants(ctx, allGrantsReq)
+	require.NoError(t, err)
+
+	require.Len(t, allGrants.List, 1)
+}
+
 func newMockConnector() *mockConnector {
 	mc := &mockConnector{
 		rtDB:       make([]*v2.ResourceType, 0),
@@ -490,6 +594,24 @@ func (mc *mockConnector) AddUser(ctx context.Context, userId string) (*v2.Resour
 		userId,
 		[]rs.UserTraitOption{},
 		rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	mc.resourceDB[userResourceType.Id] = append(mc.resourceDB[userResourceType.Id], user)
+	return user, nil
+}
+
+func (mc *mockConnector) AddUserProfile(ctx context.Context, userId string, profile map[string]any, opts ...rs.ResourceOption) (*v2.Resource, error) {
+	user, err := rs.NewUserResource(
+		userId,
+		userResourceType,
+		userId,
+		[]rs.UserTraitOption{
+			rs.WithUserProfile(profile),
+		},
+		opts...,
 	)
 	if err != nil {
 		return nil, err
