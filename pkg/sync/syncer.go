@@ -1868,7 +1868,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			case v2.ResourceType_TRAIT_GROUP:
 				processPrincipals = groupPrincipals
 			default:
-				l.Error("unexpected external resource type trait", zap.Any("trait", matchResourceMatchAllAnno.ResourceType.String()))
+				l.Error("unexpected external resource type trait", zap.Any("trait", matchResourceMatchAllAnno.ResourceType))
 			}
 			for _, principal := range processPrincipals {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
@@ -1939,7 +1939,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					}
 				}
 			default:
-				l.Error("unexpected external resource type trait", zap.Any("trait", matchExternalResource.ResourceType.String()))
+				l.Error("unexpected external resource type trait", zap.Any("trait", matchExternalResource.ResourceType))
 			}
 
 			// We still want to delete the grant even if there are no matches
