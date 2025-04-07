@@ -14,8 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
+	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	mapset "github.com/deckarep/golang-set/v2"
@@ -1878,6 +1880,28 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			continue
 		}
 
+		expandableAnno, err := GetExpandableAnnotation(annos)
+		if err != nil {
+			return err
+		}
+		expandableEntitlementsResourceMap := make(map[string][]*v2.Entitlement)
+		if expandableAnno != nil {
+			for _, entId := range expandableAnno.EntitlementIds {
+				parsedEnt, err := bid.ParseEntitlementBid(entId)
+				if err != nil {
+					l.Error("error parsing expandable entitlement bid", zap.Any("entitlementId", entId))
+					continue
+				}
+				resourceBID, err := bid.MakeBid(parsedEnt.Resource)
+				entitlementMap, ok := expandableEntitlementsResourceMap[resourceBID]
+				if !ok {
+					entitlementMap = make([]*v2.Entitlement, 0)
+				}
+				entitlementMap = append(entitlementMap, parsedEnt)
+				expandableEntitlementsResourceMap[resourceBID] = entitlementMap
+			}
+		}
+
 		// Match by ID
 		matchResourceMatchIDAnno, err := GetExternalResourceMatchIDAnnotation(annos)
 		if err != nil {
@@ -1887,14 +1911,37 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			if principal, ok := principalMap[matchResourceMatchIDAnno.Id]; ok {
 				newGrant := newGrantForExternalPrincipal(grant, principal)
 				expandedGrants = append(expandedGrants, newGrant)
+
+				newGrantAnnos := annotations.Annotations(newGrant.Annotations)
+
+				newExpandableEntitlementIds := make([]string, 0)
+				if expandableAnno != nil {
+					groupPrincipalBID, err := bid.MakeBid(grant.Principal)
+					if err != nil {
+						l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.Principal))
+						continue
+					}
+
+					principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
+					for _, expandableGrant := range principalEntitlements {
+						newExpandableEnt := entitlement.NewEntitlementID(principal, expandableGrant.Slug)
+						newExpandableEntitlementIds = append(newExpandableEntitlementIds, newExpandableEnt)
+					}
+
+					newExpandableAnno := &v2.GrantExpandable{
+						EntitlementIds:  newExpandableEntitlementIds,
+						Shallow:         expandableAnno.Shallow,
+						ResourceTypeIds: expandableAnno.ResourceTypeIds,
+					}
+					newGrantAnnos.Update(newExpandableAnno)
+					newGrant.Annotations = newGrantAnnos
+					expandedGrants = append(expandedGrants, newGrant)
+				}
 			}
 
 			// We still want to delete the grant even if there are no matches
 			// Since it does not correspond to any known user
 			grantsToDelete = append(grantsToDelete, grant.Id)
-			// TODO(lauren) remove continue here (and only continue if we found a principal with the ID) if we decide
-			// to support using multiple external resource match annos on a single grant (e.g id and key/val match)
-			continue
 		}
 
 		// Match by key/val
@@ -1902,6 +1949,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		if err != nil {
 			return err
 		}
+
 		if matchExternalResource != nil {
 			switch matchExternalResource.ResourceType {
 			case v2.ResourceType_TRAIT_USER:
@@ -1935,7 +1983,31 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					profileVal, ok := resource.GetProfileStringValue(groupTrait.Profile, matchExternalResource.Key)
 					if ok && profileVal == matchExternalResource.Value {
 						newGrant := newGrantForExternalPrincipal(grant, groupPrincipal)
-						expandedGrants = append(expandedGrants, newGrant)
+						newGrantAnnos := annotations.Annotations(newGrant.Annotations)
+
+						newExpandableEntitlementIds := make([]string, 0)
+						if expandableAnno != nil {
+							groupPrincipalBID, err := bid.MakeBid(grant.Principal)
+							if err != nil {
+								l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.Principal))
+								continue
+							}
+
+							principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
+							for _, expandableGrant := range principalEntitlements {
+								newExpandableEnt := entitlement.NewEntitlementID(groupPrincipal, expandableGrant.Slug)
+								newExpandableEntitlementIds = append(newExpandableEntitlementIds, newExpandableEnt)
+							}
+
+							newExpandableAnno := &v2.GrantExpandable{
+								EntitlementIds:  newExpandableEntitlementIds,
+								Shallow:         expandableAnno.Shallow,
+								ResourceTypeIds: expandableAnno.ResourceTypeIds,
+							}
+							newGrantAnnos.Update(newExpandableAnno)
+							newGrant.Annotations = newGrantAnnos
+							expandedGrants = append(expandedGrants, newGrant)
+						}
 					}
 				}
 			default:
@@ -1966,8 +2038,6 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			return err
 		}
 	}
-
-	s.state.FinishAction(ctx)
 
 	return nil
 }
@@ -2014,6 +2084,15 @@ func GetExternalResourceMatchIDAnnotation(annos annotations.Annotations) (*v2.Ex
 		return nil, err
 	}
 	return externalResourceMatchID, nil
+}
+
+func GetExpandableAnnotation(annos annotations.Annotations) (*v2.GrantExpandable, error) {
+	expandableAnno := &v2.GrantExpandable{}
+	ok, err := annos.Pick(expandableAnno)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return expandableAnno, nil
 }
 
 func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
