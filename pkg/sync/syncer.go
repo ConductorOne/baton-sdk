@@ -1893,6 +1893,10 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 					continue
 				}
 				resourceBID, err := bid.MakeBid(parsedEnt.Resource)
+				if err != nil {
+					l.Error("error making resource bid", zap.Any("parsedEnt.Resource", parsedEnt.Resource))
+					continue
+				}
 				entitlementMap, ok := expandableEntitlementsResourceMap[resourceBID]
 				if !ok {
 					entitlementMap = make([]*v2.Entitlement, 0)
@@ -1914,7 +1918,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 				newGrantAnnos := annotations.Annotations(newGrant.Annotations)
 
-				newExpandableEntitlementIds := make([]string, 0)
+				newExpandableEntitlementIDs := make([]string, 0)
 				if expandableAnno != nil {
 					groupPrincipalBID, err := bid.MakeBid(grant.Principal)
 					if err != nil {
@@ -1924,12 +1928,20 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 					principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
 					for _, expandableGrant := range principalEntitlements {
-						newExpandableEnt := entitlement.NewEntitlementID(principal, expandableGrant.Slug)
-						newExpandableEntitlementIds = append(newExpandableEntitlementIds, newExpandableEnt)
+						newExpandableEntId := entitlement.NewEntitlementID(principal, expandableGrant.Slug)
+						_, err := s.store.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{EntitlementId: newExpandableEntId})
+						if err != nil {
+							if errors.Is(err, sql.ErrNoRows) {
+								l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
+								continue
+							}
+							return err
+						}
+						newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
 					}
 
 					newExpandableAnno := &v2.GrantExpandable{
-						EntitlementIds:  newExpandableEntitlementIds,
+						EntitlementIds:  newExpandableEntitlementIDs,
 						Shallow:         expandableAnno.Shallow,
 						ResourceTypeIds: expandableAnno.ResourceTypeIds,
 					}
@@ -1985,7 +1997,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						newGrant := newGrantForExternalPrincipal(grant, groupPrincipal)
 						newGrantAnnos := annotations.Annotations(newGrant.Annotations)
 
-						newExpandableEntitlementIds := make([]string, 0)
+						newExpandableEntitlementIDs := make([]string, 0)
 						if expandableAnno != nil {
 							groupPrincipalBID, err := bid.MakeBid(grant.Principal)
 							if err != nil {
@@ -1995,12 +2007,20 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 							principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
 							for _, expandableGrant := range principalEntitlements {
-								newExpandableEnt := entitlement.NewEntitlementID(groupPrincipal, expandableGrant.Slug)
-								newExpandableEntitlementIds = append(newExpandableEntitlementIds, newExpandableEnt)
+								newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, expandableGrant.Slug)
+								_, err := s.store.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{EntitlementId: newExpandableEntId})
+								if err != nil {
+									if errors.Is(err, sql.ErrNoRows) {
+										l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
+										continue
+									}
+									return err
+								}
+								newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
 							}
 
 							newExpandableAnno := &v2.GrantExpandable{
-								EntitlementIds:  newExpandableEntitlementIds,
+								EntitlementIds:  newExpandableEntitlementIDs,
 								Shallow:         expandableAnno.Shallow,
 								ResourceTypeIds: expandableAnno.ResourceTypeIds,
 							}
