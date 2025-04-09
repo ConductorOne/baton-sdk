@@ -1856,6 +1856,10 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 	for _, grant := range grants {
 		annos := annotations.Annotations(grant.Annotations)
+		if !annos.Contains(&v2.ExternalResourceMatchAll{}) && !annos.Contains(&v2.ExternalResourceMatch{}) &&
+			!annos.Contains(&v2.ExternalResourceMatchID{}) {
+			continue
+		}
 
 		// Match all
 		matchResourceMatchAllAnno, err := GetExternalResourceMatchAllAnnotation(annos)
