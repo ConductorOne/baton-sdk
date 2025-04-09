@@ -95,3 +95,12 @@ func TestAnnotations_WithRateLimiting(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 }
+
+func TestAnnotations_ContainAny(t *testing.T) {
+	var annos Annotations
+
+	annos.Append(&v2.GroupTrait{}, &v2.RoleTrait{})
+	require.True(t, annos.ContainsAny(&v2.AppTrait{}, &v2.GroupTrait{}))
+	require.True(t, annos.ContainsAny(&v2.RoleTrait{}))
+	require.False(t, annos.ContainsAny(&v2.AppTrait{}))
+}
