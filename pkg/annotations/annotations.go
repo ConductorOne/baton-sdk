@@ -96,7 +96,6 @@ func (a *Annotations) ContainsAny(msgs ...proto.Message) bool {
 				return true
 			}
 		}
-
 	}
 
 	return false
