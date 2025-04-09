@@ -1415,22 +1415,27 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 	// We want to process any grants from the previous sync first so that if there is a conflict, the newer data takes precedence
 	grants = append(grants, resp.List...)
+	var filteredGrants []*v2.Grant
 
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
+		if grantAnnos.Contains(&v2.ExternalResourceMatchAll{}) || grantAnnos.Contains(&v2.ExternalResourceMatch{}) || grantAnnos.Contains(&v2.ExternalResourceMatchID{}) {
+			if s.externalResourceReader == nil {
+				continue
+			}
+			s.state.SetHasExternalResourcesGrants()
+		}
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
 			s.state.SetNeedsExpansion()
 		}
-		if grantAnnos.Contains(&v2.ExternalResourceMatchAll{}) || grantAnnos.Contains(&v2.ExternalResourceMatch{}) || grantAnnos.Contains(&v2.ExternalResourceMatchID{}) {
-			s.state.SetHasExternalResourcesGrants()
-		}
+		filteredGrants = append(filteredGrants, grant)
 	}
-	err = s.store.PutGrants(ctx, grants...)
+	err = s.store.PutGrants(ctx, filteredGrants...)
 	if err != nil {
 		return err
 	}
 
-	s.handleProgress(ctx, s.state.Current(), len(grants))
+	s.handleProgress(ctx, s.state.Current(), len(filteredGrants))
 
 	// We may want to update the etag on the resource. If we matched a previous etag, then we should use that.
 	// Otherwise, we should use the etag from the response if provided.
@@ -1856,6 +1861,10 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 	for _, grant := range grants {
 		annos := annotations.Annotations(grant.Annotations)
+		if !annos.Contains(&v2.ExternalResourceMatchAll{}) && !annos.Contains(&v2.ExternalResourceMatch{}) &&
+			!annos.Contains(&v2.ExternalResourceMatchID{}) {
+			continue
+		}
 
 		// Match all
 		matchResourceMatchAllAnno, err := GetExternalResourceMatchAllAnnotation(annos)
