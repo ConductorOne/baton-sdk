@@ -1421,7 +1421,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
 			s.state.SetNeedsExpansion()
 		}
-		if grantAnnos.Contains(&v2.ExternalResourceMatchAll{}) || grantAnnos.Contains(&v2.ExternalResourceMatch{}) || grantAnnos.Contains(&v2.ExternalResourceMatchID{}) {
+		if grantAnnos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			s.state.SetHasExternalResourcesGrants()
 		}
 	}
@@ -1856,8 +1856,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 
 	for _, grant := range grants {
 		annos := annotations.Annotations(grant.Annotations)
-		if !annos.Contains(&v2.ExternalResourceMatchAll{}) && !annos.Contains(&v2.ExternalResourceMatch{}) &&
-			!annos.Contains(&v2.ExternalResourceMatchID{}) {
+		if !annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			continue
 		}
 
