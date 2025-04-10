@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	aws_lambda "github.com/aws/aws-lambda-go/lambda"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
@@ -78,7 +79,12 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 		defer func() {
-			err := otelShutdown(context.Background())
+			if otelShutdown == nil {
+				return
+			}
+			shutdownCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(otelShutdownTimeout))
+			defer cancel()
+			err := otelShutdown(shutdownCtx)
 			if err != nil {
 				zap.L().Error("error shutting down otel", zap.Error(err))
 			}
@@ -178,5 +184,4 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		return nil
 	}
 	return nil
-
 }
