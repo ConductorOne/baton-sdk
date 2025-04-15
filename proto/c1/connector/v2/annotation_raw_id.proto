@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// Raw ID from whatever API the resource/entitlement/grant came from.
+message RawId {
+  string id = 1;
+}
