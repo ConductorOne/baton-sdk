@@ -1983,7 +1983,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						}
 					}
 					profileVal, ok := resource.GetProfileStringValue(userTrait.Profile, matchExternalResource.Key)
-					if ok && profileVal == matchExternalResource.Value {
+					if ok && strings.EqualFold(profileVal, matchExternalResource.Value) {
 						newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
 						expandedGrants = append(expandedGrants, newGrant)
 					}
@@ -1996,7 +1996,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						continue
 					}
 					profileVal, ok := resource.GetProfileStringValue(groupTrait.Profile, matchExternalResource.Key)
-					if ok && profileVal == matchExternalResource.Value {
+					if ok && strings.EqualFold(profileVal, matchExternalResource.Value) {
 						newGrant := newGrantForExternalPrincipal(grant, groupPrincipal)
 						newGrantAnnos := annotations.Annotations(newGrant.Annotations)
 
