@@ -1974,7 +1974,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						l.Error("error getting user trait", zap.Any("userPrincipal", userPrincipal))
 						continue
 					}
-					if strings.EqualFold(matchExternalResource.Key, "email") {
+					if matchExternalResource.Key == "email" {
 						if userTraitContainsEmail(userTrait.Emails, matchExternalResource.Value) {
 							newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
 							expandedGrants = append(expandedGrants, newGrant)
