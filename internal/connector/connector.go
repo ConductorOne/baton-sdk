@@ -32,6 +32,9 @@ import (
 
 const listenerFdEnv = "BATON_CONNECTOR_SERVICE_LISTENER_FD"
 
+// GRPC default max size is 4MB. Increase to 10MB.
+const maxMsgSize = 1024 * 1024 * 10
+
 type connectorClient struct {
 	connectorV2.ResourceTypesServiceClient
 	connectorV2.ResourcesServiceClient
@@ -156,6 +159,8 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx)...),
 		grpc.ChainStreamInterceptor(ugrpc.StreamServerInterceptors(ctx)...),
+		grpc.MaxRecvMsgSize(maxMsgSize),
+		grpc.MaxSendMsgSize(maxMsgSize),
 		grpc.StatsHandler(otelgrpc.NewServerHandler(
 			otelgrpc.WithPropagators(
 				propagation.NewCompositeTextMapPropagator(
@@ -299,6 +304,10 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 			fmt.Sprintf("127.0.0.1:%d", listenPort),
 			grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
 			grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
+			grpc.WithDefaultCallOptions(
+				grpc.MaxCallRecvMsgSize(maxMsgSize),
+				grpc.MaxCallSendMsgSize(maxMsgSize),
+			),
 			grpc.WithChainUnaryInterceptor(ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...)),
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler(
 				otelgrpc.WithPropagators(
