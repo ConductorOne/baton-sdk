@@ -41,6 +41,7 @@ var tracer = otel.Tracer("baton-sdk/pkg.connectorbuilder")
 // - ResourceDeleter: For deleting resources
 // - AccountManager: For account provisioning operations
 // - CredentialManager: For credential rotation operations.
+// - ResourceTargetedSyncer: For directly getting a resource supporting targeted sync.
 type ResourceSyncer interface {
 	ResourceType(ctx context.Context) *v2.ResourceType
 	List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error)
@@ -92,6 +93,15 @@ type ResourceManager interface {
 type ResourceDeleter interface {
 	ResourceSyncer
 	Delete(ctx context.Context, resourceId *v2.ResourceId) (annotations.Annotations, error)
+}
+
+// ResourceTargetedSyncer extends ResourceSyncer to add capabilities for directly syncing an individual resource
+//
+// Implementing this interface indicates the connector supports calling "get" on a resource
+// of the associated resource type.
+type ResourceTargetedSyncer interface {
+	ResourceSyncer
+	Get(ctx context.Context, resourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error)
 }
 
 // CreateAccountResponse is a semi-opaque type returned from CreateAccount operations.
@@ -184,20 +194,21 @@ type ConnectorBuilder interface {
 }
 
 type builderImpl struct {
-	resourceBuilders       map[string]ResourceSyncer
-	resourceProvisioners   map[string]ResourceProvisioner
-	resourceProvisionersV2 map[string]ResourceProvisionerV2
-	resourceManagers       map[string]ResourceManager
-	resourceDeleters       map[string]ResourceDeleter
-	accountManager         AccountManager
-	actionManager          CustomActionManager
-	credentialManagers     map[string]CredentialManager
-	eventFeed              EventProvider
-	cb                     ConnectorBuilder
-	ticketManager          TicketManager
-	ticketingEnabled       bool
-	m                      *metrics.M
-	nowFunc                func() time.Time
+	resourceBuilders        map[string]ResourceSyncer
+	resourceProvisioners    map[string]ResourceProvisioner
+	resourceProvisionersV2  map[string]ResourceProvisionerV2
+	resourceManagers        map[string]ResourceManager
+	resourceDeleters        map[string]ResourceDeleter
+	resourceTargetedSyncers map[string]ResourceTargetedSyncer
+	accountManager          AccountManager
+	actionManager           CustomActionManager
+	credentialManagers      map[string]CredentialManager
+	eventFeed               EventProvider
+	cb                      ConnectorBuilder
+	ticketManager           TicketManager
+	ticketingEnabled        bool
+	m                       *metrics.M
+	nowFunc                 func() time.Time
 }
 
 func (b *builderImpl) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketsRequest) (*v2.TicketsServiceBulkCreateTicketsResponse, error) {
@@ -471,6 +482,12 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 					return nil, fmt.Errorf("error: duplicate resource type found for resource provisioner v2 %s", rType.Id)
 				}
 				ret.resourceProvisionersV2[rType.Id] = provisioner
+			}
+			if targetedSyncer, ok := rb.(ResourceTargetedSyncer); ok {
+				if _, ok := ret.resourceTargetedSyncers[rType.Id]; ok {
+					return nil, fmt.Errorf("error: duplicate resource type found for resource targeted syncer %s", rType.Id)
+				}
+				ret.resourceTargetedSyncers[rType.Id] = targetedSyncer
 			}
 
 			if resourceManager, ok := rb.(ResourceManager); ok {
@@ -779,6 +796,10 @@ func getCapabilities(ctx context.Context, b *builderImpl) (*v2.ConnectorCapabili
 			Capabilities: []v2.Capability{v2.Capability_CAPABILITY_SYNC},
 		}
 		connectorCaps[v2.Capability_CAPABILITY_SYNC] = struct{}{}
+		if _, ok := rb.(ResourceTargetedSyncer); ok {
+			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
+			connectorCaps[v2.Capability_CAPABILITY_TARGETED_SYNC] = struct{}{}
+		}
 		if _, ok := rb.(ResourceProvisioner); ok {
 			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_PROVISION)
 			connectorCaps[v2.Capability_CAPABILITY_PROVISION] = struct{}{}
