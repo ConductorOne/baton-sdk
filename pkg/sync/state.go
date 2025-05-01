@@ -53,6 +53,8 @@ func (s ActionOp) String() string {
 		return "fetch-assets"
 	case SyncGrantExpansionOp:
 		return "grant-expansion"
+	case SyncTargetedResourceOp:
+		return "get-resource"
 	default:
 		return "unknown"
 	}
