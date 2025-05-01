@@ -653,6 +653,13 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Queue actions to get sub resources if any
+	if err := s.getSubResources(ctx, resourceResp.Item); err != nil {
+		return err
+	}
+
+	// Save our resource in the DB
 	if err := s.store.PutResources(ctx, resourceResp.Item); err != nil {
 		return err
 	}
