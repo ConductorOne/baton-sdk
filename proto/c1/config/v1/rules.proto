@@ -189,8 +189,8 @@ message StringRules {
 }
 
 message StringMapRules {
-    // IgnoreEmpty specifies that the validation rules of this field should be
-    // evaluated only if the field is not empty
-    bool validate_empty = 1;
-    bool is_required = 2;
+  // IgnoreEmpty specifies that the validation rules of this field should be
+  // evaluated only if the field is not empty
+  bool validate_empty = 1;
+  bool is_required = 2;
 }

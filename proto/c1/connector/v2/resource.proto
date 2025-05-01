@@ -297,7 +297,6 @@ message ResourcesGetterServiceGetResourceRequest {
   }];
 }
 
-
 message ResourcesGetterServiceGetResourceResponse {
   Resource list = 1;
   repeated google.protobuf.Any annotations = 2;
