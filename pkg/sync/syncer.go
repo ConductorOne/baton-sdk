@@ -432,8 +432,10 @@ func (s *syncer) Sync(ctx context.Context) error {
 			continue
 
 		case SyncTargetedResourceOp:
-			// TODO: Implement Sync Individual Resource
-			l.Error("syncing targeted resource not supported", zap.String("sync_id", syncID))
+			err = s.SyncTargetedResource(ctx)
+			if !s.shouldWaitAndRetry(ctx, err) {
+				return err
+			}
 			continue
 
 		case SyncEntitlementsOp:
