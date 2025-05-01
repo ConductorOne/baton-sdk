@@ -634,6 +634,17 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 	return nil
 }
 
+func (s *syncer) SyncTargetedResource(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "syncer.SyncTargetedResource")
+	defer span.End()
+
+	if s.state.Current().ResourceID == "" || s.state.Current().ResourceTypeID == "" {
+		return errors.New("cannot get resource without a resource target")
+	}
+
+	s.connector.ListResources()
+}
+
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
 func (s *syncer) SyncResources(ctx context.Context) error {
