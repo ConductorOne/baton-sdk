@@ -638,11 +638,25 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncTargetedResource")
 	defer span.End()
 
-	if s.state.Current().ResourceID == "" || s.state.Current().ResourceTypeID == "" {
+	resourceID := s.state.Current().ResourceID
+	resourceTypeID := s.state.Current().ResourceTypeID
+	if resourceID == "" || resourceTypeID == "" {
 		return errors.New("cannot get resource without a resource target")
 	}
 
-	s.connector.ListResources()
+	resourceResp, err := s.connector.GetResource(ctx,
+		&v2.ResourcesGetterServiceGetResourceRequest{
+			ResourceTypeId: resourceTypeID,
+			ResourceId:     resourceID,
+		},
+	)
+	if err != nil {
+		return err
+	}
+	if err := s.store.PutResources(ctx, resourceResp.Item); err != nil {
+		return err
+	}
+	return nil
 }
 
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
