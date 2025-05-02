@@ -72,7 +72,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context) (*syncRun, error) 
 	oneWeekAgo := time.Now().AddDate(0, 0, -7)
 	ret := &syncRun{}
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token")
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "is_partial")
 	q = q.Where(goqu.C("ended_at").IsNull())
 	q = q.Where(goqu.C("started_at").Gte(oneWeekAgo))
 	q = q.Order(goqu.C("started_at").Desc())
@@ -85,7 +85,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context) (*syncRun, error) 
 
 	row := c.db.QueryRowContext(ctx, query, args...)
 
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken)
+	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.IsPartial)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -107,7 +107,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, isPartial boo
 
 	ret := &syncRun{}
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token")
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "is_partial")
 	q = q.Where(goqu.C("ended_at").IsNotNull())
 	if isPartial {
 		q = q.Where(goqu.C("is_partial").IsTrue())
@@ -128,7 +128,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, isPartial boo
 
 	row := c.db.QueryRowContext(ctx, query, args...)
 
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken)
+	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.IsPartial)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -270,7 +270,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*syncRun, error) {
 	ret := &syncRun{}
 
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token")
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "is_partial")
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 
 	query, args, err := q.ToSQL()
@@ -279,7 +279,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*syncRun, error) {
 	}
 
 	row := c.db.QueryRowContext(ctx, query, args...)
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken)
+	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.IsPartial)
 	if err != nil {
 		return nil, err
 	}
