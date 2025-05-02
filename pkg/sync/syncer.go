@@ -432,6 +432,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 			continue
 
 		case SyncTargetedResourceOp:
+			// Doing this because it's basically an InitOp and InitOp does this too
+			s.state.FinishAction(ctx)
+
 			err = s.SyncTargetedResource(ctx)
 			if !s.shouldWaitAndRetry(ctx, err) {
 				return err
