@@ -178,7 +178,7 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 	default:
 		var latestSyncRun *syncRun
 		var err error
-		latestSyncRun, err = c.getFinishedSync(ctx, 0)
+		latestSyncRun, err = c.getFinishedSync(ctx, 0, false)
 		if err != nil {
 			return nil, "", err
 		}
@@ -359,7 +359,7 @@ func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceI
 	default:
 		var latestSyncRun *syncRun
 		var err error
-		latestSyncRun, err = c.getFinishedSync(ctx, 0)
+		latestSyncRun, err = c.getFinishedSync(ctx, 0, false)
 		if err != nil {
 			return err
 		}
@@ -405,6 +405,11 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 		return err
 	}
 
+	sync, err := c.getSync(ctx, syncID)
+	if err != nil {
+		return err
+	}
+
 	q := c.db.From(tableName).Prepared(true)
 	q = q.Select("data")
 	q = q.Where(goqu.C("external_id").Eq(id))
@@ -419,7 +424,7 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	default:
 		var latestSyncRun *syncRun
 		var err error
-		latestSyncRun, err = c.getFinishedSync(ctx, 0)
+		latestSyncRun, err = c.getFinishedSync(ctx, 0, sync.IsPartial)
 		if err != nil {
 			return err
 		}
