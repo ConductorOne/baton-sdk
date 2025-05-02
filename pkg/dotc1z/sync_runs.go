@@ -504,6 +504,25 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		l.Info("Removed old sync data.", zap.String("sync_date", ret[i].EndedAt.Format(time.RFC3339)), zap.String("sync_id", ret[i].ID))
 	}
 
+	// Delete partial syncs that ended before the earliest-kept sync started
+	if len(ret) > syncLimit {
+		earliestKeptSync := ret[len(ret)-syncLimit]
+		l.Debug("Earliest kept sync", zap.String("sync_id", earliestKeptSync.ID), zap.Time("started_at", *earliestKeptSync.StartedAt))
+
+		for _, partial := range partials {
+			if partial.EndedAt != nil && partial.EndedAt.Before(*earliestKeptSync.StartedAt) {
+				err = c.DeleteSyncRun(ctx, partial.ID)
+				if err != nil {
+					return err
+				}
+				l.Info("Removed partial sync that ended before earliest kept sync.",
+					zap.String("partial_sync_end", partial.EndedAt.Format(time.RFC3339)),
+					zap.String("earliest_kept_sync_start", earliestKeptSync.StartedAt.Format(time.RFC3339)),
+					zap.String("sync_id", partial.ID))
+			}
+		}
+	}
+
 	err = c.Vacuum(ctx)
 	if err != nil {
 		return err
