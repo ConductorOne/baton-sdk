@@ -647,24 +647,35 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 	}
 
 	resourceResp, err := s.connector.GetResource(ctx,
-		&v2.ResourcesGetterServiceGetResourceRequest{
-			ResourceTypeId: resourceTypeID,
-			ResourceId:     resourceID,
+		&v2.ResourceGetterServiceGetResourceRequest{
+			ResourceId: &v2.ResourceId{
+				ResourceType: resourceTypeID,
+				Resource:     resourceID,
+			},
 		},
 	)
 	if err != nil {
 		return err
 	}
 
-	// Queue actions to get sub resources if any
-	if err := s.getSubResources(ctx, resourceResp.Item); err != nil {
+	// Save our resource in the DB
+	if err := s.store.PutResources(ctx, resourceResp.Resource); err != nil {
 		return err
 	}
 
-	// Save our resource in the DB
-	if err := s.store.PutResources(ctx, resourceResp.Item); err != nil {
+	// Queue actions to get sub resources if any
+	if err := s.getSubResources(ctx, resourceResp.Resource); err != nil {
 		return err
 	}
+
+	if err := s.syncEntitlementsForResource(ctx, resourceResp.Resource.Id); err != nil {
+		return err
+	}
+
+	if err := s.syncGrantsForResource(ctx, resourceResp.Resource.Id); err != nil {
+		return err
+	}
+
 	return nil
 }
 
