@@ -1542,6 +1542,14 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	for _, resourceId := range resourceIDs {
 		resourceResp, err := s.externalResourceReader.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{ResourceId: resourceId})
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				l.Debug(
+					"resource was not found in external sync",
+					zap.String("resource_id", resourceId.Resource),
+					zap.String("resource_type_id", resourceId.ResourceType),
+				)
+				continue
+			}
 			return err
 		}
 		resourceVal := resourceResp.GetResource()
