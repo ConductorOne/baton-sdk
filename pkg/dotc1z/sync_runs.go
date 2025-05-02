@@ -362,6 +362,17 @@ func (c *C1File) StartNewSync(ctx context.Context) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.StartNewSync")
 	defer span.End()
 
+	return c.startNewSyncInternal(ctx, false)
+}
+
+func (c *C1File) StartNewPartialSync(ctx context.Context) (string, error) {
+	ctx, span := tracer.Start(ctx, "C1File.StartNewPartialSync")
+	defer span.End()
+
+	return c.startNewSyncInternal(ctx, true)
+}
+
+func (c *C1File) startNewSyncInternal(ctx context.Context, isPartial bool) (string, error) {
 	// Not sure if we want to do this here
 	if c.currentSyncID != "" {
 		return c.currentSyncID, nil
@@ -374,6 +385,7 @@ func (c *C1File) StartNewSync(ctx context.Context) (string, error) {
 		"sync_id":    syncID,
 		"started_at": time.Now().Format("2006-01-02 15:04:05.999999999"),
 		"sync_token": "",
+		"is_partial": isPartial,
 	})
 
 	query, args, err := q.ToSQL()
