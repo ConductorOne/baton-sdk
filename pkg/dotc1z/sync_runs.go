@@ -26,7 +26,8 @@ create table if not exists %s (
     sync_id text not null,
     started_at datetime not null,
     ended_at datetime,
-    sync_token text not null
+    sync_token text not null,
+    is_partial boolean not null default false
 );
 create unique index if not exists %s on %s (sync_id);`
 
@@ -55,6 +56,7 @@ type syncRun struct {
 	StartedAt *time.Time
 	EndedAt   *time.Time
 	SyncToken string
+	IsPartial bool
 }
 
 func (c *C1File) getLatestUnfinishedSync(ctx context.Context) (*syncRun, error) {
@@ -94,7 +96,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context) (*syncRun, error) 
 	return ret, nil
 }
 
-func (c *C1File) getFinishedSync(ctx context.Context, offset uint) (*syncRun, error) {
+func (c *C1File) getFinishedSync(ctx context.Context, offset uint, isPartial bool) (*syncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getFinishedSync")
 	defer span.End()
 
@@ -107,6 +109,11 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint) (*syncRun, er
 	q := c.db.From(syncRuns.Name())
 	q = q.Select("sync_id", "started_at", "ended_at", "sync_token")
 	q = q.Where(goqu.C("ended_at").IsNotNull())
+	if isPartial {
+		q = q.Where(goqu.C("is_partial").IsTrue())
+	} else {
+		q = q.Where(goqu.C("is_partial").IsFalse())
+	}
 	q = q.Order(goqu.C("ended_at").Desc())
 	q = q.Limit(1)
 
@@ -142,7 +149,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 	}
 
 	q := c.db.From(syncRuns.Name()).Prepared(true)
-	q = q.Select("id", "sync_id", "started_at", "ended_at", "sync_token")
+	q = q.Select("id", "sync_id", "started_at", "ended_at", "sync_token", "is_partial")
 
 	if pageToken != "" {
 		q = q.Where(goqu.C("id").Gte(pageToken))
@@ -177,7 +184,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 		}
 		rowId := 0
 		data := &syncRun{}
-		err := rows.Scan(&rowId, &data.ID, &data.StartedAt, &data.EndedAt, &data.SyncToken)
+		err := rows.Scan(&rowId, &data.ID, &data.StartedAt, &data.EndedAt, &data.SyncToken, &data.IsPartial)
 		if err != nil {
 			return nil, "", err
 		}
@@ -197,7 +204,7 @@ func (c *C1File) LatestSyncID(ctx context.Context) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.LatestSyncID")
 	defer span.End()
 
-	s, err := c.getFinishedSync(ctx, 0)
+	s, err := c.getFinishedSync(ctx, 0, false)
 	if err != nil {
 		return "", err
 	}
@@ -223,7 +230,7 @@ func (c *C1File) PreviousSyncID(ctx context.Context) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.PreviousSyncID")
 	defer span.End()
 
-	s, err := c.getFinishedSync(ctx, 1)
+	s, err := c.getFinishedSync(ctx, 1, false)
 	if err != nil {
 		return "", err
 	}
@@ -239,7 +246,7 @@ func (c *C1File) LatestFinishedSync(ctx context.Context) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.LatestFinishedSync")
 	defer span.End()
 
-	s, err := c.getFinishedSync(ctx, 0)
+	s, err := c.getFinishedSync(ctx, 0, false)
 	if err != nil {
 		return "", err
 	}
@@ -452,6 +459,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	}
 
 	var ret []*syncRun
+	var partials []*syncRun
 
 	pageToken := ""
 	for {
@@ -464,7 +472,11 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 			if sr.EndedAt == nil {
 				continue
 			}
-			ret = append(ret, sr)
+			if sr.IsPartial {
+				partials = append(partials, sr)
+			} else {
+				ret = append(ret, sr)
+			}
 		}
 
 		if nextPageToken == "" {
@@ -611,7 +623,7 @@ func (c *C1File) GetLatestFinishedSync(ctx context.Context, request *reader_v2.S
 	ctx, span := tracer.Start(ctx, "C1File.GetLatestFinishedSync")
 	defer span.End()
 
-	sync, err := c.getFinishedSync(ctx, 0)
+	sync, err := c.getFinishedSync(ctx, 0, false)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching latest finished sync: %w", err)
 	}
