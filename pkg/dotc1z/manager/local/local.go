@@ -97,7 +97,7 @@ func (l *localManager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 		zap.String("temp_path", l.tmpPath),
 	)
 
-	return dotc1z.NewC1ZFile(ctx, l.tmpPath, dotc1z.WithTmpDir(l.tmpDir), dotc1z.WithPragma("journal_mode", "WAL"))
+	return dotc1z.NewC1ZFile(ctx, l.tmpPath, dotc1z.WithTmpDir(l.tmpDir), dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("synchronous", "NORMAL"))
 }
 
 // SaveC1Z saves the C1Z file to the local file system.

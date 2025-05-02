@@ -116,7 +116,7 @@ func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 		return nil, err
 	}
 
-	return dotc1z.NewC1ZFile(ctx, s.tmpFile, dotc1z.WithTmpDir(s.tmpDir), dotc1z.WithPragma("journal_mode", "WAL"))
+	return dotc1z.NewC1ZFile(ctx, s.tmpFile, dotc1z.WithTmpDir(s.tmpDir), dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("synchronous", "NORMAL"))
 }
 
 // SaveC1Z saves a file to the AWS S3 bucket.
