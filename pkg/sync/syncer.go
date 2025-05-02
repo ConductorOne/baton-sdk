@@ -661,18 +661,26 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 		return err
 	}
 
-	// Queue actions to get sub resources if any
-	if err := s.getSubResources(ctx, resourceResp.Item); err != nil {
-		return err
-	}
+	// Actions happen in reverse order. We want to sync child resources then entitlements then grants
 
-	if err := s.syncEntitlementsForResource(ctx, resourceResp.Item.Id); err != nil {
-		return err
-	}
+	s.state.PushAction(ctx, Action{
+		Op:             SyncGrantsOp,
+		ResourceTypeID: resourceID,
+		ResourceID:     resourceTypeID,
+	})
 
-	if err := s.syncGrantsForResource(ctx, resourceResp.Item.Id); err != nil {
-		return err
-	}
+	s.state.PushAction(ctx, Action{
+		Op:             SyncEntitlementsOp,
+		ResourceTypeID: resourceID,
+		ResourceID:     resourceTypeID,
+	})
+
+	s.state.PushAction(ctx, Action{
+		Op:                   SyncResourcesOp,
+		ResourceTypeID:       "", // Leave blank to get all resource types for this parent
+		ParentResourceTypeID: resourceTypeID,
+		ParentResourceID:     resourceID,
+	})
 
 	return nil
 }
@@ -706,7 +714,14 @@ func (s *syncer) SyncResources(ctx context.Context) error {
 		}
 
 		for _, rt := range resp.List {
-			s.state.PushAction(ctx, Action{Op: SyncResourcesOp, ResourceTypeID: rt.Id})
+			action := Action{Op: SyncResourcesOp, ResourceTypeID: rt.Id}
+			// If this request specified a parent resource, only queue up syncing resources for children of the parent resource
+			if s.state.Current().ParentResourceTypeID != "" && s.state.Current().ParentResourceID != "" {
+				action.ParentResourceID = s.state.Current().ParentResourceID
+				action.ParentResourceTypeID = s.state.Current().ParentResourceTypeID
+			}
+
+			s.state.PushAction(ctx, action)
 		}
 
 		return nil
