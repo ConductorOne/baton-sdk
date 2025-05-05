@@ -95,4 +95,5 @@ const (
 	ActionGetSchemaType
 	ActionInvokeType
 	ActionStatusType
+	CreateSyncDiff
 )

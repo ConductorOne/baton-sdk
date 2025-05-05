@@ -282,6 +282,11 @@ type rotateCredentialsConfig struct {
 type eventStreamConfig struct {
 }
 
+type syncDifferConfig struct {
+	baseSyncID string
+	newSyncID  string
+}
+
 type runnerConfig struct {
 	rlCfg                               *ratelimitV1.RateLimiterConfig
 	rlDescriptors                       []*ratelimitV1.RateLimitDescriptors_Entry
@@ -303,6 +308,7 @@ type runnerConfig struct {
 	bulkCreateTicketConfig              *bulkCreateTicketConfig
 	listTicketSchemasConfig             *listTicketSchemasConfig
 	getTicketConfig                     *getTicketConfig
+	syncDifferConfig                    *syncDifferConfig
 	skipFullSync                        bool
 	targetedSyncResourceIDs             []string
 	externalResourceC1Z                 string
@@ -635,6 +641,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewGetTicket(ctx, cfg.getTicketConfig.ticketID)
 		case cfg.bulkCreateTicketConfig != nil:
 			tm = local.NewBulkTicket(ctx, cfg.bulkCreateTicketConfig.templatePath)
+		case cfg.syncDifferConfig != nil:
+			tm = local.NewDiffer(ctx, cfg.c1zPath, cfg.syncDifferConfig.baseSyncID, cfg.syncDifferConfig.newSyncID)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
 				local.WithTmpDir(cfg.tempDir),
