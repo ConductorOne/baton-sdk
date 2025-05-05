@@ -646,6 +646,10 @@ func (b *builderImpl) GetResource(ctx context.Context, request *v2.ResourceGette
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: get resource failed: %w", err)
 	}
+	if resource == nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, status.Error(codes.NotFound, "error: get resource returned nil")
+	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return &v2.ResourceGetterServiceGetResourceResponse{
