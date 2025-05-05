@@ -10,9 +10,6 @@ import (
 )
 
 func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, newSyncID string) (string, error) {
-	// Generate a new unique ID for the diff sync
-	diffSyncID := ksuid.New().String()
-
 	// Validate that both sync runs exist
 	baseSync, err := c.getSync(ctx, baseSyncID)
 	if err != nil {
@@ -41,7 +38,10 @@ func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, newSyn
 	}
 	defer conn.Close()
 
-	// Process each table to find records in newSyncID that aren't in baseSyncID
+	// Generate a new unique ID for the diff sync
+	diffSyncID := ksuid.New().String()
+
+	// Process each table to select records from newSyncID that don't exist in baseSyncID
 	for _, t := range allTableDescriptors {
 		q, err := diffTableQuery(t.Name())
 		if err != nil {
@@ -68,6 +68,7 @@ func diffTableQuery(tableName string) (string, error) {
 		"external_id",
 		"data",
 		"discovered_at",
+		goqu.L("?"), // Placeholder for new sync ID
 	}
 
 	// Add table-specific columns
@@ -84,7 +85,7 @@ func diffTableQuery(tableName string) (string, error) {
 		Select("id").
 		Where(goqu.C("sync_id").Eq(goqu.L("?"))) // Placeholder for baseSyncID
 
-	// Build the main query
+	// Build the main query to select records from newSyncID that don't exist in baseSyncID
 	query := goqu.Insert(tableName).
 		Prepared(true).
 		FromQuery(
