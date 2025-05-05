@@ -74,6 +74,10 @@ service ResourcesService {
   rpc ListResources(ResourcesServiceListResourcesRequest) returns (ResourcesServiceListResourcesResponse);
 }
 
+service ResourceGetterService {
+  rpc GetResource(ResourceGetterServiceGetResourceRequest) returns (ResourceGetterServiceGetResourceResponse);
+}
+
 service ResourceManagerService {
   rpc CreateResource(CreateResourceRequest) returns (CreateResourceResponse);
   rpc DeleteResource(DeleteResourceRequest) returns (DeleteResourceResponse);
@@ -280,6 +284,17 @@ message ResourcesServiceListResourcesResponse {
     max_bytes: 1048576 // 1MB
   }];
   repeated google.protobuf.Any annotations = 3;
+}
+
+message ResourceGetterServiceGetResourceRequest {
+  ResourceId resource_id = 1;
+  ResourceId parent_resource_id = 2 [(validate.rules).message = {required: false}];
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message ResourceGetterServiceGetResourceResponse {
+  Resource resource = 1;
+  repeated google.protobuf.Any annotations = 2;
 }
 
 message ExternalId {
