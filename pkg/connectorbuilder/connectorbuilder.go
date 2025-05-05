@@ -1296,3 +1296,35 @@ func (b *builderImpl) GetActionStatus(ctx context.Context, request *v2.GetAction
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
 }
+
+func (b *builderImpl) GetResource(ctx context.Context, request *v2.ResourcesGetterServiceGetResourceRequest) (*v2.ResourcesGetterServiceGetResourceResponse, error) {
+	ctx, span := tracer.Start(ctx, "builderImpl.GetResource")
+	defer span.End()
+
+	start := b.nowFunc()
+	tt := tasks.ListResourcesType
+	l := ctxzap.Extract(ctx)
+
+	rt := request.GetResourceTypeId()
+	targetedSyncer, ok := b.resourceTargetedSyncers[rt]
+	if ok {
+		resource, annos, err := targetedSyncer.Get(ctx, &v2.ResourceId{
+			ResourceType: rt,
+			Resource:     request.GetResourceId(),
+		})
+		if err != nil {
+			l.Error("error: get resource failed", zap.Error(err))
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			return nil, fmt.Errorf("error: get resource failed: %w", err)
+		}
+		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+		return &v2.ResourcesGetterServiceGetResourceResponse{
+			Item:        resource,
+			Annotations: annos,
+		}, nil
+	}
+
+	l.Error("error: resource type does not have targeted sync configured", zap.String("resource_type", rt))
+	b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+	return nil, status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have targeted sync configured", rt))
+}
