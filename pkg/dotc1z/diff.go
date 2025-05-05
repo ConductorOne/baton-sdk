@@ -67,17 +67,22 @@ func diffTableQuery(tableName string) (string, error) {
 		"id",
 		"external_id",
 		"data",
-		"discovered_at",
 		goqu.L("?"), // Placeholder for new sync ID
+		"discovered_at",
 	}
 
 	// Add table-specific columns
 	switch {
 	case strings.Contains(tableName, resourcesTableName):
+		columns = append(columns, "resource_type_id", "parent_resource_type_id", "parent_resource_id")
 	case strings.Contains(tableName, resourceTypesTableName):
+		// Nothing new to add here
 	case strings.Contains(tableName, grantsTableName):
+		columns = append(columns, "resource_type_id", "resource_id", "entitlement_id", "parent_resource_type_id", "parent_resource_id")
 	case strings.Contains(tableName, entitlementsTableName):
+		columns = append(columns, "resource_type_id", "resource_id")
 	case strings.Contains(tableName, assetsTableName):
+		columns = append(columns, "content_type")
 	}
 
 	// Build the subquery to find external_ids in the base sync
