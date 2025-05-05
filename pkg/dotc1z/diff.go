@@ -41,22 +41,23 @@ func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, newSyn
 	// Generate a new unique ID for the diff sync
 	diffSyncID := ksuid.New().String()
 
-	// Process each table to select records from newSyncID that don't exist in baseSyncID
 	for _, t := range allTableDescriptors {
+		if strings.Contains(t.Name(), syncRunsTableName) {
+			continue
+		}
 		q, err := diffTableQuery(t.Name())
 		if err != nil {
 			return "", err
 		}
-		// Execute the query with diffSyncID as the new sync_id, newSyncID as the source, and baseSyncID as the reference
 		_, err = conn.ExecContext(qCtx, q, diffSyncID, newSyncID, baseSyncID)
 		if err != nil {
 			return "", err
 		}
 	}
 
-	// Really be sure that our connection is closed
-	canc()
-	_ = conn.Close()
+	if err := c.insertSyncRun(ctx, diffSyncID); err != nil {
+		return "", err
+	}
 
 	return diffSyncID, nil
 }

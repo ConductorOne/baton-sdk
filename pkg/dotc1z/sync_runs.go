@@ -431,6 +431,17 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType, pa
 
 	syncID := ksuid.New().String()
 
+	if err := c.insertSyncRun(ctx, syncID); err != nil {
+		return "", err
+	}
+
+	c.dbUpdated = true
+	c.currentSyncID = syncID
+
+	return c.currentSyncID, nil
+}
+
+func (c *C1File) insertSyncRun(ctx context.Context, syncID string) error {
 	q := c.db.Insert(syncRuns.Name())
 	q = q.Rows(goqu.Record{
 		"sync_id":        syncID,
@@ -442,18 +453,14 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType, pa
 
 	query, args, err := q.ToSQL()
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	_, err = c.db.ExecContext(ctx, query, args...)
 	if err != nil {
-		return "", err
+		return err
 	}
-
-	c.dbUpdated = true
-	c.currentSyncID = syncID
-
-	return c.currentSyncID, nil
+	return nil
 }
 
 func (c *C1File) CurrentSyncStep(ctx context.Context) (string, error) {
