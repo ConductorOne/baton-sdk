@@ -406,17 +406,18 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	switch c := in.(type) {
 	case ConnectorBuilder:
 		ret := &builderImpl{
-			resourceBuilders:       make(map[string]ResourceSyncer),
-			resourceProvisioners:   make(map[string]ResourceProvisioner),
-			resourceProvisionersV2: make(map[string]ResourceProvisionerV2),
-			resourceManagers:       make(map[string]ResourceManager),
-			resourceDeleters:       make(map[string]ResourceDeleter),
-			accountManager:         nil,
-			actionManager:          nil,
-			credentialManagers:     make(map[string]CredentialManager),
-			cb:                     c,
-			ticketManager:          nil,
-			nowFunc:                time.Now,
+			resourceBuilders:        make(map[string]ResourceSyncer),
+			resourceProvisioners:    make(map[string]ResourceProvisioner),
+			resourceProvisionersV2:  make(map[string]ResourceProvisionerV2),
+			resourceManagers:        make(map[string]ResourceManager),
+			resourceDeleters:        make(map[string]ResourceDeleter),
+			resourceTargetedSyncers: make(map[string]ResourceTargetedSyncer),
+			accountManager:          nil,
+			actionManager:           nil,
+			credentialManagers:      make(map[string]CredentialManager),
+			cb:                      c,
+			ticketManager:           nil,
+			nowFunc:                 time.Now,
 		}
 
 		err := ret.options(opts...)
