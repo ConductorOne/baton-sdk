@@ -18,6 +18,8 @@ import (
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var groupResourceType = &v2.ResourceType{
@@ -561,6 +563,7 @@ type mockConnector struct {
 	v2.EventServiceClient
 	v2.TicketsServiceClient
 	v2.ActionServiceClient
+	v2.ResourceGetterServiceClient
 }
 
 func (mc *mockConnector) AddGroup(ctx context.Context, groupId string) (*v2.Resource, *v2.Entitlement, error) {
@@ -662,6 +665,21 @@ func (mc *mockConnector) ListResources(ctx context.Context, in *v2.ResourcesServ
 		resources = []*v2.Resource{}
 	}
 	return &v2.ResourcesServiceListResourcesResponse{List: resources}, nil
+}
+
+func (mc *mockConnector) GetResource(ctx context.Context, in *v2.ResourceGetterServiceGetResourceRequest, opts ...grpc.CallOption) (*v2.ResourceGetterServiceGetResourceResponse, error) {
+	var resource *v2.Resource
+	resources := mc.resourceDB[in.ResourceId.ResourceType]
+	for _, r := range resources {
+		if r.Id.Resource == in.ResourceId.Resource {
+			resource = r
+			break
+		}
+	}
+	if resource == nil {
+		return nil, status.Errorf(codes.NotFound, "resource not found")
+	}
+	return &v2.ResourceGetterServiceGetResourceResponse{Resource: resource}, nil
 }
 
 func (mc *mockConnector) ListEntitlements(ctx context.Context, in *v2.EntitlementsServiceListEntitlementsRequest, opts ...grpc.CallOption) (*v2.EntitlementsServiceListEntitlementsResponse, error) {

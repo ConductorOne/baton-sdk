@@ -92,4 +92,5 @@ const (
 	ActionGetSchemaType
 	ActionInvokeType
 	ActionStatusType
+	GetResourceType
 )

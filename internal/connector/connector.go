@@ -35,7 +35,7 @@ const listenerFdEnv = "BATON_CONNECTOR_SERVICE_LISTENER_FD"
 type connectorClient struct {
 	connectorV2.ResourceTypesServiceClient
 	connectorV2.ResourcesServiceClient
-	connectorV2.ResourcesGetterServiceClient
+	connectorV2.ResourceGetterServiceClient
 	connectorV2.EntitlementsServiceClient
 	connectorV2.GrantsServiceClient
 	connectorV2.ConnectorServiceClient
@@ -373,7 +373,7 @@ func Register(ctx context.Context, s grpc.ServiceRegistrar, srv types.ConnectorS
 	connectorV2.RegisterResourceTypesServiceServer(s, srv)
 	connectorV2.RegisterAssetServiceServer(s, srv)
 	connectorV2.RegisterEventServiceServer(s, srv)
-	connectorV2.RegisterResourcesGetterServiceServer(s, srv)
+	connectorV2.RegisterResourceGetterServiceServer(s, srv)
 
 	if opts.TicketingEnabled {
 		connectorV2.RegisterTicketsServiceServer(s, srv)
@@ -423,6 +423,6 @@ func NewConnectorClient(ctx context.Context, cc grpc.ClientConnInterface) types.
 		EventServiceClient:             connectorV2.NewEventServiceClient(cc),
 		TicketsServiceClient:           connectorV2.NewTicketsServiceClient(cc),
 		ActionServiceClient:            connectorV2.NewActionServiceClient(cc),
-		ResourcesGetterServiceClient:   connectorV2.NewResourcesGetterServiceClient(cc),
+		ResourceGetterServiceClient:    connectorV2.NewResourceGetterServiceClient(cc),
 	}
 }

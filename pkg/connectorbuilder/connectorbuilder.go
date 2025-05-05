@@ -101,7 +101,7 @@ type ResourceDeleter interface {
 // of the associated resource type.
 type ResourceTargetedSyncer interface {
 	ResourceSyncer
-	Get(ctx context.Context, resourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error)
+	Get(ctx context.Context, resourceId *v2.ResourceId, parentResourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error)
 }
 
 // CreateAccountResponse is a semi-opaque type returned from CreateAccount operations.
@@ -626,6 +626,31 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
+}
+
+func (b *builderImpl) GetResource(ctx context.Context, request *v2.ResourceGetterServiceGetResourceRequest) (*v2.ResourceGetterServiceGetResourceResponse, error) {
+	ctx, span := tracer.Start(ctx, "builderImpl.GetResource")
+	defer span.End()
+
+	start := b.nowFunc()
+	tt := tasks.GetResourceType
+	rb, ok := b.resourceTargetedSyncers[request.ResourceId.ResourceType]
+	if !ok {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: get resource with unknown resource type %s", request.ResourceId.ResourceType)
+	}
+
+	resource, annos, err := rb.Get(ctx, request.ResourceId, request.ParentResourceId)
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: get resource failed: %w", err)
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return &v2.ResourceGetterServiceGetResourceResponse{
+		Resource:    resource,
+		Annotations: annos,
+	}, nil
 }
 
 // ListEntitlements returns all the entitlements for a given resource.
