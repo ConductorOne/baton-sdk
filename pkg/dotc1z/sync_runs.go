@@ -682,10 +682,12 @@ func (c *C1File) ListSyncs(ctx context.Context, request *reader_v2.SyncsReaderSe
 	syncRuns := make([]*reader_v2.SyncRun, len(syncs))
 	for i, sr := range syncs {
 		syncRuns[i] = &reader_v2.SyncRun{
-			Id:        sr.ID,
-			StartedAt: toTimeStamp(sr.StartedAt),
-			EndedAt:   toTimeStamp(sr.EndedAt),
-			SyncToken: sr.SyncToken,
+			Id:           sr.ID,
+			StartedAt:    toTimeStamp(sr.StartedAt),
+			EndedAt:      toTimeStamp(sr.EndedAt),
+			SyncToken:    sr.SyncToken,
+			SyncType:     string(sr.Type),
+			ParentSyncId: sr.ParentSyncID,
 		}
 	}
 
@@ -706,10 +708,12 @@ func (c *C1File) GetLatestFinishedSync(ctx context.Context, request *reader_v2.S
 
 	return &reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse{
 		Sync: &reader_v2.SyncRun{
-			Id:        sync.ID,
-			StartedAt: toTimeStamp(sync.StartedAt),
-			EndedAt:   toTimeStamp(sync.EndedAt),
-			SyncToken: sync.SyncToken,
+			Id:           sync.ID,
+			StartedAt:    toTimeStamp(sync.StartedAt),
+			EndedAt:      toTimeStamp(sync.EndedAt),
+			SyncToken:    sync.SyncToken,
+			SyncType:     string(sync.Type),
+			ParentSyncId: sync.ParentSyncID,
 		},
 	}, nil
 }
