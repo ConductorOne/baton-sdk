@@ -454,11 +454,13 @@ func (x *RevokeEvent) GetPrincipal() *Resource {
 
 // generic light weight event indicating a resource was changed
 type ResourceChangeEvent struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	ResourceId       *ResourceId            `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
-	ParentResourceId *ResourceId            `protobuf:"bytes,2,opt,name=parent_resource_id,json=parentResourceId,proto3" json:"parent_resource_id,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Resource:
+	//
+	//	*ResourceChangeEvent_ResourceIdWithParentId
+	Resource      isResourceChangeEvent_Resource `protobuf_oneof:"resource"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResourceChangeEvent) Reset() {
@@ -491,19 +493,31 @@ func (*ResourceChangeEvent) Descriptor() ([]byte, []int) {
 	return file_c1_connector_v2_event_feed_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ResourceChangeEvent) GetResourceId() *ResourceId {
+func (x *ResourceChangeEvent) GetResource() isResourceChangeEvent_Resource {
 	if x != nil {
-		return x.ResourceId
+		return x.Resource
 	}
 	return nil
 }
 
-func (x *ResourceChangeEvent) GetParentResourceId() *ResourceId {
+func (x *ResourceChangeEvent) GetResourceIdWithParentId() *ResourceIdWithParentId {
 	if x != nil {
-		return x.ParentResourceId
+		if x, ok := x.Resource.(*ResourceChangeEvent_ResourceIdWithParentId); ok {
+			return x.ResourceIdWithParentId
+		}
 	}
 	return nil
 }
+
+type isResourceChangeEvent_Resource interface {
+	isResourceChangeEvent_Resource()
+}
+
+type ResourceChangeEvent_ResourceIdWithParentId struct {
+	ResourceIdWithParentId *ResourceIdWithParentId `protobuf:"bytes,1,opt,name=resource_id_with_parent_id,json=resourceIdWithParentId,proto3,oneof"`
+}
+
+func (*ResourceChangeEvent_ResourceIdWithParentId) isResourceChangeEvent_Resource() {}
 
 var File_c1_connector_v2_event_feed_proto protoreflect.FileDescriptor
 
@@ -597,17 +611,15 @@ var file_c1_connector_v2_event_feed_proto_rawDesc = string([]byte{
 	0x70, 0x61, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x19, 0x2e, 0x63, 0x31, 0x2e, 0x63,
 	0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x2e, 0x76, 0x32, 0x2e, 0x52, 0x65, 0x73, 0x6f,
 	0x75, 0x72, 0x63, 0x65, 0x52, 0x09, 0x70, 0x72, 0x69, 0x6e, 0x63, 0x69, 0x70, 0x61, 0x6c, 0x22,
-	0xa8, 0x01, 0x0a, 0x13, 0x52, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x43, 0x68, 0x61, 0x6e,
-	0x67, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x12, 0x46, 0x0a, 0x0b, 0x72, 0x65, 0x73, 0x6f, 0x75,
-	0x72, 0x63, 0x65, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1b, 0x2e, 0x63,
-	0x31, 0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x2e, 0x76, 0x32, 0x2e, 0x52,
-	0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x49, 0x64, 0x42, 0x08, 0xfa, 0x42, 0x05, 0x8a, 0x01,
-	0x02, 0x10, 0x01, 0x52, 0x0a, 0x72, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x49, 0x64, 0x12,
-	0x49, 0x0a, 0x12, 0x70, 0x61, 0x72, 0x65, 0x6e, 0x74, 0x5f, 0x72, 0x65, 0x73, 0x6f, 0x75, 0x72,
-	0x63, 0x65, 0x5f, 0x69, 0x64, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1b, 0x2e, 0x63, 0x31,
+	0x88, 0x01, 0x0a, 0x13, 0x52, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x43, 0x68, 0x61, 0x6e,
+	0x67, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x12, 0x65, 0x0a, 0x1a, 0x72, 0x65, 0x73, 0x6f, 0x75,
+	0x72, 0x63, 0x65, 0x5f, 0x69, 0x64, 0x5f, 0x77, 0x69, 0x74, 0x68, 0x5f, 0x70, 0x61, 0x72, 0x65,
+	0x6e, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x27, 0x2e, 0x63, 0x31,
 	0x2e, 0x63, 0x6f, 0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x2e, 0x76, 0x32, 0x2e, 0x52, 0x65,
-	0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x49, 0x64, 0x52, 0x10, 0x70, 0x61, 0x72, 0x65, 0x6e, 0x74,
-	0x52, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x49, 0x64, 0x32, 0x65, 0x0a, 0x0c, 0x45, 0x76,
+	0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x49, 0x64, 0x57, 0x69, 0x74, 0x68, 0x50, 0x61, 0x72, 0x65,
+	0x6e, 0x74, 0x49, 0x64, 0x48, 0x00, 0x52, 0x16, 0x72, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65,
+	0x49, 0x64, 0x57, 0x69, 0x74, 0x68, 0x50, 0x61, 0x72, 0x65, 0x6e, 0x74, 0x49, 0x64, 0x42, 0x0a,
+	0x0a, 0x08, 0x72, 0x65, 0x73, 0x6f, 0x75, 0x72, 0x63, 0x65, 0x32, 0x65, 0x0a, 0x0c, 0x45, 0x76,
 	0x65, 0x6e, 0x74, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x55, 0x0a, 0x0a, 0x4c, 0x69,
 	0x73, 0x74, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x12, 0x22, 0x2e, 0x63, 0x31, 0x2e, 0x63, 0x6f,
 	0x6e, 0x6e, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x2e, 0x76, 0x32, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x45,
@@ -635,19 +647,19 @@ func file_c1_connector_v2_event_feed_proto_rawDescGZIP() []byte {
 
 var file_c1_connector_v2_event_feed_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_c1_connector_v2_event_feed_proto_goTypes = []any{
-	(*ListEventsRequest)(nil),     // 0: c1.connector.v2.ListEventsRequest
-	(*ListEventsResponse)(nil),    // 1: c1.connector.v2.ListEventsResponse
-	(*Event)(nil),                 // 2: c1.connector.v2.Event
-	(*UsageEvent)(nil),            // 3: c1.connector.v2.UsageEvent
-	(*GrantEvent)(nil),            // 4: c1.connector.v2.GrantEvent
-	(*RevokeEvent)(nil),           // 5: c1.connector.v2.RevokeEvent
-	(*ResourceChangeEvent)(nil),   // 6: c1.connector.v2.ResourceChangeEvent
-	(*timestamppb.Timestamp)(nil), // 7: google.protobuf.Timestamp
-	(*anypb.Any)(nil),             // 8: google.protobuf.Any
-	(*Resource)(nil),              // 9: c1.connector.v2.Resource
-	(*Grant)(nil),                 // 10: c1.connector.v2.Grant
-	(*Entitlement)(nil),           // 11: c1.connector.v2.Entitlement
-	(*ResourceId)(nil),            // 12: c1.connector.v2.ResourceId
+	(*ListEventsRequest)(nil),      // 0: c1.connector.v2.ListEventsRequest
+	(*ListEventsResponse)(nil),     // 1: c1.connector.v2.ListEventsResponse
+	(*Event)(nil),                  // 2: c1.connector.v2.Event
+	(*UsageEvent)(nil),             // 3: c1.connector.v2.UsageEvent
+	(*GrantEvent)(nil),             // 4: c1.connector.v2.GrantEvent
+	(*RevokeEvent)(nil),            // 5: c1.connector.v2.RevokeEvent
+	(*ResourceChangeEvent)(nil),    // 6: c1.connector.v2.ResourceChangeEvent
+	(*timestamppb.Timestamp)(nil),  // 7: google.protobuf.Timestamp
+	(*anypb.Any)(nil),              // 8: google.protobuf.Any
+	(*Resource)(nil),               // 9: c1.connector.v2.Resource
+	(*Grant)(nil),                  // 10: c1.connector.v2.Grant
+	(*Entitlement)(nil),            // 11: c1.connector.v2.Entitlement
+	(*ResourceIdWithParentId)(nil), // 12: c1.connector.v2.ResourceIdWithParentId
 }
 var file_c1_connector_v2_event_feed_proto_depIdxs = []int32{
 	7,  // 0: c1.connector.v2.ListEventsRequest.start_at:type_name -> google.protobuf.Timestamp
@@ -665,15 +677,14 @@ var file_c1_connector_v2_event_feed_proto_depIdxs = []int32{
 	10, // 12: c1.connector.v2.GrantEvent.grant:type_name -> c1.connector.v2.Grant
 	11, // 13: c1.connector.v2.RevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
 	9,  // 14: c1.connector.v2.RevokeEvent.principal:type_name -> c1.connector.v2.Resource
-	12, // 15: c1.connector.v2.ResourceChangeEvent.resource_id:type_name -> c1.connector.v2.ResourceId
-	12, // 16: c1.connector.v2.ResourceChangeEvent.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	0,  // 17: c1.connector.v2.EventService.ListEvents:input_type -> c1.connector.v2.ListEventsRequest
-	1,  // 18: c1.connector.v2.EventService.ListEvents:output_type -> c1.connector.v2.ListEventsResponse
-	18, // [18:19] is the sub-list for method output_type
-	17, // [17:18] is the sub-list for method input_type
-	17, // [17:17] is the sub-list for extension type_name
-	17, // [17:17] is the sub-list for extension extendee
-	0,  // [0:17] is the sub-list for field type_name
+	12, // 15: c1.connector.v2.ResourceChangeEvent.resource_id_with_parent_id:type_name -> c1.connector.v2.ResourceIdWithParentId
+	0,  // 16: c1.connector.v2.EventService.ListEvents:input_type -> c1.connector.v2.ListEventsRequest
+	1,  // 17: c1.connector.v2.EventService.ListEvents:output_type -> c1.connector.v2.ListEventsResponse
+	17, // [17:18] is the sub-list for method output_type
+	16, // [16:17] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_event_feed_proto_init() }
@@ -689,6 +700,9 @@ func file_c1_connector_v2_event_feed_proto_init() {
 		(*Event_GrantEvent)(nil),
 		(*Event_RevokeEvent)(nil),
 		(*Event_ResourceChangeEvent)(nil),
+	}
+	file_c1_connector_v2_event_feed_proto_msgTypes[6].OneofWrappers = []any{
+		(*ResourceChangeEvent_ResourceIdWithParentId)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
