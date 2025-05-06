@@ -75,7 +75,5 @@ message RevokeEvent {
 
 // generic light weight event indicating a resource was changed
 message ResourceChangeEvent {
-  oneof resource {
-    c1.connector.v2.ResourceIdWithParentId resource_id_with_parent_id = 100;
-  }
+  c1.connector.v2.ResourceIdWithParentId resource_id_with_parent_id = 100;
 }

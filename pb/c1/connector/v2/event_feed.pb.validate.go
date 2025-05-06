@@ -1213,50 +1213,33 @@ func (m *ResourceChangeEvent) validate(all bool) error {
 
 	var errors []error
 
-	switch v := m.Resource.(type) {
-	case *ResourceChangeEvent_ResourceIdWithParentId:
-		if v == nil {
-			err := ResourceChangeEventValidationError{
-				field:  "Resource",
-				reason: "oneof value cannot be a typed-nil",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-		if all {
-			switch v := interface{}(m.GetResourceIdWithParentId()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ResourceChangeEventValidationError{
-						field:  "ResourceIdWithParentId",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, ResourceChangeEventValidationError{
-						field:  "ResourceIdWithParentId",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetResourceIdWithParentId()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return ResourceChangeEventValidationError{
+	if all {
+		switch v := interface{}(m.GetResourceIdWithParentId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ResourceChangeEventValidationError{
 					field:  "ResourceIdWithParentId",
 					reason: "embedded message failed validation",
 					cause:  err,
-				}
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ResourceChangeEventValidationError{
+					field:  "ResourceIdWithParentId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
 			}
 		}
-
-	default:
-		_ = v // ensures v is used
+	} else if v, ok := interface{}(m.GetResourceIdWithParentId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ResourceChangeEventValidationError{
+				field:  "ResourceIdWithParentId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
 	}
 
 	if len(errors) > 0 {
