@@ -49,8 +49,8 @@ func (r *assetsTable) Schema() (string, []interface{}) {
 	}
 }
 
-func (r *assetsTable) Migrations(ctx context.Context, db *goqu.Database) ([]string, error) {
-	return nil, nil
+func (r *assetsTable) Migrations(ctx context.Context, db *goqu.Database) error {
+	return nil
 }
 
 // PutAsset stores the given asset in the database.

@@ -196,15 +196,9 @@ func (c *C1File) init(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		migrations, err := t.Migrations(ctx, c.db)
+		err = t.Migrations(ctx, c.db)
 		if err != nil {
 			return err
-		}
-		for _, migration := range migrations {
-			_, err = c.db.ExecContext(ctx, migration)
-			if err != nil {
-				return err
-			}
 		}
 	}
 

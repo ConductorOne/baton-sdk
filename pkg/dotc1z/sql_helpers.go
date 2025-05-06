@@ -32,7 +32,7 @@ type tableDescriptor interface {
 	Name() string
 	Schema() (string, []interface{})
 	Version() string
-	Migrations(ctx context.Context, db *goqu.Database) ([]string, error)
+	Migrations(ctx context.Context, db *goqu.Database) error
 }
 
 type listRequest interface {

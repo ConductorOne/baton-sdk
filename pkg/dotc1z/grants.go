@@ -58,8 +58,8 @@ func (r *grantsTable) Schema() (string, []interface{}) {
 	}
 }
 
-func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) ([]string, error) {
-	return nil, nil
+func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
+	return nil
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {

@@ -49,8 +49,8 @@ func (r *entitlementsTable) Schema() (string, []interface{}) {
 	}
 }
 
-func (r *entitlementsTable) Migrations(ctx context.Context, db *goqu.Database) ([]string, error) {
-	return nil, nil
+func (r *entitlementsTable) Migrations(ctx context.Context, db *goqu.Database) error {
+	return nil
 }
 
 func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
