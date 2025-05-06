@@ -109,6 +109,15 @@ func (s SchemaField) GetDescription() string {
 	return line
 }
 
+func (s SchemaField) ExportAs(et ExportTarget) SchemaField {
+	if s.ExportTarget != ExportTargetUnusedBySDK {
+		panic("Invalid usage of ExportAs - only supported for initial ExportTargetUnusedBySDK")
+	}
+	c := s
+	c.ExportTarget = et
+	return c
+}
+
 // Go doesn't allow generic methods on a non-generic struct.
 func ValidateField[T SchemaTypes](s *SchemaField, value T) (bool, error) {
 	return s.validate(value)

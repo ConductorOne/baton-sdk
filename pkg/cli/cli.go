@@ -60,6 +60,11 @@ func AddCommand(mainCMD *cobra.Command, v *viper.Viper, schema *field.Configurat
 func SetFlagsAndConstraints(command *cobra.Command, schema field.Configuration) error {
 	// add options
 	for _, f := range schema.Fields {
+		// Common fields across connectors, defined by the SDK, but not used by the SDK.
+		// Use ExportAs to include.
+		if f.ExportTarget == field.ExportTargetUnusedBySDK {
+			continue
+		}
 		switch f.Variant {
 		case field.BoolVariant:
 			value, err := field.GetDefaultValue[bool](f)
