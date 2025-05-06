@@ -561,6 +561,18 @@ func WithExternalResourceEntitlementFilter(entitlementId string) Option {
 	}
 }
 
+func WithDiffSyncs(c1zPath string, baseSyncID string, newSyncID string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.syncDifferConfig = &syncDifferConfig{
+			baseSyncID: baseSyncID,
+			newSyncID:  newSyncID,
+		}
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}

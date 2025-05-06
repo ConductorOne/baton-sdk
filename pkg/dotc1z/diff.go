@@ -9,7 +9,7 @@ import (
 	"github.com/segmentio/ksuid"
 )
 
-func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, newSyncID string) (string, error) {
+func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, appliedSyncID string) (string, error) {
 	// Validate that both sync runs exist
 	baseSync, err := c.getSync(ctx, baseSyncID)
 	if err != nil {
@@ -19,7 +19,7 @@ func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, newSyn
 		return "", fmt.Errorf("generate-diff: base sync not found")
 	}
 
-	newSync, err := c.getSync(ctx, newSyncID)
+	newSync, err := c.getSync(ctx, appliedSyncID)
 	if err != nil {
 		return "", err
 	}
@@ -27,51 +27,45 @@ func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, newSyn
 		return "", fmt.Errorf("generate-diff: new sync not found")
 	}
 
-	// Create a context for the queries
-	qCtx, canc := context.WithCancel(ctx)
-	defer canc()
-
-	// Get a single connection to the current db so we can make multiple queries in the same session
-	conn, err := c.rawDb.Conn(qCtx)
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-
 	// Generate a new unique ID for the diff sync
 	diffSyncID := ksuid.New().String()
+
+	if err := c.insertSyncRun(ctx, diffSyncID); err != nil {
+		return "", err
+	}
 
 	for _, t := range allTableDescriptors {
 		if strings.Contains(t.Name(), syncRunsTableName) {
 			continue
 		}
-		q, err := diffTableQuery(t.Name())
+
+		q, args, err := c.diffTableQuery(t, baseSyncID, appliedSyncID, diffSyncID)
 		if err != nil {
 			return "", err
 		}
-		_, err = conn.ExecContext(qCtx, q, diffSyncID, newSyncID, baseSyncID)
+		_, err = c.db.ExecContext(ctx, q, args...)
 		if err != nil {
 			return "", err
 		}
 	}
 
-	if err := c.insertSyncRun(ctx, diffSyncID); err != nil {
+	if err := c.endSyncRun(ctx, diffSyncID); err != nil {
 		return "", err
 	}
 
 	return diffSyncID, nil
 }
 
-func diffTableQuery(tableName string) (string, error) {
+func (c *C1File) diffTableQuery(table tableDescriptor, baseSyncID, appliedSyncID, newSyncID string) (string, []any, error) {
 	// Define the columns to select based on the table name
 	columns := []interface{}{
-		"id",
 		"external_id",
 		"data",
-		goqu.L("?"), // Placeholder for new sync ID
+		"sync_id",
 		"discovered_at",
 	}
 
+	tableName := table.Name()
 	// Add table-specific columns
 	switch {
 	case strings.Contains(tableName, resourcesTableName):
@@ -79,7 +73,7 @@ func diffTableQuery(tableName string) (string, error) {
 	case strings.Contains(tableName, resourceTypesTableName):
 		// Nothing new to add here
 	case strings.Contains(tableName, grantsTableName):
-		columns = append(columns, "resource_type_id", "resource_id", "entitlement_id", "parent_resource_type_id", "parent_resource_id")
+		columns = append(columns, "resource_type_id", "resource_id", "entitlement_id", "principal_resource_type_id", "principal_resource_id")
 	case strings.Contains(tableName, entitlementsTableName):
 		columns = append(columns, "resource_type_id", "resource_id")
 	case strings.Contains(tableName, assetsTableName):
@@ -87,23 +81,32 @@ func diffTableQuery(tableName string) (string, error) {
 	}
 
 	// Build the subquery to find external_ids in the base sync
-	subquery := goqu.From(tableName).
-		Select("id").
-		Where(goqu.C("sync_id").Eq(goqu.L("?"))) // Placeholder for baseSyncID
+	subquery := c.db.Select("external_id").
+		From(tableName).
+		Where(goqu.C("sync_id").Eq(baseSyncID))
+
+	queryColumns := []interface{}{}
+	for _, col := range columns {
+		if col == "sync_id" {
+			queryColumns = append(queryColumns, goqu.L(fmt.Sprintf("'%s' as sync_id", newSyncID)))
+			continue
+		}
+		queryColumns = append(queryColumns, col)
+	}
 
 	// Build the main query to select records from newSyncID that don't exist in baseSyncID
-	query := goqu.Insert(tableName).
+	query := c.db.Insert(tableName).
+		Cols(columns...).
 		Prepared(true).
 		FromQuery(
-			goqu.From(tableName).
-				Select(columns...).
+			c.db.Select(queryColumns...).
+				From(tableName).
 				Where(
-					goqu.C("sync_id").Eq(goqu.L("?")), // Placeholder for newSyncID
-					goqu.C("id").NotIn(subquery),
+					goqu.C("sync_id").Eq(appliedSyncID),
+					goqu.C("external_id").NotIn(subquery),
 				),
 		)
 
 	// Generate the SQL and args
-	sql, _, err := query.ToSQL()
-	return sql, err
+	return query.ToSQL()
 }

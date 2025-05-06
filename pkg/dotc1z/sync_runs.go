@@ -463,6 +463,26 @@ func (c *C1File) insertSyncRun(ctx context.Context, syncID string) error {
 	return nil
 }
 
+func (c *C1File) insertSyncRunTX(ctx context.Context, tx *goqu.TxDatabase, syncID string) error {
+	q := tx.Insert(syncRuns.Name())
+	q = q.Rows(goqu.Record{
+		"sync_id":    syncID,
+		"started_at": time.Now().Format("2006-01-02 15:04:05.999999999"),
+		"sync_token": "",
+	})
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (c *C1File) CurrentSyncStep(ctx context.Context) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.CurrentSyncStep")
 	defer span.End()
@@ -485,11 +505,22 @@ func (c *C1File) EndSync(ctx context.Context) error {
 		return err
 	}
 
+	if err := c.endSyncRun(ctx, c.currentSyncID); err != nil {
+		return err
+	}
+
+	c.currentSyncID = ""
+	c.dbUpdated = true
+
+	return nil
+}
+
+func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 	q := c.db.Update(syncRuns.Name())
 	q = q.Set(goqu.Record{
 		"ended_at": time.Now().Format("2006-01-02 15:04:05.999999999"),
 	})
-	q = q.Where(goqu.C("sync_id").Eq(c.currentSyncID))
+	q = q.Where(goqu.C("sync_id").Eq(syncID))
 	q = q.Where(goqu.C("ended_at").IsNull())
 
 	query, args, err := q.ToSQL()
@@ -501,9 +532,6 @@ func (c *C1File) EndSync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	c.currentSyncID = ""
-	c.dbUpdated = true
 
 	return nil
 }
