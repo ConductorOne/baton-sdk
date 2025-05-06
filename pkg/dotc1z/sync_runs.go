@@ -655,10 +655,12 @@ func (c *C1File) GetSync(ctx context.Context, request *reader_v2.SyncsReaderServ
 
 	return &reader_v2.SyncsReaderServiceGetSyncResponse{
 		Sync: &reader_v2.SyncRun{
-			Id:        sr.ID,
-			StartedAt: toTimeStamp(sr.StartedAt),
-			EndedAt:   toTimeStamp(sr.EndedAt),
-			SyncToken: sr.SyncToken,
+			Id:           sr.ID,
+			StartedAt:    toTimeStamp(sr.StartedAt),
+			EndedAt:      toTimeStamp(sr.EndedAt),
+			SyncToken:    sr.SyncToken,
+			SyncType:     string(sr.Type),
+			ParentSyncId: sr.ParentSyncID,
 		},
 	}, nil
 }
