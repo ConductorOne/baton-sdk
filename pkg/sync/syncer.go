@@ -204,6 +204,7 @@ type syncer struct {
 	skipFullSync                        bool
 	lastCheckPointTime                  time.Time
 	counts                              *ProgressCounts
+	targetedSyncResourceIDs             []string
 
 	skipEGForResourceType map[string]bool
 }
@@ -2582,6 +2583,12 @@ func WithExternalResourceC1ZPath(path string) SyncOpt {
 func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
 	return func(s *syncer) {
 		s.externalResourceEntitlementIdFilter = entitlementId
+	}
+}
+
+func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
+	return func(s *syncer) {
+		s.targetedSyncResourceIDs = resourceIDs
 	}
 }
 

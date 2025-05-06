@@ -219,6 +219,11 @@ func MakeMainCommand[T field.Configurable](
 				opts = append(opts,
 					connectorrunner.WithTicketingEnabled(),
 					connectorrunner.WithGetTicket(v.GetString("ticket-id")))
+			case len(v.GetStringSlice("sync-resources")) > 0:
+				opts = append(opts,
+					connectorrunner.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")),
+					connectorrunner.WithOnDemandSync(v.GetString("file")),
+				)
 			default:
 				opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))
 			}
@@ -401,6 +406,8 @@ func MakeGRPCServerCommand[T field.Configurable](
 			copts = append(copts, connector.WithTicketingEnabled())
 		case v.GetBool("get-ticket"):
 			copts = append(copts, connector.WithTicketingEnabled())
+		case len(v.GetStringSlice("sync-resources")) > 0:
+			copts = append(copts, connector.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")))
 		}
 
 		cw, err := connector.NewWrapper(runCtx, c, copts...)

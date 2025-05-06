@@ -304,6 +304,7 @@ type runnerConfig struct {
 	listTicketSchemasConfig             *listTicketSchemasConfig
 	getTicketConfig                     *getTicketConfig
 	skipFullSync                        bool
+	targetedSyncResourceIDs             []string
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
 }
@@ -481,6 +482,13 @@ func WithFullSyncDisabled() Option {
 	}
 }
 
+func WithTargetedSyncResourceIDs(resourceIDs []string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.targetedSyncResourceIDs = resourceIDs
+		return nil
+	}
+}
+
 func WithTicketingEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.ticketingEnabled = true
@@ -578,6 +586,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		wrapperOpts = append(wrapperOpts, connector.WithFullSyncDisabled())
 	}
 
+	if len(cfg.targetedSyncResourceIDs) > 0 {
+		wrapperOpts = append(wrapperOpts, connector.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs))
+	}
+
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {
 		return nil, err
@@ -627,7 +639,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
 				local.WithTmpDir(cfg.tempDir),
 				local.WithExternalResourceC1Z(cfg.externalResourceC1Z),
-				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter))
+				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
+				local.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs),
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -639,7 +653,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		return runner, nil
 	}
 
-	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync, cfg.externalResourceC1Z, cfg.externalResourceEntitlementIdFilter)
+	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync, cfg.externalResourceC1Z, cfg.externalResourceEntitlementIdFilter, cfg.targetedSyncResourceIDs)
 	if err != nil {
 		return nil, err
 	}
