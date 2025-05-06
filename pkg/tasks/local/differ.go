@@ -6,7 +6,6 @@ import (
 	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
@@ -54,22 +53,22 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	if err != nil {
 		return err
 	}
-	diffSyncID, err := file.GenerateSyncDiff(ctx, m.baseSyncID, m.newSyncID)
+
+	_, err = file.GenerateSyncDiff(ctx, m.baseSyncID, m.newSyncID)
 	if err != nil {
 		return err
 	}
-	syncInfo, err := file.GetSync(ctx, &v2.SyncsReaderServiceGetSyncRequest{
-		SyncId: diffSyncID,
-	})
-	if err != nil {
+
+	if err := file.Close(); err != nil {
 		return err
 	}
-	log.Info("created diff as partial sync", zap.String("sync_id", diffSyncID), zap.Any("sync_info", syncInfo))
 
 	if err := store.SaveC1Z(ctx); err != nil {
+		log.Error("failed to save diff", zap.Error(err))
 		return err
 	}
 	if err := store.Close(ctx); err != nil {
+		log.Error("failed to close store", zap.Error(err))
 		return err
 	}
 

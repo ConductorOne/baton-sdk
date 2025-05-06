@@ -47,6 +47,7 @@ func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, applie
 		if err != nil {
 			return "", err
 		}
+		c.dbUpdated = true
 	}
 
 	if err := c.endSyncRun(ctx, diffSyncID); err != nil {

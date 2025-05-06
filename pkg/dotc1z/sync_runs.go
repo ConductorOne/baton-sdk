@@ -435,13 +435,13 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType, pa
 		return "", err
 	}
 
-	c.dbUpdated = true
 	c.currentSyncID = syncID
 
 	return c.currentSyncID, nil
 }
 
 func (c *C1File) insertSyncRun(ctx context.Context, syncID string) error {
+	c.dbUpdated = true
 	q := c.db.Insert(syncRuns.Name())
 	q = q.Rows(goqu.Record{
 		"sync_id":        syncID,
@@ -457,26 +457,6 @@ func (c *C1File) insertSyncRun(ctx context.Context, syncID string) error {
 	}
 
 	_, err = c.db.ExecContext(ctx, query, args...)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (c *C1File) insertSyncRunTX(ctx context.Context, tx *goqu.TxDatabase, syncID string) error {
-	q := tx.Insert(syncRuns.Name())
-	q = q.Rows(goqu.Record{
-		"sync_id":    syncID,
-		"started_at": time.Now().Format("2006-01-02 15:04:05.999999999"),
-		"sync_token": "",
-	})
-
-	query, args, err := q.ToSQL()
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -510,12 +490,12 @@ func (c *C1File) EndSync(ctx context.Context) error {
 	}
 
 	c.currentSyncID = ""
-	c.dbUpdated = true
 
 	return nil
 }
 
 func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
+	c.dbUpdated = true
 	q := c.db.Update(syncRuns.Name())
 	q = q.Set(goqu.Record{
 		"ended_at": time.Now().Format("2006-01-02 15:04:05.999999999"),
