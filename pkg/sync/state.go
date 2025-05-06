@@ -54,7 +54,7 @@ func (s ActionOp) String() string {
 	case SyncGrantExpansionOp:
 		return "grant-expansion"
 	case SyncTargetedResourceOp:
-		return "get-resource"
+		return "targeted-resource-sync"
 	default:
 		return "unknown"
 	}
