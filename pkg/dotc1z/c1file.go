@@ -192,10 +192,19 @@ func (c *C1File) init(ctx context.Context) error {
 
 	for _, t := range allTableDescriptors {
 		query, args := t.Schema()
-
 		_, err = c.db.ExecContext(ctx, fmt.Sprintf(query, args...))
 		if err != nil {
 			return err
+		}
+		migrations, err := t.Migrations(ctx, c.db)
+		if err != nil {
+			return err
+		}
+		for _, migration := range migrations {
+			_, err = c.db.ExecContext(ctx, migration)
+			if err != nil {
+				return err
+			}
 		}
 	}
 

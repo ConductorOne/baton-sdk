@@ -28,11 +28,9 @@ create table if not exists %s (
     ended_at datetime,
     sync_token text not null,
     sync_type text not null default 'full',
-		parent_sync_id text not null
+    parent_sync_id text not null
 );
 create unique index if not exists %s on %s (sync_id);`
-
-// TODO: not sure if sync_type should be nullable and empty is full, it should not be nullable but default to 'full'
 
 var syncRuns = (*syncRunsTable)(nil)
 
@@ -52,6 +50,31 @@ func (r *syncRunsTable) Schema() (string, []interface{}) {
 		fmt.Sprintf("idx_sync_runs_sync_id_v%s", r.Version()),
 		r.Name(),
 	}
+}
+
+func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) ([]string, error) {
+	// Check if sync_type column exists
+	var syncTypeExists int
+	err := db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='sync_type'", r.Name())).Scan(&syncTypeExists)
+	if err != nil {
+		return nil, err
+	}
+	var migrations []string
+	if syncTypeExists == 0 {
+		migrations = append(migrations, fmt.Sprintf("alter table %s add column sync_type text not null default 'full'", r.Name()))
+	}
+
+	// Check if parent_sync_id column exists
+	var parentSyncIDExists int
+	err = db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='parent_sync_id'", r.Name())).Scan(&parentSyncIDExists)
+	if err != nil {
+		return nil, err
+	}
+	if parentSyncIDExists == 0 {
+		migrations = append(migrations, fmt.Sprintf("alter table %s add column parent_sync_id text not null", r.Name()))
+	}
+
+	return migrations, nil
 }
 
 type SyncType string
