@@ -18,8 +18,8 @@ type localDiffer struct {
 	dbPath string
 	o      sync.Once
 
-	baseSyncID string
-	newSyncID  string
+	baseSyncID    string
+	appliedSyncID string
 }
 
 func (m *localDiffer) GetTempDir() string {
@@ -54,7 +54,7 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		return err
 	}
 
-	_, err = file.GenerateSyncDiff(ctx, m.baseSyncID, m.newSyncID)
+	newSyncID, err := file.GenerateSyncDiff(ctx, m.baseSyncID, m.appliedSyncID)
 	if err != nil {
 		return err
 	}
@@ -72,14 +72,16 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		return err
 	}
 
+	log.Info("generated diff of syncs", zap.String("new_sync_id", newSyncID))
+
 	return nil
 }
 
 // NewRevoker returns a task manager that queues a revoke task.
-func NewDiffer(ctx context.Context, dbPath string, baseSyncID string, newSyncID string) tasks.Manager {
+func NewDiffer(ctx context.Context, dbPath string, baseSyncID string, appliedSyncID string) tasks.Manager {
 	return &localDiffer{
-		dbPath:     dbPath,
-		baseSyncID: baseSyncID,
-		newSyncID:  newSyncID,
+		dbPath:        dbPath,
+		baseSyncID:    baseSyncID,
+		appliedSyncID: appliedSyncID,
 	}
 }

@@ -283,8 +283,8 @@ type eventStreamConfig struct {
 }
 
 type syncDifferConfig struct {
-	baseSyncID string
-	newSyncID  string
+	baseSyncID    string
+	appliedSyncID string
 }
 
 type runnerConfig struct {
@@ -566,8 +566,8 @@ func WithDiffSyncs(c1zPath string, baseSyncID string, newSyncID string) Option {
 		cfg.onDemand = true
 		cfg.c1zPath = c1zPath
 		cfg.syncDifferConfig = &syncDifferConfig{
-			baseSyncID: baseSyncID,
-			newSyncID:  newSyncID,
+			baseSyncID:    baseSyncID,
+			appliedSyncID: newSyncID,
 		}
 		return nil
 	}
@@ -654,7 +654,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		case cfg.bulkCreateTicketConfig != nil:
 			tm = local.NewBulkTicket(ctx, cfg.bulkCreateTicketConfig.templatePath)
 		case cfg.syncDifferConfig != nil:
-			tm = local.NewDiffer(ctx, cfg.c1zPath, cfg.syncDifferConfig.baseSyncID, cfg.syncDifferConfig.newSyncID)
+			tm = local.NewDiffer(ctx, cfg.c1zPath, cfg.syncDifferConfig.baseSyncID, cfg.syncDifferConfig.appliedSyncID)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
 				local.WithTmpDir(cfg.tempDir),
