@@ -233,7 +233,7 @@ message ResourceId {
 }
 
 message ResourceIdWithParentId {
-  ResourceId resource_id = 1;
+  ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
   ResourceId parent_resource_id = 2;
 }
 

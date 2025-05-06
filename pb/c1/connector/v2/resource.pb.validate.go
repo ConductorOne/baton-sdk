@@ -3246,6 +3246,17 @@ func (m *ResourceIdWithParentId) validate(all bool) error {
 
 	var errors []error
 
+	if m.GetResourceId() == nil {
+		err := ResourceIdWithParentIdValidationError{
+			field:  "ResourceId",
+			reason: "value is required",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if all {
 		switch v := interface{}(m.GetResourceId()).(type) {
 		case interface{ ValidateAll() error }:
