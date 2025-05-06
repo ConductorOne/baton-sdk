@@ -28,7 +28,7 @@ create table if not exists %s (
     ended_at datetime,
     sync_token text not null,
     sync_type text not null default 'full',
-    parent_sync_id text not null
+    parent_sync_id text not null default ''
 );
 create unique index if not exists %s on %s (sync_id);`
 
@@ -71,7 +71,7 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) ([]st
 		return nil, err
 	}
 	if parentSyncIDExists == 0 {
-		migrations = append(migrations, fmt.Sprintf("alter table %s add column parent_sync_id text not null", r.Name()))
+		migrations = append(migrations, fmt.Sprintf("alter table %s add column parent_sync_id text not null default ''", r.Name()))
 	}
 
 	return migrations, nil
