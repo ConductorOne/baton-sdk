@@ -51,6 +51,7 @@ message Event {
     UsageEvent usage_event = 100;
     GrantEvent grant_event = 101;
     RevokeEvent revoke_event = 102;
+    ResourceChangeEvent resource_change_event = 103;
   }
 
   // May contain resources for targets, actor, or items referenced in events
@@ -70,4 +71,11 @@ message GrantEvent {
 message RevokeEvent {
   c1.connector.v2.Entitlement entitlement = 1;
   c1.connector.v2.Resource principal = 2;
+}
+
+// generic light weight event indicating a resource was changed
+message ResourceChangeEvent {
+  oneof resource {
+    c1.connector.v2.ResourceIdWithParentId resource_id_with_parent_id = 100;
+  }
 }

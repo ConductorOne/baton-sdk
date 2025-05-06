@@ -232,6 +232,11 @@ message ResourceId {
   bool baton_resource = 3;
 }
 
+message ResourceIdWithParentId {
+  ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
+  ResourceId parent_resource_id = 2;
+}
+
 message Resource {
   ResourceId id = 1;
   ResourceId parent_resource_id = 2;

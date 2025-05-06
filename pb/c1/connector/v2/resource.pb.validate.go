@@ -3224,6 +3224,177 @@ var _ interface {
 	ErrorName() string
 } = ResourceIdValidationError{}
 
+// Validate checks the field values on ResourceIdWithParentId with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ResourceIdWithParentId) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ResourceIdWithParentId with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ResourceIdWithParentIdMultiError, or nil if none found.
+func (m *ResourceIdWithParentId) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ResourceIdWithParentId) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if m.GetResourceId() == nil {
+		err := ResourceIdWithParentIdValidationError{
+			field:  "ResourceId",
+			reason: "value is required",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if all {
+		switch v := interface{}(m.GetResourceId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ResourceIdWithParentIdValidationError{
+					field:  "ResourceId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ResourceIdWithParentIdValidationError{
+					field:  "ResourceId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResourceId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ResourceIdWithParentIdValidationError{
+				field:  "ResourceId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetParentResourceId()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ResourceIdWithParentIdValidationError{
+					field:  "ParentResourceId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ResourceIdWithParentIdValidationError{
+					field:  "ParentResourceId",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetParentResourceId()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ResourceIdWithParentIdValidationError{
+				field:  "ParentResourceId",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return ResourceIdWithParentIdMultiError(errors)
+	}
+
+	return nil
+}
+
+// ResourceIdWithParentIdMultiError is an error wrapping multiple validation
+// errors returned by ResourceIdWithParentId.ValidateAll() if the designated
+// constraints aren't met.
+type ResourceIdWithParentIdMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ResourceIdWithParentIdMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ResourceIdWithParentIdMultiError) AllErrors() []error { return m }
+
+// ResourceIdWithParentIdValidationError is the validation error returned by
+// ResourceIdWithParentId.Validate if the designated constraints aren't met.
+type ResourceIdWithParentIdValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ResourceIdWithParentIdValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ResourceIdWithParentIdValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ResourceIdWithParentIdValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ResourceIdWithParentIdValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ResourceIdWithParentIdValidationError) ErrorName() string {
+	return "ResourceIdWithParentIdValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ResourceIdWithParentIdValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sResourceIdWithParentId.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ResourceIdWithParentIdValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ResourceIdWithParentIdValidationError{}
+
 // Validate checks the field values on Resource with the rules defined in the
 // proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
