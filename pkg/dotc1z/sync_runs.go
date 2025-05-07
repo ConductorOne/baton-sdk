@@ -408,11 +408,20 @@ func (c *C1File) StartNewSync(ctx context.Context) (string, error) {
 	return c.startNewSyncInternal(ctx, SyncTypeFull)
 }
 
-func (c *C1File) StartNewPartialSync(ctx context.Context) (string, error) {
+func (c *C1File) StartNewSyncV2(ctx context.Context, syncType string, parentSyncID string) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.StartNewPartialSync")
 	defer span.End()
 
-	return c.startNewSyncInternal(ctx, SyncTypePartial)
+	var syncTypeEnum SyncType
+	switch syncType {
+	case "full":
+		syncTypeEnum = SyncTypeFull
+	case "partial":
+		syncTypeEnum = SyncTypePartial
+	default:
+		return "", fmt.Errorf("invalid sync type: %s", syncType)
+	}
+	return c.startNewSyncInternal(ctx, syncTypeEnum)
 }
 
 func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType) (string, error) {

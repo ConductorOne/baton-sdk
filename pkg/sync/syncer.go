@@ -349,7 +349,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	var newSync bool
 	if len(s.targetedSyncResourceIDs) > 0 {
 		// TODO: check if we should resume a previous partial sync
-		syncID, err = s.store.StartNewPartialSync(ctx)
+		syncID, err = s.store.StartNewSyncV2(ctx, "partial", "")
 		if err != nil {
 			return err
 		}
