@@ -468,6 +468,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		case SyncTargetedResourceOp:
 			err = s.SyncTargetedResource(ctx)
+			if isWarning(ctx, err) {
+				l.Warn("skipping sync targeted resource action", zap.Any("stateAction", stateAction), zap.Error(err))
+				warnings = append(warnings, err)
+				s.state.FinishAction(ctx)
+				continue
+			}
 			if !s.shouldWaitAndRetry(ctx, err) {
 				return err
 			}

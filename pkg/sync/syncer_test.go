@@ -575,6 +575,8 @@ func TestPartialSync(t *testing.T) {
 		require.NoError(t, err)
 		batonIDs = append(batonIDs, batonId)
 	}
+	// Partial syncs should succeed in cases where a resource doesn't exist.
+	batonIDs = append(batonIDs, "bid:r:group/non_existent_group")
 	partialSyncer, err := NewSyncer(ctx, mc,
 		WithC1ZPath(c1zPath),
 		WithTmpDir(tempDir),
@@ -604,6 +606,7 @@ func TestPartialSync(t *testing.T) {
 		ResourceTypeId: groupResourceType.Id,
 	})
 	require.NoError(t, err)
+	// This connector has 2 groups but partial sync means we only synced one of them.
 	require.Equal(t, len(resourcesResp.GetList()), 1)
 
 	entitlements, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
