@@ -716,6 +716,12 @@ func (c *C1File) GetLatestFinishedSync(ctx context.Context, request *reader_v2.S
 		return nil, fmt.Errorf("error fetching latest finished sync: %w", err)
 	}
 
+	if sync == nil {
+		return &reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse{
+			Sync: nil,
+		}, nil
+	}
+
 	return &reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse{
 		Sync: &reader_v2.SyncRun{
 			Id:           sync.ID,
