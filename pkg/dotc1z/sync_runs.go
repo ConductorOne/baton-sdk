@@ -404,7 +404,7 @@ func (c *C1File) StartNewSync(ctx context.Context) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.StartNewSync")
 	defer span.End()
 
-	return c.startNewSyncInternal(ctx, SyncTypeFull)
+	return c.startNewSyncInternal(ctx, SyncTypeFull, "")
 }
 
 func (c *C1File) StartNewSyncV2(ctx context.Context, syncType string, parentSyncID string) (string, error) {
@@ -420,10 +420,10 @@ func (c *C1File) StartNewSyncV2(ctx context.Context, syncType string, parentSync
 	default:
 		return "", fmt.Errorf("invalid sync type: %s", syncType)
 	}
-	return c.startNewSyncInternal(ctx, syncTypeEnum)
+	return c.startNewSyncInternal(ctx, syncTypeEnum, parentSyncID)
 }
 
-func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType) (string, error) {
+func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType, parentSyncID string) (string, error) {
 	// Not sure if we want to do this here
 	if c.currentSyncID != "" {
 		return c.currentSyncID, nil
@@ -437,7 +437,7 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType) (s
 		"started_at":     time.Now().Format("2006-01-02 15:04:05.999999999"),
 		"sync_token":     "",
 		"sync_type":      syncType,
-		"parent_sync_id": "",
+		"parent_sync_id": parentSyncID,
 	})
 
 	query, args, err := q.ToSQL()
