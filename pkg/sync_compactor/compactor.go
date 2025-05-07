@@ -10,6 +10,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"google.golang.org/protobuf/proto"
 )
 
 type Compactor struct {
@@ -108,8 +109,16 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 	if err := runner.processResourceTypes(ctx); err != nil {
 		return nil, err
 	}
+	if err := runner.processResources(ctx); err != nil {
+		return nil, err
+	}
+	if err := runner.processEntitlements(ctx); err != nil {
+		return nil, err
+	}
+	if err := runner.processGrants(ctx); err != nil {
+		return nil, err
+	}
 
-	//
 	return nil, errors.New("NOT IMPLEMENTED")
 }
 
@@ -119,27 +128,46 @@ type naiveCompactor struct {
 	dest    *dotc1z.C1File
 }
 
-func (c *naiveCompactor) processResourceTypes(ctx context.Context) error {
-	baseResourceTypes, err := UnrollAll(ctx, c.base.ListResourceTypes)
-	if err != nil {
+func naiveCompact[T proto.Message, REQ listRequest, RESP listResponse[T]](
+	ctx context.Context,
+	base listFunc[T, REQ, RESP],
+	applied listFunc[T, REQ, RESP],
+	save func(context.Context, ...T) error,
+) error {
+	// List all objects from the base file and save them in the destination file
+	if err := listAllObjects(ctx, base, func(items []T) (bool, error) {
+		if err := save(ctx, items...); err != nil {
+			return false, err
+		}
+		return true, nil
+	}); err != nil {
 		return err
 	}
 
-	for _, resourceTypes := range baseResourceTypes {
-		if err := c.dest.PutResourceTypes(ctx, resourceTypes); err != nil {
-			return err
+	// Then list all objects from the applied file and save them in the destination file, overwriting ones with the same external_id
+	if err := listAllObjects(ctx, applied, func(items []T) (bool, error) {
+		if err := save(ctx, items...); err != nil {
+			return false, err
 		}
-	}
-
-	appliedResourceTypes, err := UnrollAll(ctx, c.applied.ListResourceTypes)
-	if err != nil {
+		return true, nil
+	}); err != nil {
 		return err
-	}
-	for _, resourceTypes := range appliedResourceTypes {
-		if err := c.dest.PutResourceTypes(ctx, resourceTypes); err != nil {
-			return err
-		}
 	}
 
 	return nil
+}
+
+func (c *naiveCompactor) processResourceTypes(ctx context.Context) error {
+	return naiveCompact(ctx, c.base.ListResourceTypes, c.applied.ListResourceTypes, c.dest.PutResourceTypes)
+}
+
+func (c *naiveCompactor) processResources(ctx context.Context) error {
+	return naiveCompact(ctx, c.base.ListResources, c.applied.ListResources, c.dest.PutResources)
+}
+func (c *naiveCompactor) processGrants(ctx context.Context) error {
+	return naiveCompact(ctx, c.base.ListGrants, c.applied.ListGrants, c.dest.PutGrants)
+}
+
+func (c *naiveCompactor) processEntitlements(ctx context.Context) error {
+	return naiveCompact(ctx, c.base.ListEntitlements, c.applied.ListEntitlements, c.dest.PutEntitlements)
 }

@@ -55,9 +55,9 @@ func setPageToken(req listRequest, token string) {
 	})
 }
 
-func UnrollAll[T proto.Message, REQ listRequest, RESP listResponse[T]](ctx context.Context, list func(context.Context, REQ) (RESP, error)) ([]T, error) {
-	var allResults []T
+type listFunc[T proto.Message, REQ listRequest, RESP listResponse[T]] func(context.Context, REQ) (RESP, error)
 
+func listAllObjects[T proto.Message, REQ listRequest, RESP listResponse[T]](ctx context.Context, list listFunc[T, REQ, RESP], cb func(items []T) (bool, error)) error {
 	// Create a new request using reflection
 	req := createRequest[REQ]()
 
@@ -74,11 +74,17 @@ func UnrollAll[T proto.Message, REQ listRequest, RESP listResponse[T]](ctx conte
 		// Call the list function with the current request
 		resp, err := list(ctx, req)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		// Collect the results
-		allResults = append(allResults, resp.GetList()...)
+		shouldContinue, err := cb(resp.GetList())
+		if err != nil {
+			return err
+		}
+		if !shouldContinue {
+			return nil
+		}
 
 		// Check if there are more pages
 		nextPageToken = resp.GetNextPageToken()
@@ -87,5 +93,5 @@ func UnrollAll[T proto.Message, REQ listRequest, RESP listResponse[T]](ctx conte
 		}
 	}
 
-	return allResults, nil
+	return nil
 }
