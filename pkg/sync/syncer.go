@@ -431,6 +431,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 				if err != nil {
 					return err
 				}
+				// Don't do grant expansion or external resources in partial syncs, as we likely lack related resources/entitlements/grants
 				continue
 			}
 

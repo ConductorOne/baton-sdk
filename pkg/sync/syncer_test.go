@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
@@ -536,6 +537,86 @@ func TestExternalResourcePath(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Len(t, allGrants.List, 2)
+}
+
+func TestPartialSync(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tempDir, err := os.MkdirTemp("", "baton-partial-sync-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "partial-sync.c1z")
+
+	mc := newMockConnector()
+
+	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+
+	group, _, err := mc.AddGroup(ctx, "test_group")
+	require.NoError(t, err)
+
+	_, _, err = mc.AddGroup(ctx, "test_group2")
+	require.NoError(t, err)
+
+	user, err := mc.AddUser(ctx, "test_user")
+	require.NoError(t, err)
+
+	mc.AddGroupMember(ctx, group, user)
+
+	resources := []*v2.Resource{
+		group,
+		user,
+	}
+
+	batonIDs := []string{}
+	for _, resource := range resources {
+		batonId, err := bid.MakeBid(resource)
+		require.NoError(t, err)
+		batonIDs = append(batonIDs, batonId)
+	}
+	partialSyncer, err := NewSyncer(ctx, mc,
+		WithC1ZPath(c1zPath),
+		WithTmpDir(tempDir),
+		WithTargetedSyncResourceIDs(batonIDs),
+	)
+	require.NoError(t, err)
+
+	err = partialSyncer.Sync(ctx)
+	require.NoError(t, err)
+
+	err = partialSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	c1zManager, err := manager.New(ctx, c1zPath)
+	require.NoError(t, err)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	resourcesResp, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: userResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Equal(t, len(resourcesResp.GetList()), 1)
+
+	resourcesResp, err = store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: groupResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Equal(t, len(resourcesResp.GetList()), 1)
+
+	entitlements, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+		Resource: group,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, len(entitlements.GetList()))
+
+	allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
+	allGrants, err := store.ListGrants(ctx, allGrantsReq)
+	require.NoError(t, err)
+
+	require.Len(t, allGrants.List, 1)
 }
 
 func newMockConnector() *mockConnector {
