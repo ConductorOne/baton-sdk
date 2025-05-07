@@ -635,13 +635,14 @@ func (b *builderImpl) GetResource(ctx context.Context, request *v2.ResourceGette
 
 	start := b.nowFunc()
 	tt := tasks.GetResourceType
-	rb, ok := b.resourceTargetedSyncers[request.ResourceId.ResourceType]
+	resourceType := request.GetResourceId().GetResourceType()
+	rb, ok := b.resourceTargetedSyncers[resourceType]
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: get resource with unknown resource type %s", request.ResourceId.ResourceType)
+		return nil, fmt.Errorf("error: get resource with unknown resource type %s", resourceType)
 	}
 
-	resource, annos, err := rb.Get(ctx, request.ResourceId, request.ParentResourceId)
+	resource, annos, err := rb.Get(ctx, request.GetResourceId(), request.GetParentResourceId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: get resource failed: %w", err)
