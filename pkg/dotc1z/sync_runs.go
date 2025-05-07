@@ -115,6 +115,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context) (*syncRun, error) 
 	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id")
 	q = q.Where(goqu.C("ended_at").IsNull())
 	q = q.Where(goqu.C("started_at").Gte(oneWeekAgo))
+	q = q.Where(goqu.C("sync_type").Eq(SyncTypeFull))
 	q = q.Order(goqu.C("started_at").Desc())
 	q = q.Limit(1)
 
