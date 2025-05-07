@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"time"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"google.golang.org/protobuf/proto"
@@ -56,7 +56,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	return latest, nil
 }
 
-func getLatestObjects(ctx context.Context, info *CompactableSync) (*v2.SyncRun, *dotc1z.C1File, c1zmanager.Manager, func(), error) {
+func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, *dotc1z.C1File, c1zmanager.Manager, func(), error) {
 	baseC1Z, err := c1zmanager.New(ctx, info.filePath)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -67,7 +67,7 @@ func getLatestObjects(ctx context.Context, info *CompactableSync) (*v2.SyncRun, 
 		return nil, nil, nil, nil, err
 	}
 
-	latestAppliedSync, err := baseFile.GetSync(ctx, &v2.SyncsReaderServiceGetSyncRequest{
+	latestAppliedSync, err := baseFile.GetSync(ctx, &reader_v2.SyncsReaderServiceGetSyncRequest{
 		SyncId:      info.syncID,
 		Annotations: nil,
 	})
@@ -169,7 +169,7 @@ func setPageToken(req listRequest, token string) {
 	})
 }
 
-func ListAll[T proto.Message, REQ listRequest, RESP listResponse[T]](ctx context.Context, list func(context.Context, REQ) RESP) []T {
+func UnrollAll[T proto.Message, REQ listRequest, RESP listResponse[T]](ctx context.Context, list func(context.Context, REQ) (RESP, error)) ([]T, error) {
 	var allResults []T
 
 	// Create a new request using reflection
@@ -186,7 +186,10 @@ func ListAll[T proto.Message, REQ listRequest, RESP listResponse[T]](ctx context
 		}
 
 		// Call the list function with the current request
-		resp := list(ctx, req)
+		resp, err := list(ctx, req)
+		if err != nil {
+			return nil, err
+		}
 
 		// Collect the results
 		allResults = append(allResults, resp.GetList()...)
@@ -198,14 +201,30 @@ func ListAll[T proto.Message, REQ listRequest, RESP listResponse[T]](ctx context
 		}
 	}
 
-	return allResults
+	return allResults, nil
 }
 
-//func (c *naiveCompactor) processResourceTypes(ctx context.Context) error {
-//
-//	//c.base.ListResourceTypes(ctx, &v3.ResourceTypesServiceListResourceTypesRequest{
-//	//	PageSize:    0,
-//	//	PageToken:   "",
-//	//	Annotations: nil,
-//	//})
-//}
+func (c *naiveCompactor) processResourceTypes(ctx context.Context) error {
+	baseResourceTypes, err := UnrollAll(ctx, c.base.ListResourceTypes)
+	if err != nil {
+		return err
+	}
+
+	for _, resourceTypes := range baseResourceTypes {
+		if err := c.dest.PutResourceTypes(ctx, resourceTypes); err != nil {
+			return err
+		}
+	}
+
+	appliedResourceTypes, err := UnrollAll(ctx, c.applied.ListResourceTypes)
+	if err != nil {
+		return err
+	}
+	for _, resourceTypes := range appliedResourceTypes {
+		if err := c.dest.PutResourceTypes(ctx, resourceTypes); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
