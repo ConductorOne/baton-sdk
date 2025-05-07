@@ -77,7 +77,7 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	return nil
 }
 
-// NewRevoker returns a task manager that queues a revoke task.
+// NewDiffer returns a task manager that queues a revoke task.
 func NewDiffer(ctx context.Context, dbPath string, baseSyncID string, appliedSyncID string) tasks.Manager {
 	return &localDiffer{
 		dbPath:        dbPath,
