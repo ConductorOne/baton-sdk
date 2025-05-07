@@ -58,6 +58,7 @@ message SyncsReaderServiceListSyncsResponse {
 
 message SyncsReaderServiceGetLatestFinishedSyncRequest {
   repeated google.protobuf.Any annotations = 1;
+  string sync_type = 2;
 }
 
 message SyncsReaderServiceGetLatestFinishedSyncResponse {

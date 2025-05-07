@@ -115,7 +115,6 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context) (*syncRun, error) 
 	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id")
 	q = q.Where(goqu.C("ended_at").IsNull())
 	q = q.Where(goqu.C("started_at").Gte(oneWeekAgo))
-	q = q.Where(goqu.C("sync_type").Eq(SyncTypeFull))
 	q = q.Order(goqu.C("started_at").Desc())
 	q = q.Limit(1)
 
@@ -711,7 +710,12 @@ func (c *C1File) GetLatestFinishedSync(ctx context.Context, request *reader_v2.S
 	ctx, span := tracer.Start(ctx, "C1File.GetLatestFinishedSync")
 	defer span.End()
 
-	sync, err := c.getFinishedSync(ctx, 0, SyncTypeFull)
+	syncType := request.SyncType
+	if syncType == "" {
+		syncType = string(SyncTypeFull)
+	}
+
+	sync, err := c.getFinishedSync(ctx, 0, SyncType(syncType))
 	if err != nil {
 		return nil, fmt.Errorf("error fetching latest finished sync: %w", err)
 	}
