@@ -3,9 +3,9 @@ package sync_compactor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path"
-	"time"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -80,7 +80,7 @@ func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.Sy
 }
 
 func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *CompactableSync, applied *CompactableSync) (*CompactableSync, error) {
-	filePath := path.Join(tempDir, `compacted-%s.c1z`, time.Now().Format(time.RFC3339))
+	filePath := path.Join(tempDir, fmt.Sprintf("compacted-%s-%s.c1z", base.syncID, applied.syncID))
 
 	newFile, err := dotc1z.NewC1ZFile(ctx, filePath, dotc1z.WithTmpDir(tempDir), dotc1z.WithPragma("journal_mode", "WAL"))
 	if err != nil {
@@ -119,7 +119,15 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 		return nil, err
 	}
 
-	return nil, errors.New("NOT IMPLEMENTED")
+	if err := newFile.EndSync(ctx); err != nil {
+		return nil, err
+	}
+
+	if err := newFile.Close(); err != nil {
+		return nil, err
+	}
+
+	return nil, nil
 }
 
 type naiveCompactor struct {
