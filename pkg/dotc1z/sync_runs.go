@@ -408,7 +408,7 @@ func (c *C1File) StartNewSync(ctx context.Context) (string, error) {
 }
 
 func (c *C1File) StartNewSyncV2(ctx context.Context, syncType string, parentSyncID string) (string, error) {
-	ctx, span := tracer.Start(ctx, "C1File.StartNewPartialSync")
+	ctx, span := tracer.Start(ctx, "C1File.StartNewSyncV2")
 	defer span.End()
 
 	var syncTypeEnum SyncType
