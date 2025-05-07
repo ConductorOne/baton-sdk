@@ -54,7 +54,8 @@ var (
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	logLevelField = StringField("log-level", WithDefaultValue("info"), WithDescription("The log level: debug, info, warn, error"), WithPersistent(true),
 		WithExportTarget(ExportTargetOps))
-	skipFullSync = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	skipFullSync            = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	targetedSyncResourceIDs = StringSliceField("sync-resources", WithDescription("The resource IDs to sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 
 	otelCollectorEndpoint = StringField(OtelCollectorEndpointFieldName,
 		WithDescription("The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided)"),
@@ -160,6 +161,7 @@ var DefaultFields = []SchemaField{
 	ticketTemplatePathField,
 	logLevelField,
 	skipFullSync,
+	targetedSyncResourceIDs,
 	externalResourceC1ZField,
 	externalResourceEntitlementIdFilter,
 

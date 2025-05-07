@@ -13,6 +13,8 @@ message SyncRun {
   google.protobuf.Timestamp started_at = 2;
   google.protobuf.Timestamp ended_at = 3;
   string sync_token = 4;
+  string sync_type = 5;
+  string parent_sync_id = 6;
 }
 
 service SyncsReaderService {

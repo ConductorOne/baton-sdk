@@ -32,6 +32,7 @@ type fullSyncTaskHandler struct {
 	skipFullSync                        bool
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string
+	targetedSyncResourceIDs             []string
 }
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
@@ -55,6 +56,10 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 
 	if c.skipFullSync {
 		syncOpts = append(syncOpts, sdkSync.WithSkipFullSync())
+	}
+
+	if len(c.targetedSyncResourceIDs) > 0 {
+		syncOpts = append(syncOpts, sdkSync.WithTargetedSyncResourceIDs(c.targetedSyncResourceIDs))
 	}
 
 	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), syncOpts...)
@@ -156,13 +161,21 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	return c.helpers.FinishTask(ctx, nil, nil, nil)
 }
 
-func newFullSyncTaskHandler(task *v1.Task, helpers fullSyncHelpers, skipFullSync bool, externalResourceC1ZPath string, externalResourceEntitlementIdFilter string) tasks.TaskHandler {
+func newFullSyncTaskHandler(
+	task *v1.Task,
+	helpers fullSyncHelpers,
+	skipFullSync bool,
+	externalResourceC1ZPath string,
+	externalResourceEntitlementIdFilter string,
+	targetedSyncResourceIDs []string,
+) tasks.TaskHandler {
 	return &fullSyncTaskHandler{
 		task:                                task,
 		helpers:                             helpers,
 		skipFullSync:                        skipFullSync,
 		externalResourceC1ZPath:             externalResourceC1ZPath,
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
+		targetedSyncResourceIDs:             targetedSyncResourceIDs,
 	}
 }
 

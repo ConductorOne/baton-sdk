@@ -56,13 +56,14 @@ var ErrConnectorNotImplemented = errors.New("client does not implement connector
 type wrapper struct {
 	mtx sync.RWMutex
 
-	server              types.ConnectorServer
-	client              types.ConnectorClient
-	serverStdin         io.WriteCloser
-	conn                *grpc.ClientConn
-	provisioningEnabled bool
-	ticketingEnabled    bool
-	fullSyncDisabled    bool
+	server                  types.ConnectorServer
+	client                  types.ConnectorClient
+	serverStdin             io.WriteCloser
+	conn                    *grpc.ClientConn
+	provisioningEnabled     bool
+	ticketingEnabled        bool
+	fullSyncDisabled        bool
+	targetedSyncResourceIDs []string
 
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
@@ -112,6 +113,13 @@ func WithTicketingEnabled() Option {
 	return func(ctx context.Context, w *wrapper) error {
 		w.ticketingEnabled = true
 
+		return nil
+	}
+}
+
+func WithTargetedSyncResourceIDs(resourceIDs []string) Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.targetedSyncResourceIDs = resourceIDs
 		return nil
 	}
 }
