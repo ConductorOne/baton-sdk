@@ -30,7 +30,7 @@ func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, applie
 	// Generate a new unique ID for the diff sync
 	diffSyncID := ksuid.New().String()
 
-	if err := c.insertSyncRun(ctx, diffSyncID); err != nil {
+	if err := c.insertSyncRun(ctx, diffSyncID, SyncTypePartial); err != nil {
 		return "", err
 	}
 
