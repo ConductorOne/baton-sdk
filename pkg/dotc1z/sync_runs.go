@@ -404,17 +404,26 @@ func (c *C1File) StartNewSync(ctx context.Context) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.StartNewSync")
 	defer span.End()
 
-	return c.startNewSyncInternal(ctx, SyncTypeFull)
+	return c.startNewSyncInternal(ctx, SyncTypeFull, "")
 }
 
-func (c *C1File) StartNewPartialSync(ctx context.Context) (string, error) {
-	ctx, span := tracer.Start(ctx, "C1File.StartNewPartialSync")
+func (c *C1File) StartNewSyncV2(ctx context.Context, syncType string, parentSyncID string) (string, error) {
+	ctx, span := tracer.Start(ctx, "C1File.StartNewSyncV2")
 	defer span.End()
 
-	return c.startNewSyncInternal(ctx, SyncTypePartial)
+	var syncTypeEnum SyncType
+	switch syncType {
+	case "full":
+		syncTypeEnum = SyncTypeFull
+	case "partial":
+		syncTypeEnum = SyncTypePartial
+	default:
+		return "", fmt.Errorf("invalid sync type: %s", syncType)
+	}
+	return c.startNewSyncInternal(ctx, syncTypeEnum, parentSyncID)
 }
 
-func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType) (string, error) {
+func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType, parentSyncID string) (string, error) {
 	// Not sure if we want to do this here
 	if c.currentSyncID != "" {
 		return c.currentSyncID, nil
@@ -428,7 +437,7 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType) (s
 		"started_at":     time.Now().Format("2006-01-02 15:04:05.999999999"),
 		"sync_token":     "",
 		"sync_type":      syncType,
-		"parent_sync_id": "",
+		"parent_sync_id": parentSyncID,
 	})
 
 	query, args, err := q.ToSQL()
@@ -701,9 +710,20 @@ func (c *C1File) GetLatestFinishedSync(ctx context.Context, request *reader_v2.S
 	ctx, span := tracer.Start(ctx, "C1File.GetLatestFinishedSync")
 	defer span.End()
 
-	sync, err := c.getFinishedSync(ctx, 0, SyncTypeFull)
+	syncType := request.SyncType
+	if syncType == "" {
+		syncType = string(SyncTypeFull)
+	}
+
+	sync, err := c.getFinishedSync(ctx, 0, SyncType(syncType))
 	if err != nil {
 		return nil, fmt.Errorf("error fetching latest finished sync: %w", err)
+	}
+
+	if sync == nil {
+		return &reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse{
+			Sync: nil,
+		}, nil
 	}
 
 	return &reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse{

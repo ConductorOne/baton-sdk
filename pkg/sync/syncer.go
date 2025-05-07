@@ -312,6 +312,43 @@ func isWarning(ctx context.Context, err error) bool {
 	return false
 }
 
+func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
+	// Sync resuming logic:
+	// If no targetedSyncResourceIDs, find the most recent sync and resume it (regardless of partial or full).
+	// If targetedSyncResourceIDs, start a new partial sync. Use the most recent completed sync as the parent sync ID (if it exists).
+
+	var syncID string
+	var newSync bool
+	var err error
+	if len(s.targetedSyncResourceIDs) == 0 {
+		syncID, newSync, err = s.store.StartSync(ctx)
+		if err != nil {
+			return "", false, err
+		}
+		return syncID, newSync, nil
+	}
+
+	// Get most recent completed full sync if it exists
+	latestFullSyncResponse, err := s.store.GetLatestFinishedSync(ctx, &reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest{
+		SyncType: string(dotc1z.SyncTypeFull),
+	})
+	if err != nil {
+		return "", false, err
+	}
+	var latestFullSyncId string
+	latestFullSync := latestFullSyncResponse.Sync
+	if latestFullSync != nil {
+		latestFullSyncId = latestFullSync.Id
+	}
+	syncID, err = s.store.StartNewSyncV2(ctx, "partial", latestFullSyncId)
+	if err != nil {
+		return "", false, err
+	}
+	newSync = true
+
+	return syncID, newSync, nil
+}
+
 // Sync starts the syncing process. The sync process is driven by the action stack that is part of the state object.
 // For each page of data that is required to be fetched from the connector, a new action is pushed on to the stack. Once
 // an action is completed, it is popped off of the queue. Before processing each action, we checkpoint the state object
@@ -345,20 +382,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return err
 	}
 
-	var syncID string
-	var newSync bool
-	if len(s.targetedSyncResourceIDs) > 0 {
-		// TODO: check if we should resume a previous partial sync
-		syncID, err = s.store.StartNewPartialSync(ctx)
-		if err != nil {
-			return err
-		}
-		newSync = true
-	} else {
-		syncID, newSync, err = s.store.StartSync(ctx)
-		if err != nil {
-			return err
-		}
+	syncID, newSync, err := s.startOrResumeSync(ctx)
+	if err != nil {
+		return err
 	}
 
 	span.SetAttributes(attribute.String("sync_id", syncID))
@@ -431,6 +457,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 				if err != nil {
 					return err
 				}
+				// Don't do grant expansion or external resources in partial syncs, as we likely lack related resources/entitlements/grants
 				continue
 			}
 
@@ -467,6 +494,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		case SyncTargetedResourceOp:
 			err = s.SyncTargetedResource(ctx)
+			if isWarning(ctx, err) {
+				l.Warn("skipping sync targeted resource action", zap.Any("stateAction", stateAction), zap.Error(err))
+				warnings = append(warnings, err)
+				s.state.FinishAction(ctx)
+				continue
+			}
 			if !s.shouldWaitAndRetry(ctx, err) {
 				return err
 			}
