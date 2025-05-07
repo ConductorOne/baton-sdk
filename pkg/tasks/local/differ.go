@@ -2,6 +2,7 @@ package local
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -44,6 +45,10 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	ctx, span := tracer.Start(ctx, "localDiffer.Process", trace.WithNewRoot())
 	defer span.End()
 	log := ctxzap.Extract(ctx)
+
+	if m.baseSyncID == "" || m.appliedSyncID == "" {
+		return errors.New("missing base sync ID or applied sync ID")
+	}
 
 	store, err := c1zmanager.New(ctx, m.dbPath)
 	if err != nil {
