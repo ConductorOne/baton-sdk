@@ -56,22 +56,24 @@ var (
 		WithExportTarget(ExportTargetOps))
 	skipFullSync            = BoolField("skip-full-sync", WithDescription("This must be set to skip a full sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	targetedSyncResourceIDs = StringSliceField("sync-resources", WithDescription("The resource IDs to sync"), WithPersistent(true), WithExportTarget(ExportTargetNone))
-	diffSyncsField = BoolField(
+	diffSyncsField          = BoolField(
 		"diff-syncs",
 		WithDescription("Create a new partial SyncID from a base and applied sync."),
 		WithHidden(true),
-		WithExportTarget(ExportTargetNone),
 		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
 	)
 	diffSyncsBaseSyncField = StringField("base-sync-id",
 		WithDescription("The base sync to diff from."),
 		WithHidden(true),
 		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
 	)
 	diffSyncsAppliedSyncField = StringField("applied-sync-id",
 		WithDescription("The sync to show diffs when applied to the base sync."),
 		WithHidden(true),
 		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
 	)
 
 	otelCollectorEndpoint = StringField(OtelCollectorEndpointFieldName,
