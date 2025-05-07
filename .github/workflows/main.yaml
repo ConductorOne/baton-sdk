@@ -20,7 +20,6 @@ jobs:
         uses: bufbuild/buf-breaking-action@v1
         with:
           against: 'https://github.com/conductorone/baton-sdk.git#branch=main,ref=HEAD~1'
-          github_token: ${{ secrets.GITHUB_TOKEN }}
   go-lint:
     runs-on: ubuntu-latest
     steps:

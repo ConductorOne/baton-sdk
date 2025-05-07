@@ -55,4 +55,3 @@ jobs:
         uses: bufbuild/buf-breaking-action@v1
         with:
           against: 'https://github.com/conductorone/baton-sdk.git#branch=main'
-          github_token: ${{ secrets.GITHUB_TOKEN }}
