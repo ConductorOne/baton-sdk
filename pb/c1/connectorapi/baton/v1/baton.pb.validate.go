@@ -6176,7 +6176,7 @@ func (m *Task_CompactSyncs) validate(all bool) error {
 
 	var errors []error
 
-	for idx, item := range m.GetCompacableSyncs() {
+	for idx, item := range m.GetCompactableSyncs() {
 		_, _ = idx, item
 
 		if all {
@@ -6184,7 +6184,7 @@ func (m *Task_CompactSyncs) validate(all bool) error {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
 					errors = append(errors, Task_CompactSyncsValidationError{
-						field:  fmt.Sprintf("CompacableSyncs[%v]", idx),
+						field:  fmt.Sprintf("CompactableSyncs[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -6192,7 +6192,7 @@ func (m *Task_CompactSyncs) validate(all bool) error {
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
 					errors = append(errors, Task_CompactSyncsValidationError{
-						field:  fmt.Sprintf("CompacableSyncs[%v]", idx),
+						field:  fmt.Sprintf("CompactableSyncs[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -6201,7 +6201,7 @@ func (m *Task_CompactSyncs) validate(all bool) error {
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
 				return Task_CompactSyncsValidationError{
-					field:  fmt.Sprintf("CompacableSyncs[%v]", idx),
+					field:  fmt.Sprintf("CompactableSyncs[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
 				}

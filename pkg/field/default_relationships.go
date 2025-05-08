@@ -7,6 +7,7 @@ var DefaultRelationships = []SchemaFieldRelationship{
 	FieldsRequiredTogether(bulkCreateTicketField, bulkTicketTemplatePathField),
 	FieldsRequiredTogether(getTicketField, ticketIDField),
 	FieldsRequiredTogether(diffSyncsField, diffSyncsBaseSyncField, diffSyncsAppliedSyncField),
+	FieldsRequiredTogether(compactFileIDsField, compactFilePathsField, compactOutputDirectoryField, compactSyncsField),
 	FieldsMutuallyExclusive(
 		grantEntitlementField,
 		revokeGrantField,
@@ -27,6 +28,7 @@ var DefaultRelationships = []SchemaFieldRelationship{
 		rotateCredentialsTypeField,
 		eventFeedField,
 		diffSyncsField,
+		compactSyncsField,
 		ListTicketSchemasField,
 	),
 	FieldsDependentOn(

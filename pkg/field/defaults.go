@@ -82,8 +82,20 @@ var (
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)
-	outputDirectoryField = StringField("output-dir",
+	compactOutputDirectoryField = StringField("compact-output-dir",
 		WithDescription("The directory to store the results in"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	compactFilePathsField = StringSliceField("compact-file-paths",
+		WithDescription("A comma-separated list of file paths to sync from"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	compactFileIDsField = StringSliceField("compact-file-ids",
+		WithDescription("A comma-separated list of file ids to sync from. Must match sync IDs from each file provided. Order matters."),
 		WithHidden(true),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
