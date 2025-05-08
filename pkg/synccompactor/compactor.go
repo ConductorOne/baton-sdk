@@ -42,7 +42,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	for i := 1; i < len(c.entries); i++ {
 		applied := c.entries[i]
 
-		compactable, err := c.doOneCompaction(ctx, tempDir, base, applied)
+		compactable, err := c.doOneCompaction(ctx, base, applied)
 		if err != nil {
 			return nil, err
 		}
