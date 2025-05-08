@@ -382,10 +382,12 @@ func bulkPutConnectorObject[T proto.Message](
 	return executeChunkedInsert(ctx, c, tableName, rows, buildQueryFn)
 }
 
-func bulkPutConnectorObjectIfNewer[T proto.Message](ctx context.Context, c *C1File,
+func bulkPutConnectorObjectIfNewer[T proto.Message](
+	ctx context.Context, c *C1File,
 	tableName string,
 	extractFields func(m T) (goqu.Record, error),
-	msgs ...T) error {
+	msgs ...T,
+) error {
 	if len(msgs) == 0 {
 		return nil
 	}
