@@ -87,28 +87,26 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 		return nil, err
 	}
 
-	baseSync, baseFile, _, cleanupBase, err := getLatestObjects(ctx, base)
+	_, baseFile, _, cleanupBase, err := getLatestObjects(ctx, base)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanupBase()
 
-	appliedSync, appliedFile, _, cleanupApplied, err := getLatestObjects(ctx, applied)
+	_, appliedFile, _, cleanupApplied, err := getLatestObjects(ctx, applied)
 	defer cleanupApplied()
 	if err != nil {
 		return nil, err
 	}
 
 	// If the applied sync started after the base sync ended we have fully disjoint sets
-	fullyDisjoint := appliedSync.StartedAt.AsTime().After(baseSync.StartedAt.AsTime())
+	//fullyDisjoint := appliedSync.StartedAt.AsTime().After(baseSync.StartedAt.AsTime())
 
 	// TODO: Use the runner when implementing the compaction logic
 	runner := &naiveCompactor{
 		base:    baseFile,
 		applied: appliedFile,
 		dest:    newFile,
-
-		appliedSyncedAfterBase: fullyDisjoint,
 	}
 
 	if err := runner.processResourceTypes(ctx); err != nil {
@@ -139,8 +137,6 @@ type naiveCompactor struct {
 	base    *dotc1z.C1File
 	applied *dotc1z.C1File
 	dest    *dotc1z.C1File
-
-	appliedSyncedAfterBase bool
 }
 
 func naiveCompact[T proto.Message, REQ listRequest, RESP listResponse[T]](
@@ -173,16 +169,16 @@ func naiveCompact[T proto.Message, REQ listRequest, RESP listResponse[T]](
 }
 
 func (c *naiveCompactor) processResourceTypes(ctx context.Context) error {
-	return naiveCompact(ctx, c.base.ListResourceTypes, c.applied.ListResourceTypes, c.dest.PutResourceTypes)
+	return naiveCompact(ctx, c.base.ListResourceTypes, c.applied.ListResourceTypes, c.dest.PutResourceTypesIfNewer)
 }
 
 func (c *naiveCompactor) processResources(ctx context.Context) error {
-	return naiveCompact(ctx, c.base.ListResources, c.applied.ListResources, c.dest.PutResources)
+	return naiveCompact(ctx, c.base.ListResources, c.applied.ListResources, c.dest.PutResourcesIfNewer)
 }
 func (c *naiveCompactor) processGrants(ctx context.Context) error {
-	return naiveCompact(ctx, c.base.ListGrants, c.applied.ListGrants, c.dest.PutGrants)
+	return naiveCompact(ctx, c.base.ListGrants, c.applied.ListGrants, c.dest.PutGrantsIfNewer)
 }
 
 func (c *naiveCompactor) processEntitlements(ctx context.Context) error {
-	return naiveCompact(ctx, c.base.ListEntitlements, c.applied.ListEntitlements, c.dest.PutEntitlements)
+	return naiveCompact(ctx, c.base.ListEntitlements, c.applied.ListEntitlements, c.dest.PutEntitlementsIfNewer)
 }
