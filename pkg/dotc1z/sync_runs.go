@@ -431,7 +431,7 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType, pa
 
 	syncID := ksuid.New().String()
 
-	if err := c.insertSyncRun(ctx, syncID, syncType); err != nil {
+	if err := c.insertSyncRun(ctx, syncID, syncType, parentSyncID); err != nil {
 		return "", err
 	}
 
@@ -440,7 +440,7 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType, pa
 	return c.currentSyncID, nil
 }
 
-func (c *C1File) insertSyncRun(ctx context.Context, syncID string, syncType SyncType) error {
+func (c *C1File) insertSyncRun(ctx context.Context, syncID string, syncType SyncType, parentSyncID string) error {
 	q := c.db.Insert(syncRuns.Name())
 	q = q.Rows(goqu.Record{
 		"sync_id":        syncID,
