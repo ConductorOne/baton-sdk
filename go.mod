@@ -1,6 +1,6 @@
 module github.com/conductorone/baton-sdk
 
-go 1.23.4
+go 1.24.1
 
 require (
 	filippo.io/age v1.2.1
