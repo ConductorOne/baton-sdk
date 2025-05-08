@@ -211,6 +211,10 @@ var DefaultFields = []SchemaField{
 	diffSyncsField,
 	diffSyncsBaseSyncField,
 	diffSyncsAppliedSyncField,
+	compactFileIDsField,
+	compactFilePathsField,
+	compactOutputDirectoryField,
+	compactSyncsField,
 
 	otelCollectorEndpoint,
 	otelCollectorEndpointTLSCertPath,
