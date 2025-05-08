@@ -51,6 +51,12 @@ func DefineConfiguration[T field.Configurable](
 	// Ensure unique fields
 	uniqueFields := make(map[string]field.SchemaField)
 	for _, f := range confschema.Fields {
+		if s, ok := uniqueFields[f.FieldName]; ok {
+			if !(f.WasReExported || s.WasReExported) {
+				return nil, nil, fmt.Errorf("multiple fields with the same name: %s.If you want to use a default field in the SDK, use ExportAs on the connector schema field", f.FieldName)
+			}
+		}
+
 		uniqueFields[f.FieldName] = f
 	}
 	confschema.Fields = make([]field.SchemaField, 0, len(uniqueFields))
@@ -66,8 +72,13 @@ func DefineConfiguration[T field.Configurable](
 		SilenceUsage:  true,
 		RunE:          cli.MakeMainCommand(ctx, connectorName, v, confschema, connector, options...),
 	}
+
+	relationships := []field.SchemaFieldRelationship{}
 	// set persistent flags only on the main subcommand
-	err = cli.SetFlagsAndConstraints(mainCMD, field.NewConfiguration(confschema.Fields, field.DefaultRelationships...))
+	relationships = append(relationships, field.DefaultRelationships...)
+	relationships = append(relationships, confschema.Constraints...)
+
+	err = cli.SetFlagsAndConstraints(mainCMD, field.NewConfiguration(confschema.Fields, relationships...))
 	if err != nil {
 		return nil, nil, err
 	}

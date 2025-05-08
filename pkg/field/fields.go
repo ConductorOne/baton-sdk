@@ -72,6 +72,8 @@ type SchemaField struct {
 
 	// Config acutally ingested on the connector side - auth, regions, etc
 	ConnectorConfig connectorConfig
+
+	WasReExported bool
 }
 
 type SchemaTypes interface {
@@ -112,6 +114,7 @@ func (s SchemaField) GetDescription() string {
 func (s SchemaField) ExportAs(et ExportTarget) SchemaField {
 	c := s
 	c.ExportTarget = et
+	c.WasReExported = true
 	return c
 }
 
