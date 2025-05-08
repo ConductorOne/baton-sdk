@@ -104,9 +104,6 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 		return nil, err
 	}
 
-	// If the applied sync started after the base sync ended we have fully disjoint sets
-	//fullyDisjoint := appliedSync.StartedAt.AsTime().After(baseSync.StartedAt.AsTime())
-
 	runner := sync_compactor.NewNaiveCompactor(baseFile, appliedFile, newFile)
 	if err := runner.Compact(ctx); err != nil {
 		return nil, err
