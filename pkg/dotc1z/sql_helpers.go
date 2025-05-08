@@ -336,6 +336,84 @@ func bulkPutConnectorObject[T proto.Message](ctx context.Context, c *C1File,
 	return nil
 }
 
+func bulkPutConnectorObjectIfNewer[T proto.Message](ctx context.Context, c *C1File,
+	tableName string,
+	extractFields func(m T) (goqu.Record, error),
+	msgs ...T) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	ctx, span := tracer.Start(ctx, "C1File.bulkPutConnectorObjectIfNewerTx")
+	defer span.End()
+
+	err := c.validateSyncDb(ctx)
+	if err != nil {
+		return err
+	}
+
+	rows := make([]*goqu.Record, len(msgs))
+	for i, m := range msgs {
+		messageBlob, err := protoMarshaler.Marshal(m)
+		if err != nil {
+			return err
+		}
+
+		fields, err := extractFields(m)
+		if err != nil {
+			return err
+		}
+		if fields == nil {
+			fields = goqu.Record{}
+		}
+
+		if _, idSet := fields["external_id"]; !idSet {
+			idGetter, ok := any(m).(protoHasID)
+			if !ok {
+				return fmt.Errorf("unable to get ID for object")
+			}
+			fields["external_id"] = idGetter.GetId()
+		}
+		fields["data"] = messageBlob
+		fields["sync_id"] = c.currentSyncID
+		fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
+		rows[i] = &fields
+	}
+	chunkSize := 100
+	chunks := len(rows) / chunkSize
+	if len(rows)%chunkSize != 0 {
+		chunks++
+	}
+
+	for i := 0; i < chunks; i++ {
+		start := i * chunkSize
+		end := (i + 1) * chunkSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		chunkedRows := rows[start:end]
+		query, args, err := c.db.Insert(tableName).
+			OnConflict(goqu.DoUpdate("external_id, sync_id",
+				goqu.Record{
+					"data":          goqu.I("EXCLUDED.data"),
+					"discovered_at": goqu.I("EXCLUDED.discovered_at"),
+				}).Where(
+				goqu.L("EXCLUDED.discovered_at > " + tableName + ".discovered_at"),
+			)).
+			Rows(chunkedRows).
+			Prepared(true).
+			ToSQL()
+		if err != nil {
+			return err
+		}
+		_, err = c.db.Exec(query, args...)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceId, m *v2.Resource, syncID string) error {
 	ctx, span := tracer.Start(ctx, "C1File.getResourceObject")
 	defer span.End()

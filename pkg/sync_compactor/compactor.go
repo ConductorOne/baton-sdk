@@ -87,23 +87,28 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 		return nil, err
 	}
 
-	_, baseFile, _, cleanupBase, err := getLatestObjects(ctx, base)
+	baseSync, baseFile, _, cleanupBase, err := getLatestObjects(ctx, base)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanupBase()
 
-	_, appliedFile, _, cleanupApplied, err := getLatestObjects(ctx, applied)
+	appliedSync, appliedFile, _, cleanupApplied, err := getLatestObjects(ctx, applied)
 	defer cleanupApplied()
 	if err != nil {
 		return nil, err
 	}
+
+	// If the applied sync started after the base sync ended we have fully disjoint sets
+	fullyDisjoint := appliedSync.StartedAt.AsTime().After(baseSync.StartedAt.AsTime())
 
 	// TODO: Use the runner when implementing the compaction logic
 	runner := &naiveCompactor{
 		base:    baseFile,
 		applied: appliedFile,
 		dest:    newFile,
+
+		appliedSyncedAfterBase: fullyDisjoint,
 	}
 
 	if err := runner.processResourceTypes(ctx); err != nil {
@@ -134,6 +139,8 @@ type naiveCompactor struct {
 	base    *dotc1z.C1File
 	applied *dotc1z.C1File
 	dest    *dotc1z.C1File
+
+	appliedSyncedAfterBase bool
 }
 
 func naiveCompact[T proto.Message, REQ listRequest, RESP listResponse[T]](
