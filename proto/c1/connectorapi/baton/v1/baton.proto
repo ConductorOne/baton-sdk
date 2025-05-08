@@ -130,6 +130,13 @@ message Task {
     repeated google.protobuf.Any annotations = 3;
   }
 
+  message CreateSyncDiffTask  {
+    // Open to suggestions here
+    string base_sync_id = 1;
+    string new_sync_id = 2;
+    repeated google.protobuf.Any annotations = 3;
+  }
+
   string id = 1;
   Status status = 2;
   oneof task_type {
@@ -152,6 +159,7 @@ message Task {
     ActionGetSchemaTask action_get_schema = 116;
     ActionInvokeTask action_invoke = 117;
     ActionStatusTask action_status = 118;
+    CreateSyncDiffTask create_sync_diff = 119;
   }
   bool debug = 3;
 }

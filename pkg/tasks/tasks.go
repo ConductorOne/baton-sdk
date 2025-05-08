@@ -66,6 +66,8 @@ func Is(task *v1.Task, target taskTypes.TaskType) bool {
 		_, ok = task.GetTaskType().(*v1.Task_ActionInvoke)
 	case taskTypes.ActionStatusType:
 		_, ok = task.GetTaskType().(*v1.Task_ActionStatus)
+	case taskTypes.CreateSyncDiff:
+		_, ok = task.GetTaskType().(*v1.Task_CreateSyncDiff)
 	default:
 		return false
 	}
@@ -117,6 +119,8 @@ func GetType(task *v1.Task) taskTypes.TaskType {
 		return taskTypes.ActionInvokeType
 	case *v1.Task_ActionStatus:
 		return taskTypes.ActionStatusType
+	case *v1.Task_CreateSyncDiff:
+		return taskTypes.CreateSyncDiff
 	default:
 		return taskTypes.UnknownType
 	}
