@@ -67,13 +67,7 @@ func DefineConfiguration[T field.Configurable](
 		RunE:          cli.MakeMainCommand(ctx, connectorName, v, confschema, connector, options...),
 	}
 	// set persistent flags only on the main subcommand
-	err = cli.SetFlagsAndConstraints(mainCMD, field.NewConfiguration(field.DefaultFields, field.DefaultRelationships...))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// set the rest of flags
-	err = cli.SetFlagsAndConstraints(mainCMD, schema)
+	err = cli.SetFlagsAndConstraints(mainCMD, field.NewConfiguration(confschema.Fields, field.DefaultRelationships...))
 	if err != nil {
 		return nil, nil, err
 	}

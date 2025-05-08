@@ -110,9 +110,6 @@ func (s SchemaField) GetDescription() string {
 }
 
 func (s SchemaField) ExportAs(et ExportTarget) SchemaField {
-	if s.ExportTarget != ExportTargetUnusedBySDK {
-		panic("Invalid usage of ExportAs - only supported for initial ExportTargetUnusedBySDK")
-	}
 	c := s
 	c.ExportTarget = et
 	return c

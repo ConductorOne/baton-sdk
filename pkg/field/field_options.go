@@ -82,18 +82,17 @@ ExportTarget specifies who sets the flag.
 	Ops: C1 support dashbaord. Inclusive of CLI. eg log level
 	None: Only currently usable for the default fields.  Those flags are consumed by the Syncer, not the Connector.
 	Unused: The SDK defines some common fields for connectors and does not use them itself.  These fields
-	  will only be used if
+	  will only be used if a connectort references them with WithExportTarget(...).
 
 	ExportTarget is used by both dynamic conf generation and the conf schema exporting logic
 */
 type ExportTarget string
 
 const (
-	ExportTargetNone        ExportTarget = "none"
-	ExportTargetGUI         ExportTarget = "gui"
-	ExportTargetOps         ExportTarget = "ops"
-	ExportTargetCLIOnly     ExportTarget = "cli"
-	ExportTargetUnusedBySDK ExportTarget = "unused"
+	ExportTargetNone    ExportTarget = "none"
+	ExportTargetGUI     ExportTarget = "gui"
+	ExportTargetOps     ExportTarget = "ops"
+	ExportTargetCLIOnly ExportTarget = "cli"
 )
 
 func WithExportTarget(target ExportTarget) fieldOption {
