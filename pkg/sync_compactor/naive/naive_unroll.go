@@ -21,14 +21,14 @@ type listResponse[T proto.Message] interface {
 	GetList() []T
 }
 
-// createRequest creates a new request object of type REQ using reflection
+// createRequest creates a new request object of type REQ using reflection.
 func createRequest[REQ listRequest]() REQ {
 	reqType := reflect.TypeOf((*REQ)(nil)).Elem()
 	reqPtrValue := reflect.New(reqType)
 	return reqPtrValue.Interface().(REQ)
 }
 
-// setFieldIfValid sets a field in a struct if it exists and can be set
+// setFieldIfValid sets a field in a struct if it exists and can be set.
 func setFieldIfValid(obj interface{}, fieldName string, setValue func(reflect.Value)) {
 	val := reflect.ValueOf(obj)
 	if val.Kind() != reflect.Ptr || val.IsNil() {
@@ -41,14 +41,14 @@ func setFieldIfValid(obj interface{}, fieldName string, setValue func(reflect.Va
 	}
 }
 
-// setPageSize sets the PageSize field in a request to the specified value
+// setPageSize sets the PageSize field in a request to the specified value.
 func setPageSize(req listRequest, size uint64) {
 	setFieldIfValid(req, "PageSize", func(field reflect.Value) {
 		field.SetUint(size)
 	})
 }
 
-// setPageToken sets the PageToken field in a request to the specified token
+// setPageToken sets the PageToken field in a request to the specified token.
 func setPageToken(req listRequest, token string) {
 	setFieldIfValid(req, "PageToken", func(field reflect.Value) {
 		field.SetString(token)

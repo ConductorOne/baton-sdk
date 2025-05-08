@@ -264,7 +264,7 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 
 var protoMarshaler = proto.MarshalOptions{Deterministic: true}
 
-// prepareConnectorObjectRows prepares the rows for bulk insertion
+// prepareConnectorObjectRows prepares the rows for bulk insertion.
 func prepareConnectorObjectRows[T proto.Message](
 	c *C1File,
 	msgs []T,
@@ -300,7 +300,7 @@ func prepareConnectorObjectRows[T proto.Message](
 	return rows, nil
 }
 
-// executeChunkedInsert executes the insert query in chunks
+// executeChunkedInsert executes the insert query in chunks.
 func executeChunkedInsert(
 	ctx context.Context,
 	c *C1File,
