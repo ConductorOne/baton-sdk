@@ -80,9 +80,18 @@ func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.Sy
 		return nil, nil, nil, nil, err
 	}
 
+	cleanup := func() {
+		_ = baseC1Z.Close(ctx)
+	}
+
 	baseFile, err := baseC1Z.LoadC1Z(ctx)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, cleanup, err
+	}
+
+	cleanup = func() {
+		_ = baseFile.Close()
+		_ = baseC1Z.Close(ctx)
 	}
 
 	latestAppliedSync, err := baseFile.GetSync(ctx, &reader_v2.SyncsReaderServiceGetSyncRequest{
@@ -90,13 +99,10 @@ func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.Sy
 		Annotations: nil,
 	})
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, cleanup, err
 	}
 
-	return latestAppliedSync.Sync, baseFile, baseC1Z, func() {
-		_ = baseFile.Close()
-		_ = baseC1Z.Close(ctx)
-	}, nil
+	return latestAppliedSync.Sync, baseFile, baseC1Z, cleanup, nil
 }
 
 func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *CompactableSync, applied *CompactableSync) (*CompactableSync, error) {
