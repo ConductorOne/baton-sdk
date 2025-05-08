@@ -85,6 +85,34 @@ func TestEntryPoint(t *testing.T) {
 		require.EqualError(t, err, "(Cobra) Execute failed: required flag(s) \"int-field\", \"string-field\" not set")
 	})
 
+	t.Run("should error when default field is copied", func(t *testing.T) {
+		carrier := field.NewConfiguration(
+			[]field.SchemaField{
+				field.StringField(
+					"client-id",
+					field.WithRequired(true),
+				),
+			},
+		)
+
+		_, err := entrypoint(ctx, carrier)
+
+		require.Error(t, err)
+		require.EqualError(t, err, "DefineConfiguration failed: multiple fields with the same name: "+
+			"client-id.If you want to use a default field in the SDK, use ExportAs on the connector schema field")
+	})
+
+	t.Run("should not error when default field is retargeted", func(t *testing.T) {
+		carrier := field.NewConfiguration(
+			[]field.SchemaField{
+				field.ListTicketSchemasField.ExportAs(field.ExportTargetGUI),
+			},
+		)
+
+		_, err := entrypoint(ctx, carrier)
+		require.NoError(t, err)
+	})
+
 	t.Run("should error when fields are required together", func(t *testing.T) {
 		carrier := field.NewConfiguration(
 			[]field.SchemaField{stringField, boolField},
