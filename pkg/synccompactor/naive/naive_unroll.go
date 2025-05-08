@@ -88,7 +88,7 @@ func listAllObjects[T proto.Message, REQ listRequest, RESP listResponse[T]](ctx 
 
 		// Check if there are more pages
 		nextPageToken = resp.GetNextPageToken()
-		if nextPageToken == "" {
+		if nextPageToken == "" || len(resp.GetList()) == 0 {
 			break // No more pages
 		}
 	}
