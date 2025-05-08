@@ -232,6 +232,14 @@ func MakeMainCommand[T field.Configurable](
 						v.GetString("applied-sync-id"),
 					),
 				)
+			case v.GetBool("compact-syncs"):
+				opts = append(opts,
+					connectorrunner.WithSyncCompactor(
+						v.GetString("output-path"),
+						v.GetStringSlice("file-paths"),
+						v.GetStringSlice("sync-ids"),
+					),
+				)
 
 			default:
 				opts = append(opts, connectorrunner.WithOnDemandSync(v.GetString("file")))

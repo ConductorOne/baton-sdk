@@ -19,8 +19,8 @@ type Compactor struct {
 }
 
 type CompactableSync struct {
-	filePath string
-	syncID   string
+	FilePath string
+	SyncID   string
 }
 
 func NewCompactor(ctx context.Context, destDir string, compactableSyncs ...*CompactableSync) (*Compactor, error) {
@@ -49,7 +49,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 			return nil, err
 		}
 		// Collect all the intermediate files we create to remove at the end
-		intermediates = append(intermediates, compactable.filePath)
+		intermediates = append(intermediates, compactable.FilePath)
 		base = compactable
 	}
 
@@ -66,8 +66,8 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	}
 
 	// Move last compacted file to the destination dir
-	finalPath := path.Join(c.destDir, fmt.Sprintf("compacted-%s.c1z", base.syncID))
-	if err := os.Rename(base.filePath, finalPath); err != nil {
+	finalPath := path.Join(c.destDir, fmt.Sprintf("compacted-%s.c1z", base.SyncID))
+	if err := os.Rename(base.FilePath, finalPath); err != nil {
 		return nil, fmt.Errorf("failed to move compacted file to destination: %w", err)
 	}
 
@@ -75,7 +75,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 }
 
 func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, *dotc1z.C1File, c1zmanager.Manager, func(), error) {
-	baseC1Z, err := c1zmanager.New(ctx, info.filePath)
+	baseC1Z, err := c1zmanager.New(ctx, info.FilePath)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -95,7 +95,7 @@ func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.Sy
 	}
 
 	latestAppliedSync, err := baseFile.GetSync(ctx, &reader_v2.SyncsReaderServiceGetSyncRequest{
-		SyncId:      info.syncID,
+		SyncId:      info.SyncID,
 		Annotations: nil,
 	})
 	if err != nil {
@@ -106,7 +106,7 @@ func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.Sy
 }
 
 func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *CompactableSync, applied *CompactableSync) (*CompactableSync, error) {
-	filePath := path.Join(tempDir, fmt.Sprintf("compacted-%s-%s.c1z", base.syncID, applied.syncID))
+	filePath := path.Join(tempDir, fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID))
 
 	newFile, err := dotc1z.NewC1ZFile(ctx, filePath, dotc1z.WithPragma("journal_mode", "WAL"))
 	if err != nil {
@@ -149,7 +149,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 	}
 
 	return &CompactableSync{
-		filePath: outputFilepath,
-		syncID:   newSync,
+		FilePath: outputFilepath,
+		SyncID:   newSync,
 	}, nil
 }

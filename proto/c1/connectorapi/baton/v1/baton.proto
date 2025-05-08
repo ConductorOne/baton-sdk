@@ -137,6 +137,16 @@ message Task {
     repeated google.protobuf.Any annotations = 3;
   }
 
+  message CompactSyncs  {
+    message CompactableSync {
+      string file_path = 1;
+      string sync_id = 2;
+    }
+
+    repeated CompactableSync compacable_syncs = 1;
+    repeated google.protobuf.Any annotations = 2;
+  }
+
   string id = 1;
   Status status = 2;
   oneof task_type {
@@ -160,6 +170,7 @@ message Task {
     ActionInvokeTask action_invoke = 117;
     ActionStatusTask action_status = 118;
     CreateSyncDiffTask create_sync_diff = 119;
+    CompactSyncs compact_syncs = 120;
   }
   bool debug = 3;
 }

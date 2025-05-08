@@ -76,6 +76,19 @@ var (
 		WithExportTarget(ExportTargetNone),
 	)
 
+	compactSyncsField = BoolField("compact-syncs",
+		WithDescription("Provide a list of sync files to compact into a single c1z file and sync ID."),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	outputDirectoryField = StringField("output-dir",
+		WithDescription("The directory to store the results in"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
 	otelCollectorEndpoint = StringField(OtelCollectorEndpointFieldName,
 		WithDescription("The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided)"),
 		WithPersistent(true), WithExportTarget(ExportTargetOps))
