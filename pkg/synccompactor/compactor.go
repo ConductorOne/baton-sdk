@@ -38,8 +38,9 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 
 	tempDir := os.TempDir()
 
+	intermediates := make([]string, 0, len(c.entries)-1)
+
 	base := c.entries[0]
-	var latest *CompactableSync
 	for i := 1; i < len(c.entries); i++ {
 		applied := c.entries[i]
 
@@ -47,11 +48,24 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		if err != nil {
 			return nil, err
 		}
-		latest = compactable
+		// Collect all the intermediate files we create to remove at the end
+		intermediates = append(intermediates, compactable.filePath)
 		base = compactable
 	}
 
-	return latest, nil
+	if len(intermediates) > 0 {
+		// The last one is our "base" so we don't want to remove that one
+		intermediates = intermediates[:len(intermediates)-1]
+		for _, intermediateFile := range intermediates {
+			err := os.Remove(intermediateFile)
+			// Weird case if the file doesn't exist but it's "fine".
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
+		}
+	}
+
+	return base, nil
 }
 
 func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, *dotc1z.C1File, c1zmanager.Manager, func(), error) {
