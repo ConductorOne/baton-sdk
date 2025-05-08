@@ -24,7 +24,7 @@ type CompactableSync struct {
 }
 
 func NewCompactor(ctx context.Context, destDir string, compactableSyncs ...*CompactableSync) (*Compactor, error) {
-	if len(compactableSyncs) == 0 || len(compactableSyncs) == 1 {
+	if len(compactableSyncs) < 2 {
 		return nil, errors.New("must provide two or more files to Compact")
 	}
 
