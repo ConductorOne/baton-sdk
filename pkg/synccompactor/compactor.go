@@ -143,8 +143,13 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 		return nil, err
 	}
 
+	outputFilepath, err := newFile.OutputFilepath()
+	if err != nil {
+		return nil, err
+	}
+
 	return &CompactableSync{
-		filePath: filePath,
+		filePath: outputFilepath,
 		syncID:   newSync,
 	}, nil
 }
