@@ -1,4 +1,4 @@
-package sync_compactor
+package synccompactor
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
-	sync_compactor "github.com/conductorone/baton-sdk/pkg/sync_compactor/naive"
+	sync_compactor "github.com/conductorone/baton-sdk/pkg/synccompactor/naive"
 )
 
 type Compactor struct {
