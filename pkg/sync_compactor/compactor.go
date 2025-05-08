@@ -88,10 +88,10 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 	}
 
 	_, baseFile, _, cleanupBase, err := getLatestObjects(ctx, base)
+	defer cleanupBase()
 	if err != nil {
 		return nil, err
 	}
-	defer cleanupBase()
 
 	_, appliedFile, _, cleanupApplied, err := getLatestObjects(ctx, applied)
 	defer cleanupApplied()
