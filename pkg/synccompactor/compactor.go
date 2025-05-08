@@ -65,6 +65,12 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		}
 	}
 
+	// Move last compacted file to the destination dir
+	finalPath := path.Join(c.destDir, fmt.Sprintf("compacted-%s.c1z", base.syncID))
+	if err := os.Rename(base.filePath, finalPath); err != nil {
+		return nil, fmt.Errorf("failed to move compacted file to destination: %w", err)
+	}
+
 	return base, nil
 }
 
