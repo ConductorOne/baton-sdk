@@ -82,7 +82,7 @@ func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.Sy
 func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *CompactableSync, applied *CompactableSync) (*CompactableSync, error) {
 	filePath := path.Join(tempDir, fmt.Sprintf("compacted-%s-%s.c1z", base.syncID, applied.syncID))
 
-	newFile, err := dotc1z.NewC1ZFile(ctx, filePath, dotc1z.WithTmpDir(tempDir), dotc1z.WithPragma("journal_mode", "WAL"))
+	newFile, err := dotc1z.NewC1ZFile(ctx, filePath, dotc1z.WithPragma("journal_mode", "WAL"))
 	if err != nil {
 		return nil, err
 	}
