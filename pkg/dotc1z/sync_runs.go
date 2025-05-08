@@ -441,7 +441,6 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType, pa
 }
 
 func (c *C1File) insertSyncRun(ctx context.Context, syncID string, syncType SyncType) error {
-	c.dbUpdated = true
 	q := c.db.Insert(syncRuns.Name())
 	q = q.Rows(goqu.Record{
 		"sync_id":        syncID,
@@ -460,6 +459,7 @@ func (c *C1File) insertSyncRun(ctx context.Context, syncID string, syncType Sync
 	if err != nil {
 		return err
 	}
+	c.dbUpdated = true
 	return nil
 }
 
@@ -495,7 +495,6 @@ func (c *C1File) EndSync(ctx context.Context) error {
 }
 
 func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
-	c.dbUpdated = true
 	q := c.db.Update(syncRuns.Name())
 	q = q.Set(goqu.Record{
 		"ended_at": time.Now().Format("2006-01-02 15:04:05.999999999"),
@@ -512,6 +511,7 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 	if err != nil {
 		return err
 	}
+	c.dbUpdated = true
 
 	return nil
 }
