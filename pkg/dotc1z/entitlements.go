@@ -111,7 +111,9 @@ func (c *C1File) PutEntitlementsIfNewer(ctx context.Context, entitlementObjs ...
 	return c.putEntitlementsInternal(ctx, bulkPutConnectorObjectIfNewer, entitlementObjs...)
 }
 
-func (c *C1File) putEntitlementsInternal(ctx context.Context, f bulkPutFunc[*v2.Entitlement], entitlementObjs ...*v2.Entitlement) error {
+type entitlementPutFunc func(context.Context, *C1File, string, func(m *v2.Entitlement) (goqu.Record, error), ...*v2.Entitlement) error
+
+func (c *C1File) putEntitlementsInternal(ctx context.Context, f entitlementPutFunc, entitlementObjs ...*v2.Entitlement) error {
 	err := f(ctx, c, entitlements.Name(),
 		func(entitlement *v2.Entitlement) (goqu.Record, error) {
 			return goqu.Record{

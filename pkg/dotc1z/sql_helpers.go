@@ -347,8 +347,6 @@ func executeChunkedInsert(
 	return nil
 }
 
-type bulkPutFunc[T proto.Message] = func(context.Context, *C1File, string, func(m T) (goqu.Record, error), ...T) error
-
 func bulkPutConnectorObject[T proto.Message](
 	ctx context.Context, c *C1File,
 	tableName string,

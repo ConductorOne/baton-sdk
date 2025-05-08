@@ -107,7 +107,9 @@ func (c *C1File) PutResourceTypesIfNewer(ctx context.Context, resourceTypesObjs 
 	return c.putResourceTypesInternal(ctx, bulkPutConnectorObjectIfNewer, resourceTypesObjs...)
 }
 
-func (c *C1File) putResourceTypesInternal(ctx context.Context, f bulkPutFunc[*v2.ResourceType], resourceTypesObjs ...*v2.ResourceType) error {
+type resourceTypePutFunc func(context.Context, *C1File, string, func(m *v2.ResourceType) (goqu.Record, error), ...*v2.ResourceType) error
+
+func (c *C1File) putResourceTypesInternal(ctx context.Context, f resourceTypePutFunc, resourceTypesObjs ...*v2.ResourceType) error {
 	err := f(ctx, c, resourceTypes.Name(),
 		func(resource *v2.ResourceType) (goqu.Record, error) {
 			return nil, nil
