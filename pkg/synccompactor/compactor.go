@@ -36,8 +36,6 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		return nil, nil
 	}
 
-	tempDir := os.TempDir()
-
 	intermediates := make([]string, 0, len(c.entries)-1)
 
 	base := c.entries[0]
@@ -105,8 +103,8 @@ func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.Sy
 	return latestAppliedSync.Sync, baseFile, baseC1Z, cleanup, nil
 }
 
-func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *CompactableSync, applied *CompactableSync) (*CompactableSync, error) {
-	filePath := path.Join(tempDir, fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID))
+func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, applied *CompactableSync) (*CompactableSync, error) {
+	filePath := fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID)
 
 	newFile, err := dotc1z.NewC1ZFile(ctx, filePath, dotc1z.WithPragma("journal_mode", "WAL"))
 	if err != nil {
