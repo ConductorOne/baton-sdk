@@ -10,7 +10,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
-	"google.golang.org/protobuf/proto"
+	sync_compactor "github.com/conductorone/baton-sdk/pkg/sync_compactor/naive"
 )
 
 type Compactor struct {
@@ -25,7 +25,7 @@ type CompactableSync struct {
 
 func NewCompactor(ctx context.Context, destDir string, compactableSyncs ...*CompactableSync) (*Compactor, error) {
 	if len(compactableSyncs) == 0 || len(compactableSyncs) == 1 {
-		return nil, errors.New("must provide two or more files to compact")
+		return nil, errors.New("must provide two or more files to Compact")
 	}
 
 	return &Compactor{entries: compactableSyncs, destDir: destDir}, nil
@@ -102,23 +102,8 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 	// If the applied sync started after the base sync ended we have fully disjoint sets
 	//fullyDisjoint := appliedSync.StartedAt.AsTime().After(baseSync.StartedAt.AsTime())
 
-	// TODO: Use the runner when implementing the compaction logic
-	runner := &naiveCompactor{
-		base:    baseFile,
-		applied: appliedFile,
-		dest:    newFile,
-	}
-
-	if err := runner.processResourceTypes(ctx); err != nil {
-		return nil, err
-	}
-	if err := runner.processResources(ctx); err != nil {
-		return nil, err
-	}
-	if err := runner.processEntitlements(ctx); err != nil {
-		return nil, err
-	}
-	if err := runner.processGrants(ctx); err != nil {
+	runner := sync_compactor.NewNaiveCompactor(baseFile, appliedFile, newFile)
+	if err := runner.Compact(ctx); err != nil {
 		return nil, err
 	}
 
@@ -131,54 +116,4 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 	}
 
 	return nil, nil
-}
-
-type naiveCompactor struct {
-	base    *dotc1z.C1File
-	applied *dotc1z.C1File
-	dest    *dotc1z.C1File
-}
-
-func naiveCompact[T proto.Message, REQ listRequest, RESP listResponse[T]](
-	ctx context.Context,
-	base listFunc[T, REQ, RESP],
-	applied listFunc[T, REQ, RESP],
-	save func(context.Context, ...T) error,
-) error {
-	// List all objects from the base file and save them in the destination file
-	if err := listAllObjects(ctx, base, func(items []T) (bool, error) {
-		if err := save(ctx, items...); err != nil {
-			return false, err
-		}
-		return true, nil
-	}); err != nil {
-		return err
-	}
-
-	// Then list all objects from the applied file and save them in the destination file, overwriting ones with the same external_id
-	if err := listAllObjects(ctx, applied, func(items []T) (bool, error) {
-		if err := save(ctx, items...); err != nil {
-			return false, err
-		}
-		return true, nil
-	}); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (c *naiveCompactor) processResourceTypes(ctx context.Context) error {
-	return naiveCompact(ctx, c.base.ListResourceTypes, c.applied.ListResourceTypes, c.dest.PutResourceTypesIfNewer)
-}
-
-func (c *naiveCompactor) processResources(ctx context.Context) error {
-	return naiveCompact(ctx, c.base.ListResources, c.applied.ListResources, c.dest.PutResourcesIfNewer)
-}
-func (c *naiveCompactor) processGrants(ctx context.Context) error {
-	return naiveCompact(ctx, c.base.ListGrants, c.applied.ListGrants, c.dest.PutGrantsIfNewer)
-}
-
-func (c *naiveCompactor) processEntitlements(ctx context.Context) error {
-	return naiveCompact(ctx, c.base.ListEntitlements, c.applied.ListEntitlements, c.dest.PutEntitlementsIfNewer)
 }

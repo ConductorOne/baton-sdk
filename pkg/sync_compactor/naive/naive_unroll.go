@@ -1,4 +1,4 @@
-package sync_compactor
+package naive
 
 import (
 	"context"
