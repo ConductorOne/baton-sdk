@@ -622,6 +622,45 @@ func TestPartialSync(t *testing.T) {
 	require.Len(t, allGrants.List, 1)
 }
 
+func TestPartialSyncBadIDs(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tempDir, err := os.MkdirTemp("", "baton-partial-sync-test-bad-ids")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "partial-sync-bad-ids.c1z")
+
+	mc := newMockConnector()
+
+	batonIDs := []string{
+		"bid:r:bad_resource_id",
+	}
+	partialSyncer, err := NewSyncer(ctx, mc,
+		WithC1ZPath(c1zPath),
+		WithTmpDir(tempDir),
+		WithTargetedSyncResourceIDs(batonIDs),
+	)
+	require.NoError(t, err)
+
+	err = partialSyncer.Sync(ctx)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "error parsing baton id 'bid:r:bad_resource_id'")
+	err = partialSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	c1zManager, err := manager.New(ctx, c1zPath)
+	require.NoError(t, err)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	syncs, _, err := store.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Equal(t, len(syncs), 0)
+}
+
 func newMockConnector() *mockConnector {
 	mc := &mockConnector{
 		rtDB:       make([]*v2.ResourceType, 0),
