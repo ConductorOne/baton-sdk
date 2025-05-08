@@ -382,6 +382,16 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return err
 	}
 
+	// Validate any targeted resource IDs before starting a sync.
+	targetedResources := []*v2.Resource{}
+	for _, resourceID := range s.targetedSyncResourceIDs {
+		r, err := bid.ParseResourceBid(resourceID)
+		if err != nil {
+			return fmt.Errorf("error parsing resource id %s: %w", resourceID, err)
+		}
+		targetedResources = append(targetedResources, r)
+	}
+
 	syncID, newSync, err := s.startOrResumeSync(ctx)
 	if err != nil {
 		return err
@@ -438,12 +448,8 @@ func (s *syncer) Sync(ctx context.Context) error {
 		case InitOp:
 			s.state.FinishAction(ctx)
 
-			if len(s.targetedSyncResourceIDs) > 0 {
-				for _, resourceID := range s.targetedSyncResourceIDs {
-					r, err := bid.ParseResourceBid(resourceID)
-					if err != nil {
-						return fmt.Errorf("error parsing resource id %s: %w", resourceID, err)
-					}
+			if len(targetedResources) > 0 {
+				for _, r := range targetedResources {
 					s.state.PushAction(ctx, Action{
 						Op:                   SyncTargetedResourceOp,
 						ResourceID:           r.GetId().GetResource(),
