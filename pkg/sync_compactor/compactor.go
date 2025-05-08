@@ -87,6 +87,11 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 		return nil, err
 	}
 
+	newSync, err := newFile.StartNewSyncV2(ctx, string(dotc1z.SyncTypeFull), "")
+	if err != nil {
+		return nil, err
+	}
+
 	_, baseFile, _, cleanupBase, err := getLatestObjects(ctx, base)
 	defer cleanupBase()
 	if err != nil {
@@ -115,5 +120,8 @@ func (c *Compactor) doOneCompaction(ctx context.Context, tempDir string, base *C
 		return nil, err
 	}
 
-	return nil, nil
+	return &CompactableSync{
+		filePath: filePath,
+		syncID:   newSync,
+	}, nil
 }
