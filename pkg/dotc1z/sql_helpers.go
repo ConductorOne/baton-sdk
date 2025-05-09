@@ -413,7 +413,7 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 					"data":          goqu.I("EXCLUDED.data"),
 					"discovered_at": goqu.I("EXCLUDED.discovered_at"),
 				}).Where(
-				goqu.L("EXCLUDED.discovered_at > " + tableName + ".discovered_at"),
+				goqu.L("EXCLUDED.discovered_at > ?.discovered_at", goqu.I(tableName)),
 			)).
 			Rows(chunkedRows).
 			Prepared(true), nil
