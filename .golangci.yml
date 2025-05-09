@@ -77,7 +77,8 @@ linters:
     - gocritic # Provides diagnostics that check for bugs, performance and style issues.
     - godot # Check if comments end in a period
     - goimports # In addition to fixing imports, goimports also formats your code in the same style as gofmt.
-    - gomoddirectives # Manage the use of 'replace', 'retract', and 'excludes' directives in go.mod.
+#    Need this disabled for now, we need to have a replace
+#    - gomoddirectives # Manage the use of 'replace', 'retract', and 'excludes' directives in go.mod.
     - goprintffuncname # Checks that printf-like functions are named with f at the end
     - gosec # Inspects source code for security problems
     - nakedret # Finds naked returns in functions greater than a specified function length
