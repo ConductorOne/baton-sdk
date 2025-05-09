@@ -78,6 +78,7 @@ func (p *Provisioner) Run(ctx context.Context) error {
 	defer span.End()
 
 	var (
+		l         = ctxzap.Extract(ctx)
 		baseDelay = 30 * time.Second
 		attempt   = 0
 		err       error
@@ -98,6 +99,7 @@ func (p *Provisioner) Run(ctx context.Context) error {
 			return errors.New("unknown provisioning action")
 		}
 
+		l.Debug("provisioner result", zap.Error(err), zap.Int("attempt", attempt))
 		if !p.shouldWaitAndRetry(ctx, err, baseDelay) {
 			return err
 		}
