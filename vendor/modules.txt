@@ -174,8 +174,8 @@ github.com/deckarep/golang-set/v2
 # github.com/dolthub/maphash v0.1.0
 ## explicit; go 1.18
 github.com/dolthub/maphash
-# github.com/doug-martin/goqu/v9 v9.19.0
-## explicit; go 1.12
+# github.com/doug-martin/goqu/v9 v9.19.0 => github.com/ductone/goqu/v9 v9.19.1
+## explicit; go 1.19
 github.com/doug-martin/goqu/v9
 github.com/doug-martin/goqu/v9/dialect/sqlite3
 github.com/doug-martin/goqu/v9/exec
@@ -741,3 +741,4 @@ modernc.org/memory
 # modernc.org/sqlite v1.34.5
 ## explicit; go 1.21
 modernc.org/sqlite/lib
+# github.com/doug-martin/goqu/v9 => github.com/ductone/goqu/v9 v9.19.1

@@ -291,3 +291,10 @@ func (c *C1File) validateSyncDb(ctx context.Context) error {
 
 	return c.validateDb(ctx)
 }
+
+func (c *C1File) OutputFilepath() (string, error) {
+	if c.outputFilePath == "" {
+		return "", fmt.Errorf("c1file: output file path is empty")
+	}
+	return c.outputFilePath, nil
+}

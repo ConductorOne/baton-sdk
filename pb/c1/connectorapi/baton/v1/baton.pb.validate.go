@@ -883,6 +883,47 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
+	case *Task_CompactSyncs_:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetCompactSyncs()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "CompactSyncs",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "CompactSyncs",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetCompactSyncs()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "CompactSyncs",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -6112,6 +6153,285 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = Task_CreateSyncDiffTaskValidationError{}
+
+// Validate checks the field values on Task_CompactSyncs with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *Task_CompactSyncs) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task_CompactSyncs with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// Task_CompactSyncsMultiError, or nil if none found.
+func (m *Task_CompactSyncs) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_CompactSyncs) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetCompactableSyncs() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_CompactSyncsValidationError{
+						field:  fmt.Sprintf("CompactableSyncs[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_CompactSyncsValidationError{
+						field:  fmt.Sprintf("CompactableSyncs[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_CompactSyncsValidationError{
+					field:  fmt.Sprintf("CompactableSyncs[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_CompactSyncsValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_CompactSyncsValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_CompactSyncsValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return Task_CompactSyncsMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_CompactSyncsMultiError is an error wrapping multiple validation errors
+// returned by Task_CompactSyncs.ValidateAll() if the designated constraints
+// aren't met.
+type Task_CompactSyncsMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_CompactSyncsMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_CompactSyncsMultiError) AllErrors() []error { return m }
+
+// Task_CompactSyncsValidationError is the validation error returned by
+// Task_CompactSyncs.Validate if the designated constraints aren't met.
+type Task_CompactSyncsValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_CompactSyncsValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_CompactSyncsValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_CompactSyncsValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_CompactSyncsValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_CompactSyncsValidationError) ErrorName() string {
+	return "Task_CompactSyncsValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e Task_CompactSyncsValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_CompactSyncs.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_CompactSyncsValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_CompactSyncsValidationError{}
+
+// Validate checks the field values on Task_CompactSyncs_CompactableSync with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *Task_CompactSyncs_CompactableSync) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task_CompactSyncs_CompactableSync
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// Task_CompactSyncs_CompactableSyncMultiError, or nil if none found.
+func (m *Task_CompactSyncs_CompactableSync) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_CompactSyncs_CompactableSync) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for FilePath
+
+	// no validation rules for SyncId
+
+	if len(errors) > 0 {
+		return Task_CompactSyncs_CompactableSyncMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_CompactSyncs_CompactableSyncMultiError is an error wrapping multiple
+// validation errors returned by
+// Task_CompactSyncs_CompactableSync.ValidateAll() if the designated
+// constraints aren't met.
+type Task_CompactSyncs_CompactableSyncMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_CompactSyncs_CompactableSyncMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_CompactSyncs_CompactableSyncMultiError) AllErrors() []error { return m }
+
+// Task_CompactSyncs_CompactableSyncValidationError is the validation error
+// returned by Task_CompactSyncs_CompactableSync.Validate if the designated
+// constraints aren't met.
+type Task_CompactSyncs_CompactableSyncValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_CompactSyncs_CompactableSyncValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_CompactSyncs_CompactableSyncValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_CompactSyncs_CompactableSyncValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_CompactSyncs_CompactableSyncValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_CompactSyncs_CompactableSyncValidationError) ErrorName() string {
+	return "Task_CompactSyncs_CompactableSyncValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e Task_CompactSyncs_CompactableSyncValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_CompactSyncs_CompactableSync.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_CompactSyncs_CompactableSyncValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_CompactSyncs_CompactableSyncValidationError{}
 
 // Validate checks the field values on BatonServiceHelloRequest_BuildInfo with
 // the rules defined in the proto definition for this message. If any rules

@@ -76,6 +76,31 @@ var (
 		WithExportTarget(ExportTargetNone),
 	)
 
+	compactSyncsField = BoolField("compact-syncs",
+		WithDescription("Provide a list of sync files to compact into a single c1z file and sync ID."),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	compactOutputDirectoryField = StringField("compact-output-path",
+		WithDescription("The directory to store the results in"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	compactFilePathsField = StringSliceField("compact-file-paths",
+		WithDescription("A comma-separated list of file paths to sync from."),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	compactSyncIDsField = StringSliceField("compact-sync-ids",
+		WithDescription("A comma-separated list of file ids to sync from. Must match sync IDs from each file provided. Order matters."),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
 	otelCollectorEndpoint = StringField(OtelCollectorEndpointFieldName,
 		WithDescription("The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided)"),
 		WithPersistent(true), WithExportTarget(ExportTargetOps))
@@ -186,6 +211,10 @@ var DefaultFields = []SchemaField{
 	diffSyncsField,
 	diffSyncsBaseSyncField,
 	diffSyncsAppliedSyncField,
+	compactSyncIDsField,
+	compactFilePathsField,
+	compactOutputDirectoryField,
+	compactSyncsField,
 
 	otelCollectorEndpoint,
 	otelCollectorEndpointTLSCertPath,
