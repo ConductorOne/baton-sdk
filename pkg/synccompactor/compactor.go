@@ -11,6 +11,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	sync_compactor "github.com/conductorone/baton-sdk/pkg/synccompactor/naive"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 type Compactor struct {
@@ -33,6 +35,21 @@ func NewCompactor(ctx context.Context, destDir string, compactableSyncs ...*Comp
 	return &Compactor{entries: compactableSyncs, destDir: destDir}, nil
 }
 
+func removeIntermediateFiles(intermediates []string, preserveLast bool) error {
+	// The last one is our "base" so we don't want to remove that one
+	if preserveLast {
+		intermediates = intermediates[:len(intermediates)-1]
+	}
+	for _, intermediateFile := range intermediates {
+		err := os.Remove(intermediateFile)
+		// Weird case if the file doesn't exist but it's "fine".
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	if len(c.entries) < 2 {
 		return nil, nil
@@ -46,6 +63,9 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 
 		compactable, err := c.doOneCompaction(ctx, base, applied)
 		if err != nil {
+			if err := removeIntermediateFiles(intermediates, false); err != nil {
+				return nil, err
+			}
 			return nil, err
 		}
 		// Collect all the intermediate files we create to remove at the end
@@ -54,14 +74,8 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	}
 
 	if len(intermediates) > 0 {
-		// The last one is our "base" so we don't want to remove that one
-		intermediates = intermediates[:len(intermediates)-1]
-		for _, intermediateFile := range intermediates {
-			err := os.Remove(intermediateFile)
-			// Weird case if the file doesn't exist but it's "fine".
-			if err != nil && !errors.Is(err, os.ErrNotExist) {
-				return nil, err
-			}
+		if err := removeIntermediateFiles(intermediates, true); err != nil {
+			return nil, err
 		}
 	}
 
@@ -106,9 +120,19 @@ func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.Sy
 }
 
 func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, applied *CompactableSync) (*CompactableSync, error) {
+	l := ctxzap.Extract(ctx)
+	l.Info(
+		"running compaction",
+		zap.String("base_file", base.FilePath),
+		zap.String("base_sync", base.SyncID),
+		zap.String("applied_file", applied.FilePath),
+		zap.String("applied_sync", applied.SyncID),
+	)
+
 	filePath := fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID)
 
 	newFile, err := dotc1z.NewC1ZFile(ctx, filePath, dotc1z.WithPragma("journal_mode", "WAL"))
+	defer newFile.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -131,15 +155,13 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	}
 
 	runner := sync_compactor.NewNaiveCompactor(baseFile, appliedFile, newFile)
+
 	if err := runner.Compact(ctx); err != nil {
+		l.Error("error running compaction", zap.Error(err))
 		return nil, err
 	}
 
 	if err := newFile.EndSync(ctx); err != nil {
-		return nil, err
-	}
-
-	if err := newFile.Close(); err != nil {
 		return nil, err
 	}
 

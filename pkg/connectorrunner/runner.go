@@ -584,6 +584,7 @@ func WithDiffSyncs(c1zPath string, baseSyncID string, newSyncID string) Option {
 func WithSyncCompactor(outputPath string, filePaths []string, syncIDs []string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
+		cfg.c1zPath = "dummy"
 
 		cfg.syncCompactorConfig = &syncCompactorConfig{
 			filePaths:  filePaths,

@@ -23,9 +23,10 @@ type listResponse[T proto.Message] interface {
 
 // createRequest creates a new request object of type REQ using reflection.
 func createRequest[REQ listRequest]() REQ {
-	reqType := reflect.TypeOf((*REQ)(nil)).Elem()
-	reqPtrValue := reflect.New(reqType)
-	return reqPtrValue.Interface().(REQ)
+	var r REQ
+	baseType := reflect.TypeOf(r).Elem()
+	pointerToInitializedVal := reflect.New(baseType)
+	return pointerToInitializedVal.Interface().(REQ)
 }
 
 // setFieldIfValid sets a field in a struct if it exists and can be set.

@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -43,6 +45,9 @@ func naiveCompact[T proto.Message, REQ listRequest, RESP listResponse[T]](
 	applied listFunc[T, REQ, RESP],
 	save func(context.Context, ...T) error,
 ) error {
+	var t T
+	l := ctxzap.Extract(ctx)
+	l.Info("naive compaction: compacting objects", zap.String("object_type", string(t.ProtoReflect().Descriptor().FullName())))
 	// List all objects from the base file and save them in the destination file
 	if err := listAllObjects(ctx, base, func(items []T) (bool, error) {
 		if err := save(ctx, items...); err != nil {
