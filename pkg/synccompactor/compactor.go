@@ -133,10 +133,10 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	filePath := fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID)
 
 	newFile, err := dotc1z.NewC1ZFile(ctx, filePath, dotc1z.WithPragma("journal_mode", "WAL"))
-	defer newFile.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = newFile.Close() }()
 
 	newSync, err := newFile.StartNewSyncV2(ctx, string(dotc1z.SyncTypeFull), "")
 	if err != nil {
