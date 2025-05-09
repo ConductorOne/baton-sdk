@@ -1515,6 +1515,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	// We want to process any grants from the previous sync first so that if there is a conflict, the newer data takes precedence
 	grants = append(grants, resp.List...)
 
+	l := ctxzap.Extract(ctx)
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
@@ -1522,6 +1523,53 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		}
 		if grantAnnos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			s.state.SetHasExternalResourcesGrants()
+		}
+		// Some connectors emit grants for other resources. If we're doing a partial sync, check if it exists and queue a fetch if not.
+		entitlementResource := grant.GetEntitlement().GetResource()
+		_, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+			ResourceId: entitlementResource.GetId(),
+		})
+		if err != nil {
+			l.Warn("error fetching resource for grant", zap.Error(err))
+			s.state.PushAction(ctx, Action{
+				Op:                   SyncTargetedResourceOp,
+				ResourceID:           entitlementResource.GetId().GetResource(),
+				ResourceTypeID:       entitlementResource.GetId().GetResourceType(),
+				ParentResourceID:     entitlementResource.GetParentResourceId().GetResource(),
+				ParentResourceTypeID: entitlementResource.GetParentResourceId().GetResourceType(),
+			})
+		}
+
+		principalResource := grant.GetPrincipal()
+		_, err = s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+			ResourceId: principalResource.GetId(),
+		})
+		if err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+
+			resourceResp, err := s.connector.GetResource(ctx,
+				&v2.ResourceGetterServiceGetResourceRequest{
+					ResourceId: &v2.ResourceId{
+						ResourceType: principalResource.GetId().ResourceType,
+						Resource:     principalResource.GetId().Resource,
+					},
+					ParentResourceId: principalResource.GetParentResourceId(),
+				},
+			)
+			if err != nil {
+				// Ignore if resource is not found
+				if status.Code(err) == codes.NotFound {
+					continue
+				}
+				return err
+			}
+
+			// Save our resource in the DB
+			if err := s.store.PutResources(ctx, resourceResp.Resource); err != nil {
+				return err
+			}
 		}
 	}
 	err = s.store.PutGrants(ctx, grants...)
