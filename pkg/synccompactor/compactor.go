@@ -84,6 +84,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	if err := os.Rename(base.FilePath, finalPath); err != nil {
 		return nil, fmt.Errorf("failed to move compacted file to destination: %w", err)
 	}
+	base.FilePath = finalPath
 
 	return base, nil
 }

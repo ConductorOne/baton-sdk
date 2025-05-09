@@ -124,3 +124,5 @@ require (
 	modernc.org/memory v1.8.2 // indirect
 	modernc.org/sqlite v1.34.5 // indirect
 )
+
+replace github.com/doug-martin/goqu/v9 => github.com/ductone/goqu/v9 v9.19.1

@@ -10,12 +10,12 @@ import (
 func DialectOptions() *goqu.SQLDialectOptions {
 	opts := goqu.DefaultDialectOptions()
 
-	opts.SupportsReturn = false
+	opts.SupportsReturn = true
 	opts.SupportsOrderByOnUpdate = true
 	opts.SupportsLimitOnUpdate = true
 	opts.SupportsOrderByOnDelete = true
 	opts.SupportsLimitOnDelete = true
-	opts.SupportsConflictUpdateWhere = false
+	opts.SupportsConflictUpdateWhere = true
 	opts.SupportsInsertIgnoreSyntax = true
 	opts.SupportsConflictTarget = true
 	opts.SupportsMultipleUpdateTables = false
