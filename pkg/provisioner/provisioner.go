@@ -3,11 +3,14 @@ package provisioner
 import (
 	"context"
 	"errors"
+	"math"
+	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -17,6 +20,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"google.golang.org/grpc/status"
 )
 
 var tracer = otel.Tracer("baton-sdk/pkg.provisioner")
@@ -73,19 +77,36 @@ func (p *Provisioner) Run(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.Run")
 	defer span.End()
 
-	switch {
-	case p.revokeGrantID != "":
-		return p.revoke(ctx)
-	case p.grantEntitlementID != "" && p.grantPrincipalID != "" && p.grantPrincipalType != "":
-		return p.grant(ctx)
-	case p.createAccountLogin != "" || p.createAccountEmail != "":
-		return p.createAccount(ctx)
-	case p.deleteResourceID != "" && p.deleteResourceType != "":
-		return p.deleteResource(ctx)
-	case p.rotateCredentialsId != "" && p.rotateCredentialsType != "":
-		return p.rotateCredentials(ctx)
-	default:
-		return errors.New("unknown provisioning action")
+	var (
+		baseDelay = 30 * time.Second
+		attempt   = 0
+		err       error
+	)
+	for {
+		switch {
+		case p.revokeGrantID != "":
+			err = p.revoke(ctx)
+		case p.grantEntitlementID != "" && p.grantPrincipalID != "" && p.grantPrincipalType != "":
+			err = p.grant(ctx)
+		case p.createAccountLogin != "" || p.createAccountEmail != "":
+			return p.createAccount(ctx)
+		case p.deleteResourceID != "" && p.deleteResourceType != "":
+			return p.deleteResource(ctx)
+		case p.rotateCredentialsId != "" && p.rotateCredentialsType != "":
+			return p.rotateCredentials(ctx)
+		default:
+			return errors.New("unknown provisioning action")
+		}
+
+		if !p.shouldWaitAndRetry(ctx, err, baseDelay) {
+			return err
+		}
+		if attempt >= 2 {
+			return err
+		}
+
+		baseDelay *= 2
+		attempt++
 	}
 }
 
@@ -391,5 +412,51 @@ func NewCredentialRotator(c types.ConnectorClient, dbPath string, resourceId str
 		connector:             c,
 		rotateCredentialsId:   resourceId,
 		rotateCredentialsType: resourceType,
+	}
+}
+
+func (p *Provisioner) shouldWaitAndRetry(ctx context.Context, err error, baseDelay time.Duration) bool {
+	ctx, span := tracer.Start(ctx, "provisioner.shouldWaitAndRetry")
+	defer span.End()
+
+	if err == nil {
+		return false
+	}
+
+	if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
+		return false
+	}
+
+	// If error contains rate limit data, use that instead
+	if st, ok := status.FromError(err); ok {
+		details := st.Details()
+		for _, detail := range details {
+			if rlData, ok := detail.(*v2.RateLimitDescription); ok {
+				waitResetAt := time.Until(rlData.ResetAt.AsTime())
+				if waitResetAt <= 0 {
+					continue
+				}
+				duration := time.Duration(rlData.Limit)
+				if duration <= 0 {
+					continue
+				}
+				waitResetAt /= duration
+				// Round up to the nearest second to make sure we don't hit the rate limit again
+				waitResetAt = time.Duration(math.Ceil(waitResetAt.Seconds())) * time.Second
+				if waitResetAt > 0 {
+					baseDelay = waitResetAt
+					break
+				}
+			}
+		}
+	}
+
+	for {
+		select {
+		case <-time.After(baseDelay):
+			return true
+		case <-ctx.Done():
+			return false
+		}
 	}
 }
