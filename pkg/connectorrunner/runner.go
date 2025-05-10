@@ -53,7 +53,6 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		var err error
 		tempDir := c.tasks.GetTempDir()
 		if tempDir == "" {
-			// Obtener el directorio de trabajo actual
 			wd, err := os.Getwd()
 			if err != nil {
 				l.Info("unable to get the current working directory")
