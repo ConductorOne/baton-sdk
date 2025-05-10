@@ -206,14 +206,12 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 		switch {
 		case errors.Is(err, os.ErrNotExist):
 			l.Warn("debug log file does not exists", zap.Error(err))
-			return nil
 		case errors.Is(err, os.ErrPermission):
 			l.Warn("debug log file cannot be stat'd due to lack of permissions", zap.Error(err))
-			return nil
 		default:
 			l.Warn("cannot stat debug log file", zap.Error(err))
-			return nil
 		}
+		return nil
 	} else {
 		debugfile, err := os.Open(debugfilelocation)
 		if err != nil {
