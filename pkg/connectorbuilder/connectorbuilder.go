@@ -919,8 +919,8 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
 		MaxAttempts:  3,
-		InitialDelay: 30 * time.Second,
-		MaxDelay:     120 * time.Second,
+		InitialDelay: 15 * time.Second,
+		MaxDelay:     60 * time.Second,
 	})
 
 	var grantFunc func(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error)
@@ -973,8 +973,8 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
 		MaxAttempts:  3,
-		InitialDelay: 30 * time.Second,
-		MaxDelay:     120 * time.Second,
+		InitialDelay: 15 * time.Second,
+		MaxDelay:     60 * time.Second,
 	})
 
 	var revokeFunc func(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error)
