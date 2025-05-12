@@ -115,7 +115,9 @@ func mvFile(sourcePath string, destPath string) error {
 	}
 
 	// Explicitly close the source file before removing it
-	source.Close()
+	if err := source.Close(); err != nil {
+		return err
+	}
 
 	err = os.Remove(sourcePath)
 	if err != nil {
