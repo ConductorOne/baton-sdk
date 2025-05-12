@@ -93,6 +93,11 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		return nil, err
 	}
 
+	err = c1File.init(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return c1File, nil
 }
 
@@ -140,11 +145,6 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	}
 
 	c1File.outputFilePath = outputFilePath
-
-	err = c1File.init(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	return c1File, nil
 }
