@@ -986,9 +986,9 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 			annos, err := provisioner.Revoke(ctx, request.Grant)
 			if err != nil {
 				l.Error("error: revoke failed", zap.Error(err))
-				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 
 				if !b.shouldWaitAndRetry(ctx, err, baseDelay) || attempt >= 2 {
+					b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 					return nil, fmt.Errorf("error: revoke failed: %w", err)
 				}
 
@@ -1004,9 +1004,9 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 			annos, err := provisionerV2.Revoke(ctx, request.Grant)
 			if err != nil {
 				l.Error("error: revoke failed", zap.Error(err))
-				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 
 				if !b.shouldWaitAndRetry(ctx, err, baseDelay) || attempt >= 2 {
+					b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 					return nil, fmt.Errorf("error: revoke failed: %w", err)
 				}
 
