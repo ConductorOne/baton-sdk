@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
+	"strings"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -82,11 +84,43 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	// Move last compacted file to the destination dir
 	finalPath := path.Join(c.destDir, fmt.Sprintf("compacted-%s.c1z", base.SyncID))
 	if err := os.Rename(base.FilePath, finalPath); err != nil {
-		return nil, fmt.Errorf("failed to move compacted file to destination: %w", err)
+		if strings.Contains(err.Error(), "cannot move the file to a different disk drive") {
+			if err := mvFile(base.FilePath, finalPath); err != nil {
+				return nil, err
+			}
+		} else {
+			return nil, fmt.Errorf("failed to move compacted file to destination: %w", err)
+		}
 	}
 	base.FilePath = finalPath
 
 	return base, nil
+}
+
+func mvFile(sourcePath string, destPath string) error {
+	source, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to open source file: %w", err)
+	}
+	defer source.Close()
+
+	destination, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file: %w", err)
+	}
+	defer destination.Close()
+
+	_, err = io.Copy(destination, source)
+	if err != nil {
+		return fmt.Errorf("failed to copy file: %w", err)
+	}
+
+	err = os.Remove(sourcePath)
+	if err != nil {
+		return fmt.Errorf("failed to remove original file: %w", err)
+	}
+
+	return nil
 }
 
 func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, *dotc1z.C1File, c1zmanager.Manager, func(), error) {
