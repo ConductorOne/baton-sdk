@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -52,27 +51,24 @@ func TestCompactor(t *testing.T) {
 	err = firstSync.PutResources(ctx, onlyInFirstResource)
 	require.NoError(t, err)
 
-	// 2. Resources that will be in both syncs with first sync having older discovered_at
-	inBothFirstOlderResource := &v2.Resource{
+	// 2. Resources that will be in both syncs
+	inBothResource1 := &v2.Resource{
 		Id: &v2.ResourceId{
 			ResourceType: resourceTypeID,
-			Resource:     "in-both-first-older",
+			Resource:     "in-both-1",
 		},
 	}
-	err = firstSync.PutResources(ctx, inBothFirstOlderResource)
+	err = firstSync.PutResources(ctx, inBothResource1)
 	require.NoError(t, err)
 
-	// Wait a bit to ensure different timestamps
-	time.Sleep(100 * time.Millisecond)
-
-	// 3. Resources that will be in both syncs with first sync having newer discovered_at
-	inBothFirstNewerResource := &v2.Resource{
+	// 3. Another resource that will be in both syncs
+	inBothResource2 := &v2.Resource{
 		Id: &v2.ResourceId{
 			ResourceType: resourceTypeID,
-			Resource:     "in-both-first-newer",
+			Resource:     "in-both-2",
 		},
 	}
-	err = firstSync.PutResources(ctx, inBothFirstNewerResource)
+	err = firstSync.PutResources(ctx, inBothResource2)
 	require.NoError(t, err)
 
 	// End the first sync
@@ -80,9 +76,6 @@ func TestCompactor(t *testing.T) {
 	require.NoError(t, err)
 	err = firstSync.Close()
 	require.NoError(t, err)
-
-	// Wait a bit to ensure different timestamps
-	time.Sleep(100 * time.Millisecond)
 
 	// Create the second sync file
 	secondSyncPath := filepath.Join(tempDir, "second-sync.c1z")
@@ -109,27 +102,24 @@ func TestCompactor(t *testing.T) {
 	err = secondSync.PutResources(ctx, onlyInSecondResource)
 	require.NoError(t, err)
 
-	// 2. Resources that will be in both syncs with second sync having newer discovered_at
-	inBothSecondNewerResource := &v2.Resource{
+	// 2. Resources that will be in both syncs
+	inBothResource1InSecond := &v2.Resource{
 		Id: &v2.ResourceId{
 			ResourceType: resourceTypeID,
-			Resource:     "in-both-first-older",
+			Resource:     "in-both-1",
 		},
 	}
-	err = secondSync.PutResources(ctx, inBothSecondNewerResource)
+	err = secondSync.PutResources(ctx, inBothResource1InSecond)
 	require.NoError(t, err)
 
-	// Wait a bit to ensure different timestamps
-	time.Sleep(100 * time.Millisecond)
-
-	// 3. Resources that will be in both syncs with second sync having older discovered_at
-	inBothSecondOlderResource := &v2.Resource{
+	// 3. Another resource that will be in both syncs
+	inBothResource2InSecond := &v2.Resource{
 		Id: &v2.ResourceId{
 			ResourceType: resourceTypeID,
-			Resource:     "in-both-first-newer",
+			Resource:     "in-both-2",
 		},
 	}
-	err = secondSync.PutResources(ctx, inBothSecondOlderResource)
+	err = secondSync.PutResources(ctx, inBothResource2InSecond)
 	require.NoError(t, err)
 
 	// End the second sync
@@ -177,17 +167,17 @@ func TestCompactor(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, onlyInSecondResource.Id.Resource, onlyInSecondResp.Resource.Id.Resource)
 
-	// 3. Resource that was in both syncs with second sync having newer discovered_at should use the second sync version
-	inBothSecondNewerResp, err := compactedFile.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
-		ResourceId: inBothSecondNewerResource.Id,
+	// 3. Resource that was in both syncs (first one) should be in the compacted file
+	inBothResource1Resp, err := compactedFile.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+		ResourceId: inBothResource1.Id,
 	})
 	require.NoError(t, err)
-	require.Equal(t, inBothSecondNewerResource.Id.Resource, inBothSecondNewerResp.Resource.Id.Resource)
+	require.Equal(t, inBothResource1.Id.Resource, inBothResource1Resp.Resource.Id.Resource)
 
-	// 4. Resource that was in both syncs with first sync having newer discovered_at should use the first sync version
-	inBothFirstNewerResp, err := compactedFile.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
-		ResourceId: inBothFirstNewerResource.Id,
+	// 4. Resource that was in both syncs (second one) should be in the compacted file
+	inBothResource2Resp, err := compactedFile.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+		ResourceId: inBothResource2.Id,
 	})
 	require.NoError(t, err)
-	require.Equal(t, inBothFirstNewerResource.Id.Resource, inBothFirstNewerResp.Resource.Id.Resource)
+	require.Equal(t, inBothResource2.Id.Resource, inBothResource2Resp.Resource.Id.Resource)
 }
