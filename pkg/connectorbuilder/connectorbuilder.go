@@ -980,9 +980,17 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		baseDelay = 30 * time.Second
 		rt        = request.Grant.Entitlement.Resource.Id.ResourceType
 	)
+
+	provisioner, v1ok := b.resourceProvisioners[rt]
+	provisionerV2, v2ok := b.resourceProvisionersV2[rt]
+	if !v1ok && !v2ok {
+		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: resource type does not have provisioner configured")
+	}
+
 	for {
-		provisioner, ok := b.resourceProvisioners[rt]
-		if ok {
+		if v1ok {
 			annos, err := provisioner.Revoke(ctx, request.Grant)
 			if err != nil {
 				l.Error("error: revoke failed", zap.Error(err))
@@ -999,29 +1007,22 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 			return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 		}
 
-		provisionerV2, ok := b.resourceProvisionersV2[rt]
-		if ok {
-			annos, err := provisionerV2.Revoke(ctx, request.Grant)
-			if err != nil {
-				l.Error("error: revoke failed", zap.Error(err))
+		annos, err := provisionerV2.Revoke(ctx, request.Grant)
+		if err != nil {
+			l.Error("error: revoke failed", zap.Error(err))
 
-				if !b.shouldWaitAndRetry(ctx, err, baseDelay) || attempt >= 2 {
-					b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-					return nil, fmt.Errorf("error: revoke failed: %w", err)
-				}
-
-				attempt++
-				baseDelay *= 2
-				continue
+			if !b.shouldWaitAndRetry(ctx, err, baseDelay) || attempt >= 2 {
+				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+				return nil, fmt.Errorf("error: revoke failed: %w", err)
 			}
 
-			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-			return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
+			attempt++
+			baseDelay *= 2
+			continue
 		}
 
-		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, status.Error(codes.Unimplemented, "resource type does not have provisioner configured")
+		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 	}
 }
 
