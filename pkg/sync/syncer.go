@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -188,7 +188,6 @@ func (p *ProgressCounts) LogExpandProgress(ctx context.Context, actions []*expan
 
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
-	attempts                            int
 	c1zManager                          manager.Manager
 	c1zPath                             string
 	externalResourceC1ZPath             string
@@ -243,60 +242,6 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 		//nolint:gosec // No risk of overflow because `c` is a slice length.
 		count := uint32(c)
 		s.progressHandler(NewProgress(a, count))
-	}
-}
-
-func (s *syncer) shouldWaitAndRetry(ctx context.Context, err error) bool {
-	ctx, span := tracer.Start(ctx, "syncer.shouldWaitAndRetry")
-	defer span.End()
-
-	if err == nil {
-		s.attempts = 0
-		return true
-	}
-	if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
-		return false
-	}
-
-	s.attempts++
-	l := ctxzap.Extract(ctx)
-
-	// use linear time by default
-	var wait time.Duration = time.Duration(s.attempts) * time.Second
-
-	// If error contains rate limit data, use that instead
-	if st, ok := status.FromError(err); ok {
-		details := st.Details()
-		for _, detail := range details {
-			if rlData, ok := detail.(*v2.RateLimitDescription); ok {
-				waitResetAt := time.Until(rlData.ResetAt.AsTime())
-				if waitResetAt <= 0 {
-					continue
-				}
-				duration := time.Duration(rlData.Limit)
-				if duration <= 0 {
-					continue
-				}
-				waitResetAt /= duration
-				// Round up to the nearest second to make sure we don't hit the rate limit again
-				waitResetAt = time.Duration(math.Ceil(waitResetAt.Seconds())) * time.Second
-				if waitResetAt > 0 {
-					wait = waitResetAt
-					break
-				}
-			}
-		}
-	}
-
-	l.Warn("retrying operation", zap.Error(err), zap.Duration("wait", wait))
-
-	for {
-		select {
-		case <-time.After(wait):
-			return true
-		case <-ctx.Done():
-			return false
-		}
 	}
 }
 
@@ -417,6 +362,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 	s.state = state
 
+	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
+		MaxAttempts:  0,
+		InitialDelay: 1 * time.Second,
+		MaxDelay:     0,
+	})
+
 	var warnings []error
 	for s.state.Current() != nil {
 		err = s.Checkpoint(ctx, false)
@@ -486,14 +437,14 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 		case SyncResourceTypesOp:
 			err = s.SyncResourceTypes(ctx)
-			if !s.shouldWaitAndRetry(ctx, err) {
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
 
 		case SyncResourcesOp:
 			err = s.SyncResources(ctx)
-			if !s.shouldWaitAndRetry(ctx, err) {
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
@@ -506,7 +457,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 				s.state.FinishAction(ctx)
 				continue
 			}
-			if !s.shouldWaitAndRetry(ctx, err) {
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
@@ -519,7 +470,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 				s.state.FinishAction(ctx)
 				continue
 			}
-			if !s.shouldWaitAndRetry(ctx, err) {
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
@@ -532,20 +483,20 @@ func (s *syncer) Sync(ctx context.Context) error {
 				s.state.FinishAction(ctx)
 				continue
 			}
-			if !s.shouldWaitAndRetry(ctx, err) {
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
 
 		case SyncExternalResourcesOp:
 			err = s.SyncExternalResources(ctx)
-			if !s.shouldWaitAndRetry(ctx, err) {
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
 		case SyncAssetsOp:
 			err = s.SyncAssets(ctx)
-			if !s.shouldWaitAndRetry(ctx, err) {
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
@@ -558,7 +509,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			}
 
 			err = s.SyncGrantExpansion(ctx)
-			if !s.shouldWaitAndRetry(ctx, err) {
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
 				return err
 			}
 			continue
