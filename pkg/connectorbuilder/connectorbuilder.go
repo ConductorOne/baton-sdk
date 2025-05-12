@@ -923,44 +923,40 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		MaxDelay:     120 * time.Second,
 	})
 
-	provisioner, v1ok := b.resourceProvisioners[rt]
-	provisionerV2, v2ok := b.resourceProvisionersV2[rt]
-	if !v1ok && !v2ok {
+	var grantFunc func(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error)
+	provisioner, ok := b.resourceProvisioners[rt]
+	if ok {
+		grantFunc = func(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+			annos, err := provisioner.Grant(ctx, principal, entitlement)
+			if err != nil {
+				return nil, annos, err
+			}
+			return nil, annos, nil
+		}
+	}
+	provisionerV2, ok := b.resourceProvisionersV2[rt]
+	if ok {
+		grantFunc = provisionerV2.Grant
+	}
+
+	if grantFunc == nil {
 		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: resource type does not have provisioner configured")
 	}
 
 	for {
-		if v1ok {
-			annos, err := provisioner.Grant(ctx, request.Principal, request.Entitlement)
-			if err != nil {
-				if retryer.ShouldWaitAndRetry(ctx, err) {
-					continue
-				}
-
-				l.Error("error: grant failed", zap.Error(err))
-				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-				return nil, fmt.Errorf("err: grant failed: %w", err)
-			}
-
+		grants, annos, err := grantFunc(ctx, request.Principal, request.Entitlement)
+		if err == nil {
 			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-			return &v2.GrantManagerServiceGrantResponse{Annotations: annos}, nil
+			return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
 		}
-
-		grants, annos, err := provisionerV2.Grant(ctx, request.Principal, request.Entitlement)
-		if err != nil {
-			if retryer.ShouldWaitAndRetry(ctx, err) {
-				continue
-			}
-
-			l.Error("error: grant failed", zap.Error(err))
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("err: grant failed: %w", err)
+		if retryer.ShouldWaitAndRetry(ctx, err) {
+			continue
 		}
-
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
+		l.Error("error: grant failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("err: grant failed: %w", err)
 	}
 }
 
@@ -981,42 +977,34 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		MaxDelay:     120 * time.Second,
 	})
 
-	provisioner, v1ok := b.resourceProvisioners[rt]
-	provisionerV2, v2ok := b.resourceProvisionersV2[rt]
-	if !v1ok && !v2ok {
+	var revokeFunc func(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error)
+	provisioner, ok := b.resourceProvisioners[rt]
+	if ok {
+		revokeFunc = provisioner.Revoke
+	}
+	provisionerV2, ok := b.resourceProvisionersV2[rt]
+	if ok {
+		revokeFunc = provisionerV2.Revoke
+	}
+
+	if revokeFunc == nil {
 		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: resource type does not have provisioner configured")
 	}
 
 	for {
-		if v1ok {
-			annos, err := provisioner.Revoke(ctx, request.Grant)
-			if err != nil {
-				l.Error("error: revoke failed", zap.Error(err))
-
-				if retryer.ShouldWaitAndRetry(ctx, err) {
-					continue
-				}
-				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-				return nil, fmt.Errorf("error: revoke failed: %w", err)
-			}
+		annos, err := revokeFunc(ctx, request.Grant)
+		if err == nil {
+			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 			return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
 		}
-
-		annos, err := provisionerV2.Revoke(ctx, request.Grant)
-		if err != nil {
-			l.Error("error: revoke failed", zap.Error(err))
-
-			if retryer.ShouldWaitAndRetry(ctx, err) {
-				continue
-			}
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: revoke failed: %w", err)
+		if retryer.ShouldWaitAndRetry(ctx, err) {
+			continue
 		}
-
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
+		l.Error("error: revoke failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: revoke failed: %w", err)
 	}
 }
 
