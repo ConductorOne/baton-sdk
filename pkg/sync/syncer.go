@@ -1515,7 +1515,6 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	// We want to process any grants from the previous sync first so that if there is a conflict, the newer data takes precedence
 	grants = append(grants, resp.List...)
 
-	l := ctxzap.Extract(ctx)
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
@@ -1530,13 +1529,17 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 			ResourceId: entitlementResource.GetId(),
 		})
 		if err != nil {
-			l.Warn("error fetching resource for grant", zap.Error(err))
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			erId := entitlementResource.GetId()
+			prId := entitlementResource.GetParentResourceId()
 			s.state.PushAction(ctx, Action{
 				Op:                   SyncTargetedResourceOp,
-				ResourceID:           entitlementResource.GetId().GetResource(),
-				ResourceTypeID:       entitlementResource.GetId().GetResourceType(),
-				ParentResourceID:     entitlementResource.GetParentResourceId().GetResource(),
-				ParentResourceTypeID: entitlementResource.GetParentResourceId().GetResourceType(),
+				ResourceID:           erId.GetResource(),
+				ResourceTypeID:       erId.GetResourceType(),
+				ParentResourceID:     prId.GetResource(),
+				ParentResourceTypeID: prId.GetResourceType(),
 			})
 		}
 
