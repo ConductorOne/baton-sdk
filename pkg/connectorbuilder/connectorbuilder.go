@@ -948,23 +948,21 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 			return &v2.GrantManagerServiceGrantResponse{Annotations: annos}, nil
 		}
 
-		if v2ok {
-			grants, annos, err := provisionerV2.Grant(ctx, request.Principal, request.Entitlement)
-			if err != nil {
-				l.Error("error: grant failed", zap.Error(err))
-				if !b.shouldWaitAndRetry(ctx, err, baseDelay) || attempt >= 2 {
-					b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-					return nil, fmt.Errorf("err: grant failed: %w", err)
-				}
-
-				attempt++
-				baseDelay *= 2
-				continue
+		grants, annos, err := provisionerV2.Grant(ctx, request.Principal, request.Entitlement)
+		if err != nil {
+			l.Error("error: grant failed", zap.Error(err))
+			if !b.shouldWaitAndRetry(ctx, err, baseDelay) || attempt >= 2 {
+				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+				return nil, fmt.Errorf("err: grant failed: %w", err)
 			}
 
-			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-			return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
+			attempt++
+			baseDelay *= 2
+			continue
 		}
+
+		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+		return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
 	}
 }
 
