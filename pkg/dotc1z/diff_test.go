@@ -28,7 +28,7 @@ func TestGenerateSyncDiff(t *testing.T) {
 	require.NotEmpty(t, baseSyncID)
 
 	// Add a resource type to the base file
-	resourceTypeID := "test-resource-type"
+	resourceTypeID := testResourceType
 	err = baseFile.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
 	require.NoError(t, err)
 

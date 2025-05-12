@@ -16,6 +16,8 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 )
 
+const testResourceType = "test-resource-type"
+
 var c1zTests struct {
 	workingDir string
 }
@@ -113,7 +115,7 @@ func TestC1Z(t *testing.T) {
 	require.False(t, newSync)
 	require.Equal(t, syncID, syncID2)
 
-	resourceTypeID := "test-resource-type"
+	resourceTypeID := testResourceType
 	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
 	require.NoError(t, err)
 
@@ -166,7 +168,7 @@ func TestC1ZDecoder(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, newSync)
 
-	resourceTypeID := "test-resource-type"
+	resourceTypeID := testResourceType
 	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
 	require.NoError(t, err)
 
