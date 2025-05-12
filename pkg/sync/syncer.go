@@ -409,6 +409,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 						ParentResourceTypeID: r.GetParentResourceId().GetResourceType(),
 					})
 				}
+				s.state.SetShouldFetchRelatedResources()
 				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
 				err = s.Checkpoint(ctx, true)
 				if err != nil {
@@ -1522,6 +1523,10 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		}
 		if grantAnnos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			s.state.SetHasExternalResourcesGrants()
+		}
+
+		if !s.state.ShouldFetchRelatedResources() {
+			continue
 		}
 		// Some connectors emit grants for other resources. If we're doing a partial sync, check if it exists and queue a fetch if not.
 		entitlementResource := grant.GetEntitlement().GetResource()

@@ -29,6 +29,8 @@ type State interface {
 	SetNeedsExpansion()
 	HasExternalResourcesGrants() bool
 	SetHasExternalResourcesGrants()
+	ShouldFetchRelatedResources() bool
+	SetShouldFetchRelatedResources()
 }
 
 // ActionOp represents a sync operation.
@@ -129,22 +131,24 @@ type Action struct {
 
 // state is an object used for tracking the current status of a connector sync. It operates like a stack.
 type state struct {
-	mtx                       sync.RWMutex
-	actions                   []Action
-	currentAction             *Action
-	entitlementGraph          *expand.EntitlementGraph
-	needsExpansion            bool
-	hasExternalResourceGrants bool
+	mtx                         sync.RWMutex
+	actions                     []Action
+	currentAction               *Action
+	entitlementGraph            *expand.EntitlementGraph
+	needsExpansion              bool
+	hasExternalResourceGrants   bool
+	shouldFetchRelatedResources bool
 }
 
 // serializedToken is used to serialize the token to JSON. This separate object is used to avoid having exported fields
 // on the object used externally. We should interface this, probably.
 type serializedToken struct {
-	Actions                   []Action                 `json:"actions"`
-	CurrentAction             *Action                  `json:"current_action"`
-	NeedsExpansion            bool                     `json:"needs_expansion"`
-	EntitlementGraph          *expand.EntitlementGraph `json:"entitlement_graph"`
-	HasExternalResourceGrants bool                     `json:"has_external_resource_grants"`
+	Actions                     []Action                 `json:"actions"`
+	CurrentAction               *Action                  `json:"current_action"`
+	NeedsExpansion              bool                     `json:"needs_expansion"`
+	EntitlementGraph            *expand.EntitlementGraph `json:"entitlement_graph"`
+	HasExternalResourceGrants   bool                     `json:"has_external_resource_grants"`
+	ShouldFetchRelatedResources bool                     `json:"should_fetch_related_resources"`
 }
 
 // push adds a new action to the stack. If there is no current state, the action is directly set to current, else
@@ -284,6 +288,14 @@ func (st *state) HasExternalResourcesGrants() bool {
 
 func (st *state) SetHasExternalResourcesGrants() {
 	st.hasExternalResourceGrants = true
+}
+
+func (st *state) ShouldFetchRelatedResources() bool {
+	return st.shouldFetchRelatedResources
+}
+
+func (st *state) SetShouldFetchRelatedResources() {
+	st.shouldFetchRelatedResources = true
 }
 
 // PageToken returns the page token for the current action.
