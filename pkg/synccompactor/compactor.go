@@ -102,7 +102,6 @@ func mvFile(sourcePath string, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
-	defer source.Close()
 
 	destination, err := os.Create(destPath)
 	if err != nil {
@@ -114,6 +113,9 @@ func mvFile(sourcePath string, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
 	}
+
+	// Explicitly close the source file before removing it
+	source.Close()
 
 	err = os.Remove(sourcePath)
 	if err != nil {
