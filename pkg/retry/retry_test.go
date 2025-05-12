@@ -43,5 +43,8 @@ func TestBasicRetry(t *testing.T) {
 	require.Less(t, elapsed, 300*time.Millisecond, "second attempt should take less than 300ms")
 
 	shouldRetry = retryer.ShouldWaitAndRetry(ctx, status.Error(codes.Unavailable, "third attempt"))
-	require.False(t, shouldRetry, "third attempt should not be retried")
+	require.True(t, shouldRetry, "third attempt should be retried")
+
+	shouldRetry = retryer.ShouldWaitAndRetry(ctx, status.Error(codes.Unavailable, "fourth attempt"))
+	require.False(t, shouldRetry, "fourth attempt should not be retried")
 }

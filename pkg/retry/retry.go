@@ -59,7 +59,7 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 	r.attempts++
 	l := ctxzap.Extract(ctx)
 
-	if r.maxAttempts > 0 && r.attempts >= r.maxAttempts {
+	if r.maxAttempts > 0 && r.attempts > r.maxAttempts {
 		l.Warn("max attempts reached", zap.Error(err), zap.Uint("max_attempts", r.maxAttempts))
 		return false
 	}
