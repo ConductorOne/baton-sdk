@@ -920,15 +920,22 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		baseDelay = 30 * time.Second
 		rt        = request.Entitlement.Resource.Id.ResourceType
 	)
+
+	provisioner, v1ok := b.resourceProvisioners[rt]
+	provisionerV2, v2ok := b.resourceProvisionersV2[rt]
+	if !v1ok && !v2ok {
+		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: resource type does not have provisioner configured")
+	}
+
 	for {
-		provisioner, ok := b.resourceProvisioners[rt]
-		if ok {
+		if v1ok {
 			annos, err := provisioner.Grant(ctx, request.Principal, request.Entitlement)
 			if err != nil {
 				l.Error("error: grant failed", zap.Error(err))
-				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-
 				if !b.shouldWaitAndRetry(ctx, err, baseDelay) || attempt >= 2 {
+					b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 					return nil, fmt.Errorf("err: grant failed: %w", err)
 				}
 
@@ -941,14 +948,12 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 			return &v2.GrantManagerServiceGrantResponse{Annotations: annos}, nil
 		}
 
-		provisionerV2, ok := b.resourceProvisionersV2[rt]
-		if ok {
+		if v2ok {
 			grants, annos, err := provisionerV2.Grant(ctx, request.Principal, request.Entitlement)
 			if err != nil {
 				l.Error("error: grant failed", zap.Error(err))
-				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-
 				if !b.shouldWaitAndRetry(ctx, err, baseDelay) || attempt >= 2 {
+					b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 					return nil, fmt.Errorf("err: grant failed: %w", err)
 				}
 
@@ -960,10 +965,6 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 			return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
 		}
-
-		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: resource type does not have provisioner configured")
 	}
 }
 
