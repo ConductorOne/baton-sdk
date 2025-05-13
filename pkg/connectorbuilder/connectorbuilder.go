@@ -141,7 +141,7 @@ type CredentialManager interface {
 // from the external system, enabling near real-time updates in Baton.
 type EventProvider interface {
 	ConnectorBuilder
-	ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
+	ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken, eventTypes []v2.EventType) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
 	ListEventsCapabilities(ctx context.Context) (*v2.ListEventsCapabilities, annotations.Annotations, error)
 }
 
@@ -1045,10 +1045,19 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: event feed not implemented")
 	}
+	var eventTypes = request.EventTypes
+	if request.EventTypes == nil || len(request.EventTypes) == 0 {
+		supportedEventTypes, _, err := b.eventFeed.ListEventsCapabilities(ctx)
+		if err != nil {
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			return nil, fmt.Errorf("error: listing events capabilities failed: %w", err)
+		}
+		eventTypes = supportedEventTypes.SupportedEventTypes
+	}
 	events, streamState, annotations, err := b.eventFeed.ListEvents(ctx, request.StartAt, &pagination.StreamToken{
 		Size:   int(request.PageSize),
 		Cursor: request.Cursor,
-	})
+	}, eventTypes)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing events failed: %w", err)
