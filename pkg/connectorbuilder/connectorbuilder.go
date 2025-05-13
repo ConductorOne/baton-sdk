@@ -141,7 +141,12 @@ type CredentialManager interface {
 // from the external system, enabling near real-time updates in Baton.
 type EventProvider interface {
 	ConnectorBuilder
-	ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken, eventTypes []v2.EventType) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
+	ListEvents(
+		ctx context.Context,
+		earliestEvent *timestamppb.Timestamp,
+		pToken *pagination.StreamToken,
+		eventTypes []v2.EventType,
+	) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
 	ListEventsCapabilities(ctx context.Context) (*v2.ListEventsCapabilities, annotations.Annotations, error)
 }
 
