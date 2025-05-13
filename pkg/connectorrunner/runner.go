@@ -55,8 +55,9 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		if tempDir == "" {
 			wd, err := os.Getwd()
 			if err != nil {
-				l.Info("unable to get the current working directory")
+				l.Warn("unable to get the current working directory", zap.Error(err))
 			}
+
 			if wd != "" {
 				l.Warn("no temporal folder found on this system according to our task manager,"+
 					" we may create files in the current working directory by mistake as a result",
@@ -68,7 +69,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		debugFile := filepath.Join(tempDir, "debug.log")
 		c.debugFile, err = os.Create(debugFile)
 		if err != nil {
-			l.Warn("cannot create file", zap.String("full file path", debugFile))
+			l.Warn("cannot create file", zap.String("full file path", debugFile), zap.Error(err))
 		}
 	}
 

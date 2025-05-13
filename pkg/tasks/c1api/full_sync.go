@@ -189,7 +189,7 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 	if tempDir == "" {
 		wd, err := os.Getwd()
 		if err != nil {
-			l.Info("unable to get the current working directory")
+			l.Warn("unable to get the current working directory", zap.Error(err))
 		}
 		if wd != "" {
 			l.Warn("no temporal folder found on this system according to our sync helper,"+
