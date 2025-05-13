@@ -1046,7 +1046,7 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 		return nil, fmt.Errorf("error: event feed not implemented")
 	}
 	var eventTypes = request.EventTypes
-	if request.EventTypes == nil || len(request.EventTypes) == 0 {
+	if len(eventTypes) == 0 {
 		supportedEventTypes, _, err := b.eventFeed.ListEventsCapabilities(ctx)
 		if err != nil {
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
