@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path"
-	"strings"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -20,6 +19,7 @@ import (
 type Compactor struct {
 	entries []*CompactableSync
 	destDir string
+	tmpDir  string
 }
 
 type CompactableSync struct {
@@ -29,12 +29,26 @@ type CompactableSync struct {
 
 var ErrNotEnoughFilesToCompact = errors.New("must provide two or more files to compact")
 
-func NewCompactor(ctx context.Context, destDir string, compactableSyncs ...*CompactableSync) (*Compactor, error) {
+type Option func(*Compactor)
+
+// WithTmpDir sets the temporary directory for intermediate files during compaction.
+func WithTmpDir(tmpDir string) Option {
+	return func(c *Compactor) {
+		c.tmpDir = tmpDir
+	}
+}
+
+func NewCompactor(ctx context.Context, destDir string, compactableSyncs []*CompactableSync, opts ...Option) (*Compactor, error) {
 	if len(compactableSyncs) < 2 {
 		return nil, ErrNotEnoughFilesToCompact
 	}
 
-	return &Compactor{entries: compactableSyncs, destDir: destDir}, nil
+	c := &Compactor{entries: compactableSyncs, destDir: destDir}
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c, nil
 }
 
 func removeIntermediateFiles(intermediates []string, preserveLast bool) error {
@@ -83,13 +97,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 
 	// Move last compacted file to the destination dir
 	finalPath := path.Join(c.destDir, fmt.Sprintf("compacted-%s.c1z", base.SyncID))
+	// Attempt to move via rename
 	if err := os.Rename(base.FilePath, finalPath); err != nil {
-		if strings.Contains(err.Error(), "cannot move the file to a different disk drive") {
-			if err := mvFile(base.FilePath, finalPath); err != nil {
-				return nil, err
-			}
-		} else {
-			return nil, fmt.Errorf("failed to move compacted file to destination: %w", err)
+		// If rename doesn't work do a full create/copy
+		if err := mvFile(base.FilePath, finalPath); err != nil {
+			return nil, err
 		}
 	}
 	base.FilePath = finalPath
@@ -170,7 +182,12 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 
 	filePath := fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID)
 
-	newFile, err := dotc1z.NewC1ZFile(ctx, filePath, dotc1z.WithPragma("journal_mode", "WAL"))
+	opts := []dotc1z.C1ZOption{dotc1z.WithPragma("journal_mode", "WAL")}
+	if c.tmpDir != "" {
+		opts = append(opts, dotc1z.WithTmpDir(c.tmpDir))
+	}
+
+	newFile, err := dotc1z.NewC1ZFile(ctx, filePath, opts...)
 	if err != nil {
 		return nil, err
 	}

@@ -25,6 +25,11 @@ func TestCompactor(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(outputDir)
 
+	// Create temporary directory for intermediate files
+	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
 	// Create the first sync file
 	firstSyncPath := filepath.Join(tempDir, "first-sync.c1z")
 	firstSync, err := dotc1z.NewC1ZFile(ctx, firstSyncPath)
@@ -139,7 +144,8 @@ func TestCompactor(t *testing.T) {
 	}
 
 	// Create compactor
-	compactor, err := NewCompactor(ctx, outputDir, firstCompactableSync, secondCompactableSync)
+	compactableSyncs := []*CompactableSync{firstCompactableSync, secondCompactableSync}
+	compactor, err := NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
 	require.NoError(t, err)
 
 	// Compact the syncs
