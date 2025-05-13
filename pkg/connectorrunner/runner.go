@@ -19,6 +19,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
@@ -297,7 +298,9 @@ type rotateCredentialsConfig struct {
 	resourceType string
 }
 
-type eventStreamConfig struct{}
+type eventStreamConfig struct {
+	eventTypes []v2.EventType
+}
 
 type syncDifferConfig struct {
 	baseSyncID    string
@@ -492,10 +495,16 @@ func WithOnDemandSync(c1zPath string) Option {
 	}
 }
 
-func WithOnDemandEventStream() Option {
+func WithOnDemandEventStream(eventTypes ...string) Option {
+	var eventTypesEnum []v2.EventType
+	for _, eventType := range eventTypes {
+		eventTypesEnum = append(eventTypesEnum, v2.EventType(v2.EventType_value[eventType]))
+	}
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
-		cfg.eventFeedConfig = &eventStreamConfig{}
+		cfg.eventFeedConfig = &eventStreamConfig{
+			eventTypes: eventTypesEnum,
+		}
 		return nil
 	}
 }
@@ -684,7 +693,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
 
 		case cfg.eventFeedConfig != nil:
-			tm = local.NewEventFeed(ctx)
+			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.eventTypes)
 		case cfg.createTicketConfig != nil:
 			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
 		case cfg.listTicketSchemasConfig != nil:
