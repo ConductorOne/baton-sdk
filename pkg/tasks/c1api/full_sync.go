@@ -185,15 +185,33 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 
 	l := ctxzap.Extract(ctx)
 
-	debugfilelocation := filepath.Join(helper.TempDir(), "debug.log")
+	tempDir := helper.TempDir()
+	if tempDir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			l.Warn("unable to get the current working directory", zap.Error(err))
+		}
+		if wd != "" {
+			l.Warn("no temporal folder found on this system according to our sync helper,"+
+				" we may create files in the current working directory by mistake as a result",
+				zap.String("current working directory", wd))
+		} else {
+			l.Warn("no temporal folder found on this system according to our sync helper")
+		}
+	}
+	debugfilelocation := filepath.Join(tempDir, "debug.log")
 
 	_, err := os.Stat(debugfilelocation)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		switch {
+		case errors.Is(err, os.ErrNotExist):
 			l.Warn("debug log file does not exists", zap.Error(err))
-			return nil
+		case errors.Is(err, os.ErrPermission):
+			l.Warn("debug log file cannot be stat'd due to lack of permissions", zap.Error(err))
+		default:
+			l.Warn("cannot stat debug log file", zap.Error(err))
 		}
-		return err
+		return nil
 	} else {
 		debugfile, err := os.Open(debugfilelocation)
 		if err != nil {
@@ -203,7 +221,6 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 
 		l.Info("uploading debug logs", zap.String("file", debugfilelocation))
 		err = helper.Upload(ctx, debugfile)
-
 		if err != nil {
 			return err
 		}
