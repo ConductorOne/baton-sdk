@@ -7,6 +7,8 @@ import (
 	"io"
 	"os"
 	"path"
+	"runtime"
+	"syscall"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -99,8 +101,17 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	finalPath := path.Join(c.destDir, fmt.Sprintf("compacted-%s.c1z", base.SyncID))
 	// Attempt to move via rename
 	if err := os.Rename(base.FilePath, finalPath); err != nil {
-		// If rename doesn't work do a full create/copy
-		if err := mvFile(base.FilePath, finalPath); err != nil {
+		var linkErr *os.LinkError
+		if errors.As(err, &linkErr) {
+			// Mac err table: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/intro.2.html
+			// Win err table: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/18d8fbe8-a967-4f1c-ae50-99ca8e491d2d?redirectedfrom=MSDN
+			if errors.Is(linkErr.Err, syscall.Errno(0x12)) || (runtime.GOOS == "windows" && errors.Is(linkErr.Err, syscall.Errno(0x11))) {
+				// If rename doesn't work do a full create/copy
+				if err := mvFile(base.FilePath, finalPath); err != nil {
+					return nil, err
+				}
+			}
+		} else {
 			return nil, err
 		}
 	}
