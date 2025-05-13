@@ -108,10 +108,15 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 			if errors.Is(linkErr.Err, syscall.Errno(0x12)) || (runtime.GOOS == "windows" && errors.Is(linkErr.Err, syscall.Errno(0x11))) {
 				// If rename doesn't work do a full create/copy
 				if err := mvFile(base.FilePath, finalPath); err != nil {
+					// Return if mv file failed
 					return nil, err
 				}
+			} else {
+				// Return if it's a different kind of link err
+				return nil, err
 			}
 		} else {
+			// Return if it's not a link err
 			return nil, err
 		}
 	}
