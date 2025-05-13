@@ -587,8 +587,18 @@ func (b *builderImpl) ListResourceTypes(
 	tt := tasks.ListResourceTypesType
 	var out []*v2.ResourceType
 
+	if len(b.resourceBuilders) == 0 {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: no resource builders found")
+	}
+
 	for _, rb := range b.resourceBuilders {
 		out = append(out, rb.ResourceType(ctx))
+	}
+
+	if len(out) == 0 {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: no resource types found")
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
