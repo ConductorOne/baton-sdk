@@ -3,6 +3,7 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "c1/connector/v2/asset.proto";
+import "c1/connector/v2/event_feed.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
@@ -85,10 +86,15 @@ message CredentialDetailsCredentialRotation {
   CapabilityDetailCredentialOption preferred_credential_option = 2;
 }
 
+message ListEventsCapabilities {
+  repeated c1.connector.v2.EventType supported_event_types = 1;
+}
+
 message ConnectorCapabilities {
   repeated ResourceTypeCapability resource_type_capabilities = 1;
   repeated Capability connector_capabilities = 2;
   CredentialDetails credential_details = 3;
+  ListEventsCapabilities list_events_capabilities = 4;
 }
 
 message ResourceTypeCapability {

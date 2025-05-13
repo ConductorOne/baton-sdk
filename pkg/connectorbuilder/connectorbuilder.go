@@ -142,6 +142,7 @@ type CredentialManager interface {
 type EventProvider interface {
 	ConnectorBuilder
 	ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
+	ListEventsCapabilities(ctx context.Context) (*v2.ListEventsCapabilities, annotations.Annotations, error)
 }
 
 // TicketManager extends ConnectorBuilder to add capabilities for ticket management.
@@ -874,8 +875,14 @@ func getCapabilities(ctx context.Context, b *builderImpl) (*v2.ConnectorCapabili
 		return resourceTypeCapabilities[i].ResourceType.GetId() < resourceTypeCapabilities[j].ResourceType.GetId()
 	})
 
+	var listEventsCapabilities *v2.ListEventsCapabilities
 	if b.eventFeed != nil {
 		connectorCaps[v2.Capability_CAPABILITY_EVENT_FEED] = struct{}{}
+		var err error
+		listEventsCapabilities, _, err = b.eventFeed.ListEventsCapabilities(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if b.ticketManager != nil {
@@ -901,6 +908,7 @@ func getCapabilities(ctx context.Context, b *builderImpl) (*v2.ConnectorCapabili
 		ResourceTypeCapabilities: resourceTypeCapabilities,
 		ConnectorCapabilities:    caps,
 		CredentialDetails:        credDetails,
+		ListEventsCapabilities:   listEventsCapabilities,
 	}, nil
 }
 

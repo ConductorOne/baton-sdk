@@ -28,6 +28,8 @@ message ListEventsRequest {
     lte: 250
   }];
   repeated google.protobuf.Any annotations = 4;
+  // If not provided, all event types will be returned
+  repeated EventType event_types = 5;
 }
 
 message ListEventsResponse {
@@ -77,4 +79,11 @@ message RevokeEvent {
 message ResourceChangeEvent {
   ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
   ResourceId parent_resource_id = 2;
+}
+
+enum EventType {
+  reserved 2, 3; // grant and revoke (could be added back in the future)
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_USAGE = 1;
+  EVENT_TYPE_RESOURCE_CHANGE = 4;
 }
