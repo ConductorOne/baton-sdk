@@ -28,6 +28,13 @@ message ListEventsRequest {
     lte: 250
   }];
   repeated google.protobuf.Any annotations = 4;
+  // Used to specify a specific event feed to list events from.
+  // If not provided, the connector will use the old event feed.
+  string event_feed_id = 5 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+    ignore_empty: true
+  }];
 }
 
 message ListEventsResponse {
@@ -77,4 +84,26 @@ message RevokeEvent {
 message ResourceChangeEvent {
   ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
   ResourceId parent_resource_id = 2;
+}
+
+enum EventType {
+  reserved 2, 3; // grant and revoke (could be added back in the future)
+  EVENT_TYPE_UNSPECIFIED = 0;
+  EVENT_TYPE_USAGE = 1;
+  EVENT_TYPE_RESOURCE_CHANGE = 4;
+}
+
+message EventFeedMetadata {
+  // unique identifier for the event feed
+  string id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  repeated EventType supported_event_types = 2 [(validate.rules).repeated = {
+    unique: true
+    items: {
+      enum: {defined_only: true}
+    }
+  }];
+  // TODO timing based information? or priority? something to let c1 know the timelyness or importance of the event?
 }

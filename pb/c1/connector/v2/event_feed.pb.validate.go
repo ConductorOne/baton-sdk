@@ -150,6 +150,21 @@ func (m *ListEventsRequest) validate(all bool) error {
 
 	}
 
+	if m.GetEventFeedId() != "" {
+
+		if l := len(m.GetEventFeedId()); l < 1 || l > 1024 {
+			err := ListEventsRequestValidationError{
+				field:  "EventFeedId",
+				reason: "value length must be between 1 and 1024 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return ListEventsRequestMultiError(errors)
 	}
@@ -1361,3 +1376,147 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = ResourceChangeEventValidationError{}
+
+// Validate checks the field values on EventFeedMetadata with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *EventFeedMetadata) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on EventFeedMetadata with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// EventFeedMetadataMultiError, or nil if none found.
+func (m *EventFeedMetadata) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *EventFeedMetadata) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if l := len(m.GetId()); l < 1 || l > 1024 {
+		err := EventFeedMetadataValidationError{
+			field:  "Id",
+			reason: "value length must be between 1 and 1024 bytes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	_EventFeedMetadata_SupportedEventTypes_Unique := make(map[EventType]struct{}, len(m.GetSupportedEventTypes()))
+
+	for idx, item := range m.GetSupportedEventTypes() {
+		_, _ = idx, item
+
+		if _, exists := _EventFeedMetadata_SupportedEventTypes_Unique[item]; exists {
+			err := EventFeedMetadataValidationError{
+				field:  fmt.Sprintf("SupportedEventTypes[%v]", idx),
+				reason: "repeated value must contain unique items",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		} else {
+			_EventFeedMetadata_SupportedEventTypes_Unique[item] = struct{}{}
+		}
+
+		if _, ok := EventType_name[int32(item)]; !ok {
+			err := EventFeedMetadataValidationError{
+				field:  fmt.Sprintf("SupportedEventTypes[%v]", idx),
+				reason: "value must be one of the defined enum values",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return EventFeedMetadataMultiError(errors)
+	}
+
+	return nil
+}
+
+// EventFeedMetadataMultiError is an error wrapping multiple validation errors
+// returned by EventFeedMetadata.ValidateAll() if the designated constraints
+// aren't met.
+type EventFeedMetadataMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m EventFeedMetadataMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m EventFeedMetadataMultiError) AllErrors() []error { return m }
+
+// EventFeedMetadataValidationError is the validation error returned by
+// EventFeedMetadata.Validate if the designated constraints aren't met.
+type EventFeedMetadataValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e EventFeedMetadataValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e EventFeedMetadataValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e EventFeedMetadataValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e EventFeedMetadataValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e EventFeedMetadataValidationError) ErrorName() string {
+	return "EventFeedMetadataValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e EventFeedMetadataValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sEventFeedMetadata.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = EventFeedMetadataValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = EventFeedMetadataValidationError{}
