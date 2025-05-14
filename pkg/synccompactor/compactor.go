@@ -90,7 +90,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 
 	// Move last compacted file to the destination dir
 	finalPath := path.Join(c.destDir, fmt.Sprintf("compacted-%s.c1z", base.SyncID))
-	if err := mvFile(base.FilePath, finalPath); err != nil {
+	if err := cpFile(base.FilePath, finalPath); err != nil {
 		return nil, err
 	}
 
@@ -104,7 +104,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	return &CompactableSync{FilePath: finalPath, SyncID: base.SyncID}, nil
 }
 
-func mvFile(sourcePath string, destPath string) error {
+func cpFile(sourcePath string, destPath string) error {
 	source, err := os.Open(sourcePath)
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
