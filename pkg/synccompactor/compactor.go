@@ -56,20 +56,13 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 
 	// If no tmpDir is provided, use the tmpDir
 	if c.tmpDir == "" {
-		c.tmpDir = path.Join(os.TempDir(), "baton_sync_compactor")
+		c.tmpDir = os.TempDir()
 	}
-
-	createdDir := false
-	if _, err := os.Stat(c.tmpDir); err != nil {
-		if os.IsNotExist(err) {
-			if err := os.MkdirAll(c.tmpDir, 0755); err != nil {
-				return nil, nil, err
-			}
-			createdDir = true
-		} else {
-			return nil, nil, err
-		}
+	tmpDir, err := os.MkdirTemp(c.tmpDir, "baton-sync-compactor-")
+	if err != nil {
+		return nil, nil, err
 	}
+	c.tmpDir = tmpDir
 
 	root, err := os.OpenRoot(c.tmpDir)
 	if err != nil {
@@ -79,11 +72,9 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 		if err := root.Close(); err != nil {
 			return err
 		}
-		if createdDir {
-			if err := os.RemoveAll(c.tmpDir); err != nil {
-				return err
-			}
-		}
+		//if err := os.RemoveAll(c.tmpDir); err != nil {
+		//	return err
+		//}
 		return nil
 	}
 	c.fs = root

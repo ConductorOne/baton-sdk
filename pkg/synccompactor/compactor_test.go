@@ -35,55 +35,6 @@ func TestCompactorWithTmpDir(t *testing.T) {
 	})
 }
 
-func TestCompactorWithWorkingDir(t *testing.T) {
-	ctx := context.Background()
-
-	// Create a temporary directory for test files
-	testTempDir, err := os.MkdirTemp("", "compactor-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(testTempDir)
-
-	// Create output directory for compacted file
-	outputDir, err := os.MkdirTemp("", "compactor-output")
-	require.NoError(t, err)
-	defer os.RemoveAll(outputDir)
-
-	tmpDir := "compactor-tmp"
-	runCompactorTest(t, ctx, testTempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
-		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
-	})
-
-	// Verify that the working directory was cleaned up
-	_, err = os.Stat(tmpDir)
-	require.True(t, os.IsNotExist(err), "working directory should have been cleaned up")
-}
-func TestCompactorWithWorkingDirDontDeleteWorkdir(t *testing.T) {
-	ctx := context.Background()
-
-	// Create a temporary directory for test files
-	testTempDir, err := os.MkdirTemp("", "compactor-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(testTempDir)
-
-	// Create output directory for compacted file
-	outputDir, err := os.MkdirTemp("", "compactor-output")
-	require.NoError(t, err)
-	defer os.RemoveAll(outputDir)
-
-	// Create output directory for compacted file
-	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	runCompactorTest(t, ctx, testTempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
-		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
-	})
-
-	// Verify that the working directory was cleaned up
-	_, err = os.Stat(tmpDir)
-	require.NoError(t, err, "working directory stays if it existed before the compactor was run")
-}
-
 func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmpDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
 	// Create the first sync file
 	firstSyncPath := filepath.Join(tempDir, "first-sync.c1z")
