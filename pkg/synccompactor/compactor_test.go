@@ -39,32 +39,49 @@ func TestCompactorWithWorkingDir(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a temporary directory for test files
-	tempDir, err := os.MkdirTemp("", "compactor-test")
+	testTempDir, err := os.MkdirTemp("", "compactor-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer os.RemoveAll(testTempDir)
 
 	// Create output directory for compacted file
 	outputDir, err := os.MkdirTemp("", "compactor-output")
 	require.NoError(t, err)
 	defer os.RemoveAll(outputDir)
 
-	// Create temporary directory for intermediate files
+	tmpDir := "compactor-tmp"
+	runCompactorTest(t, ctx, testTempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
+	})
+
+	// Verify that the working directory was cleaned up
+	_, err = os.Stat(tmpDir)
+	require.True(t, os.IsNotExist(err), "working directory should have been cleaned up")
+}
+func TestCompactorWithWorkingDirDontDeleteWorkdir(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a temporary directory for test files
+	testTempDir, err := os.MkdirTemp("", "compactor-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(testTempDir)
+
+	// Create output directory for compacted file
+	outputDir, err := os.MkdirTemp("", "compactor-output")
+	require.NoError(t, err)
+	defer os.RemoveAll(outputDir)
+
+	// Create output directory for compacted file
 	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	// Create working directory
-	workingDir, err := os.MkdirTemp("", "compactor-working")
-	require.NoError(t, err)
-	// No defer os.RemoveAll here because the compactor should clean it up
-
-	runCompactorTest(t, ctx, tempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
-		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithTmpDir(workingDir))
+	runCompactorTest(t, ctx, testTempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
 	})
 
 	// Verify that the working directory was cleaned up
-	_, err = os.Stat(workingDir)
-	require.True(t, os.IsNotExist(err), "working directory should have been cleaned up")
+	_, err = os.Stat(tmpDir)
+	require.NoError(t, err, "working directory stays if it existed before the compactor was run")
 }
 
 func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmpDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
