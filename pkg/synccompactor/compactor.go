@@ -23,7 +23,6 @@ type Compactor struct {
 	entries []*CompactableSync
 
 	tmpDir  string
-	fs      *os.Root
 	destDir string
 }
 
@@ -64,20 +63,12 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 	}
 	c.tmpDir = tmpDir
 
-	root, err := os.OpenRoot(c.tmpDir)
-	if err != nil {
-		return nil, nil, err
-	}
 	cleanup := func() error {
-		if err := root.Close(); err != nil {
-			return err
-		}
 		if err := os.RemoveAll(c.tmpDir); err != nil {
 			return err
 		}
 		return nil
 	}
-	c.fs = root
 
 	return c, cleanup, nil
 }
