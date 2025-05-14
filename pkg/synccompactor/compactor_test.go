@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompactor(t *testing.T) {
+func TestCompactorWithTmpDir(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a temporary directory for test files
@@ -30,6 +30,44 @@ func TestCompactor(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
+	runCompactorTest(t, ctx, tempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
+	})
+}
+
+func TestCompactorWithWorkingDir(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a temporary directory for test files
+	tempDir, err := os.MkdirTemp("", "compactor-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create output directory for compacted file
+	outputDir, err := os.MkdirTemp("", "compactor-output")
+	require.NoError(t, err)
+	defer os.RemoveAll(outputDir)
+
+	// Create temporary directory for intermediate files
+	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// Create working directory
+	workingDir, err := os.MkdirTemp("", "compactor-working")
+	require.NoError(t, err)
+	// No defer os.RemoveAll here because the compactor should clean it up
+
+	runCompactorTest(t, ctx, tempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithWorkingDir(workingDir))
+	})
+
+	// Verify that the working directory was cleaned up
+	_, err = os.Stat(workingDir)
+	require.True(t, os.IsNotExist(err), "working directory should have been cleaned up")
+}
+
+func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmpDir string, createCompactor func([]*CompactableSync) (*Compactor, error)) {
 	// Create the first sync file
 	firstSyncPath := filepath.Join(tempDir, "first-sync.c1z")
 	firstSync, err := dotc1z.NewC1ZFile(ctx, firstSyncPath)
@@ -145,7 +183,7 @@ func TestCompactor(t *testing.T) {
 
 	// Create compactor
 	compactableSyncs := []*CompactableSync{firstCompactableSync, secondCompactableSync}
-	compactor, err := NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
+	compactor, err := createCompactor(compactableSyncs)
 	require.NoError(t, err)
 
 	// Compact the syncs

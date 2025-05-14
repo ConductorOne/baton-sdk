@@ -2,6 +2,9 @@ package local
 
 import (
 	"context"
+	"os"
+	"path"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -44,16 +47,24 @@ func (m *localCompactor) Process(ctx context.Context, task *v1.Task, cc types.Co
 	defer span.End()
 	log := ctxzap.Extract(ctx)
 
-	compactor, err := synccompactor.NewCompactor(ctx, m.outputPath, m.compactableSyncs)
+	compactor, _, err := synccompactor.NewCompactor(ctx, m.compactableSyncs)
 	if err != nil {
 		return err
 	}
+	//defer cleanup()
+
 	compacted, err := compactor.Compact(ctx)
 	if err != nil {
 		return err
 	}
 
-	log.Info("compacted file", zap.String("file_path", compacted.FilePath), zap.String("sync_id", compacted.SyncID))
+	filename := filepath.Base(compacted.FilePath)
+	destFile := path.Join(m.outputPath, filename)
+	if err := os.Rename(compacted.FilePath, destFile); err != nil {
+		return err
+	}
+
+	log.Info("compacted file", zap.String("file_path", destFile), zap.String("sync_id", compacted.SyncID))
 
 	return nil
 }
