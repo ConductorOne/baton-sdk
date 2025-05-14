@@ -297,7 +297,9 @@ type rotateCredentialsConfig struct {
 	resourceType string
 }
 
-type eventStreamConfig struct{}
+type eventStreamConfig struct {
+	feedId string
+}
 
 type syncDifferConfig struct {
 	baseSyncID    string
@@ -492,10 +494,12 @@ func WithOnDemandSync(c1zPath string) Option {
 	}
 }
 
-func WithOnDemandEventStream() Option {
+func WithOnDemandEventStream(feedId string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
-		cfg.eventFeedConfig = &eventStreamConfig{}
+		cfg.eventFeedConfig = &eventStreamConfig{
+			feedId: feedId,
+		}
 		return nil
 	}
 }
@@ -684,7 +688,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewCredentialRotator(ctx, cfg.c1zPath, cfg.rotateCredentialsConfig.resourceId, cfg.rotateCredentialsConfig.resourceType)
 
 		case cfg.eventFeedConfig != nil:
-			tm = local.NewEventFeed(ctx)
+			tm = local.NewEventFeed(ctx, cfg.eventFeedConfig.feedId)
 		case cfg.createTicketConfig != nil:
 			tm = local.NewTicket(ctx, cfg.createTicketConfig.templatePath)
 		case cfg.listTicketSchemasConfig != nil:
