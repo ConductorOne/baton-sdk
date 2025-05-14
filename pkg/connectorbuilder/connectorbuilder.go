@@ -135,13 +135,35 @@ type CredentialManager interface {
 	RotateCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error)
 }
 
-// EventProvider extends ConnectorBuilder to add capabilities for providing event streams.
-//
-// Implementing this interface indicates the connector can provide a stream of events
-// from the external system, enabling near real-time updates in Baton.
+// Compatibility interface lets us handle both EventFeed and EventProvider the same
+type EventLister interface {
+	ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
+}
+
+// DEPRECATED: This interface is deprecated in favor of EventProviderV2 which supports
+// multiple event feeds. Implementing this interface indicates the connector can provide
+// a single stream of events from the external system, enabling near real-time updates
+// in Baton. New connectors should implement EventProviderV2 instead.
 type EventProvider interface {
 	ConnectorBuilder
-	ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
+	EventLister
+}
+
+// NewEventProviderV2 is a new interface that allows connectors to provide multiple event feeds.
+//
+// This is the recommended interface for implementing event feed support in new connectors.
+// TODO MJP does this get auto made when an EventFeed is registered? What does that look like? How do I make this easiest?
+type EventProviderV2 interface {
+	ConnectorBuilder
+	EventFeeds(ctx context.Context) []EventFeed
+}
+
+// EventFeed is a single stream of events from the external system.
+//
+// EventFeedMetadata describes this feed, and a connector can have multiple feeds.
+type EventFeed interface {
+	EventLister
+	EventFeedMetadata(ctx context.Context) *v2.EventFeedMetadata
 }
 
 // TicketManager extends ConnectorBuilder to add capabilities for ticket management.
@@ -205,6 +227,7 @@ type builderImpl struct {
 	actionManager           CustomActionManager
 	credentialManagers      map[string]CredentialManager
 	eventFeed               EventProvider
+	eventFeeds              map[string]EventFeed
 	cb                      ConnectorBuilder
 	ticketManager           TicketManager
 	ticketingEnabled        bool
@@ -416,6 +439,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			accountManager:          nil,
 			actionManager:           nil,
 			credentialManagers:      make(map[string]CredentialManager),
+			eventFeeds:              make(map[string]EventFeed),
 			cb:                      c,
 			ticketManager:           nil,
 			nowFunc:                 time.Now,
@@ -428,6 +452,19 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 
 		if ret.m == nil {
 			ret.m = metrics.New(metrics.NewNoOpHandler(ctx))
+		}
+
+		if b, ok := c.(EventProviderV2); ok {
+			for _, ef := range b.EventFeeds(ctx) {
+				feedData := ef.EventFeedMetadata(ctx)
+				if feedData == nil {
+					return nil, fmt.Errorf("error: event feed metadata is nil")
+				}
+				if _, ok := ret.eventFeeds[feedData.Id]; ok {
+					return nil, fmt.Errorf("error: duplicate event feed id found: %s", feedData.Id)
+				}
+				ret.eventFeeds[feedData.Id] = ef
+			}
 		}
 
 		if b, ok := c.(EventProvider); ok {
@@ -878,6 +915,10 @@ func getCapabilities(ctx context.Context, b *builderImpl) (*v2.ConnectorCapabili
 		connectorCaps[v2.Capability_CAPABILITY_EVENT_FEED] = struct{}{}
 	}
 
+	if len(b.eventFeeds) > 0 {
+		connectorCaps[v2.Capability_CAPABILITY_EVENT_FEED_V2] = struct{}{}
+	}
+
 	if b.ticketManager != nil {
 		connectorCaps[v2.Capability_CAPABILITY_TICKETING] = struct{}{}
 	}
@@ -1032,12 +1073,29 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 	defer span.End()
 
 	start := b.nowFunc()
-	tt := tasks.ListEventsType
-	if b.eventFeed == nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: event feed not implemented")
+
+	feedId := request.EventFeedId
+	if feedId == "" {
+		// We're requesting the old event feed
+		if b.eventFeed == nil {
+			b.m.RecordTaskFailure(ctx, tasks.ListEventsType, b.nowFunc().Sub(start))
+			return nil, fmt.Errorf("error: event feed not implemented")
+		}
+		return b.listEventsHandleFeed(ctx, request, b.eventFeed, start)
 	}
-	events, streamState, annotations, err := b.eventFeed.ListEvents(ctx, request.StartAt, &pagination.StreamToken{
+
+	// We're requesting a specific event feed
+	feed, ok := b.eventFeeds[feedId]
+	if !ok {
+		return nil, fmt.Errorf("error: event feed not found")
+	}
+
+	return b.listEventsHandleFeed(ctx, request, feed, start)
+}
+
+func (b *builderImpl) listEventsHandleFeed(ctx context.Context, request *v2.ListEventsRequest, feed EventLister, start time.Time) (*v2.ListEventsResponse, error) {
+	tt := tasks.ListEventsType
+	events, streamState, annotations, err := feed.ListEvents(ctx, request.StartAt, &pagination.StreamToken{
 		Size:   int(request.PageSize),
 		Cursor: request.Cursor,
 	})
