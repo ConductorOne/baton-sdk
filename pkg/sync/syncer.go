@@ -691,6 +691,17 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 		},
 	)
 	if err != nil {
+		l := ctxzap.Extract(ctx)
+		if status.Code(err) == codes.NotFound {
+			l.Warn("skipping resource due to not found", zap.String("resource_id", resourceID), zap.String("resource_type_id", resourceTypeID))
+			s.state.FinishAction(ctx)
+			return nil
+		}
+		if status.Code(err) == codes.Unimplemented {
+			l.Warn("skipping resource due to unimplemented connector", zap.String("resource_id", resourceID), zap.String("resource_type_id", resourceTypeID))
+			s.state.FinishAction(ctx)
+			return nil
+		}
 		return err
 	}
 
@@ -1516,6 +1527,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	// We want to process any grants from the previous sync first so that if there is a conflict, the newer data takes precedence
 	grants = append(grants, resp.List...)
 
+	l := ctxzap.Extract(ctx)
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
@@ -1569,8 +1581,17 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 			if err != nil {
 				// Ignore if resource is not found
 				if status.Code(err) == codes.NotFound {
+					l.Warn("skipping resource due to not found", zap.String("resource_id", principalResource.GetId().Resource), zap.String("resource_type_id", principalResource.GetId().ResourceType))
 					continue
 				}
+				if status.Code(err) == codes.Unimplemented {
+					l.Warn("skipping resource due to unimplemented connector",
+						zap.String("resource_id", principalResource.GetId().Resource),
+						zap.String("resource_type_id", principalResource.GetId().ResourceType),
+					)
+					continue
+				}
+				l.Error("error fetching principal resource", zap.Error(err))
 				return err
 			}
 
