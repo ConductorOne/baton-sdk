@@ -108,12 +108,14 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		return nil, err
 	}
 
-	abs, err := filepath.Abs(finalPath)
-	if err != nil {
-		return nil, err
+	if !filepath.IsAbs(finalPath) {
+		abs, err := filepath.Abs(finalPath)
+		if err != nil {
+			return nil, err
+		}
+		finalPath = abs
 	}
-
-	return &CompactableSync{FilePath: abs, SyncID: base.SyncID}, nil
+	return &CompactableSync{FilePath: finalPath, SyncID: base.SyncID}, nil
 }
 
 func mvFile(sourcePath string, destPath string) error {
