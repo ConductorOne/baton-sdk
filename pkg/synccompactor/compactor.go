@@ -102,21 +102,23 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	// Attempt to move via rename
 	if err := os.Rename(base.FilePath, finalPath); err != nil {
 		var linkErr *os.LinkError
-		if errors.As(err, &linkErr) {
-			// Mac err table: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/intro.2.html
-			// Win err table: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/18d8fbe8-a967-4f1c-ae50-99ca8e491d2d?redirectedfrom=MSDN
-			if errors.Is(linkErr.Err, syscall.Errno(0x12)) || (runtime.GOOS == "windows" && errors.Is(linkErr.Err, syscall.Errno(0x11))) {
-				// If rename doesn't work do a full create/copy
-				if err := mvFile(base.FilePath, finalPath); err != nil {
-					// Return if mv file failed
-					return nil, err
-				}
-			} else {
-				// Return if it's a different kind of link err
-				return nil, err
-			}
-		} else {
+
+		if !errors.As(err, &linkErr) {
 			// Return if it's not a link err
+			return nil, err
+		}
+
+		// Mac err table: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/intro.2.html
+		// Win err table: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/18d8fbe8-a967-4f1c-ae50-99ca8e491d2d?redirectedfrom=MSDN
+		linkErrIsLinkErr := errors.Is(linkErr.Err, syscall.Errno(0x12)) || (runtime.GOOS == "windows" && errors.Is(linkErr.Err, syscall.Errno(0x11)))
+		if !linkErrIsLinkErr {
+			// Return if it's a different kind of link err
+			return nil, err
+		}
+
+		// If rename doesn't work do a full create/copy
+		if err := mvFile(base.FilePath, finalPath); err != nil {
+			// Return if mv file failed
 			return nil, err
 		}
 	}
