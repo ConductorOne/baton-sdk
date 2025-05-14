@@ -153,7 +153,9 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 	compactableSyncs := []*CompactableSync{firstCompactableSync, secondCompactableSync}
 	compactor, cleanup, err := createCompactor(compactableSyncs)
 	require.NoError(t, err)
-	defer cleanup()
+	defer func() {
+		_ = cleanup()
+	}()
 
 	// Compact the syncs
 	compactedSync, err := compactor.Compact(ctx)

@@ -48,7 +48,9 @@ func (m *localCompactor) Process(ctx context.Context, task *v1.Task, cc types.Co
 	if err != nil {
 		return err
 	}
-	defer cleanup()
+	defer func() {
+		_ = cleanup()
+	}()
 
 	compacted, err := compactor.Compact(ctx)
 	if err != nil {

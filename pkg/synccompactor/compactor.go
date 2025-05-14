@@ -17,8 +17,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const intermediateDirPath = "intermediate"
-
 type Compactor struct {
 	entries []*CompactableSync
 
@@ -78,8 +76,6 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		return nil, nil
 	}
 
-	intermediates := make([]string, 0, len(c.entries)-1)
-
 	base := c.entries[0]
 	for i := 1; i < len(c.entries); i++ {
 		applied := c.entries[i]
@@ -88,8 +84,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Collect all the intermediate files we create to remove at the end
-		intermediates = append(intermediates, compactable.FilePath)
+
 		base = compactable
 	}
 
