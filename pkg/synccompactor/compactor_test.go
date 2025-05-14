@@ -30,7 +30,7 @@ func TestCompactorWithTmpDir(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	runCompactorTest(t, ctx, tempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, error) {
+	runCompactorTest(t, ctx, tempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
 		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
 	})
 }
@@ -58,8 +58,8 @@ func TestCompactorWithWorkingDir(t *testing.T) {
 	require.NoError(t, err)
 	// No defer os.RemoveAll here because the compactor should clean it up
 
-	runCompactorTest(t, ctx, tempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, error) {
-		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithWorkingDir(workingDir))
+	runCompactorTest(t, ctx, tempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithTmpDir(workingDir))
 	})
 
 	// Verify that the working directory was cleaned up
@@ -67,7 +67,7 @@ func TestCompactorWithWorkingDir(t *testing.T) {
 	require.True(t, os.IsNotExist(err), "working directory should have been cleaned up")
 }
 
-func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmpDir string, createCompactor func([]*CompactableSync) (*Compactor, error)) {
+func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmpDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
 	// Create the first sync file
 	firstSyncPath := filepath.Join(tempDir, "first-sync.c1z")
 	firstSync, err := dotc1z.NewC1ZFile(ctx, firstSyncPath)
@@ -183,8 +183,9 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 
 	// Create compactor
 	compactableSyncs := []*CompactableSync{firstCompactableSync, secondCompactableSync}
-	compactor, err := createCompactor(compactableSyncs)
+	compactor, cleanup, err := createCompactor(compactableSyncs)
 	require.NoError(t, err)
+	defer cleanup()
 
 	// Compact the syncs
 	compactedSync, err := compactor.Compact(ctx)
