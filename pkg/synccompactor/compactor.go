@@ -72,9 +72,9 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 		if err := root.Close(); err != nil {
 			return err
 		}
-		//if err := os.RemoveAll(c.tmpDir); err != nil {
-		//	return err
-		//}
+		if err := os.RemoveAll(c.tmpDir); err != nil {
+			return err
+		}
 		return nil
 	}
 	c.fs = root
