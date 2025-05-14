@@ -1441,6 +1441,8 @@ func (m *EventFeedMetadata) validate(all bool) error {
 
 	}
 
+	// no validation rules for StartAt
+
 	if len(errors) > 0 {
 		return EventFeedMetadataMultiError(errors)
 	}
