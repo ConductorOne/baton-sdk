@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -116,7 +117,12 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		return nil, err
 	}
 
-	return &CompactableSync{FilePath: finalPath, SyncID: base.SyncID}, nil
+	abs, err := filepath.Abs(finalPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return &CompactableSync{FilePath: abs, SyncID: base.SyncID}, nil
 }
 
 func mvFile(sourcePath string, destPath string) error {
