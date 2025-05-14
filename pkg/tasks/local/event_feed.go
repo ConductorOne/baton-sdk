@@ -16,7 +16,8 @@ import (
 )
 
 type localEventFeed struct {
-	o sync.Once
+	o      sync.Once
+	feedId string
 }
 
 const EventsPerPageLocally = 100
@@ -46,9 +47,10 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 	var pageToken string
 	for {
 		resp, err := cc.ListEvents(ctx, &v2.ListEventsRequest{
-			PageSize: EventsPerPageLocally,
-			Cursor:   pageToken,
-			StartAt:  task.GetEventFeed().GetStartAt(),
+			PageSize:    EventsPerPageLocally,
+			Cursor:      pageToken,
+			StartAt:     task.GetEventFeed().GetStartAt(),
+			EventFeedId: m.feedId,
 		})
 		if err != nil {
 			return err
@@ -71,6 +73,8 @@ func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.Co
 }
 
 // NewEventFeed returns a task manager that queues an event feed task.
-func NewEventFeed(ctx context.Context) tasks.Manager {
-	return &localEventFeed{}
+func NewEventFeed(ctx context.Context, feedId string) tasks.Manager {
+	return &localEventFeed{
+		feedId: feedId,
+	}
 }
