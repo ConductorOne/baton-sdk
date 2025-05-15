@@ -661,7 +661,7 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 	return nil
 }
 
-func (s *syncer) getResource(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
+func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	ctx, span := tracer.Start(ctx, "syncer.getResource")
 	defer span.End()
 
@@ -706,7 +706,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 		}
 	}
 
-	resource, err := s.getResource(ctx, &v2.ResourceId{
+	resource, err := s.getResourceFromConnector(ctx, &v2.ResourceId{
 		ResourceType: resourceTypeID,
 		Resource:     resourceID,
 	}, prID)
@@ -1567,7 +1567,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 			erId := entitlementResource.GetId()
 			prId := entitlementResource.GetParentResourceId()
-			resource, err := s.getResource(ctx, erId, prId)
+			resource, err := s.getResourceFromConnector(ctx, erId, prId)
 			if err != nil {
 				l.Error("error fetching entitlement resource", zap.Error(err))
 				return err
@@ -1590,7 +1590,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 			}
 
 			// Principal resource is not in the DB, so try to fetch it from the connector.
-			resource, err := s.getResource(ctx, principalResource.GetId(), principalResource.GetParentResourceId())
+			resource, err := s.getResourceFromConnector(ctx, principalResource.GetId(), principalResource.GetParentResourceId())
 			if err != nil {
 				l.Error("error fetching principal resource", zap.Error(err))
 				return err
