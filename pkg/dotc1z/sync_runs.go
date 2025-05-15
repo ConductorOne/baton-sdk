@@ -340,6 +340,19 @@ func (c *C1File) getCurrentSync(ctx context.Context) (*syncRun, error) {
 	return c.getSync(ctx, c.currentSyncID)
 }
 
+func (c *C1File) SetCurrentSync(ctx context.Context, syncID string) error {
+	ctx, span := tracer.Start(ctx, "C1File.SetCurrentSync")
+	defer span.End()
+
+	_, err := c.getSync(ctx, syncID)
+	if err != nil {
+		return err
+	}
+
+	c.currentSyncID = syncID
+	return nil
+}
+
 func (c *C1File) CheckpointSync(ctx context.Context, syncToken string) error {
 	ctx, span := tracer.Start(ctx, "C1File.CheckpointSync")
 	defer span.End()

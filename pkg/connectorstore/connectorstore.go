@@ -37,6 +37,7 @@ type Writer interface {
 	StartSync(ctx context.Context) (string, bool, error)
 	StartNewSync(ctx context.Context) (string, error)
 	StartNewSyncV2(ctx context.Context, syncType string, parentSyncID string) (string, error)
+	SetCurrentSync(ctx context.Context, syncID string) error
 	CurrentSyncStep(ctx context.Context) (string, error)
 	CheckpointSync(ctx context.Context, syncToken string) error
 	EndSync(ctx context.Context) error

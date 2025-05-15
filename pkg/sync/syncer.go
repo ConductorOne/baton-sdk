@@ -204,8 +204,9 @@ type syncer struct {
 	lastCheckPointTime                  time.Time
 	counts                              *ProgressCounts
 	targetedSyncResourceIDs             []string
-
-	skipEGForResourceType map[string]bool
+	onlyExpandGrants                    bool
+	syncID                              string
+	skipEGForResourceType               map[string]bool
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -261,6 +262,14 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	// Sync resuming logic:
 	// If no targetedSyncResourceIDs, find the most recent sync and resume it (regardless of partial or full).
 	// If targetedSyncResourceIDs, start a new partial sync. Use the most recent completed sync as the parent sync ID (if it exists).
+
+	if s.syncID != "" {
+		err := s.store.SetCurrentSync(ctx, s.syncID)
+		if err != nil {
+			return "", false, err
+		}
+		return s.syncID, false, nil
+	}
 
 	var syncID string
 	var newSync bool
@@ -424,6 +433,14 @@ func (s *syncer) Sync(ctx context.Context) error {
 			s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
 			if s.externalResourceReader != nil {
 				s.state.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
+			}
+			if s.onlyExpandGrants {
+				s.state.SetNeedsExpansion()
+				err = s.Checkpoint(ctx, true)
+				if err != nil {
+					return err
+				}
+				continue
 			}
 			s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
 			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
@@ -2699,6 +2716,18 @@ func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
 func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
 	return func(s *syncer) {
 		s.targetedSyncResourceIDs = resourceIDs
+	}
+}
+
+func WithOnlyExpandGrants() SyncOpt {
+	return func(s *syncer) {
+		s.onlyExpandGrants = true
+	}
+}
+
+func WithSyncID(syncID string) SyncOpt {
+	return func(s *syncer) {
+		s.syncID = syncID
 	}
 }
 
