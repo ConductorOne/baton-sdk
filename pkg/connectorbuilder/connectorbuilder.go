@@ -135,12 +135,12 @@ type CredentialManager interface {
 	RotateCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error)
 }
 
-// Compatibility interface lets us handle both EventFeed and EventProvider the same
+// Compatibility interface lets us handle both EventFeed and EventProvider the same.
 type EventLister interface {
 	ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error)
 }
 
-// DEPRECATED: This interface is deprecated in favor of EventProviderV2 which supports
+// Deprecated: This interface is deprecated in favor of EventProviderV2 which supports
 // multiple event feeds. Implementing this interface indicates the connector can provide
 // a single stream of events from the external system, enabling near real-time updates
 // in Baton. New connectors should implement EventProviderV2 instead.

@@ -39,8 +39,13 @@ var (
 	deleteResourceTypeField = StringField("delete-resource-type", WithHidden(true), WithDescription("The type of the resource to delete"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	eventFeedField          = StringField("event-feed", WithHidden(true), WithDescription("Read feed events to stdout"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	eventFeedIdField        = StringField("event-feed-id", WithHidden(true), WithDescription("The id of the event feed to read events from"), WithPersistent(true), WithExportTarget(ExportTargetNone))
-	eventFeedStartAtField   = StringField("event-feed-start-at", WithDefaultValue(time.Now().AddDate(0, 0, -1).Format(time.RFC3339)), WithHidden(true), WithDescription("The start time of the event feed to read events from"), WithPersistent(true), WithExportTarget(ExportTargetNone))
-	fileField               = StringField("file", WithShortHand("f"), WithDefaultValue("sync.c1z"), WithDescription("The path to the c1z file to sync with"),
+	eventFeedStartAtField   = StringField("event-feed-start-at",
+		WithDefaultValue(time.Now().AddDate(0, 0, -1).Format(time.RFC3339)),
+		WithHidden(true),
+		WithDescription("The start time of the event feed to read events from"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
+	fileField = StringField("file", WithShortHand("f"), WithDefaultValue("sync.c1z"), WithDescription("The path to the c1z file to sync with"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	grantEntitlementField = StringField("grant-entitlement", WithHidden(true), WithDescription("The id of the entitlement to grant to the supplied principal"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
