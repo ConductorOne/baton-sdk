@@ -661,6 +661,31 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 	return nil
 }
 
+func (s *syncer) getResource(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
+	ctx, span := tracer.Start(ctx, "syncer.getResource")
+	defer span.End()
+
+	resourceResp, err := s.connector.GetResource(ctx,
+		&v2.ResourceGetterServiceGetResourceRequest{
+			ResourceId:       resourceID,
+			ParentResourceId: parentResourceID,
+		},
+	)
+	if err == nil {
+		return resourceResp.Resource, nil
+	}
+	l := ctxzap.Extract(ctx)
+	if status.Code(err) == codes.NotFound {
+		l.Warn("skipping resource due to not found", zap.String("resource_id", resourceID.GetResource()), zap.String("resource_type_id", resourceID.GetResourceType()))
+		return nil, nil
+	}
+	if status.Code(err) == codes.Unimplemented {
+		l.Warn("skipping resource due to unimplemented connector", zap.String("resource_id", resourceID.GetResource()), zap.String("resource_type_id", resourceID.GetResourceType()))
+		return nil, nil
+	}
+	return nil, err
+}
+
 func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncTargetedResource")
 	defer span.End()
@@ -681,32 +706,22 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 		}
 	}
 
-	resourceResp, err := s.connector.GetResource(ctx,
-		&v2.ResourceGetterServiceGetResourceRequest{
-			ResourceId: &v2.ResourceId{
-				ResourceType: resourceTypeID,
-				Resource:     resourceID,
-			},
-			ParentResourceId: prID,
-		},
-	)
+	resource, err := s.getResource(ctx, &v2.ResourceId{
+		ResourceType: resourceTypeID,
+		Resource:     resourceID,
+	}, prID)
 	if err != nil {
-		l := ctxzap.Extract(ctx)
-		if status.Code(err) == codes.NotFound {
-			l.Warn("skipping resource due to not found", zap.String("resource_id", resourceID), zap.String("resource_type_id", resourceTypeID))
-			s.state.FinishAction(ctx)
-			return nil
-		}
-		if status.Code(err) == codes.Unimplemented {
-			l.Warn("skipping resource due to unimplemented connector", zap.String("resource_id", resourceID), zap.String("resource_type_id", resourceTypeID))
-			s.state.FinishAction(ctx)
-			return nil
-		}
 		return err
 	}
 
+	// If getResource encounters not found or unimplemented, it returns a nil resource and nil error.
+	if resource == nil {
+		s.state.FinishAction(ctx)
+		return nil
+	}
+
 	// Save our resource in the DB
-	if err := s.store.PutResources(ctx, resourceResp.Resource); err != nil {
+	if err := s.store.PutResources(ctx, resource); err != nil {
 		return err
 	}
 
@@ -726,7 +741,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 		ResourceID:     resourceID,
 	})
 
-	err = s.getSubResources(ctx, resourceResp.Resource)
+	err = s.getSubResources(ctx, resource)
 	if err != nil {
 		return err
 	}
@@ -1549,15 +1564,20 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 			if !errors.Is(err, sql.ErrNoRows) {
 				return err
 			}
+
 			erId := entitlementResource.GetId()
 			prId := entitlementResource.GetParentResourceId()
-			s.state.PushAction(ctx, Action{
-				Op:                   SyncTargetedResourceOp,
-				ResourceID:           erId.GetResource(),
-				ResourceTypeID:       erId.GetResourceType(),
-				ParentResourceID:     prId.GetResource(),
-				ParentResourceTypeID: prId.GetResourceType(),
-			})
+			resource, err := s.getResource(ctx, erId, prId)
+			if err != nil {
+				l.Error("error fetching entitlement resource", zap.Error(err))
+				return err
+			}
+			if resource == nil {
+				continue
+			}
+			if err := s.store.PutResources(ctx, resource); err != nil {
+				return err
+			}
 		}
 
 		principalResource := grant.GetPrincipal()
@@ -1569,34 +1589,16 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 				return err
 			}
 
-			resourceResp, err := s.connector.GetResource(ctx,
-				&v2.ResourceGetterServiceGetResourceRequest{
-					ResourceId: &v2.ResourceId{
-						ResourceType: principalResource.GetId().ResourceType,
-						Resource:     principalResource.GetId().Resource,
-					},
-					ParentResourceId: principalResource.GetParentResourceId(),
-				},
-			)
+			// Principal resource is not in the DB, so try to fetch it from the connector.
+			resource, err := s.getResource(ctx, principalResource.GetId(), principalResource.GetParentResourceId())
 			if err != nil {
-				// Ignore if resource is not found
-				if status.Code(err) == codes.NotFound {
-					l.Warn("skipping resource due to not found", zap.String("resource_id", principalResource.GetId().Resource), zap.String("resource_type_id", principalResource.GetId().ResourceType))
-					continue
-				}
-				if status.Code(err) == codes.Unimplemented {
-					l.Warn("skipping resource due to unimplemented connector",
-						zap.String("resource_id", principalResource.GetId().Resource),
-						zap.String("resource_type_id", principalResource.GetId().ResourceType),
-					)
-					continue
-				}
 				l.Error("error fetching principal resource", zap.Error(err))
 				return err
 			}
-
-			// Save our resource in the DB
-			if err := s.store.PutResources(ctx, resourceResp.Resource); err != nil {
+			if resource == nil {
+				continue
+			}
+			if err := s.store.PutResources(ctx, resource); err != nil {
 				return err
 			}
 		}
