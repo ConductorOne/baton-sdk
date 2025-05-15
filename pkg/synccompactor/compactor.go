@@ -12,6 +12,8 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/sdk"
+	"github.com/conductorone/baton-sdk/pkg/sync"
 	sync_compactor "github.com/conductorone/baton-sdk/pkg/synccompactor/naive"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -86,6 +88,38 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		}
 
 		base = compactable
+	}
+
+	l := ctxzap.Extract(ctx)
+	// Grant expansion doesn't use the connector interface at all, so giving syncer an empty connector is safe... for now.
+	// If that ever changes, we should implement a file connector that is a wrapper around the reader.
+	emptyConnector, err := sdk.NewEmptyConnector()
+	if err != nil {
+		l.Error("error creating empty connector", zap.Error(err))
+		return nil, err
+	}
+
+	// Use syncer to expand grants.
+	// TODO: Handle external resources.
+	syncer, err := sync.NewSyncer(
+		ctx,
+		emptyConnector,
+		sync.WithC1ZPath(base.FilePath),
+		sync.WithSyncID(base.SyncID),
+		sync.WithOnlyExpandGrants(),
+	)
+	if err != nil {
+		l.Error("error creating syncer", zap.Error(err))
+		return nil, err
+	}
+
+	if err := syncer.Sync(ctx); err != nil {
+		l.Error("error syncing with grant expansion", zap.Error(err))
+		return nil, err
+	}
+	if err := syncer.Close(ctx); err != nil {
+		l.Error("error closing syncer", zap.Error(err))
+		return nil, err
 	}
 
 	// Move last compacted file to the destination dir
