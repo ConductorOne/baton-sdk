@@ -409,6 +409,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 						ParentResourceTypeID: r.GetParentResourceId().GetResourceType(),
 					})
 				}
+				s.state.SetShouldFetchRelatedResources()
 				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
 				err = s.Checkpoint(ctx, true)
 				if err != nil {
@@ -660,6 +661,31 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 	return nil
 }
 
+func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
+	ctx, span := tracer.Start(ctx, "syncer.getResource")
+	defer span.End()
+
+	resourceResp, err := s.connector.GetResource(ctx,
+		&v2.ResourceGetterServiceGetResourceRequest{
+			ResourceId:       resourceID,
+			ParentResourceId: parentResourceID,
+		},
+	)
+	if err == nil {
+		return resourceResp.Resource, nil
+	}
+	l := ctxzap.Extract(ctx)
+	if status.Code(err) == codes.NotFound {
+		l.Warn("skipping resource due to not found", zap.String("resource_id", resourceID.GetResource()), zap.String("resource_type_id", resourceID.GetResourceType()))
+		return nil, nil
+	}
+	if status.Code(err) == codes.Unimplemented {
+		l.Warn("skipping resource due to unimplemented connector", zap.String("resource_id", resourceID.GetResource()), zap.String("resource_type_id", resourceID.GetResourceType()))
+		return nil, nil
+	}
+	return nil, err
+}
+
 func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncTargetedResource")
 	defer span.End()
@@ -680,21 +706,22 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 		}
 	}
 
-	resourceResp, err := s.connector.GetResource(ctx,
-		&v2.ResourceGetterServiceGetResourceRequest{
-			ResourceId: &v2.ResourceId{
-				ResourceType: resourceTypeID,
-				Resource:     resourceID,
-			},
-			ParentResourceId: prID,
-		},
-	)
+	resource, err := s.getResourceFromConnector(ctx, &v2.ResourceId{
+		ResourceType: resourceTypeID,
+		Resource:     resourceID,
+	}, prID)
 	if err != nil {
 		return err
 	}
 
+	// If getResource encounters not found or unimplemented, it returns a nil resource and nil error.
+	if resource == nil {
+		s.state.FinishAction(ctx)
+		return nil
+	}
+
 	// Save our resource in the DB
-	if err := s.store.PutResources(ctx, resourceResp.Resource); err != nil {
+	if err := s.store.PutResources(ctx, resource); err != nil {
 		return err
 	}
 
@@ -714,7 +741,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 		ResourceID:     resourceID,
 	})
 
-	err = s.getSubResources(ctx, resourceResp.Resource)
+	err = s.getSubResources(ctx, resource)
 	if err != nil {
 		return err
 	}
@@ -1515,6 +1542,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	// We want to process any grants from the previous sync first so that if there is a conflict, the newer data takes precedence
 	grants = append(grants, resp.List...)
 
+	l := ctxzap.Extract(ctx)
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
 		if grantAnnos.Contains(&v2.GrantExpandable{}) {
@@ -1522,6 +1550,57 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		}
 		if grantAnnos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			s.state.SetHasExternalResourcesGrants()
+		}
+
+		if !s.state.ShouldFetchRelatedResources() {
+			continue
+		}
+		// Some connectors emit grants for other resources. If we're doing a partial sync, check if it exists and queue a fetch if not.
+		entitlementResource := grant.GetEntitlement().GetResource()
+		_, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+			ResourceId: entitlementResource.GetId(),
+		})
+		if err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+
+			erId := entitlementResource.GetId()
+			prId := entitlementResource.GetParentResourceId()
+			resource, err := s.getResourceFromConnector(ctx, erId, prId)
+			if err != nil {
+				l.Error("error fetching entitlement resource", zap.Error(err))
+				return err
+			}
+			if resource == nil {
+				continue
+			}
+			if err := s.store.PutResources(ctx, resource); err != nil {
+				return err
+			}
+		}
+
+		principalResource := grant.GetPrincipal()
+		_, err = s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+			ResourceId: principalResource.GetId(),
+		})
+		if err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+
+			// Principal resource is not in the DB, so try to fetch it from the connector.
+			resource, err := s.getResourceFromConnector(ctx, principalResource.GetId(), principalResource.GetParentResourceId())
+			if err != nil {
+				l.Error("error fetching principal resource", zap.Error(err))
+				return err
+			}
+			if resource == nil {
+				continue
+			}
+			if err := s.store.PutResources(ctx, resource); err != nil {
+				return err
+			}
 		}
 	}
 	err = s.store.PutGrants(ctx, grants...)

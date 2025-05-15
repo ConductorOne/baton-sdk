@@ -650,7 +650,7 @@ func (b *builderImpl) GetResource(ctx context.Context, request *v2.ResourceGette
 	rb, ok := b.resourceTargetedSyncers[resourceType]
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: get resource with unknown resource type %s", resourceType)
+		return nil, status.Errorf(codes.Unimplemented, "error: get resource with unknown resource type %s", resourceType)
 	}
 
 	resource, annos, err := rb.Get(ctx, request.GetResourceId(), request.GetParentResourceId())
