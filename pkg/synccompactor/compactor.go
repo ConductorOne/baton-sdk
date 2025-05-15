@@ -7,8 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
-	"runtime"
-	"syscall"
+	"path/filepath"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -20,8 +19,9 @@ import (
 
 type Compactor struct {
 	entries []*CompactableSync
-	destDir string
+
 	tmpDir  string
+	destDir string
 }
 
 type CompactableSync struct {
@@ -33,39 +33,42 @@ var ErrNotEnoughFilesToCompact = errors.New("must provide two or more files to c
 
 type Option func(*Compactor)
 
-// WithTmpDir sets the temporary directory for intermediate files during compaction.
-func WithTmpDir(tmpDir string) Option {
+// WithTmpDir sets the working directory where files will be created and edited during compaction.
+// If not provided, the temporary directory will be used.
+func WithTmpDir(tempDir string) Option {
 	return func(c *Compactor) {
-		c.tmpDir = tmpDir
+		c.tmpDir = tempDir
 	}
 }
 
-func NewCompactor(ctx context.Context, destDir string, compactableSyncs []*CompactableSync, opts ...Option) (*Compactor, error) {
+func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*CompactableSync, opts ...Option) (*Compactor, func() error, error) {
 	if len(compactableSyncs) < 2 {
-		return nil, ErrNotEnoughFilesToCompact
+		return nil, nil, ErrNotEnoughFilesToCompact
 	}
 
-	c := &Compactor{entries: compactableSyncs, destDir: destDir}
+	c := &Compactor{entries: compactableSyncs, destDir: outputDir}
 	for _, opt := range opts {
 		opt(c)
 	}
 
-	return c, nil
-}
-
-func removeIntermediateFiles(intermediates []string, preserveLast bool) error {
-	// The last one is our "base" so we don't want to remove that one
-	if preserveLast {
-		intermediates = intermediates[:len(intermediates)-1]
+	// If no tmpDir is provided, use the tmpDir
+	if c.tmpDir == "" {
+		c.tmpDir = os.TempDir()
 	}
-	for _, intermediateFile := range intermediates {
-		err := os.Remove(intermediateFile)
-		// Weird case if the file doesn't exist but it's "fine".
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
+	tmpDir, err := os.MkdirTemp(c.tmpDir, "baton-sync-compactor-")
+	if err != nil {
+		return nil, nil, err
+	}
+	c.tmpDir = tmpDir
+
+	cleanup := func() error {
+		if err := os.RemoveAll(c.tmpDir); err != nil {
 			return err
 		}
+		return nil
 	}
-	return nil
+
+	return c, cleanup, nil
 }
 
 func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
@@ -73,65 +76,40 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		return nil, nil
 	}
 
-	intermediates := make([]string, 0, len(c.entries)-1)
-
 	base := c.entries[0]
 	for i := 1; i < len(c.entries); i++ {
 		applied := c.entries[i]
 
 		compactable, err := c.doOneCompaction(ctx, base, applied)
 		if err != nil {
-			if err := removeIntermediateFiles(intermediates, false); err != nil {
-				return nil, err
-			}
 			return nil, err
 		}
-		// Collect all the intermediate files we create to remove at the end
-		intermediates = append(intermediates, compactable.FilePath)
-		base = compactable
-	}
 
-	if len(intermediates) > 0 {
-		if err := removeIntermediateFiles(intermediates, true); err != nil {
-			return nil, err
-		}
+		base = compactable
 	}
 
 	// Move last compacted file to the destination dir
 	finalPath := path.Join(c.destDir, fmt.Sprintf("compacted-%s.c1z", base.SyncID))
-	// Attempt to move via rename
-	if err := os.Rename(base.FilePath, finalPath); err != nil {
-		var linkErr *os.LinkError
-
-		if !errors.As(err, &linkErr) {
-			// Return if it's not a link err
-			return nil, err
-		}
-
-		// Mac err table: https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/intro.2.html
-		// Win err table: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/18d8fbe8-a967-4f1c-ae50-99ca8e491d2d?redirectedfrom=MSDN
-		linkErrIsLinkErr := errors.Is(linkErr.Err, syscall.Errno(0x12)) || (runtime.GOOS == "windows" && errors.Is(linkErr.Err, syscall.Errno(0x11)))
-		if !linkErrIsLinkErr {
-			// Return if it's a different kind of link err
-			return nil, err
-		}
-
-		// If rename doesn't work do a full create/copy
-		if err := mvFile(base.FilePath, finalPath); err != nil {
-			// Return if mv file failed
-			return nil, err
-		}
+	if err := cpFile(base.FilePath, finalPath); err != nil {
+		return nil, err
 	}
-	base.FilePath = finalPath
 
-	return base, nil
+	if !filepath.IsAbs(finalPath) {
+		abs, err := filepath.Abs(finalPath)
+		if err != nil {
+			return nil, err
+		}
+		finalPath = abs
+	}
+	return &CompactableSync{FilePath: finalPath, SyncID: base.SyncID}, nil
 }
 
-func mvFile(sourcePath string, destPath string) error {
+func cpFile(sourcePath string, destPath string) error {
 	source, err := os.Open(sourcePath)
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
 	}
+	defer source.Close()
 
 	destination, err := os.Create(destPath)
 	if err != nil {
@@ -142,16 +120,6 @@ func mvFile(sourcePath string, destPath string) error {
 	_, err = io.Copy(destination, source)
 	if err != nil {
 		return fmt.Errorf("failed to copy file: %w", err)
-	}
-
-	// Explicitly close the source file before removing it
-	if err := source.Close(); err != nil {
-		return err
-	}
-
-	err = os.Remove(sourcePath)
-	if err != nil {
-		return fmt.Errorf("failed to remove original file: %w", err)
 	}
 
 	return nil
@@ -196,17 +164,18 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 		zap.String("base_sync", base.SyncID),
 		zap.String("applied_file", applied.FilePath),
 		zap.String("applied_sync", applied.SyncID),
+		zap.String("tmp_dir", c.tmpDir),
 	)
 
-	filePath := fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID)
-
-	opts := []dotc1z.C1ZOption{dotc1z.WithPragma("journal_mode", "WAL")}
-	if c.tmpDir != "" {
-		opts = append(opts, dotc1z.WithTmpDir(c.tmpDir))
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithTmpDir(c.tmpDir),
 	}
 
-	newFile, err := dotc1z.NewC1ZFile(ctx, filePath, opts...)
+	fileName := fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID)
+	newFile, err := dotc1z.NewC1ZFile(ctx, path.Join(c.tmpDir, fileName), opts...)
 	if err != nil {
+		l.Error("doOneCompaction failed: could not create c1z file", zap.Error(err))
 		return nil, err
 	}
 	defer func() { _ = newFile.Close() }()

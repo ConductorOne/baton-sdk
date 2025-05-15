@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompactor(t *testing.T) {
+func TestCompactorWithTmpDir(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a temporary directory for test files
@@ -30,6 +30,12 @@ func TestCompactor(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
+	runCompactorTest(t, ctx, tempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
+	})
+}
+
+func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmpDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
 	// Create the first sync file
 	firstSyncPath := filepath.Join(tempDir, "first-sync.c1z")
 	firstSync, err := dotc1z.NewC1ZFile(ctx, firstSyncPath)
@@ -145,8 +151,11 @@ func TestCompactor(t *testing.T) {
 
 	// Create compactor
 	compactableSyncs := []*CompactableSync{firstCompactableSync, secondCompactableSync}
-	compactor, err := NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
+	compactor, cleanup, err := createCompactor(compactableSyncs)
 	require.NoError(t, err)
+	defer func() {
+		_ = cleanup()
+	}()
 
 	// Compact the syncs
 	compactedSync, err := compactor.Compact(ctx)

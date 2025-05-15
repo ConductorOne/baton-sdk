@@ -44,10 +44,14 @@ func (m *localCompactor) Process(ctx context.Context, task *v1.Task, cc types.Co
 	defer span.End()
 	log := ctxzap.Extract(ctx)
 
-	compactor, err := synccompactor.NewCompactor(ctx, m.outputPath, m.compactableSyncs)
+	compactor, cleanup, err := synccompactor.NewCompactor(ctx, m.outputPath, m.compactableSyncs)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		_ = cleanup()
+	}()
+
 	compacted, err := compactor.Compact(ctx)
 	if err != nil {
 		return err
