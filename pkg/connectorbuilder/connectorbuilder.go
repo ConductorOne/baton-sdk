@@ -178,7 +178,11 @@ func (e *oldEventFeedWrapper) EventFeedMetadata(ctx context.Context) *v2.EventFe
 	}
 }
 
-func (e *oldEventFeedWrapper) ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error) {
+func (e *oldEventFeedWrapper) ListEvents(
+	ctx context.Context,
+	earliestEvent *timestamppb.Timestamp,
+	pToken *pagination.StreamToken,
+) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error) {
 	return e.feed.ListEvents(ctx, earliestEvent, pToken)
 }
 
