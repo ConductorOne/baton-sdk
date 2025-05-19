@@ -166,6 +166,22 @@ type EventFeed interface {
 	EventFeedMetadata(ctx context.Context) *v2.EventFeedMetadata
 }
 
+type oldEventFeedWrapper struct {
+	feed EventLister
+}
+
+func (e *oldEventFeedWrapper) EventFeedMetadata(ctx context.Context) *v2.EventFeedMetadata {
+	return &v2.EventFeedMetadata{
+		Id:                  "baton_feed_event",
+		SupportedEventTypes: []v2.EventType{v2.EventType_EVENT_TYPE_RESOURCE_CHANGE, v2.EventType_EVENT_TYPE_USAGE},
+		StartAt:             v2.EventFeedStartAt_EVENT_FEED_START_AT_TAIL,
+	}
+}
+
+func (e *oldEventFeedWrapper) ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error) {
+	return e.feed.ListEvents(ctx, earliestEvent, pToken)
+}
+
 // TicketManager extends ConnectorBuilder to add capabilities for ticket management.
 //
 // Implementing this interface indicates the connector can integrate with an external
@@ -460,6 +476,9 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 				if feedData == nil {
 					return nil, fmt.Errorf("error: event feed metadata is nil")
 				}
+				if err := feedData.Validate(); err != nil {
+					return nil, fmt.Errorf("error: event feed metadata is invalid: %w", err)
+				}
 				if _, ok := ret.eventFeeds[feedData.Id]; ok {
 					return nil, fmt.Errorf("error: duplicate event feed id found: %s", feedData.Id)
 				}
@@ -469,6 +488,13 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 
 		if b, ok := c.(EventProvider); ok {
 			ret.eventFeed = b
+			// if no event feeds are registered, register the empty event feed
+			// under a default name & metadata
+			if len(ret.eventFeeds) == 0 {
+				ret.eventFeeds["baton_feed_event"] = &oldEventFeedWrapper{
+					feed: b,
+				}
+			}
 		}
 
 		if ticketManager, ok := c.(TicketManager); ok {
@@ -1103,7 +1129,7 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 		// We're requesting the old event feed
 		if b.eventFeed == nil {
 			b.m.RecordTaskFailure(ctx, tasks.ListEventsType, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: event feed not implemented")
+			return nil, status.Errorf(codes.Unimplemented, "error: event feed not implemented")
 		}
 		return b.listEventsHandleFeed(ctx, request, b.eventFeed, start)
 	}
@@ -1111,7 +1137,7 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 	// We're requesting a specific event feed
 	feed, ok := b.eventFeeds[feedId]
 	if !ok {
-		return nil, fmt.Errorf("error: event feed not found")
+		return nil, status.Errorf(codes.NotFound, "error: event feed not found")
 	}
 
 	return b.listEventsHandleFeed(ctx, request, feed, start)
