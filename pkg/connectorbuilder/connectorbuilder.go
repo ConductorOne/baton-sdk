@@ -173,7 +173,7 @@ type oldEventFeedWrapper struct {
 func (e *oldEventFeedWrapper) EventFeedMetadata(ctx context.Context) *v2.EventFeedMetadata {
 	return &v2.EventFeedMetadata{
 		Id:                  "baton_feed_event",
-		SupportedEventTypes: []v2.EventType{v2.EventType_EVENT_TYPE_RESOURCE_CHANGE, v2.EventType_EVENT_TYPE_USAGE},
+		SupportedEventTypes: []v2.EventType{v2.EventType_EVENT_TYPE_UNSPECIFIED},
 		StartAt:             v2.EventFeedStartAt_EVENT_FEED_START_AT_TAIL,
 	}
 }
