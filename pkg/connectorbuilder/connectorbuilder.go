@@ -152,7 +152,6 @@ type EventProvider interface {
 // NewEventProviderV2 is a new interface that allows connectors to provide multiple event feeds.
 //
 // This is the recommended interface for implementing event feed support in new connectors.
-// TODO MJP does this get auto made when an EventFeed is registered? What does that look like? How do I make this easiest?
 type EventProviderV2 interface {
 	ConnectorBuilder
 	EventFeeds(ctx context.Context) []EventFeed
