@@ -177,7 +177,6 @@ func (e *oldEventFeedWrapper) EventFeedMetadata(ctx context.Context) *v2.EventFe
 	return &v2.EventFeedMetadata{
 		Id:                  LegacyBatonFeedId,
 		SupportedEventTypes: []v2.EventType{v2.EventType_EVENT_TYPE_UNSPECIFIED},
-		StartAt:             v2.EventFeedStartAt_EVENT_FEED_START_AT_TAIL,
 	}
 }
 

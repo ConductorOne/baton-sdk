@@ -103,15 +103,6 @@ enum EventType {
   EVENT_TYPE_RESOURCE_CHANGE = 4;
 }
 
-// Feeds usually care about all events, or only brand new events.
-enum EventFeedStartAt {
-  EVENT_FEED_START_AT_UNSPECIFIED = 0;
-  // Start only reading brand new events
-  EVENT_FEED_START_AT_HEAD = 1;
-  // Start reading from the oldest event
-  EVENT_FEED_START_AT_TAIL = 2;
-}
-
 message EventFeedMetadata {
   // unique identifier for the event feed
   string id = 1 [(validate.rules).string = {
@@ -124,6 +115,4 @@ message EventFeedMetadata {
       enum: {defined_only: true}
     }
   }];
-  EventFeedStartAt start_at = 3;
-  // TODO timing based information? or priority? something to let c1 know the timelyness or importance of the event?
 }
