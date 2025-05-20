@@ -482,7 +482,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 					return nil, fmt.Errorf("error: event feed metadata is nil")
 				}
 				if err := feedData.Validate(); err != nil {
-					return nil, fmt.Errorf("error: event feed metadata is invalid: %w", err)
+					return nil, fmt.Errorf("error: event feed metadata for %s is invalid: %w", feedData.Id, err)
 				}
 				if _, ok := ret.eventFeeds[feedData.Id]; ok {
 					return nil, fmt.Errorf("error: duplicate event feed id found: %s", feedData.Id)
