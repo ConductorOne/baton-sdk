@@ -1132,10 +1132,6 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 		return nil, status.Errorf(codes.NotFound, "error: event feed not found")
 	}
 
-	return b.listEventsHandleFeed(ctx, request, feed, start)
-}
-
-func (b *builderImpl) listEventsHandleFeed(ctx context.Context, request *v2.ListEventsRequest, feed EventLister, start time.Time) (*v2.ListEventsResponse, error) {
 	tt := tasks.ListEventsType
 	events, streamState, annotations, err := feed.ListEvents(ctx, request.StartAt, &pagination.StreamToken{
 		Size:   int(request.PageSize),
