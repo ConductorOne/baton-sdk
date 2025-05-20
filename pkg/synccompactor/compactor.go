@@ -75,7 +75,8 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 
 func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	if len(c.entries) < 2 {
-		return nil, nil
+		// This should never be hit because of the check in NewCompactor
+		return nil, ErrNotEnoughFilesToCompact
 	}
 
 	base := c.entries[0]
