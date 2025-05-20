@@ -169,9 +169,13 @@ type oldEventFeedWrapper struct {
 	feed EventLister
 }
 
+const (
+	LegacyBatonFeedId = "baton_feed_event"
+)
+
 func (e *oldEventFeedWrapper) EventFeedMetadata(ctx context.Context) *v2.EventFeedMetadata {
 	return &v2.EventFeedMetadata{
-		Id:                  "baton_feed_event",
+		Id:                  LegacyBatonFeedId,
 		SupportedEventTypes: []v2.EventType{v2.EventType_EVENT_TYPE_UNSPECIFIED},
 		StartAt:             v2.EventFeedStartAt_EVENT_FEED_START_AT_TAIL,
 	}
@@ -245,7 +249,6 @@ type builderImpl struct {
 	accountManager          AccountManager
 	actionManager           CustomActionManager
 	credentialManagers      map[string]CredentialManager
-	eventFeed               EventProvider
 	eventFeeds              map[string]EventFeed
 	cb                      ConnectorBuilder
 	ticketManager           TicketManager
@@ -490,13 +493,13 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		}
 
 		if b, ok := c.(EventProvider); ok {
-			ret.eventFeed = b
-			// if no event feeds are registered, register the empty event feed
-			// under a default name & metadata
-			if len(ret.eventFeeds) == 0 {
-				ret.eventFeeds["baton_feed_event"] = &oldEventFeedWrapper{
-					feed: b,
-				}
+			// Register the legacy Baton feed as a v2 event feed
+			// implementing both v1 and v2 event feeds is not supported.
+			if len(ret.eventFeeds) != 0 {
+				return nil, fmt.Errorf("error: using legacy event feed is not supported when using EventProviderV2")
+			}
+			ret.eventFeeds[LegacyBatonFeedId] = &oldEventFeedWrapper{
+				feed: b,
 			}
 		}
 
@@ -940,10 +943,6 @@ func getCapabilities(ctx context.Context, b *builderImpl) (*v2.ConnectorCapabili
 		return resourceTypeCapabilities[i].ResourceType.GetId() < resourceTypeCapabilities[j].ResourceType.GetId()
 	})
 
-	if b.eventFeed != nil {
-		connectorCaps[v2.Capability_CAPABILITY_EVENT_FEED] = struct{}{}
-	}
-
 	if len(b.eventFeeds) > 0 {
 		connectorCaps[v2.Capability_CAPABILITY_EVENT_FEED_V2] = struct{}{}
 	}
@@ -1104,11 +1103,6 @@ func (b *builderImpl) ListEventFeeds(ctx context.Context, request *v2.ListEventF
 	start := b.nowFunc()
 	tt := tasks.ListEventFeedsType
 
-	if len(b.eventFeeds) == 0 {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: no event feeds found")
-	}
-
 	feeds := make([]*v2.EventFeedMetadata, 0, len(b.eventFeeds))
 
 	for _, feed := range b.eventFeeds {
@@ -1126,18 +1120,13 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 	defer span.End()
 
 	start := b.nowFunc()
+	feedId := request.GetEventFeedId()
 
-	feedId := request.EventFeedId
+	// If no feedId is provided, use the legacy Baton feed Id
 	if feedId == "" {
-		// We're requesting the old event feed
-		if b.eventFeed == nil {
-			b.m.RecordTaskFailure(ctx, tasks.ListEventsType, b.nowFunc().Sub(start))
-			return nil, status.Errorf(codes.Unimplemented, "error: event feed not implemented")
-		}
-		return b.listEventsHandleFeed(ctx, request, b.eventFeed, start)
+		feedId = LegacyBatonFeedId
 	}
 
-	// We're requesting a specific event feed
 	feed, ok := b.eventFeeds[feedId]
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "error: event feed not found")

@@ -454,36 +454,6 @@ func (m *ListEventFeedsRequest) validate(all bool) error {
 
 	var errors []error
 
-	if m.GetPageSize() != 0 {
-
-		if m.GetPageSize() > 250 {
-			err := ListEventFeedsRequestValidationError{
-				field:  "PageSize",
-				reason: "value must be less than or equal to 250",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-	}
-
-	if m.GetPageToken() != "" {
-
-		if l := len(m.GetPageToken()); l < 1 || l > 1048576 {
-			err := ListEventFeedsRequestValidationError{
-				field:  "PageToken",
-				reason: "value length must be between 1 and 1048576 bytes, inclusive",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-	}
-
 	for idx, item := range m.GetAnnotations() {
 		_, _ = idx, item
 
@@ -650,21 +620,6 @@ func (m *ListEventFeedsResponse) validate(all bool) error {
 					cause:  err,
 				}
 			}
-		}
-
-	}
-
-	if m.GetNextPageToken() != "" {
-
-		if l := len(m.GetNextPageToken()); l < 1 || l > 1048576 {
-			err := ListEventFeedsResponseValidationError{
-				field:  "NextPageToken",
-				reason: "value length must be between 1 and 1048576 bytes, inclusive",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
 		}
 
 	}
