@@ -154,6 +154,12 @@ func (n *emptyConnector) ListEvents(ctx context.Context, request *v2.ListEventsR
 	}, nil
 }
 
+func (n *emptyConnector) ListEventFeeds(ctx context.Context, request *v2.ListEventFeedsRequest, opts ...grpc.CallOption) (*v2.ListEventFeedsResponse, error) {
+	return &v2.ListEventFeedsResponse{
+		List: []*v2.EventFeedMetadata{},
+	}, nil
+}
+
 // NewEmptyConnector returns a new emptyConnector.
 func NewEmptyConnector() (*emptyConnector, error) {
 	return &emptyConnector{}, nil

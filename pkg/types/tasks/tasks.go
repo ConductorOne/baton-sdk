@@ -88,6 +88,7 @@ const (
 	ListGrantsType
 	GetMetadataType
 	ListEventsType
+	ListEventFeedsType
 	StartDebugging
 	BulkCreateTicketsType
 	BulkGetTicketsType

@@ -131,7 +131,7 @@ func MakeMainCommand[T field.Configurable](
 						v.GetString("revoke-grant"),
 					))
 			case v.GetBool("event-feed"):
-				opts = append(opts, connectorrunner.WithOnDemandEventStream())
+				opts = append(opts, connectorrunner.WithOnDemandEventStream(v.GetString("event-feed-id"), v.GetTime("event-feed-start-at")))
 			case v.GetString("create-account-profile") != "":
 				profileMap := v.GetStringMap("create-account-profile")
 				if profileMap == nil {
