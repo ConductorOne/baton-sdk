@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"reflect"
 	"syscall"
 	"time"
 
@@ -243,6 +244,50 @@ func WithResponse(response interface{}) DoOption {
 		}
 		if IsXMLContentType(resp.Header.Get(ContentType)) {
 			return WithXMLResponse(response)(resp)
+		}
+
+		return status.Error(codes.Unknown, "unsupported content type")
+	}
+}
+
+// Handle anything that can be marshaled into JSON or XML.
+// If the response is a list, its values will be put into the "items" field.
+func WithGenericResponse(response *map[string]any) DoOption {
+	return func(resp *WrapperResponse) error {
+		if response == nil {
+			return status.Error(codes.InvalidArgument, "response is nil")
+		}
+		var v any
+		var err error
+
+		if IsJSONContentType(resp.Header.Get(ContentType)) {
+			err = WithJSONResponse(&v)(resp)
+			if err != nil {
+				return err
+			}
+			if list, ok := v.([]any); ok {
+				(*response)["items"] = list
+			} else if vMap, ok := v.(map[string]any); ok {
+				*response = vMap
+			} else {
+				return status.Errorf(codes.Internal, "unsupported content type: %s", reflect.TypeOf(v))
+			}
+			return nil
+		}
+
+		if IsXMLContentType(resp.Header.Get(ContentType)) {
+			err = WithXMLResponse(response)(resp)
+			if err != nil {
+				return err
+			}
+			if list, ok := v.([]any); ok {
+				(*response)["items"] = list
+			} else if vMap, ok := v.(map[string]any); ok {
+				*response = vMap
+			} else {
+				return status.Errorf(codes.Internal, "unsupported content type: %s", reflect.TypeOf(v))
+			}
+			return nil
 		}
 
 		return status.Error(codes.Unknown, "unsupported content type")

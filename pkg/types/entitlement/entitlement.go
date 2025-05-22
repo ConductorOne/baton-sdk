@@ -71,3 +71,28 @@ func NewAssignmentEntitlement(resource *v2.Resource, name string, entitlementOpt
 	}
 	return entitlement
 }
+
+func NewEntitlement(resource *v2.Resource, name, purposeStr string, entitlementOptions ...EntitlementOption) *v2.Entitlement {
+	var purpose v2.Entitlement_PurposeValue
+	switch purposeStr {
+	case "permission":
+		purpose = v2.Entitlement_PURPOSE_VALUE_PERMISSION
+	case "assignment":
+		purpose = v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT
+	default:
+		purpose = v2.Entitlement_PURPOSE_VALUE_UNSPECIFIED
+	}
+
+	entitlement := &v2.Entitlement{
+		Id:          NewEntitlementID(resource, name),
+		DisplayName: name,
+		Slug:        name,
+		Purpose:     purpose,
+		Resource:    resource,
+	}
+
+	for _, entitlementOption := range entitlementOptions {
+		entitlementOption(entitlement)
+	}
+	return entitlement
+}
