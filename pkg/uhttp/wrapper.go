@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"reflect"
 	"syscall"
 	"time"
 
@@ -270,7 +269,7 @@ func WithGenericResponse(response *map[string]any) DoOption {
 			} else if vMap, ok := v.(map[string]any); ok {
 				*response = vMap
 			} else {
-				return status.Errorf(codes.Internal, "unsupported content type: %s", reflect.TypeOf(v))
+				return status.Errorf(codes.Internal, "unsupported content type: %T", v)
 			}
 			return nil
 		}
@@ -285,7 +284,7 @@ func WithGenericResponse(response *map[string]any) DoOption {
 			} else if vMap, ok := v.(map[string]any); ok {
 				*response = vMap
 			} else {
-				return status.Errorf(codes.Internal, "unsupported content type: %s", reflect.TypeOf(v))
+				return status.Errorf(codes.Internal, "unsupported content type: %T", v)
 			}
 			return nil
 		}
