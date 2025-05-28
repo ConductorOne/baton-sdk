@@ -16,6 +16,8 @@ message Configuration {
   string icon_url = 5;
   bool is_directory = 7;
   string catalog_id = 8;
+  bool supports_external_resources = 9;
+  bool requires_external_connector = 10;
 }
 
 enum ConstraintKind {
