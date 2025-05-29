@@ -26,14 +26,13 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 	ssf := StringSliceField("ssf", WithDescription("Field 4"), WithDefaultValue([]string{"default"}))
 
 	fields := []SchemaField{ss, intF, bf, ssf}
-	supportsExternalResources := false
-	requiresExternalConnector := false
 	constraints := []SchemaFieldRelationship{
 		FieldsMutuallyExclusive(ss, intF),
 		FieldsRequiredTogether(bf, ssf),
 	}
 
-	config := NewConfiguration(fields, supportsExternalResources, requiresExternalConnector, constraints...)
+	config := NewConfiguration(fields, constraints...).
+		SetSupportsExternalResources(true)
 
 	data, err := json.Marshal(&config)
 	if err != nil {
@@ -87,8 +86,7 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 				]
 			}
 		],
-		"supportsExternalResources": false,
-		"requiresExternalConnector": false
+		"supportsExternalResources": true
 	}`
 
 	n1, err := normalizeJSON(expected)

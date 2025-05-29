@@ -1,17 +1,27 @@
 package field
 
 type Configuration struct {
-	Fields      []SchemaField
-	Constraints []SchemaFieldRelationship
+	Fields                    []SchemaField
+	Constraints               []SchemaFieldRelationship
 	SupportsExternalResources bool
 	RequiresExternalConnector bool
 }
 
-func NewConfiguration(fields []SchemaField, supportsExternalResources bool, requiresExternalConnector bool, constraints ...SchemaFieldRelationship) Configuration {
+func NewConfiguration(fields []SchemaField, constraints ...SchemaFieldRelationship) Configuration {
 	return Configuration{
 		Fields:      fields,
 		Constraints: constraints,
-		SupportsExternalResources: supportsExternalResources,
-		RequiresExternalConnector: requiresExternalConnector,
 	}
+}
+
+// Sets the SupportsExternalResources field.
+func (c Configuration) SetSupportsExternalResources(val bool) Configuration {
+	c.SupportsExternalResources = val
+	return c
+}
+
+// Sets the RequiresExternalConnector field.
+func (c Configuration) SetRequiresExternalConnector(val bool) Configuration {
+	c.RequiresExternalConnector = val
+	return c
 }
