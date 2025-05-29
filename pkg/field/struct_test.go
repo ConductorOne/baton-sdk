@@ -31,8 +31,10 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 		FieldsRequiredTogether(bf, ssf),
 	}
 
-	config := NewConfiguration(fields, constraints...).
-		SetSupportsExternalResources(true)
+	config := NewConfiguration(fields,
+		WithSupportsExternalResources(true),
+		WithConstraints(constraints...),
+	)
 
 	data, err := json.Marshal(&config)
 	if err != nil {

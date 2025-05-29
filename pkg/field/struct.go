@@ -7,21 +7,40 @@ type Configuration struct {
 	RequiresExternalConnector bool
 }
 
-func NewConfiguration(fields []SchemaField, constraints ...SchemaFieldRelationship) Configuration {
-	return Configuration{
-		Fields:      fields,
-		Constraints: constraints,
+type configOption func(Configuration) Configuration
+
+func WithSupportsExternalResources(value bool) configOption {
+	return func(c Configuration) Configuration {
+		c.SupportsExternalResources = value
+
+		return c
 	}
 }
 
-// Sets the SupportsExternalResources field.
-func (c Configuration) SetSupportsExternalResources(val bool) Configuration {
-	c.SupportsExternalResources = val
-	return c
+func WithRequiresExternalConnector(value bool) configOption {
+	return func(c Configuration) Configuration {
+		c.RequiresExternalConnector = value
+
+		return c
+	}
 }
 
-// Sets the RequiresExternalConnector field.
-func (c Configuration) SetRequiresExternalConnector(val bool) Configuration {
-	c.RequiresExternalConnector = val
-	return c
+func WithConstraints(constraints ...SchemaFieldRelationship) configOption {
+	return func(c Configuration) Configuration {
+		c.Constraints = constraints
+
+		return c
+	}
+}
+
+func NewConfiguration(fields []SchemaField, opts ...configOption) Configuration {
+	configuration := Configuration{
+		Fields: fields,
+	}
+
+	for _, opt := range opts {
+		configuration = opt(configuration)
+	}
+
+	return configuration
 }
