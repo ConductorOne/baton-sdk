@@ -2251,6 +2251,112 @@ var _ interface {
 	ErrorName() string
 } = CredentialOptionsValidationError{}
 
+// Validate checks the field values on PasswordConstraint with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *PasswordConstraint) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on PasswordConstraint with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// PasswordConstraintMultiError, or nil if none found.
+func (m *PasswordConstraint) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *PasswordConstraint) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for CharSet
+
+	// no validation rules for MinCount
+
+	if len(errors) > 0 {
+		return PasswordConstraintMultiError(errors)
+	}
+
+	return nil
+}
+
+// PasswordConstraintMultiError is an error wrapping multiple validation errors
+// returned by PasswordConstraint.ValidateAll() if the designated constraints
+// aren't met.
+type PasswordConstraintMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m PasswordConstraintMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m PasswordConstraintMultiError) AllErrors() []error { return m }
+
+// PasswordConstraintValidationError is the validation error returned by
+// PasswordConstraint.Validate if the designated constraints aren't met.
+type PasswordConstraintValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e PasswordConstraintValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e PasswordConstraintValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e PasswordConstraintValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e PasswordConstraintValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e PasswordConstraintValidationError) ErrorName() string {
+	return "PasswordConstraintValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e PasswordConstraintValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sPasswordConstraint.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = PasswordConstraintValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = PasswordConstraintValidationError{}
+
 // Validate checks the field values on CreateAccountRequest with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
@@ -4545,6 +4651,40 @@ func (m *CredentialOptions_RandomPassword) validate(all bool) error {
 			return err
 		}
 		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetConstraints() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CredentialOptions_RandomPasswordValidationError{
+						field:  fmt.Sprintf("Constraints[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CredentialOptions_RandomPasswordValidationError{
+						field:  fmt.Sprintf("Constraints[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CredentialOptions_RandomPasswordValidationError{
+					field:  fmt.Sprintf("Constraints[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	}
 
 	if len(errors) > 0 {
