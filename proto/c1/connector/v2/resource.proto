@@ -153,6 +153,7 @@ message CredentialOptions {
       gte: 8
       lte: 64
     }];
+    repeated PasswordConstraint constraints = 2;
   }
   message NoPassword {}
   message SSO {
@@ -163,6 +164,11 @@ message CredentialOptions {
     NoPassword no_password = 101;
     SSO sso = 102;
   }
+}
+
+message PasswordConstraint {
+  string char_set = 1;
+  uint32 min_count = 2;
 }
 
 message CreateAccountRequest {

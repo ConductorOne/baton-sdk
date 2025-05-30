@@ -30,6 +30,30 @@ func GeneratePassword(credentialOptions *v2.CredentialOptions) (string, error) {
 	return "", ErrInvalidCredentialOptions
 }
 
+func addBasicValidityCharacters(password *strings.Builder) error {
+	sets := []string{upperCaseLetters, lowerCaseLetters, digits, symbols}
+	for _, characterSet := range sets {
+		err := addCharacterToPassword(password, characterSet)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addCharacterToPassword(password *strings.Builder, set string) error {
+	index, err := rand.Int(rand.Reader, big.NewInt(int64(len(set))))
+	if err != nil {
+		return fmt.Errorf("failed to generate password: %w", err)
+	}
+	character := set[index.Int64()]
+	err = password.WriteByte(character)
+	if err != nil {
+		return fmt.Errorf("failed to generate password: %w", err)
+	}
+	return nil
+}
+
 func GenerateRandomPassword(randomPassword *v2.CredentialOptions_RandomPassword) (string, error) {
 	passwordLength := randomPassword.GetLength()
 	if passwordLength < 8 {
@@ -37,16 +61,51 @@ func GenerateRandomPassword(randomPassword *v2.CredentialOptions_RandomPassword)
 	}
 	var password strings.Builder
 
-	for i := int64(0); i < passwordLength; i++ {
-		index, err := rand.Int(rand.Reader, big.NewInt(int64(len(characters))))
-		if err != nil {
-			return "", fmt.Errorf("failed generating password: %w", err)
+	constraints := randomPassword.Constraints
+	if len(constraints) > 0 {
+		// apply constraints
+		for _, constraint := range constraints {
+			for i := int64(0); i < int64(constraint.MinCount); i++ {
+				err := addCharacterToPassword(&password, constraint.CharSet)
+				if err != nil {
+					return "", err
+				}
+			}
 		}
-		character := characters[index.Int64()]
-		err = password.WriteByte(character)
+	} else {
+		err := addBasicValidityCharacters(&password)
 		if err != nil {
-			return "", fmt.Errorf("failed generating password: %w", err)
+			return "", err
 		}
 	}
-	return password.String(), nil
+
+	remaining := passwordLength - int64(len(password.String()))
+	if remaining < 0 {
+		return "", fmt.Errorf("password length %d is less than the sum of constraints minimums (%d)", passwordLength, int64(password.Len()))
+	}
+	for i := int64(0); i < remaining; i++ {
+		err := addCharacterToPassword(&password, characters)
+		if err != nil {
+			return "", err
+		}
+	}
+	stringPassword, err := getShuffledPassword(password)
+	if err != nil {
+		return "", err
+	}
+	return stringPassword, nil
+}
+
+func getShuffledPassword(password strings.Builder) (string, error) {
+	runes := []rune(password.String())
+	n := len(runes)
+	for i := n - 1; i > 0; i-- {
+		jBig, err := rand.Int(rand.Reader, big.NewInt(int64(i+1)))
+		if err != nil {
+			return "", fmt.Errorf("error while generating password")
+		}
+		j := int(jBig.Int64())
+		runes[i], runes[j] = runes[j], runes[i]
+	}
+	return string(runes), nil
 }
