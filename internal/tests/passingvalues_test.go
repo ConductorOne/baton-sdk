@@ -116,7 +116,7 @@ func TestEntryPoint(t *testing.T) {
 	t.Run("should error when fields are required together", func(t *testing.T) {
 		carrier := field.NewConfiguration(
 			[]field.SchemaField{stringField, boolField},
-			field.FieldsRequiredTogether(stringField, boolField),
+			field.WithConstraints(field.FieldsRequiredTogether(stringField, boolField)),
 		)
 
 		_, err := entrypoint(ctx, carrier, "--string-field", "foo")
@@ -128,7 +128,7 @@ func TestEntryPoint(t *testing.T) {
 	t.Run("should error when fields are mutually exclusive", func(t *testing.T) {
 		carrier := field.NewConfiguration(
 			[]field.SchemaField{stringField, boolField},
-			field.FieldsMutuallyExclusive(stringField, boolField),
+			field.WithConstraints(field.FieldsMutuallyExclusive(stringField, boolField)),
 		)
 
 		_, err := entrypoint(
@@ -146,10 +146,10 @@ func TestEntryPoint(t *testing.T) {
 	t.Run("should error when fields are dependent", func(t *testing.T) {
 		carrier := field.NewConfiguration(
 			[]field.SchemaField{stringField, boolField},
-			field.FieldsDependentOn(
+			field.WithConstraints(field.FieldsDependentOn(
 				[]field.SchemaField{stringField},
 				[]field.SchemaField{boolField},
-			),
+			)),
 		)
 
 		_, err := entrypoint(ctx, carrier, "--string-field", "foo")
@@ -161,7 +161,7 @@ func TestEntryPoint(t *testing.T) {
 	t.Run("should error when at least one field must be set", func(t *testing.T) {
 		carrier := field.NewConfiguration(
 			[]field.SchemaField{stringField, boolField},
-			field.FieldsAtLeastOneUsed(stringField, boolField),
+			field.WithConstraints(field.FieldsAtLeastOneUsed(stringField, boolField)),
 		)
 
 		_, err := entrypoint(ctx, carrier)

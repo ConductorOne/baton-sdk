@@ -177,5 +177,9 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 
 		conf.Constraints = append(conf.Constraints, &constraint)
 	}
+
+	conf.SupportsExternalResources = c.SupportsExternalResources
+	conf.RequiresExternalConnector = c.RequiresExternalConnector
+
 	return conf, nil
 }
