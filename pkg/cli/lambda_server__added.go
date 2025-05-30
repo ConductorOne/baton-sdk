@@ -36,7 +36,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 	connectorSchema field.Configuration,
 	mainCmd *cobra.Command,
 ) error {
-	lambdaSchema := field.NewConfiguration(field.LambdaServerFields(), field.LambdaServerRelationships...)
+	lambdaSchema := field.NewConfiguration(field.LambdaServerFields(), field.WithConstraints(field.LambdaServerRelationships...))
 
 	lambdaCmd, err := AddCommand(mainCmd, v, &lambdaSchema, &cobra.Command{
 		Use:           "lambda",

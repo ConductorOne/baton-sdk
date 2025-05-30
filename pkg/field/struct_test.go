@@ -32,6 +32,11 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 	}
 
 	config := NewConfiguration(fields,
+		WithConnectorDisplayName("Great Connector"),
+		WithHelpUrl("https://great-connector.com/help"),
+		WithIconUrl("https://great-connector.com/icon.png"),
+		WithCatalogId("ABC123"),
+		WithIsDirectory(false),
 		WithSupportsExternalResources(true),
 		WithConstraints(constraints...),
 	)
@@ -88,6 +93,10 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 				]
 			}
 		],
+		"displayName": "Great Connector",
+		"helpUrl": "https://great-connector.com/help",
+		"iconUrl": "https://great-connector.com/icon.png",
+		"catalogId": "ABC123",
 		"supportsExternalResources": true
 	}`
 
