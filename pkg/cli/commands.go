@@ -562,30 +562,6 @@ func MakeConfigSchemaCommand[T field.Configurable](
 			return confschema.Fields[i].FieldName < confschema.Fields[j].FieldName
 		})
 
-		// Sort fields within each relationship
-		for i := range confschema.Constraints {
-			// Sort Fields
-			sort.Slice(confschema.Constraints[i].Fields, func(x, y int) bool {
-				return confschema.Constraints[i].Fields[x].FieldName < confschema.Constraints[i].Fields[y].FieldName
-			})
-			// Sort ExpectedFields
-			sort.Slice(confschema.Constraints[i].ExpectedFields, func(x, y int) bool {
-				return confschema.Constraints[i].ExpectedFields[x].FieldName < confschema.Constraints[i].ExpectedFields[y].FieldName
-			})
-		}
-
-		// Sort constraints by Kind by their enum values, then by first field name if available
-		sort.Slice(confschema.Constraints, func(i, j int) bool {
-			if confschema.Constraints[i].Kind != confschema.Constraints[j].Kind {
-				return confschema.Constraints[i].Kind < confschema.Constraints[j].Kind
-			}
-			// If same kind, sort by first field name if available
-			if len(confschema.Constraints[i].Fields) > 0 && len(confschema.Constraints[j].Fields) > 0 {
-				return confschema.Constraints[i].Fields[0].FieldName < confschema.Constraints[j].Fields[0].FieldName
-			}
-			return false
-		})
-
 		// Use MarshalIndent for pretty printing
 		pb, err := json.MarshalIndent(&confschema, "", "  ")
 		if err != nil {
