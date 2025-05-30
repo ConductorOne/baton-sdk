@@ -36,7 +36,15 @@ func (c *Configuration) Marshal() ([]byte, error) {
 }
 
 func (c Configuration) marshal() (*v1_conf.Configuration, error) {
-	conf := &v1_conf.Configuration{}
+	conf := &v1_conf.Configuration{
+		DisplayName:               c.DisplayName,
+		HelpUrl:                   c.HelpUrl,
+		IconUrl:                   c.IconUrl,
+		CatalogId:                 c.CatalogId,
+		IsDirectory:               c.IsDirectory,
+		SupportsExternalResources: c.SupportsExternalResources,
+		RequiresExternalConnector: c.RequiresExternalConnector,
+	}
 
 	ignore := make(map[string]struct{})
 	for _, f := range c.Fields {
@@ -177,9 +185,6 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 
 		conf.Constraints = append(conf.Constraints, &constraint)
 	}
-
-	conf.SupportsExternalResources = c.SupportsExternalResources
-	conf.RequiresExternalConnector = c.RequiresExternalConnector
 
 	return conf, nil
 }
