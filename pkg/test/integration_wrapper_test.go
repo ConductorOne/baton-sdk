@@ -79,6 +79,11 @@ func TestIntegrationTestWrapper_Sync(t *testing.T) {
 
 	z := wrapper.LoadC1Z(ctx, t)
 
+	t.Cleanup(func() {
+		err := z.Close()
+		require.NoError(t, err)
+	})
+
 	resources, err := z.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{})
 	require.NoError(t, err)
 

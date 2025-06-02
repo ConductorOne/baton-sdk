@@ -2,7 +2,6 @@ package test
 
 import (
 	"context"
-	"log"
 	"net"
 	"os"
 	"testing"
@@ -22,7 +21,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-const bufSize = 1024
+const bufSize = 1024 * 1024 // 1MB buffer size for the in-memory connection
 
 type inMemoryConnectorClient struct {
 	connectorV2.ResourceTypesServiceClient
@@ -56,6 +55,9 @@ func NewIntegrationTestWrapper(ctx context.Context, t *testing.T, connector inte
 	require.NoError(t, err)
 
 	tempPath, err := os.CreateTemp("", "baton-integration-test-*.c1z")
+	require.NoError(t, err)
+
+	err = tempPath.Close()
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
@@ -96,7 +98,7 @@ func NewIntegrationTestWrapper(ctx context.Context, t *testing.T, connector inte
 
 	go func() {
 		if err := s.Serve(lis); err != nil {
-			log.Fatalf("Server exited with error: %v", err)
+			t.Errorf("Server exited with error: %v", err)
 		}
 	}()
 
@@ -145,6 +147,11 @@ func NewIntegrationTestWrapper(ctx context.Context, t *testing.T, connector inte
 
 	m, err := manager.New(ctx, tempPath.Name())
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		err := m.Close(ctx)
+		require.NoError(t, err)
+	})
 
 	return &IntegrationTestWrapper{
 		Client:  client,
