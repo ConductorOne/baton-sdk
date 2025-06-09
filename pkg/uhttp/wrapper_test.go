@@ -414,6 +414,32 @@ func TestWrapper_NewRequest(t *testing.T) {
 				err:     nil,
 			},
 		},
+		{
+			name:    "POST request with JSON body with specific content-type header value",
+			method:  http.MethodPost,
+			url:     "http://example.com",
+			options: []RequestOption{WithHeader("Content-Type", "application/json;odata=verbose"), WithJSONBody(exampleBody), WithAcceptJSONHeader()},
+			expected: expected{
+				method:  http.MethodPost,
+				url:     "http://example.com",
+				headers: http.Header{"Accept": []string{"application/json"}, "Content-Type": []string{"application/json;odata=verbose"}},
+				body:    io.NopCloser(exampleBodyBuffer),
+				err:     nil,
+			},
+		},
+		{
+			name:    "POST request with JSON body with specific Accept header value",
+			method:  http.MethodPost,
+			url:     "http://example.com",
+			options: []RequestOption{WithHeader("Accept", "application/json;odata=verbose"), WithJSONBody(exampleBody), WithAcceptJSONHeader()},
+			expected: expected{
+				method:  http.MethodPost,
+				url:     "http://example.com",
+				headers: http.Header{"Accept": []string{"application/json;odata=verbose"}, "Content-Type": []string{"application/json"}},
+				body:    io.NopCloser(exampleBodyBuffer),
+				err:     nil,
+			},
+		},
 	}
 
 	for _, tc := range test {
