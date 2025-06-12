@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -558,7 +559,24 @@ func (c *BaseHttpClient) NewRequest(ctx context.Context, method string, url *url
 		}
 
 		for k, v := range h {
-			headers[k] = v
+			switch {
+			// special check for Content-Type and Accept header
+			case strings.EqualFold(k, "content-type") || strings.EqualFold(k, "accept"):
+				current := headers[k]
+				if current == "" {
+					headers[k] = v
+					continue
+				}
+				// if the incoming value carries extra information
+				// we respect that and set it as the new value for that
+				// header
+				split := strings.Split(v, ";")
+				if len(split) > 1 {
+					headers[k] = v
+				}
+			default:
+				headers[k] = v
+			}
 		}
 	}
 
