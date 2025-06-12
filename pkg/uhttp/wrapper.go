@@ -289,7 +289,7 @@ func WithGenericResponse(response *map[string]any) DoOption {
 			return nil
 		}
 
-		return status.Error(codes.Unknown, "unsupported content type")
+		return status.Error(codes.Unknown, fmt.Sprintf("unsupported content type: %s", resp.Header.Get(ContentType)))
 	}
 }
 
