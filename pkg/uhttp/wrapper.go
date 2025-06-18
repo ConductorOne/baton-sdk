@@ -348,6 +348,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	if resp == nil {
 		resp, err = c.HttpClient.Do(req)
 		if err != nil {
+			l.Error("base-http-client: HTTP error response", zap.Error(err))
 			var urlErr *url.Error
 			if errors.As(err, &urlErr) {
 				if urlErr.Timeout() {
@@ -400,6 +401,17 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		optErr := option(&wresp)
 		if optErr != nil {
 			optErrs = append(optErrs, optErr)
+		}
+	}
+
+	// Log response headers directly for certain errors
+	if resp != nil {
+		if resp.StatusCode >= 400 {
+			l.Error("base-http-client: HTTP error status",
+				zap.Int("status_code", resp.StatusCode),
+				zap.String("status", resp.Status),
+				zap.Any("headers", resp.Header),
+			)
 		}
 	}
 
