@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"syscall"
 	"time"
 
@@ -406,10 +407,11 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 
 	// Log response headers directly for certain errors
 	if resp.StatusCode >= 400 {
+		redactedHeaders := redactHeaders(resp.Header)
 		l.Error("base-http-client: HTTP error status",
 			zap.Int("status_code", resp.StatusCode),
 			zap.String("status", resp.Status),
-			zap.Any("headers", resp.Header),
+			zap.Any("headers", redactedHeaders),
 		)
 	}
 
@@ -446,6 +448,19 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	return resp, errors.Join(optErrs...)
+}
+
+func redactHeaders(h http.Header) http.Header {
+	safe := make(http.Header, len(h))
+	for k, v := range h {
+		switch strings.ToLower(k) {
+		case "authorization", "set-cookie", "cookie":
+			safe[k] = []string{"REDACTED"}
+		default:
+			safe[k] = v
+		}
+	}
+	return safe
 }
 
 func WithHeader(key, value string) RequestOption {
