@@ -405,14 +405,12 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	// Log response headers directly for certain errors
-	if resp != nil {
-		if resp.StatusCode >= 400 {
-			l.Error("base-http-client: HTTP error status",
-				zap.Int("status_code", resp.StatusCode),
-				zap.String("status", resp.Status),
-				zap.Any("headers", resp.Header),
-			)
-		}
+	if resp.StatusCode >= 400 {
+		l.Error("base-http-client: HTTP error status",
+			zap.Int("status_code", resp.StatusCode),
+			zap.String("status", resp.Status),
+			zap.Any("headers", resp.Header),
+		)
 	}
 
 	switch resp.StatusCode {
