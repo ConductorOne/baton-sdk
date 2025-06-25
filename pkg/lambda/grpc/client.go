@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -146,6 +147,18 @@ func NewClientConn(transport ClientTransport) grpc.ClientConnInterface {
 	}
 }
 
+var ignoredLogPrefixes = []string{
+	"START RequestId:",
+	"END RequestId:",
+	"REPORT RequestId:",
+	"INIT_REPORT",
+	"RequestId:",
+	"Duration:",
+	"Billed Duration:",
+	"Memory Size:",
+	"Max Memory Used:",
+}
+
 func extractMeaningfulLogLines(raw string) string {
 	lines := strings.Split(raw, "\n")
 	var filtered []string
@@ -153,18 +166,13 @@ func extractMeaningfulLogLines(raw string) string {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 
-		// Skip noisy AWS system log lines
-		if line == "" ||
-			strings.HasPrefix(line, "START RequestId:") ||
-			strings.HasPrefix(line, "END RequestId:") ||
-			strings.HasPrefix(line, "REPORT RequestId:") ||
-			strings.HasPrefix(line, "INIT_REPORT") ||
-			strings.HasPrefix(line, "RequestId:") || // duplicate sometimes appears
-			strings.HasPrefix(line, "Duration:") ||
-			strings.HasPrefix(line, "Billed Duration:") ||
-			strings.HasPrefix(line, "Memory Size:") ||
-			strings.HasPrefix(line, "Max Memory Used:") ||
-			strings.Contains(line, "Runtime.ExitError") {
+		if line == "" {
+			continue
+		}
+
+		if slices.ContainsFunc(ignoredLogPrefixes, func(prefix string) bool {
+			return strings.HasPrefix(line, prefix)
+		}) || strings.Contains(line, "Runtime.ExitError") {
 			continue
 		}
 
