@@ -2,11 +2,14 @@ package grpc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -26,6 +29,7 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 	}
 
 	input := &lambda.InvokeInput{
+		LogType:      types.LogTypeTail,
 		FunctionName: aws.String(l.functionName),
 		Payload:      payload,
 	}
@@ -38,7 +42,21 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 
 	// Check if the function returned an error.
 	if invokeResp.FunctionError != nil {
-		return nil, fmt.Errorf("lambda_transport: function returned error: %v", *invokeResp.FunctionError)
+		logSummary := ""
+		if invokeResp.LogResult != nil {
+			decodedLog, err := base64.StdEncoding.DecodeString(*invokeResp.LogResult)
+			if err == nil {
+				logSummary = string(decodedLog)
+			}
+		}
+
+		filteredLogs := extractMeaningfulLogLines(logSummary)
+
+		return nil, fmt.Errorf(
+			"lambda_transport: function returned error: %s; logSummary: %s",
+			*invokeResp.FunctionError,
+			filteredLogs,
+		)
 	}
 
 	resp := &Response{}
@@ -126,4 +144,32 @@ func NewClientConn(transport ClientTransport) grpc.ClientConnInterface {
 	return &clientConn{
 		t: transport,
 	}
+}
+
+func extractMeaningfulLogLines(raw string) string {
+	lines := strings.Split(raw, "\n")
+	var filtered []string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Skip noisy AWS system log lines
+		if line == "" ||
+			strings.HasPrefix(line, "START RequestId:") ||
+			strings.HasPrefix(line, "END RequestId:") ||
+			strings.HasPrefix(line, "REPORT RequestId:") ||
+			strings.HasPrefix(line, "INIT_REPORT") ||
+			strings.HasPrefix(line, "RequestId:") || // duplicate sometimes appears
+			strings.HasPrefix(line, "Duration:") ||
+			strings.HasPrefix(line, "Billed Duration:") ||
+			strings.HasPrefix(line, "Memory Size:") ||
+			strings.HasPrefix(line, "Max Memory Used:") ||
+			strings.Contains(line, "Runtime.ExitError") {
+			continue
+		}
+
+		filtered = append(filtered, line)
+	}
+
+	return strings.Join(filtered, "\n")
 }
