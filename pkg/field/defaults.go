@@ -24,7 +24,11 @@ var (
 	ListTicketSchemasField = BoolField("list-ticket-schemas", WithHidden(true), WithDescription("List ticket schemas"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	provisioningField      = BoolField("provisioning", WithShortHand("p"), WithDescription("This must be set in order for provisioning actions to be enabled"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
-	TicketingField = BoolField("ticketing", WithDescription("This must be set to enable ticketing support"), WithPersistent(true), WithExportTarget(ExportTargetNone))
+	TicketingField = BoolField("ticketing",
+		WithDisplayName("Enable external ticket provisioning"),
+		WithDescription("This must be set to enable ticketing support"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 	c1zTmpDirField = StringField("c1z-temp-dir", WithHidden(true), WithDescription("The directory to store temporary files in. It must exist, "+
 		"and write access is required. Defaults to the OS temporary directory."), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	clientIDField             = StringField("client-id", WithDescription("The client ID used to authenticate with ConductorOne"), WithPersistent(true), WithExportTarget(ExportTargetNone))
