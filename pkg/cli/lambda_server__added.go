@@ -74,7 +74,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 
-		runCtx, otelShutdown, err := initOtel(context.Background(), name, v, initalLogFields)
+		runCtx, otelShutdown, err := initOtel(runCtx, name, v, initalLogFields)
 		if err != nil {
 			return err
 		}
