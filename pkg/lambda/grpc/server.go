@@ -303,9 +303,10 @@ func (s *Server) RegisterService(sd *grpc.ServiceDesc, ss any) {
 func (s *Server) register(sd *grpc.ServiceDesc, ss any) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.services[sd.ServiceName]; ok {
-		panic(fmt.Sprintf("grpc: Server.RegisterService found duplicate service registration for %q", sd.ServiceName))
-	}
+
+	// if _, ok := s.services[sd.ServiceName]; ok {
+	// 	panic(fmt.Sprintf("grpc: Server.RegisterService found duplicate service registration for %q", sd.ServiceName))
+	// }
 	info := &serviceInfo{
 		serviceImpl: ss,
 		methods:     make(map[string]*grpc.MethodDesc),
