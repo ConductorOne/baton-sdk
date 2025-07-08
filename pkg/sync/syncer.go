@@ -2463,12 +2463,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			}
 			// Include the source grant as a source.
 			sourcesMap[sourceGrant.GetEntitlement().GetId()] = &v2.GrantSources_GrantSource{}
-
-			l.Debug(
-				"runGrantExpandActions: updating sources for descendant grant",
-				zap.String("grant_id", descendantGrant.GetId()),
-				zap.Any("sources", sources),
-			)
 		}
 		newGrants = append(newGrants, descendantGrants...)
 	}
