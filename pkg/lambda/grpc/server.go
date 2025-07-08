@@ -157,6 +157,7 @@ type Server struct {
 	unaryInterceptor grpc.UnaryServerInterceptor
 
 	services map[string]*serviceInfo
+	Init     func(s *Server, skipValidation bool) error
 }
 
 func MetadataForRequest(req *Request) metadata.MD {
@@ -213,6 +214,19 @@ func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
 	if err != nil {
 		return ErrorResponse(err), nil
 	}
+
+	if s.Init != nil {
+		isConfigValidationRequest := serviceName == "c1.connector.v2.ConnectorService" && methodName == "Validate"
+		err := s.Init(s, isConfigValidationRequest)
+		if err != nil {
+			return ErrorResponse(err), nil
+		}
+		// only fetch the config once, but at least once
+		if !isConfigValidationRequest {
+			s.Init = nil
+		}
+	}
+
 	service, ok := s.services[serviceName]
 	if !ok {
 		return ErrorResponse(status.Errorf(codes.Unimplemented, "unknown service %v", serviceName)), nil

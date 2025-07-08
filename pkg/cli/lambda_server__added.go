@@ -94,62 +94,76 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 
-		client, webKey, err := c1_lambda_config.GetConnectorConfigServiceClient(
-			ctx,
-			v.GetString(field.LambdaServerClientIDField.GetName()),
-			v.GetString(field.LambdaServerClientSecretField.GetName()),
-		)
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to get connector manager client: %w", err)
-		}
-
-		// Get configuration, convert it to viper flag values, then proceed.
-		config, err := client.GetConnectorConfig(ctx, &pb_connector_api.GetConnectorConfigRequest{})
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to get connector config: %w", err)
-		}
-
-		ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
-		if !ok {
-			return fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
-		}
-
-		decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, config.Config)
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
-		}
-
-		configStruct := structpb.Struct{}
-		err = json.Unmarshal(decrypted, &configStruct)
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
-		}
-
-		t, err := MakeGenericConfiguration[T](v)
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
-		}
-		switch cfg := any(t).(type) {
-		case *viper.Viper:
-			for k, v := range configStruct.AsMap() {
-				cfg.Set(k, v)
-			}
-		default:
-			err = mapstructure.Decode(configStruct.AsMap(), cfg)
+		initConnector := func(s *c1_lambda_grpc.Server, skipValidation bool) error {
+			// TODO(kans): We probably don't need to fetch the live config for config validation requests.
+			client, webKey, err := c1_lambda_config.GetConnectorConfigServiceClient(
+				ctx,
+				v.GetString(field.LambdaServerClientIDField.GetName()),
+				v.GetString(field.LambdaServerClientSecretField.GetName()),
+			)
 			if err != nil {
-				return fmt.Errorf("lambda-run: failed to decode config: %w", err)
+				return fmt.Errorf("lambda-run: failed to get connector manager client: %w", err)
 			}
-		}
 
-		if err := field.Validate(connectorSchema, t); err != nil {
-			return fmt.Errorf("lambda-run: failed to validate config: %w", err)
-		}
+			// Get configuration, convert it to viper flag values, then proceed.
+			config, err := client.GetConnectorConfig(ctx, &pb_connector_api.GetConnectorConfigRequest{})
+			if err != nil {
+				return fmt.Errorf("lambda-run: failed to get connector config: %w", err)
+			}
 
-		c, err := getconnector(runCtx, t)
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
-		}
+			ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
+			if !ok {
+				return fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
+			}
 
+			decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, config.Config)
+			if err != nil {
+				return fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
+			}
+
+			configStruct := structpb.Struct{}
+			err = json.Unmarshal(decrypted, &configStruct)
+			if err != nil {
+				return fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
+			}
+
+			t, err := MakeGenericConfiguration[T](v)
+			if err != nil {
+				return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
+			}
+
+			switch cfg := any(t).(type) {
+			case *viper.Viper:
+				for k, v := range configStruct.AsMap() {
+					cfg.Set(k, v)
+				}
+			default:
+				err = mapstructure.Decode(configStruct.AsMap(), cfg)
+				if err != nil {
+					return fmt.Errorf("lambda-run: failed to decode config: %w", err)
+				}
+			}
+
+			if !skipValidation {
+				if err := field.Validate(connectorSchema, t); err != nil {
+					return fmt.Errorf("lambda-run: failed to validate config: %w", err)
+				}
+			}
+
+			c, err := getconnector(runCtx, t)
+			if err != nil {
+				return fmt.Errorf("lambda-run: failed to get connector: %w", err)
+			}
+			// TODO(morgabra/kans): This seems to be OK in practice - just don't invoke the unimplemented methods.
+			opts := &connector.RegisterOps{
+				Ratelimiter:         nil,
+				ProvisioningEnabled: true,
+				TicketingEnabled:    true,
+			}
+
+			connector.Register(ctx, s, c, opts)
+			return nil
+		}
 		// Ensure only one auth method is provided
 		jwk := v.GetString(field.LambdaServerAuthJWTSigner.GetName())
 		jwksUrl := v.GetString(field.LambdaServerAuthJWTJWKSUrl.GetName())
@@ -164,22 +178,13 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			Subject:      v.GetString(field.LambdaServerAuthJWTExpectedSubjectField.GetName()),
 			Audience:     v.GetString(field.LambdaServerAuthJWTExpectedAudienceField.GetName()),
 		}
-
 		authOpt, err := middleware.WithAuth(runCtx, authConfig)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to create auth middleware: %w", err)
 		}
 
-		// TODO(morgabra/kans): This seems to be OK in practice - just don't invoke the unimplemented methods.
-		opts := &connector.RegisterOps{
-			Ratelimiter:         nil,
-			ProvisioningEnabled: true,
-			TicketingEnabled:    true,
-		}
-
 		s := c1_lambda_grpc.NewServer(authOpt)
-		connector.Register(ctx, s, c, opts)
-
+		s.Init = initConnector
 		aws_lambda.Start(s.Handler)
 		return nil
 	}
