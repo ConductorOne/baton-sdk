@@ -107,12 +107,6 @@ func (p *ProgressCounts) LogEntitlementsProgress(ctx context.Context, resourceTy
 	percentComplete := (entitlementsProgress * 100) / resources
 
 	switch {
-	case entitlementsProgress > resources:
-		l.Error("more entitlement resources than resources",
-			zap.String("resource_type_id", resourceType),
-			zap.Int("synced", entitlementsProgress),
-			zap.Int("total", resources),
-		)
 	case percentComplete == 100:
 		l.Info("Synced entitlements",
 			zap.String("resource_type_id", resourceType),
@@ -121,12 +115,20 @@ func (p *ProgressCounts) LogEntitlementsProgress(ctx context.Context, resourceTy
 		)
 		p.LastEntitlementLog[resourceType] = time.Time{}
 	case time.Since(p.LastEntitlementLog[resourceType]) > maxLogFrequency:
-		l.Info("Syncing entitlements",
-			zap.String("resource_type_id", resourceType),
-			zap.Int("synced", entitlementsProgress),
-			zap.Int("total", resources),
-			zap.Int("percent_complete", percentComplete),
-		)
+		if entitlementsProgress > resources {
+			l.Warn("more entitlement resources than resources",
+				zap.String("resource_type_id", resourceType),
+				zap.Int("synced", entitlementsProgress),
+				zap.Int("total", resources),
+			)
+		} else {
+			l.Info("Syncing entitlements",
+				zap.String("resource_type_id", resourceType),
+				zap.Int("synced", entitlementsProgress),
+				zap.Int("total", resources),
+				zap.Int("percent_complete", percentComplete),
+			)
+		}
 		p.LastEntitlementLog[resourceType] = time.Now()
 	}
 }
@@ -151,12 +153,6 @@ func (p *ProgressCounts) LogGrantsProgress(ctx context.Context, resourceType str
 	percentComplete := (grantsProgress * 100) / resources
 
 	switch {
-	case grantsProgress > resources:
-		l.Error("more grant resources than resources",
-			zap.String("resource_type_id", resourceType),
-			zap.Int("synced", grantsProgress),
-			zap.Int("total", resources),
-		)
 	case percentComplete == 100:
 		l.Info("Synced grants",
 			zap.String("resource_type_id", resourceType),
@@ -165,12 +161,20 @@ func (p *ProgressCounts) LogGrantsProgress(ctx context.Context, resourceType str
 		)
 		p.LastGrantLog[resourceType] = time.Time{}
 	case time.Since(p.LastGrantLog[resourceType]) > maxLogFrequency:
-		l.Info("Syncing grants",
-			zap.String("resource_type_id", resourceType),
-			zap.Int("synced", grantsProgress),
-			zap.Int("total", resources),
-			zap.Int("percent_complete", percentComplete),
-		)
+		if grantsProgress > resources {
+			l.Warn("more grant resources than resources",
+				zap.String("resource_type_id", resourceType),
+				zap.Int("synced", grantsProgress),
+				zap.Int("total", resources),
+			)
+		} else {
+			l.Info("Syncing grants",
+				zap.String("resource_type_id", resourceType),
+				zap.Int("synced", grantsProgress),
+				zap.Int("total", resources),
+				zap.Int("percent_complete", percentComplete),
+			)
+		}
 		p.LastGrantLog[resourceType] = time.Now()
 	}
 }
