@@ -144,12 +144,16 @@ func (c *connectorRunner) backoff(ctx context.Context, errCount int) time.Durati
 func (c *connectorRunner) run(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
-	sem := semaphore.NewWeighted(int64(taskConcurrency))
+	var (
+		sem          = semaphore.NewWeighted(int64(taskConcurrency))
+		waitDuration = time.Second * 0
+		errCount     = 0
+		stopForLoop  = false
+		err          error
+		maxAttempts  = 3
+		attempts     = 0
+	)
 
-	waitDuration := time.Second * 0
-	errCount := 0
-	stopForLoop := false
-	var err error
 	for !stopForLoop {
 		select {
 		case <-ctx.Done():
@@ -185,6 +189,13 @@ func (c *connectorRunner) run(ctx context.Context) error {
 			// nil tasks mean there are no tasks to process.
 			if nextTask == nil {
 				sem.Release(1)
+
+				// fast poll up to `maxAttempts` times to ensure no additional task coming in.
+				if attempts <= maxAttempts {
+					waitDuration = time.Second
+				}
+				attempts++
+
 				l.Debug("runner: no tasks to process", zap.Duration("wait_duration", waitDuration))
 				if c.oneShot {
 					l.Debug("runner: one-shot mode enabled. Exiting.")
@@ -192,6 +203,8 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				}
 				continue
 			}
+
+			attempts = 0
 
 			l.Debug("runner: got task", zap.String("task_id", nextTask.Id), zap.String("task_type", tasks.GetType(nextTask).String()))
 
