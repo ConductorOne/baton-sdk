@@ -1769,6 +1769,285 @@ var _ interface {
 	ErrorName() string
 } = BatonServiceGetTaskResponseValidationError{}
 
+// Validate checks the field values on BatonServiceStreamGetTaskRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *BatonServiceStreamGetTaskRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceStreamGetTaskRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// BatonServiceStreamGetTaskRequestMultiError, or nil if none found.
+func (m *BatonServiceStreamGetTaskRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceStreamGetTaskRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if l := utf8.RuneCountInString(m.GetHostId()); l < 1 || l > 256 {
+		err := BatonServiceStreamGetTaskRequestValidationError{
+			field:  "HostId",
+			reason: "value length must be between 1 and 256 runes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return BatonServiceStreamGetTaskRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceStreamGetTaskRequestMultiError is an error wrapping multiple
+// validation errors returned by
+// BatonServiceStreamGetTaskRequest.ValidateAll() if the designated
+// constraints aren't met.
+type BatonServiceStreamGetTaskRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceStreamGetTaskRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceStreamGetTaskRequestMultiError) AllErrors() []error { return m }
+
+// BatonServiceStreamGetTaskRequestValidationError is the validation error
+// returned by BatonServiceStreamGetTaskRequest.Validate if the designated
+// constraints aren't met.
+type BatonServiceStreamGetTaskRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceStreamGetTaskRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceStreamGetTaskRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceStreamGetTaskRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceStreamGetTaskRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceStreamGetTaskRequestValidationError) ErrorName() string {
+	return "BatonServiceStreamGetTaskRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceStreamGetTaskRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceStreamGetTaskRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceStreamGetTaskRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceStreamGetTaskRequestValidationError{}
+
+// Validate checks the field values on BatonServiceStreamGetTaskResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *BatonServiceStreamGetTaskResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceStreamGetTaskResponse
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// BatonServiceStreamGetTaskResponseMultiError, or nil if none found.
+func (m *BatonServiceStreamGetTaskResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceStreamGetTaskResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetTask()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, BatonServiceStreamGetTaskResponseValidationError{
+					field:  "Task",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, BatonServiceStreamGetTaskResponseValidationError{
+					field:  "Task",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetTask()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return BatonServiceStreamGetTaskResponseValidationError{
+				field:  "Task",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetNextHeartbeat()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, BatonServiceStreamGetTaskResponseValidationError{
+					field:  "NextHeartbeat",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, BatonServiceStreamGetTaskResponseValidationError{
+					field:  "NextHeartbeat",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetNextHeartbeat()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return BatonServiceStreamGetTaskResponseValidationError{
+				field:  "NextHeartbeat",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return BatonServiceStreamGetTaskResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceStreamGetTaskResponseMultiError is an error wrapping multiple
+// validation errors returned by
+// BatonServiceStreamGetTaskResponse.ValidateAll() if the designated
+// constraints aren't met.
+type BatonServiceStreamGetTaskResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceStreamGetTaskResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceStreamGetTaskResponseMultiError) AllErrors() []error { return m }
+
+// BatonServiceStreamGetTaskResponseValidationError is the validation error
+// returned by BatonServiceStreamGetTaskResponse.Validate if the designated
+// constraints aren't met.
+type BatonServiceStreamGetTaskResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceStreamGetTaskResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceStreamGetTaskResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceStreamGetTaskResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceStreamGetTaskResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceStreamGetTaskResponseValidationError) ErrorName() string {
+	return "BatonServiceStreamGetTaskResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceStreamGetTaskResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceStreamGetTaskResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceStreamGetTaskResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceStreamGetTaskResponseValidationError{}
+
 // Validate checks the field values on BatonServiceHeartbeatRequest with the
 // rules defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.

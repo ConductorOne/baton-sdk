@@ -25,6 +25,7 @@ const (
 	BatonService_FinishTask_FullMethodName     = "/c1.connectorapi.baton.v1.BatonService/FinishTask"
 	BatonService_UploadAsset_FullMethodName    = "/c1.connectorapi.baton.v1.BatonService/UploadAsset"
 	BatonService_StartDebugging_FullMethodName = "/c1.connectorapi.baton.v1.BatonService/StartDebugging"
+	BatonService_StreamGetTask_FullMethodName  = "/c1.connectorapi.baton.v1.BatonService/StreamGetTask"
 )
 
 // BatonServiceClient is the client API for BatonService service.
@@ -37,6 +38,7 @@ type BatonServiceClient interface {
 	FinishTask(ctx context.Context, in *BatonServiceFinishTaskRequest, opts ...grpc.CallOption) (*BatonServiceFinishTaskResponse, error)
 	UploadAsset(ctx context.Context, opts ...grpc.CallOption) (grpc.ClientStreamingClient[BatonServiceUploadAssetRequest, BatonServiceUploadAssetResponse], error)
 	StartDebugging(ctx context.Context, in *StartDebuggingRequest, opts ...grpc.CallOption) (*StartDebuggingResponse, error)
+	StreamGetTask(ctx context.Context, in *BatonServiceStreamGetTaskRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[BatonServiceStreamGetTaskResponse], error)
 }
 
 type batonServiceClient struct {
@@ -110,6 +112,25 @@ func (c *batonServiceClient) StartDebugging(ctx context.Context, in *StartDebugg
 	return out, nil
 }
 
+func (c *batonServiceClient) StreamGetTask(ctx context.Context, in *BatonServiceStreamGetTaskRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[BatonServiceStreamGetTaskResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &BatonService_ServiceDesc.Streams[1], BatonService_StreamGetTask_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[BatonServiceStreamGetTaskRequest, BatonServiceStreamGetTaskResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type BatonService_StreamGetTaskClient = grpc.ServerStreamingClient[BatonServiceStreamGetTaskResponse]
+
 // BatonServiceServer is the server API for BatonService service.
 // All implementations should embed UnimplementedBatonServiceServer
 // for forward compatibility.
@@ -120,6 +141,7 @@ type BatonServiceServer interface {
 	FinishTask(context.Context, *BatonServiceFinishTaskRequest) (*BatonServiceFinishTaskResponse, error)
 	UploadAsset(grpc.ClientStreamingServer[BatonServiceUploadAssetRequest, BatonServiceUploadAssetResponse]) error
 	StartDebugging(context.Context, *StartDebuggingRequest) (*StartDebuggingResponse, error)
+	StreamGetTask(*BatonServiceStreamGetTaskRequest, grpc.ServerStreamingServer[BatonServiceStreamGetTaskResponse]) error
 }
 
 // UnimplementedBatonServiceServer should be embedded to have
@@ -146,6 +168,9 @@ func (UnimplementedBatonServiceServer) UploadAsset(grpc.ClientStreamingServer[Ba
 }
 func (UnimplementedBatonServiceServer) StartDebugging(context.Context, *StartDebuggingRequest) (*StartDebuggingResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method StartDebugging not implemented")
+}
+func (UnimplementedBatonServiceServer) StreamGetTask(*BatonServiceStreamGetTaskRequest, grpc.ServerStreamingServer[BatonServiceStreamGetTaskResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamGetTask not implemented")
 }
 func (UnimplementedBatonServiceServer) testEmbeddedByValue() {}
 
@@ -264,6 +289,17 @@ func _BatonService_StartDebugging_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _BatonService_StreamGetTask_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(BatonServiceStreamGetTaskRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(BatonServiceServer).StreamGetTask(m, &grpc.GenericServerStream[BatonServiceStreamGetTaskRequest, BatonServiceStreamGetTaskResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type BatonService_StreamGetTaskServer = grpc.ServerStreamingServer[BatonServiceStreamGetTaskResponse]
+
 // BatonService_ServiceDesc is the grpc.ServiceDesc for BatonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -297,6 +333,11 @@ var BatonService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "UploadAsset",
 			Handler:       _BatonService_UploadAsset_Handler,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "StreamGetTask",
+			Handler:       _BatonService_StreamGetTask_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "c1/connectorapi/baton/v1/baton.proto",

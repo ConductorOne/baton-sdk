@@ -26,6 +26,7 @@ service BatonService {
   rpc UploadAsset(stream BatonServiceUploadAssetRequest) returns (BatonServiceUploadAssetResponse) {}
 
   rpc StartDebugging(StartDebuggingRequest) returns (StartDebuggingResponse) {}
+  rpc StreamGetTask(BatonServiceStreamGetTaskRequest) returns (stream BatonServiceStreamGetTaskResponse) {}
 }
 
 message Task {
@@ -254,6 +255,18 @@ message BatonServiceGetTaskResponse {
   google.protobuf.Duration next_poll = 2;
   google.protobuf.Duration next_heartbeat = 3;
   repeated google.protobuf.Any annotations = 4;
+}
+
+message BatonServiceStreamGetTaskRequest {
+ string host_id = 1 [(validate.rules).string = {
+    min_len: 1
+    max_len: 256
+  }]; 
+}
+
+message BatonServiceStreamGetTaskResponse {
+  Task task = 1;
+  google.protobuf.Duration next_heartbeat = 2; 
 }
 
 message BatonServiceHeartbeatRequest {
