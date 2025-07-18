@@ -35,17 +35,17 @@ func DefineConfiguration[T field.Configurable](
 		return nil, nil, err
 	}
 
-	fmt.Println("path", path)
-	fmt.Println("name", name)
-
 	v.SetConfigName(name)
+
+	// WIP (jallers) - this seems ideal to only process the config file, if BATON_CONFIG_PATH is set
+	// but there are issues with connectors setting the path explicitly. This means that this logic
+	// will always return an error when trying to use the connector in the CLI.
 	if path != "" {
 		v.AddConfigPath(path)
 		if err := v.ReadInConfig(); err != nil {
 			return nil, nil, err
 		}
 	}
-	fmt.Println("readfile ok")
 	v.SetEnvPrefix("baton")
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	v.AutomaticEnv()
