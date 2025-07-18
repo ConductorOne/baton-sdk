@@ -39,17 +39,11 @@ func DefineConfiguration[T field.Configurable](
 	fmt.Println("name", name)
 
 	v.SetConfigName(name)
-	v.AddConfigPath(path)
-	if err := v.ReadInConfig(); err != nil {
-		fmt.Println("err", err)
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
-			fmt.Println("config file not found", err)
+	if path != "" {
+		v.AddConfigPath(path)
+		if err := v.ReadInConfig(); err != nil {
 			return nil, nil, err
 		}
-		// if errors.Is(err, viper.ConfigFileNotFoundError{}) {
-		// 	fmt.Println("config file not found", err)
-		// 	return nil, nil, err
-		// }
 	}
 	fmt.Println("readfile ok")
 	v.SetEnvPrefix("baton")
