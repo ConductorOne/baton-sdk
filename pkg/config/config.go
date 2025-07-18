@@ -43,6 +43,7 @@ func DefineConfiguration[T field.Configurable](
 	if err := v.ReadInConfig(); err != nil {
 		fmt.Println("err", err)
 		if errors.Is(err, viper.ConfigFileNotFoundError{}) {
+			fmt.Println("config file not found", err)
 			return nil, nil, err
 		}
 	}
