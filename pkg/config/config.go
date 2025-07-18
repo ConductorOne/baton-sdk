@@ -35,13 +35,18 @@ func DefineConfiguration[T field.Configurable](
 		return nil, nil, err
 	}
 
+	fmt.Println("path", path)
+	fmt.Println("name", name)
+
 	v.SetConfigName(name)
 	v.AddConfigPath(path)
 	if err := v.ReadInConfig(); err != nil {
+		fmt.Println("err", err)
 		if errors.Is(err, viper.ConfigFileNotFoundError{}) {
 			return nil, nil, err
 		}
 	}
+	fmt.Println("readfile ok")
 	v.SetEnvPrefix("baton")
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	v.AutomaticEnv()
