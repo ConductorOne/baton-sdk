@@ -42,10 +42,14 @@ func DefineConfiguration[T field.Configurable](
 	v.AddConfigPath(path)
 	if err := v.ReadInConfig(); err != nil {
 		fmt.Println("err", err)
-		if errors.Is(err, viper.ConfigFileNotFoundError{}) {
+		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
 			fmt.Println("config file not found", err)
 			return nil, nil, err
 		}
+		// if errors.Is(err, viper.ConfigFileNotFoundError{}) {
+		// 	fmt.Println("config file not found", err)
+		// 	return nil, nil, err
+		// }
 	}
 	fmt.Println("readfile ok")
 	v.SetEnvPrefix("baton")
