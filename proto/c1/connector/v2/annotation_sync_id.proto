@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// SyncDetails is an annotation is used to communicate with the connector store, often for a _previous_ sync.
+message ActiveSync {
+  string id = 1;
+}
