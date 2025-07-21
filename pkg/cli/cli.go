@@ -12,7 +12,9 @@ import (
 	"github.com/spf13/viper"
 )
 
-type GetConnectorFunc[T field.Configurable] func(context.Context, T) (types.ConnectorServer, error)
+// GetConnectorFunc is a function type that creates a connector instance.
+// It takes a context, configuration, and session cache constructor.
+type GetConnectorFunc[T field.Configurable] func(ctx context.Context, cfg T, sessionCacheConstructor types.SessionCacheConstructor) (types.ConnectorServer, error)
 
 func MakeGenericConfiguration[T field.Configurable](v *viper.Viper) (T, error) {
 	// Create an instance of the struct type T using reflection

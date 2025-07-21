@@ -32,7 +32,7 @@ func entrypoint(ctx context.Context, cfg field.Configuration, args ...string) (*
 	return v, nil
 }
 
-func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, error) {
+func getConnector(ctx context.Context, v *viper.Viper, sessionCacheConstructor types.SessionCacheConstructor) (types.ConnectorServer, error) {
 	dummyConnector := NewDummy()
 
 	c, err := connectorbuilder.NewConnector(ctx, dummyConnector)

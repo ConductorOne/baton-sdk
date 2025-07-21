@@ -145,7 +145,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to validate config: %w", err)
 		}
 
-		c, err := getconnector(runCtx, t)
+		c, err := getconnector(runCtx, t, defaultSessionCacheConstructor)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
 		}
