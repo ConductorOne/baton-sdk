@@ -113,7 +113,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 	out, nextPageToken, annos, err := rb.List(ctx, request.ParentResourceId, &pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
-	}, resource.Options{})
+	}, resource.Options{Session: WithSyncId(b.sessionStore, request.ActiveSyncId), SyncID: request.ActiveSyncId})
 
 	resp := &v2.ResourcesServiceListResourcesResponse{
 		List:          out,
@@ -178,7 +178,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 	out, nextPageToken, annos, err := rb.Entitlements(ctx, request.Resource, &pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
-	}, resource.Options{})
+	}, resource.Options{Session: WithSyncId(b.sessionStore, request.ActiveSyncId), SyncID: request.ActiveSyncId})
 
 	resp := &v2.EntitlementsServiceListEntitlementsResponse{
 		List:          out,
@@ -215,7 +215,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	out, nextPageToken, annos, err := rb.Grants(ctx, request.Resource, &pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
-	}, resource.Options{})
+	}, resource.Options{Session: WithSyncId(b.sessionStore, request.ActiveSyncId), SyncID: request.ActiveSyncId})
 
 	resp := &v2.GrantsServiceListGrantsResponse{
 		List:          out,

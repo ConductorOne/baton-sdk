@@ -57,35 +57,35 @@ func exhaustPagination[T any, R any](
 
 func ExhaustResourcePagination(
 	ctx context.Context,
-	c connectorbuilder.ResourceSyncer,
+	c connectorbuilder.ResourceSyncerLimited,
 ) (
 	[]*v2.Resource,
 	annotations.Annotations,
 	error,
 ) {
-	return exhaustPagination[v2.Resource, v2.ResourceId](ctx, nil, c.List)
+	return exhaustPagination(ctx, nil, c.List)
 }
 
 func ExhaustEntitlementPagination(
 	ctx context.Context,
-	c connectorbuilder.ResourceSyncer,
+	c connectorbuilder.ResourceSyncerLimited,
 	resource *v2.Resource,
 ) (
 	[]*v2.Entitlement,
 	annotations.Annotations,
 	error,
 ) {
-	return exhaustPagination[v2.Entitlement, v2.Resource](ctx, resource, c.Entitlements)
+	return exhaustPagination(ctx, resource, c.Entitlements)
 }
 
 func ExhaustGrantPagination(
 	ctx context.Context,
-	c connectorbuilder.ResourceSyncer,
+	c connectorbuilder.ResourceSyncerLimited,
 	resource *v2.Resource,
 ) (
 	[]*v2.Grant,
 	annotations.Annotations,
 	error,
 ) {
-	return exhaustPagination[v2.Grant, v2.Resource](ctx, resource, c.Grants)
+	return exhaustPagination(ctx, resource, c.Grants)
 }
