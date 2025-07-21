@@ -7,6 +7,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -25,11 +26,23 @@ import (
 // - AccountManager: For account provisioning operations
 // - CredentialManager: For credential rotation operations.
 // - ResourceTargetedSyncer: For directly getting a resource supporting targeted sync.
-type ResourceSyncer interface {
+
+type ResourceType interface {
 	ResourceType(ctx context.Context) *v2.ResourceType
+}
+
+type ResourceSyncer interface {
+	ResourceType
 	List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error)
 	Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error)
 	Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error)
+}
+
+type ResourceSyncer2 interface {
+	ResourceType
+	List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token, opts resource.Options) ([]*v2.Resource, string, annotations.Annotations, error)
+	Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token, opts resource.Options) ([]*v2.Entitlement, string, annotations.Annotations, error)
+	Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token, opts resource.Options) ([]*v2.Grant, string, annotations.Annotations, error)
 }
 
 // ResourceTargetedSyncer extends ResourceSyncer to add capabilities for directly syncing an individual resource
@@ -207,6 +220,30 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
+}
+
+func NewResourceSyncerV1toV2(rb ResourceSyncer) ResourceSyncer2 {
+	return &resourceSyncerV1toV2{rb: rb}
+}
+
+type resourceSyncerV1toV2 struct {
+	rb ResourceSyncer
+}
+
+func (rw *resourceSyncerV1toV2) ResourceType(ctx context.Context) *v2.ResourceType {
+	return rw.rb.ResourceType(ctx)
+}
+
+func (rw *resourceSyncerV1toV2) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token, opts resource.Options) ([]*v2.Resource, string, annotations.Annotations, error) {
+	return rw.rb.List(ctx, parentResourceID, pToken)
+}
+
+func (rw *resourceSyncerV1toV2) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token, opts resource.Options) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	return rw.rb.Entitlements(ctx, resource, pToken)
+}
+
+func (rw *resourceSyncerV1toV2) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token, opts resource.Options) ([]*v2.Grant, string, annotations.Annotations, error) {
+	return rw.rb.Grants(ctx, resource, pToken)
 }
 
 func (b *builder) addTargetedSyncer(_ context.Context, typeId string, rb ResourceSyncer) error {

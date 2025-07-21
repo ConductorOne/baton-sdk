@@ -21,8 +21,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
-	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 )
@@ -37,10 +37,25 @@ var tracer = otel.Tracer("baton-sdk/pkg.connectorbuilder")
 // - RegisterActionManager: For custom action support
 // - EventProvider: For event stream support
 // - TicketManager: For ticket management integration.
-type ConnectorBuilder interface {
+
+type MetadataProvider interface {
 	Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
+}
+
+type ValidateProvider interface {
 	Validate(ctx context.Context) (annotations.Annotations, error)
+}
+
+type ConnectorBuilder interface {
+	MetadataProvider
+	ValidateProvider
 	ResourceSyncers(ctx context.Context) []ResourceSyncer
+}
+
+type ConnectorBuilder2 interface {
+	MetadataProvider
+	ValidateProvider
+	ResourceSyncers(ctx context.Context) []ResourceSyncer2
 }
 
 type builder struct {
@@ -53,12 +68,14 @@ type builder struct {
 	actionManager           CustomActionManager
 	credentialManagers      map[string]CredentialManager
 	eventFeeds              map[string]EventFeed
-	cb                      ConnectorBuilder
+	metadataProvider        MetadataProvider
+	validateProvider        ValidateProvider
 	ticketManager           TicketManager
 	ticketingEnabled        bool
 	m                       *metrics.M
 	nowFunc                 func() time.Time
 	clientSecret            *jose.JSONWebKey
+	sessionStore            sessions.SessionStore
 }
 
 // NewConnector creates a new ConnectorServer for a new resource.
@@ -78,13 +95,14 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			actionManager:           nil,
 			credentialManagers:      make(map[string]CredentialManager),
 			eventFeeds:              make(map[string]EventFeed),
-			cb:                      c,
+			metadataProvider:        c,
+			validateProvider:        c,
 			ticketManager:           nil,
 			nowFunc:                 time.Now,
 			clientSecret:            clientSecretJWK,
 		}
 
-		err := b.options(opts...)
+		err := b.options(in, opts...)
 		if err != nil {
 			return nil, err
 		}
@@ -142,11 +160,11 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	}
 }
 
-type Opt func(b *builder) error
+type Opt func(b *builder, in interface{}) error
 
 func WithTicketingEnabled() Opt {
-	return func(b *builder) error {
-		if _, ok := b.cb.(TicketManager); ok {
+	return func(b *builder, in interface{}) error {
+		if _, ok := in.(TicketManager); ok {
 			b.ticketingEnabled = true
 			return nil
 		}
@@ -155,15 +173,22 @@ func WithTicketingEnabled() Opt {
 }
 
 func WithMetricsHandler(h metrics.Handler) Opt {
-	return func(b *builder) error {
+	return func(b *builder, in interface{}) error {
 		b.m = metrics.New(h)
 		return nil
 	}
 }
 
-func (b *builder) options(opts ...Opt) error {
+func WithSessionStore(ss sessions.SessionStore) Opt {
+	return func(b *builder, in interface{}) error {
+		b.sessionStore = ss
+		return nil
+	}
+}
+
+func (b *builder) options(cb interface{}, opts ...Opt) error {
 	for _, opt := range opts {
-		if err := opt(b); err != nil {
+		if err := opt(b, cb); err != nil {
 			return err
 		}
 	}
@@ -178,7 +203,7 @@ func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceG
 
 	start := b.nowFunc()
 	tt := tasks.GetMetadataType
-	md, err := b.cb.Metadata(ctx)
+	md, err := b.metadataProvider.Metadata(ctx)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, err
@@ -212,7 +237,7 @@ func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceVali
 	})
 
 	for {
-		annos, err := b.cb.Validate(ctx)
+		annos, err := b.validateProvider.Validate(ctx)
 		if err == nil {
 			return &v2.ConnectorServiceValidateResponse{
 				Annotations: annos,
@@ -231,18 +256,18 @@ func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceVali
 func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
 	l := ctxzap.Extract(ctx)
 
-	// Clear session cache if available in context
-	sessionCache, err := session.GetSession(ctx)
-	if err != nil {
-		l.Warn("error getting session cache", zap.Error(err))
-	} else if request.GetActiveSyncId() != "" {
-		err = sessionCache.Clear(ctx, session.WithSyncID(request.GetActiveSyncId()))
-		if err != nil {
-			l.Warn("error clearing session cache", zap.Error(err))
-		}
-	}
+	// // Clear session cache if available in context
+	// sessionCache, err := session.GetSession(ctx)
+	// if err != nil {
+	// 	l.Warn("error getting session cache", zap.Error(err))
+	// } else if request.GetActiveSyncId() != "" {
+	// 	err = sessionCache.Clear(ctx, session.WithSyncID(request.GetActiveSyncId()))
+	// 	if err != nil {
+	// 		l.Warn("error clearing session cache", zap.Error(err))
+	// 	}
+	// }
 	// Clear all http caches at the end of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
-	err = uhttp.ClearCaches(ctx)
+	err := uhttp.ClearCaches(ctx)
 	if err != nil {
 		l.Warn("error clearing http caches", zap.Error(err))
 	}

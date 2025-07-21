@@ -17,6 +17,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/retry"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -218,6 +219,7 @@ type syncer struct {
 	resourceTypeTraits                  map[string][]v2.ResourceType_Trait
 	syncType                            connectorstore.SyncType
 	injectSyncIDAnnotation              bool
+	setSessionStore                     session.SetSessionStore
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -350,6 +352,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if s.setSessionStore != nil {
+		ss, ok := s.store.(sessions.SessionStore)
+		if ok {
+			s.setSessionStore.SetSessionStore(ctx, ss)
+		}
+	}
 	resp, err := s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
 		return err
@@ -389,11 +397,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 		err = errors.New("no syncID found after starting or resuming sync")
 		l.Error("no syncID found after starting or resuming sync", zap.Error(err))
 		return err
-	}
-
-	// Add ActiveSync to context once after we have the syncID
-	if syncID != "" {
-		ctx = sessions.SetSyncIDInContext(ctx, syncID)
 	}
 
 	span.SetAttributes(attribute.String("sync_id", syncID))
@@ -2821,6 +2824,12 @@ func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
 		}
 		// No targeted resource IDs, so we need to update the sync type to either full or resources only.
 		WithSkipEntitlementsAndGrants(s.skipEntitlementsAndGrants)(s)
+	}
+}
+
+func WithSessionCache(sessionCache session.SetSessionStore) SyncOpt {
+	return func(s *syncer) {
+		s.setSessionStore = sessionCache
 	}
 }
 
