@@ -133,7 +133,7 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 	return nil
 }
 
-func (c *connectorRunner) backoff(ctx context.Context, errCount int) time.Duration {
+func (c *connectorRunner) backoff(_ context.Context, errCount int) time.Duration {
 	waitDuration := time.Duration(errCount*errCount) * time.Second
 	if waitDuration > time.Minute {
 		waitDuration = time.Minute

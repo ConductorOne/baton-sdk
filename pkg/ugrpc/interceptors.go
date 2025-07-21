@@ -39,7 +39,7 @@ func SessionCacheUnaryInterceptor(serverCtx context.Context) grpc.UnaryServerInt
 		// Propagate session cache from server context to handler context
 		ctx = ContextWithSyncID(ctx, req)
 
-		if sessionCache, ok := serverCtx.Value(types.SessionCacheKey{}).(types.SessionCache); ok {
+		if sessionCache, ok := serverCtx.Value(types.SessionCacheKey{}).(types.SessionStore); ok {
 			ctx = context.WithValue(ctx, types.SessionCacheKey{}, sessionCache)
 		}
 
@@ -53,7 +53,7 @@ func SessionCacheStreamInterceptor(serverCtx context.Context) grpc.StreamServerI
 		ctx := ss.Context()
 
 		// Propagate session cache from server context to stream context
-		if sessionCache, ok := serverCtx.Value(types.SessionCacheKey{}).(types.SessionCache); ok {
+		if sessionCache, ok := serverCtx.Value(types.SessionCacheKey{}).(types.SessionStore); ok {
 			ctx = context.WithValue(ctx, types.SessionCacheKey{}, sessionCache)
 		}
 

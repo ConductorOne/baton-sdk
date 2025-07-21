@@ -65,4 +65,7 @@ type Writer interface {
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	DeleteGrant(ctx context.Context, grantId string) error
+
+	// SessionStore is an optional interface that can be implemented by a connector store to provide session storage.
+	// types.SessionStore
 }
