@@ -227,8 +227,8 @@ func (b0 GetManyRequest_builder) Build() *GetManyRequest {
 
 type GetManyResponse struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	Value         []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	Items         []*GetManyItem         `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -258,40 +258,111 @@ func (x *GetManyResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *GetManyResponse) GetKey() string {
+func (x *GetManyResponse) GetItems() []*GetManyItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *GetManyResponse) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *GetManyResponse) SetItems(v []*GetManyItem) {
+	x.Items = v
+}
+
+func (x *GetManyResponse) SetPageToken(v string) {
+	x.PageToken = v
+}
+
+type GetManyResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Items     []*GetManyItem
+	PageToken string
+}
+
+func (b0 GetManyResponse_builder) Build() *GetManyResponse {
+	m0 := &GetManyResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Items = b.Items
+	x.PageToken = b.PageToken
+	return m0
+}
+
+type GetManyItem struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value         []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetManyItem) Reset() {
+	*x = GetManyItem{}
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetManyItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetManyItem) ProtoMessage() {}
+
+func (x *GetManyItem) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GetManyItem) GetKey() string {
 	if x != nil {
 		return x.Key
 	}
 	return ""
 }
 
-func (x *GetManyResponse) GetValue() []byte {
+func (x *GetManyItem) GetValue() []byte {
 	if x != nil {
 		return x.Value
 	}
 	return nil
 }
 
-func (x *GetManyResponse) SetKey(v string) {
+func (x *GetManyItem) SetKey(v string) {
 	x.Key = v
 }
 
-func (x *GetManyResponse) SetValue(v []byte) {
+func (x *GetManyItem) SetValue(v []byte) {
 	if v == nil {
 		v = []byte{}
 	}
 	x.Value = v
 }
 
-type GetManyResponse_builder struct {
+type GetManyItem_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Key   string
 	Value []byte
 }
 
-func (b0 GetManyResponse_builder) Build() *GetManyResponse {
-	m0 := &GetManyResponse{}
+func (b0 GetManyItem_builder) Build() *GetManyItem {
+	m0 := &GetManyItem{}
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Key = b.Key
@@ -309,7 +380,7 @@ type GetAllRequest struct {
 
 func (x *GetAllRequest) Reset() {
 	*x = GetAllRequest{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[4]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -321,7 +392,7 @@ func (x *GetAllRequest) String() string {
 func (*GetAllRequest) ProtoMessage() {}
 
 func (x *GetAllRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[4]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -372,16 +443,15 @@ func (b0 GetAllRequest_builder) Build() *GetAllRequest {
 
 type GetAllResponse struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
-	Value         []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
-	NextPageToken string                 `protobuf:"bytes,3,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	Items         []*GetAllItem          `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	PageToken     string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetAllResponse) Reset() {
 	*x = GetAllResponse{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[5]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -393,7 +463,7 @@ func (x *GetAllResponse) String() string {
 func (*GetAllResponse) ProtoMessage() {}
 
 func (x *GetAllResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[5]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -404,57 +474,115 @@ func (x *GetAllResponse) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *GetAllResponse) GetKey() string {
+func (x *GetAllResponse) GetItems() []*GetAllItem {
 	if x != nil {
-		return x.Key
-	}
-	return ""
-}
-
-func (x *GetAllResponse) GetValue() []byte {
-	if x != nil {
-		return x.Value
+		return x.Items
 	}
 	return nil
 }
 
-func (x *GetAllResponse) GetNextPageToken() string {
+func (x *GetAllResponse) GetPageToken() string {
 	if x != nil {
-		return x.NextPageToken
+		return x.PageToken
 	}
 	return ""
 }
 
-func (x *GetAllResponse) SetKey(v string) {
-	x.Key = v
+func (x *GetAllResponse) SetItems(v []*GetAllItem) {
+	x.Items = v
 }
 
-func (x *GetAllResponse) SetValue(v []byte) {
-	if v == nil {
-		v = []byte{}
-	}
-	x.Value = v
-}
-
-func (x *GetAllResponse) SetNextPageToken(v string) {
-	x.NextPageToken = v
+func (x *GetAllResponse) SetPageToken(v string) {
+	x.PageToken = v
 }
 
 type GetAllResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Key           string
-	Value         []byte
-	NextPageToken string
+	Items     []*GetAllItem
+	PageToken string
 }
 
 func (b0 GetAllResponse_builder) Build() *GetAllResponse {
 	m0 := &GetAllResponse{}
 	b, x := &b0, m0
 	_, _ = b, x
+	x.Items = b.Items
+	x.PageToken = b.PageToken
+	return m0
+}
+
+type GetAllItem struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Key           string                 `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	Value         []byte                 `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetAllItem) Reset() {
+	*x = GetAllItem{}
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetAllItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetAllItem) ProtoMessage() {}
+
+func (x *GetAllItem) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GetAllItem) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *GetAllItem) GetValue() []byte {
+	if x != nil {
+		return x.Value
+	}
+	return nil
+}
+
+func (x *GetAllItem) SetKey(v string) {
+	x.Key = v
+}
+
+func (x *GetAllItem) SetValue(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.Value = v
+}
+
+type GetAllItem_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Key   string
+	Value []byte
+}
+
+func (b0 GetAllItem_builder) Build() *GetAllItem {
+	m0 := &GetAllItem{}
+	b, x := &b0, m0
+	_, _ = b, x
 	x.Key = b.Key
 	x.Value = b.Value
-	x.NextPageToken = b.NextPageToken
 	return m0
 }
 
@@ -469,7 +597,7 @@ type SetRequest struct {
 
 func (x *SetRequest) Reset() {
 	*x = SetRequest{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[6]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -481,7 +609,7 @@ func (x *SetRequest) String() string {
 func (*SetRequest) ProtoMessage() {}
 
 func (x *SetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[6]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -554,7 +682,7 @@ type SetResponse struct {
 
 func (x *SetResponse) Reset() {
 	*x = SetResponse{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[7]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -566,7 +694,7 @@ func (x *SetResponse) String() string {
 func (*SetResponse) ProtoMessage() {}
 
 func (x *SetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[7]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -599,7 +727,7 @@ type SetManyRequest struct {
 
 func (x *SetManyRequest) Reset() {
 	*x = SetManyRequest{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[8]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -611,7 +739,7 @@ func (x *SetManyRequest) String() string {
 func (*SetManyRequest) ProtoMessage() {}
 
 func (x *SetManyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[8]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -668,7 +796,7 @@ type SetManyResponse struct {
 
 func (x *SetManyResponse) Reset() {
 	*x = SetManyResponse{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[9]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -680,7 +808,7 @@ func (x *SetManyResponse) String() string {
 func (*SetManyResponse) ProtoMessage() {}
 
 func (x *SetManyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[9]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -713,7 +841,7 @@ type DeleteRequest struct {
 
 func (x *DeleteRequest) Reset() {
 	*x = DeleteRequest{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[10]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -725,7 +853,7 @@ func (x *DeleteRequest) String() string {
 func (*DeleteRequest) ProtoMessage() {}
 
 func (x *DeleteRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[10]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -782,7 +910,7 @@ type DeleteResponse struct {
 
 func (x *DeleteResponse) Reset() {
 	*x = DeleteResponse{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[11]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -794,7 +922,7 @@ func (x *DeleteResponse) String() string {
 func (*DeleteResponse) ProtoMessage() {}
 
 func (x *DeleteResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[11]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -827,7 +955,7 @@ type DeleteManyRequest struct {
 
 func (x *DeleteManyRequest) Reset() {
 	*x = DeleteManyRequest{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[12]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -839,7 +967,7 @@ func (x *DeleteManyRequest) String() string {
 func (*DeleteManyRequest) ProtoMessage() {}
 
 func (x *DeleteManyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[12]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -896,7 +1024,7 @@ type DeleteManyResponse struct {
 
 func (x *DeleteManyResponse) Reset() {
 	*x = DeleteManyResponse{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[13]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -908,7 +1036,7 @@ func (x *DeleteManyResponse) String() string {
 func (*DeleteManyResponse) ProtoMessage() {}
 
 func (x *DeleteManyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[13]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -940,7 +1068,7 @@ type ClearRequest struct {
 
 func (x *ClearRequest) Reset() {
 	*x = ClearRequest{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[14]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -952,7 +1080,7 @@ func (x *ClearRequest) String() string {
 func (*ClearRequest) ProtoMessage() {}
 
 func (x *ClearRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[14]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -996,7 +1124,7 @@ type ClearResponse struct {
 
 func (x *ClearResponse) Reset() {
 	*x = ClearResponse{}
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[15]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1008,7 +1136,7 @@ func (x *ClearResponse) String() string {
 func (*ClearResponse) ProtoMessage() {}
 
 func (x *ClearResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[15]
+	mi := &file_c1_connectorapi_baton_v1_session_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1045,28 +1173,36 @@ const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\x05value\x18\x01 \x01(\fR\x05value\"o\n" +
 	"\x0eGetManyRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12*\n" +
-	"\x04keys\x18\x02 \x03(\tB\x16\xfaB\x13\x92\x01\x10\b\x01\x10\xc8\x01\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\"9\n" +
-	"\x0fGetManyResponse\x12\x10\n" +
+	"\x04keys\x18\x02 \x03(\tB\x16\xfaB\x13\x92\x01\x10\b\x01\x10\xc8\x01\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\"m\n" +
+	"\x0fGetManyResponse\x12;\n" +
+	"\x05items\x18\x01 \x03(\v2%.c1.connectorapi.baton.v1.GetManyItemR\x05items\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\"5\n" +
+	"\vGetManyItem\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\"a\n" +
 	"\rGetAllRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x02 \x01(\tR\tpageToken\"`\n" +
-	"\x0eGetAllResponse\x12\x10\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\"k\n" +
+	"\x0eGetAllResponse\x12:\n" +
+	"\x05items\x18\x01 \x03(\v2$.c1.connectorapi.baton.v1.GetAllItemR\x05items\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\"4\n" +
+	"\n" +
+	"GetAllItem\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value\x12&\n" +
-	"\x0fnext_page_token\x18\x03 \x01(\tR\rnextPageToken\"~\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\"~\n" +
 	"\n" +
 	"SetRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
 	"\x03key\x18\x02 \x01(\tB\n" +
 	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\x12\x1f\n" +
-	"\x05value\x18\x03 \x01(\fB\t\xfaB\x06z\x04\x18\x80\x80@R\x05value\"\r\n" +
+	"\x05value\x18\x03 \x01(\fB\t\xfaB\x06z\x04\x18\x80\xf8?R\x05value\"\r\n" +
 	"\vSetResponse\"\xe5\x01\n" +
 	"\x0eSetManyRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12e\n" +
-	"\x06values\x18\x02 \x03(\v24.c1.connectorapi.baton.v1.SetManyRequest.ValuesEntryB\x17\xfaB\x14\x9a\x01\x11\"\ar\x05\x10\x01\x18\x80\x02*\x06z\x04\x18\x80\x80@R\x06values\x1a9\n" +
+	"\x06values\x18\x02 \x03(\v24.c1.connectorapi.baton.v1.SetManyRequest.ValuesEntryB\x17\xfaB\x14\x9a\x01\x11\"\ar\x05\x10\x01\x18\x80\x02*\x06z\x04\x18\x80\xf8?R\x06values\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x11\n" +
@@ -1082,11 +1218,11 @@ const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\x12DeleteManyResponse\"A\n" +
 	"\fClearRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\"\x0f\n" +
-	"\rClearResponse2\x8e\x06\n" +
+	"\rClearResponse2\x8a\x06\n" +
 	"\x13BatonSessionService\x12T\n" +
-	"\x03Get\x12$.c1.connectorapi.baton.v1.GetRequest\x1a%.c1.connectorapi.baton.v1.GetResponse\"\x00\x12b\n" +
-	"\aGetMany\x12(.c1.connectorapi.baton.v1.GetManyRequest\x1a).c1.connectorapi.baton.v1.GetManyResponse\"\x000\x01\x12_\n" +
-	"\x06GetAll\x12'.c1.connectorapi.baton.v1.GetAllRequest\x1a(.c1.connectorapi.baton.v1.GetAllResponse\"\x000\x01\x12T\n" +
+	"\x03Get\x12$.c1.connectorapi.baton.v1.GetRequest\x1a%.c1.connectorapi.baton.v1.GetResponse\"\x00\x12`\n" +
+	"\aGetMany\x12(.c1.connectorapi.baton.v1.GetManyRequest\x1a).c1.connectorapi.baton.v1.GetManyResponse\"\x00\x12]\n" +
+	"\x06GetAll\x12'.c1.connectorapi.baton.v1.GetAllRequest\x1a(.c1.connectorapi.baton.v1.GetAllResponse\"\x00\x12T\n" +
 	"\x03Set\x12$.c1.connectorapi.baton.v1.SetRequest\x1a%.c1.connectorapi.baton.v1.SetResponse\"\x00\x12`\n" +
 	"\aSetMany\x12(.c1.connectorapi.baton.v1.SetManyRequest\x1a).c1.connectorapi.baton.v1.SetManyResponse\"\x00\x12]\n" +
 	"\x06Delete\x12'.c1.connectorapi.baton.v1.DeleteRequest\x1a(.c1.connectorapi.baton.v1.DeleteResponse\"\x00\x12i\n" +
@@ -1094,49 +1230,53 @@ const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"DeleteMany\x12+.c1.connectorapi.baton.v1.DeleteManyRequest\x1a,.c1.connectorapi.baton.v1.DeleteManyResponse\"\x00\x12Z\n" +
 	"\x05Clear\x12&.c1.connectorapi.baton.v1.ClearRequest\x1a'.c1.connectorapi.baton.v1.ClearResponse\"\x00B7Z5gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1b\x06proto3"
 
-var file_c1_connectorapi_baton_v1_session_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_c1_connectorapi_baton_v1_session_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_c1_connectorapi_baton_v1_session_proto_goTypes = []any{
 	(*GetRequest)(nil),         // 0: c1.connectorapi.baton.v1.GetRequest
 	(*GetResponse)(nil),        // 1: c1.connectorapi.baton.v1.GetResponse
 	(*GetManyRequest)(nil),     // 2: c1.connectorapi.baton.v1.GetManyRequest
 	(*GetManyResponse)(nil),    // 3: c1.connectorapi.baton.v1.GetManyResponse
-	(*GetAllRequest)(nil),      // 4: c1.connectorapi.baton.v1.GetAllRequest
-	(*GetAllResponse)(nil),     // 5: c1.connectorapi.baton.v1.GetAllResponse
-	(*SetRequest)(nil),         // 6: c1.connectorapi.baton.v1.SetRequest
-	(*SetResponse)(nil),        // 7: c1.connectorapi.baton.v1.SetResponse
-	(*SetManyRequest)(nil),     // 8: c1.connectorapi.baton.v1.SetManyRequest
-	(*SetManyResponse)(nil),    // 9: c1.connectorapi.baton.v1.SetManyResponse
-	(*DeleteRequest)(nil),      // 10: c1.connectorapi.baton.v1.DeleteRequest
-	(*DeleteResponse)(nil),     // 11: c1.connectorapi.baton.v1.DeleteResponse
-	(*DeleteManyRequest)(nil),  // 12: c1.connectorapi.baton.v1.DeleteManyRequest
-	(*DeleteManyResponse)(nil), // 13: c1.connectorapi.baton.v1.DeleteManyResponse
-	(*ClearRequest)(nil),       // 14: c1.connectorapi.baton.v1.ClearRequest
-	(*ClearResponse)(nil),      // 15: c1.connectorapi.baton.v1.ClearResponse
-	nil,                        // 16: c1.connectorapi.baton.v1.SetManyRequest.ValuesEntry
+	(*GetManyItem)(nil),        // 4: c1.connectorapi.baton.v1.GetManyItem
+	(*GetAllRequest)(nil),      // 5: c1.connectorapi.baton.v1.GetAllRequest
+	(*GetAllResponse)(nil),     // 6: c1.connectorapi.baton.v1.GetAllResponse
+	(*GetAllItem)(nil),         // 7: c1.connectorapi.baton.v1.GetAllItem
+	(*SetRequest)(nil),         // 8: c1.connectorapi.baton.v1.SetRequest
+	(*SetResponse)(nil),        // 9: c1.connectorapi.baton.v1.SetResponse
+	(*SetManyRequest)(nil),     // 10: c1.connectorapi.baton.v1.SetManyRequest
+	(*SetManyResponse)(nil),    // 11: c1.connectorapi.baton.v1.SetManyResponse
+	(*DeleteRequest)(nil),      // 12: c1.connectorapi.baton.v1.DeleteRequest
+	(*DeleteResponse)(nil),     // 13: c1.connectorapi.baton.v1.DeleteResponse
+	(*DeleteManyRequest)(nil),  // 14: c1.connectorapi.baton.v1.DeleteManyRequest
+	(*DeleteManyResponse)(nil), // 15: c1.connectorapi.baton.v1.DeleteManyResponse
+	(*ClearRequest)(nil),       // 16: c1.connectorapi.baton.v1.ClearRequest
+	(*ClearResponse)(nil),      // 17: c1.connectorapi.baton.v1.ClearResponse
+	nil,                        // 18: c1.connectorapi.baton.v1.SetManyRequest.ValuesEntry
 }
 var file_c1_connectorapi_baton_v1_session_proto_depIdxs = []int32{
-	16, // 0: c1.connectorapi.baton.v1.SetManyRequest.values:type_name -> c1.connectorapi.baton.v1.SetManyRequest.ValuesEntry
-	0,  // 1: c1.connectorapi.baton.v1.BatonSessionService.Get:input_type -> c1.connectorapi.baton.v1.GetRequest
-	2,  // 2: c1.connectorapi.baton.v1.BatonSessionService.GetMany:input_type -> c1.connectorapi.baton.v1.GetManyRequest
-	4,  // 3: c1.connectorapi.baton.v1.BatonSessionService.GetAll:input_type -> c1.connectorapi.baton.v1.GetAllRequest
-	6,  // 4: c1.connectorapi.baton.v1.BatonSessionService.Set:input_type -> c1.connectorapi.baton.v1.SetRequest
-	8,  // 5: c1.connectorapi.baton.v1.BatonSessionService.SetMany:input_type -> c1.connectorapi.baton.v1.SetManyRequest
-	10, // 6: c1.connectorapi.baton.v1.BatonSessionService.Delete:input_type -> c1.connectorapi.baton.v1.DeleteRequest
-	12, // 7: c1.connectorapi.baton.v1.BatonSessionService.DeleteMany:input_type -> c1.connectorapi.baton.v1.DeleteManyRequest
-	14, // 8: c1.connectorapi.baton.v1.BatonSessionService.Clear:input_type -> c1.connectorapi.baton.v1.ClearRequest
-	1,  // 9: c1.connectorapi.baton.v1.BatonSessionService.Get:output_type -> c1.connectorapi.baton.v1.GetResponse
-	3,  // 10: c1.connectorapi.baton.v1.BatonSessionService.GetMany:output_type -> c1.connectorapi.baton.v1.GetManyResponse
-	5,  // 11: c1.connectorapi.baton.v1.BatonSessionService.GetAll:output_type -> c1.connectorapi.baton.v1.GetAllResponse
-	7,  // 12: c1.connectorapi.baton.v1.BatonSessionService.Set:output_type -> c1.connectorapi.baton.v1.SetResponse
-	9,  // 13: c1.connectorapi.baton.v1.BatonSessionService.SetMany:output_type -> c1.connectorapi.baton.v1.SetManyResponse
-	11, // 14: c1.connectorapi.baton.v1.BatonSessionService.Delete:output_type -> c1.connectorapi.baton.v1.DeleteResponse
-	13, // 15: c1.connectorapi.baton.v1.BatonSessionService.DeleteMany:output_type -> c1.connectorapi.baton.v1.DeleteManyResponse
-	15, // 16: c1.connectorapi.baton.v1.BatonSessionService.Clear:output_type -> c1.connectorapi.baton.v1.ClearResponse
-	9,  // [9:17] is the sub-list for method output_type
-	1,  // [1:9] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	4,  // 0: c1.connectorapi.baton.v1.GetManyResponse.items:type_name -> c1.connectorapi.baton.v1.GetManyItem
+	7,  // 1: c1.connectorapi.baton.v1.GetAllResponse.items:type_name -> c1.connectorapi.baton.v1.GetAllItem
+	18, // 2: c1.connectorapi.baton.v1.SetManyRequest.values:type_name -> c1.connectorapi.baton.v1.SetManyRequest.ValuesEntry
+	0,  // 3: c1.connectorapi.baton.v1.BatonSessionService.Get:input_type -> c1.connectorapi.baton.v1.GetRequest
+	2,  // 4: c1.connectorapi.baton.v1.BatonSessionService.GetMany:input_type -> c1.connectorapi.baton.v1.GetManyRequest
+	5,  // 5: c1.connectorapi.baton.v1.BatonSessionService.GetAll:input_type -> c1.connectorapi.baton.v1.GetAllRequest
+	8,  // 6: c1.connectorapi.baton.v1.BatonSessionService.Set:input_type -> c1.connectorapi.baton.v1.SetRequest
+	10, // 7: c1.connectorapi.baton.v1.BatonSessionService.SetMany:input_type -> c1.connectorapi.baton.v1.SetManyRequest
+	12, // 8: c1.connectorapi.baton.v1.BatonSessionService.Delete:input_type -> c1.connectorapi.baton.v1.DeleteRequest
+	14, // 9: c1.connectorapi.baton.v1.BatonSessionService.DeleteMany:input_type -> c1.connectorapi.baton.v1.DeleteManyRequest
+	16, // 10: c1.connectorapi.baton.v1.BatonSessionService.Clear:input_type -> c1.connectorapi.baton.v1.ClearRequest
+	1,  // 11: c1.connectorapi.baton.v1.BatonSessionService.Get:output_type -> c1.connectorapi.baton.v1.GetResponse
+	3,  // 12: c1.connectorapi.baton.v1.BatonSessionService.GetMany:output_type -> c1.connectorapi.baton.v1.GetManyResponse
+	6,  // 13: c1.connectorapi.baton.v1.BatonSessionService.GetAll:output_type -> c1.connectorapi.baton.v1.GetAllResponse
+	9,  // 14: c1.connectorapi.baton.v1.BatonSessionService.Set:output_type -> c1.connectorapi.baton.v1.SetResponse
+	11, // 15: c1.connectorapi.baton.v1.BatonSessionService.SetMany:output_type -> c1.connectorapi.baton.v1.SetManyResponse
+	13, // 16: c1.connectorapi.baton.v1.BatonSessionService.Delete:output_type -> c1.connectorapi.baton.v1.DeleteResponse
+	15, // 17: c1.connectorapi.baton.v1.BatonSessionService.DeleteMany:output_type -> c1.connectorapi.baton.v1.DeleteManyResponse
+	17, // 18: c1.connectorapi.baton.v1.BatonSessionService.Clear:output_type -> c1.connectorapi.baton.v1.ClearResponse
+	11, // [11:19] is the sub-list for method output_type
+	3,  // [3:11] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_c1_connectorapi_baton_v1_session_proto_init() }
@@ -1150,7 +1290,7 @@ func file_c1_connectorapi_baton_v1_session_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connectorapi_baton_v1_session_proto_rawDesc), len(file_c1_connectorapi_baton_v1_session_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

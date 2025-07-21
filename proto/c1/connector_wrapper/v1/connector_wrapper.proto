@@ -10,5 +10,6 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v
 message ServerConfig {
   utls.v1.Credential credential = 1;
   ratelimit.v1.RateLimiterConfig rate_limiter_config = 2;
-  uint32 listen_port = 3;
+  uint32 listen_port = 3; // The port the connector (child process) will listen on for incoming connector requests.
+  uint32 session_store_listen_port = 4; // The port the sdk (parent process) will listen on for incoming cache requests.
 }
