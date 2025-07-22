@@ -52,23 +52,7 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 		r.attempts = 0
 		return true
 	}
-
-	// Check if error contains rate limit data
-	hasRateLimitData := false
-	if st, ok := status.FromError(err); ok {
-		details := st.Details()
-		for _, detail := range details {
-			if _, ok := detail.(*v2.RateLimitDescription); ok {
-				hasRateLimitData = true
-				break
-			}
-		}
-	}
-
-	// Retry on Unavailable, DeadlineExceeded, ResourceExhausted, or Unknown with rate limit data
-	if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded &&
-		status.Code(err) != codes.ResourceExhausted &&
-		!(status.Code(err) == codes.Unknown && hasRateLimitData) {
+	if status.Code(err) != codes.Unavailable && status.Code(err) != codes.DeadlineExceeded {
 		return false
 	}
 
