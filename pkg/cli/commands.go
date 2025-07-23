@@ -37,7 +37,7 @@ const (
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
 // defaultSessionCacheConstructor creates a default in-memory session cache.
-func defaultSessionCacheConstructor(ctx context.Context, opt ...types.SessionCacheOption) (types.SessionCache, error) {
+func defaultSessionCacheConstructor(ctx context.Context, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
 	return session.NewMemorySessionCache(ctx, opt...)
 }
 
@@ -294,7 +294,13 @@ func MakeMainCommand[T field.Configurable](
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
 
-		c, err := getconnector(runCtx, t, defaultSessionCacheConstructor)
+		// Create session cache and add to context
+		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
+		if err != nil {
+			return fmt.Errorf("failed to create session cache: %w", err)
+		}
+
+		c, err := getconnector(runCtx, t)
 		if err != nil {
 			return err
 		}
@@ -404,7 +410,13 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
-		c, err := getconnector(runCtx, t, defaultSessionCacheConstructor)
+		// Create session cache and add to context
+		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
+		if err != nil {
+			return fmt.Errorf("failed to create session cache: %w", err)
+		}
+
+		c, err := getconnector(runCtx, t)
 		if err != nil {
 			return err
 		}
@@ -530,7 +542,13 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
 
-		c, err := getconnector(runCtx, t, defaultSessionCacheConstructor)
+		// Create session cache and add to context
+		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
+		if err != nil {
+			return fmt.Errorf("failed to create session cache: %w", err)
+		}
+
+		c, err := getconnector(runCtx, t)
 		if err != nil {
 			return err
 		}
