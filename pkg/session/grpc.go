@@ -23,11 +23,16 @@ type GRPCSessionCache struct {
 
 // NewGRPCSessionCache creates a new gRPC-based session cache.
 func NewGRPCSessionCache(ctx context.Context, serverAddr string, opts ...GRPCOption) (types.SessionCache, error) {
+	return NewGRPCSessionCacheWithOptions(ctx, serverAddr, opts...)
+}
+
+// NewGRPCSessionCacheWithOptions creates a new gRPC-based session cache with constructor options.
+func NewGRPCSessionCacheWithOptions(ctx context.Context, serverAddr string, grpcOpts ...GRPCOption) (types.SessionCache, error) {
 	config := &grpcConfig{
 		timeout: 30 * time.Second,
 	}
 
-	for _, opt := range opts {
+	for _, opt := range grpcOpts {
 		opt(config)
 	}
 
@@ -85,15 +90,24 @@ func (g *GRPCSessionCache) createTimeoutContext(ctx context.Context) (context.Co
 	return context.WithTimeout(ctx, g.timeout)
 }
 
-// Get retrieves a value from the cache by namespace and key.
-func (g *GRPCSessionCache) Get(ctx context.Context, namespace, key string) ([]byte, bool, error) {
+// Get retrieves a value from the cache by key.
+func (g *GRPCSessionCache) Get(ctx context.Context, key string, opt ...types.SessionCacheOption) ([]byte, bool, error) {
+	bag, err := applyOptions(ctx, opt...)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if bag.Prefix != "" {
+		key = bag.Prefix + "::" + key
+	}
+
 	ctx = g.addAuthHeader(ctx)
 	ctx, cancel := g.createTimeoutContext(ctx)
 	defer cancel()
 
 	req := &batonv1.GetRequest{
-		SyncId:    "default", // TODO: Get sync_id from context or parameter
-		Namespace: namespace,
+		SyncId:    bag.SyncID,
+		Namespace: "",
 		Key:       key,
 	}
 
@@ -105,15 +119,24 @@ func (g *GRPCSessionCache) Get(ctx context.Context, namespace, key string) ([]by
 	return resp.Value, resp.Found, nil
 }
 
-// Set stores a value in the cache with the given namespace and key.
-func (g *GRPCSessionCache) Set(ctx context.Context, namespace, key string, value []byte) error {
+// Set stores a value in the cache with the given key.
+func (g *GRPCSessionCache) Set(ctx context.Context, key string, value []byte, opt ...types.SessionCacheOption) error {
+	bag, err := applyOptions(ctx, opt...)
+	if err != nil {
+		return err
+	}
+
+	if bag.Prefix != "" {
+		key = bag.Prefix + "::" + key
+	}
+
 	ctx = g.addAuthHeader(ctx)
 	ctx, cancel := g.createTimeoutContext(ctx)
 	defer cancel()
 
 	req := &batonv1.SetRequest{
-		SyncId:    "default", // TODO: Get sync_id from context or parameter
-		Namespace: namespace,
+		SyncId:    bag.SyncID,
+		Namespace: "",
 		Key:       key,
 		Value:     value,
 	}
@@ -130,15 +153,24 @@ func (g *GRPCSessionCache) Set(ctx context.Context, namespace, key string, value
 	return nil
 }
 
-// Delete removes a value from the cache by namespace and key.
-func (g *GRPCSessionCache) Delete(ctx context.Context, namespace, key string) error {
+// Delete removes a value from the cache by key.
+func (g *GRPCSessionCache) Delete(ctx context.Context, key string, opt ...types.SessionCacheOption) error {
+	bag, err := applyOptions(ctx, opt...)
+	if err != nil {
+		return err
+	}
+
+	if bag.Prefix != "" {
+		key = bag.Prefix + "::" + key
+	}
+
 	ctx = g.addAuthHeader(ctx)
 	ctx, cancel := g.createTimeoutContext(ctx)
 	defer cancel()
 
 	req := &batonv1.DeleteRequest{
-		SyncId:    "default", // TODO: Get sync_id from context or parameter
-		Namespace: namespace,
+		SyncId:    bag.SyncID,
+		Namespace: "",
 		Key:       key,
 	}
 
@@ -155,12 +187,21 @@ func (g *GRPCSessionCache) Delete(ctx context.Context, namespace, key string) er
 }
 
 // Clear removes all values from the cache.
-func (g *GRPCSessionCache) Clear(ctx context.Context) error {
+func (g *GRPCSessionCache) Clear(ctx context.Context, opt ...types.SessionCacheOption) error {
+	bag, err := applyOptions(ctx, opt...)
+	if err != nil {
+		return err
+	}
+
 	ctx = g.addAuthHeader(ctx)
 	ctx, cancel := g.createTimeoutContext(ctx)
 	defer cancel()
 
-	resp, err := g.client.Clear(ctx, &batonv1.ClearRequest{})
+	req := &batonv1.ClearRequest{
+		SyncId: bag.SyncID,
+	}
+
+	resp, err := g.client.Clear(ctx, req)
 	if err != nil {
 		return fmt.Errorf("gRPC clear failed: %w", err)
 	}
@@ -172,15 +213,20 @@ func (g *GRPCSessionCache) Clear(ctx context.Context) error {
 	return nil
 }
 
-// GetAll returns all key-value pairs in a namespace.
-func (g *GRPCSessionCache) GetAll(ctx context.Context, namespace string) (map[string][]byte, error) {
+// GetAll returns all key-value pairs.
+func (g *GRPCSessionCache) GetAll(ctx context.Context, opt ...types.SessionCacheOption) (map[string][]byte, error) {
+	bag, err := applyOptions(ctx, opt...)
+	if err != nil {
+		return nil, err
+	}
+
 	ctx = g.addAuthHeader(ctx)
 	ctx, cancel := g.createTimeoutContext(ctx)
 	defer cancel()
 
 	req := &batonv1.GetAllRequest{
-		SyncId:    "default", // TODO: Get sync_id from context or parameter
-		Namespace: namespace,
+		SyncId:    bag.SyncID,
+		Namespace: "",
 	}
 
 	resp, err := g.client.GetAll(ctx, req)
@@ -191,15 +237,27 @@ func (g *GRPCSessionCache) GetAll(ctx context.Context, namespace string) (map[st
 	return resp.Values, nil
 }
 
-// GetMany retrieves multiple values from the cache by namespace and keys.
-func (g *GRPCSessionCache) GetMany(ctx context.Context, namespace string, keys []string) (map[string][]byte, error) {
+// GetMany retrieves multiple values from the cache by keys.
+func (g *GRPCSessionCache) GetMany(ctx context.Context, keys []string, opt ...types.SessionCacheOption) (map[string][]byte, error) {
+	bag, err := applyOptions(ctx, opt...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply prefix to all keys if needed
+	if bag.Prefix != "" {
+		for i, key := range keys {
+			keys[i] = bag.Prefix + "::" + key
+		}
+	}
+
 	ctx = g.addAuthHeader(ctx)
 	ctx, cancel := g.createTimeoutContext(ctx)
 	defer cancel()
 
 	req := &batonv1.GetManyRequest{
-		SyncId:    "default", // TODO: Get sync_id from context or parameter
-		Namespace: namespace,
+		SyncId:    bag.SyncID,
+		Namespace: "",
 		Keys:      keys,
 	}
 
@@ -211,16 +269,30 @@ func (g *GRPCSessionCache) GetMany(ctx context.Context, namespace string, keys [
 	return resp.Values, nil
 }
 
-// SetMany stores multiple values in the cache with the given namespace.
-func (g *GRPCSessionCache) SetMany(ctx context.Context, namespace string, values map[string][]byte) error {
+// SetMany stores multiple values in the cache.
+func (g *GRPCSessionCache) SetMany(ctx context.Context, values map[string][]byte, opt ...types.SessionCacheOption) error {
+	bag, err := applyOptions(ctx, opt...)
+	if err != nil {
+		return err
+	}
+
+	// Apply prefix to all keys if needed
+	prefixedValues := make(map[string][]byte)
+	for key, value := range values {
+		if bag.Prefix != "" {
+			key = bag.Prefix + "::" + key
+		}
+		prefixedValues[key] = value
+	}
+
 	ctx = g.addAuthHeader(ctx)
 	ctx, cancel := g.createTimeoutContext(ctx)
 	defer cancel()
 
 	req := &batonv1.SetManyRequest{
-		SyncId:    "default", // TODO: Get sync_id from context or parameter
-		Namespace: namespace,
-		Values:    values,
+		SyncId:    bag.SyncID,
+		Namespace: "",
+		Values:    prefixedValues,
 	}
 
 	resp, err := g.client.SetMany(ctx, req)
@@ -241,4 +313,12 @@ func (g *GRPCSessionCache) Close() error {
 		return g.conn.Close()
 	}
 	return nil
+}
+
+// WithNamespace returns a curried session cache that operates within a fixed namespace.
+func (g *GRPCSessionCache) WithNamespace(namespace string) types.SessionCache {
+	return &namespacedSessionCache{
+		cache:     g,
+		namespace: namespace,
+	}
 }

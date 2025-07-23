@@ -19,6 +19,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
@@ -686,6 +687,11 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 		return nil, fmt.Errorf("error: list resources with unknown resource type %s", request.ResourceTypeId)
 	}
 
+	ctx, err := annotations.SetActiveSyncIdInContext(ctx, request.Annotations)
+	if err != nil {
+		return nil, fmt.Errorf("error: setting active sync id in context: %w", err)
+	}
+
 	out, nextPageToken, annos, err := rb.List(ctx, request.ParentResourceId, &pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
@@ -721,6 +727,11 @@ func (b *builderImpl) GetResource(ctx context.Context, request *v2.ResourceGette
 		return nil, status.Errorf(codes.Unimplemented, "error: get resource with unknown resource type %s", resourceType)
 	}
 
+	ctx, err := annotations.SetActiveSyncIdInContext(ctx, request.Annotations)
+	if err != nil {
+		return nil, fmt.Errorf("error: setting active sync id in context: %w", err)
+	}
+
 	resource, annos, err := rb.Get(ctx, request.GetResourceId(), request.GetParentResourceId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
@@ -749,6 +760,11 @@ func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.Entitlem
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list entitlements with unknown resource type %s", request.Resource.Id.ResourceType)
+	}
+
+	ctx, err := annotations.SetActiveSyncIdInContext(ctx, request.Annotations)
+	if err != nil {
+		return nil, fmt.Errorf("error: setting active sync id in context: %w", err)
 	}
 
 	out, nextPageToken, annos, err := rb.Entitlements(ctx, request.Resource, &pagination.Token{
@@ -785,6 +801,11 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list entitlements with unknown resource type %s", rid.ResourceType)
+	}
+
+	ctx, err := annotations.SetActiveSyncIdInContext(ctx, request.Annotations)
+	if err != nil {
+		return nil, fmt.Errorf("error: setting active sync id in context: %w", err)
 	}
 
 	out, nextPageToken, annos, err := rb.Grants(ctx, request.Resource, &pagination.Token{
@@ -1282,8 +1303,25 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 
 func (b *builderImpl) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
 	l := ctxzap.Extract(ctx)
+
+	// Clear session cache if available in context
+	sessionCache, err := cli.GetSessionCache(ctx)
+	if err != nil {
+		l.Warn("error getting session cache", zap.Error(err))
+	} else {
+		activeSync, err := annotations.GetActiveSyncIdFromAnnotations(annotations.Annotations(request.GetAnnotations()))
+		if err != nil {
+			l.Warn("error getting active sync id", zap.Error(err))
+		}
+		if activeSync != "" {
+			err = sessionCache.Clear(ctx)
+			if err != nil {
+				l.Warn("error clearing session cache", zap.Error(err))
+			}
+		}
+	}
 	// Clear all http caches at the end of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
-	err := uhttp.ClearCaches(ctx)
+	err = uhttp.ClearCaches(ctx)
 	if err != nil {
 		l.Warn("error clearing http caches", zap.Error(err))
 	}
