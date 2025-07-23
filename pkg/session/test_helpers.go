@@ -35,27 +35,3 @@ func (m *MemorySessionCache) GetManyWithSyncID(ctx context.Context, syncID strin
 func (m *MemorySessionCache) SetManyWithSyncID(ctx context.Context, syncID string, values map[string][]byte) error {
 	return m.SetMany(ctx, values, types.WithSyncID(syncID))
 }
-
-func (n *namespacedSessionCache) GetWithSyncID(ctx context.Context, syncID, key string) ([]byte, bool, error) {
-	return n.Get(ctx, key, types.WithSyncID(syncID))
-}
-
-func (n *namespacedSessionCache) SetWithSyncID(ctx context.Context, syncID, key string, value []byte) error {
-	return n.Set(ctx, key, value, types.WithSyncID(syncID))
-}
-
-func (n *namespacedSessionCache) DeleteWithSyncID(ctx context.Context, syncID, key string) error {
-	return n.Delete(ctx, key, types.WithSyncID(syncID))
-}
-
-func (n *namespacedSessionCache) GetAllWithSyncID(ctx context.Context, syncID string) (map[string][]byte, error) {
-	return n.GetAll(ctx, types.WithSyncID(syncID))
-}
-
-func (n *namespacedSessionCache) GetManyWithSyncID(ctx context.Context, syncID string, keys []string) (map[string][]byte, error) {
-	return n.GetMany(ctx, keys, types.WithSyncID(syncID))
-}
-
-func (n *namespacedSessionCache) SetManyWithSyncID(ctx context.Context, syncID string, values map[string][]byte) error {
-	return n.SetMany(ctx, values, types.WithSyncID(syncID))
-}

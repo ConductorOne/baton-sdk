@@ -20,8 +20,6 @@ type SessionCache interface {
 	GetAll(ctx context.Context, opt ...SessionCacheOption) (map[string][]byte, error)
 	// Close performs any necessary cleanup when the cache is no longer needed.
 	Close() error
-	// WithNamespace returns a curried session cache that operates within a fixed namespace.
-	WithNamespace(namespace string) SessionCache
 }
 
 type SessionCacheBag struct {
