@@ -1130,3 +1130,339 @@ func TestMemorySessionCache_WithNamespace(t *testing.T) {
 		wg.Wait()
 	})
 }
+
+func TestMemorySessionCache_Propagation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("propagation_across_cache_instances", func(t *testing.T) {
+		// Create two separate cache instances
+		cache1, err := NewMemorySessionCache(ctx)
+		require.NoError(t, err)
+		defer cache1.Close()
+
+		cache2, err := NewMemorySessionCache(ctx)
+		require.NoError(t, err)
+		defer cache2.Close()
+
+		memCache1 := cache1.(*MemorySessionCache)
+		memCache2 := cache2.(*MemorySessionCache)
+
+		// Set data in cache1
+		testData := []byte("propagated-value")
+		err = memCache1.SetWithSyncID(ctx, "test-sync", "propagation-key", testData)
+		require.NoError(t, err)
+
+		// Verify data is accessible in cache1
+		value, found, err := memCache1.GetWithSyncID(ctx, "test-sync", "propagation-key")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, testData, value)
+
+		// Verify data is NOT accessible in cache2 (separate instances are isolated)
+		value, found, err = memCache2.GetWithSyncID(ctx, "test-sync", "propagation-key")
+		require.NoError(t, err)
+		assert.False(t, found)
+		assert.Nil(t, value)
+	})
+
+	t.Run("propagation_with_namespaced_caches", func(t *testing.T) {
+		// Create a base cache
+		baseCache, err := NewMemorySessionCache(ctx)
+		require.NoError(t, err)
+		defer baseCache.Close()
+
+		// Create namespaced caches from the same base cache
+		nsCache1 := baseCache.WithNamespace("namespace1")
+		nsCache2 := baseCache.WithNamespace("namespace2")
+		nsCache1Mem := nsCache1.(*namespacedSessionCache)
+		nsCache2Mem := nsCache2.(*namespacedSessionCache)
+
+		// Set data in namespace1
+		testData1 := []byte("namespace1-value")
+		err = nsCache1Mem.SetWithSyncID(ctx, "test-sync", "shared-key", testData1)
+		require.NoError(t, err)
+
+		// Set data in namespace2
+		testData2 := []byte("namespace2-value")
+		err = nsCache2Mem.SetWithSyncID(ctx, "test-sync", "shared-key", testData2)
+		require.NoError(t, err)
+
+		// Verify namespace isolation - each namespace has its own value for the same key
+		value1, found, err := nsCache1Mem.GetWithSyncID(ctx, "test-sync", "shared-key")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, testData1, value1)
+
+		value2, found, err := nsCache2Mem.GetWithSyncID(ctx, "test-sync", "shared-key")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, testData2, value2)
+
+		// Verify the values are different
+		assert.NotEqual(t, value1, value2)
+	})
+
+	t.Run("propagation_with_syncid_isolation", func(t *testing.T) {
+		cache, err := NewMemorySessionCache(ctx)
+		require.NoError(t, err)
+		defer cache.Close()
+
+		memCache := cache.(*MemorySessionCache)
+
+		// Set data with different syncIDs
+		err = memCache.SetWithSyncID(ctx, "sync1", "shared-key", []byte("sync1-value"))
+		require.NoError(t, err)
+
+		err = memCache.SetWithSyncID(ctx, "sync2", "shared-key", []byte("sync2-value"))
+		require.NoError(t, err)
+
+		// Verify syncID isolation
+		value1, found, err := memCache.GetWithSyncID(ctx, "sync1", "shared-key")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, []byte("sync1-value"), value1)
+
+		value2, found, err := memCache.GetWithSyncID(ctx, "sync2", "shared-key")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, []byte("sync2-value"), value2)
+
+		// Verify the values are different
+		assert.NotEqual(t, value1, value2)
+	})
+
+	t.Run("propagation_with_mixed_operations", func(t *testing.T) {
+		cache, err := NewMemorySessionCache(ctx)
+		require.NoError(t, err)
+		defer cache.Close()
+
+		memCache := cache.(*MemorySessionCache)
+
+		// Set multiple values in different syncIDs
+		testData := map[string][]byte{
+			"key1": []byte("value1"),
+			"key2": []byte("value2"),
+			"key3": []byte("value3"),
+		}
+
+		// Set in sync1
+		err = memCache.SetManyWithSyncID(ctx, "sync1", testData)
+		require.NoError(t, err)
+
+		// Set different data in sync2
+		testData2 := map[string][]byte{
+			"key1": []byte("sync2-value1"),
+			"key2": []byte("sync2-value2"),
+		}
+		err = memCache.SetManyWithSyncID(ctx, "sync2", testData2)
+		require.NoError(t, err)
+
+		// Verify GetAll returns correct data for each syncID
+		values1, err := memCache.GetAllWithSyncID(ctx, "sync1")
+		require.NoError(t, err)
+		assert.Equal(t, testData, values1)
+
+		values2, err := memCache.GetAllWithSyncID(ctx, "sync2")
+		require.NoError(t, err)
+		assert.Equal(t, testData2, values2)
+
+		// Verify GetMany works correctly
+		keys := []string{"key1", "key2"}
+		manyValues1, err := memCache.GetManyWithSyncID(ctx, "sync1", keys)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]byte{
+			"key1": []byte("value1"),
+			"key2": []byte("value2"),
+		}, manyValues1)
+
+		manyValues2, err := memCache.GetManyWithSyncID(ctx, "sync2", keys)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]byte{
+			"key1": []byte("sync2-value1"),
+			"key2": []byte("sync2-value2"),
+		}, manyValues2)
+	})
+
+	t.Run("propagation_with_delete_operations", func(t *testing.T) {
+		cache, err := NewMemorySessionCache(ctx)
+		require.NoError(t, err)
+		defer cache.Close()
+
+		memCache := cache.(*MemorySessionCache)
+
+		// Set data in multiple syncIDs
+		err = memCache.SetWithSyncID(ctx, "sync1", "key1", []byte("value1"))
+		require.NoError(t, err)
+		err = memCache.SetWithSyncID(ctx, "sync2", "key1", []byte("value2"))
+		require.NoError(t, err)
+
+		// Verify both exist
+		_, found, err := memCache.GetWithSyncID(ctx, "sync1", "key1")
+		require.NoError(t, err)
+		assert.True(t, found)
+
+		value2, found, err := memCache.GetWithSyncID(ctx, "sync2", "key1")
+		require.NoError(t, err)
+		assert.True(t, found)
+
+		// Delete from sync1 only
+		err = memCache.DeleteWithSyncID(ctx, "sync1", "key1")
+		require.NoError(t, err)
+
+		// Verify sync1 is deleted but sync2 remains
+		_, found, err = memCache.GetWithSyncID(ctx, "sync1", "key1")
+		require.NoError(t, err)
+		assert.False(t, found)
+
+		value, found, err := memCache.GetWithSyncID(ctx, "sync2", "key1")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, value2, value)
+	})
+
+	t.Run("propagation_with_clear_operations", func(t *testing.T) {
+		cache, err := NewMemorySessionCache(ctx)
+		require.NoError(t, err)
+		defer cache.Close()
+
+		memCache := cache.(*MemorySessionCache)
+
+		// Set data in multiple syncIDs
+		err = memCache.SetWithSyncID(ctx, "sync1", "key1", []byte("value1"))
+		require.NoError(t, err)
+		err = memCache.SetWithSyncID(ctx, "sync1", "key2", []byte("value2"))
+		require.NoError(t, err)
+		err = memCache.SetWithSyncID(ctx, "sync2", "key1", []byte("value3"))
+		require.NoError(t, err)
+
+		// Verify all exist
+		_, found, err := memCache.GetWithSyncID(ctx, "sync1", "key1")
+		require.NoError(t, err)
+		assert.True(t, found)
+
+		_, found, err = memCache.GetWithSyncID(ctx, "sync2", "key1")
+		require.NoError(t, err)
+		assert.True(t, found)
+
+		// Clear sync1
+		err = memCache.ClearWithSyncID(ctx, "sync1")
+		require.NoError(t, err)
+
+		// Verify sync1 is cleared but sync2 remains
+		_, found, err = memCache.GetWithSyncID(ctx, "sync1", "key1")
+		require.NoError(t, err)
+		assert.False(t, found)
+
+		_, found, err = memCache.GetWithSyncID(ctx, "sync1", "key2")
+		require.NoError(t, err)
+		assert.False(t, found)
+
+		_, found, err = memCache.GetWithSyncID(ctx, "sync2", "key1")
+		require.NoError(t, err)
+		assert.True(t, found)
+	})
+
+	t.Run("propagation_with_concurrent_access", func(t *testing.T) {
+		cache, err := NewMemorySessionCache(ctx)
+		require.NoError(t, err)
+		defer cache.Close()
+
+		memCache := cache.(*MemorySessionCache)
+
+		const numGoroutines = 10
+		const operationsPerGoroutine = 50
+		var wg sync.WaitGroup
+
+		// Start concurrent goroutines that set and get data
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				syncID := fmt.Sprintf("sync-%d", id)
+
+				for j := 0; j < operationsPerGoroutine; j++ {
+					key := fmt.Sprintf("key-%d", j)
+					value := []byte(fmt.Sprintf("value-%d-%d", id, j))
+
+					// Set value
+					err := memCache.SetWithSyncID(ctx, syncID, key, value)
+					require.NoError(t, err)
+
+					// Get value
+					retrieved, found, err := memCache.GetWithSyncID(ctx, syncID, key)
+					require.NoError(t, err)
+					assert.True(t, found)
+					assert.Equal(t, value, retrieved)
+				}
+			}(i)
+		}
+
+		wg.Wait()
+
+		// Verify all data is properly propagated
+		for i := 0; i < numGoroutines; i++ {
+			syncID := fmt.Sprintf("sync-%d", i)
+			values, err := memCache.GetAllWithSyncID(ctx, syncID)
+			require.NoError(t, err)
+			assert.Len(t, values, operationsPerGoroutine)
+
+			for j := 0; j < operationsPerGoroutine; j++ {
+				key := fmt.Sprintf("key-%d", j)
+				expectedValue := []byte(fmt.Sprintf("value-%d-%d", i, j))
+				assert.Equal(t, expectedValue, values[key])
+			}
+		}
+	})
+
+	t.Run("propagation_with_namespace_and_syncid_combination", func(t *testing.T) {
+		// Create a base cache
+		baseCache, err := NewMemorySessionCache(ctx)
+		require.NoError(t, err)
+		defer baseCache.Close()
+
+		// Create namespaced caches
+		nsCache1 := baseCache.WithNamespace("namespace1")
+		nsCache2 := baseCache.WithNamespace("namespace2")
+		nsCache1Mem := nsCache1.(*namespacedSessionCache)
+		nsCache2Mem := nsCache2.(*namespacedSessionCache)
+
+		// Set data with different syncIDs in different namespaces
+		err = nsCache1Mem.SetWithSyncID(ctx, "sync1", "key1", []byte("ns1-sync1-value"))
+		require.NoError(t, err)
+		err = nsCache1Mem.SetWithSyncID(ctx, "sync2", "key1", []byte("ns1-sync2-value"))
+		require.NoError(t, err)
+		err = nsCache2Mem.SetWithSyncID(ctx, "sync1", "key1", []byte("ns2-sync1-value"))
+		require.NoError(t, err)
+		err = nsCache2Mem.SetWithSyncID(ctx, "sync2", "key1", []byte("ns2-sync2-value"))
+		require.NoError(t, err)
+
+		// Verify namespace and syncID isolation
+		value1, found, err := nsCache1Mem.GetWithSyncID(ctx, "sync1", "key1")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, []byte("ns1-sync1-value"), value1)
+
+		value2, found, err := nsCache1Mem.GetWithSyncID(ctx, "sync2", "key1")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, []byte("ns1-sync2-value"), value2)
+
+		value3, found, err := nsCache2Mem.GetWithSyncID(ctx, "sync1", "key1")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, []byte("ns2-sync1-value"), value3)
+
+		value4, found, err := nsCache2Mem.GetWithSyncID(ctx, "sync2", "key1")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, []byte("ns2-sync2-value"), value4)
+
+		// Verify all values are different
+		assert.NotEqual(t, value1, value2)
+		assert.NotEqual(t, value1, value3)
+		assert.NotEqual(t, value1, value4)
+		assert.NotEqual(t, value2, value3)
+		assert.NotEqual(t, value2, value4)
+		assert.NotEqual(t, value3, value4)
+	})
+}
