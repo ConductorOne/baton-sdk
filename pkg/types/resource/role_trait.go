@@ -46,7 +46,7 @@ func GetRoleTrait(resource *v2.Resource) (*v2.RoleTrait, error) {
 		return nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("group trait was not found on resource")
+		return nil, fmt.Errorf("role trait was not found on resource")
 	}
 
 	return ret, nil
