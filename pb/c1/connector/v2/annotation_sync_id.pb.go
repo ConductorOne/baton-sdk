@@ -21,6 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// SyncDetails is an annotation is used to communicate with the connector store, often for a _previous_ sync.
 type SyncId struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ActiveSyncId  string                 `protobuf:"bytes,1,opt,name=active_sync_id,json=activeSyncId,proto3" json:"active_sync_id,omitempty"`

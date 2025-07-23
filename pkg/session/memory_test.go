@@ -930,207 +930,6 @@ func TestMemorySessionCache_StressTest(t *testing.T) {
 	})
 }
 
-func TestMemorySessionCache_WithNamespace(t *testing.T) {
-	ctx := context.Background()
-	cache, err := NewMemorySessionCache(ctx)
-	require.NoError(t, err)
-	defer cache.Close()
-
-	t.Run("basic_operations", func(t *testing.T) {
-		// Create a namespaced cache
-		nsCache := cache.WithNamespace("test-namespace")
-		nsMemCache := nsCache.(*namespacedSessionCache)
-
-		// Test Set and Get
-		err := nsMemCache.SetWithSyncID(ctx, "test-sync", "key1", []byte("value1"))
-		require.NoError(t, err)
-
-		value, found, err := nsMemCache.GetWithSyncID(ctx, "test-sync", "key1")
-		require.NoError(t, err)
-		assert.True(t, found)
-		assert.Equal(t, []byte("value1"), value)
-
-		// Test non-existent key
-		value, found, err = nsMemCache.GetWithSyncID(ctx, "test-sync", "non-existent")
-		require.NoError(t, err)
-		assert.False(t, found)
-		assert.Nil(t, value)
-	})
-
-	t.Run("namespace_isolation", func(t *testing.T) {
-		// Create two different namespaced caches
-		ns1 := cache.WithNamespace("namespace1")
-		ns2 := cache.WithNamespace("namespace2")
-		ns1MemCache := ns1.(*namespacedSessionCache)
-		ns2MemCache := ns2.(*namespacedSessionCache)
-
-		// Set values in different namespaces
-		err := ns1MemCache.SetWithSyncID(ctx, "test-sync", "same-key", []byte("value1"))
-		require.NoError(t, err)
-		err = ns2MemCache.SetWithSyncID(ctx, "test-sync", "same-key", []byte("value2"))
-		require.NoError(t, err)
-
-		// Verify isolation
-		value1, found, err := ns1MemCache.GetWithSyncID(ctx, "test-sync", "same-key")
-		require.NoError(t, err)
-		assert.True(t, found)
-		assert.Equal(t, []byte("value1"), value1)
-
-		value2, found, err := ns2MemCache.GetWithSyncID(ctx, "test-sync", "same-key")
-		require.NoError(t, err)
-		assert.True(t, found)
-		assert.Equal(t, []byte("value2"), value2)
-	})
-
-	t.Run("GetMany_operations", func(t *testing.T) {
-		nsCache := cache.WithNamespace("getmany-namespace")
-		nsMemCache := nsCache.(*namespacedSessionCache)
-
-		// Set multiple values
-		values := map[string][]byte{
-			"key1": []byte("value1"),
-			"key2": []byte("value2"),
-			"key3": []byte("value3"),
-		}
-		err := nsMemCache.SetManyWithSyncID(ctx, "test-sync", values)
-		require.NoError(t, err)
-
-		// Get multiple values
-		result, err := nsMemCache.GetManyWithSyncID(ctx, "test-sync", []string{"key1", "key2", "key4"})
-		require.NoError(t, err)
-		assert.Equal(t, map[string][]byte{
-			"key1": []byte("value1"),
-			"key2": []byte("value2"),
-		}, result)
-	})
-
-	t.Run("SetMany_operations", func(t *testing.T) {
-		nsCache := cache.WithNamespace("setmany-namespace")
-		nsMemCache := nsCache.(*namespacedSessionCache)
-
-		// Set multiple values
-		values := map[string][]byte{
-			"key1": []byte("value1"),
-			"key2": []byte("value2"),
-		}
-		err := nsMemCache.SetManyWithSyncID(ctx, "test-sync", values)
-		require.NoError(t, err)
-
-		// Verify all values were set
-		for key, expectedValue := range values {
-			value, found, err := nsMemCache.GetWithSyncID(ctx, "test-sync", key)
-			require.NoError(t, err)
-			assert.True(t, found)
-			assert.Equal(t, expectedValue, value)
-		}
-	})
-
-	t.Run("Delete_operations", func(t *testing.T) {
-		nsCache := cache.WithNamespace("delete-namespace")
-		nsMemCache := nsCache.(*namespacedSessionCache)
-
-		// Set a value
-		err := nsMemCache.SetWithSyncID(ctx, "test-sync", "key1", []byte("value1"))
-		require.NoError(t, err)
-
-		// Verify it exists
-		value, found, err := nsMemCache.GetWithSyncID(ctx, "test-sync", "key1")
-		require.NoError(t, err)
-		assert.True(t, found)
-		assert.Equal(t, []byte("value1"), value)
-
-		// Delete it
-		err = nsMemCache.DeleteWithSyncID(ctx, "test-sync", "key1")
-		require.NoError(t, err)
-
-		// Verify it's gone
-		value, found, err = nsMemCache.GetWithSyncID(ctx, "test-sync", "key1")
-		require.NoError(t, err)
-		assert.False(t, found)
-		assert.Nil(t, value)
-	})
-
-	t.Run("GetAll_operations", func(t *testing.T) {
-		nsCache := cache.WithNamespace("getall-namespace")
-		nsMemCache := nsCache.(*namespacedSessionCache)
-
-		// Set multiple values
-		expectedValues := map[string][]byte{
-			"key1": []byte("value1"),
-			"key2": []byte("value2"),
-			"key3": []byte("value3"),
-		}
-		err := nsMemCache.SetManyWithSyncID(ctx, "test-sync", expectedValues)
-		require.NoError(t, err)
-
-		// Get all values
-		result, err := nsMemCache.GetAllWithSyncID(ctx, "test-sync")
-		require.NoError(t, err)
-		assert.Equal(t, expectedValues, result)
-	})
-
-	t.Run("empty_namespace", func(t *testing.T) {
-		nsCache := cache.WithNamespace("")
-		nsMemCache := nsCache.(*namespacedSessionCache)
-
-		// Test operations with empty namespace
-		err := nsMemCache.SetWithSyncID(ctx, "test-sync", "key1", []byte("value1"))
-		require.NoError(t, err)
-
-		value, found, err := nsMemCache.GetWithSyncID(ctx, "test-sync", "key1")
-		require.NoError(t, err)
-		assert.True(t, found)
-		assert.Equal(t, []byte("value1"), value)
-	})
-
-	t.Run("nil_context", func(t *testing.T) {
-		nsCache := cache.WithNamespace("nil-context-namespace")
-		nsMemCache := nsCache.(*namespacedSessionCache)
-
-		// Test operations with nil context
-		err := nsMemCache.SetWithSyncID(nil, "test-sync", "key1", []byte("value1")) //nolint:staticcheck // because we want to test the nil context
-		require.NoError(t, err)
-
-		value, found, err := nsMemCache.GetWithSyncID(nil, "test-sync", "key1") //nolint:staticcheck // because we want to test the nil context
-		require.NoError(t, err)
-		assert.True(t, found)
-		assert.Equal(t, []byte("value1"), value)
-	})
-
-	t.Run("concurrent_operations", func(t *testing.T) {
-		nsCache := cache.WithNamespace("concurrent-namespace")
-		nsMemCache := nsCache.(*namespacedSessionCache)
-		const numGoroutines = 10
-		const numOperations = 100
-
-		var wg sync.WaitGroup
-		wg.Add(numGoroutines)
-
-		// Start concurrent goroutines
-		for i := 0; i < numGoroutines; i++ {
-			go func(id int) {
-				defer wg.Done()
-				for j := 0; j < numOperations; j++ {
-					key := fmt.Sprintf("key-%d-%d", id, j)
-					value := []byte(fmt.Sprintf("value-%d-%d", id, j))
-
-					// Set value
-					err := nsMemCache.SetWithSyncID(ctx, "test-sync", key, value)
-					require.NoError(t, err)
-
-					// Get value
-					retrievedValue, found, err := nsMemCache.GetWithSyncID(ctx, "test-sync", key)
-					require.NoError(t, err)
-					assert.True(t, found)
-					assert.Equal(t, value, retrievedValue)
-				}
-			}(i)
-		}
-
-		wg.Wait()
-	})
-}
-
 func TestMemorySessionCache_Propagation(t *testing.T) {
 	ctx := context.Background()
 
@@ -1165,38 +964,30 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		assert.Nil(t, value)
 	})
 
-	t.Run("propagation_with_namespaced_caches", func(t *testing.T) {
-		// Create a base cache
-		baseCache, err := NewMemorySessionCache(ctx)
+	t.Run("propagation_with_syncid_isolation", func(t *testing.T) {
+		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer baseCache.Close()
+		defer cache.Close()
 
-		// Create namespaced caches from the same base cache
-		nsCache1 := baseCache.WithNamespace("namespace1")
-		nsCache2 := baseCache.WithNamespace("namespace2")
-		nsCache1Mem := nsCache1.(*namespacedSessionCache)
-		nsCache2Mem := nsCache2.(*namespacedSessionCache)
+		memCache := cache.(*MemorySessionCache)
 
-		// Set data in namespace1
-		testData1 := []byte("namespace1-value")
-		err = nsCache1Mem.SetWithSyncID(ctx, "test-sync", "shared-key", testData1)
+		// Set data with different syncIDs
+		err = memCache.SetWithSyncID(ctx, "sync1", "shared-key", []byte("sync1-value"))
 		require.NoError(t, err)
 
-		// Set data in namespace2
-		testData2 := []byte("namespace2-value")
-		err = nsCache2Mem.SetWithSyncID(ctx, "test-sync", "shared-key", testData2)
+		err = memCache.SetWithSyncID(ctx, "sync2", "shared-key", []byte("sync2-value"))
 		require.NoError(t, err)
 
-		// Verify namespace isolation - each namespace has its own value for the same key
-		value1, found, err := nsCache1Mem.GetWithSyncID(ctx, "test-sync", "shared-key")
+		// Verify syncID isolation
+		value1, found, err := memCache.GetWithSyncID(ctx, "sync1", "shared-key")
 		require.NoError(t, err)
 		assert.True(t, found)
-		assert.Equal(t, testData1, value1)
+		assert.Equal(t, []byte("sync1-value"), value1)
 
-		value2, found, err := nsCache2Mem.GetWithSyncID(ctx, "test-sync", "shared-key")
+		value2, found, err := memCache.GetWithSyncID(ctx, "sync2", "shared-key")
 		require.NoError(t, err)
 		assert.True(t, found)
-		assert.Equal(t, testData2, value2)
+		assert.Equal(t, []byte("sync2-value"), value2)
 
 		// Verify the values are different
 		assert.NotEqual(t, value1, value2)
@@ -1414,48 +1205,44 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		}
 	})
 
-	t.Run("propagation_with_namespace_and_syncid_combination", func(t *testing.T) {
-		// Create a base cache
-		baseCache, err := NewMemorySessionCache(ctx)
+	t.Run("propagation_with_multiple_syncids", func(t *testing.T) {
+		// Create a cache
+		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer baseCache.Close()
+		defer cache.Close()
 
-		// Create namespaced caches
-		nsCache1 := baseCache.WithNamespace("namespace1")
-		nsCache2 := baseCache.WithNamespace("namespace2")
-		nsCache1Mem := nsCache1.(*namespacedSessionCache)
-		nsCache2Mem := nsCache2.(*namespacedSessionCache)
+		memCache := cache.(*MemorySessionCache)
 
-		// Set data with different syncIDs in different namespaces
-		err = nsCache1Mem.SetWithSyncID(ctx, "sync1", "key1", []byte("ns1-sync1-value"))
+		// Set data with different syncIDs
+		err = memCache.SetWithSyncID(ctx, "sync1", "key1", []byte("sync1-value"))
 		require.NoError(t, err)
-		err = nsCache1Mem.SetWithSyncID(ctx, "sync2", "key1", []byte("ns1-sync2-value"))
+		err = memCache.SetWithSyncID(ctx, "sync2", "key1", []byte("sync2-value"))
 		require.NoError(t, err)
-		err = nsCache2Mem.SetWithSyncID(ctx, "sync1", "key1", []byte("ns2-sync1-value"))
+		err = memCache.SetWithSyncID(ctx, "sync3", "key1", []byte("sync3-value"))
 		require.NoError(t, err)
-		err = nsCache2Mem.SetWithSyncID(ctx, "sync2", "key1", []byte("ns2-sync2-value"))
+		err = memCache.SetWithSyncID(ctx, "sync4", "key1", []byte("sync4-value"))
 		require.NoError(t, err)
 
-		// Verify namespace and syncID isolation
-		value1, found, err := nsCache1Mem.GetWithSyncID(ctx, "sync1", "key1")
+		// Verify syncID isolation
+		value1, found, err := memCache.GetWithSyncID(ctx, "sync1", "key1")
 		require.NoError(t, err)
 		assert.True(t, found)
-		assert.Equal(t, []byte("ns1-sync1-value"), value1)
+		assert.Equal(t, []byte("sync1-value"), value1)
 
-		value2, found, err := nsCache1Mem.GetWithSyncID(ctx, "sync2", "key1")
+		value2, found, err := memCache.GetWithSyncID(ctx, "sync2", "key1")
 		require.NoError(t, err)
 		assert.True(t, found)
-		assert.Equal(t, []byte("ns1-sync2-value"), value2)
+		assert.Equal(t, []byte("sync2-value"), value2)
 
-		value3, found, err := nsCache2Mem.GetWithSyncID(ctx, "sync1", "key1")
+		value3, found, err := memCache.GetWithSyncID(ctx, "sync3", "key1")
 		require.NoError(t, err)
 		assert.True(t, found)
-		assert.Equal(t, []byte("ns2-sync1-value"), value3)
+		assert.Equal(t, []byte("sync3-value"), value3)
 
-		value4, found, err := nsCache2Mem.GetWithSyncID(ctx, "sync2", "key1")
+		value4, found, err := memCache.GetWithSyncID(ctx, "sync4", "key1")
 		require.NoError(t, err)
 		assert.True(t, found)
-		assert.Equal(t, []byte("ns2-sync2-value"), value4)
+		assert.Equal(t, []byte("sync4-value"), value4)
 
 		// Verify all values are different
 		assert.NotEqual(t, value1, value2)
