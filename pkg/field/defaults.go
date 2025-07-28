@@ -1,9 +1,11 @@
 package field
 
 import (
+	"os"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"golang.org/x/term"
 )
 
 const (
@@ -14,6 +16,14 @@ const (
 	OtelTracingDisabledFieldName              = "otel-tracing-disabled"
 	OtelLoggingDisabledFieldName              = "otel-logging-disabled"
 )
+
+func defaultLogFormat() any {
+	// If stdout is a TTY, use console format, otherwise use JSON
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		return logging.LogFormatConsole
+	}
+	return logging.LogFormatJSON
+}
 
 var (
 	createTicketField           = BoolField("create-ticket", WithHidden(true), WithDescription("Create ticket"), WithPersistent(true), WithExportTarget(ExportTargetNone))
@@ -57,7 +67,7 @@ var (
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	grantPrincipalTypeField = StringField("grant-principal-type", WithHidden(true), WithDescription("The resource type of the principal to grant the entitlement to"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
-	logFormatField = StringField("log-format", WithDefaultValue(logging.LogFormatJSON), WithDescription("The output format for logs: json, console"),
+	logFormatField = StringField("log-format", WithDefaultValueFunc(defaultLogFormat), WithDescription("The output format for logs: json, console"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	revokeGrantField       = StringField("revoke-grant", WithHidden(true), WithDescription("The grant to revoke"), WithPersistent(true), WithExportTarget(ExportTargetNone))
 	rotateCredentialsField = StringField("rotate-credentials", WithHidden(true), WithDescription("The id of the resource to rotate credentials on"),
