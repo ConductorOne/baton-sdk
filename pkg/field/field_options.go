@@ -67,6 +67,13 @@ func WithDefaultValue(value any) fieldOption {
 	}
 }
 
+func WithDefaultValueFunc(f func() any) fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.DefaultValue = f()
+		return o
+	}
+}
+
 func WithHidden(hidden bool) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.SyncerConfig.Hidden = hidden
