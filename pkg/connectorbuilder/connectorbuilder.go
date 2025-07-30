@@ -980,20 +980,24 @@ func (b *builderImpl) Validate(ctx context.Context, request *v2.ConnectorService
 	l := ctxzap.Extract(ctx)
 
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
-		MaxAttempts:  3,
-		InitialDelay: 15 * time.Second,
-		MaxDelay:     60 * time.Second,
+		MaxAttempts:  0, // 0 means no limit - retry indefinitely
+		InitialDelay: 1 * time.Second,
+		MaxDelay:     0,
 	})
 
 	for {
 		annos, err := b.cb.Validate(ctx)
 		if err == nil {
+			l.Debug("validation successful")
 			return &v2.ConnectorServiceValidateResponse{Annotations: annos}, nil
 		}
+
 		if retryer.ShouldWaitAndRetry(ctx, err) {
+			l.Debug("retrying validation", zap.Error(err), zap.String("status_code", status.Code(err).String()))
 			continue
 		}
-		l.Error("error: validate failed", zap.Error(err))
+
+		l.Error("error: validate failed", zap.Error(err), zap.String("status_code", status.Code(err).String()))
 		return nil, fmt.Errorf("error: validate failed: %w", err)
 	}
 }
