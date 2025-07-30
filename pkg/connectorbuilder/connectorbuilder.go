@@ -977,12 +977,24 @@ func (b *builderImpl) Validate(ctx context.Context, request *v2.ConnectorService
 	ctx, span := tracer.Start(ctx, "builderImpl.Validate")
 	defer span.End()
 
-	annos, err := b.cb.Validate(ctx)
-	if err != nil {
-		return nil, err
-	}
+	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
+		MaxAttempts:  0, // 0 means no limit - retry indefinitely
+		InitialDelay: 1 * time.Second,
+		MaxDelay:     0,
+	})
 
-	return &v2.ConnectorServiceValidateResponse{Annotations: annos}, nil
+	for {
+		annos, err := b.cb.Validate(ctx)
+		if err == nil {
+			return &v2.ConnectorServiceValidateResponse{Annotations: annos}, nil
+		}
+
+		if retryer.ShouldWaitAndRetry(ctx, err) {
+			continue
+		}
+
+		return nil, fmt.Errorf("validate failed: %w", err)
+	}
 }
 
 func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (*v2.GrantManagerServiceGrantResponse, error) {
@@ -1032,9 +1044,8 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		if retryer.ShouldWaitAndRetry(ctx, err) {
 			continue
 		}
-		l.Error("error: grant failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("err: grant failed: %w", err)
+		return nil, fmt.Errorf("grant failed: %w", err)
 	}
 }
 
@@ -1080,9 +1091,8 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		if retryer.ShouldWaitAndRetry(ctx, err) {
 			continue
 		}
-		l.Error("error: revoke failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: revoke failed: %w", err)
+		return nil, fmt.Errorf("revoke failed: %w", err)
 	}
 }
 
