@@ -195,7 +195,7 @@ func MakeMainCommand[T field.Configurable](
 				}
 				invokeActionArgsStruct, err := structpb.NewStruct(invokeActionArgs)
 				if err != nil {
-					return err
+					return fmt.Errorf("failed to parse invoke-action-args: %w", err)
 				}
 				opts = append(opts,
 					connectorrunner.WithActionsEnabled(),

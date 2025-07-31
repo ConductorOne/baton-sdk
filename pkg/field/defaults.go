@@ -135,7 +135,10 @@ var (
 	invokeActionArgsField = StringField("invoke-action-args",
 		WithHidden(true),
 		WithDescription("JSON-formatted object of map keys and values like '{ 'key': 'value' }'"),
-		WithPersistent(true), WithExportTarget(ExportTargetNone))
+		WithDefaultValue(map[string]any{}),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
 
 	otelCollectorEndpoint = StringField(OtelCollectorEndpointFieldName,
 		WithDescription("The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided)"),
