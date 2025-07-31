@@ -334,7 +334,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
 	_, err = s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
 		return err
@@ -354,6 +353,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	s.syncID = syncID
 
 	span.SetAttributes(attribute.String("sync_id", syncID))
 
@@ -839,6 +839,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 	req := &v2.ResourcesServiceListResourcesRequest{
 		ResourceTypeId: s.state.ResourceTypeID(ctx),
 		PageToken:      s.state.PageToken(ctx),
+		Annotations:    annotations.New(&v2.SyncId{ActiveSyncId: s.syncID}),
 	}
 	if s.state.ParentResourceTypeID(ctx) != "" && s.state.ParentResourceID(ctx) != "" {
 		req.ParentResourceId = &v2.ResourceId{
@@ -1259,8 +1260,10 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 			l.Info("Expanding grants...")
 			s.handleInitialActionForStep(ctx, *s.state.Current())
 		}
-
-		resp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageToken: pageToken})
+		a := annotations.New(&v2.SyncId{
+			ActiveSyncId: s.syncID,
+		})
+		resp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageToken: pageToken, Annotations: a})
 		if err != nil {
 			return err
 		}
@@ -1528,7 +1531,9 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 	storeAnnos.Update(&c1zpb.SyncDetails{
 		Id: prevSyncID,
 	})
-
+	storeAnnos.Update(&v2.SyncId{
+		ActiveSyncId: s.syncID,
+	})
 	for {
 		prevGrantsResp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
 			Resource:    resource,
@@ -1591,6 +1596,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	a.Append(&v2.SyncId{
 		ActiveSyncId: s.syncID,
 	})
+	fmt.Printf("🌮🌮🌮🌮 syncGrantsForResource: %v\n", a)
 
 	resp, err := s.connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{Resource: resource, PageToken: pageToken, Annotations: a})
 	if err != nil {

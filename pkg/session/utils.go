@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
@@ -44,7 +43,8 @@ func applyOptions(ctx context.Context, opt ...types.SessionCacheOption) (*types.
 		bag.SyncID = GetSyncIDFromContext(ctx)
 	}
 	if bag.SyncID == "" {
-		return nil, fmt.Errorf("no syncID set on context or in options")
+		panic("no syncID set on context or in options")
+		// return nil, fmt.Errorf("no syncID set on context or in options")
 	}
 
 	return bag, nil
