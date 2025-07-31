@@ -190,9 +190,6 @@ func MakeMainCommand[T field.Configurable](
 					))
 			case v.GetString("invoke-action") != "":
 				invokeActionArgs := v.GetStringMap("invoke-action-args")
-				if invokeActionArgs == nil {
-					return fmt.Errorf("invoke-action-args is empty or incorrectly formatted: %v", v.GetString("invoke-action-args"))
-				}
 				invokeActionArgsStruct, err := structpb.NewStruct(invokeActionArgs)
 				if err != nil {
 					return fmt.Errorf("failed to parse invoke-action-args: %w", err)
