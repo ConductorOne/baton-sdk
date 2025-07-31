@@ -19,345 +19,327 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SessionCacheService_Get_FullMethodName     = "/c1.connectorapi.baton.v1.SessionCacheService/Get"
-	SessionCacheService_GetMany_FullMethodName = "/c1.connectorapi.baton.v1.SessionCacheService/GetMany"
-	SessionCacheService_Set_FullMethodName     = "/c1.connectorapi.baton.v1.SessionCacheService/Set"
-	SessionCacheService_SetMany_FullMethodName = "/c1.connectorapi.baton.v1.SessionCacheService/SetMany"
-	SessionCacheService_Delete_FullMethodName  = "/c1.connectorapi.baton.v1.SessionCacheService/Delete"
-	SessionCacheService_Clear_FullMethodName   = "/c1.connectorapi.baton.v1.SessionCacheService/Clear"
-	SessionCacheService_GetAll_FullMethodName  = "/c1.connectorapi.baton.v1.SessionCacheService/GetAll"
+	BatonSessionService_Get_FullMethodName        = "/c1.connectorapi.baton.v1.BatonSessionService/Get"
+	BatonSessionService_GetMany_FullMethodName    = "/c1.connectorapi.baton.v1.BatonSessionService/GetMany"
+	BatonSessionService_Set_FullMethodName        = "/c1.connectorapi.baton.v1.BatonSessionService/Set"
+	BatonSessionService_SetMany_FullMethodName    = "/c1.connectorapi.baton.v1.BatonSessionService/SetMany"
+	BatonSessionService_Delete_FullMethodName     = "/c1.connectorapi.baton.v1.BatonSessionService/Delete"
+	BatonSessionService_DeleteMany_FullMethodName = "/c1.connectorapi.baton.v1.BatonSessionService/DeleteMany"
+	BatonSessionService_Clear_FullMethodName      = "/c1.connectorapi.baton.v1.BatonSessionService/Clear"
 )
 
-// SessionCacheServiceClient is the client API for SessionCacheService service.
+// BatonSessionServiceClient is the client API for BatonSessionService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-//
-// SessionCacheService provides gRPC operations for session cache management.
-type SessionCacheServiceClient interface {
-	// Get retrieves a value from the cache by namespace and key.
-	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
-	// GetMany retrieves multiple values from the cache by namespace and keys.
-	GetMany(ctx context.Context, in *GetManyRequest, opts ...grpc.CallOption) (*GetManyResponse, error)
-	// Set stores a value in the cache with the given namespace and key.
-	Set(ctx context.Context, in *SetRequest, opts ...grpc.CallOption) (*SetResponse, error)
-	// SetMany stores multiple values in the cache with the given namespace.
-	SetMany(ctx context.Context, in *SetManyRequest, opts ...grpc.CallOption) (*SetManyResponse, error)
-	// Delete removes a value from the cache by namespace and key.
-	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
-	// Clear removes all values from the cache.
-	Clear(ctx context.Context, in *ClearRequest, opts ...grpc.CallOption) (*ClearResponse, error)
-	// GetAll returns all key-value pairs in a namespace.
-	GetAll(ctx context.Context, in *GetAllRequest, opts ...grpc.CallOption) (*GetAllResponse, error)
+type BatonSessionServiceClient interface {
+	Get(ctx context.Context, in *BatonServiceGetRequest, opts ...grpc.CallOption) (*BatonServiceGetResponse, error)
+	GetMany(ctx context.Context, in *BatonServiceGetManyRequest, opts ...grpc.CallOption) (*BatonServiceGetManyResponse, error)
+	Set(ctx context.Context, in *BatonServiceSetRequest, opts ...grpc.CallOption) (*BatonServiceSetResponse, error)
+	SetMany(ctx context.Context, in *BatonServiceSetManyRequest, opts ...grpc.CallOption) (*BatonServiceSetManyResponse, error)
+	Delete(ctx context.Context, in *BatonServiceDeleteRequest, opts ...grpc.CallOption) (*BatonServiceDeleteResponse, error)
+	DeleteMany(ctx context.Context, in *BatonServiceDeleteManyRequest, opts ...grpc.CallOption) (*BatonServiceDeleteManyResponse, error)
+	Clear(ctx context.Context, in *BatonServiceClearRequest, opts ...grpc.CallOption) (*BatonServiceClearResponse, error)
 }
 
-type sessionCacheServiceClient struct {
+type batonSessionServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewSessionCacheServiceClient(cc grpc.ClientConnInterface) SessionCacheServiceClient {
-	return &sessionCacheServiceClient{cc}
+func NewBatonSessionServiceClient(cc grpc.ClientConnInterface) BatonSessionServiceClient {
+	return &batonSessionServiceClient{cc}
 }
 
-func (c *sessionCacheServiceClient) Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error) {
+func (c *batonSessionServiceClient) Get(ctx context.Context, in *BatonServiceGetRequest, opts ...grpc.CallOption) (*BatonServiceGetResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetResponse)
-	err := c.cc.Invoke(ctx, SessionCacheService_Get_FullMethodName, in, out, cOpts...)
+	out := new(BatonServiceGetResponse)
+	err := c.cc.Invoke(ctx, BatonSessionService_Get_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *sessionCacheServiceClient) GetMany(ctx context.Context, in *GetManyRequest, opts ...grpc.CallOption) (*GetManyResponse, error) {
+func (c *batonSessionServiceClient) GetMany(ctx context.Context, in *BatonServiceGetManyRequest, opts ...grpc.CallOption) (*BatonServiceGetManyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetManyResponse)
-	err := c.cc.Invoke(ctx, SessionCacheService_GetMany_FullMethodName, in, out, cOpts...)
+	out := new(BatonServiceGetManyResponse)
+	err := c.cc.Invoke(ctx, BatonSessionService_GetMany_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *sessionCacheServiceClient) Set(ctx context.Context, in *SetRequest, opts ...grpc.CallOption) (*SetResponse, error) {
+func (c *batonSessionServiceClient) Set(ctx context.Context, in *BatonServiceSetRequest, opts ...grpc.CallOption) (*BatonServiceSetResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SetResponse)
-	err := c.cc.Invoke(ctx, SessionCacheService_Set_FullMethodName, in, out, cOpts...)
+	out := new(BatonServiceSetResponse)
+	err := c.cc.Invoke(ctx, BatonSessionService_Set_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *sessionCacheServiceClient) SetMany(ctx context.Context, in *SetManyRequest, opts ...grpc.CallOption) (*SetManyResponse, error) {
+func (c *batonSessionServiceClient) SetMany(ctx context.Context, in *BatonServiceSetManyRequest, opts ...grpc.CallOption) (*BatonServiceSetManyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SetManyResponse)
-	err := c.cc.Invoke(ctx, SessionCacheService_SetMany_FullMethodName, in, out, cOpts...)
+	out := new(BatonServiceSetManyResponse)
+	err := c.cc.Invoke(ctx, BatonSessionService_SetMany_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *sessionCacheServiceClient) Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error) {
+func (c *batonSessionServiceClient) Delete(ctx context.Context, in *BatonServiceDeleteRequest, opts ...grpc.CallOption) (*BatonServiceDeleteResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(DeleteResponse)
-	err := c.cc.Invoke(ctx, SessionCacheService_Delete_FullMethodName, in, out, cOpts...)
+	out := new(BatonServiceDeleteResponse)
+	err := c.cc.Invoke(ctx, BatonSessionService_Delete_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *sessionCacheServiceClient) Clear(ctx context.Context, in *ClearRequest, opts ...grpc.CallOption) (*ClearResponse, error) {
+func (c *batonSessionServiceClient) DeleteMany(ctx context.Context, in *BatonServiceDeleteManyRequest, opts ...grpc.CallOption) (*BatonServiceDeleteManyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ClearResponse)
-	err := c.cc.Invoke(ctx, SessionCacheService_Clear_FullMethodName, in, out, cOpts...)
+	out := new(BatonServiceDeleteManyResponse)
+	err := c.cc.Invoke(ctx, BatonSessionService_DeleteMany_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *sessionCacheServiceClient) GetAll(ctx context.Context, in *GetAllRequest, opts ...grpc.CallOption) (*GetAllResponse, error) {
+func (c *batonSessionServiceClient) Clear(ctx context.Context, in *BatonServiceClearRequest, opts ...grpc.CallOption) (*BatonServiceClearResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetAllResponse)
-	err := c.cc.Invoke(ctx, SessionCacheService_GetAll_FullMethodName, in, out, cOpts...)
+	out := new(BatonServiceClearResponse)
+	err := c.cc.Invoke(ctx, BatonSessionService_Clear_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-// SessionCacheServiceServer is the server API for SessionCacheService service.
-// All implementations should embed UnimplementedSessionCacheServiceServer
+// BatonSessionServiceServer is the server API for BatonSessionService service.
+// All implementations should embed UnimplementedBatonSessionServiceServer
 // for forward compatibility.
-//
-// SessionCacheService provides gRPC operations for session cache management.
-type SessionCacheServiceServer interface {
-	// Get retrieves a value from the cache by namespace and key.
-	Get(context.Context, *GetRequest) (*GetResponse, error)
-	// GetMany retrieves multiple values from the cache by namespace and keys.
-	GetMany(context.Context, *GetManyRequest) (*GetManyResponse, error)
-	// Set stores a value in the cache with the given namespace and key.
-	Set(context.Context, *SetRequest) (*SetResponse, error)
-	// SetMany stores multiple values in the cache with the given namespace.
-	SetMany(context.Context, *SetManyRequest) (*SetManyResponse, error)
-	// Delete removes a value from the cache by namespace and key.
-	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
-	// Clear removes all values from the cache.
-	Clear(context.Context, *ClearRequest) (*ClearResponse, error)
-	// GetAll returns all key-value pairs in a namespace.
-	GetAll(context.Context, *GetAllRequest) (*GetAllResponse, error)
+type BatonSessionServiceServer interface {
+	Get(context.Context, *BatonServiceGetRequest) (*BatonServiceGetResponse, error)
+	GetMany(context.Context, *BatonServiceGetManyRequest) (*BatonServiceGetManyResponse, error)
+	Set(context.Context, *BatonServiceSetRequest) (*BatonServiceSetResponse, error)
+	SetMany(context.Context, *BatonServiceSetManyRequest) (*BatonServiceSetManyResponse, error)
+	Delete(context.Context, *BatonServiceDeleteRequest) (*BatonServiceDeleteResponse, error)
+	DeleteMany(context.Context, *BatonServiceDeleteManyRequest) (*BatonServiceDeleteManyResponse, error)
+	Clear(context.Context, *BatonServiceClearRequest) (*BatonServiceClearResponse, error)
 }
 
-// UnimplementedSessionCacheServiceServer should be embedded to have
+// UnimplementedBatonSessionServiceServer should be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedSessionCacheServiceServer struct{}
+type UnimplementedBatonSessionServiceServer struct{}
 
-func (UnimplementedSessionCacheServiceServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
+func (UnimplementedBatonSessionServiceServer) Get(context.Context, *BatonServiceGetRequest) (*BatonServiceGetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
 }
-func (UnimplementedSessionCacheServiceServer) GetMany(context.Context, *GetManyRequest) (*GetManyResponse, error) {
+func (UnimplementedBatonSessionServiceServer) GetMany(context.Context, *BatonServiceGetManyRequest) (*BatonServiceGetManyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetMany not implemented")
 }
-func (UnimplementedSessionCacheServiceServer) Set(context.Context, *SetRequest) (*SetResponse, error) {
+func (UnimplementedBatonSessionServiceServer) Set(context.Context, *BatonServiceSetRequest) (*BatonServiceSetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Set not implemented")
 }
-func (UnimplementedSessionCacheServiceServer) SetMany(context.Context, *SetManyRequest) (*SetManyResponse, error) {
+func (UnimplementedBatonSessionServiceServer) SetMany(context.Context, *BatonServiceSetManyRequest) (*BatonServiceSetManyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetMany not implemented")
 }
-func (UnimplementedSessionCacheServiceServer) Delete(context.Context, *DeleteRequest) (*DeleteResponse, error) {
+func (UnimplementedBatonSessionServiceServer) Delete(context.Context, *BatonServiceDeleteRequest) (*BatonServiceDeleteResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Delete not implemented")
 }
-func (UnimplementedSessionCacheServiceServer) Clear(context.Context, *ClearRequest) (*ClearResponse, error) {
+func (UnimplementedBatonSessionServiceServer) DeleteMany(context.Context, *BatonServiceDeleteManyRequest) (*BatonServiceDeleteManyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteMany not implemented")
+}
+func (UnimplementedBatonSessionServiceServer) Clear(context.Context, *BatonServiceClearRequest) (*BatonServiceClearResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Clear not implemented")
 }
-func (UnimplementedSessionCacheServiceServer) GetAll(context.Context, *GetAllRequest) (*GetAllResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetAll not implemented")
-}
-func (UnimplementedSessionCacheServiceServer) testEmbeddedByValue() {}
+func (UnimplementedBatonSessionServiceServer) testEmbeddedByValue() {}
 
-// UnsafeSessionCacheServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to SessionCacheServiceServer will
+// UnsafeBatonSessionServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to BatonSessionServiceServer will
 // result in compilation errors.
-type UnsafeSessionCacheServiceServer interface {
-	mustEmbedUnimplementedSessionCacheServiceServer()
+type UnsafeBatonSessionServiceServer interface {
+	mustEmbedUnimplementedBatonSessionServiceServer()
 }
 
-func RegisterSessionCacheServiceServer(s grpc.ServiceRegistrar, srv SessionCacheServiceServer) {
-	// If the following call pancis, it indicates UnimplementedSessionCacheServiceServer was
+func RegisterBatonSessionServiceServer(s grpc.ServiceRegistrar, srv BatonSessionServiceServer) {
+	// If the following call pancis, it indicates UnimplementedBatonSessionServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&SessionCacheService_ServiceDesc, srv)
+	s.RegisterService(&BatonSessionService_ServiceDesc, srv)
 }
 
-func _SessionCacheService_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetRequest)
+func _BatonSessionService_Get_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatonServiceGetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(SessionCacheServiceServer).Get(ctx, in)
+		return srv.(BatonSessionServiceServer).Get(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: SessionCacheService_Get_FullMethodName,
+		FullMethod: BatonSessionService_Get_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SessionCacheServiceServer).Get(ctx, req.(*GetRequest))
+		return srv.(BatonSessionServiceServer).Get(ctx, req.(*BatonServiceGetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SessionCacheService_GetMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetManyRequest)
+func _BatonSessionService_GetMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatonServiceGetManyRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(SessionCacheServiceServer).GetMany(ctx, in)
+		return srv.(BatonSessionServiceServer).GetMany(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: SessionCacheService_GetMany_FullMethodName,
+		FullMethod: BatonSessionService_GetMany_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SessionCacheServiceServer).GetMany(ctx, req.(*GetManyRequest))
+		return srv.(BatonSessionServiceServer).GetMany(ctx, req.(*BatonServiceGetManyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SessionCacheService_Set_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetRequest)
+func _BatonSessionService_Set_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatonServiceSetRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(SessionCacheServiceServer).Set(ctx, in)
+		return srv.(BatonSessionServiceServer).Set(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: SessionCacheService_Set_FullMethodName,
+		FullMethod: BatonSessionService_Set_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SessionCacheServiceServer).Set(ctx, req.(*SetRequest))
+		return srv.(BatonSessionServiceServer).Set(ctx, req.(*BatonServiceSetRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SessionCacheService_SetMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SetManyRequest)
+func _BatonSessionService_SetMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatonServiceSetManyRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(SessionCacheServiceServer).SetMany(ctx, in)
+		return srv.(BatonSessionServiceServer).SetMany(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: SessionCacheService_SetMany_FullMethodName,
+		FullMethod: BatonSessionService_SetMany_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SessionCacheServiceServer).SetMany(ctx, req.(*SetManyRequest))
+		return srv.(BatonSessionServiceServer).SetMany(ctx, req.(*BatonServiceSetManyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SessionCacheService_Delete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeleteRequest)
+func _BatonSessionService_Delete_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatonServiceDeleteRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(SessionCacheServiceServer).Delete(ctx, in)
+		return srv.(BatonSessionServiceServer).Delete(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: SessionCacheService_Delete_FullMethodName,
+		FullMethod: BatonSessionService_Delete_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SessionCacheServiceServer).Delete(ctx, req.(*DeleteRequest))
+		return srv.(BatonSessionServiceServer).Delete(ctx, req.(*BatonServiceDeleteRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SessionCacheService_Clear_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ClearRequest)
+func _BatonSessionService_DeleteMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatonServiceDeleteManyRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(SessionCacheServiceServer).Clear(ctx, in)
+		return srv.(BatonSessionServiceServer).DeleteMany(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: SessionCacheService_Clear_FullMethodName,
+		FullMethod: BatonSessionService_DeleteMany_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SessionCacheServiceServer).Clear(ctx, req.(*ClearRequest))
+		return srv.(BatonSessionServiceServer).DeleteMany(ctx, req.(*BatonServiceDeleteManyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _SessionCacheService_GetAll_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetAllRequest)
+func _BatonSessionService_Clear_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(BatonServiceClearRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(SessionCacheServiceServer).GetAll(ctx, in)
+		return srv.(BatonSessionServiceServer).Clear(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: SessionCacheService_GetAll_FullMethodName,
+		FullMethod: BatonSessionService_Clear_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SessionCacheServiceServer).GetAll(ctx, req.(*GetAllRequest))
+		return srv.(BatonSessionServiceServer).Clear(ctx, req.(*BatonServiceClearRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-// SessionCacheService_ServiceDesc is the grpc.ServiceDesc for SessionCacheService service.
+// BatonSessionService_ServiceDesc is the grpc.ServiceDesc for BatonSessionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var SessionCacheService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "c1.connectorapi.baton.v1.SessionCacheService",
-	HandlerType: (*SessionCacheServiceServer)(nil),
+var BatonSessionService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.connectorapi.baton.v1.BatonSessionService",
+	HandlerType: (*BatonSessionServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
 			MethodName: "Get",
-			Handler:    _SessionCacheService_Get_Handler,
+			Handler:    _BatonSessionService_Get_Handler,
 		},
 		{
 			MethodName: "GetMany",
-			Handler:    _SessionCacheService_GetMany_Handler,
+			Handler:    _BatonSessionService_GetMany_Handler,
 		},
 		{
 			MethodName: "Set",
-			Handler:    _SessionCacheService_Set_Handler,
+			Handler:    _BatonSessionService_Set_Handler,
 		},
 		{
 			MethodName: "SetMany",
-			Handler:    _SessionCacheService_SetMany_Handler,
+			Handler:    _BatonSessionService_SetMany_Handler,
 		},
 		{
 			MethodName: "Delete",
-			Handler:    _SessionCacheService_Delete_Handler,
+			Handler:    _BatonSessionService_Delete_Handler,
+		},
+		{
+			MethodName: "DeleteMany",
+			Handler:    _BatonSessionService_DeleteMany_Handler,
 		},
 		{
 			MethodName: "Clear",
-			Handler:    _SessionCacheService_Clear_Handler,
-		},
-		{
-			MethodName: "GetAll",
-			Handler:    _SessionCacheService_GetAll_Handler,
+			Handler:    _BatonSessionService_Clear_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

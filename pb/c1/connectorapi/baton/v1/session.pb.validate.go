@@ -35,47 +35,64 @@ var (
 	_ = sort.Sort
 )
 
-// Validate checks the field values on GetRequest with the rules defined in the
-// proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *GetRequest) Validate() error {
+// Validate checks the field values on BatonServiceGetRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceGetRequest) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on GetRequest with the rules defined in
-// the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in GetRequestMultiError, or
-// nil if none found.
-func (m *GetRequest) ValidateAll() error {
+// ValidateAll checks the field values on BatonServiceGetRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceGetRequestMultiError, or nil if none found.
+func (m *BatonServiceGetRequest) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *GetRequest) validate(all bool) error {
+func (m *BatonServiceGetRequest) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	// no validation rules for SyncId
+	if !_BatonServiceGetRequest_SyncId_Pattern.MatchString(m.GetSyncId()) {
+		err := BatonServiceGetRequestValidationError{
+			field:  "SyncId",
+			reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
-	// no validation rules for Namespace
-
-	// no validation rules for Key
+	if l := utf8.RuneCountInString(m.GetKey()); l < 1 || l > 256 {
+		err := BatonServiceGetRequestValidationError{
+			field:  "Key",
+			reason: "value length must be between 1 and 256 runes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
 	if len(errors) > 0 {
-		return GetRequestMultiError(errors)
+		return BatonServiceGetRequestMultiError(errors)
 	}
 
 	return nil
 }
 
-// GetRequestMultiError is an error wrapping multiple validation errors
-// returned by GetRequest.ValidateAll() if the designated constraints aren't met.
-type GetRequestMultiError []error
+// BatonServiceGetRequestMultiError is an error wrapping multiple validation
+// errors returned by BatonServiceGetRequest.ValidateAll() if the designated
+// constraints aren't met.
+type BatonServiceGetRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m GetRequestMultiError) Error() string {
+func (m BatonServiceGetRequestMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -84,11 +101,11 @@ func (m GetRequestMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m GetRequestMultiError) AllErrors() []error { return m }
+func (m BatonServiceGetRequestMultiError) AllErrors() []error { return m }
 
-// GetRequestValidationError is the validation error returned by
-// GetRequest.Validate if the designated constraints aren't met.
-type GetRequestValidationError struct {
+// BatonServiceGetRequestValidationError is the validation error returned by
+// BatonServiceGetRequest.Validate if the designated constraints aren't met.
+type BatonServiceGetRequestValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -96,22 +113,24 @@ type GetRequestValidationError struct {
 }
 
 // Field function returns field value.
-func (e GetRequestValidationError) Field() string { return e.field }
+func (e BatonServiceGetRequestValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e GetRequestValidationError) Reason() string { return e.reason }
+func (e BatonServiceGetRequestValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e GetRequestValidationError) Cause() error { return e.cause }
+func (e BatonServiceGetRequestValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e GetRequestValidationError) Key() bool { return e.key }
+func (e BatonServiceGetRequestValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e GetRequestValidationError) ErrorName() string { return "GetRequestValidationError" }
+func (e BatonServiceGetRequestValidationError) ErrorName() string {
+	return "BatonServiceGetRequestValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e GetRequestValidationError) Error() string {
+func (e BatonServiceGetRequestValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -123,14 +142,14 @@ func (e GetRequestValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sGetRequest.%s: %s%s",
+		"invalid %sBatonServiceGetRequest.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = GetRequestValidationError{}
+var _ error = BatonServiceGetRequestValidationError{}
 
 var _ interface {
 	Field() string
@@ -138,24 +157,26 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = GetRequestValidationError{}
+} = BatonServiceGetRequestValidationError{}
 
-// Validate checks the field values on GetResponse with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *GetResponse) Validate() error {
+var _BatonServiceGetRequest_SyncId_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
+
+// Validate checks the field values on BatonServiceGetResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceGetResponse) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on GetResponse with the rules defined in
-// the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in GetResponseMultiError, or
-// nil if none found.
-func (m *GetResponse) ValidateAll() error {
+// ValidateAll checks the field values on BatonServiceGetResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceGetResponseMultiError, or nil if none found.
+func (m *BatonServiceGetResponse) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *GetResponse) validate(all bool) error {
+func (m *BatonServiceGetResponse) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -164,21 +185,20 @@ func (m *GetResponse) validate(all bool) error {
 
 	// no validation rules for Value
 
-	// no validation rules for Found
-
 	if len(errors) > 0 {
-		return GetResponseMultiError(errors)
+		return BatonServiceGetResponseMultiError(errors)
 	}
 
 	return nil
 }
 
-// GetResponseMultiError is an error wrapping multiple validation errors
-// returned by GetResponse.ValidateAll() if the designated constraints aren't met.
-type GetResponseMultiError []error
+// BatonServiceGetResponseMultiError is an error wrapping multiple validation
+// errors returned by BatonServiceGetResponse.ValidateAll() if the designated
+// constraints aren't met.
+type BatonServiceGetResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m GetResponseMultiError) Error() string {
+func (m BatonServiceGetResponseMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -187,11 +207,11 @@ func (m GetResponseMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m GetResponseMultiError) AllErrors() []error { return m }
+func (m BatonServiceGetResponseMultiError) AllErrors() []error { return m }
 
-// GetResponseValidationError is the validation error returned by
-// GetResponse.Validate if the designated constraints aren't met.
-type GetResponseValidationError struct {
+// BatonServiceGetResponseValidationError is the validation error returned by
+// BatonServiceGetResponse.Validate if the designated constraints aren't met.
+type BatonServiceGetResponseValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -199,22 +219,24 @@ type GetResponseValidationError struct {
 }
 
 // Field function returns field value.
-func (e GetResponseValidationError) Field() string { return e.field }
+func (e BatonServiceGetResponseValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e GetResponseValidationError) Reason() string { return e.reason }
+func (e BatonServiceGetResponseValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e GetResponseValidationError) Cause() error { return e.cause }
+func (e BatonServiceGetResponseValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e GetResponseValidationError) Key() bool { return e.key }
+func (e BatonServiceGetResponseValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e GetResponseValidationError) ErrorName() string { return "GetResponseValidationError" }
+func (e BatonServiceGetResponseValidationError) ErrorName() string {
+	return "BatonServiceGetResponseValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e GetResponseValidationError) Error() string {
+func (e BatonServiceGetResponseValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -226,14 +248,14 @@ func (e GetResponseValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sGetResponse.%s: %s%s",
+		"invalid %sBatonServiceGetResponse.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = GetResponseValidationError{}
+var _ error = BatonServiceGetResponseValidationError{}
 
 var _ interface {
 	Field() string
@@ -241,51 +263,97 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = GetResponseValidationError{}
+} = BatonServiceGetResponseValidationError{}
 
-// Validate checks the field values on SetRequest with the rules defined in the
-// proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *SetRequest) Validate() error {
+// Validate checks the field values on BatonServiceGetManyRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceGetManyRequest) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on SetRequest with the rules defined in
-// the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in SetRequestMultiError, or
-// nil if none found.
-func (m *SetRequest) ValidateAll() error {
+// ValidateAll checks the field values on BatonServiceGetManyRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceGetManyRequestMultiError, or nil if none found.
+func (m *BatonServiceGetManyRequest) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *SetRequest) validate(all bool) error {
+func (m *BatonServiceGetManyRequest) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	// no validation rules for SyncId
+	if !_BatonServiceGetManyRequest_SyncId_Pattern.MatchString(m.GetSyncId()) {
+		err := BatonServiceGetManyRequestValidationError{
+			field:  "SyncId",
+			reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
-	// no validation rules for Namespace
+	if l := len(m.GetKeys()); l < 1 || l > 200 {
+		err := BatonServiceGetManyRequestValidationError{
+			field:  "Keys",
+			reason: "value must contain between 1 and 200 items, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
-	// no validation rules for Key
+	_BatonServiceGetManyRequest_Keys_Unique := make(map[string]struct{}, len(m.GetKeys()))
 
-	// no validation rules for Value
+	for idx, item := range m.GetKeys() {
+		_, _ = idx, item
+
+		if _, exists := _BatonServiceGetManyRequest_Keys_Unique[item]; exists {
+			err := BatonServiceGetManyRequestValidationError{
+				field:  fmt.Sprintf("Keys[%v]", idx),
+				reason: "repeated value must contain unique items",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		} else {
+			_BatonServiceGetManyRequest_Keys_Unique[item] = struct{}{}
+		}
+
+		if l := utf8.RuneCountInString(item); l < 1 || l > 256 {
+			err := BatonServiceGetManyRequestValidationError{
+				field:  fmt.Sprintf("Keys[%v]", idx),
+				reason: "value length must be between 1 and 256 runes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
 
 	if len(errors) > 0 {
-		return SetRequestMultiError(errors)
+		return BatonServiceGetManyRequestMultiError(errors)
 	}
 
 	return nil
 }
 
-// SetRequestMultiError is an error wrapping multiple validation errors
-// returned by SetRequest.ValidateAll() if the designated constraints aren't met.
-type SetRequestMultiError []error
+// BatonServiceGetManyRequestMultiError is an error wrapping multiple
+// validation errors returned by BatonServiceGetManyRequest.ValidateAll() if
+// the designated constraints aren't met.
+type BatonServiceGetManyRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m SetRequestMultiError) Error() string {
+func (m BatonServiceGetManyRequestMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -294,11 +362,11 @@ func (m SetRequestMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m SetRequestMultiError) AllErrors() []error { return m }
+func (m BatonServiceGetManyRequestMultiError) AllErrors() []error { return m }
 
-// SetRequestValidationError is the validation error returned by
-// SetRequest.Validate if the designated constraints aren't met.
-type SetRequestValidationError struct {
+// BatonServiceGetManyRequestValidationError is the validation error returned
+// by BatonServiceGetManyRequest.Validate if the designated constraints aren't met.
+type BatonServiceGetManyRequestValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -306,22 +374,24 @@ type SetRequestValidationError struct {
 }
 
 // Field function returns field value.
-func (e SetRequestValidationError) Field() string { return e.field }
+func (e BatonServiceGetManyRequestValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e SetRequestValidationError) Reason() string { return e.reason }
+func (e BatonServiceGetManyRequestValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e SetRequestValidationError) Cause() error { return e.cause }
+func (e BatonServiceGetManyRequestValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e SetRequestValidationError) Key() bool { return e.key }
+func (e BatonServiceGetManyRequestValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e SetRequestValidationError) ErrorName() string { return "SetRequestValidationError" }
+func (e BatonServiceGetManyRequestValidationError) ErrorName() string {
+	return "BatonServiceGetManyRequestValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e SetRequestValidationError) Error() string {
+func (e BatonServiceGetManyRequestValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -333,14 +403,14 @@ func (e SetRequestValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sSetRequest.%s: %s%s",
+		"invalid %sBatonServiceGetManyRequest.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = SetRequestValidationError{}
+var _ error = BatonServiceGetManyRequestValidationError{}
 
 var _ interface {
 	Field() string
@@ -348,45 +418,83 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = SetRequestValidationError{}
+} = BatonServiceGetManyRequestValidationError{}
 
-// Validate checks the field values on SetResponse with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *SetResponse) Validate() error {
+var _BatonServiceGetManyRequest_SyncId_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
+
+// Validate checks the field values on BatonServiceGetManyResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceGetManyResponse) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on SetResponse with the rules defined in
-// the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in SetResponseMultiError, or
-// nil if none found.
-func (m *SetResponse) ValidateAll() error {
+// ValidateAll checks the field values on BatonServiceGetManyResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceGetManyResponseMultiError, or nil if none found.
+func (m *BatonServiceGetManyResponse) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *SetResponse) validate(all bool) error {
+func (m *BatonServiceGetManyResponse) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	// no validation rules for Success
+	{
+		sorted_keys := make([]string, len(m.GetValues()))
+		i := 0
+		for key := range m.GetValues() {
+			sorted_keys[i] = key
+			i++
+		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetValues()[key]
+			_ = val
+
+			if l := utf8.RuneCountInString(key); l < 1 || l > 256 {
+				err := BatonServiceGetManyResponseValidationError{
+					field:  fmt.Sprintf("Values[%v]", key),
+					reason: "value length must be between 1 and 256 runes, inclusive",
+				}
+				if !all {
+					return err
+				}
+				errors = append(errors, err)
+			}
+
+			if l := len(val); l < 1 || l > 1048576 {
+				err := BatonServiceGetManyResponseValidationError{
+					field:  fmt.Sprintf("Values[%v]", key),
+					reason: "value length must be between 1 and 1048576 bytes, inclusive",
+				}
+				if !all {
+					return err
+				}
+				errors = append(errors, err)
+			}
+
+		}
+	}
 
 	if len(errors) > 0 {
-		return SetResponseMultiError(errors)
+		return BatonServiceGetManyResponseMultiError(errors)
 	}
 
 	return nil
 }
 
-// SetResponseMultiError is an error wrapping multiple validation errors
-// returned by SetResponse.ValidateAll() if the designated constraints aren't met.
-type SetResponseMultiError []error
+// BatonServiceGetManyResponseMultiError is an error wrapping multiple
+// validation errors returned by BatonServiceGetManyResponse.ValidateAll() if
+// the designated constraints aren't met.
+type BatonServiceGetManyResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m SetResponseMultiError) Error() string {
+func (m BatonServiceGetManyResponseMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -395,117 +503,12 @@ func (m SetResponseMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m SetResponseMultiError) AllErrors() []error { return m }
+func (m BatonServiceGetManyResponseMultiError) AllErrors() []error { return m }
 
-// SetResponseValidationError is the validation error returned by
-// SetResponse.Validate if the designated constraints aren't met.
-type SetResponseValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e SetResponseValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e SetResponseValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e SetResponseValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e SetResponseValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e SetResponseValidationError) ErrorName() string { return "SetResponseValidationError" }
-
-// Error satisfies the builtin error interface
-func (e SetResponseValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sSetResponse.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = SetResponseValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = SetResponseValidationError{}
-
-// Validate checks the field values on DeleteRequest with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *DeleteRequest) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on DeleteRequest with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in DeleteRequestMultiError, or
-// nil if none found.
-func (m *DeleteRequest) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *DeleteRequest) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for SyncId
-
-	// no validation rules for Namespace
-
-	// no validation rules for Key
-
-	if len(errors) > 0 {
-		return DeleteRequestMultiError(errors)
-	}
-
-	return nil
-}
-
-// DeleteRequestMultiError is an error wrapping multiple validation errors
-// returned by DeleteRequest.ValidateAll() if the designated constraints
+// BatonServiceGetManyResponseValidationError is the validation error returned
+// by BatonServiceGetManyResponse.Validate if the designated constraints
 // aren't met.
-type DeleteRequestMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m DeleteRequestMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m DeleteRequestMultiError) AllErrors() []error { return m }
-
-// DeleteRequestValidationError is the validation error returned by
-// DeleteRequest.Validate if the designated constraints aren't met.
-type DeleteRequestValidationError struct {
+type BatonServiceGetManyResponseValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -513,22 +516,24 @@ type DeleteRequestValidationError struct {
 }
 
 // Field function returns field value.
-func (e DeleteRequestValidationError) Field() string { return e.field }
+func (e BatonServiceGetManyResponseValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e DeleteRequestValidationError) Reason() string { return e.reason }
+func (e BatonServiceGetManyResponseValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e DeleteRequestValidationError) Cause() error { return e.cause }
+func (e BatonServiceGetManyResponseValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e DeleteRequestValidationError) Key() bool { return e.key }
+func (e BatonServiceGetManyResponseValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e DeleteRequestValidationError) ErrorName() string { return "DeleteRequestValidationError" }
+func (e BatonServiceGetManyResponseValidationError) ErrorName() string {
+	return "BatonServiceGetManyResponseValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e DeleteRequestValidationError) Error() string {
+func (e BatonServiceGetManyResponseValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -540,14 +545,14 @@ func (e DeleteRequestValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sDeleteRequest.%s: %s%s",
+		"invalid %sBatonServiceGetManyResponse.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = DeleteRequestValidationError{}
+var _ error = BatonServiceGetManyResponseValidationError{}
 
 var _ interface {
 	Field() string
@@ -555,46 +560,55 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = DeleteRequestValidationError{}
+} = BatonServiceGetManyResponseValidationError{}
 
-// Validate checks the field values on DeleteResponse with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *DeleteResponse) Validate() error {
+// Validate checks the field values on BatonServiceGetAllRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceGetAllRequest) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on DeleteResponse with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in DeleteResponseMultiError,
-// or nil if none found.
-func (m *DeleteResponse) ValidateAll() error {
+// ValidateAll checks the field values on BatonServiceGetAllRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceGetAllRequestMultiError, or nil if none found.
+func (m *BatonServiceGetAllRequest) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *DeleteResponse) validate(all bool) error {
+func (m *BatonServiceGetAllRequest) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	// no validation rules for Success
+	if !_BatonServiceGetAllRequest_SyncId_Pattern.MatchString(m.GetSyncId()) {
+		err := BatonServiceGetAllRequestValidationError{
+			field:  "SyncId",
+			reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
 	if len(errors) > 0 {
-		return DeleteResponseMultiError(errors)
+		return BatonServiceGetAllRequestMultiError(errors)
 	}
 
 	return nil
 }
 
-// DeleteResponseMultiError is an error wrapping multiple validation errors
-// returned by DeleteResponse.ValidateAll() if the designated constraints
-// aren't met.
-type DeleteResponseMultiError []error
+// BatonServiceGetAllRequestMultiError is an error wrapping multiple validation
+// errors returned by BatonServiceGetAllRequest.ValidateAll() if the
+// designated constraints aren't met.
+type BatonServiceGetAllRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m DeleteResponseMultiError) Error() string {
+func (m BatonServiceGetAllRequestMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -603,11 +617,11 @@ func (m DeleteResponseMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m DeleteResponseMultiError) AllErrors() []error { return m }
+func (m BatonServiceGetAllRequestMultiError) AllErrors() []error { return m }
 
-// DeleteResponseValidationError is the validation error returned by
-// DeleteResponse.Validate if the designated constraints aren't met.
-type DeleteResponseValidationError struct {
+// BatonServiceGetAllRequestValidationError is the validation error returned by
+// BatonServiceGetAllRequest.Validate if the designated constraints aren't met.
+type BatonServiceGetAllRequestValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -615,22 +629,24 @@ type DeleteResponseValidationError struct {
 }
 
 // Field function returns field value.
-func (e DeleteResponseValidationError) Field() string { return e.field }
+func (e BatonServiceGetAllRequestValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e DeleteResponseValidationError) Reason() string { return e.reason }
+func (e BatonServiceGetAllRequestValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e DeleteResponseValidationError) Cause() error { return e.cause }
+func (e BatonServiceGetAllRequestValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e DeleteResponseValidationError) Key() bool { return e.key }
+func (e BatonServiceGetAllRequestValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e DeleteResponseValidationError) ErrorName() string { return "DeleteResponseValidationError" }
+func (e BatonServiceGetAllRequestValidationError) ErrorName() string {
+	return "BatonServiceGetAllRequestValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e DeleteResponseValidationError) Error() string {
+func (e BatonServiceGetAllRequestValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -642,14 +658,14 @@ func (e DeleteResponseValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sDeleteResponse.%s: %s%s",
+		"invalid %sBatonServiceGetAllRequest.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = DeleteResponseValidationError{}
+var _ error = BatonServiceGetAllRequestValidationError{}
 
 var _ interface {
 	Field() string
@@ -657,559 +673,79 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = DeleteResponseValidationError{}
+} = BatonServiceGetAllRequestValidationError{}
 
-// Validate checks the field values on ClearRequest with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *ClearRequest) Validate() error {
+var _BatonServiceGetAllRequest_SyncId_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
+
+// Validate checks the field values on BatonServiceSetRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceSetRequest) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on ClearRequest with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in ClearRequestMultiError, or
-// nil if none found.
-func (m *ClearRequest) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *ClearRequest) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for SyncId
-
-	if len(errors) > 0 {
-		return ClearRequestMultiError(errors)
-	}
-
-	return nil
-}
-
-// ClearRequestMultiError is an error wrapping multiple validation errors
-// returned by ClearRequest.ValidateAll() if the designated constraints aren't met.
-type ClearRequestMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m ClearRequestMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m ClearRequestMultiError) AllErrors() []error { return m }
-
-// ClearRequestValidationError is the validation error returned by
-// ClearRequest.Validate if the designated constraints aren't met.
-type ClearRequestValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e ClearRequestValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e ClearRequestValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e ClearRequestValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e ClearRequestValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e ClearRequestValidationError) ErrorName() string { return "ClearRequestValidationError" }
-
-// Error satisfies the builtin error interface
-func (e ClearRequestValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sClearRequest.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = ClearRequestValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = ClearRequestValidationError{}
-
-// Validate checks the field values on ClearResponse with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *ClearResponse) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on ClearResponse with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in ClearResponseMultiError, or
-// nil if none found.
-func (m *ClearResponse) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *ClearResponse) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for Success
-
-	if len(errors) > 0 {
-		return ClearResponseMultiError(errors)
-	}
-
-	return nil
-}
-
-// ClearResponseMultiError is an error wrapping multiple validation errors
-// returned by ClearResponse.ValidateAll() if the designated constraints
-// aren't met.
-type ClearResponseMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m ClearResponseMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m ClearResponseMultiError) AllErrors() []error { return m }
-
-// ClearResponseValidationError is the validation error returned by
-// ClearResponse.Validate if the designated constraints aren't met.
-type ClearResponseValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e ClearResponseValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e ClearResponseValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e ClearResponseValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e ClearResponseValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e ClearResponseValidationError) ErrorName() string { return "ClearResponseValidationError" }
-
-// Error satisfies the builtin error interface
-func (e ClearResponseValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sClearResponse.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = ClearResponseValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = ClearResponseValidationError{}
-
-// Validate checks the field values on GetAllRequest with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *GetAllRequest) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on GetAllRequest with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in GetAllRequestMultiError, or
-// nil if none found.
-func (m *GetAllRequest) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *GetAllRequest) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for SyncId
-
-	// no validation rules for Namespace
-
-	if len(errors) > 0 {
-		return GetAllRequestMultiError(errors)
-	}
-
-	return nil
-}
-
-// GetAllRequestMultiError is an error wrapping multiple validation errors
-// returned by GetAllRequest.ValidateAll() if the designated constraints
-// aren't met.
-type GetAllRequestMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m GetAllRequestMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m GetAllRequestMultiError) AllErrors() []error { return m }
-
-// GetAllRequestValidationError is the validation error returned by
-// GetAllRequest.Validate if the designated constraints aren't met.
-type GetAllRequestValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e GetAllRequestValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e GetAllRequestValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e GetAllRequestValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e GetAllRequestValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e GetAllRequestValidationError) ErrorName() string { return "GetAllRequestValidationError" }
-
-// Error satisfies the builtin error interface
-func (e GetAllRequestValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sGetAllRequest.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = GetAllRequestValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = GetAllRequestValidationError{}
-
-// Validate checks the field values on GetAllResponse with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *GetAllResponse) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on GetAllResponse with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in GetAllResponseMultiError,
-// or nil if none found.
-func (m *GetAllResponse) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *GetAllResponse) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for Values
-
-	if len(errors) > 0 {
-		return GetAllResponseMultiError(errors)
-	}
-
-	return nil
-}
-
-// GetAllResponseMultiError is an error wrapping multiple validation errors
-// returned by GetAllResponse.ValidateAll() if the designated constraints
-// aren't met.
-type GetAllResponseMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m GetAllResponseMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m GetAllResponseMultiError) AllErrors() []error { return m }
-
-// GetAllResponseValidationError is the validation error returned by
-// GetAllResponse.Validate if the designated constraints aren't met.
-type GetAllResponseValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e GetAllResponseValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e GetAllResponseValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e GetAllResponseValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e GetAllResponseValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e GetAllResponseValidationError) ErrorName() string { return "GetAllResponseValidationError" }
-
-// Error satisfies the builtin error interface
-func (e GetAllResponseValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sGetAllResponse.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = GetAllResponseValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = GetAllResponseValidationError{}
-
-// Validate checks the field values on GetManyRequest with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *GetManyRequest) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on GetManyRequest with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in GetManyRequestMultiError,
-// or nil if none found.
-func (m *GetManyRequest) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *GetManyRequest) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for SyncId
-
-	// no validation rules for Namespace
-
-	if len(errors) > 0 {
-		return GetManyRequestMultiError(errors)
-	}
-
-	return nil
-}
-
-// GetManyRequestMultiError is an error wrapping multiple validation errors
-// returned by GetManyRequest.ValidateAll() if the designated constraints
-// aren't met.
-type GetManyRequestMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m GetManyRequestMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m GetManyRequestMultiError) AllErrors() []error { return m }
-
-// GetManyRequestValidationError is the validation error returned by
-// GetManyRequest.Validate if the designated constraints aren't met.
-type GetManyRequestValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e GetManyRequestValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e GetManyRequestValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e GetManyRequestValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e GetManyRequestValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e GetManyRequestValidationError) ErrorName() string { return "GetManyRequestValidationError" }
-
-// Error satisfies the builtin error interface
-func (e GetManyRequestValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sGetManyRequest.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = GetManyRequestValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = GetManyRequestValidationError{}
-
-// Validate checks the field values on GetManyResponse with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// first error encountered is returned, or nil if there are no violations.
-func (m *GetManyResponse) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on GetManyResponse with the rules
+// ValidateAll checks the field values on BatonServiceSetRequest with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the result is a list of violation errors wrapped in
-// GetManyResponseMultiError, or nil if none found.
-func (m *GetManyResponse) ValidateAll() error {
+// BatonServiceSetRequestMultiError, or nil if none found.
+func (m *BatonServiceSetRequest) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *GetManyResponse) validate(all bool) error {
+func (m *BatonServiceSetRequest) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	// no validation rules for Values
+	if !_BatonServiceSetRequest_SyncId_Pattern.MatchString(m.GetSyncId()) {
+		err := BatonServiceSetRequestValidationError{
+			field:  "SyncId",
+			reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if l := utf8.RuneCountInString(m.GetKey()); l < 1 || l > 256 {
+		err := BatonServiceSetRequestValidationError{
+			field:  "Key",
+			reason: "value length must be between 1 and 256 runes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if l := len(m.GetValue()); l < 1 || l > 1048576 {
+		err := BatonServiceSetRequestValidationError{
+			field:  "Value",
+			reason: "value length must be between 1 and 1048576 bytes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
 	if len(errors) > 0 {
-		return GetManyResponseMultiError(errors)
+		return BatonServiceSetRequestMultiError(errors)
 	}
 
 	return nil
 }
 
-// GetManyResponseMultiError is an error wrapping multiple validation errors
-// returned by GetManyResponse.ValidateAll() if the designated constraints
-// aren't met.
-type GetManyResponseMultiError []error
+// BatonServiceSetRequestMultiError is an error wrapping multiple validation
+// errors returned by BatonServiceSetRequest.ValidateAll() if the designated
+// constraints aren't met.
+type BatonServiceSetRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m GetManyResponseMultiError) Error() string {
+func (m BatonServiceSetRequestMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -1218,11 +754,11 @@ func (m GetManyResponseMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m GetManyResponseMultiError) AllErrors() []error { return m }
+func (m BatonServiceSetRequestMultiError) AllErrors() []error { return m }
 
-// GetManyResponseValidationError is the validation error returned by
-// GetManyResponse.Validate if the designated constraints aren't met.
-type GetManyResponseValidationError struct {
+// BatonServiceSetRequestValidationError is the validation error returned by
+// BatonServiceSetRequest.Validate if the designated constraints aren't met.
+type BatonServiceSetRequestValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -1230,22 +766,24 @@ type GetManyResponseValidationError struct {
 }
 
 // Field function returns field value.
-func (e GetManyResponseValidationError) Field() string { return e.field }
+func (e BatonServiceSetRequestValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e GetManyResponseValidationError) Reason() string { return e.reason }
+func (e BatonServiceSetRequestValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e GetManyResponseValidationError) Cause() error { return e.cause }
+func (e BatonServiceSetRequestValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e GetManyResponseValidationError) Key() bool { return e.key }
+func (e BatonServiceSetRequestValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e GetManyResponseValidationError) ErrorName() string { return "GetManyResponseValidationError" }
+func (e BatonServiceSetRequestValidationError) ErrorName() string {
+	return "BatonServiceSetRequestValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e GetManyResponseValidationError) Error() string {
+func (e BatonServiceSetRequestValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -1257,14 +795,14 @@ func (e GetManyResponseValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sGetManyResponse.%s: %s%s",
+		"invalid %sBatonServiceSetRequest.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = GetManyResponseValidationError{}
+var _ error = BatonServiceSetRequestValidationError{}
 
 var _ interface {
 	Field() string
@@ -1272,152 +810,46 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = GetManyResponseValidationError{}
+} = BatonServiceSetRequestValidationError{}
 
-// Validate checks the field values on SetManyRequest with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *SetManyRequest) Validate() error {
-	return m.validate(false)
-}
+var _BatonServiceSetRequest_SyncId_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
 
-// ValidateAll checks the field values on SetManyRequest with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in SetManyRequestMultiError,
-// or nil if none found.
-func (m *SetManyRequest) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *SetManyRequest) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for SyncId
-
-	// no validation rules for Namespace
-
-	// no validation rules for Values
-
-	if len(errors) > 0 {
-		return SetManyRequestMultiError(errors)
-	}
-
-	return nil
-}
-
-// SetManyRequestMultiError is an error wrapping multiple validation errors
-// returned by SetManyRequest.ValidateAll() if the designated constraints
-// aren't met.
-type SetManyRequestMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m SetManyRequestMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m SetManyRequestMultiError) AllErrors() []error { return m }
-
-// SetManyRequestValidationError is the validation error returned by
-// SetManyRequest.Validate if the designated constraints aren't met.
-type SetManyRequestValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e SetManyRequestValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e SetManyRequestValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e SetManyRequestValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e SetManyRequestValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e SetManyRequestValidationError) ErrorName() string { return "SetManyRequestValidationError" }
-
-// Error satisfies the builtin error interface
-func (e SetManyRequestValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sSetManyRequest.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = SetManyRequestValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = SetManyRequestValidationError{}
-
-// Validate checks the field values on SetManyResponse with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// first error encountered is returned, or nil if there are no violations.
-func (m *SetManyResponse) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on SetManyResponse with the rules
+// Validate checks the field values on BatonServiceSetResponse with the rules
 // defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceSetResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceSetResponse with the
+// rules defined in the proto definition for this message. If any rules are
 // violated, the result is a list of violation errors wrapped in
-// SetManyResponseMultiError, or nil if none found.
-func (m *SetManyResponse) ValidateAll() error {
+// BatonServiceSetResponseMultiError, or nil if none found.
+func (m *BatonServiceSetResponse) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *SetManyResponse) validate(all bool) error {
+func (m *BatonServiceSetResponse) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	// no validation rules for Success
-
 	if len(errors) > 0 {
-		return SetManyResponseMultiError(errors)
+		return BatonServiceSetResponseMultiError(errors)
 	}
 
 	return nil
 }
 
-// SetManyResponseMultiError is an error wrapping multiple validation errors
-// returned by SetManyResponse.ValidateAll() if the designated constraints
-// aren't met.
-type SetManyResponseMultiError []error
+// BatonServiceSetResponseMultiError is an error wrapping multiple validation
+// errors returned by BatonServiceSetResponse.ValidateAll() if the designated
+// constraints aren't met.
+type BatonServiceSetResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m SetManyResponseMultiError) Error() string {
+func (m BatonServiceSetResponseMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -1426,11 +858,11 @@ func (m SetManyResponseMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m SetManyResponseMultiError) AllErrors() []error { return m }
+func (m BatonServiceSetResponseMultiError) AllErrors() []error { return m }
 
-// SetManyResponseValidationError is the validation error returned by
-// SetManyResponse.Validate if the designated constraints aren't met.
-type SetManyResponseValidationError struct {
+// BatonServiceSetResponseValidationError is the validation error returned by
+// BatonServiceSetResponse.Validate if the designated constraints aren't met.
+type BatonServiceSetResponseValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -1438,22 +870,24 @@ type SetManyResponseValidationError struct {
 }
 
 // Field function returns field value.
-func (e SetManyResponseValidationError) Field() string { return e.field }
+func (e BatonServiceSetResponseValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e SetManyResponseValidationError) Reason() string { return e.reason }
+func (e BatonServiceSetResponseValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e SetManyResponseValidationError) Cause() error { return e.cause }
+func (e BatonServiceSetResponseValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e SetManyResponseValidationError) Key() bool { return e.key }
+func (e BatonServiceSetResponseValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e SetManyResponseValidationError) ErrorName() string { return "SetManyResponseValidationError" }
+func (e BatonServiceSetResponseValidationError) ErrorName() string {
+	return "BatonServiceSetResponseValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e SetManyResponseValidationError) Error() string {
+func (e BatonServiceSetResponseValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -1465,14 +899,14 @@ func (e SetManyResponseValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sSetManyResponse.%s: %s%s",
+		"invalid %sBatonServiceSetResponse.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = SetManyResponseValidationError{}
+var _ error = BatonServiceSetResponseValidationError{}
 
 var _ interface {
 	Field() string
@@ -1480,4 +914,950 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = SetManyResponseValidationError{}
+} = BatonServiceSetResponseValidationError{}
+
+// Validate checks the field values on BatonServiceSetManyRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceSetManyRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceSetManyRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceSetManyRequestMultiError, or nil if none found.
+func (m *BatonServiceSetManyRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceSetManyRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if !_BatonServiceSetManyRequest_SyncId_Pattern.MatchString(m.GetSyncId()) {
+		err := BatonServiceSetManyRequestValidationError{
+			field:  "SyncId",
+			reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	{
+		sorted_keys := make([]string, len(m.GetValues()))
+		i := 0
+		for key := range m.GetValues() {
+			sorted_keys[i] = key
+			i++
+		}
+		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
+		for _, key := range sorted_keys {
+			val := m.GetValues()[key]
+			_ = val
+
+			if l := utf8.RuneCountInString(key); l < 1 || l > 256 {
+				err := BatonServiceSetManyRequestValidationError{
+					field:  fmt.Sprintf("Values[%v]", key),
+					reason: "value length must be between 1 and 256 runes, inclusive",
+				}
+				if !all {
+					return err
+				}
+				errors = append(errors, err)
+			}
+
+			if l := len(val); l < 1 || l > 1048576 {
+				err := BatonServiceSetManyRequestValidationError{
+					field:  fmt.Sprintf("Values[%v]", key),
+					reason: "value length must be between 1 and 1048576 bytes, inclusive",
+				}
+				if !all {
+					return err
+				}
+				errors = append(errors, err)
+			}
+
+		}
+	}
+
+	if len(errors) > 0 {
+		return BatonServiceSetManyRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceSetManyRequestMultiError is an error wrapping multiple
+// validation errors returned by BatonServiceSetManyRequest.ValidateAll() if
+// the designated constraints aren't met.
+type BatonServiceSetManyRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceSetManyRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceSetManyRequestMultiError) AllErrors() []error { return m }
+
+// BatonServiceSetManyRequestValidationError is the validation error returned
+// by BatonServiceSetManyRequest.Validate if the designated constraints aren't met.
+type BatonServiceSetManyRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceSetManyRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceSetManyRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceSetManyRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceSetManyRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceSetManyRequestValidationError) ErrorName() string {
+	return "BatonServiceSetManyRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceSetManyRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceSetManyRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceSetManyRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceSetManyRequestValidationError{}
+
+var _BatonServiceSetManyRequest_SyncId_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
+
+// Validate checks the field values on BatonServiceSetManyResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceSetManyResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceSetManyResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceSetManyResponseMultiError, or nil if none found.
+func (m *BatonServiceSetManyResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceSetManyResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return BatonServiceSetManyResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceSetManyResponseMultiError is an error wrapping multiple
+// validation errors returned by BatonServiceSetManyResponse.ValidateAll() if
+// the designated constraints aren't met.
+type BatonServiceSetManyResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceSetManyResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceSetManyResponseMultiError) AllErrors() []error { return m }
+
+// BatonServiceSetManyResponseValidationError is the validation error returned
+// by BatonServiceSetManyResponse.Validate if the designated constraints
+// aren't met.
+type BatonServiceSetManyResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceSetManyResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceSetManyResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceSetManyResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceSetManyResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceSetManyResponseValidationError) ErrorName() string {
+	return "BatonServiceSetManyResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceSetManyResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceSetManyResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceSetManyResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceSetManyResponseValidationError{}
+
+// Validate checks the field values on BatonServiceDeleteRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceDeleteRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceDeleteRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceDeleteRequestMultiError, or nil if none found.
+func (m *BatonServiceDeleteRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceDeleteRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if !_BatonServiceDeleteRequest_SyncId_Pattern.MatchString(m.GetSyncId()) {
+		err := BatonServiceDeleteRequestValidationError{
+			field:  "SyncId",
+			reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if l := utf8.RuneCountInString(m.GetKey()); l < 1 || l > 256 {
+		err := BatonServiceDeleteRequestValidationError{
+			field:  "Key",
+			reason: "value length must be between 1 and 256 runes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return BatonServiceDeleteRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceDeleteRequestMultiError is an error wrapping multiple validation
+// errors returned by BatonServiceDeleteRequest.ValidateAll() if the
+// designated constraints aren't met.
+type BatonServiceDeleteRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceDeleteRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceDeleteRequestMultiError) AllErrors() []error { return m }
+
+// BatonServiceDeleteRequestValidationError is the validation error returned by
+// BatonServiceDeleteRequest.Validate if the designated constraints aren't met.
+type BatonServiceDeleteRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceDeleteRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceDeleteRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceDeleteRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceDeleteRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceDeleteRequestValidationError) ErrorName() string {
+	return "BatonServiceDeleteRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceDeleteRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceDeleteRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceDeleteRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceDeleteRequestValidationError{}
+
+var _BatonServiceDeleteRequest_SyncId_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
+
+// Validate checks the field values on BatonServiceDeleteResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceDeleteResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceDeleteResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceDeleteResponseMultiError, or nil if none found.
+func (m *BatonServiceDeleteResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceDeleteResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return BatonServiceDeleteResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceDeleteResponseMultiError is an error wrapping multiple
+// validation errors returned by BatonServiceDeleteResponse.ValidateAll() if
+// the designated constraints aren't met.
+type BatonServiceDeleteResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceDeleteResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceDeleteResponseMultiError) AllErrors() []error { return m }
+
+// BatonServiceDeleteResponseValidationError is the validation error returned
+// by BatonServiceDeleteResponse.Validate if the designated constraints aren't met.
+type BatonServiceDeleteResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceDeleteResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceDeleteResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceDeleteResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceDeleteResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceDeleteResponseValidationError) ErrorName() string {
+	return "BatonServiceDeleteResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceDeleteResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceDeleteResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceDeleteResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceDeleteResponseValidationError{}
+
+// Validate checks the field values on BatonServiceDeleteManyRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceDeleteManyRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceDeleteManyRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// BatonServiceDeleteManyRequestMultiError, or nil if none found.
+func (m *BatonServiceDeleteManyRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceDeleteManyRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if !_BatonServiceDeleteManyRequest_SyncId_Pattern.MatchString(m.GetSyncId()) {
+		err := BatonServiceDeleteManyRequestValidationError{
+			field:  "SyncId",
+			reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if l := len(m.GetKeys()); l < 1 || l > 200 {
+		err := BatonServiceDeleteManyRequestValidationError{
+			field:  "Keys",
+			reason: "value must contain between 1 and 200 items, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	for idx, item := range m.GetKeys() {
+		_, _ = idx, item
+
+		if l := utf8.RuneCountInString(item); l < 1 || l > 256 {
+			err := BatonServiceDeleteManyRequestValidationError{
+				field:  fmt.Sprintf("Keys[%v]", idx),
+				reason: "value length must be between 1 and 256 runes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return BatonServiceDeleteManyRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceDeleteManyRequestMultiError is an error wrapping multiple
+// validation errors returned by BatonServiceDeleteManyRequest.ValidateAll()
+// if the designated constraints aren't met.
+type BatonServiceDeleteManyRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceDeleteManyRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceDeleteManyRequestMultiError) AllErrors() []error { return m }
+
+// BatonServiceDeleteManyRequestValidationError is the validation error
+// returned by BatonServiceDeleteManyRequest.Validate if the designated
+// constraints aren't met.
+type BatonServiceDeleteManyRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceDeleteManyRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceDeleteManyRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceDeleteManyRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceDeleteManyRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceDeleteManyRequestValidationError) ErrorName() string {
+	return "BatonServiceDeleteManyRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceDeleteManyRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceDeleteManyRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceDeleteManyRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceDeleteManyRequestValidationError{}
+
+var _BatonServiceDeleteManyRequest_SyncId_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
+
+// Validate checks the field values on BatonServiceDeleteManyResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceDeleteManyResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceDeleteManyResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// BatonServiceDeleteManyResponseMultiError, or nil if none found.
+func (m *BatonServiceDeleteManyResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceDeleteManyResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return BatonServiceDeleteManyResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceDeleteManyResponseMultiError is an error wrapping multiple
+// validation errors returned by BatonServiceDeleteManyResponse.ValidateAll()
+// if the designated constraints aren't met.
+type BatonServiceDeleteManyResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceDeleteManyResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceDeleteManyResponseMultiError) AllErrors() []error { return m }
+
+// BatonServiceDeleteManyResponseValidationError is the validation error
+// returned by BatonServiceDeleteManyResponse.Validate if the designated
+// constraints aren't met.
+type BatonServiceDeleteManyResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceDeleteManyResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceDeleteManyResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceDeleteManyResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceDeleteManyResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceDeleteManyResponseValidationError) ErrorName() string {
+	return "BatonServiceDeleteManyResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceDeleteManyResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceDeleteManyResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceDeleteManyResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceDeleteManyResponseValidationError{}
+
+// Validate checks the field values on BatonServiceClearRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceClearRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceClearRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceClearRequestMultiError, or nil if none found.
+func (m *BatonServiceClearRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceClearRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if !_BatonServiceClearRequest_SyncId_Pattern.MatchString(m.GetSyncId()) {
+		err := BatonServiceClearRequestValidationError{
+			field:  "SyncId",
+			reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if len(errors) > 0 {
+		return BatonServiceClearRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceClearRequestMultiError is an error wrapping multiple validation
+// errors returned by BatonServiceClearRequest.ValidateAll() if the designated
+// constraints aren't met.
+type BatonServiceClearRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceClearRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceClearRequestMultiError) AllErrors() []error { return m }
+
+// BatonServiceClearRequestValidationError is the validation error returned by
+// BatonServiceClearRequest.Validate if the designated constraints aren't met.
+type BatonServiceClearRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceClearRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceClearRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceClearRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceClearRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceClearRequestValidationError) ErrorName() string {
+	return "BatonServiceClearRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceClearRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceClearRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceClearRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceClearRequestValidationError{}
+
+var _BatonServiceClearRequest_SyncId_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
+
+// Validate checks the field values on BatonServiceClearResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *BatonServiceClearResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on BatonServiceClearResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// BatonServiceClearResponseMultiError, or nil if none found.
+func (m *BatonServiceClearResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *BatonServiceClearResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return BatonServiceClearResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// BatonServiceClearResponseMultiError is an error wrapping multiple validation
+// errors returned by BatonServiceClearResponse.ValidateAll() if the
+// designated constraints aren't met.
+type BatonServiceClearResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m BatonServiceClearResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m BatonServiceClearResponseMultiError) AllErrors() []error { return m }
+
+// BatonServiceClearResponseValidationError is the validation error returned by
+// BatonServiceClearResponse.Validate if the designated constraints aren't met.
+type BatonServiceClearResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e BatonServiceClearResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e BatonServiceClearResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e BatonServiceClearResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e BatonServiceClearResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e BatonServiceClearResponseValidationError) ErrorName() string {
+	return "BatonServiceClearResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e BatonServiceClearResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sBatonServiceClearResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = BatonServiceClearResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = BatonServiceClearResponseValidationError{}

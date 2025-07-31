@@ -41,6 +41,12 @@ func defaultSessionCacheConstructor(ctx context.Context, opt ...types.SessionCac
 	return session.NewMemorySessionCache(ctx, opt...)
 }
 
+func defaultGRPCSessionCacheConstructor(ctx context.Context, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
+	// For now, return an error indicating that this needs to be implemented
+	// with the actual access token and DPoP key from the connector config flow
+	return nil, fmt.Errorf("gRPC session cache requires access token and DPoP key from connector config flow - not yet implemented")
+}
+
 func MakeMainCommand[T field.Configurable](
 	ctx context.Context,
 	name string,

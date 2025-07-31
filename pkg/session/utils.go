@@ -7,6 +7,28 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
+func WithSyncID(syncID string) types.SessionCacheOption {
+	return func(ctx context.Context, bag *types.SessionCacheBag) error {
+		bag.SyncID = syncID
+		return nil
+	}
+}
+
+func WithPrefix(prefix string) types.SessionCacheOption {
+	return func(ctx context.Context, bag *types.SessionCacheBag) error {
+		bag.Prefix = prefix
+		return nil
+	}
+}
+
+// GetSyncIDFromContext retrieves the sync ID from the context, returning empty string if not found.
+func GetSyncIDFromContext(ctx context.Context) string {
+	if syncID, ok := ctx.Value(types.SyncIDKey{}).(string); ok {
+		return syncID
+	}
+	return ""
+}
+
 // applyOptions applies session cache options and returns a configured bag.
 func applyOptions(ctx context.Context, opt ...types.SessionCacheOption) (*types.SessionCacheBag, error) {
 	bag := &types.SessionCacheBag{}

@@ -7,25 +7,13 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
-// WithSyncID returns a SessionCacheOption that sets the sync ID for the operation.
-func SetSyncIDInContext(ctx context.Context, syncID string) (context.Context, error) {
-	// Check if syncID is already set in the context
-	if existingSyncID, ok := ctx.Value(types.SyncIDKey{}).(string); ok && existingSyncID != "" {
-		if existingSyncID != syncID {
-			return ctx, fmt.Errorf("syncID mismatch: context already has syncID %q, cannot set to %q", existingSyncID, syncID)
-		}
-		// If they match, return the context unchanged
-		return ctx, nil
+// GetSession retrieves the session cache instance from the context.
+// Returns an error if no session cache is found in the context.
+func GetSession(ctx context.Context) (types.SessionCache, error) {
+	if sessionCache, ok := ctx.Value(types.SessionCacheKey{}).(types.SessionCache); ok {
+		return sessionCache, nil
 	}
-	return context.WithValue(ctx, types.SyncIDKey{}, syncID), nil
-}
-
-// GetSyncIDFromContext retrieves the sync ID from the context, returning empty string if not found.
-func GetSyncIDFromContext(ctx context.Context) string {
-	if syncID, ok := ctx.Value(types.SyncIDKey{}).(string); ok {
-		return syncID
-	}
-	return ""
+	return nil, fmt.Errorf("no session cache found in context")
 }
 
 func WithSyncID(syncID string) types.SessionCacheOption {
@@ -40,4 +28,34 @@ func WithPrefix(prefix string) types.SessionCacheOption {
 		bag.Prefix = prefix
 		return nil
 	}
+}
+
+// GetSyncIDFromContext retrieves the sync ID from the context, returning empty string if not found.
+func GetSyncIDFromContext(ctx context.Context) string {
+	if syncID, ok := ctx.Value(types.SyncIDKey{}).(string); ok {
+		return syncID
+	}
+	return ""
+}
+
+// applyOptions applies session cache options and returns a configured bag.
+func applyOptions(ctx context.Context, opt ...types.SessionCacheOption) (*types.SessionCacheBag, error) {
+	bag := &types.SessionCacheBag{}
+
+	for _, option := range opt {
+		err := option(ctx, bag)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if bag.SyncID == "" {
+		bag.SyncID = GetSyncIDFromContext(ctx)
+	}
+	if bag.SyncID == "" {
+		panic("no syncID set on context or in options")
+		// return nil, fmt.Errorf("no syncID set on context or in options")
+	}
+
+	return bag, nil
 }

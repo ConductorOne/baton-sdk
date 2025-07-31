@@ -19,15 +19,6 @@ type sessionCacheKey struct{}
 // It takes a context and configuration. The session cache constructor is retrieved from the context.
 type GetConnectorFunc[T field.Configurable] func(ctx context.Context, cfg T) (types.ConnectorServer, error)
 
-// GetSessionCache retrieves the session cache instance from the context.
-// Returns an error if no session cache is found in the context.
-func GetSessionCache(ctx context.Context) (types.SessionCache, error) {
-	if sessionCache, ok := ctx.Value(sessionCacheKey{}).(types.SessionCache); ok {
-		return sessionCache, nil
-	}
-	return nil, fmt.Errorf("no session cache found in context")
-}
-
 // WithSessionCache creates a session cache using the provided constructor and adds it to the context.
 func WithSessionCache(ctx context.Context, constructor types.SessionCacheConstructor) (context.Context, error) {
 	sessionCache, err := constructor(ctx)

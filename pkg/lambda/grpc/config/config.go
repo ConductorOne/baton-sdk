@@ -18,13 +18,12 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 
-	pb_connector_manager "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-
 	"github.com/conductorone/dpop/pkg/dpop"
 
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	dpop_grpc "github.com/conductorone/dpop/integrations/dpop_grpc"
 	dpop_oauth "github.com/conductorone/dpop/integrations/dpop_oauth2"
+	"golang.org/x/oauth2"
 )
 
 var (
@@ -33,10 +32,11 @@ var (
 	v1SecretTokenIdentifier = []byte("v1")
 )
 
-func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clientSecret string) (pb_connector_manager.ConnectorConfigServiceClient, *jose.JSONWebKey, error) {
+// NewDPoPClient creates a gRPC client with DPoP authentication.
+func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (grpc.ClientConnInterface, *jose.JSONWebKey, oauth2.TokenSource, error) {
 	_, tokenHost, err := parseClientID(clientID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	if envHost, ok := os.LookupEnv("BATON_LAMBDA_TOKEN_HOST"); ok {
@@ -51,7 +51,7 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	_, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get-connector-service-client: failed to generate ed25519: %w", err)
+		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to generate ed25519: %w", err)
 	}
 
 	jwk := &jose.JSONWebKey{
@@ -63,22 +63,22 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	clientSecretJWK, err := parseSecret([]byte(clientSecret))
 	if err != nil {
-		return nil, nil, fmt.Errorf("get-connector-service-client: failed to unmarshal client secret: %w", err)
+		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to unmarshal client secret: %w", err)
 	}
 
 	proofer, err := dpop.NewProofer(jwk)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get-connector-service-client: failed to create proofer: %w", err)
+		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create proofer: %w", err)
 	}
 
 	idAttMarshaller, err := NewIdAttMarshaller(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get-connector-service-client: failed to create claims adjuster: %w", err)
+		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create claims adjuster: %w", err)
 	}
 	opts := dpop_oauth.WithRequestOption(dpop_oauth.WithCustomMarshaler(idAttMarshaller.Marshal))
 	tokenSource, err := dpop_oauth.NewTokenSource(proofer, tokenURL, clientID, clientSecretJWK, opts)
 	if err != nil {
-		return nil, nil, fmt.Errorf("get-connector-service-client: failed to create token source: %w", err)
+		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create token source: %w", err)
 	}
 
 	creds, err := dpop_grpc.NewDPoPCredentials(proofer, tokenSource, tokenHost, []dpop.ProofOption{
@@ -86,12 +86,12 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 		dpop.WithProofNowFunc(time.Now),
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("get-connector-service-client: failed to create dpop credentials: %w", err)
+		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create dpop credentials: %w", err)
 	}
 
 	systemCertPool, err := x509.SystemCertPool()
 	if err != nil || systemCertPool == nil {
-		return nil, nil, fmt.Errorf("get-connector-service-client: failed to load system cert pool: %w", err)
+		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to load system cert pool: %w", err)
 	}
 	transportCreds := credentials.NewTLS(&tls.Config{
 		RootCAs:    systemCertPool,
@@ -106,10 +106,10 @@ func GetConnectorConfigServiceClient(ctx context.Context, clientID string, clien
 
 	client, err := grpc.NewClient(tokenHost, dialOpts...)
 	if err != nil {
-		return nil, nil, fmt.Errorf("connector-manager-client: failed to create client: %w", err)
+		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create client: %w", err)
 	}
 
-	return pb_connector_manager.NewConnectorConfigServiceClient(client), jwk, nil
+	return client, jwk, tokenSource, nil
 }
 
 func parseClientID(input string) (string, string, error) {

@@ -45,7 +45,7 @@ func (m *MemorySessionCache) Get(ctx context.Context, key string, opt ...types.S
 	}
 
 	if bag.Prefix != "" {
-		key = bag.Prefix + "::" + key
+		key = bag.Prefix + KeyPrefixDelimiter + key
 	}
 
 	m.mu.RLock()
@@ -68,7 +68,7 @@ func (m *MemorySessionCache) Set(ctx context.Context, key string, value []byte, 
 	}
 
 	if bag.Prefix != "" {
-		key = bag.Prefix + "::" + key
+		key = bag.Prefix + KeyPrefixDelimiter + key
 	}
 
 	m.mu.Lock()
@@ -95,7 +95,7 @@ func (m *MemorySessionCache) Delete(ctx context.Context, key string, opt ...type
 	defer m.mu.Unlock()
 
 	if bag.Prefix != "" {
-		key = bag.Prefix + "::" + key
+		key = bag.Prefix + KeyPrefixDelimiter + key
 	}
 
 	syncCache, ok := m.cache[bag.SyncID]
@@ -137,7 +137,7 @@ func (m *MemorySessionCache) GetAll(ctx context.Context, opt ...types.SessionCac
 	result := make(map[string][]byte)
 	for key, value := range syncCache {
 		if bag.Prefix != "" {
-			key = bag.Prefix + "::" + key
+			key = bag.Prefix + KeyPrefixDelimiter + key
 		}
 		result[key] = value
 	}
@@ -162,7 +162,7 @@ func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...
 	result := make(map[string][]byte)
 	for _, key := range keys {
 		if bag.Prefix != "" {
-			key = bag.Prefix + "::" + key
+			key = bag.Prefix + KeyPrefixDelimiter + key
 		}
 		if value, found := syncCache[key]; found {
 			result[key] = value
@@ -192,7 +192,7 @@ func (m *MemorySessionCache) SetMany(ctx context.Context, values map[string][]by
 
 	for key, value := range values {
 		if bag.Prefix != "" {
-			key = bag.Prefix + "::" + key
+			key = bag.Prefix + KeyPrefixDelimiter + key
 		}
 		syncCache[key] = value
 	}
