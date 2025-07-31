@@ -188,6 +188,19 @@ func MakeMainCommand[T field.Configurable](
 						v.GetString("create-account-email"),
 						profile,
 					))
+			case v.GetString("invoke-action") != "":
+				invokeActionArgs := v.GetStringMap("invoke-action-args")
+				invokeActionArgsStruct, err := structpb.NewStruct(invokeActionArgs)
+				if err != nil {
+					return fmt.Errorf("failed to parse invoke-action-args: %w", err)
+				}
+				opts = append(opts,
+					connectorrunner.WithActionsEnabled(),
+					connectorrunner.WithOnDemandInvokeAction(
+						v.GetString("file"),
+						v.GetString("invoke-action"),
+						invokeActionArgsStruct,
+					))
 			case v.GetString("delete-resource") != "":
 				opts = append(opts,
 					connectorrunner.WithProvisioningEnabled(),

@@ -126,6 +126,20 @@ var (
 		WithExportTarget(ExportTargetNone),
 	)
 
+	invokeActionField = StringField("invoke-action",
+		WithDescription("The name of the custom action to invoke"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	invokeActionArgsField = StringMapField("invoke-action-args",
+		WithHidden(true),
+		WithDescription("JSON-formatted object of map keys and values like '{ 'key': 'value' }'"),
+		WithDefaultValue(map[string]any{}),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
 	otelCollectorEndpoint = StringField(OtelCollectorEndpointFieldName,
 		WithDescription("The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided)"),
 		WithPersistent(true), WithExportTarget(ExportTargetOps))
@@ -242,6 +256,8 @@ var DefaultFields = []SchemaField{
 	compactFilePathsField,
 	compactOutputDirectoryField,
 	compactSyncsField,
+	invokeActionField,
+	invokeActionArgsField,
 
 	otelCollectorEndpoint,
 	otelCollectorEndpointTLSCertPath,

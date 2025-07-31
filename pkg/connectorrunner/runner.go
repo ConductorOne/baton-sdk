@@ -287,6 +287,11 @@ type createAccountConfig struct {
 	profile *structpb.Struct
 }
 
+type invokeActionConfig struct {
+	action string
+	args   *structpb.Struct
+}
+
 type deleteResourceConfig struct {
 	resourceId   string
 	resourceType string
@@ -323,11 +328,13 @@ type runnerConfig struct {
 	clientSecret                        string
 	provisioningEnabled                 bool
 	ticketingEnabled                    bool
+	actionsEnabled                      bool
 	grantConfig                         *grantConfig
 	revokeConfig                        *revokeConfig
 	eventFeedConfig                     *eventStreamConfig
 	tempDir                             string
 	createAccountConfig                 *createAccountConfig
+	invokeActionConfig                  *invokeActionConfig
 	deleteResourceConfig                *deleteResourceConfig
 	rotateCredentialsConfig             *rotateCredentialsConfig
 	createTicketConfig                  *createTicketConfig
@@ -463,6 +470,18 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string, profi
 	}
 }
 
+func WithOnDemandInvokeAction(c1zPath string, action string, args *structpb.Struct) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.invokeActionConfig = &invokeActionConfig{
+			action: action,
+			args:   args,
+		}
+		return nil
+	}
+}
+
 func WithOnDemandDeleteResource(c1zPath string, resourceId string, resourceType string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
@@ -509,6 +528,13 @@ func WithOnDemandEventStream(feedId string, startAt time.Time) Option {
 func WithProvisioningEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.provisioningEnabled = true
+		return nil
+	}
+}
+
+func WithActionsEnabled() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.actionsEnabled = true
 		return nil
 	}
 }
@@ -682,6 +708,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 		case cfg.createAccountConfig != nil:
 			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email, cfg.createAccountConfig.profile)
+
+		case cfg.invokeActionConfig != nil:
+			tm = local.NewActionInvoker(ctx, cfg.c1zPath, cfg.invokeActionConfig.action, cfg.invokeActionConfig.args)
 
 		case cfg.deleteResourceConfig != nil:
 			tm = local.NewResourceDeleter(ctx, cfg.c1zPath, cfg.deleteResourceConfig.resourceId, cfg.deleteResourceConfig.resourceType)

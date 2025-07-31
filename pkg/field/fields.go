@@ -8,7 +8,7 @@ import (
 	v1_conf "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 )
 
-var WrongValueTypeErr = errors.New("unable to cast any to concrete type")
+var ErrWrongValueType = errors.New("unable to cast any to concrete type")
 
 type Variant string
 
@@ -128,31 +128,31 @@ func (s SchemaField) validate(value any) (bool, error) {
 	case StringVariant:
 		v, ok := value.(string)
 		if !ok {
-			return false, WrongValueTypeErr
+			return false, ErrWrongValueType
 		}
 		return v != "", ValidateStringRules(s.Rules.s, v, s.FieldName)
 	case BoolVariant:
 		v, ok := value.(bool)
 		if !ok {
-			return false, WrongValueTypeErr
+			return false, ErrWrongValueType
 		}
 		return v, ValidateBoolRules(s.Rules.b, v, s.FieldName)
 	case IntVariant:
 		v, ok := value.(int)
 		if !ok {
-			return false, WrongValueTypeErr
+			return false, ErrWrongValueType
 		}
 		return v != 0, ValidateIntRules(s.Rules.i, v, s.FieldName)
 	case StringSliceVariant:
 		v, ok := value.([]string)
 		if !ok {
-			return false, WrongValueTypeErr
+			return false, ErrWrongValueType
 		}
 		return len(v) != 0, ValidateRepeatedStringRules(s.Rules.ss, v, s.FieldName)
 	case StringMapVariant:
 		v, ok := value.(map[string]any)
 		if !ok {
-			return false, WrongValueTypeErr
+			return false, ErrWrongValueType
 		}
 		return len(v) != 0, ValidateStringMapRules(s.Rules.sm, v, s.FieldName)
 	default:
@@ -168,7 +168,7 @@ func toUpperCase(i string) string {
 func GetDefaultValue[T SchemaTypes](s SchemaField) (*T, error) {
 	value, ok := s.DefaultValue.(T)
 	if !ok {
-		return nil, WrongValueTypeErr
+		return nil, ErrWrongValueType
 	}
 	return &value, nil
 }

@@ -24,8 +24,9 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 	intF := IntField("if", WithDescription("Field 2"), WithDefaultValue(42))
 	bf := BoolField("bf", WithDescription("Field 3"))
 	ssf := StringSliceField("ssf", WithDescription("Field 4"), WithDefaultValue([]string{"default"}))
+	smf := StringMapField("smf", WithDescription("Field 5"), WithDefaultValue(map[string]any{"key": "value"}))
 
-	fields := []SchemaField{ss, intF, bf, ssf}
+	fields := []SchemaField{ss, intF, bf, ssf, smf}
 	constraints := []SchemaFieldRelationship{
 		FieldsMutuallyExclusive(ss, intF),
 		FieldsRequiredTogether(bf, ssf),
@@ -74,6 +75,18 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 					"defaultValue": [
 						"default"
 					]
+				}
+			},
+			{
+				"name": "smf",
+				"description": "Field 5",
+				"stringMapField": {
+					"defaultValue": {
+						"key": {
+							"@type": "type.googleapis.com/google.protobuf.Value",
+							"value": "value"
+						}
+					}
 				}
 			}
 		],
