@@ -82,7 +82,10 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 				"description": "Field 5",
 				"stringMapField": {
 					"defaultValue": {
-						"key": "value"
+						"key": {
+							"@type": "type.googleapis.com/google.protobuf.Value",
+							"value": "value"
+						}
 					}
 				}
 			}
