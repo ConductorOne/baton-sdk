@@ -563,8 +563,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 		ActiveSyncId: syncId,
 	})
 
-	fmt.Printf("🌮🌮🌮🌮 syncId: %s\n", syncId)
-
 	_, err = s.connector.Cleanup(ctx, &v2.ConnectorServiceCleanupRequest{Annotations: a})
 	if err != nil {
 		l.Error("error clearing connector caches", zap.Error(err))

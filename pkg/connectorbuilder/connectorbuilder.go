@@ -19,11 +19,11 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/retry"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
@@ -1315,14 +1315,12 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 func (b *builderImpl) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
 	l := ctxzap.Extract(ctx)
 
-	fmt.Printf("🌮 Cleanup annotations: %v\n", request.GetAnnotations())
-
 	ctx, err := annotations.SetActiveSyncIdInContext(ctx, request.GetAnnotations())
 	if err != nil {
 		l.Warn("error getting active sync id", zap.Error(err))
 	}
 	// Clear session cache if available in context
-	sessionCache, err := cli.GetSessionCache(ctx)
+	sessionCache, err := session.GetSession(ctx)
 	if err != nil {
 		l.Warn("error getting session cache", zap.Error(err))
 	} else {

@@ -4,37 +4,35 @@ import (
 	"context"
 )
 
-// SessionCache defines the interface for session cache operations.
+// SessionCacheKey is the context key for storing the session cache instance.
+type SessionCacheKey struct{}
+
+// SessionCache is an interface for caching session data.
 type SessionCache interface {
-	// Get retrieves a value from the cache by key.
 	Get(ctx context.Context, key string, opt ...SessionCacheOption) ([]byte, bool, error)
 	GetMany(ctx context.Context, keys []string, opt ...SessionCacheOption) (map[string][]byte, error)
-	// Set stores a value in the cache with the given key.
 	Set(ctx context.Context, key string, value []byte, opt ...SessionCacheOption) error
 	SetMany(ctx context.Context, values map[string][]byte, opt ...SessionCacheOption) error
-	// Delete removes a value from the cache by key.
 	Delete(ctx context.Context, key string, opt ...SessionCacheOption) error
-	// Clear removes all values from the cache.
 	Clear(ctx context.Context, opt ...SessionCacheOption) error
-	// GetAll returns all key-value pairs.
 	GetAll(ctx context.Context, opt ...SessionCacheOption) (map[string][]byte, error)
-	// Close performs any necessary cleanup when the cache is no longer needed.
 	Close() error
 }
 
+// SessionCacheOption is a function that modifies a SessionCacheBag.
+type SessionCacheOption func(ctx context.Context, bag *SessionCacheBag) error
+
+// SessionCacheConstructor is a function that creates a SessionCache instance.
+type SessionCacheConstructor func(ctx context.Context, opt ...SessionCacheConstructorOption) (SessionCache, error)
+
+// SessionCacheConstructorOption is a function that modifies the context for session cache construction.
+type SessionCacheConstructorOption func(ctx context.Context) (context.Context, error)
+
+// SessionCacheBag holds the configuration for session cache operations.
 type SessionCacheBag struct {
 	SyncID string
 	Prefix string
 }
-
-// SessionCacheOption is a function type that configures a session cache operation.
-type SessionCacheOption func(ctx context.Context, bag *SessionCacheBag) error
-
-// SessionCacheConstructorOption is a function type that configures a session cache constructor.
-type SessionCacheConstructorOption func(ctx context.Context) (context.Context, error)
-
-// SessionCacheConstructor is a function type that creates a new session cache instance.
-type SessionCacheConstructor func(ctx context.Context, opt ...SessionCacheConstructorOption) (SessionCache, error)
 
 // SyncIDKey is the context key for storing the current sync ID.
 type SyncIDKey struct{}
