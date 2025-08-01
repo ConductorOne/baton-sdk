@@ -172,6 +172,36 @@ func WithAlwaysJSONResponse(response interface{}) DoOption {
 	}
 }
 
+func WithXMLResponse(response interface{}) DoOption {
+	return func(resp *WrapperResponse) error {
+		if !IsXMLContentType(resp.Header.Get(ContentType)) {
+			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get(ContentType))
+		}
+		if response == nil && len(resp.Body) == 0 {
+			return nil
+		}
+		err := xml.Unmarshal(resp.Body, response)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal xml response: %w. body %s", err, string(resp.Body))
+		}
+		return nil
+	}
+}
+
+// Ignore content type header and always try to parse the response as XML.
+func WithAlwaysXMLResponse(response any) DoOption {
+	return func(resp *WrapperResponse) error {
+		if response == nil && len(resp.Body) == 0 {
+			return nil
+		}
+		err := xml.Unmarshal(resp.Body, response)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal xml response: %w. body %s", err, string(resp.Body))
+		}
+		return nil
+	}
+}
+
 type ErrorResponse interface {
 	Message() string
 }
@@ -217,22 +247,6 @@ func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 		resource.ResetAt = rl.ResetAt
 		resource.Status = rl.Status
 
-		return nil
-	}
-}
-
-func WithXMLResponse(response interface{}) DoOption {
-	return func(resp *WrapperResponse) error {
-		if !IsXMLContentType(resp.Header.Get(ContentType)) {
-			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get(ContentType))
-		}
-		if response == nil && len(resp.Body) == 0 {
-			return nil
-		}
-		err := xml.Unmarshal(resp.Body, response)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal xml response: %w. body %s", err, string(resp.Body))
-		}
 		return nil
 	}
 }
