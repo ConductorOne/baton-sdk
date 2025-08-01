@@ -182,7 +182,7 @@ func WithXMLResponse(response any) DoOption {
 		}
 		err := xml.Unmarshal(resp.Body, response)
 		if err != nil {
-			return fmt.Errorf("failed to unmarshal xml response: %w. body %s", err, string(resp.Body))
+			return fmt.Errorf("failed to unmarshal xml response: %w. status code: %d", err, resp.StatusCode)
 		}
 		return nil
 	}
@@ -196,7 +196,7 @@ func WithAlwaysXMLResponse(response any) DoOption {
 		}
 		err := xml.Unmarshal(resp.Body, response)
 		if err != nil {
-			return fmt.Errorf("failed to unmarshal xml response: %w. body %s", err, string(resp.Body))
+			return fmt.Errorf("failed to unmarshal xml response: %w. status code: %d", err, resp.StatusCode)
 		}
 		return nil
 	}
