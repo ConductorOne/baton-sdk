@@ -231,7 +231,7 @@ func WithXMLResponse(response interface{}) DoOption {
 		}
 		err := xml.Unmarshal(resp.Body, response)
 		if err != nil {
-			return fmt.Errorf("failed to unmarshal xml response: %w. body %v", err, resp.Body)
+			return fmt.Errorf("failed to unmarshal xml response: %w. body %s", err, string(resp.Body))
 		}
 		return nil
 	}
