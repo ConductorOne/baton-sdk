@@ -134,7 +134,7 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 // WithJSONResponse is a wrapper that marshals the returned response body into
 // the provided shape. If the API should return an empty JSON body (i.e. HTTP
 // status code 204 No Content), then pass a `nil` to `response`.
-func WithJSONResponse(response interface{}) DoOption {
+func WithJSONResponse(response any) DoOption {
 	return func(resp *WrapperResponse) error {
 		contentHeader := resp.Header.Get(ContentType)
 
@@ -158,7 +158,7 @@ func WithJSONResponse(response interface{}) DoOption {
 }
 
 // Ignore content type header and always try to parse the response as JSON.
-func WithAlwaysJSONResponse(response interface{}) DoOption {
+func WithAlwaysJSONResponse(response any) DoOption {
 	return func(resp *WrapperResponse) error {
 		if response == nil && len(resp.Body) == 0 {
 			return nil
@@ -172,7 +172,7 @@ func WithAlwaysJSONResponse(response interface{}) DoOption {
 	}
 }
 
-func WithXMLResponse(response interface{}) DoOption {
+func WithXMLResponse(response any) DoOption {
 	return func(resp *WrapperResponse) error {
 		if !IsXMLContentType(resp.Header.Get(ContentType)) {
 			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get(ContentType))
@@ -251,7 +251,7 @@ func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 	}
 }
 
-func WithResponse(response interface{}) DoOption {
+func WithResponse(response any) DoOption {
 	return func(resp *WrapperResponse) error {
 		if IsJSONContentType(resp.Header.Get(ContentType)) {
 			return WithJSONResponse(response)(resp)
@@ -491,7 +491,7 @@ func WithBody(body []byte) RequestOption {
 	}
 }
 
-func WithJSONBody(body interface{}) RequestOption {
+func WithJSONBody(body any) RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		buffer := new(bytes.Buffer)
 		err := json.NewEncoder(buffer).Encode(body)
@@ -525,7 +525,7 @@ func WithFormBody(body string) RequestOption {
 	}
 }
 
-func WithXMLBody(body interface{}) RequestOption {
+func WithXMLBody(body any) RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		var buffer bytes.Buffer
 
