@@ -326,9 +326,9 @@ func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.Tickets
 	}
 
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
-		MaxAttempts:  3,
+		MaxAttempts:  0,
 		InitialDelay: 15 * time.Second,
-		MaxDelay:     60 * time.Second,
+		MaxDelay:     0,
 	})
 
 	for {
