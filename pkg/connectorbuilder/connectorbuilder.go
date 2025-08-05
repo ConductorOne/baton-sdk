@@ -989,7 +989,7 @@ func (b *builderImpl) Validate(ctx context.Context, request *v2.ConnectorService
 	defer span.End()
 
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
-		MaxAttempts:  0, // 0 means no limit - retry indefinitely
+		MaxAttempts:  5,
 		InitialDelay: 1 * time.Second,
 		MaxDelay:     0,
 	})
