@@ -551,6 +551,8 @@ func (m *GetAllRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
+	// no validation rules for PageStartKey
+
 	if len(errors) > 0 {
 		return GetAllRequestMultiError(errors)
 	}
@@ -656,6 +658,8 @@ func (m *GetAllResponse) validate(all bool) error {
 	// no validation rules for Key
 
 	// no validation rules for Value
+
+	// no validation rules for NextPageStartKey
 
 	if len(errors) > 0 {
 		return GetAllResponseMultiError(errors)
@@ -779,10 +783,10 @@ func (m *SetRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := len(m.GetValue()); l < 1 || l > 1048576 {
+	if len(m.GetValue()) > 1048576 {
 		err := SetRequestValidationError{
 			field:  "Value",
-			reason: "value length must be between 1 and 1048576 bytes, inclusive",
+			reason: "value length must be at most 1048576 bytes",
 		}
 		if !all {
 			return err
@@ -1024,10 +1028,10 @@ func (m *SetManyRequest) validate(all bool) error {
 				errors = append(errors, err)
 			}
 
-			if l := len(val); l < 1 || l > 1048576 {
+			if len(val) > 1048576 {
 				err := SetManyRequestValidationError{
 					field:  fmt.Sprintf("Values[%v]", key),
-					reason: "value length must be between 1 and 1048576 bytes, inclusive",
+					reason: "value length must be at most 1048576 bytes",
 				}
 				if !all {
 					return err

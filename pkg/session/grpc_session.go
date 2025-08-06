@@ -197,8 +197,11 @@ func (g *GRPCSessionCache) GetMany(ctx context.Context, keys []string, opt ...ty
 		if err != nil {
 			return nil, fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
 		}
-
-		result[resp.Key] = resp.Value
+		if bag.Prefix != "" {
+			result[resp.Key[len(bag.Prefix)+len(KeyPrefixDelimiter):]] = resp.Value
+		} else {
+			result[resp.Key] = resp.Value
+		}
 	}
 
 	return result, nil

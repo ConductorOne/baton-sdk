@@ -76,7 +76,6 @@ message SetRequest {
     max_len: 256
   }];
   bytes value = 3 [(validate.rules).bytes = {
-    min_len: 1
     max_len: 1048576
   }];
 }
@@ -94,7 +93,6 @@ message SetManyRequest {
     }
     values: {
       bytes: {
-        min_len: 1
         max_len: 1048576
       }
     }

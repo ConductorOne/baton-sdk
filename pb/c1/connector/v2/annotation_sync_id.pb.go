@@ -21,7 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// SyncDetails is an annotation is used to communicate with the connector store, often for a _previous_ sync.
+// ActiveSync is an annotation is used by the session cache.
 type ActiveSync struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
