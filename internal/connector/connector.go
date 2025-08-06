@@ -27,7 +27,6 @@ import (
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	tlsV1 "github.com/conductorone/baton-sdk/pb/c1/utls/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	ratelimit2 "github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
@@ -43,21 +42,17 @@ func WithSyncID(ctx context.Context, syncID string) context.Context {
 // activeSyncUnaryInterceptor adds ActiveSync annotations to requests if syncID is present in context (set by syncer).
 // This is used by the session storage layer transparently.
 func activeSyncUnaryInterceptor(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-	fmt.Println("🌮 activeSyncUnaryInterceptor\n")
 	// Check if syncID is present in context
 	syncID := types.GetSyncID(ctx)
 
 	if syncID != "" && req != nil {
-		fmt.Println("🌮 adding active sync to request %s\n", syncID)
 		addActiveSyncToRequest(req, syncID)
 	}
-	fmt.Println("🦐 no syncID or req found!!! \n")
 	return invoker(ctx, method, req, reply, cc, opts...)
 }
 
 func addActiveSyncToRequest(req interface{}, syncID string) {
 	if req == nil || syncID == "" {
-		fmt.Println("🌮 no syncID or req found\n")
 		return
 	}
 
@@ -69,14 +64,12 @@ func addActiveSyncToRequest(req interface{}, syncID string) {
 
 	annotationsField := reqValue.FieldByName("Annotations")
 	if !annotationsField.IsValid() {
-		fmt.Println("🌮 no annotations field found\n")
 		return
 	}
 
 	// Check if the field is of the correct type
 	if annotationsField.Type() != reflect.TypeOf(annotations.Annotations{}) &&
 		annotationsField.Type() != reflect.TypeOf([]*anypb.Any{}) {
-		fmt.Printf("🌮 annotations field is not of the correct type %v\n", annotationsField.Type())
 		return
 	}
 
@@ -98,7 +91,6 @@ func addActiveSyncToRequest(req interface{}, syncID string) {
 		Id: syncID,
 	}
 
-	fmt.Printf("🌮 adding active sync to annotations %s\n", syncID)
 	// Add the ActiveSync annotation
 	currentAnnotations.Update(activeSync)
 	annotationsField.Set(reflect.ValueOf(currentAnnotations))
@@ -136,55 +128,6 @@ func (s *activeSyncClientStream) SendMsg(m interface{}) error {
 		addActiveSyncToRequest(m, s.syncID)
 	}
 	return s.ClientStream.SendMsg(m)
-}
-
-// annotationExtractionUnaryInterceptor extracts annotations from requests and adds syncID to context.
-// This is used by the server side to make request annotations and syncID available to handlers.
-func annotationExtractionUnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-	ctx = connectorbuilder.WithAnnotationsFromRequest(ctx, req)
-	fmt.Println("🌮 calling handler")
-	return handler(ctx, req)
-}
-
-// annotationExtractionStreamInterceptor extracts annotations from streaming requests and adds syncID to context.
-func annotationExtractionStreamInterceptor(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	// For streaming, we need to wrap the stream to intercept messages
-	wrappedStream := &annotationExtractionServerStream{
-		ServerStream: ss,
-		ctx:          ss.Context(),
-	}
-
-	return handler(srv, wrappedStream)
-}
-
-type annotationExtractionServerStream struct {
-	grpc.ServerStream
-	ctx context.Context
-}
-
-func (s *annotationExtractionServerStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s *annotationExtractionServerStream) RecvMsg(m interface{}) error {
-	err := s.ServerStream.RecvMsg(m)
-	if err != nil {
-		return err
-	}
-
-	// Extract annotations from the message and update context
-	annos := connectorbuilder.ExtractAnnotationsFromRequest(m)
-	if len(annos) > 0 {
-		s.ctx = connectorbuilder.WithAnnotationsFromRequest(s.ctx, m)
-
-		// Extract syncID from ActiveSync annotation if present
-		syncID, err := annotations.GetActiveSyncIdFromAnnotations(annos)
-		if err == nil && syncID != "" {
-			s.ctx = WithSyncID(s.ctx, syncID)
-		}
-	}
-
-	return nil
 }
 
 type connectorClient struct {
@@ -318,15 +261,15 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 
 	// Get default interceptors and add our custom annotation extraction interceptor
 	defaultUnaryInterceptors := ugrpc.UnaryServerInterceptor(ctx)
-	customUnaryInterceptors := append(defaultUnaryInterceptors, annotationExtractionUnaryInterceptor)
+	defaultUnaryInterceptors = append(defaultUnaryInterceptors, annotationExtractionUnaryInterceptor)
 
 	defaultStreamInterceptors := ugrpc.StreamServerInterceptors(ctx)
-	customStreamInterceptors := append(defaultStreamInterceptors, annotationExtractionStreamInterceptor)
+	defaultStreamInterceptors = append(defaultStreamInterceptors, annotationExtractionStreamInterceptor)
 
 	server := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
-		grpc.ChainUnaryInterceptor(customUnaryInterceptors...),
-		grpc.ChainStreamInterceptor(customStreamInterceptors...),
+		grpc.ChainUnaryInterceptor(defaultUnaryInterceptors...),
+		grpc.ChainStreamInterceptor(defaultStreamInterceptors...),
 		grpc.StatsHandler(otelgrpc.NewServerHandler(
 			otelgrpc.WithPropagators(
 				propagation.NewCompositeTextMapPropagator(
@@ -456,8 +399,6 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Println("🌮 starting client")
 
 	// The server won't start up immediately, so we may need to retry connecting
 	// This allows retrying connecting for 5 seconds every 500ms. Once initially

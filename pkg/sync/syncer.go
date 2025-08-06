@@ -359,7 +359,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 	// Add ActiveSync to context once after we have the syncID
 	if syncID != "" {
 		ctx = connector.WithSyncID(ctx, syncID)
-		fmt.Printf("🌮 adding syncID to context in syncerer%s\n", syncID)
 	}
 
 	span.SetAttributes(attribute.String("sync_id", syncID))
@@ -839,9 +838,6 @@ func (s *syncer) syncResources(ctx context.Context) error {
 			Resource:     s.state.ParentResourceID(ctx),
 		}
 	}
-
-	syncID := types.GetSyncID(ctx)
-	fmt.Printf("🌮 syncingResources, context syncID: %s\n", syncID)
 
 	resp, err := s.connector.ListResources(ctx, req)
 	if err != nil {

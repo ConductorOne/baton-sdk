@@ -78,25 +78,19 @@ func WithAnnotationsFromRequest(ctx context.Context, req interface{}) context.Co
 	if ctx == nil {
 		return ctx
 	}
-	fmt.Println("🌮 extracting annotations from request")
 	annos := ExtractAnnotationsFromRequest(req)
 	if len(annos) == 0 {
-		fmt.Println("🌮 no annotations found in request")
 		return ctx
 	}
 
-	fmt.Println("🌮 extracting syncID from annotations")
 	syncID, err := annotations.GetActiveSyncIdFromAnnotations(annos)
 	if err != nil {
 		return ctx
 	}
 
 	if syncID == "" {
-		fmt.Println("🌮 no syncID found in annotations")
 		return ctx
 	}
-
-	fmt.Println("🌮 adding syncID to server side context %s", syncID)
 
 	return context.WithValue(ctx, types.SyncIDKey{}, syncID)
 }
@@ -756,7 +750,6 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list resources with unknown resource type %s", request.ResourceTypeId)
 	}
-	fmt.Printf("🌮🌮🌮🌮 ListResources: %v\n", request.Annotations)
 	out, nextPageToken, annos, err := rb.List(ctx, request.ParentResourceId, &pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,

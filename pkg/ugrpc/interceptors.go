@@ -3,6 +3,9 @@ package ugrpc
 import (
 	"context"
 
+	"github.com/conductorone/baton-sdk/internal/connector"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
@@ -70,6 +73,43 @@ func (w *wrappedServerStream) Context() context.Context {
 	return w.ctx
 }
 
+// annotationExtractionUnaryInterceptor extracts annotations from requests and adds syncID to context.
+// This is used by the server side (connector) to make enable the seesion cache.
+func annotationExtractionUnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+	ctx = connectorbuilder.WithAnnotationsFromRequest(ctx, req)
+	return handler(ctx, req)
+}
+
+type annotationExtractionServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (s *annotationExtractionServerStream) Context() context.Context {
+	return s.ctx
+}
+
+func (s *annotationExtractionServerStream) RecvMsg(m interface{}) error {
+	err := s.ServerStream.RecvMsg(m)
+	if err != nil {
+		return err
+	}
+
+	// Extract annotations from the message and update context
+	annos := connectorbuilder.ExtractAnnotationsFromRequest(m)
+	if len(annos) > 0 {
+		s.ctx = connectorbuilder.WithAnnotationsFromRequest(s.ctx, m)
+
+		// Extract syncID from ActiveSync annotation if present
+		syncID, err := annotations.GetActiveSyncIdFromAnnotations(annos)
+		if err == nil && syncID != "" {
+			s.ctx = connector.WithSyncID(s.ctx, syncID)
+		}
+	}
+
+	return nil
+}
+
 // StreamServerInterceptors returns a slice of interceptors that includes the default interceptors,
 // plus any interceptors passed in as arguments.
 func StreamServerInterceptors(ctx context.Context, interceptors ...grpc.StreamServerInterceptor) []grpc.StreamServerInterceptor {
@@ -94,6 +134,7 @@ func UnaryServerInterceptor(ctx context.Context, interceptors ...grpc.UnaryServe
 		grpc_recovery.UnaryServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryHandler)),
 		grpc_validator.UnaryServerInterceptor(),
 		SessionCacheInterceptor(ctx), // Add session cache interceptor
+		annotationExtractionUnaryInterceptor,
 	}
 
 	rv = append(rv, interceptors...)
