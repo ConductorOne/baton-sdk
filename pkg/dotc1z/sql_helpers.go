@@ -433,17 +433,17 @@ func (c *C1File) checkResourcesExist(ctx context.Context, resourceIDs []*v2.Reso
 		return nil, err
 	}
 
-	resourceTypeIds := make([]string, 0, len(resourceIDs))
-	externalIds := make([]string, 0, len(resourceIDs))
+	resourceTypeIDs := make([]string, 0, len(resourceIDs))
+	externalIDs := make([]string, 0, len(resourceIDs))
 	for _, resourceID := range resourceIDs {
-		resourceTypeIds = append(resourceTypeIds, resourceID.ResourceType)
-		externalIds = append(externalIds, fmt.Sprintf("%s:%s", resourceID.ResourceType, resourceID.Resource))
+		resourceTypeIDs = append(resourceTypeIDs, resourceID.ResourceType)
+		externalIDs = append(externalIDs, fmt.Sprintf("%s:%s", resourceID.ResourceType, resourceID.Resource))
 	}
 
 	q := c.db.From(resources.Name()).Prepared(true)
 	q = q.Select(goqu.C("resource_type_id"), goqu.C("external_id"))
-	q = q.Where(goqu.C("resource_type_id").In(resourceTypeIds))
-	q = q.Where(goqu.C("external_id").In(externalIds))
+	q = q.Where(goqu.C("resource_type_id").In(resourceTypeIDs))
+	q = q.Where(goqu.C("external_id").In(externalIDs))
 
 	switch {
 	case syncID != "":
@@ -483,7 +483,7 @@ func (c *C1File) checkResourcesExist(ctx context.Context, resourceIDs []*v2.Reso
 	}
 	defer rows.Close()
 
-	existingResourceIds := make([]*v2.ResourceId, 0, len(resourceIDs))
+	existingResourceIDs := make([]*v2.ResourceId, 0, len(resourceIDs))
 	for rows.Next() {
 		var resourceTypeId string
 		var externalId string
@@ -492,13 +492,13 @@ func (c *C1File) checkResourcesExist(ctx context.Context, resourceIDs []*v2.Reso
 			return nil, err
 		}
 		// TODO: MJP this sucks
-		existingResourceIds = append(existingResourceIds, &v2.ResourceId{
+		existingResourceIDs = append(existingResourceIDs, &v2.ResourceId{
 			ResourceType: resourceTypeId,
 			Resource:     strings.SplitN(externalId, ":", 2)[1],
 		})
 	}
 
-	return existingResourceIds, nil
+	return existingResourceIDs, nil
 }
 
 func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceId, m *v2.Resource, syncID string) error {
