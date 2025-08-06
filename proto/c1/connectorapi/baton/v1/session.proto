@@ -60,11 +60,13 @@ message GetManyResponse {
 
 message GetAllRequest {
   string sync_id = 1 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
+  string page_start_key = 2;
 }
 
 message GetAllResponse {
   string key = 1;
   bytes value = 2;
+  string next_page_start_key = 3;
 }
 
 message SetRequest {
