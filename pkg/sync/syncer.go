@@ -29,7 +29,6 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/conductorone/baton-sdk/internal/connector"
 	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -358,7 +357,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	// Add ActiveSync to context once after we have the syncID
 	if syncID != "" {
-		ctx = connector.WithSyncID(ctx, syncID)
+		ctx = types.SetSyncIDInContext(ctx, syncID)
 	}
 
 	span.SetAttributes(attribute.String("sync_id", syncID))

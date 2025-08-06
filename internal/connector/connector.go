@@ -35,10 +35,6 @@ import (
 
 const listenerFdEnv = "BATON_CONNECTOR_SERVICE_LISTENER_FD"
 
-func WithSyncID(ctx context.Context, syncID string) context.Context {
-	return context.WithValue(ctx, types.SyncIDKey{}, syncID)
-}
-
 // activeSyncUnaryInterceptor adds ActiveSync annotations to requests if syncID is present in context (set by syncer).
 // This is used by the session storage layer transparently.
 func activeSyncUnaryInterceptor(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
@@ -259,17 +255,10 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 
 	grpc_zap.ReplaceGrpcLoggerV2(logger)
 
-	// Get default interceptors and add our custom annotation extraction interceptor
-	defaultUnaryInterceptors := ugrpc.UnaryServerInterceptor(ctx)
-	defaultUnaryInterceptors = append(defaultUnaryInterceptors, annotationExtractionUnaryInterceptor)
-
-	defaultStreamInterceptors := ugrpc.StreamServerInterceptors(ctx)
-	defaultStreamInterceptors = append(defaultStreamInterceptors, annotationExtractionStreamInterceptor)
-
 	server := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
-		grpc.ChainUnaryInterceptor(defaultUnaryInterceptors...),
-		grpc.ChainStreamInterceptor(defaultStreamInterceptors...),
+		grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx)...),
+		grpc.ChainStreamInterceptor(ugrpc.StreamServerInterceptors(ctx)...),
 		grpc.StatsHandler(otelgrpc.NewServerHandler(
 			otelgrpc.WithPropagators(
 				propagation.NewCompositeTextMapPropagator(

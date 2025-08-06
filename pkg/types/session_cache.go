@@ -52,3 +52,7 @@ func GetSyncID(ctx context.Context) string {
 	}
 	return ""
 }
+
+func SetSyncIDInContext(ctx context.Context, syncID string) context.Context {
+	return context.WithValue(ctx, SyncIDKey{}, syncID)
+}

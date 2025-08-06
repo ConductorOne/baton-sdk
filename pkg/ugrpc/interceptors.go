@@ -3,7 +3,6 @@ package ugrpc
 import (
 	"context"
 
-	"github.com/conductorone/baton-sdk/internal/connector"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/types"
@@ -75,9 +74,21 @@ func (w *wrappedServerStream) Context() context.Context {
 
 // annotationExtractionUnaryInterceptor extracts annotations from requests and adds syncID to context.
 // This is used by the server side (connector) to make enable the seesion cache.
+
 func annotationExtractionUnaryInterceptor(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 	ctx = connectorbuilder.WithAnnotationsFromRequest(ctx, req)
 	return handler(ctx, req)
+}
+
+// annotationExtractionStreamInterceptor extracts annotations from streaming requests and adds syncID to context.
+func annotationExtractionStreamInterceptor(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+	// For streaming, we need to wrap the stream to intercept messages
+	wrappedStream := &annotationExtractionServerStream{
+		ServerStream: ss,
+		ctx:          ss.Context(),
+	}
+
+	return handler(srv, wrappedStream)
 }
 
 type annotationExtractionServerStream struct {
@@ -103,7 +114,7 @@ func (s *annotationExtractionServerStream) RecvMsg(m interface{}) error {
 		// Extract syncID from ActiveSync annotation if present
 		syncID, err := annotations.GetActiveSyncIdFromAnnotations(annos)
 		if err == nil && syncID != "" {
-			s.ctx = connector.WithSyncID(s.ctx, syncID)
+			s.ctx = types.SetSyncIDInContext(s.ctx, syncID)
 		}
 	}
 
@@ -119,6 +130,7 @@ func StreamServerInterceptors(ctx context.Context, interceptors ...grpc.StreamSe
 		grpc_recovery.StreamServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryHandler)),
 		grpc_validator.StreamServerInterceptor(),
 		SessionCacheStreamInterceptor(ctx), // Add session cache interceptor
+		annotationExtractionStreamInterceptor,
 	}
 
 	rv = append(rv, interceptors...)
