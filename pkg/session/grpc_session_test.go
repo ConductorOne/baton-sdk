@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -14,12 +15,14 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/go-jose/go-jose/v4"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
 
 // SimpleMockBatonSessionServiceClient is a simple mock implementation for testing
 type SimpleMockBatonSessionServiceClient struct {
 	getFunc     func(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error)
-	getManyFunc func(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error)
+	getManyFunc func(ctx context.Context, req *v1.GetManyRequest) (v1.BatonSessionService_GetManyClient, error)
+	getAllFunc  func(ctx context.Context, req *v1.GetAllRequest) (v1.BatonSessionService_GetAllClient, error)
 	setFunc     func(ctx context.Context, req *v1.SetRequest) (*v1.SetResponse, error)
 	setManyFunc func(ctx context.Context, req *v1.SetManyRequest) (*v1.SetManyResponse, error)
 	deleteFunc  func(ctx context.Context, req *v1.DeleteRequest) (*v1.DeleteResponse, error)
@@ -33,11 +36,18 @@ func (m *SimpleMockBatonSessionServiceClient) Get(ctx context.Context, in *v1.Ge
 	return &v1.GetResponse{}, nil
 }
 
-func (m *SimpleMockBatonSessionServiceClient) GetMany(ctx context.Context, in *v1.GetManyRequest, opts ...grpc.CallOption) (*v1.GetManyResponse, error) {
+func (m *SimpleMockBatonSessionServiceClient) GetMany(ctx context.Context, in *v1.GetManyRequest, opts ...grpc.CallOption) (v1.BatonSessionService_GetManyClient, error) {
 	if m.getManyFunc != nil {
 		return m.getManyFunc(ctx, in)
 	}
-	return &v1.GetManyResponse{}, nil
+	return nil, fmt.Errorf("GetMany not implemented in mock")
+}
+
+func (m *SimpleMockBatonSessionServiceClient) GetAll(ctx context.Context, in *v1.GetAllRequest, opts ...grpc.CallOption) (v1.BatonSessionService_GetAllClient, error) {
+	if m.getAllFunc != nil {
+		return m.getAllFunc(ctx, in)
+	}
+	return nil, fmt.Errorf("GetAll not implemented in mock")
 }
 
 func (m *SimpleMockBatonSessionServiceClient) Set(ctx context.Context, in *v1.SetRequest, opts ...grpc.CallOption) (*v1.SetResponse, error) {
@@ -72,17 +82,110 @@ func (m *SimpleMockBatonSessionServiceClient) Clear(ctx context.Context, in *v1.
 	return &v1.ClearResponse{}, nil
 }
 
-// WithSyncID returns a SessionCacheOption that sets the sync ID for the operation.
-func setSyncIDInContext(ctx context.Context, syncID string) (context.Context, error) {
-	// Check if syncID is already set in the context
-	if existingSyncID, ok := ctx.Value(types.SyncIDKey{}).(string); ok && existingSyncID != "" {
-		if existingSyncID != syncID {
-			return ctx, fmt.Errorf("syncID mismatch: context already has syncID %q, cannot set to %q", existingSyncID, syncID)
+// SimpleMockBatonSessionServiceGetManyClient is a mock implementation of the GetMany stream client
+type SimpleMockBatonSessionServiceGetManyClient struct {
+	values map[string][]byte
+	index  int
+	keys   []string
+}
+
+func (m *SimpleMockBatonSessionServiceGetManyClient) Recv() (*v1.GetManyResponse, error) {
+	if m.keys == nil {
+		// Initialize keys slice
+		m.keys = make([]string, 0, len(m.values))
+		for key := range m.values {
+			m.keys = append(m.keys, key)
 		}
-		// If they match, return the context unchanged
-		return ctx, nil
 	}
-	return context.WithValue(ctx, types.SyncIDKey{}, syncID), nil
+
+	if m.index >= len(m.keys) {
+		return nil, io.EOF
+	}
+
+	key := m.keys[m.index]
+	m.index++
+
+	return &v1.GetManyResponse{
+		Key:   key,
+		Value: m.values[key],
+	}, nil
+}
+
+func (m *SimpleMockBatonSessionServiceGetManyClient) Header() (metadata.MD, error) {
+	return nil, nil
+}
+
+func (m *SimpleMockBatonSessionServiceGetManyClient) Trailer() metadata.MD {
+	return nil
+}
+
+func (m *SimpleMockBatonSessionServiceGetManyClient) CloseSend() error {
+	return nil
+}
+
+func (m *SimpleMockBatonSessionServiceGetManyClient) Context() context.Context {
+	return context.Background()
+}
+
+func (m *SimpleMockBatonSessionServiceGetManyClient) SendMsg(interface{}) error {
+	return nil
+}
+
+func (m *SimpleMockBatonSessionServiceGetManyClient) RecvMsg(interface{}) error {
+	return nil
+}
+
+// SimpleMockBatonSessionServiceGetAllClient is a mock implementation of the GetAll stream client
+type SimpleMockBatonSessionServiceGetAllClient struct {
+	values map[string][]byte
+	index  int
+	keys   []string
+}
+
+func (m *SimpleMockBatonSessionServiceGetAllClient) Recv() (*v1.GetAllResponse, error) {
+	if m.keys == nil {
+		// Initialize keys slice
+		m.keys = make([]string, 0, len(m.values))
+		for key := range m.values {
+			m.keys = append(m.keys, key)
+		}
+	}
+
+	if m.index >= len(m.keys) {
+		return nil, io.EOF
+	}
+
+	key := m.keys[m.index]
+	m.index++
+
+	return &v1.GetAllResponse{
+		Key:   key,
+		Value: m.values[key],
+	}, nil
+}
+
+func (m *SimpleMockBatonSessionServiceGetAllClient) Header() (metadata.MD, error) {
+	return nil, nil
+}
+
+func (m *SimpleMockBatonSessionServiceGetAllClient) Trailer() metadata.MD {
+	return nil
+}
+
+func (m *SimpleMockBatonSessionServiceGetAllClient) CloseSend() error {
+	return nil
+}
+
+func (m *SimpleMockBatonSessionServiceGetAllClient) Context() context.Context {
+	return context.Background()
+}
+
+func (m *SimpleMockBatonSessionServiceGetAllClient) SendMsg(interface{}) error {
+	return nil
+}
+
+func (m *SimpleMockBatonSessionServiceGetAllClient) RecvMsg(interface{}) error {
+	return nil
 }
 
 func TestGRPCSessionCache_Get(t *testing.T) {
@@ -98,10 +201,7 @@ func TestGRPCSessionCache_Get(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx, err := setSyncIDInContext(ctx, "test-sync-id")
-	if err != nil {
-		t.Fatalf("Failed to set sync ID in context: %v", err)
-	}
+	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
 
 	// Test successful get
 	value, found, err := cache.Get(ctx, "test-key")
@@ -140,12 +240,9 @@ func TestGRPCSessionCache_Set(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx, err := setSyncIDInContext(ctx, "test-sync-id")
-	if err != nil {
-		t.Fatalf("Failed to set sync ID in context: %v", err)
-	}
+	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
 
-	err = cache.Set(ctx, "test-key", []byte("test-value"))
+	err := cache.Set(ctx, "test-key", []byte("test-value"))
 	if err != nil {
 		t.Fatalf("Set failed: %v", err)
 	}
@@ -157,20 +254,21 @@ func TestGRPCSessionCache_GetMany(t *testing.T) {
 		"key2": []byte("value2"),
 	}
 	mockClient := &SimpleMockBatonSessionServiceClient{
-		getManyFunc: func(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error) {
+		getManyFunc: func(ctx context.Context, req *v1.GetManyRequest) (v1.BatonSessionService_GetManyClient, error) {
 			if req.SyncId == "test-sync-id" {
-				return &v1.GetManyResponse{Values: expectedValues}, nil
+				return &SimpleMockBatonSessionServiceGetManyClient{
+					values: expectedValues,
+				}, nil
 			}
-			return &v1.GetManyResponse{Values: make(map[string][]byte)}, nil
+			return &SimpleMockBatonSessionServiceGetManyClient{
+				values: make(map[string][]byte),
+			}, nil
 		},
 	}
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx, err := setSyncIDInContext(ctx, "test-sync-id")
-	if err != nil {
-		t.Fatalf("Failed to set sync ID in context: %v", err)
-	}
+	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
 
 	values, err := cache.GetMany(ctx, []string{"key1", "key2"})
 	if err != nil {
@@ -204,12 +302,9 @@ func TestGRPCSessionCache_SetMany(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx, err := setSyncIDInContext(ctx, "test-sync-id")
-	if err != nil {
-		t.Fatalf("Failed to set sync ID in context: %v", err)
-	}
+	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
 
-	err = cache.SetMany(ctx, values)
+	err := cache.SetMany(ctx, values)
 	if err != nil {
 		t.Fatalf("SetMany failed: %v", err)
 	}
@@ -227,12 +322,9 @@ func TestGRPCSessionCache_Delete(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx, err := setSyncIDInContext(ctx, "test-sync-id")
-	if err != nil {
-		t.Fatalf("Failed to set sync ID in context: %v", err)
-	}
+	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
 
-	err = cache.Delete(ctx, "test-key")
+	err := cache.Delete(ctx, "test-key")
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
@@ -250,36 +342,48 @@ func TestGRPCSessionCache_Clear(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx, err := setSyncIDInContext(ctx, "test-sync-id")
-	if err != nil {
-		t.Fatalf("Failed to set sync ID in context: %v", err)
-	}
+	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
 
-	err = cache.Clear(ctx)
+	err := cache.Clear(ctx)
 	if err != nil {
 		t.Fatalf("Clear failed: %v", err)
 	}
 }
 
 func TestGRPCSessionCache_GetAll(t *testing.T) {
-	mockClient := &SimpleMockBatonSessionServiceClient{}
-	cache := &GRPCSessionCache{client: mockClient}
-
-	ctx := context.Background()
-	ctx, err := setSyncIDInContext(ctx, "test-sync-id")
-	if err != nil {
-		t.Fatalf("Failed to set sync ID in context: %v", err)
+	expectedValues := map[string][]byte{
+		"key1": []byte("value1"),
+		"key2": []byte("value2"),
 	}
+	mockClient := &SimpleMockBatonSessionServiceClient{
+		getAllFunc: func(ctx context.Context, req *v1.GetAllRequest) (v1.BatonSessionService_GetAllClient, error) {
+			if req.SyncId == "test-sync-id" {
+				return &SimpleMockBatonSessionServiceGetAllClient{
+					values: expectedValues,
+				}, nil
+			}
+			return &SimpleMockBatonSessionServiceGetAllClient{
+				values: make(map[string][]byte),
+			}, nil
+		},
+	}
+
+	cache := &GRPCSessionCache{client: mockClient}
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
 
 	values, err := cache.GetAll(ctx)
-	if err == nil {
-		t.Fatal("Expected error for GetAll operation")
+	if err != nil {
+		t.Fatalf("GetAll failed: %v", err)
 	}
-	if err.Error() != "GetAll operation is not supported by the gRPC session service" {
-		t.Fatalf("Expected specific error message, got %v", err)
+	if len(values) != 2 {
+		t.Fatalf("Expected 2 values, got %d", len(values))
 	}
-	if len(values) != 0 {
-		t.Fatalf("Expected empty map, got %v", values)
+	if string(values["key1"]) != "value1" {
+		t.Fatalf("Expected value 'value1' for key1, got '%s'", string(values["key1"]))
+	}
+	if string(values["key2"]) != "value2" {
+		t.Fatalf("Expected value 'value2' for key2, got '%s'", string(values["key2"]))
 	}
 }
 
@@ -296,10 +400,7 @@ func TestGRPCSessionCache_WithPrefix(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx, err := setSyncIDInContext(ctx, "test-sync-id")
-	if err != nil {
-		t.Fatalf("Failed to set sync ID in context: %v", err)
-	}
+	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
 
 	// Test with prefix
 	value, found, err := cache.Get(ctx, "test-key", WithPrefix("prefix"))
