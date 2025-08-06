@@ -158,11 +158,6 @@ func (g *GRPCSessionCache) Get(ctx context.Context, key string, opt ...types.Ses
 		return nil, false, fmt.Errorf("failed to get value from gRPC session cache: %w", err)
 	}
 
-	// If the response has no value, the key doesn't exist
-	if len(resp.Value) == 0 {
-		return nil, false, nil
-	}
-
 	return resp.Value, true, nil
 }
 
