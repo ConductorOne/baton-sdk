@@ -194,7 +194,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			TicketingEnabled:    true,
 		}
 
-		chain := ugrpc.ChainUnaryInterceptors(authOpt, ugrpc.SessionCacheInterceptor(runCtx))
+		chain := ugrpc.ChainUnaryInterceptors(authOpt, ugrpc.SessionCacheUnaryInterceptor(runCtx))
 
 		s := c1_lambda_grpc.NewServer(chain)
 		connector.Register(runCtx, s, c, opts)

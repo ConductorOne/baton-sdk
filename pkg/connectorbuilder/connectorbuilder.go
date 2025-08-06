@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"slices"
 	"sort"
 	"time"
@@ -15,7 +14,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -32,68 +30,6 @@ import (
 )
 
 var tracer = otel.Tracer("baton-sdk/pkg.connectorbuilder")
-
-// ExtractAnnotationsFromRequest extracts annotations from a request object and returns them.
-// This is used by the builder side to extract annotations from incoming requests.
-func ExtractAnnotationsFromRequest(req interface{}) annotations.Annotations {
-	if req == nil {
-		return annotations.Annotations{}
-	}
-
-	// Use reflection to check if the request has an Annotations field
-	reqValue := reflect.ValueOf(req)
-	if reqValue.Kind() == reflect.Ptr {
-		reqValue = reqValue.Elem()
-	}
-
-	annotationsField := reqValue.FieldByName("Annotations")
-	if !annotationsField.IsValid() {
-		return annotations.Annotations{}
-	}
-
-	// Check if the field is of the correct type
-	if annotationsField.Type() != reflect.TypeOf(annotations.Annotations{}) &&
-		annotationsField.Type() != reflect.TypeOf([]*anypb.Any{}) {
-		return annotations.Annotations{}
-	}
-
-	// Get the annotations from the request
-	if annotationsField.IsNil() {
-		return annotations.Annotations{}
-	}
-
-	// Handle both annotations.Annotations and []*anypb.Any types
-	if annotationsField.Type() == reflect.TypeOf(annotations.Annotations{}) {
-		return annotationsField.Interface().(annotations.Annotations)
-	} else {
-		// Convert []*anypb.Any to annotations.Annotations
-		anySlice := annotationsField.Interface().([]*anypb.Any)
-		return annotations.Annotations(anySlice)
-	}
-}
-
-// WithAnnotationsFromRequest extracts annotations from a request and adds them to the context.
-// This is used by the builder side to make request annotations available in the context.
-func WithAnnotationsFromRequest(ctx context.Context, req interface{}) context.Context {
-	if ctx == nil {
-		return ctx
-	}
-	annos := ExtractAnnotationsFromRequest(req)
-	if len(annos) == 0 {
-		return ctx
-	}
-
-	syncID, err := annotations.GetActiveSyncIdFromAnnotations(annos)
-	if err != nil {
-		return ctx
-	}
-
-	if syncID == "" {
-		return ctx
-	}
-
-	return context.WithValue(ctx, types.SyncIDKey{}, syncID)
-}
 
 // ResourceSyncer is the primary interface for connector developers to implement.
 //
