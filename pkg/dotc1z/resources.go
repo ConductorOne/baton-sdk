@@ -111,13 +111,13 @@ func (c *C1File) CheckResourcesExist(ctx context.Context, request *reader_v2.Res
 		return nil, fmt.Errorf("error getting sync id from annotations checkResourcesExist %w", err)
 	}
 
-	existingResourceIds, err := c.checkResourcesExist(ctx, request.ResourceIds, syncId)
+	existingResourceIDs, err := c.checkResourcesExist(ctx, request.ResourceIds, syncId)
 	if err != nil {
 		return nil, fmt.Errorf("error checking resources exist: %w", err)
 	}
 
 	return &reader_v2.ResourcesReaderServiceCheckResourcesExistResponse{
-		ExistingResourceIds: existingResourceIds,
+		ExistingResourceIds: existingResourceIDs,
 	}, nil
 }
 

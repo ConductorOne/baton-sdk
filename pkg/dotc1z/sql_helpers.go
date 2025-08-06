@@ -425,7 +425,7 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 }
 
 func (c *C1File) checkResourcesExist(ctx context.Context, resourceIDs []*v2.ResourceId, syncID string) ([]*v2.ResourceId, error) {
-	ctx, span := tracer.Start(ctx, "C1File.getResourceObject")
+	ctx, span := tracer.Start(ctx, "C1File.checkResourcesExist")
 	defer span.End()
 
 	err := c.validateDb(ctx)
