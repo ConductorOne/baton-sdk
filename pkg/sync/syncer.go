@@ -355,6 +355,19 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 	s.syncID = syncID
 
+	// Set the syncID on the wrapper after we have it
+	if syncID == "" {
+		err = errors.New("no syncID found after starting or resuming sync")
+		l.Error("no syncID found after starting or resuming sync", zap.Error(err))
+		return err
+	}
+	if wrapper, ok := s.connector.(*syncIDClientWrapper); ok {
+		wrapper.syncID = syncID
+	} else {
+		l.Error("connector is not a syncIDClientWrapper")
+		return errors.New("connector is not a syncIDClientWrapper")
+	}
+
 	// Add ActiveSync to context once after we have the syncID
 	if syncID != "" {
 		ctx = types.SetSyncIDInContext(ctx, syncID)
@@ -2791,7 +2804,7 @@ func WithSyncID(syncID string) SyncOpt {
 // NewSyncer returns a new syncer object.
 func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
 	s := &syncer{
-		connector:             c,
+		connector:             &syncIDClientWrapper{ConnectorClient: c, syncID: ""}, // we only get the syncid later
 		skipEGForResourceType: make(map[string]bool),
 		counts:                NewProgressCounts(),
 	}

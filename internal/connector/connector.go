@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"reflect"
 	"sync"
 	"time"
 
@@ -20,13 +19,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
 
 	connectorV2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	tlsV1 "github.com/conductorone/baton-sdk/pb/c1/utls/v1"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
 	ratelimit2 "github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
@@ -34,97 +31,6 @@ import (
 )
 
 const listenerFdEnv = "BATON_CONNECTOR_SERVICE_LISTENER_FD"
-
-// activeSyncUnaryInterceptor adds ActiveSync annotations to requests if syncID is present in context (set by syncer).
-// This is used by the session storage layer transparently.
-func activeSyncUnaryInterceptor(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-	// Check if syncID is present in context
-	syncID := types.GetSyncID(ctx)
-
-	if syncID != "" && req != nil {
-		addActiveSyncToRequest(req, syncID)
-	}
-	return invoker(ctx, method, req, reply, cc, opts...)
-}
-
-func addActiveSyncToRequest(req interface{}, syncID string) {
-	if req == nil || syncID == "" {
-		return
-	}
-
-	// Use reflection to check if the request has an Annotations field
-	reqValue := reflect.ValueOf(req)
-	if reqValue.Kind() == reflect.Ptr {
-		reqValue = reqValue.Elem()
-	}
-
-	annotationsField := reqValue.FieldByName("Annotations")
-	if !annotationsField.IsValid() {
-		return
-	}
-
-	// Check if the field is of the correct type
-	if annotationsField.Type() != reflect.TypeOf(annotations.Annotations{}) &&
-		annotationsField.Type() != reflect.TypeOf([]*anypb.Any{}) {
-		return
-	}
-
-	// Get the current annotations
-	var currentAnnotations annotations.Annotations
-	if !annotationsField.IsNil() {
-		// Handle both annotations.Annotations and []*anypb.Any types
-		if annotationsField.Type() == reflect.TypeOf(annotations.Annotations{}) {
-			currentAnnotations = annotationsField.Interface().(annotations.Annotations)
-		} else {
-			// Convert []*anypb.Any to annotations.Annotations
-			anySlice := annotationsField.Interface().([]*anypb.Any)
-			currentAnnotations = annotations.Annotations(anySlice)
-		}
-	}
-
-	// Create ActiveSync annotation
-	activeSync := &connectorV2.ActiveSync{
-		Id: syncID,
-	}
-
-	// Add the ActiveSync annotation
-	currentAnnotations.Update(activeSync)
-	annotationsField.Set(reflect.ValueOf(currentAnnotations))
-}
-
-// activeSyncStreamInterceptor adds ActiveSync annotations to streaming requests if syncID is present in context.
-func activeSyncStreamInterceptor(ctx context.Context, desc *grpc.StreamDesc, cc *grpc.ClientConn, method string, streamer grpc.Streamer, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-	// For streaming, we need to wrap the stream to intercept the first message
-	clientStream, err := streamer(ctx, desc, cc, method, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check if syncID is present in context
-	syncID := types.GetSyncID(ctx)
-	if syncID == "" {
-		// No syncID, proceed normally
-		return clientStream, err
-	}
-
-	return &activeSyncClientStream{
-		ClientStream: clientStream,
-		syncID:       syncID,
-	}, nil
-}
-
-type activeSyncClientStream struct {
-	grpc.ClientStream
-	syncID string
-}
-
-func (s *activeSyncClientStream) SendMsg(m interface{}) error {
-	// Add ActiveSync annotation to the message before sending
-	if m != nil {
-		addActiveSyncToRequest(m, s.syncID)
-	}
-	return s.ClientStream.SendMsg(m)
-}
 
 type connectorClient struct {
 	connectorV2.ResourceTypesServiceClient
@@ -404,9 +310,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 			grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
 			grpc.WithChainUnaryInterceptor(
 				ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...),
-				activeSyncUnaryInterceptor,
 			),
-			grpc.WithChainStreamInterceptor(activeSyncStreamInterceptor),
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler(
 				otelgrpc.WithPropagators(
 					propagation.NewCompositeTextMapPropagator(
