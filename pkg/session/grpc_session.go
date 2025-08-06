@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"time"
@@ -187,23 +188,22 @@ func (g *GRPCSessionCache) GetMany(ctx context.Context, keys []string, opt ...ty
 		Keys:   prefixedKeys,
 	}
 
-	resp, err := g.client.GetMany(ctx, req)
+	stream, err := g.client.GetMany(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
 	}
 
-	// Convert the response back to the original keys (without prefix)
 	result := make(map[string][]byte)
-	for respKey, value := range resp.Values {
-		// Remove prefix from response key to match original key
-		originalKey := respKey
-		if bag.Prefix != "" {
-			prefixWithSeparator := bag.Prefix + KeyPrefixDelimiter
-			if len(respKey) > len(prefixWithSeparator) && respKey[:len(prefixWithSeparator)] == prefixWithSeparator {
-				originalKey = respKey[len(prefixWithSeparator):]
-			}
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF {
+			break
 		}
-		result[originalKey] = value
+		if err != nil {
+			return nil, fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
+		}
+
+		result[resp.Key] = resp.Value
 	}
 
 	return result, nil
@@ -312,13 +312,34 @@ func (g *GRPCSessionCache) Clear(ctx context.Context, opt ...types.SessionCacheO
 // by getting all keys first and then using GetMany. This is a limitation of the current
 // gRPC service definition.
 func (g *GRPCSessionCache) GetAll(ctx context.Context, opt ...types.SessionCacheOption) (map[string][]byte, error) {
-	// Since the gRPC service doesn't provide a GetAll method, we'll return an empty map
-	// with a note that this operation is not supported by the gRPC service.
-	// In a real implementation, you might want to:
-	// 1. Add a GetAll method to the gRPC service
-	// 2. Or implement this by maintaining a list of keys locally
-	// 3. Or return an error indicating this operation is not supported
-	return map[string][]byte{}, fmt.Errorf("GetAll operation is not supported by the gRPC session service")
+	bag, err := applyOptions(ctx, opt...)
+	if err != nil {
+		return nil, err
+	}
+
+	req := &v1.GetAllRequest{
+		SyncId: bag.SyncID,
+	}
+
+	stream, err := g.client.GetAll(ctx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get all values from gRPC session cache: %w", err)
+	}
+
+	result := make(map[string][]byte)
+	for {
+		resp, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to get all values from gRPC session cache: %w", err)
+		}
+
+		result[resp.Key] = resp.Value
+	}
+
+	return result, nil
 }
 
 // Close performs any necessary cleanup when the cache is no longer needed.

@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	BatonSessionService_Get_FullMethodName        = "/c1.connectorapi.baton.v1.BatonSessionService/Get"
 	BatonSessionService_GetMany_FullMethodName    = "/c1.connectorapi.baton.v1.BatonSessionService/GetMany"
+	BatonSessionService_GetAll_FullMethodName     = "/c1.connectorapi.baton.v1.BatonSessionService/GetAll"
 	BatonSessionService_Set_FullMethodName        = "/c1.connectorapi.baton.v1.BatonSessionService/Set"
 	BatonSessionService_SetMany_FullMethodName    = "/c1.connectorapi.baton.v1.BatonSessionService/SetMany"
 	BatonSessionService_Delete_FullMethodName     = "/c1.connectorapi.baton.v1.BatonSessionService/Delete"
@@ -33,7 +34,8 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type BatonSessionServiceClient interface {
 	Get(ctx context.Context, in *GetRequest, opts ...grpc.CallOption) (*GetResponse, error)
-	GetMany(ctx context.Context, in *GetManyRequest, opts ...grpc.CallOption) (*GetManyResponse, error)
+	GetMany(ctx context.Context, in *GetManyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetManyResponse], error)
+	GetAll(ctx context.Context, in *GetAllRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetAllResponse], error)
 	Set(ctx context.Context, in *SetRequest, opts ...grpc.CallOption) (*SetResponse, error)
 	SetMany(ctx context.Context, in *SetManyRequest, opts ...grpc.CallOption) (*SetManyResponse, error)
 	Delete(ctx context.Context, in *DeleteRequest, opts ...grpc.CallOption) (*DeleteResponse, error)
@@ -59,15 +61,43 @@ func (c *batonSessionServiceClient) Get(ctx context.Context, in *GetRequest, opt
 	return out, nil
 }
 
-func (c *batonSessionServiceClient) GetMany(ctx context.Context, in *GetManyRequest, opts ...grpc.CallOption) (*GetManyResponse, error) {
+func (c *batonSessionServiceClient) GetMany(ctx context.Context, in *GetManyRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetManyResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetManyResponse)
-	err := c.cc.Invoke(ctx, BatonSessionService_GetMany_FullMethodName, in, out, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &BatonSessionService_ServiceDesc.Streams[0], BatonSessionService_GetMany_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	x := &grpc.GenericClientStream[GetManyRequest, GetManyResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type BatonSessionService_GetManyClient = grpc.ServerStreamingClient[GetManyResponse]
+
+func (c *batonSessionServiceClient) GetAll(ctx context.Context, in *GetAllRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[GetAllResponse], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &BatonSessionService_ServiceDesc.Streams[1], BatonSessionService_GetAll_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[GetAllRequest, GetAllResponse]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type BatonSessionService_GetAllClient = grpc.ServerStreamingClient[GetAllResponse]
 
 func (c *batonSessionServiceClient) Set(ctx context.Context, in *SetRequest, opts ...grpc.CallOption) (*SetResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -124,7 +154,8 @@ func (c *batonSessionServiceClient) Clear(ctx context.Context, in *ClearRequest,
 // for forward compatibility.
 type BatonSessionServiceServer interface {
 	Get(context.Context, *GetRequest) (*GetResponse, error)
-	GetMany(context.Context, *GetManyRequest) (*GetManyResponse, error)
+	GetMany(*GetManyRequest, grpc.ServerStreamingServer[GetManyResponse]) error
+	GetAll(*GetAllRequest, grpc.ServerStreamingServer[GetAllResponse]) error
 	Set(context.Context, *SetRequest) (*SetResponse, error)
 	SetMany(context.Context, *SetManyRequest) (*SetManyResponse, error)
 	Delete(context.Context, *DeleteRequest) (*DeleteResponse, error)
@@ -142,8 +173,11 @@ type UnimplementedBatonSessionServiceServer struct{}
 func (UnimplementedBatonSessionServiceServer) Get(context.Context, *GetRequest) (*GetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Get not implemented")
 }
-func (UnimplementedBatonSessionServiceServer) GetMany(context.Context, *GetManyRequest) (*GetManyResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetMany not implemented")
+func (UnimplementedBatonSessionServiceServer) GetMany(*GetManyRequest, grpc.ServerStreamingServer[GetManyResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method GetMany not implemented")
+}
+func (UnimplementedBatonSessionServiceServer) GetAll(*GetAllRequest, grpc.ServerStreamingServer[GetAllResponse]) error {
+	return status.Errorf(codes.Unimplemented, "method GetAll not implemented")
 }
 func (UnimplementedBatonSessionServiceServer) Set(context.Context, *SetRequest) (*SetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Set not implemented")
@@ -198,23 +232,27 @@ func _BatonSessionService_Get_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
-func _BatonSessionService_GetMany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetManyRequest)
-	if err := dec(in); err != nil {
-		return nil, err
+func _BatonSessionService_GetMany_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetManyRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
 	}
-	if interceptor == nil {
-		return srv.(BatonSessionServiceServer).GetMany(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: BatonSessionService_GetMany_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(BatonSessionServiceServer).GetMany(ctx, req.(*GetManyRequest))
-	}
-	return interceptor(ctx, in, info, handler)
+	return srv.(BatonSessionServiceServer).GetMany(m, &grpc.GenericServerStream[GetManyRequest, GetManyResponse]{ServerStream: stream})
 }
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type BatonSessionService_GetManyServer = grpc.ServerStreamingServer[GetManyResponse]
+
+func _BatonSessionService_GetAll_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(GetAllRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(BatonSessionServiceServer).GetAll(m, &grpc.GenericServerStream[GetAllRequest, GetAllResponse]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type BatonSessionService_GetAllServer = grpc.ServerStreamingServer[GetAllResponse]
 
 func _BatonSessionService_Set_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SetRequest)
@@ -318,10 +356,6 @@ var BatonSessionService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _BatonSessionService_Get_Handler,
 		},
 		{
-			MethodName: "GetMany",
-			Handler:    _BatonSessionService_GetMany_Handler,
-		},
-		{
 			MethodName: "Set",
 			Handler:    _BatonSessionService_Set_Handler,
 		},
@@ -342,6 +376,17 @@ var BatonSessionService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _BatonSessionService_Clear_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "GetMany",
+			Handler:       _BatonSessionService_GetMany_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "GetAll",
+			Handler:       _BatonSessionService_GetAll_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "c1/connectorapi/baton/v1/session.proto",
 }

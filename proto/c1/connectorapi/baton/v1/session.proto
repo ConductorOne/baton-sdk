@@ -9,7 +9,9 @@ option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
 service BatonSessionService {
   rpc Get(GetRequest) returns (GetResponse) {}
 
-  rpc GetMany(GetManyRequest) returns (GetManyResponse) {}
+  rpc GetMany(GetManyRequest) returns (stream GetManyResponse) {}
+
+  rpc GetAll(GetAllRequest) returns (stream GetAllResponse) {}
 
   rpc Set(SetRequest) returns (SetResponse) {}
 
@@ -52,24 +54,17 @@ message GetManyRequest {
 }
 
 message GetManyResponse {
-  map<string, bytes> values = 1 [(validate.rules).map = {
-    keys: {
-      string: {
-        min_len: 1
-        max_len: 256
-      }
-    }
-    values: {
-      bytes: {
-        min_len: 1
-        max_len: 1048576
-      }
-    }
-  }];
+  string key = 1;
+  bytes value = 2;
 }
 
 message GetAllRequest {
   string sync_id = 1 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
+}
+
+message GetAllResponse {
+  string key = 1;
+  bytes value = 2;
 }
 
 message SetRequest {

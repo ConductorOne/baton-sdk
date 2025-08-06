@@ -85,7 +85,6 @@ func (s *sessionCacheServerStream) RecvMsg(m interface{}) error {
 		return err
 	}
 	s.ctx = ContextWithSyncID(s.ctx, m)
-
 	return nil
 }
 
@@ -97,7 +96,7 @@ func StreamServerInterceptors(ctx context.Context, interceptors ...grpc.StreamSe
 		LoggingStreamServerInterceptor(ctxzap.Extract(ctx)),
 		grpc_recovery.StreamServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryHandler)),
 		grpc_validator.StreamServerInterceptor(),
-		SessionCacheStreamInterceptor(ctx), // Add session cache interceptor
+		SessionCacheStreamInterceptor(ctx),
 	}
 
 	rv = append(rv, interceptors...)
@@ -112,7 +111,7 @@ func UnaryServerInterceptor(ctx context.Context, interceptors ...grpc.UnaryServe
 		LoggingUnaryServerInterceptor(ctxzap.Extract(ctx)),
 		grpc_recovery.UnaryServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryHandler)),
 		grpc_validator.UnaryServerInterceptor(),
-		SessionCacheUnaryInterceptor(ctx), // Add combined session cache and annotation interceptor
+		SessionCacheUnaryInterceptor(ctx),
 	}
 
 	rv = append(rv, interceptors...)

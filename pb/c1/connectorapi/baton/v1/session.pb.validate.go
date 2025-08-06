@@ -436,42 +436,9 @@ func (m *GetManyResponse) validate(all bool) error {
 
 	var errors []error
 
-	{
-		sorted_keys := make([]string, len(m.GetValues()))
-		i := 0
-		for key := range m.GetValues() {
-			sorted_keys[i] = key
-			i++
-		}
-		sort.Slice(sorted_keys, func(i, j int) bool { return sorted_keys[i] < sorted_keys[j] })
-		for _, key := range sorted_keys {
-			val := m.GetValues()[key]
-			_ = val
+	// no validation rules for Key
 
-			if l := utf8.RuneCountInString(key); l < 1 || l > 256 {
-				err := GetManyResponseValidationError{
-					field:  fmt.Sprintf("Values[%v]", key),
-					reason: "value length must be between 1 and 256 runes, inclusive",
-				}
-				if !all {
-					return err
-				}
-				errors = append(errors, err)
-			}
-
-			if l := len(val); l < 1 || l > 1048576 {
-				err := GetManyResponseValidationError{
-					field:  fmt.Sprintf("Values[%v]", key),
-					reason: "value length must be between 1 and 1048576 bytes, inclusive",
-				}
-				if !all {
-					return err
-				}
-				errors = append(errors, err)
-			}
-
-		}
-	}
+	// no validation rules for Value
 
 	if len(errors) > 0 {
 		return GetManyResponseMultiError(errors)
@@ -663,6 +630,110 @@ var _ interface {
 } = GetAllRequestValidationError{}
 
 var _GetAllRequest_SyncId_Pattern = regexp.MustCompile("^[a-zA-Z0-9]{27}$")
+
+// Validate checks the field values on GetAllResponse with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *GetAllResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetAllResponse with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in GetAllResponseMultiError,
+// or nil if none found.
+func (m *GetAllResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetAllResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Key
+
+	// no validation rules for Value
+
+	if len(errors) > 0 {
+		return GetAllResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetAllResponseMultiError is an error wrapping multiple validation errors
+// returned by GetAllResponse.ValidateAll() if the designated constraints
+// aren't met.
+type GetAllResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetAllResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetAllResponseMultiError) AllErrors() []error { return m }
+
+// GetAllResponseValidationError is the validation error returned by
+// GetAllResponse.Validate if the designated constraints aren't met.
+type GetAllResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetAllResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetAllResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetAllResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetAllResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetAllResponseValidationError) ErrorName() string { return "GetAllResponseValidationError" }
+
+// Error satisfies the builtin error interface
+func (e GetAllResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetAllResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetAllResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetAllResponseValidationError{}
 
 // Validate checks the field values on SetRequest with the rules defined in the
 // proto definition for this message. If any rules are violated, the first
