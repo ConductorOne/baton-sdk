@@ -23,6 +23,7 @@ message ResourceTypesReaderServiceGetResourceTypeResponse {
 
 service ResourcesReaderService {
   rpc GetResource(ResourcesReaderServiceGetResourceRequest) returns (ResourcesReaderServiceGetResourceResponse);
+  rpc CheckResourcesExist(ResourcesReaderServiceCheckResourcesExistRequest) returns (ResourcesReaderServiceCheckResourcesExistResponse);
 }
 
 message ResourcesReaderServiceGetResourceRequest {
@@ -32,4 +33,16 @@ message ResourcesReaderServiceGetResourceRequest {
 
 message ResourcesReaderServiceGetResourceResponse {
   c1.connector.v2.Resource resource = 1;
+}
+
+message ResourcesReaderServiceCheckResourcesExistRequest {
+  repeated c1.connector.v2.ResourceId resource_ids = 1 [(validate.rules).repeated = {
+    min_items: 1
+    max_items: 1000
+  }];
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message ResourcesReaderServiceCheckResourcesExistResponse {
+  repeated c1.connector.v2.ResourceId existing_resource_ids = 1;
 }

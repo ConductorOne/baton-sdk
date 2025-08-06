@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -421,6 +422,83 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 
 	// Execute the insert
 	return executeChunkedInsert(ctx, c, tableName, rows, buildQueryFn)
+}
+
+func (c *C1File) checkResourcesExist(ctx context.Context, resourceIDs []*v2.ResourceId, syncID string) ([]*v2.ResourceId, error) {
+	ctx, span := tracer.Start(ctx, "C1File.getResourceObject")
+	defer span.End()
+
+	err := c.validateDb(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resourceTypeIds := make([]string, 0, len(resourceIDs))
+	externalIds := make([]string, 0, len(resourceIDs))
+	for _, resourceID := range resourceIDs {
+		resourceTypeIds = append(resourceTypeIds, resourceID.ResourceType)
+		externalIds = append(externalIds, fmt.Sprintf("%s:%s", resourceID.ResourceType, resourceID.Resource))
+	}
+
+	q := c.db.From(resources.Name()).Prepared(true)
+	q = q.Select(goqu.C("resource_type_id"), goqu.C("external_id"))
+	q = q.Where(goqu.C("resource_type_id").In(resourceTypeIds))
+	q = q.Where(goqu.C("external_id").In(externalIds))
+
+	switch {
+	case syncID != "":
+		q = q.Where(goqu.C("sync_id").Eq(syncID))
+	case c.currentSyncID != "":
+		q = q.Where(goqu.C("sync_id").Eq(c.currentSyncID))
+	case c.viewSyncID != "":
+		q = q.Where(goqu.C("sync_id").Eq(c.viewSyncID))
+	default:
+		var latestSyncRun *syncRun
+		var err error
+		latestSyncRun, err = c.getFinishedSync(ctx, 0, SyncTypeFull)
+		if err != nil {
+			return nil, err
+		}
+
+		if latestSyncRun == nil {
+			latestSyncRun, err = c.getLatestUnfinishedSync(ctx)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		if latestSyncRun != nil {
+			q = q.Where(goqu.C("sync_id").Eq(latestSyncRun.ID))
+		}
+	}
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	existingResourceIds := make([]*v2.ResourceId, 0, len(resourceIDs))
+	for rows.Next() {
+		var resourceTypeId string
+		var externalId string
+		err = rows.Scan(&resourceTypeId, &externalId)
+		if err != nil {
+			return nil, err
+		}
+		// TODO: MJP this sucks
+		existingResourceIds = append(existingResourceIds, &v2.ResourceId{
+			ResourceType: resourceTypeId,
+			Resource:     strings.SplitN(externalId, ":", 2)[1],
+		})
+	}
+
+	return existingResourceIds, nil
 }
 
 func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceId, m *v2.Resource, syncID string) error {

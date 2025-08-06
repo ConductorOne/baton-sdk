@@ -102,6 +102,25 @@ func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourcesRe
 	}, nil
 }
 
+func (c *C1File) CheckResourcesExist(ctx context.Context, request *reader_v2.ResourcesReaderServiceCheckResourcesExistRequest) (*reader_v2.ResourcesReaderServiceCheckResourcesExistResponse, error) {
+	ctx, span := tracer.Start(ctx, "C1File.CheckResourcesExist")
+	defer span.End()
+
+	syncId, err := annotations.GetSyncIdFromAnnotations(request.GetAnnotations())
+	if err != nil {
+		return nil, fmt.Errorf("error getting sync id from annotations checkResourcesExist %w", err)
+	}
+
+	existingResourceIds, err := c.checkResourcesExist(ctx, request.ResourceIds, syncId)
+	if err != nil {
+		return nil, fmt.Errorf("error checking resources exist: %w", err)
+	}
+
+	return &reader_v2.ResourcesReaderServiceCheckResourcesExistResponse{
+		ExistingResourceIds: existingResourceIds,
+	}, nil
+}
+
 func (c *C1File) PutResources(ctx context.Context, resourceObjs ...*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutResources")
 	defer span.End()

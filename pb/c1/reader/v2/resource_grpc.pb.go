@@ -119,7 +119,8 @@ var ResourceTypesReaderService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ResourcesReaderService_GetResource_FullMethodName = "/c1.reader.v2.ResourcesReaderService/GetResource"
+	ResourcesReaderService_GetResource_FullMethodName         = "/c1.reader.v2.ResourcesReaderService/GetResource"
+	ResourcesReaderService_CheckResourcesExist_FullMethodName = "/c1.reader.v2.ResourcesReaderService/CheckResourcesExist"
 )
 
 // ResourcesReaderServiceClient is the client API for ResourcesReaderService service.
@@ -127,6 +128,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ResourcesReaderServiceClient interface {
 	GetResource(ctx context.Context, in *ResourcesReaderServiceGetResourceRequest, opts ...grpc.CallOption) (*ResourcesReaderServiceGetResourceResponse, error)
+	CheckResourcesExist(ctx context.Context, in *ResourcesReaderServiceCheckResourcesExistRequest, opts ...grpc.CallOption) (*ResourcesReaderServiceCheckResourcesExistResponse, error)
 }
 
 type resourcesReaderServiceClient struct {
@@ -147,11 +149,22 @@ func (c *resourcesReaderServiceClient) GetResource(ctx context.Context, in *Reso
 	return out, nil
 }
 
+func (c *resourcesReaderServiceClient) CheckResourcesExist(ctx context.Context, in *ResourcesReaderServiceCheckResourcesExistRequest, opts ...grpc.CallOption) (*ResourcesReaderServiceCheckResourcesExistResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResourcesReaderServiceCheckResourcesExistResponse)
+	err := c.cc.Invoke(ctx, ResourcesReaderService_CheckResourcesExist_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ResourcesReaderServiceServer is the server API for ResourcesReaderService service.
 // All implementations should embed UnimplementedResourcesReaderServiceServer
 // for forward compatibility.
 type ResourcesReaderServiceServer interface {
 	GetResource(context.Context, *ResourcesReaderServiceGetResourceRequest) (*ResourcesReaderServiceGetResourceResponse, error)
+	CheckResourcesExist(context.Context, *ResourcesReaderServiceCheckResourcesExistRequest) (*ResourcesReaderServiceCheckResourcesExistResponse, error)
 }
 
 // UnimplementedResourcesReaderServiceServer should be embedded to have
@@ -163,6 +176,9 @@ type UnimplementedResourcesReaderServiceServer struct{}
 
 func (UnimplementedResourcesReaderServiceServer) GetResource(context.Context, *ResourcesReaderServiceGetResourceRequest) (*ResourcesReaderServiceGetResourceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetResource not implemented")
+}
+func (UnimplementedResourcesReaderServiceServer) CheckResourcesExist(context.Context, *ResourcesReaderServiceCheckResourcesExistRequest) (*ResourcesReaderServiceCheckResourcesExistResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CheckResourcesExist not implemented")
 }
 func (UnimplementedResourcesReaderServiceServer) testEmbeddedByValue() {}
 
@@ -202,6 +218,24 @@ func _ResourcesReaderService_GetResource_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ResourcesReaderService_CheckResourcesExist_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResourcesReaderServiceCheckResourcesExistRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ResourcesReaderServiceServer).CheckResourcesExist(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ResourcesReaderService_CheckResourcesExist_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ResourcesReaderServiceServer).CheckResourcesExist(ctx, req.(*ResourcesReaderServiceCheckResourcesExistRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ResourcesReaderService_ServiceDesc is the grpc.ServiceDesc for ResourcesReaderService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -212,6 +246,10 @@ var ResourcesReaderService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetResource",
 			Handler:    _ResourcesReaderService_GetResource_Handler,
+		},
+		{
+			MethodName: "CheckResourcesExist",
+			Handler:    _ResourcesReaderService_CheckResourcesExist_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
