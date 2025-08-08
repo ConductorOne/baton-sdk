@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -315,26 +316,54 @@ func (g *GRPCSessionCache) GetAll(ctx context.Context, opt ...types.SessionCache
 		return nil, err
 	}
 
-	req := &v1.GetAllRequest{
-		SyncId: bag.SyncID,
-	}
-
-	stream, err := g.client.GetAll(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get all values from gRPC session cache: %w", err)
-	}
-
 	result := make(map[string][]byte)
+	fullPrefix := ""
+	if bag.Prefix != "" {
+		fullPrefix = bag.Prefix + KeyPrefixDelimiter
+	}
+
+	pageToken := ""
 	for {
-		resp, err := stream.Recv()
-		if err == io.EOF {
-			break
+		req := &v1.GetAllRequest{
+			SyncId:    bag.SyncID,
+			PageToken: pageToken,
 		}
+
+		stream, err := g.client.GetAll(ctx, req)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get all values from gRPC session cache: %w", err)
 		}
 
-		result[resp.Key] = resp.Value
+		nextToken := ""
+		for {
+			resp, err := stream.Recv()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil, fmt.Errorf("failed to get all values from gRPC session cache: %w", err)
+			}
+
+			if resp.NextPageToken != "" {
+				nextToken = resp.NextPageToken
+			}
+
+			key := resp.Key
+			if fullPrefix != "" {
+				if !strings.HasPrefix(key, fullPrefix) {
+					continue
+				}
+				key = key[len(fullPrefix):]
+			}
+			if key != "" {
+				result[key] = resp.Value
+			}
+		}
+
+		if nextToken == "" {
+			break
+		}
+		pageToken = nextToken
 	}
 
 	return result, nil

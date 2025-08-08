@@ -551,7 +551,7 @@ func (m *GetAllRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	// no validation rules for PageStartKey
+	// no validation rules for PageToken
 
 	if len(errors) > 0 {
 		return GetAllRequestMultiError(errors)
@@ -659,7 +659,7 @@ func (m *GetAllResponse) validate(all bool) error {
 
 	// no validation rules for Value
 
-	// no validation rules for NextPageStartKey
+	// no validation rules for NextPageToken
 
 	if len(errors) > 0 {
 		return GetAllResponseMultiError(errors)

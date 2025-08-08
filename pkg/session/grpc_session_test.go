@@ -188,6 +188,29 @@ func (m *SimpleMockBatonSessionServiceGetAllClient) RecvMsg(interface{}) error {
 	return nil
 }
 
+// PagedGetAllClient simulates a paginated GetAll stream
+// Each response in the sequence is returned in order, then io.EOF.
+type PagedGetAllClient struct {
+	responses []*v1.GetAllResponse
+	index     int
+}
+
+func (p *PagedGetAllClient) Recv() (*v1.GetAllResponse, error) {
+	if p.index >= len(p.responses) {
+		return nil, io.EOF
+	}
+	r := p.responses[p.index]
+	p.index++
+	return r, nil
+}
+
+func (p *PagedGetAllClient) Header() (metadata.MD, error) { return nil, nil }
+func (p *PagedGetAllClient) Trailer() metadata.MD         { return nil }
+func (p *PagedGetAllClient) CloseSend() error             { return nil }
+func (p *PagedGetAllClient) Context() context.Context     { return context.Background() }
+func (p *PagedGetAllClient) SendMsg(interface{}) error    { return nil }
+func (p *PagedGetAllClient) RecvMsg(interface{}) error    { return nil }
+
 func TestGRPCSessionCache_Get(t *testing.T) {
 	expectedValue := []byte("test-value")
 	mockClient := &SimpleMockBatonSessionServiceClient{
@@ -384,6 +407,48 @@ func TestGRPCSessionCache_GetAll(t *testing.T) {
 	}
 	if string(values["key2"]) != "value2" {
 		t.Fatalf("Expected value 'value2' for key2, got '%s'", string(values["key2"]))
+	}
+}
+
+func TestGRPCSessionCache_GetAll_Pagination(t *testing.T) {
+	callCount := 0
+	mockClient := &SimpleMockBatonSessionServiceClient{
+		getAllFunc: func(ctx context.Context, req *v1.GetAllRequest) (v1.BatonSessionService_GetAllClient, error) {
+			callCount++
+			if req.SyncId != "test-sync-id" {
+				return nil, fmt.Errorf("unexpected sync id: %s", req.SyncId)
+			}
+			if req.PageToken == "" {
+				return &PagedGetAllClient{responses: []*v1.GetAllResponse{
+					{Key: "a", Value: []byte("1")},
+					{Key: "b", Value: []byte("2"), NextPageToken: "p2"},
+				}}, nil
+			}
+			if req.PageToken == "p2" {
+				return &PagedGetAllClient{responses: []*v1.GetAllResponse{
+					{Key: "c", Value: []byte("3")},
+				}}, nil
+			}
+			return &PagedGetAllClient{responses: nil}, nil
+		},
+	}
+
+	cache := &GRPCSessionCache{client: mockClient}
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
+
+	values, err := cache.GetAll(ctx)
+	if err != nil {
+		t.Fatalf("GetAll failed: %v", err)
+	}
+	if callCount != 2 {
+		t.Fatalf("expected 2 calls, got %d", callCount)
+	}
+	if len(values) != 3 {
+		t.Fatalf("expected 3 values, got %d", len(values))
+	}
+	if string(values["a"]) != "1" || string(values["b"]) != "2" || string(values["c"]) != "3" {
+		t.Fatalf("unexpected values: %+v", values)
 	}
 }
 
