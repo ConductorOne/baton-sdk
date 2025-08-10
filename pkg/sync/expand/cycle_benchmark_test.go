@@ -115,8 +115,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 			start := g.EntitlementsToNodes["1"]
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				visited := make(map[int]bool)
-				_, _ = g.cycleDetectionHelper(start, visited, []int{})
+				_, _ = g.cycleDetectionHelper(start)
 			}
 		})
 	}
@@ -127,8 +126,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 			start := g.EntitlementsToNodes["1"]
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				visited := make(map[int]bool)
-				_, _ = g.cycleDetectionHelper(start, visited, []int{})
+				_, _ = g.cycleDetectionHelper(start)
 			}
 		})
 	}
@@ -138,8 +136,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 		start := g.EntitlementsToNodes["1"]
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			visited := make(map[int]bool)
-			_, _ = g.cycleDetectionHelper(start, visited, []int{})
+			_, _ = g.cycleDetectionHelper(start)
 		}
 	})
 
@@ -148,8 +145,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 		start := g.EntitlementsToNodes["1"]
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			visited := make(map[int]bool)
-			_, _ = g.cycleDetectionHelper(start, visited, []int{})
+			_, _ = g.cycleDetectionHelper(start)
 		}
 	})
 }

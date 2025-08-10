@@ -59,8 +59,7 @@ func TestCycleDetectionHelper_BasicScenarios(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := parseExpression(t, ctx, tc.expr)
 			startNodeID := g.EntitlementsToNodes[tc.start]
-			visited := make(map[int]bool)
-			cycle, ok := g.cycleDetectionHelper(startNodeID, visited, []int{})
+			cycle, ok := g.cycleDetectionHelper(startNodeID)
 
 			if !tc.has {
 				require.False(t, ok)
@@ -82,8 +81,7 @@ func TestCycleDetectionHelper_MultipleCyclesDifferentStarts(t *testing.T) {
 	// Start at 1 -> should find cycle {1,2}
 	{
 		startNodeID := g.EntitlementsToNodes["1"]
-		visited := make(map[int]bool)
-		cycle, ok := g.cycleDetectionHelper(startNodeID, visited, []int{})
+		cycle, ok := g.cycleDetectionHelper(startNodeID)
 		require.True(t, ok)
 		require.NotNil(t, cycle)
 		require.True(t, elementsMatch([]int{1, 2}, cycle))
@@ -92,8 +90,7 @@ func TestCycleDetectionHelper_MultipleCyclesDifferentStarts(t *testing.T) {
 	// Start at 3 -> should find cycle {3,4}
 	{
 		startNodeID := g.EntitlementsToNodes["3"]
-		visited := make(map[int]bool)
-		cycle, ok := g.cycleDetectionHelper(startNodeID, visited, []int{})
+		cycle, ok := g.cycleDetectionHelper(startNodeID)
 		require.True(t, ok)
 		require.NotNil(t, cycle)
 		require.True(t, elementsMatch([]int{3, 4}, cycle))
@@ -119,8 +116,7 @@ func TestCycleDetectionHelper_LargeRing(t *testing.T) {
 
 	g := parseExpression(t, ctx, expr)
 	startNodeID := g.EntitlementsToNodes["1"]
-	visited := make(map[int]bool)
-	cycle, ok := g.cycleDetectionHelper(startNodeID, visited, []int{})
+	cycle, ok := g.cycleDetectionHelper(startNodeID)
 	require.True(t, ok)
 	require.NotNil(t, cycle)
 	require.Len(t, cycle, n)

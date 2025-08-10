@@ -103,8 +103,6 @@ func (g *EntitlementGraph) GetFirstCycle() []int {
 
 func (g *EntitlementGraph) cycleDetectionHelper(
 	nodeID int,
-	visited map[int]bool,
-	currentCycle []int,
 ) ([]int, bool) {
 	// Thin wrapper around the coloring-based DFS, starting from a specific node.
 	// The provided visited/currentCycle are ignored here; coloring provides the
