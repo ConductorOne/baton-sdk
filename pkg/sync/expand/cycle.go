@@ -11,7 +11,7 @@ func (g *EntitlementGraph) GetFirstCycle() []int {
 	if g.HasNoCycles {
 		return nil
 	}
-	visited := mapset.NewSet[int]()
+	visited := mapset.NewThreadUnsafeSet[int]()
 	for nodeID := range g.Nodes {
 		cycle, hasCycle := g.cycleDetectionHelper(nodeID, visited, []int{})
 		if hasCycle {
