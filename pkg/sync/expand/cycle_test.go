@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,7 +59,7 @@ func TestCycleDetectionHelper_BasicScenarios(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			g := parseExpression(t, ctx, tc.expr)
 			startNodeID := g.EntitlementsToNodes[tc.start]
-			visited := mapset.NewThreadUnsafeSet[int]()
+			visited := make(map[int]bool)
 			cycle, ok := g.cycleDetectionHelper(startNodeID, visited, []int{})
 
 			if !tc.has {
@@ -83,7 +82,7 @@ func TestCycleDetectionHelper_MultipleCyclesDifferentStarts(t *testing.T) {
 	// Start at 1 -> should find cycle {1,2}
 	{
 		startNodeID := g.EntitlementsToNodes["1"]
-		visited := mapset.NewThreadUnsafeSet[int]()
+		visited := make(map[int]bool)
 		cycle, ok := g.cycleDetectionHelper(startNodeID, visited, []int{})
 		require.True(t, ok)
 		require.NotNil(t, cycle)
@@ -93,7 +92,7 @@ func TestCycleDetectionHelper_MultipleCyclesDifferentStarts(t *testing.T) {
 	// Start at 3 -> should find cycle {3,4}
 	{
 		startNodeID := g.EntitlementsToNodes["3"]
-		visited := mapset.NewThreadUnsafeSet[int]()
+		visited := make(map[int]bool)
 		cycle, ok := g.cycleDetectionHelper(startNodeID, visited, []int{})
 		require.True(t, ok)
 		require.NotNil(t, cycle)
@@ -120,7 +119,7 @@ func TestCycleDetectionHelper_LargeRing(t *testing.T) {
 
 	g := parseExpression(t, ctx, expr)
 	startNodeID := g.EntitlementsToNodes["1"]
-	visited := mapset.NewThreadUnsafeSet[int]()
+	visited := make(map[int]bool)
 	cycle, ok := g.cycleDetectionHelper(startNodeID, visited, []int{})
 	require.True(t, ok)
 	require.NotNil(t, cycle)

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	mapset "github.com/deckarep/golang-set/v2"
 )
 
 func buildRing(b *testing.B, n int) *EntitlementGraph {
@@ -116,7 +115,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 			start := g.EntitlementsToNodes["1"]
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				visited := mapset.NewThreadUnsafeSet[int]()
+				visited := make(map[int]bool)
 				_, _ = g.cycleDetectionHelper(start, visited, []int{})
 			}
 		})
@@ -128,7 +127,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 			start := g.EntitlementsToNodes["1"]
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				visited := mapset.NewThreadUnsafeSet[int]()
+				visited := make(map[int]bool)
 				_, _ = g.cycleDetectionHelper(start, visited, []int{})
 			}
 		})
@@ -139,7 +138,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 		start := g.EntitlementsToNodes["1"]
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			visited := mapset.NewThreadUnsafeSet[int]()
+			visited := make(map[int]bool)
 			_, _ = g.cycleDetectionHelper(start, visited, []int{})
 		}
 	})
@@ -149,7 +148,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 		start := g.EntitlementsToNodes["1"]
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			visited := mapset.NewThreadUnsafeSet[int]()
+			visited := make(map[int]bool)
 			_, _ = g.cycleDetectionHelper(start, visited, []int{})
 		}
 	})
