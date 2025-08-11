@@ -14,6 +14,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -22,12 +24,14 @@ import (
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	baton_v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
+	utls2 "github.com/conductorone/baton-sdk/pkg/utls"
 )
 
 const (
@@ -36,9 +40,47 @@ const (
 
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
-// defaultSessionCacheConstructor creates a default in-memory session cache.
-func defaultSessionCacheConstructor(ctx context.Context, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
+func defaultSessionConstructor(ctx context.Context, opt ...types.SessionConstructorOption) (types.SessionStore, error) {
 	return session.NewMemorySessionCache(ctx, opt...)
+}
+
+func defaultGRPCSessionConstructor(ctx context.Context, serverCfg *v1.ServerConfig) func(ctx context.Context, opt ...types.SessionConstructorOption) (types.SessionStore, error) {
+	return func(ctx context.Context, opt ...types.SessionConstructorOption) (types.SessionStore, error) {
+		clientTLSConfig, err := utls2.ClientConfig(ctx, serverCfg.Credential)
+		if err != nil {
+			return nil, err
+		}
+
+		// connected, grpc will handle retries for us.
+		dialCtx, canc := context.WithTimeout(ctx, 5*time.Second)
+		defer canc()
+		var dialErr error
+		var conn *grpc.ClientConn
+		fmt.Printf("🌮 clientTLSConfig: %d\n", serverCfg.CacheListenPort)
+		for {
+			fmt.Printf("🌮 serverCfg.CacheListenPort: %d\n", serverCfg.CacheListenPort)
+			conn, err = grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
+				ctx,
+				fmt.Sprintf("127.0.0.1:%d", serverCfg.CacheListenPort),
+				grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
+				grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
+			)
+			if err != nil {
+				fmt.Printf("🌮 err: %+v\n", err)
+				dialErr = err
+				select {
+				case <-time.After(time.Millisecond * 500):
+				case <-dialCtx.Done():
+					return nil, dialErr
+				}
+				continue
+			}
+			break
+		}
+
+		client := baton_v1.NewBatonSessionServiceClient(conn)
+		return session.NewGRPCSessionCache(ctx, client, opt...)
+	}
 }
 
 func MakeMainCommand[T field.Configurable](
@@ -295,7 +337,7 @@ func MakeMainCommand[T field.Configurable](
 		}
 
 		// Create session cache and add to context
-		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
+		runCtx, err = WithSession(runCtx, defaultSessionConstructor)
 		if err != nil {
 			return fmt.Errorf("failed to create session cache: %w", err)
 		}
@@ -410,12 +452,51 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
+		var cfgStr string
+		scn := bufio.NewScanner(os.Stdin)
+		for scn.Scan() {
+			cfgStr = scn.Text()
+			break
+		}
+
+		fmt.Printf("🌮 cfgStr: %s\n", cfgStr)
+		cfgBytes, err := base64.StdEncoding.DecodeString(cfgStr)
+		if err != nil {
+			return err
+		}
+
+		// Avoid zombie processes. If the parent dies, this
+		// will cause Stdin on the child to close, and then
+		// the child will exit itself.
+		go func() {
+			in := make([]byte, 1)
+			_, err := os.Stdin.Read(in)
+			if err != nil {
+				os.Exit(0)
+			}
+		}()
+
+		if len(cfgBytes) == 0 {
+			return fmt.Errorf("unexpected empty input")
+		}
+
+		serverCfg := &v1.ServerConfig{}
+		err = proto.Unmarshal(cfgBytes, serverCfg)
+		if err != nil {
+			return err
+		}
+
+		err = serverCfg.ValidateAll()
+		if err != nil {
+			return err
+		}
+		fmt.Printf("🌮 serverCfg: %+v\n", serverCfg)
 		// Create session cache and add to context
-		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
+		runCtx, err = WithSession(runCtx, defaultGRPCSessionConstructor(runCtx, serverCfg))
 		if err != nil {
 			return fmt.Errorf("failed to create session cache: %w", err)
 		}
-
+		fmt.Printf("🌮 runCtx: %+v\n", runCtx)
 		c, err := getconnector(runCtx, t)
 		if err != nil {
 			return err
@@ -465,43 +546,6 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return err
 		}
 
-		var cfgStr string
-		scn := bufio.NewScanner(os.Stdin)
-		for scn.Scan() {
-			cfgStr = scn.Text()
-			break
-		}
-		cfgBytes, err := base64.StdEncoding.DecodeString(cfgStr)
-		if err != nil {
-			return err
-		}
-
-		// Avoid zombie processes. If the parent dies, this
-		// will cause Stdin on the child to close, and then
-		// the child will exit itself.
-		go func() {
-			in := make([]byte, 1)
-			_, err := os.Stdin.Read(in)
-			if err != nil {
-				os.Exit(0)
-			}
-		}()
-
-		if len(cfgBytes) == 0 {
-			return fmt.Errorf("unexpected empty input")
-		}
-
-		serverCfg := &v1.ServerConfig{}
-		err = proto.Unmarshal(cfgBytes, serverCfg)
-		if err != nil {
-			return err
-		}
-
-		err = serverCfg.ValidateAll()
-		if err != nil {
-			return err
-		}
-
 		return cw.Run(runCtx, serverCfg)
 	}
 }
@@ -543,7 +587,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		}
 
 		// Create session cache and add to context
-		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
+		runCtx, err = WithSession(runCtx, defaultSessionConstructor)
 		if err != nil {
 			return fmt.Errorf("failed to create session cache: %w", err)
 		}

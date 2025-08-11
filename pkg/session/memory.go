@@ -16,12 +16,12 @@ type MemorySessionCache struct {
 }
 
 // NewMemorySessionCache creates a new in-memory session cache with default TTL of 1 hour.
-func NewMemorySessionCache(ctx context.Context, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
+func NewMemorySessionCache(ctx context.Context, opt ...types.SessionConstructorOption) (types.SessionStore, error) {
 	return NewMemorySessionCacheWithTTL(ctx, time.Hour, opt...)
 }
 
 // NewMemorySessionCacheWithTTL creates a new in-memory session cache with custom TTL.
-func NewMemorySessionCacheWithTTL(ctx context.Context, ttl time.Duration, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
+func NewMemorySessionCacheWithTTL(ctx context.Context, ttl time.Duration, opt ...types.SessionConstructorOption) (types.SessionStore, error) {
 	// Apply constructor options
 	for _, option := range opt {
 		var err error
@@ -38,7 +38,7 @@ func NewMemorySessionCacheWithTTL(ctx context.Context, ttl time.Duration, opt ..
 }
 
 // Get retrieves a value from the cache by key.
-func (m *MemorySessionCache) Get(ctx context.Context, key string, opt ...types.SessionCacheOption) ([]byte, bool, error) {
+func (m *MemorySessionCache) Get(ctx context.Context, key string, opt ...types.SessionOption) ([]byte, bool, error) {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return nil, false, err
@@ -61,7 +61,7 @@ func (m *MemorySessionCache) Get(ctx context.Context, key string, opt ...types.S
 }
 
 // Set stores a value in the cache with the given key.
-func (m *MemorySessionCache) Set(ctx context.Context, key string, value []byte, opt ...types.SessionCacheOption) error {
+func (m *MemorySessionCache) Set(ctx context.Context, key string, value []byte, opt ...types.SessionOption) error {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return err
@@ -86,7 +86,7 @@ func (m *MemorySessionCache) Set(ctx context.Context, key string, value []byte, 
 }
 
 // Delete removes a value from the cache by key.
-func (m *MemorySessionCache) Delete(ctx context.Context, key string, opt ...types.SessionCacheOption) error {
+func (m *MemorySessionCache) Delete(ctx context.Context, key string, opt ...types.SessionOption) error {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return err
@@ -106,7 +106,7 @@ func (m *MemorySessionCache) Delete(ctx context.Context, key string, opt ...type
 }
 
 // Clear removes all values from the cache.
-func (m *MemorySessionCache) Clear(ctx context.Context, opt ...types.SessionCacheOption) error {
+func (m *MemorySessionCache) Clear(ctx context.Context, opt ...types.SessionOption) error {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return err
@@ -120,7 +120,7 @@ func (m *MemorySessionCache) Clear(ctx context.Context, opt ...types.SessionCach
 }
 
 // GetAll returns all key-value pairs.
-func (m *MemorySessionCache) GetAll(ctx context.Context, opt ...types.SessionCacheOption) (map[string][]byte, error) {
+func (m *MemorySessionCache) GetAll(ctx context.Context, opt ...types.SessionOption) (map[string][]byte, error) {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func (m *MemorySessionCache) GetAll(ctx context.Context, opt ...types.SessionCac
 }
 
 // GetMany retrieves multiple values from the cache by keys.
-func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...types.SessionCacheOption) (map[string][]byte, error) {
+func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...types.SessionOption) (map[string][]byte, error) {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return nil, err
@@ -173,7 +173,7 @@ func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...
 }
 
 // SetMany stores multiple values in the cache.
-func (m *MemorySessionCache) SetMany(ctx context.Context, values map[string][]byte, opt ...types.SessionCacheOption) error {
+func (m *MemorySessionCache) SetMany(ctx context.Context, values map[string][]byte, opt ...types.SessionOption) error {
 	// Apply options to get syncID
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
