@@ -271,6 +271,11 @@ func WithGenericResponse(response *map[string]any) DoOption {
 		if response == nil {
 			return status.Error(codes.InvalidArgument, "response is nil")
 		}
+
+		if resp.StatusCode == http.StatusNoContent {
+			return nil
+		}
+
 		var v any
 		var err error
 
