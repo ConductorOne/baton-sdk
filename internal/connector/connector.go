@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	tlsV1 "github.com/conductorone/baton-sdk/pb/c1/utls/v1"
 	ratelimit2 "github.com/conductorone/baton-sdk/pkg/ratelimit"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	utls2 "github.com/conductorone/baton-sdk/pkg/utls"
@@ -49,6 +51,28 @@ type connectorClient struct {
 	connectorV2.EventServiceClient
 	connectorV2.TicketsServiceClient
 	connectorV2.ActionServiceClient
+
+	SessionStore session.SetSessionStore // this is the session store server
+}
+
+var _ session.SetSessionStore = (*connectorClient)(nil)
+var _ SetSetSessionStorer = (*connectorClient)(nil)
+
+type SetSetSessionStorer interface {
+	SetSetSessionStorer(setsessionStore session.SetSessionStore)
+}
+
+func (c *connectorClient) SetSetSessionStorer(setsessionStore session.SetSessionStore) {
+	c.SessionStore = setsessionStore
+}
+
+func (c *connectorClient) SetSessionStore(ctx context.Context, store types.SessionStore) {
+	if c.SessionStore == nil {
+		l := ctxzap.Extract(ctx)
+		l.Warn("connectorClient's session store is nil")
+		return
+	}
+	c.SessionStore.SetSessionStore(ctx, store)
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")
@@ -70,6 +94,8 @@ type wrapper struct {
 	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
 
 	now func() time.Time
+
+	SetSessionStore session.SetSessionStore
 }
 
 type Option func(ctx context.Context, w *wrapper) error
@@ -189,25 +215,53 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	return server.Serve(l)
 }
 
-func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) (uint32, error) {
+func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) (uint32, uint32, error) {
 	l := ctxzap.Extract(ctx)
 
 	if cw.serverStdin != nil {
-		return 0, fmt.Errorf("server is already running")
+		return 0, 0, fmt.Errorf("server is already running")
 	}
 
 	listenPort, listener, err := cw.setupListener(ctx)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
+	}
+
+	cacheListenerPort, cacheListenerFile, err := cw.setupListener(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	cacheListener, err := net.FileListener(cacheListenerFile)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	// Start the session cache server on the cache listener
+	if cacheListenerFile != nil {
+		tlsConfig, err := utls2.ListenerConfig(ctx, serverCred)
+		if err != nil {
+			return 0, 0, err
+		}
+		server := session.NewGRPCSessionServer()
+		cw.SetSessionStore = server
+		go func() {
+			err = session.StartGRPCSessionServerWithOptions(ctx, cacheListener, server, grpc.Creds(credentials.NewTLS(tlsConfig)))
+			if err != nil {
+				l.Error("failed to create memory session cache", zap.Error(err))
+				return
+			}
+		}()
 	}
 
 	serverCfg, err := proto.Marshal(&connectorwrapperV1.ServerConfig{
 		Credential:        serverCred,
 		RateLimiterConfig: cw.rlCfg,
 		ListenPort:        listenPort,
+		CacheListenPort:   cacheListenerPort,
 	})
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	// Pass all the arguments and append grpc to start the server
@@ -218,7 +272,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 
 	arg0, err := os.Executable()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	cmd := exec.CommandContext(ctx, arg0, args...)
@@ -227,11 +281,11 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 	// Make the server config available via stdin
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	_, err = io.WriteString(stdin, base64.StdEncoding.EncodeToString(serverCfg)+"\n")
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	cw.serverStdin = stdin
 
@@ -242,7 +296,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 
 	err = cmd.Start()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	go func() {
@@ -257,12 +311,13 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		}
 	}()
 
-	return listenPort, nil
+	return listenPort, cacheListenerPort, nil
 }
 
 // C returns a ConnectorClient that the caller can use to interact with a locally running connector.
 func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	// Check to see if we have a client already
+	l := ctxzap.Extract(ctx)
 	cw.mtx.RLock()
 	if cw.client != nil {
 		cw.mtx.RUnlock()
@@ -290,7 +345,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		return nil, err
 	}
 
-	listenPort, err := cw.runServer(ctx, serverCred)
+	listenPort, _, err := cw.runServer(ctx, serverCred)
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +389,12 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 
 	cw.conn = conn
 	cw.client = NewConnectorClient(ctx, cw.conn)
+	if setsessionStore, ok := cw.client.(SetSetSessionStorer); ok {
+		setsessionStore.SetSetSessionStorer(cw.SetSessionStore)
+	} else {
+		l.Warn("client is not a SetSetSessionStorer")
+	}
+
 	return cw.client, nil
 }
 

@@ -6,6 +6,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
 // ConnectorStoreReader implements the ConnectorV2 API, along with getters for individual objects.
@@ -49,4 +50,7 @@ type Writer interface {
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	DeleteGrant(ctx context.Context, grantId string) error
+
+	// SessionStore is an optional interface that can be implemented by a connector store to provide session storage.
+	types.SessionStore
 }
