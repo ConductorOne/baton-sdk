@@ -340,7 +340,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if s.setSessionStore != nil {
 		ss, ok := s.store.(types.SessionStore)
 		if ok {
-			s.setSessionStore.SetSessionStore(ss)
+			s.setSessionStore.SetSessionStore(ctx, ss)
 		}
 	}
 	_, err = s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})

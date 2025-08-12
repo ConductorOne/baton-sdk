@@ -23,10 +23,10 @@ func NewGRPCSessionServer() *GRPCSessionServer {
 }
 
 type SetSessionStore interface {
-	SetSessionStore(store types.SessionStore)
+	SetSessionStore(ctx context.Context, store types.SessionStore)
 }
 
-func (s *GRPCSessionServer) SetSessionStore(store types.SessionStore) {
+func (s *GRPCSessionServer) SetSessionStore(ctx context.Context, store types.SessionStore) {
 	s.store = store
 }
 

@@ -66,8 +66,13 @@ func (c *connectorClient) SetSetSessionStorer(setsessionStore session.SetSession
 	c.SessionStore = setsessionStore
 }
 
-func (c *connectorClient) SetSessionStore(store types.SessionStore) {
-	c.SessionStore.SetSessionStore(store)
+func (c *connectorClient) SetSessionStore(ctx context.Context, store types.SessionStore) {
+	if c.SessionStore == nil {
+		l := ctxzap.Extract(ctx)
+		l.Warn("connectorClient's session store is nil")
+		return
+	}
+	c.SessionStore.SetSessionStore(ctx, store)
 }
 
 var ErrConnectorNotImplemented = errors.New("client does not implement connector connectorV2")

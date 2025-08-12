@@ -46,6 +46,7 @@ func defaultSessionConstructor(ctx context.Context, opt ...types.SessionConstruc
 
 func defaultGRPCSessionConstructor(ctx context.Context, serverCfg *v1.ServerConfig) func(ctx context.Context, opt ...types.SessionConstructorOption) (types.SessionStore, error) {
 	return func(ctx context.Context, opt ...types.SessionConstructorOption) (types.SessionStore, error) {
+		l := ctxzap.Extract(ctx)
 		clientTLSConfig, err := utls2.ClientConfig(ctx, serverCfg.Credential)
 		if err != nil {
 			return nil, err
@@ -76,7 +77,15 @@ func defaultGRPCSessionConstructor(ctx context.Context, serverCfg *v1.ServerConf
 		}
 
 		client := baton_v1.NewBatonSessionServiceClient(conn)
-		return session.NewGRPCSessionCache(ctx, client, opt...)
+		ss, err := session.NewGRPCSessionCache(ctx, client, opt...)
+		if err != nil {
+			err2 := conn.Close()
+			if err2 != nil {
+				l.Error("error closing connection", zap.Error(err2))
+			}
+			return nil, err
+		}
+		return ss, nil
 	}
 }
 
