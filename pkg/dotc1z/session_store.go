@@ -246,7 +246,6 @@ func (c *C1File) Clear(ctx context.Context, opt ...types.SessionOption) error {
 func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...types.SessionOption) (map[string][]byte, error) {
 	bag := &types.SessionBag{}
 
-	fmt.Printf("🌮 C1File GetMany: %+v\n", opt)
 	for _, o := range opt {
 		err := o(ctx, bag)
 		if err != nil {

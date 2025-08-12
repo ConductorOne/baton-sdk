@@ -67,7 +67,6 @@ func (c *connectorClient) SetSetSessionStorer(setsessionStore session.SetSession
 }
 
 func (c *connectorClient) SetSessionStore(store types.SessionStore) {
-	fmt.Printf("🌮 setting session store in connectorClient: %+v %T\n", c.SessionStore, c.SessionStore)
 	c.SessionStore.SetSessionStore(store)
 }
 
@@ -315,6 +314,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 // C returns a ConnectorClient that the caller can use to interact with a locally running connector.
 func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	// Check to see if we have a client already
+	l := ctxzap.Extract(ctx)
 	cw.mtx.RLock()
 	if cw.client != nil {
 		cw.mtx.RUnlock()
@@ -389,9 +389,9 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	if setsessionStore, ok := cw.client.(SetSetSessionStorer); ok {
 		setsessionStore.SetSetSessionStorer(cw.SetSessionStore)
 	} else {
-		fmt.Printf("🌮 client is not a SetSetSessionStorer: %+v %T\n", cw.client, cw.client)
+		l.Warn("client is not a SetSetSessionStorer")
 	}
-	fmt.Printf("🌮 client: %+v %T\n", cw.client, cw.client)
+
 	return cw.client, nil
 }
 

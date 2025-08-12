@@ -56,9 +56,7 @@ func defaultGRPCSessionConstructor(ctx context.Context, serverCfg *v1.ServerConf
 		defer canc()
 		var dialErr error
 		var conn *grpc.ClientConn
-		fmt.Printf("🌮 clientTLSConfig: %d\n", serverCfg.CacheListenPort)
 		for {
-			fmt.Printf("🌮 serverCfg.CacheListenPort: %d\n", serverCfg.CacheListenPort)
 			conn, err = grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
 				ctx,
 				fmt.Sprintf("127.0.0.1:%d", serverCfg.CacheListenPort),
@@ -66,7 +64,6 @@ func defaultGRPCSessionConstructor(ctx context.Context, serverCfg *v1.ServerConf
 				grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
 			)
 			if err != nil {
-				fmt.Printf("🌮 err: %+v\n", err)
 				dialErr = err
 				select {
 				case <-time.After(time.Millisecond * 500):
@@ -459,7 +456,6 @@ func MakeGRPCServerCommand[T field.Configurable](
 			break
 		}
 
-		fmt.Printf("🌮 cfgStr: %s\n", cfgStr)
 		cfgBytes, err := base64.StdEncoding.DecodeString(cfgStr)
 		if err != nil {
 			return err
@@ -490,13 +486,11 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return err
 		}
-		fmt.Printf("🌮 serverCfg: %+v\n", serverCfg)
 		// Create session cache and add to context
 		runCtx, err = WithSession(runCtx, defaultGRPCSessionConstructor(runCtx, serverCfg))
 		if err != nil {
 			return fmt.Errorf("failed to create session cache: %w", err)
 		}
-		fmt.Printf("🌮 runCtx: %+v\n", runCtx)
 		c, err := getconnector(runCtx, t)
 		if err != nil {
 			return err

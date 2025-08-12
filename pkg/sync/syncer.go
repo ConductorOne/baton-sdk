@@ -340,10 +340,8 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if s.setSessionStore != nil {
 		ss, ok := s.store.(types.SessionStore)
 		if ok {
-			fmt.Printf("🌮 setting session store: %+v\n", ss)
 			s.setSessionStore.SetSessionStore(ss)
 		} else {
-			fmt.Printf("🌮 store is not a session store: %+v %T\n", s.store, s.store)
 			// panic("🌮 store is not a session store")
 		}
 	}
@@ -351,7 +349,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("🌮 set store: \n")
+
 	// Validate any targeted resource IDs before starting a sync.
 	targetedResources := []*v2.Resource{}
 	for _, resourceID := range s.targetedSyncResourceIDs {

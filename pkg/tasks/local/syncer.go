@@ -3,7 +3,6 @@ package local
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -77,7 +76,6 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	if ssetSessionStore, ok := cc.(session.SetSessionStore); ok {
 		setSessionStore = ssetSessionStore
 	}
-	fmt.Printf("🌮 setSessionStore in localSyncer: %+v %T\n", setSessionStore, setSessionStore)
 	syncer, err := sdkSync.NewSyncer(ctx, cc,
 		sdkSync.WithC1ZPath(m.dbPath),
 		sdkSync.WithTmpDir(m.tmpDir),

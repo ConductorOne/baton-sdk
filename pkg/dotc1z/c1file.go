@@ -192,7 +192,6 @@ func (c *C1File) init(ctx context.Context) error {
 
 	for _, t := range allTableDescriptors {
 		query, args := t.Schema()
-		fmt.Printf("🌮 query: %s\n", query)
 		_, err = c.db.ExecContext(ctx, fmt.Sprintf(query, args...))
 		if err != nil {
 			return err
