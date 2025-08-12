@@ -9,9 +9,9 @@ option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
 service BatonSessionService {
   rpc Get(GetRequest) returns (GetResponse) {}
 
-  rpc GetMany(GetManyRequest) returns (stream GetManyResponse) {}
+  rpc GetMany(GetManyRequest) returns (GetManyResponse) {}
 
-  rpc GetAll(GetAllRequest) returns (stream GetAllResponse) {}
+  rpc GetAll(GetAllRequest) returns (GetAllResponse) {}
 
   rpc Set(SetRequest) returns (SetResponse) {}
 
@@ -51,9 +51,16 @@ message GetManyRequest {
       }
     }
   }];
+
+  string page_token = 3;
 }
 
 message GetManyResponse {
+  repeated GetManyItem items = 1;
+  string next_page_token = 2;
+}
+
+message GetManyItem {
   string key = 1;
   bytes value = 2;
 }
@@ -64,9 +71,13 @@ message GetAllRequest {
 }
 
 message GetAllResponse {
+  repeated GetAllItem items = 1;
+  string next_page_token = 2;
+}
+
+message GetAllItem {
   string key = 1;
   bytes value = 2;
-  string next_page_token = 3;
 }
 
 message SetRequest {
@@ -76,11 +87,11 @@ message SetRequest {
     max_len: 256
   }];
   bytes value = 3 [(validate.rules).bytes = {
-    max_len: 1048576
+    max_len: 1047552
   }];
 }
 
-message SetResponse {} 
+message SetResponse {}
 
 message SetManyRequest {
   string sync_id = 1 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
@@ -93,7 +104,7 @@ message SetManyRequest {
     }
     values: {
       bytes: {
-        max_len: 1048576
+        max_len: 1047552
       }
     }
   }];
@@ -131,4 +142,3 @@ message ClearRequest {
 }
 
 message ClearResponse {}
-

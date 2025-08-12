@@ -16,6 +16,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/retry"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -211,6 +212,7 @@ type syncer struct {
 	onlyExpandGrants                    bool
 	syncID                              string
 	skipEGForResourceType               map[string]bool
+	setSessionStore                     session.SetSessionStore
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -333,6 +335,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 	err := s.loadStore(ctx)
 	if err != nil {
 		return err
+	}
+
+	if s.setSessionStore != nil {
+		ss, ok := s.store.(types.SessionStore)
+		if ok {
+			s.setSessionStore.SetSessionStore(ctx, ss)
+		}
 	}
 	_, err = s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
@@ -2786,6 +2795,12 @@ func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
 func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
 	return func(s *syncer) {
 		s.targetedSyncResourceIDs = resourceIDs
+	}
+}
+
+func WithSessionCache(sessionCache session.SetSessionStore) SyncOpt {
+	return func(s *syncer) {
+		s.setSessionStore = sessionCache
 	}
 }
 
