@@ -148,9 +148,7 @@ func (g *GRPCSessionCache) Get(ctx context.Context, key string, opt ...types.Ses
 		return nil, false, fmt.Errorf("failed to get value from gRPC session cache: %w", err)
 	}
 
-	// Check if the value exists (not nil)
-	found := resp.Value != nil
-	return resp.Value, found, nil
+	return resp.Value, true, nil
 }
 
 // GetMany retrieves multiple values from the cache by keys.
