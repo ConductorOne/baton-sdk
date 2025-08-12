@@ -116,13 +116,14 @@ func (c *C1File) Set(ctx context.Context, key string, value []byte, opt ...types
 		return fmt.Errorf("sync id is required")
 	}
 
-	// Use UPSERT (INSERT OR REPLACE) for SQLite
+	// Use goqu's OnConflict for upsert behavior
 	q := c.db.Insert(sessionStore.Name()).Prepared(true)
 	q = q.Rows(goqu.Record{
 		"sync_id": bag.SyncID,
 		"key":     key,
 		"value":   value,
 	})
+	q = q.OnConflict(goqu.DoUpdate("sync_id, key", goqu.C("value").Set(value)))
 
 	sql, params, err := q.ToSQL()
 	if err != nil {
@@ -167,6 +168,7 @@ func (c *C1File) SetMany(ctx context.Context, values map[string][]byte, opt ...t
 
 	q := c.db.Insert(sessionStore.Name()).Prepared(true)
 	q = q.Rows(rows...)
+	q = q.OnConflict(goqu.DoUpdate("sync_id, key", goqu.C("value").Set(goqu.I("EXCLUDED.value"))))
 
 	sql, params, err := q.ToSQL()
 	if err != nil {

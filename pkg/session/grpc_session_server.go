@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -50,27 +51,28 @@ func (s *GRPCSessionServer) Get(ctx context.Context, req *v1.GetRequest) (*v1.Ge
 	}, nil
 }
 
-func (s *GRPCSessionServer) GetMany(req *v1.GetManyRequest, stream v1.BatonSessionService_GetManyServer) error {
+func (s *GRPCSessionServer) GetMany(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error) {
 	if req == nil {
-		return fmt.Errorf("request cannot be nil")
+		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	values, err := s.store.GetMany(stream.Context(), req.Keys, types.WithSyncID(req.SyncId))
+	values, err := s.store.GetMany(ctx, req.Keys, types.WithSyncID(req.SyncId))
 	if err != nil {
-		return fmt.Errorf("failed to get many values from cache: %w", err)
+		return nil, fmt.Errorf("failed to get many values from cache: %w", err)
 	}
 
+	// Convert the map to items array
+	items := make([]*v1.GetManyItem, 0, len(values))
 	for key, value := range values {
-		resp := &v1.GetManyResponse{
+		items = append(items, &v1.GetManyItem{
 			Key:   key,
 			Value: value,
-		}
-		if err := stream.Send(resp); err != nil {
-			return fmt.Errorf("failed to send response: %w", err)
-		}
+		})
 	}
 
-	return nil
+	return &v1.GetManyResponse{
+		Items: items,
+	}, nil
 }
 
 func (s *GRPCSessionServer) Set(ctx context.Context, req *v1.SetRequest) (*v1.SetResponse, error) {
@@ -112,6 +114,21 @@ func (s *GRPCSessionServer) Delete(ctx context.Context, req *v1.DeleteRequest) (
 	return &v1.DeleteResponse{}, nil
 }
 
+func (s *GRPCSessionServer) DeleteMany(ctx context.Context, req *v1.DeleteManyRequest) (*v1.DeleteManyResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("request cannot be nil")
+	}
+
+	for _, key := range req.Keys {
+		err := s.store.Delete(ctx, key, types.WithSyncID(req.SyncId))
+		if err != nil {
+			return nil, fmt.Errorf("failed to delete value for key %s: %w", key, err)
+		}
+	}
+
+	return &v1.DeleteManyResponse{}, nil
+}
+
 func (s *GRPCSessionServer) Clear(ctx context.Context, req *v1.ClearRequest) (*v1.ClearResponse, error) {
 	if req == nil {
 		return nil, fmt.Errorf("request cannot be nil")
@@ -125,32 +142,28 @@ func (s *GRPCSessionServer) Clear(ctx context.Context, req *v1.ClearRequest) (*v
 	return &v1.ClearResponse{}, nil
 }
 
-func (s *GRPCSessionServer) DeleteMany(context.Context, *v1.DeleteManyRequest) (*v1.DeleteManyResponse, error) {
-	panic("unimplemented")
-}
-
-func (s *GRPCSessionServer) GetAll(req *v1.GetAllRequest, stream v1.BatonSessionService_GetAllServer) error {
+func (s *GRPCSessionServer) GetAll(ctx context.Context, req *v1.GetAllRequest) (*v1.GetAllResponse, error) {
 	if req == nil {
-		return fmt.Errorf("request cannot be nil")
+		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	values, err := s.store.GetAll(stream.Context(), types.WithSyncID(req.SyncId))
+	values, err := s.store.GetAll(ctx, types.WithSyncID(req.SyncId))
 	if err != nil {
-		return fmt.Errorf("failed to get all values from cache: %w", err)
+		return nil, fmt.Errorf("failed to get all values from cache: %w", err)
 	}
 
-	// Send all key-value pairs
+	// Convert the map to items array
+	items := make([]*v1.GetAllItem, 0, len(values))
 	for key, value := range values {
-		resp := &v1.GetAllResponse{
+		items = append(items, &v1.GetAllItem{
 			Key:   key,
 			Value: value,
-		}
-		if err := stream.Send(resp); err != nil {
-			return fmt.Errorf("failed to send response: %w", err)
-		}
+		})
 	}
 
-	return nil
+	return &v1.GetAllResponse{
+		Items: items,
+	}, nil
 }
 
 func StartGRPCSessionServer(ctx context.Context, addr string, sessionServer *GRPCSessionServer) error {
@@ -170,8 +183,7 @@ func StartGRPCSessionServer(ctx context.Context, addr string, sessionServer *GRP
 	// Start serving
 	go func() {
 		if err := server.Serve(listener); err != nil {
-			// Log error but don't return it since this is running in a goroutine
-			fmt.Printf("gRPC session server failed: %v\n", err)
+			log.Printf("gRPC session server failed: %v", err)
 		}
 	}()
 
@@ -197,8 +209,7 @@ func StartGRPCSessionServerWithOptions(ctx context.Context, listener net.Listene
 	// Start serving
 	go func() {
 		if err := server.Serve(listener); err != nil {
-			// Log error but don't return it since this is running in a goroutine
-			fmt.Printf("gRPC session server failed: %v\n", err)
+			log.Printf("gRPC session server failed: %v", err)
 		}
 	}()
 

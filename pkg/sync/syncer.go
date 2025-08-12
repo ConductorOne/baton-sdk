@@ -341,8 +341,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 		ss, ok := s.store.(types.SessionStore)
 		if ok {
 			s.setSessionStore.SetSessionStore(ss)
-		} else {
-			// panic("🌮 store is not a session store")
 		}
 	}
 	_, err = s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})

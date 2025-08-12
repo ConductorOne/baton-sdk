@@ -238,16 +238,14 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		if err != nil {
 			return 0, 0, err
 		}
+		server := session.NewGRPCSessionServer()
+		cw.SetSessionStore = server
 		go func() {
-			server := session.NewGRPCSessionServer()
-			cw.SetSessionStore = server
-
 			err = session.StartGRPCSessionServerWithOptions(ctx, cacheListener, server, grpc.Creds(credentials.NewTLS(tlsConfig)))
 			if err != nil {
 				l.Error("failed to create memory session cache", zap.Error(err))
 				return
 			}
-
 		}()
 	}
 
