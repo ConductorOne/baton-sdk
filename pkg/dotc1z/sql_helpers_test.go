@@ -43,14 +43,26 @@ func TestPutResources(t *testing.T) {
 	_, err = c1zFile.StartNewSync(ctx)
 	require.NoError(t, err)
 
+	resourceType := &v2.ResourceType{
+		Id:          "test_resource_type",
+		DisplayName: "Test Resource Type",
+	}
+	err = c1zFile.PutResourceTypes(ctx, resourceType)
+	require.NoError(t, err)
+
 	err = c1zFile.PutResources(
 		ctx,
-		generateResources(10_000, &v2.ResourceType{
-			Id:          "test_resource_type",
-			DisplayName: "Test Resource Type",
-		})...,
+		generateResources(10_000, resourceType)...,
 	)
 	require.NoError(t, err)
+
+	err = c1zFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	stats, err := c1zFile.Stats(ctx)
+	require.NoError(t, err)
+
+	require.Equal(t, int64(10_000), stats["test_resource_type"])
 
 	err = c1zFile.Close()
 	require.NoError(t, err)
@@ -82,10 +94,14 @@ func BenchmarkPutResources(b *testing.B) {
 				_, err = c1zFile.StartNewSync(ctx)
 				require.NoError(b, err)
 
-				generatedData := generateResources(c.resourcesCount, &v2.ResourceType{
+				resourceType := &v2.ResourceType{
 					Id:          "test_resource_type",
 					DisplayName: "Test Resource Type",
-				})
+				}
+				err = c1zFile.PutResourceTypes(ctx, resourceType)
+				require.NoError(b, err)
+
+				generatedData := generateResources(c.resourcesCount, resourceType)
 
 				b.StartTimer()
 
@@ -93,6 +109,11 @@ func BenchmarkPutResources(b *testing.B) {
 					ctx,
 					generatedData...,
 				)
+				require.NoError(b, err)
+
+				b.StopTimer()
+
+				err = c1zFile.EndSync(ctx)
 				require.NoError(b, err)
 
 				err = c1zFile.Close()
