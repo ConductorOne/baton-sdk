@@ -2,6 +2,7 @@ package dotc1z
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -314,6 +315,13 @@ func executeChunkedInsert(
 		chunks++
 	}
 
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	var txError error
+
 	for i := 0; i < chunks; i++ {
 		start := i * chunkSize
 		end := (i + 1) * chunkSize
@@ -323,28 +331,39 @@ func executeChunkedInsert(
 		chunkedRows := rows[start:end]
 
 		// Create the base insert dataset
-		insertDs := c.db.Insert(tableName)
+		insertDs := tx.Insert(tableName)
 
 		// Apply the custom query building function
-		insertDs, err := buildQueryFn(insertDs, chunkedRows)
+		insertDs, err = buildQueryFn(insertDs, chunkedRows)
 		if err != nil {
-			return err
+			txError = err
+			break
 		}
 
 		// Generate the SQL
 		query, args, err := insertDs.ToSQL()
 		if err != nil {
-			return err
+			txError = err
+			break
 		}
 
 		// Execute the query
-		_, err = c.db.Exec(query, args...)
+		_, err = tx.ExecContext(ctx, query, args...)
 		if err != nil {
-			return err
+			txError = err
+			break
 		}
 	}
 
-	return nil
+	if txError != nil {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			return errors.Join(rollbackErr, txError)
+		}
+
+		return fmt.Errorf("error executing chunked insert: %w", txError)
+	}
+
+	return tx.Commit()
 }
 
 func bulkPutConnectorObject[T proto.Message](
