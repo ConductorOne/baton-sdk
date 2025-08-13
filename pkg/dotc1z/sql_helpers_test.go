@@ -62,7 +62,7 @@ func TestPutResources(t *testing.T) {
 	stats, err := c1zFile.Stats(ctx)
 	require.NoError(t, err)
 
-	require.Equal(t, int64(10_000), stats["test_resource_type"])
+	require.Equal(t, int64(10_000), stats[resourceType.Id])
 
 	err = c1zFile.Close()
 	require.NoError(t, err)
