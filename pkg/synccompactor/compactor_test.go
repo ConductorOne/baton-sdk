@@ -36,9 +36,13 @@ func TestCompactorWithTmpDir(t *testing.T) {
 }
 
 func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmpDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+	}
+
 	// Create the first sync file
 	firstSyncPath := filepath.Join(tempDir, "first-sync.c1z")
-	firstSync, err := dotc1z.NewC1ZFile(ctx, firstSyncPath)
+	firstSync, err := dotc1z.NewC1ZFile(ctx, firstSyncPath, opts...)
 	require.NoError(t, err)
 
 	// Start a new sync
@@ -90,7 +94,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 
 	// Create the second sync file
 	secondSyncPath := filepath.Join(tempDir, "second-sync.c1z")
-	secondSync, err := dotc1z.NewC1ZFile(ctx, secondSyncPath)
+	secondSync, err := dotc1z.NewC1ZFile(ctx, secondSyncPath, opts...)
 	require.NoError(t, err)
 
 	// Start a new sync
@@ -163,7 +167,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 	require.NotNil(t, compactedSync)
 
 	// Open the compacted file
-	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath)
+	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath, opts...)
 	require.NoError(t, err)
 	defer compactedFile.Close()
 
