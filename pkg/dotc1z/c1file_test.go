@@ -72,7 +72,7 @@ func TestC1Z(t *testing.T) {
 	testFilePath := filepath.Join(c1zTests.workingDir, "test.c1z")
 
 	var opts []C1ZOption
-	opts = append(opts, WithPragma("synchronous", "OFF"))
+	opts = append(opts, WithPragma("journal_mode", "WAL"))
 
 	// Open file
 	f, err := NewC1ZFile(ctx, testFilePath, opts...)
@@ -87,7 +87,7 @@ func TestC1Z(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrNotExist)
 
 	// Open file
-	f, err = NewC1ZFile(ctx, testFilePath)
+	f, err = NewC1ZFile(ctx, testFilePath, opts...)
 	require.NoError(t, err)
 
 	// Start a new sync
@@ -105,7 +105,7 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 
 	// Open file
-	f, err = NewC1ZFile(ctx, testFilePath)
+	f, err = NewC1ZFile(ctx, testFilePath, opts...)
 	require.NoError(t, err)
 
 	var syncID2 string
@@ -135,7 +135,7 @@ func TestC1Z(t *testing.T) {
 	require.Greater(t, fileInfo2.Size(), fileInfo.Size())
 
 	// Open file
-	f, err = NewC1ZFile(ctx, testFilePath)
+	f, err = NewC1ZFile(ctx, testFilePath, opts...)
 	require.NoError(t, err)
 
 	// Fetch the resource type we just saved
@@ -160,7 +160,7 @@ func TestC1ZDecoder(t *testing.T) {
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-decoder.c1z")
 
 	// Open file
-	f, err := NewC1ZFile(ctx, testFilePath)
+	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
 
 	// Start a new sync
@@ -171,6 +171,11 @@ func TestC1ZDecoder(t *testing.T) {
 	resourceTypeID := testResourceType
 	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
 	require.NoError(t, err)
+
+	// Close the raw DB so the write ahead log is checkpointed.
+	err = f.rawDb.Close()
+	require.NoError(t, err)
+	f.rawDb = nil
 
 	dbFile, err := os.ReadFile(f.dbFilePath)
 	require.NoError(t, err)
@@ -268,6 +273,6 @@ func TestC1ZInvalidFile(t *testing.T) {
 	err = f.Close()
 	require.NoError(t, err)
 
-	_, err = NewC1ZFile(ctx, testFilePath)
+	_, err = NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
 	require.ErrorIs(t, err, ErrInvalidFile)
 }
