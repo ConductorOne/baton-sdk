@@ -2,6 +2,7 @@ package dotc1z
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -356,7 +357,7 @@ func executeChunkedInsert(
 
 	if txError != nil {
 		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			return fmt.Errorf("error rolling back transaction after error: %w, original error: %w", rollbackErr, txError)
+			return errors.Join(rollbackErr, txError)
 		}
 
 		return fmt.Errorf("error executing chunked insert: %w", txError)
