@@ -2,12 +2,13 @@ package dotc1z
 
 import (
 	"context"
+	"path/filepath"
+	"testing"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
-	"path/filepath"
-	"testing"
 )
 
 func generateResources(count int, resourceType *v2.ResourceType) []*v2.Resource {
