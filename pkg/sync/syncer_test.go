@@ -661,6 +661,446 @@ func TestPartialSyncBadIDs(t *testing.T) {
 	require.Equal(t, len(syncs), 0)
 }
 
+func TestSyncExternalResources(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctx, err := logging.Init(ctx)
+	require.NoError(t, err)
+
+	tempDir, err := os.MkdirTemp("", "baton-sync-external-resources-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create external C1Z with users and groups
+	externalC1zPath := filepath.Join(tempDir, "external.c1z")
+	externalMc := newMockConnector()
+	externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
+
+	// Add external users and groups
+	externalUser, err := externalMc.AddUser(ctx, "external_user_1")
+	require.NoError(t, err)
+	externalGroup, _, err := externalMc.AddGroup(ctx, "external_group_1")
+	require.NoError(t, err)
+
+	// Add grant in external system
+	_ = externalMc.AddGroupMember(ctx, externalGroup, externalUser)
+
+	// Create external C1Z
+	externalSyncer, err := NewSyncer(ctx, externalMc, WithC1ZPath(externalC1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	err = externalSyncer.Sync(ctx)
+	require.NoError(t, err)
+	err = externalSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	// Create main C1Z with external resource references
+	mainC1zPath := filepath.Join(tempDir, "main.c1z")
+	mainMc := newMockConnector()
+	mainMc.rtDB = append(mainMc.rtDB, userResourceType, groupResourceType)
+
+	// Add main group that references external user
+	mainGroup, _, err := mainMc.AddGroup(ctx, "main_group")
+	require.NoError(t, err)
+	_ = mainMc.AddGroupMember(ctx, mainGroup, externalUser) // Reference external user
+
+	// Create main syncer with external resource reader
+	mainSyncer, err := NewSyncer(ctx, mainMc,
+		WithC1ZPath(mainC1zPath),
+		WithTmpDir(tempDir),
+		WithExternalResourceC1ZPath(externalC1zPath),
+	)
+	require.NoError(t, err)
+
+	// Sync main resources and external resources
+	err = mainSyncer.Sync(ctx)
+	require.NoError(t, err)
+
+	// Close syncer
+	err = mainSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	// Verify external resources were synced
+	c1zManager, err := manager.New(ctx, mainC1zPath)
+	require.NoError(t, err)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	// Check that external user was synced
+	externalUsers, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: userResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalUsers.List, 1) // external_user_1
+
+	// Check that external group was synced
+	externalGroups, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: groupResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalGroups.List, 2) // main_group + external_group_1
+
+	// Check that external group entitlements were synced
+	externalGroupEntitlements, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+		Resource: externalGroup,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalGroupEntitlements.List, 1)
+
+	// Check that grants for external group were synced
+	allGrants, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{})
+	require.NoError(t, err)
+	require.Len(t, allGrants.List, 2) // main_group grant + external_group_1 grant
+}
+
+func TestSyncExternalResourcesWithEntitlementFilter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctx, err := logging.Init(ctx)
+	require.NoError(t, err)
+
+	tempDir, err := os.MkdirTemp("", "baton-sync-external-resources-filter-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create external C1Z with users and groups
+	externalC1zPath := filepath.Join(tempDir, "external.c1z")
+	externalMc := newMockConnector()
+	externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
+
+	// Add external users and groups
+	externalUser1, err := externalMc.AddUser(ctx, "external_user_1")
+	require.NoError(t, err)
+	externalUser2, err := externalMc.AddUser(ctx, "external_user_2")
+	require.NoError(t, err)
+	externalGroup1, externalGroup1Ent, err := externalMc.AddGroup(ctx, "external_group_1")
+	require.NoError(t, err)
+	externalGroup2, _, err := externalMc.AddGroup(ctx, "external_group_2")
+	require.NoError(t, err)
+
+	// Add grants in external system
+	_ = externalMc.AddGroupMember(ctx, externalGroup1, externalUser1)
+	_ = externalMc.AddGroupMember(ctx, externalGroup2, externalUser2)
+
+	// Create external C1Z
+	externalSyncer, err := NewSyncer(ctx, externalMc, WithC1ZPath(externalC1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	err = externalSyncer.Sync(ctx)
+	require.NoError(t, err)
+	err = externalSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	// Create main C1Z with external resource references
+	mainC1zPath := filepath.Join(tempDir, "main.c1z")
+	mainMc := newMockConnector()
+	mainMc.rtDB = append(mainMc.rtDB, userResourceType, groupResourceType)
+
+	// Add main group that references external users
+	mainGroup, _, err := mainMc.AddGroup(ctx, "main_group")
+	require.NoError(t, err)
+	_ = mainMc.AddGroupMember(ctx, mainGroup, externalUser1) // Reference external user 1
+	_ = mainMc.AddGroupMember(ctx, mainGroup, externalUser2) // Reference external user 2
+
+	// Create main syncer with external resource reader and entitlement filter
+	mainSyncer, err := NewSyncer(ctx, mainMc,
+		WithC1ZPath(mainC1zPath),
+		WithTmpDir(tempDir),
+		WithExternalResourceC1ZPath(externalC1zPath),
+		WithExternalResourceEntitlementIdFilter(externalGroup1Ent.Id),
+	)
+	require.NoError(t, err)
+
+	// Sync main resources and external resources with filter
+	err = mainSyncer.Sync(ctx)
+	require.NoError(t, err)
+
+	// Close syncer
+	err = mainSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	// Verify only filtered external resources were synced
+	c1zManager, err := manager.New(ctx, mainC1zPath)
+	require.NoError(t, err)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	// Check that only external_group_1 was synced (the filtered entitlement's resource)
+	externalGroups, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: groupResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalGroups.List, 1) // only external_group_1
+
+	// Check that external_group_1 entitlements were synced
+	externalGroup1Entitlements, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+		Resource: externalGroup1,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalGroup1Entitlements.List, 0) // no entitlements synced when using entitlement filter
+
+	// Check that grants for external_group_1 were synced
+	allGrants, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{})
+	require.NoError(t, err)
+	require.Len(t, allGrants.List, 2) // main_group grants for external_user_1 and external_user_2
+}
+
+func TestSyncExternalResourcesWithSkipEntitlementsAndGrants(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctx, err := logging.Init(ctx)
+	require.NoError(t, err)
+
+	tempDir, err := os.MkdirTemp("", "baton-sync-external-resources-skip-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create external C1Z with users that have SkipEntitlementsAndGrants annotation
+	externalC1zPath := filepath.Join(tempDir, "external.c1z")
+	externalMc := newMockConnector()
+
+	// Create resource type with SkipEntitlementsAndGrants annotation
+	skipUserResourceType := &v2.ResourceType{
+		Id:          "skip_user",
+		DisplayName: "Skip User",
+		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
+		Annotations: annotations.New(&v2.SkipEntitlementsAndGrants{}),
+	}
+	externalMc.rtDB = append(externalMc.rtDB, skipUserResourceType, groupResourceType)
+
+	// Add external user with skip annotation
+	externalUser, err := externalMc.AddUserProfile(ctx, "external_user_1", map[string]any{})
+	require.NoError(t, err)
+
+	// Add external group
+	externalGroup, _, err := externalMc.AddGroup(ctx, "external_group_1")
+	require.NoError(t, err)
+
+	// Add grant in external system
+	_ = externalMc.AddGroupMember(ctx, externalGroup, externalUser)
+
+	// Create external C1Z
+	externalSyncer, err := NewSyncer(ctx, externalMc, WithC1ZPath(externalC1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	err = externalSyncer.Sync(ctx)
+	require.NoError(t, err)
+	err = externalSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	// Create main C1Z
+	mainC1zPath := filepath.Join(tempDir, "main.c1z")
+	mainMc := newMockConnector()
+	mainMc.rtDB = append(mainMc.rtDB, userResourceType, groupResourceType)
+
+	// Create main syncer with external resources
+	mainSyncer, err := NewSyncer(ctx, mainMc,
+		WithC1ZPath(mainC1zPath),
+		WithTmpDir(tempDir),
+		WithExternalResourceC1ZPath(externalC1zPath),
+	)
+	require.NoError(t, err)
+
+	// Test SyncExternalResources
+	err = mainSyncer.Sync(ctx)
+	require.NoError(t, err)
+	err = mainSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	// Verify external resources were synced but entitlements were skipped for skip_user type
+	c1zManager, err := manager.New(ctx, mainC1zPath)
+	require.NoError(t, err)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	// Check that external user was synced
+	externalUsers, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: skipUserResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalUsers.List, 0) // external user is not synced because it's not referenced by main connector
+
+	// Check that external group was synced
+	externalGroups, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: groupResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalGroups.List, 1) // external group is synced as part of external resources sync
+
+	// Check that external group entitlements were synced
+	externalGroupEntitlements, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+		Resource: externalGroup,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalGroupEntitlements.List, 1) // external group entitlements are synced
+
+	// Check that grants for external group were synced
+	allGrants, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{})
+	require.NoError(t, err)
+	require.Len(t, allGrants.List, 1) // external group grant is synced
+}
+
+func TestSyncExternalResourcesNoExternalC1Z(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctx, err := logging.Init(ctx)
+	require.NoError(t, err)
+
+	tempDir, err := os.MkdirTemp("", "baton-sync-external-resources-no-external-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create main C1Z without external resources
+	mainC1zPath := filepath.Join(tempDir, "main.c1z")
+	mainMc := newMockConnector()
+	mainMc.rtDB = append(mainMc.rtDB, userResourceType, groupResourceType)
+
+	// Add main group
+	_, _, err = mainMc.AddGroup(ctx, "main_group")
+	require.NoError(t, err)
+
+	// Add main user
+	_, err = mainMc.AddUser(ctx, "main_user")
+	require.NoError(t, err)
+
+	// Create main syncer without external resources
+	mainSyncer, err := NewSyncer(ctx, mainMc,
+		WithC1ZPath(mainC1zPath),
+		WithTmpDir(tempDir),
+	)
+	require.NoError(t, err)
+
+	// Test SyncExternalResources should not fail when no external C1Z is provided
+	err = mainSyncer.Sync(ctx)
+	require.NoError(t, err)
+	err = mainSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	// Verify sync completed successfully
+	c1zManager, err := manager.New(ctx, mainC1zPath)
+	require.NoError(t, err)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	// Check that main group was synced
+	groups, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: groupResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, groups.List, 1)
+
+	// Check that main user was synced
+	users, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: userResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, users.List, 1)
+	require.Equal(t, "main_user", users.List[0].Id.Resource)
+}
+
+func TestSyncExternalResourcesWithNonUserGroupResourceTypes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ctx, err := logging.Init(ctx)
+	require.NoError(t, err)
+
+	tempDir, err := os.MkdirTemp("", "baton-sync-external-resources-non-user-group-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create external C1Z with non-user/group resource types
+	externalC1zPath := filepath.Join(tempDir, "external.c1z")
+	externalMc := newMockConnector()
+
+	// Create non-user/group resource type
+	appResourceType := &v2.ResourceType{
+		Id:          "app",
+		DisplayName: "Application",
+		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_APP},
+	}
+	externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType, appResourceType)
+
+	// Add external app resource
+	externalApp, err := rs.NewAppResource(
+		"external_app_1",
+		appResourceType,
+		"External App 1",
+		[]rs.AppTraitOption{},
+	)
+	require.NoError(t, err)
+	externalMc.AddResource(ctx, externalApp)
+
+	// Add external user and group
+	externalUser, err := externalMc.AddUser(ctx, "external_user_1")
+	require.NoError(t, err)
+	externalGroup, _, err := externalMc.AddGroup(ctx, "external_group_1")
+	require.NoError(t, err)
+
+	// Add grant in external system
+	_ = externalMc.AddGroupMember(ctx, externalGroup, externalUser)
+
+	// Create external C1Z
+	externalSyncer, err := NewSyncer(ctx, externalMc, WithC1ZPath(externalC1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	err = externalSyncer.Sync(ctx)
+	require.NoError(t, err)
+	err = externalSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	// Create main C1Z
+	mainC1zPath := filepath.Join(tempDir, "main.c1z")
+	mainMc := newMockConnector()
+	mainMc.rtDB = append(mainMc.rtDB, userResourceType, groupResourceType)
+
+	// Create main syncer with external resources
+	mainSyncer, err := NewSyncer(ctx, mainMc,
+		WithC1ZPath(mainC1zPath),
+		WithTmpDir(tempDir),
+		WithExternalResourceC1ZPath(externalC1zPath),
+	)
+	require.NoError(t, err)
+
+	// Test SyncExternalResources
+	err = mainSyncer.Sync(ctx)
+	require.NoError(t, err)
+	err = mainSyncer.Close(ctx)
+	require.NoError(t, err)
+
+	// Verify only user and group resources were synced, app was ignored
+	c1zManager, err := manager.New(ctx, mainC1zPath)
+	require.NoError(t, err)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	// Check that external user was synced
+	externalUsers, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: userResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalUsers.List, 1)
+
+	// Check that external group was synced
+	externalGroups, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: groupResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalGroups.List, 1)
+
+	// Check that external app was NOT synced (should be ignored)
+	externalApps, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: appResourceType.Id,
+	})
+	require.NoError(t, err)
+	require.Len(t, externalApps.List, 0)
+}
+
 func newMockConnector() *mockConnector {
 	mc := &mockConnector{
 		rtDB:       make([]*v2.ResourceType, 0),

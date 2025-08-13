@@ -200,3 +200,44 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 	require.NoError(t, err)
 	require.Equal(t, inBothResource2.Id.Resource, inBothResource2Resp.Resource.Id.Resource)
 }
+
+func TestCompactorWithSpecificFiles(t *testing.T) {
+	ctx := context.Background()
+
+	sourceFile := "/Users/johnallers/Developer/GitHub/baton-sdk/test-files/sync.source.c1z"
+	externalFile := "/Users/johnallers/Developer/GitHub/baton-sdk/test-files/sync.ad-external.c1z"
+
+	// Create output directory for compacted file
+	outputDir, err := os.MkdirTemp("/Users/johnallers/Developer/GitHub/baton-sdk/", "output")
+	require.NoError(t, err)
+
+	// Create temporary directory for intermediate files
+	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	runCompactorTestWithSpecificFiles(t, ctx, sourceFile, externalFile, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithExternalResourceC1ZPath(externalFile))
+	})
+}
+
+func runCompactorTestWithSpecificFiles(t *testing.T, ctx context.Context, sourceFile, externalFile string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
+	compactableSyncs := []*CompactableSync{
+		{FilePath: sourceFile, SyncID: "30bNQUHxCedS5t8CG1oJDyQmJ2G"},
+	}
+	compactor, cleanup, err := createCompactor(compactableSyncs)
+	require.NoError(t, err)
+	defer func() {
+		_ = cleanup()
+	}()
+
+	// Compact the syncs
+	compactedSync, err := compactor.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, compactedSync)
+
+	// Open the compacted file
+	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath)
+	require.NoError(t, err)
+	defer compactedFile.Close()
+}
