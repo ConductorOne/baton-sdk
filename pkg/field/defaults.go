@@ -136,10 +136,10 @@ var (
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)
-	invokeActionArgsField = StringMapField("invoke-action-args",
+	invokeActionArgsField = StringField("invoke-action-args",
 		WithHidden(true),
 		WithDescription("JSON-formatted object of map keys and values like '{ 'key': 'value' }'"),
-		WithDefaultValue(map[string]any{}),
+		WithDefaultValue("{}"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)

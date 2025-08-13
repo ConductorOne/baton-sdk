@@ -189,7 +189,14 @@ func MakeMainCommand[T field.Configurable](
 						profile,
 					))
 			case v.GetString("invoke-action") != "":
-				invokeActionArgs := v.GetStringMap("invoke-action-args")
+				invokeActionArgsStr := v.GetString("invoke-action-args")
+				invokeActionArgs := map[string]any{}
+				if invokeActionArgsStr != "" {
+					err := json.Unmarshal([]byte(invokeActionArgsStr), &invokeActionArgs)
+					if err != nil {
+						return fmt.Errorf("failed to parse invoke-action-args: %w", err)
+					}
+				}
 				invokeActionArgsStruct, err := structpb.NewStruct(invokeActionArgs)
 				if err != nil {
 					return fmt.Errorf("failed to parse invoke-action-args: %w", err)
