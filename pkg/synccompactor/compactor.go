@@ -84,15 +84,25 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	}
 
 	base := c.entries[0]
-	for i := 1; i < len(c.entries); i++ {
-		applied := c.entries[i]
+	incrementals := c.entries[1:]
 
-		compactable, err := c.doOneCompaction(ctx, base, applied)
-		if err != nil {
-			return nil, err
+	// Lets compact all the incrementals together first.
+	compactedIncrementals := incrementals[0]
+	if len(incrementals) > 1 {
+		for i := 1; i < len(incrementals); i++ {
+			nextEntry := incrementals[i]
+			compacted, err := c.doOneCompaction(ctx, compactedIncrementals, nextEntry)
+			if err != nil {
+				return nil, err
+			}
+			compactedIncrementals = compacted
 		}
+	}
 
-		base = compactable
+	// Then apply that onto our base.
+	base, err := c.doOneCompaction(ctx, base, compactedIncrementals)
+	if err != nil {
+		return nil, err
 	}
 
 	l := ctxzap.Extract(ctx)
