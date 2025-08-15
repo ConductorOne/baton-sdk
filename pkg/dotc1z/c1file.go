@@ -298,3 +298,14 @@ func (c *C1File) OutputFilepath() (string, error) {
 	}
 	return c.outputFilePath, nil
 }
+
+func (c *C1File) AttachFile(other *C1File, dbName string) (*C1FileAttached, error) {
+	_, err := c.db.Exec(`ATTACH DATABASE ? AS ?`, other.dbFilePath, dbName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &C1FileAttached{
+		file: c,
+	}, nil
+}

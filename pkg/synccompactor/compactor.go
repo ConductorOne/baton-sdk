@@ -14,7 +14,7 @@ import (
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
-	sync_compactor "github.com/conductorone/baton-sdk/pkg/synccompactor/naive"
+	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -238,9 +238,9 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 		return nil, err
 	}
 
-	runner := sync_compactor.NewNaiveCompactor(baseFile, appliedFile, newFile)
-
-	if err := runner.Compact(ctx); err != nil {
+	//runner := naive.NewNaiveCompactor(baseFile, appliedFile, newFile)
+	runner := attached.NewAttachedCompactor(baseFile, appliedFile, newFile)
+	if err := runner.CompactWithSyncID(ctx, newSync); err != nil {
 		l.Error("error running compaction", zap.Error(err))
 		return nil, err
 	}
