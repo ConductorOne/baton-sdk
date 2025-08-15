@@ -47,9 +47,15 @@ func TestAttachedCompactor(t *testing.T) {
 	require.NoError(t, err)
 	defer destDB.Close()
 
-	// Create compactor and run compaction
+	// Start a sync in destination and run compaction
+	destSyncID, err := destDB.StartNewSync(ctx)
+	require.NoError(t, err)
+
 	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-	err = compactor.Compact(ctx)
+	err = compactor.CompactWithSyncID(ctx, destSyncID)
+	require.NoError(t, err)
+
+	err = destDB.EndSync(ctx)
 	require.NoError(t, err)
 
 	// Verify that compaction completed without errors
@@ -99,9 +105,15 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	require.NoError(t, err)
 	defer destDB.Close()
 
-	// Create compactor and run compaction
+	// Start a sync in destination and run compaction
+	destSyncID, err := destDB.StartNewSync(ctx)
+	require.NoError(t, err)
+
 	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-	err = compactor.Compact(ctx)
+	err = compactor.CompactWithSyncID(ctx, destSyncID)
+	require.NoError(t, err)
+
+	err = destDB.EndSync(ctx)
 	require.NoError(t, err)
 
 	// Verify that compaction completed without errors
@@ -152,11 +164,17 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	require.NoError(t, err)
 	defer destDB.Close()
 
-	// Create compactor and attempt compaction - this should fail
+	// Start a sync in destination and attempt compaction - this should fail
+	destSyncID, err := destDB.StartNewSync(ctx)
+	require.NoError(t, err)
+
 	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-	err = compactor.Compact(ctx)
+	err = compactor.CompactWithSyncID(ctx, destSyncID)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no finished full sync found in base")
+
+	// Clean up the started sync even though compaction failed
+	_ = destDB.EndSync(ctx)
 }
 
 func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
@@ -208,9 +226,15 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	require.NoError(t, err)
 	defer destDB.Close()
 
-	// Create compactor and run compaction
+	// Start a sync in destination and run compaction
+	destSyncID, err := destDB.StartNewSync(ctx)
+	require.NoError(t, err)
+
 	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-	err = compactor.Compact(ctx)
+	err = compactor.CompactWithSyncID(ctx, destSyncID)
+	require.NoError(t, err)
+
+	err = destDB.EndSync(ctx)
 	require.NoError(t, err)
 
 	// Verify that compaction completed without errors

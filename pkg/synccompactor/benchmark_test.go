@@ -295,12 +295,17 @@ func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 
 		b.StartTimer()
 
-		// Benchmark the attached compaction
-		attachedCompactor := attached.NewAttachedCompactor(baseC1Z, appliedC1Z, destC1Z)
-		err = attachedCompactor.Compact(ctx)
+		// Start sync in destination
+		destSyncID, err := destC1Z.StartNewSync(ctx)
 		require.NoError(b, err)
 
-		b.StopTimer()
+		// Benchmark the attached compaction
+		attachedCompactor := attached.NewAttachedCompactor(baseC1Z, appliedC1Z, destC1Z)
+		err = attachedCompactor.CompactWithSyncID(ctx, destSyncID)
+		require.NoError(b, err)
+
+		err = destC1Z.EndSync(ctx)
+		require.NoError(b, err)
 	}
 }
 

@@ -209,18 +209,18 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 	defer destDB.Close()
 
-	// Create compactor and run compaction
-	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-	err = compactor.Compact(ctx)
+	// Start a sync in destination and run compaction
+	destSyncID, err := destDB.StartNewSync(ctx)
 	require.NoError(t, err)
 
-	// End the sync to make it finished
+	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
+	err = compactor.CompactWithSyncID(ctx, destSyncID)
+	require.NoError(t, err)
+
 	err = destDB.EndSync(ctx)
 	require.NoError(t, err)
 
-	// Get the destination sync ID for verification
-	destSyncID, err := destDB.LatestFinishedSyncAnyType(ctx)
-	require.NoError(t, err)
+	// Verify we have the correct sync ID
 	require.NotEmpty(t, destSyncID)
 
 	// ========= Verify Results =========
