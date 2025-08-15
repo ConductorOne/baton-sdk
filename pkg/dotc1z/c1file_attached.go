@@ -40,7 +40,7 @@ func (c *C1FileAttached) CompactTable(ctx context.Context, destSyncID string, ba
 		}
 	}
 
-	// First, copy all records from the base sync to the destination with the new sync ID
+	// Step 1: Insert ALL records from base sync
 	insertBaseQuery := fmt.Sprintf(`
 		INSERT INTO main.%s (%s)
 		SELECT %s
@@ -53,20 +53,27 @@ func (c *C1FileAttached) CompactTable(ctx context.Context, destSyncID string, ba
 		return fmt.Errorf("failed to copy base records: %w", err)
 	}
 
-	// Then, insert records from applied sync that are not already in the destination
-	// We need to handle the case where there's no unique constraint on external_id + sync_id
-	insertAppliedQuery := fmt.Sprintf(`
-		INSERT INTO main.%s (%s)
+	// Step 2: Insert/replace records from applied sync where applied.discovered_at > main.discovered_at
+	insertOrReplaceAppliedQuery := fmt.Sprintf(`
+		INSERT OR REPLACE INTO main.%s (%s)
 		SELECT %s
 		FROM attached.%s AS a
-		WHERE a.sync_id = ? 
-		  AND NOT EXISTS (
-		    SELECT 1 FROM main.%s AS m 
-		    WHERE m.external_id = a.external_id AND m.sync_id = ?
+		WHERE a.sync_id = ?
+		  AND (
+		    NOT EXISTS (
+		      SELECT 1 FROM main.%s AS m 
+		      WHERE m.external_id = a.external_id AND m.sync_id = ?
+		    )
+		    OR EXISTS (
+		      SELECT 1 FROM main.%s AS m 
+		      WHERE m.external_id = a.external_id 
+		        AND m.sync_id = ?
+		        AND a.discovered_at > m.discovered_at
+		    )
 		  )
-	`, tableName, columnList, selectList, tableName, tableName)
+	`, tableName, columnList, selectList, tableName, tableName, tableName)
 
-	_, err = c.file.db.ExecContext(ctx, insertAppliedQuery, destSyncID, appliedSyncID, destSyncID)
+	_, err = c.file.db.ExecContext(ctx, insertOrReplaceAppliedQuery, destSyncID, appliedSyncID, destSyncID, destSyncID)
 	return err
 }
 
