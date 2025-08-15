@@ -13,7 +13,7 @@ import (
 )
 
 // TestDiscoveredAtMergeLogic specifically tests the discovered_at timestamp comparison
-// by creating two separate scenarios with controlled timing
+// by creating two separate scenarios with controlled timing.
 func TestDiscoveredAtMergeLogic(t *testing.T) {
 	ctx := context.Background()
 
