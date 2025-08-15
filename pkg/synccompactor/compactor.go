@@ -238,7 +238,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 		return nil, err
 	}
 
-	//runner := naive.NewNaiveCompactor(baseFile, appliedFile, newFile)
+	// runner := naive.NewNaiveCompactor(baseFile, appliedFile, newFile)
 	runner := attached.NewAttachedCompactor(baseFile, appliedFile, newFile)
 	if err := runner.CompactWithSyncID(ctx, newSync); err != nil {
 		l.Error("error running compaction", zap.Error(err))

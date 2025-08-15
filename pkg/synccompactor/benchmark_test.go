@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// BenchmarkData represents the scale of data to generate for benchmarks
+// BenchmarkData represents the scale of data to generate for benchmarks.
 type BenchmarkData struct {
 	ResourceTypes int
 	Resources     int
@@ -22,7 +22,7 @@ type BenchmarkData struct {
 	Grants        int
 }
 
-// Small dataset for quick benchmarks
+// Small dataset for quick benchmarks.
 var SmallDataset = BenchmarkData{
 	ResourceTypes: 5,
 	Resources:     100,
@@ -30,7 +30,7 @@ var SmallDataset = BenchmarkData{
 	Grants:        100,
 }
 
-// Medium dataset for realistic scenarios
+// Medium dataset for realistic scenarios.
 var MediumDataset = BenchmarkData{
 	ResourceTypes: 10,
 	Resources:     1000,
@@ -38,7 +38,7 @@ var MediumDataset = BenchmarkData{
 	Grants:        1000,
 }
 
-// Large dataset for stress testing
+// Large dataset for stress testing.
 var LargeDataset = BenchmarkData{
 	ResourceTypes: 20,
 	Resources:     10000,
@@ -46,7 +46,7 @@ var LargeDataset = BenchmarkData{
 	Grants:        10000,
 }
 
-// generateTestData creates test databases with the specified amount of data
+// generateTestData creates test databases with the specified amount of data.
 func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset BenchmarkData) (string, string, string, string) {
 	baseFile := filepath.Join(tmpDir, "base.c1z")
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
@@ -64,10 +64,10 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	require.NoError(t, err)
 
 	// Generate resource types
-	resourceTypeIds := make([]string, dataset.ResourceTypes)
+	resourceTypeIDs := make([]string, dataset.ResourceTypes)
 	for i := 0; i < dataset.ResourceTypes; i++ {
 		rtId := fmt.Sprintf("resource-type-%d", i)
-		resourceTypeIds[i] = rtId
+		resourceTypeIDs[i] = rtId
 		err = baseSync.PutResourceTypes(ctx, &v2.ResourceType{
 			Id:          rtId,
 			DisplayName: fmt.Sprintf("Resource Type %d", i),
@@ -81,7 +81,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	for i := 0; i < baseResourceCount; i++ {
 		resource := &v2.Resource{
 			Id: &v2.ResourceId{
-				ResourceType: resourceTypeIds[i%len(resourceTypeIds)],
+				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
 				Resource:     fmt.Sprintf("base-resource-%d", i),
 			},
 			DisplayName: fmt.Sprintf("Base Resource %d", i),
@@ -131,7 +131,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	require.NoError(t, err)
 
 	// Reuse same resource types
-	for _, rtId := range resourceTypeIds {
+	for _, rtId := range resourceTypeIDs {
 		err = appliedSync.PutResourceTypes(ctx, &v2.ResourceType{
 			Id:          rtId,
 			DisplayName: fmt.Sprintf("Resource Type %s", rtId),
@@ -148,7 +148,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	for i := 0; i < overlapCount; i++ {
 		resource := &v2.Resource{
 			Id: &v2.ResourceId{
-				ResourceType: resourceTypeIds[i%len(resourceTypeIds)],
+				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
 				Resource:     fmt.Sprintf("base-resource-%d", i), // Same ID as base
 			},
 			DisplayName: fmt.Sprintf("Updated Base Resource %d", i), // Different display name
@@ -163,7 +163,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	for i := 0; i < newResourceCount; i++ {
 		resource := &v2.Resource{
 			Id: &v2.ResourceId{
-				ResourceType: resourceTypeIds[i%len(resourceTypeIds)],
+				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
 				Resource:     fmt.Sprintf("applied-resource-%d", i),
 			},
 			DisplayName: fmt.Sprintf("Applied Resource %d", i),
@@ -208,7 +208,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	return baseFile, baseSyncID, appliedFile, appliedSyncID
 }
 
-// benchmarkNaiveCompactor runs a benchmark using the naive compactor
+// benchmarkNaiveCompactor runs a benchmark using the naive compactor.
 func benchmarkNaiveCompactor(b *testing.B, dataset BenchmarkData) {
 	ctx := context.Background()
 
@@ -260,7 +260,7 @@ func benchmarkNaiveCompactor(b *testing.B, dataset BenchmarkData) {
 	}
 }
 
-// benchmarkAttachedCompactor runs a benchmark using the attached compactor
+// benchmarkAttachedCompactor runs a benchmark using the attached compactor.
 func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 	ctx := context.Background()
 
