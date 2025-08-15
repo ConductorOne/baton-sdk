@@ -310,6 +310,7 @@ func (c *C1File) AttachFile(other *C1File, dbName string) (*C1FileAttached, erro
 		file: c,
 	}, nil
 }
+
 func (c *C1FileAttached) DetachFile(dbName string) (*C1FileAttached, error) {
 	_, err := c.file.db.Exec(`DETACH DATABASE ?`, dbName)
 	if err != nil {
