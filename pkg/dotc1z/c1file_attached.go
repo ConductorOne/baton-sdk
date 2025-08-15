@@ -2,14 +2,19 @@ package dotc1z
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
 type C1FileAttached struct {
+	safe bool
 	file *C1File
 }
 
 func (c *C1FileAttached) CompactTable(ctx context.Context, destSyncID string, baseSyncID string, appliedSyncID string, tableName string) error {
+	if !c.safe {
+		return errors.New("database has been detached")
+	}
 	ctx, span := tracer.Start(ctx, "C1FileAttached.CompactTable")
 	defer span.End()
 
@@ -66,6 +71,9 @@ func (c *C1FileAttached) CompactTable(ctx context.Context, destSyncID string, ba
 }
 
 func (c *C1FileAttached) getTableColumns(ctx context.Context, tableName string) ([]string, error) {
+	if !c.safe {
+		return nil, errors.New("database has been detached")
+	}
 	// PRAGMA doesn't support parameter binding, so we format the table name directly
 	query := fmt.Sprintf("PRAGMA table_info(%s)", tableName)
 	rows, err := c.file.db.QueryContext(ctx, query)
@@ -96,17 +104,29 @@ func (c *C1FileAttached) getTableColumns(ctx context.Context, tableName string) 
 }
 
 func (c *C1FileAttached) CompactResourceTypes(ctx context.Context, destSyncID string, baseSyncID string, appliedSyncID string) error {
+	if !c.safe {
+		return errors.New("database has been detached")
+	}
 	return c.CompactTable(ctx, destSyncID, baseSyncID, appliedSyncID, "v1_resource_types")
 }
 
 func (c *C1FileAttached) CompactResources(ctx context.Context, destSyncID string, baseSyncID string, appliedSyncID string) error {
+	if !c.safe {
+		return errors.New("database has been detached")
+	}
 	return c.CompactTable(ctx, destSyncID, baseSyncID, appliedSyncID, "v1_resources")
 }
 
 func (c *C1FileAttached) CompactEntitlements(ctx context.Context, destSyncID string, baseSyncID string, appliedSyncID string) error {
+	if !c.safe {
+		return errors.New("database has been detached")
+	}
 	return c.CompactTable(ctx, destSyncID, baseSyncID, appliedSyncID, "v1_entitlements")
 }
 
 func (c *C1FileAttached) CompactGrants(ctx context.Context, destSyncID string, baseSyncID string, appliedSyncID string) error {
+	if !c.safe {
+		return errors.New("database has been detached")
+	}
 	return c.CompactTable(ctx, destSyncID, baseSyncID, appliedSyncID, "v1_grants")
 }

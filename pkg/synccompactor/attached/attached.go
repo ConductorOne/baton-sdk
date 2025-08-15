@@ -32,17 +32,17 @@ func (c *Compactor) Compact(ctx context.Context) error {
 }
 
 func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) error {
-	// Get the latest finished sync ID from base
+	// Get the latest finished full sync ID from base
 	baseSyncID, err := c.base.LatestFinishedSync(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get base sync ID: %w", err)
 	}
 	if baseSyncID == "" {
-		return fmt.Errorf("no finished sync found in base")
+		return fmt.Errorf("no finished full sync found in base")
 	}
 
-	// Get the latest finished sync ID from applied
-	appliedSyncID, err := c.applied.LatestFinishedSync(ctx)
+	// Get the latest finished sync ID from applied (any type)
+	appliedSyncID, err := c.applied.LatestFinishedSyncAnyType(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get applied sync ID: %w", err)
 	}
@@ -51,16 +51,22 @@ func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) er
 	}
 
 	// Attach both the base and applied databases to the destination
-	_, err = c.dest.AttachFile(c.base, "base")
+	base, err := c.dest.AttachFile(c.base, "base")
 	if err != nil {
 		return fmt.Errorf("failed to attach databases to destination: %w", err)
 	}
+	defer func() {
+		_, _ = base.DetachFile("base")
+	}()
 
 	// Attach both the base and applied databases to the destination
 	attached, err := c.dest.AttachFile(c.applied, "attached")
 	if err != nil {
 		return fmt.Errorf("failed to attach databases to destination: %w", err)
 	}
+	defer func() {
+		_, _ = attached.DetachFile("attached")
+	}()
 
 	if err := c.processRecords(ctx, attached, destSyncID, baseSyncID, appliedSyncID); err != nil {
 		return fmt.Errorf("failed to process records: %w", err)
