@@ -21,16 +21,6 @@ func NewAttachedCompactor(base *dotc1z.C1File, applied *dotc1z.C1File, dest *dot
 	}
 }
 
-func (c *Compactor) Compact(ctx context.Context) error {
-	// Start a new sync in the destination file
-	destSyncID, err := c.dest.StartNewSync(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to start sync: %w", err)
-	}
-
-	return c.CompactWithSyncID(ctx, destSyncID)
-}
-
 func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) error {
 	// Get the latest finished full sync ID from base
 	baseSyncID, err := c.base.LatestFinishedSync(ctx)
