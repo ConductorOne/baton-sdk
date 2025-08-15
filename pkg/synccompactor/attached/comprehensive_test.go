@@ -16,7 +16,7 @@ import (
 // 2. Data only in applied
 // 3. Overlapping data where base is newer
 // 4. Overlapping data where applied is newer
-// It also verifies that all data ends up with the correct destination sync ID
+// It also verifies that all data ends up with the correct destination sync ID.
 func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	ctx := context.Background()
 
