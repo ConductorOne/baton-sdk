@@ -24,6 +24,8 @@ type Compactor struct {
 
 	tmpDir  string
 	destDir string
+
+	externalResourceC1Z string
 }
 
 type CompactableSync struct {
@@ -43,14 +45,22 @@ func WithTmpDir(tempDir string) Option {
 	}
 }
 
-func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*CompactableSync, opts ...Option) (*Compactor, func() error, error) {
-	if len(compactableSyncs) < 2 {
-		return nil, nil, ErrNotEnoughFilesToCompact
+// WithExternalResourceC1ZPath sets the path to the external resource c1z file.
+func WithExternalResourceC1ZPath(externalResourceC1Z string) Option {
+	return func(c *Compactor) {
+		c.externalResourceC1Z = externalResourceC1Z
 	}
+}
 
+func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*CompactableSync, opts ...Option) (*Compactor, func() error, error) {
 	c := &Compactor{entries: compactableSyncs, destDir: outputDir}
 	for _, opt := range opts {
 		opt(c)
+	}
+
+	// At least two files are required to compact, unless an external resource c1z file is provided.
+	if len(compactableSyncs) == 0 || (len(compactableSyncs) == 1 && c.externalResourceC1Z == "") {
+		return nil, nil, ErrNotEnoughFilesToCompact
 	}
 
 	// If no tmpDir is provided, use the tmpDir
@@ -74,7 +84,8 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 }
 
 func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
-	if len(c.entries) < 2 {
+	// At least two files are required to compact, unless an external resource c1z file is provided.
+	if len(c.entries) == 0 || (len(c.entries) == 1 && c.externalResourceC1Z == "") {
 		return nil, nil
 	}
 
@@ -100,13 +111,19 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	}
 
 	// Use syncer to expand grants.
-	// TODO: Handle external resources.
-	syncer, err := sync.NewSyncer(
-		ctx,
-		emptyConnector,
+	opts := []sync.SyncOpt{
 		sync.WithC1ZPath(base.FilePath),
 		sync.WithSyncID(base.SyncID),
 		sync.WithOnlyExpandGrants(),
+	}
+	// Handle external resources.
+	if c.externalResourceC1Z != "" {
+		opts = append(opts, sync.WithExternalResourceC1ZPath(c.externalResourceC1Z))
+	}
+	syncer, err := sync.NewSyncer(
+		ctx,
+		emptyConnector,
+		opts...,
 	)
 	if err != nil {
 		l.Error("error creating syncer", zap.Error(err))
