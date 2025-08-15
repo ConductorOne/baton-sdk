@@ -87,11 +87,8 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	incrementals := c.entries[1:]
 
 	// Lets compact all the incrementals together first.
-	var compactedIncrementals *CompactableSync
-	if len(incrementals) == 1 {
-		compactedIncrementals = incrementals[0]
-	} else {
-		compactedIncrementals = incrementals[0]
+	compactedIncrementals := incrementals[0]
+	if len(incrementals) > 1 {
 		for i := 1; i < len(incrementals); i++ {
 			nextEntry := incrementals[i]
 			compacted, err := c.doOneCompaction(ctx, compactedIncrementals, nextEntry)
