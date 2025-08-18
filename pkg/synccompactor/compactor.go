@@ -268,6 +268,9 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 			l.Error("error running compaction", zap.Error(err))
 			return nil, err
 		}
+	default:
+		// c.compactorType defaults to attached, so this should never happen.
+		return nil, fmt.Errorf("invalid compactor type: %s", c.compactorType)
 	}
 
 	if err := newFile.EndSync(ctx); err != nil {
