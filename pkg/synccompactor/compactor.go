@@ -15,6 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
+	"github.com/conductorone/baton-sdk/pkg/synccompactor/naive"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -22,8 +23,16 @@ import (
 
 var tracer = otel.Tracer("baton-sdk/pkg.synccompactor")
 
+type CompactorType string
+
+const (
+	CompactorTypeNaive    CompactorType = "naive"
+	CompactorTypeAttached CompactorType = "attached"
+)
+
 type Compactor struct {
-	entries []*CompactableSync
+	compactorType CompactorType
+	entries       []*CompactableSync
 
 	tmpDir  string
 	destDir string
@@ -46,12 +55,22 @@ func WithTmpDir(tempDir string) Option {
 	}
 }
 
+func WithCompactorType(compactorType CompactorType) Option {
+	return func(c *Compactor) {
+		c.compactorType = compactorType
+	}
+}
+
 func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*CompactableSync, opts ...Option) (*Compactor, func() error, error) {
 	if len(compactableSyncs) < 2 {
 		return nil, nil, ErrNotEnoughFilesToCompact
 	}
 
-	c := &Compactor{entries: compactableSyncs, destDir: outputDir}
+	c := &Compactor{
+		entries:       compactableSyncs,
+		destDir:       outputDir,
+		compactorType: CompactorTypeAttached,
+	}
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -219,7 +238,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	}
 	defer func() { _ = newFile.Close() }()
 
-	newSync, err := newFile.StartNewSyncV2(ctx, string(dotc1z.SyncTypeFull), "")
+	newSyncId, err := newFile.StartNewSyncV2(ctx, string(dotc1z.SyncTypeFull), "")
 	if err != nil {
 		return nil, err
 	}
@@ -236,11 +255,19 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 		return nil, err
 	}
 
-	// runner := naive.NewNaiveCompactor(baseFile, appliedFile, newFile)
-	runner := attached.NewAttachedCompactor(baseFile, appliedFile, newFile)
-	if err := runner.CompactWithSyncID(ctx, newSync); err != nil {
-		l.Error("error running compaction", zap.Error(err))
-		return nil, err
+	switch c.compactorType {
+	case CompactorTypeNaive:
+		runner := naive.NewNaiveCompactor(baseFile, appliedFile, newFile)
+		if err := runner.Compact(ctx); err != nil {
+			l.Error("error running compaction", zap.Error(err))
+			return nil, err
+		}
+	case CompactorTypeAttached:
+		runner := attached.NewAttachedCompactor(baseFile, appliedFile, newFile)
+		if err := runner.CompactWithSyncID(ctx, newSyncId); err != nil {
+			l.Error("error running compaction", zap.Error(err))
+			return nil, err
+		}
 	}
 
 	if err := newFile.EndSync(ctx); err != nil {
@@ -254,6 +281,6 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 
 	return &CompactableSync{
 		FilePath: outputFilepath,
-		SyncID:   newSync,
+		SyncID:   newSyncId,
 	}, nil
 }
