@@ -15,12 +15,10 @@ import (
 func TestCompactorWithTmpDir(t *testing.T) {
 	ctx := context.Background()
 
-	// Create a temporary directory for test files
-	tempDir, err := os.MkdirTemp("", "compactor-test")
+	inputSyncsDir, err := os.MkdirTemp("", "compactor-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer os.RemoveAll(inputSyncsDir)
 
-	// Create output directory for compacted file
 	outputDir, err := os.MkdirTemp("", "compactor-output")
 	require.NoError(t, err)
 	defer os.RemoveAll(outputDir)
@@ -30,25 +28,26 @@ func TestCompactorWithTmpDir(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	runCompactorTest(t, ctx, tempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+	runCompactorTest(t, ctx, inputSyncsDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
 		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
 	})
 }
 
-func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmpDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
+func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
 	}
 
 	// Create the first sync file
-	firstSyncPath := filepath.Join(tempDir, "first-sync.c1z")
+	firstSyncPath := filepath.Join(inputSyncsDir, "first-sync.c1z")
 	firstSync, err := dotc1z.NewC1ZFile(ctx, firstSyncPath, opts...)
 	require.NoError(t, err)
 
 	// Start a new sync
-	firstSyncID, _, err := firstSync.StartSync(ctx)
+	firstSyncID, isNewSync, err := firstSync.StartSync(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, firstSyncID)
+	require.True(t, isNewSync)
 
 	// Create resource types
 	userResourceTypeID := "user"
@@ -172,14 +171,15 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 	require.NoError(t, err)
 
 	// Create the second sync file
-	secondSyncPath := filepath.Join(tempDir, "second-sync.c1z")
+	secondSyncPath := filepath.Join(inputSyncsDir, "second-sync.c1z")
 	secondSync, err := dotc1z.NewC1ZFile(ctx, secondSyncPath, opts...)
 	require.NoError(t, err)
 
 	// Start a new sync
-	secondSyncID, _, err := secondSync.StartSync(ctx)
+	secondSyncID, isNewSync, err := secondSync.StartSync(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondSyncID)
+	require.True(t, isNewSync)
 
 	// Create the same resource types
 	err = secondSync.PutResourceTypes(ctx, &v2.ResourceType{
@@ -315,7 +315,8 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 	compactor, cleanup, err := createCompactor(compactableSyncs)
 	require.NoError(t, err)
 	defer func() {
-		_ = cleanup()
+		err := cleanup()
+		require.NoError(t, err)
 	}()
 
 	// Compact the syncs

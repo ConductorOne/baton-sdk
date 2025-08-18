@@ -227,17 +227,25 @@ func benchmarkNaiveCompactor(b *testing.B, dataset BenchmarkData) {
 		// Generate test data
 		baseFile, _, appliedFile, _ := generateTestData(ctx, b, tmpDir, dataset)
 
+		opts := []dotc1z.C1ZOption{
+			dotc1z.WithPragma("journal_mode", "WAL"),
+		}
+
 		// Use naive compactor
-		baseC1Z, err := dotc1z.NewC1ZFile(ctx, baseFile)
+		baseC1Z, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 		require.NoError(b, err)
 		defer baseC1Z.Close()
 
-		appliedC1Z, err := dotc1z.NewC1ZFile(ctx, appliedFile)
+		appliedC1Z, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 		require.NoError(b, err)
 		defer appliedC1Z.Close()
 
 		destFile := filepath.Join(tmpDir, "naive-dest.c1z")
-		destC1Z, err := dotc1z.NewC1ZFile(ctx, destFile, dotc1z.WithTmpDir(tmpDir))
+		destOpts := []dotc1z.C1ZOption{
+			dotc1z.WithTmpDir(tmpDir),
+		}
+		destOpts = append(destOpts, opts...)
+		destC1Z, err := dotc1z.NewC1ZFile(ctx, destFile, destOpts...)
 		require.NoError(b, err)
 		defer destC1Z.Close()
 
@@ -264,6 +272,10 @@ func benchmarkNaiveCompactor(b *testing.B, dataset BenchmarkData) {
 func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 	ctx := context.Background()
 
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+	}
+
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 
@@ -280,16 +292,20 @@ func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 		baseFile, _, appliedFile, _ := generateTestData(ctx, b, tmpDir, dataset)
 
 		// Use attached compactor
-		baseC1Z, err := dotc1z.NewC1ZFile(ctx, baseFile)
+		baseC1Z, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 		require.NoError(b, err)
 		defer baseC1Z.Close()
 
-		appliedC1Z, err := dotc1z.NewC1ZFile(ctx, appliedFile)
+		appliedC1Z, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 		require.NoError(b, err)
 		defer appliedC1Z.Close()
 
 		destFile := filepath.Join(tmpDir, "attached-dest.c1z")
-		destC1Z, err := dotc1z.NewC1ZFile(ctx, destFile, dotc1z.WithTmpDir(tmpDir))
+		destOpts := []dotc1z.C1ZOption{
+			dotc1z.WithTmpDir(tmpDir),
+		}
+		destOpts = append(destOpts, opts...)
+		destC1Z, err := dotc1z.NewC1ZFile(ctx, destFile, destOpts...)
 		require.NoError(b, err)
 		defer destC1Z.Close()
 
