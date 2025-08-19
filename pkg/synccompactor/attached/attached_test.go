@@ -18,8 +18,13 @@ func TestAttachedCompactor(t *testing.T) {
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
 	destFile := filepath.Join(tmpDir, "dest.c1z")
 
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithTmpDir(tmpDir),
+	}
+
 	// Create base database with some test data
-	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, dotc1z.WithTmpDir(tmpDir))
+	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 	require.NoError(t, err)
 	defer baseDB.Close()
 
@@ -31,7 +36,7 @@ func TestAttachedCompactor(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create applied database with some test data
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, dotc1z.WithTmpDir(tmpDir))
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
 	defer appliedDB.Close()
 
@@ -43,7 +48,7 @@ func TestAttachedCompactor(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create destination database
-	destDB, err := dotc1z.NewC1ZFile(ctx, destFile, dotc1z.WithTmpDir(tmpDir))
+	destDB, err := dotc1z.NewC1ZFile(ctx, destFile, opts...)
 	require.NoError(t, err)
 	defer destDB.Close()
 
@@ -72,7 +77,10 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
 	destFile := filepath.Join(tmpDir, "dest.c1z")
 
-	opts := []dotc1z.C1ZOption{dotc1z.WithTmpDir(tmpDir)}
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithTmpDir(tmpDir),
+	}
 
 	// Create base database with a full sync
 	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
@@ -132,7 +140,10 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
 	destFile := filepath.Join(tmpDir, "dest.c1z")
 
-	opts := []dotc1z.C1ZOption{dotc1z.WithTmpDir(tmpDir)}
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithTmpDir(tmpDir),
+	}
 
 	// Create base database with only an incremental sync (no full sync)
 	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
@@ -186,7 +197,10 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
 	destFile := filepath.Join(tmpDir, "dest.c1z")
 
-	opts := []dotc1z.C1ZOption{dotc1z.WithTmpDir(tmpDir)}
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithTmpDir(tmpDir),
+	}
 
 	// Create base database with a full sync
 	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)

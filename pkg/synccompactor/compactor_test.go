@@ -12,15 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCompactorWithTmpDir(t *testing.T) {
+func TestAttachedCompactorWithTmpDir(t *testing.T) {
 	ctx := context.Background()
 
-	// Create a temporary directory for test files
-	tempDir, err := os.MkdirTemp("", "compactor-test")
+	inputSyncsDir, err := os.MkdirTemp("", "compactor-test")
 	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	defer os.RemoveAll(inputSyncsDir)
 
-	// Create output directory for compacted file
 	outputDir, err := os.MkdirTemp("", "compactor-output")
 	require.NoError(t, err)
 	defer os.RemoveAll(outputDir)
@@ -30,25 +28,47 @@ func TestCompactorWithTmpDir(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
 
-	runCompactorTest(t, ctx, tempDir, outputDir, tmpDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
-		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir))
+	runCompactorTest(t, ctx, inputSyncsDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(CompactorTypeAttached))
 	})
 }
 
-func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmpDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
+func TestNaiveCompactorWithTmpDir(t *testing.T) {
+	ctx := context.Background()
+
+	inputSyncsDir, err := os.MkdirTemp("", "compactor-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(inputSyncsDir)
+
+	outputDir, err := os.MkdirTemp("", "compactor-output")
+	require.NoError(t, err)
+	defer os.RemoveAll(outputDir)
+
+	// Create temporary directory for intermediate files
+	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	runCompactorTest(t, ctx, inputSyncsDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(CompactorTypeNaive))
+	})
+}
+
+func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
 	}
 
 	// Create the first sync file
-	firstSyncPath := filepath.Join(tempDir, "first-sync.c1z")
+	firstSyncPath := filepath.Join(inputSyncsDir, "first-sync.c1z")
 	firstSync, err := dotc1z.NewC1ZFile(ctx, firstSyncPath, opts...)
 	require.NoError(t, err)
 
 	// Start a new sync
-	firstSyncID, _, err := firstSync.StartSync(ctx)
+	firstSyncID, isNewSync, err := firstSync.StartSync(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, firstSyncID)
+	require.True(t, isNewSync)
 
 	// Create resource types
 	userResourceTypeID := "user"
@@ -172,14 +192,15 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 	require.NoError(t, err)
 
 	// Create the second sync file
-	secondSyncPath := filepath.Join(tempDir, "second-sync.c1z")
+	secondSyncPath := filepath.Join(inputSyncsDir, "second-sync.c1z")
 	secondSync, err := dotc1z.NewC1ZFile(ctx, secondSyncPath, opts...)
 	require.NoError(t, err)
 
 	// Start a new sync
-	secondSyncID, _, err := secondSync.StartSync(ctx)
+	secondSyncID, isNewSync, err := secondSync.StartSync(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondSyncID)
+	require.True(t, isNewSync)
 
 	// Create the same resource types
 	err = secondSync.PutResourceTypes(ctx, &v2.ResourceType{
@@ -300,6 +321,136 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 	err = secondSync.Close()
 	require.NoError(t, err)
 
+	// Create the third sync file
+	thirdSyncPath := filepath.Join(inputSyncsDir, "third-sync.c1z")
+	thirdSync, err := dotc1z.NewC1ZFile(ctx, thirdSyncPath, opts...)
+	require.NoError(t, err)
+
+	// Start a new sync
+	thirdSyncID, isNewSync, err := thirdSync.StartSync(ctx)
+	require.NoError(t, err)
+	require.NotEmpty(t, thirdSyncID)
+	require.True(t, isNewSync)
+
+	// Create the same resource types
+	err = thirdSync.PutResourceTypes(ctx, &v2.ResourceType{
+		Id:          userResourceTypeID,
+		DisplayName: "User",
+	})
+	require.NoError(t, err)
+
+	err = thirdSync.PutResourceTypes(ctx, &v2.ResourceType{
+		Id:          groupResourceTypeID,
+		DisplayName: "Group",
+	})
+	require.NoError(t, err)
+
+	err = thirdSync.PutResourceTypes(ctx, &v2.ResourceType{
+		Id:          roleResourceTypeID,
+		DisplayName: "Role",
+	})
+	require.NoError(t, err)
+
+	// Create resources for the third sync
+	// Users - only in third sync
+	onlyInThirdUser := &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: userResourceTypeID,
+			Resource:     "user-only-third",
+		},
+		DisplayName: "User Only Third",
+	}
+	err = thirdSync.PutResources(ctx, onlyInThirdUser)
+	require.NoError(t, err)
+
+	// Users - in all syncs (same as first and second)
+	inAllUserInThird := &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: userResourceTypeID,
+			Resource:     "user-in-both",
+		},
+		DisplayName: "User In Both",
+	}
+	err = thirdSync.PutResources(ctx, inAllUserInThird)
+	require.NoError(t, err)
+
+	// Groups - only in third sync
+	onlyInThirdGroup := &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: groupResourceTypeID,
+			Resource:     "group-only-third",
+		},
+		DisplayName: "Group Only Third",
+	}
+	err = thirdSync.PutResources(ctx, onlyInThirdGroup)
+	require.NoError(t, err)
+
+	// Groups - in all syncs (same as first and second)
+	inAllGroupInThird := &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: groupResourceTypeID,
+			Resource:     "group-in-both",
+		},
+		DisplayName: "Group In Both",
+	}
+	err = thirdSync.PutResources(ctx, inAllGroupInThird)
+	require.NoError(t, err)
+
+	// Roles - moderator role only in third sync
+	moderatorRole := &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: roleResourceTypeID,
+			Resource:     "moderator",
+		},
+		DisplayName: "Moderator Role",
+	}
+	err = thirdSync.PutResources(ctx, moderatorRole)
+	require.NoError(t, err)
+
+	// Create entitlements for the third sync
+	memberEntitlementThird := &v2.Entitlement{
+		Id:          "member",
+		DisplayName: "Member",
+		Resource:    inAllGroupInThird,
+		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+	}
+	err = thirdSync.PutEntitlements(ctx, memberEntitlementThird)
+	require.NoError(t, err)
+
+	moderatorEntitlement := &v2.Entitlement{
+		Id:          "moderator",
+		DisplayName: "Moderator",
+		Resource:    moderatorRole,
+		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+	}
+	err = thirdSync.PutEntitlements(ctx, moderatorEntitlement)
+	require.NoError(t, err)
+
+	// Create grants for the third sync
+	// Grant new user membership to group
+	thirdUserGroupGrant := &v2.Grant{
+		Id:          "third-user-group-grant",
+		Principal:   onlyInThirdUser,
+		Entitlement: memberEntitlementThird,
+	}
+	err = thirdSync.PutGrants(ctx, thirdUserGroupGrant)
+	require.NoError(t, err)
+
+	// Grant user moderator role
+	userModeratorGrant := &v2.Grant{
+		Id:          "user-moderator-grant",
+		Principal:   inAllUserInThird,
+		Entitlement: moderatorEntitlement,
+	}
+	err = thirdSync.PutGrants(ctx, userModeratorGrant)
+	require.NoError(t, err)
+
+	// End the third sync
+	err = thirdSync.EndSync(ctx)
+	require.NoError(t, err)
+	err = thirdSync.Close()
+	require.NoError(t, err)
+
 	// Create compactable syncs
 	firstCompactableSync := &CompactableSync{
 		FilePath: firstSyncPath,
@@ -309,13 +460,18 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 		FilePath: secondSyncPath,
 		SyncID:   secondSyncID,
 	}
+	thirdCompactableSync := &CompactableSync{
+		FilePath: thirdSyncPath,
+		SyncID:   thirdSyncID,
+	}
 
 	// Create compactor
-	compactableSyncs := []*CompactableSync{firstCompactableSync, secondCompactableSync}
+	compactableSyncs := []*CompactableSync{firstCompactableSync, secondCompactableSync, thirdCompactableSync}
 	compactor, cleanup, err := createCompactor(compactableSyncs)
 	require.NoError(t, err)
 	defer func() {
-		_ = cleanup()
+		err := cleanup()
+		require.NoError(t, err)
 	}()
 
 	// Compact the syncs
@@ -413,6 +569,28 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 	require.Equal(t, adminRole.Id.Resource, adminRoleResp.Resource.Id.Resource)
 	require.Equal(t, "Admin Role", adminRoleResp.Resource.DisplayName)
 
+	// Resources from third sync only
+	onlyThirdUserResp, err := compactedFile.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+		ResourceId: onlyInThirdUser.Id,
+	})
+	require.NoError(t, err)
+	require.Equal(t, onlyInThirdUser.Id.Resource, onlyThirdUserResp.Resource.Id.Resource)
+	require.Equal(t, "User Only Third", onlyThirdUserResp.Resource.DisplayName)
+
+	onlyThirdGroupResp, err := compactedFile.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+		ResourceId: onlyInThirdGroup.Id,
+	})
+	require.NoError(t, err)
+	require.Equal(t, onlyInThirdGroup.Id.Resource, onlyThirdGroupResp.Resource.Id.Resource)
+	require.Equal(t, "Group Only Third", onlyThirdGroupResp.Resource.DisplayName)
+
+	moderatorRoleResp, err := compactedFile.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+		ResourceId: moderatorRole.Id,
+	})
+	require.NoError(t, err)
+	require.Equal(t, moderatorRole.Id.Resource, moderatorRoleResp.Resource.Id.Resource)
+	require.Equal(t, "Moderator Role", moderatorRoleResp.Resource.DisplayName)
+
 	// ========= Entitlements Verification =========
 	// Entitlements from first sync
 	memberEntitlementResp, err := compactedFile.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
@@ -436,6 +614,21 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 	require.NoError(t, err)
 	require.Equal(t, viewerEntitlement.Id, viewerEntitlementResp.Entitlement.Id)
 	require.Equal(t, "Viewer", viewerEntitlementResp.Entitlement.DisplayName)
+
+	// Entitlements from third sync
+	memberEntitlementThirdResp, err := compactedFile.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
+		EntitlementId: memberEntitlementThird.Id,
+	})
+	require.NoError(t, err)
+	require.Equal(t, memberEntitlementThird.Id, memberEntitlementThirdResp.Entitlement.Id)
+	require.Equal(t, "Member", memberEntitlementThirdResp.Entitlement.DisplayName)
+
+	moderatorEntitlementResp, err := compactedFile.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
+		EntitlementId: moderatorEntitlement.Id,
+	})
+	require.NoError(t, err)
+	require.Equal(t, moderatorEntitlement.Id, moderatorEntitlementResp.Entitlement.Id)
+	require.Equal(t, "Moderator", moderatorEntitlementResp.Entitlement.DisplayName)
 
 	// ========= Grants Verification =========
 	// Grants from first sync
@@ -463,4 +656,17 @@ func runCompactorTest(t *testing.T, ctx context.Context, tempDir, outputDir, tmp
 	})
 	require.NoError(t, err)
 	require.Equal(t, userViewerGrant.Id, userViewerGrantResp.Grant.Id)
+
+	// Grants from third sync
+	thirdUserGroupGrantResp, err := compactedFile.GetGrant(ctx, &reader_v2.GrantsReaderServiceGetGrantRequest{
+		GrantId: thirdUserGroupGrant.Id,
+	})
+	require.NoError(t, err)
+	require.Equal(t, thirdUserGroupGrant.Id, thirdUserGroupGrantResp.Grant.Id)
+
+	userModeratorGrantResp, err := compactedFile.GetGrant(ctx, &reader_v2.GrantsReaderServiceGetGrantRequest{
+		GrantId: userModeratorGrant.Id,
+	})
+	require.NoError(t, err)
+	require.Equal(t, userModeratorGrant.Id, userModeratorGrantResp.Grant.Id)
 }
