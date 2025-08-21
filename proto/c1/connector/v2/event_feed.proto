@@ -87,10 +87,11 @@ message GrantEvent {
 }
 
 message CreateGrantEvent {
-  ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
-  string principal_id = 2;
-  ResourceId parent_resource_id = 3;
-  string parent_principal_id = 4;
+  string entitlement_id = 1;
+  ResourceId resource_id = 2 [(validate.rules).message = {required: true}];
+  string principal_id = 3;
+  ResourceId parent_resource_id = 4;
+  string parent_principal_id = 5;
 }
 
 message RevokeEvent {

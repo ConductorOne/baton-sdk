@@ -1418,6 +1418,8 @@ func (m *CreateGrantEvent) validate(all bool) error {
 
 	var errors []error
 
+	// no validation rules for EntitlementId
+
 	if m.GetResourceId() == nil {
 		err := CreateGrantEventValidationError{
 			field:  "ResourceId",
