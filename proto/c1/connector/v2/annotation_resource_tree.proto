@@ -9,3 +9,5 @@ message ChildResourceType {
 }
 
 message SkipEntitlementsAndGrants {}
+
+message SkipGrants {}

@@ -946,6 +946,11 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 		return skip, nil
 	}
 
+	rAnnos := annotations.Annotations(r.GetAnnotations())
+	if rAnnos.Contains(&v2.SkipEntitlementsAndGrants{}) {
+		return true, nil
+	}
+
 	rt, err := s.store.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
 		ResourceTypeId: r.Id.ResourceType,
 	})
@@ -1369,6 +1374,10 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 		}
 
 		for _, r := range resp.List {
+			rAnnos := annotations.Annotations(r.GetAnnotations())
+			if rAnnos.Contains(&v2.SkipGrants{}) {
+				continue
+			}
 			shouldSkip, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
 			if err != nil {
 				return err
@@ -1761,10 +1770,12 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	}
 
 	for _, principal := range principals {
-		skipEnts := skipEGForResourceType[principal.Id.ResourceType]
+		rAnnos := annotations.Annotations(principal.GetAnnotations())
+		skipEnts := skipEGForResourceType[principal.Id.ResourceType] || rAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
 		if skipEnts {
 			continue
 		}
+
 		resourceEnts, err := s.listExternalEntitlementsForResource(ctx, principal)
 		if err != nil {
 			return err
@@ -1773,6 +1784,10 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	}
 
 	for _, ent := range ents {
+		rAnnos := annotations.Annotations(ent.GetResource().GetAnnotations())
+		if rAnnos.Contains(&v2.SkipGrants{}) {
+			continue
+		}
 		grantsForEnt, err := s.listExternalGrantsForEntitlement(ctx, ent)
 		if err != nil {
 			return err
@@ -1868,6 +1883,11 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		if skipEnts {
 			continue
 		}
+		rAnnos := annotations.Annotations(principal.GetAnnotations())
+		if rAnnos.Contains(&v2.SkipEntitlementsAndGrants{}) {
+			continue
+		}
+
 		resourceEnts, err := s.listExternalEntitlementsForResource(ctx, principal)
 		if err != nil {
 			return err
@@ -1876,6 +1896,10 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 	}
 
 	for _, ent := range ents {
+		rAnnos := annotations.Annotations(ent.GetResource().GetAnnotations())
+		if rAnnos.Contains(&v2.SkipGrants{}) {
+			continue
+		}
 		grantsForEnt, err := s.listExternalGrantsForEntitlement(ctx, ent)
 		if err != nil {
 			return err
