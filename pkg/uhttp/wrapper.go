@@ -353,7 +353,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		c.rateLimiter.Take()
 	}
 
-	if req.Method == http.MethodGet {
+	if req.Method == http.MethodGet && req.Header.Get("Cache-Control") != "no-cache" {
 		resp, err = c.baseHttpCache.Get(req)
 		if err != nil {
 			return nil, err
@@ -486,6 +486,14 @@ func WithHeader(key, value string) RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		return nil, map[string]string{
 			key: value,
+		}, nil
+	}
+}
+
+func WithNoCache() RequestOption {
+	return func() (io.ReadWriter, map[string]string, error) {
+		return nil, map[string]string{
+			"Cache-Control": "no-cache",
 		}, nil
 	}
 }
