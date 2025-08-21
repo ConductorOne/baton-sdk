@@ -773,7 +773,6 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 			ResourceTypeID: resourceTypeID,
 			ResourceID:     resourceID,
 		})
-
 	}
 
 	err = s.getSubResources(ctx, resource)
