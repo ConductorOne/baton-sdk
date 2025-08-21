@@ -750,17 +750,31 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 
 	// Actions happen in reverse order. We want to sync child resources, then entitlements, then grants
 
-	s.state.PushAction(ctx, Action{
-		Op:             SyncGrantsOp,
-		ResourceTypeID: resourceTypeID,
-		ResourceID:     resourceID,
-	})
+	shouldSkipGrants, err := s.shouldSkipGrants(ctx, resource)
+	if err != nil {
+		return err
+	}
+	if !shouldSkipGrants {
+		s.state.PushAction(ctx, Action{
+			Op:             SyncGrantsOp,
+			ResourceTypeID: resourceTypeID,
+			ResourceID:     resourceID,
+		})
+	}
 
-	s.state.PushAction(ctx, Action{
-		Op:             SyncEntitlementsOp,
-		ResourceTypeID: resourceTypeID,
-		ResourceID:     resourceID,
-	})
+	shouldSkipEnts, err := s.shouldSkipEntitlementsAndGrants(ctx, resource)
+	if err != nil {
+		return err
+	}
+
+	if !shouldSkipEnts {
+		s.state.PushAction(ctx, Action{
+			Op:             SyncEntitlementsOp,
+			ResourceTypeID: resourceTypeID,
+			ResourceID:     resourceID,
+		})
+
+	}
 
 	err = s.getSubResources(ctx, resource)
 	if err != nil {
@@ -964,6 +978,15 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 	s.skipEGForResourceType[r.Id.ResourceType] = skipEntitlements
 
 	return skipEntitlements, nil
+}
+
+func (s *syncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, error) {
+	annos := annotations.Annotations(r.GetAnnotations())
+	if annos.Contains(&v2.SkipGrants{}) {
+		return true, nil
+	}
+
+	return s.shouldSkipEntitlementsAndGrants(ctx, r)
 }
 
 // SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
@@ -1374,11 +1397,7 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 		}
 
 		for _, r := range resp.List {
-			rAnnos := annotations.Annotations(r.GetAnnotations())
-			if rAnnos.Contains(&v2.SkipGrants{}) {
-				continue
-			}
-			shouldSkip, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
+			shouldSkip, err := s.shouldSkipGrants(ctx, r)
 			if err != nil {
 				return err
 			}
