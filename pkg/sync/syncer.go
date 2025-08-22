@@ -954,14 +954,14 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlementsAndGrants")
 	defer span.End()
 
-	// We've checked this resource type, so we can return what we have cached directly.
-	if skip, ok := s.skipEGForResourceType[r.Id.ResourceType]; ok {
-		return skip, nil
-	}
-
 	rAnnos := annotations.Annotations(r.GetAnnotations())
 	if rAnnos.Contains(&v2.SkipEntitlementsAndGrants{}) {
 		return true, nil
+	}
+
+	// We've checked this resource type, so we can return what we have cached directly.
+	if skip, ok := s.skipEGForResourceType[r.Id.ResourceType]; ok {
+		return skip, nil
 	}
 
 	rt, err := s.store.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
