@@ -2,108 +2,28 @@ package dotc1z
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
-	"path/filepath"
-	"sync"
-	"time"
 
-	"github.com/doug-martin/goqu/v9"
-	// NOTE: required to register the dialect for goqu.
-	//
-	// If you remove this import, goqu.Dialect("sqlite3") will
-	// return a copy of the default dialect, which is not what we want,
-	// and allocates a ton of memory.
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
+	"go.opentelemetry.io/otel"
 
-	_ "github.com/glebarez/go-sqlite"
-
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine"
+	v1 "github.com/conductorone/baton-sdk/pkg/dotc1z/v1"
+	v2 "github.com/conductorone/baton-sdk/pkg/dotc1z/v2"
 )
+
+var tracer = otel.Tracer("baton-sdk/pkg.dotc1z")
 
 type pragma struct {
 	name  string
 	value string
 }
-
-type C1File struct {
-	rawDb          *sql.DB
-	db             *goqu.Database
-	currentSyncID  string
-	viewSyncID     string
-	outputFilePath string
-	dbFilePath     string
-	dbUpdated      bool
-	tempDir        string
-	pragmas        []pragma
-
-	// Slow query tracking
-	slowQueryLogTimes     map[string]time.Time
-	slowQueryLogTimesMu   sync.Mutex
-	slowQueryThreshold    time.Duration
-	slowQueryLogFrequency time.Duration
-}
-
-var _ connectorstore.Writer = (*C1File)(nil)
-
-type C1FOption func(*C1File)
-
-func WithC1FTmpDir(tempDir string) C1FOption {
-	return func(o *C1File) {
-		o.tempDir = tempDir
-	}
-}
-
-func WithC1FPragma(name string, value string) C1FOption {
-	return func(o *C1File) {
-		o.pragmas = append(o.pragmas, pragma{name, value})
-	}
-}
-
-// Returns a C1File instance for the given db filepath.
-func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1File, error) {
-	ctx, span := tracer.Start(ctx, "NewC1File")
-	defer span.End()
-
-	rawDB, err := sql.Open("sqlite", dbFilePath)
-	if err != nil {
-		return nil, err
-	}
-
-	db := goqu.New("sqlite3", rawDB)
-
-	c1File := &C1File{
-		rawDb:                 rawDB,
-		db:                    db,
-		dbFilePath:            dbFilePath,
-		pragmas:               []pragma{},
-		slowQueryLogTimes:     make(map[string]time.Time),
-		slowQueryThreshold:    5 * time.Second,
-		slowQueryLogFrequency: 1 * time.Minute,
-	}
-
-	for _, opt := range opts {
-		opt(c1File)
-	}
-
-	err = c1File.validateDb(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	err = c1File.init(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return c1File, nil
-}
-
 type c1zOptions struct {
 	tmpDir  string
 	pragmas []pragma
+	format  C1ZFormat
+	engine  string
 }
 type C1ZOption func(*c1zOptions)
 
@@ -119,8 +39,20 @@ func WithPragma(name string, value string) C1ZOption {
 	}
 }
 
+func WithFormat(format C1ZFormat) C1ZOption {
+	return func(o *c1zOptions) {
+		o.format = format
+	}
+}
+
+func WithEngine(engine string) C1ZOption {
+	return func(o *c1zOptions) {
+		o.engine = engine
+	}
+}
+
 // Returns a new C1File instance with its state stored at the provided filename.
-func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
+func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (engine.StorageEngine, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
 	defer span.End()
 
@@ -129,196 +61,38 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 		opt(options)
 	}
 
-	dbFilePath, err := loadC1z(outputFilePath, options.tmpDir)
-	if err != nil {
-		return nil, err
-	}
-
-	var c1fopts []C1FOption
-	for _, pragma := range options.pragmas {
-		c1fopts = append(c1fopts, WithC1FPragma(pragma.name, pragma.value))
-	}
-
-	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)
-	if err != nil {
-		return nil, err
-	}
-
-	c1File.outputFilePath = outputFilePath
-
-	return c1File, nil
-}
-
-// Close ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
-// with our changes.
-func (c *C1File) Close() error {
-	var err error
-
-	if c.rawDb != nil {
-		err = c.rawDb.Close()
-		if err != nil {
-			return err
-		}
-	}
-	c.rawDb = nil
-	c.db = nil
-
-	// We only want to save the file if we've made any changes
-	if c.dbUpdated {
-		err = saveC1z(c.dbFilePath, c.outputFilePath)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Cleanup the database filepath. This should always be a file within a temp directory, so we remove the entire dir.
-	err = os.RemoveAll(filepath.Dir(c.dbFilePath))
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// init ensures that the database has all of the required schema.
-func (c *C1File) init(ctx context.Context) error {
-	ctx, span := tracer.Start(ctx, "C1File.init")
-	defer span.End()
-
-	err := c.validateDb(ctx)
-	if err != nil {
-		return err
-	}
-
-	for _, t := range allTableDescriptors {
-		query, args := t.Schema()
-		_, err = c.db.ExecContext(ctx, fmt.Sprintf(query, args...))
-		if err != nil {
-			return err
-		}
-		err = t.Migrations(ctx, c.db)
-		if err != nil {
-			return err
-		}
-	}
-
-	for _, pragma := range c.pragmas {
-		_, err := c.db.ExecContext(ctx, fmt.Sprintf("PRAGMA %s = %s", pragma.name, pragma.value))
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// Stats introspects the database and returns the count of objects for the given sync run.
-func (c *C1File) Stats(ctx context.Context) (map[string]int64, error) {
-	ctx, span := tracer.Start(ctx, "C1File.Stats")
-	defer span.End()
-
-	counts := make(map[string]int64)
-
-	syncID, err := c.LatestSyncID(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	counts["resource_types"] = 0
-
-	var rtStats []*v2.ResourceType
-	pageToken := ""
-	for {
-		resp, err := c.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{PageToken: pageToken})
+	// Determine if the c1z exists and what format version it is.
+	if stat, err := os.Stat(outputFilePath); err == nil && stat.Size() != 0 {
+		c1zFile, err := os.Open(outputFilePath)
 		if err != nil {
 			return nil, err
 		}
+		defer c1zFile.Close()
 
-		rtStats = append(rtStats, resp.List...)
-
-		if resp.NextPageToken == "" {
-			break
-		}
-
-		pageToken = resp.NextPageToken
-	}
-	counts["resource_types"] = int64(len(rtStats))
-	for _, rt := range rtStats {
-		resourceCount, err := c.db.From(resources.Name()).
-			Where(goqu.C("resource_type_id").Eq(rt.Id)).
-			Where(goqu.C("sync_id").Eq(syncID)).
-			CountContext(ctx)
+		options.format, err = ReadHeader(c1zFile)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("c1z: failed to read header: %w", err)
 		}
-		counts[rt.Id] = resourceCount
 	}
 
-	entitlementsCount, err := c.db.From(entitlements.Name()).
-		Where(goqu.C("sync_id").Eq(syncID)).
-		CountContext(ctx)
-	if err != nil {
-		return nil, err
+	switch GetFormat(options.format) {
+	case C1ZFormatV1:
+		v1Opts := []v1.V1C1ZOption{v1.WithTmpDir(options.tmpDir)}
+		for _, p := range options.pragmas {
+			v1Opts = append(v1Opts, v1.WithPragma(p.name, p.value))
+		}
+		return v1.NewV1C1ZFile(ctx, outputFilePath, v1Opts...)
+	case C1ZFormatV2:
+		v2Opts := []v2.V2C1ZOption{v2.WithTmpDir(options.tmpDir), v2.WithEngine(options.engine)}
+		for _, p := range options.pragmas {
+			v2Opts = append(v2Opts, v2.WithPragma(p.name, p.value))
+		}
+		return v2.NewV2C1ZFile(ctx, outputFilePath)
+	default:
+		return nil, fmt.Errorf("c1z: unknown format")
 	}
-	counts["entitlements"] = entitlementsCount
-
-	grantsCount, err := c.db.From(grants.Name()).
-		Where(goqu.C("sync_id").Eq(syncID)).
-		CountContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	counts["grants"] = grantsCount
-
-	return counts, nil
 }
 
-// validateDb ensures that the database has been opened.
-func (c *C1File) validateDb(ctx context.Context) error {
-	if c.db == nil {
-		return fmt.Errorf("c1file: datbase has not been opened")
-	}
-
-	return nil
-}
-
-// validateSyncDb ensures that there is a sync currently running, and that the database has been opened.
-func (c *C1File) validateSyncDb(ctx context.Context) error {
-	if c.currentSyncID == "" {
-		return fmt.Errorf("c1file: sync is not active")
-	}
-
-	return c.validateDb(ctx)
-}
-
-func (c *C1File) OutputFilepath() (string, error) {
-	if c.outputFilePath == "" {
-		return "", fmt.Errorf("c1file: output file path is empty")
-	}
-	return c.outputFilePath, nil
-}
-
-func (c *C1File) AttachFile(other *C1File, dbName string) (*C1FileAttached, error) {
-	_, err := c.db.Exec(`ATTACH DATABASE ? AS ?`, other.dbFilePath, dbName)
-	if err != nil {
-		return nil, err
-	}
-
-	return &C1FileAttached{
-		safe: true,
-		file: c,
-	}, nil
-}
-
-func (c *C1FileAttached) DetachFile(dbName string) (*C1FileAttached, error) {
-	_, err := c.file.db.Exec(`DETACH DATABASE ?`, dbName)
-	if err != nil {
-		return nil, err
-	}
-
-	return &C1FileAttached{
-		safe: false,
-		file: c.file,
-	}, nil
+func NewExternalC1FileReader(ctx context.Context, tmpDir string, externalResourceC1ZPath string) (connectorstore.Reader, error) {
+	return NewC1ZFile(ctx, externalResourceC1ZPath, WithTmpDir(tmpDir))
 }

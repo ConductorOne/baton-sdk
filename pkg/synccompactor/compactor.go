@@ -9,15 +9,17 @@ import (
 	"path"
 	"path/filepath"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel"
+	"go.uber.org/zap"
+
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel"
-	"go.uber.org/zap"
 )
 
 var tracer = otel.Tracer("baton-sdk/pkg.synccompactor")
@@ -174,7 +176,7 @@ func cpFile(sourcePath string, destPath string) error {
 	return nil
 }
 
-func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, *dotc1z.C1File, c1zmanager.Manager, func(), error) {
+func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, engine.StorageEngine, c1zmanager.Manager, func(), error) {
 	baseC1Z, err := c1zmanager.New(ctx, info.FilePath)
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -231,7 +233,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	}
 	defer func() { _ = newFile.Close() }()
 
-	newSync, err := newFile.StartNewSyncV2(ctx, string(dotc1z.SyncTypeFull), "")
+	newSync, err := newFile.StartNewSyncV2(ctx, string(engine.SyncTypeFull), "")
 	if err != nil {
 		return nil, err
 	}

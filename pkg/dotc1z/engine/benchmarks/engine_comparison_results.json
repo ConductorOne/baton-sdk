@@ -1,0 +1,336 @@
+{
+  "timestamp": "2025-08-22T14:02:51.696006-07:00",
+  "environment": {
+    "os": "darwin",
+    "architecture": "arm64",
+    "num_cpu": 12,
+    "go_version": "go1.24.6"
+  },
+  "pebble_results": [
+    {
+      "name": "RawInserts_100000",
+      "engine": "pebble",
+      "duration": 97956750,
+      "operations": 100000,
+      "ops_per_second": 1020858.6952915445,
+      "bytes_allocated": 149588720,
+      "allocs_per_op": 9.01203,
+      "total_allocs": 901203
+    },
+    {
+      "name": "RawInserts_500000",
+      "engine": "pebble",
+      "duration": 453219792,
+      "operations": 500000,
+      "ops_per_second": 1103217.4870244854,
+      "bytes_allocated": 692578568,
+      "allocs_per_op": 9.0035,
+      "total_allocs": 4501750
+    },
+    {
+      "name": "SequentialReads_setup_100000_read_10000",
+      "engine": "pebble",
+      "duration": 501209,
+      "operations": 10000,
+      "ops_per_second": 19951756.652414463,
+      "bytes_allocated": 901752,
+      "allocs_per_op": 1.3119,
+      "total_allocs": 13119
+    },
+    {
+      "name": "SequentialReads_setup_100000_read_50000",
+      "engine": "pebble",
+      "duration": 352542,
+      "operations": 50000,
+      "ops_per_second": 141827073.08632728,
+      "bytes_allocated": 816664,
+      "allocs_per_op": 0.2612,
+      "total_allocs": 13060
+    },
+    {
+      "name": "RandomReads_setup_100000_read_10000",
+      "engine": "pebble",
+      "duration": 32409375,
+      "operations": 10000,
+      "ops_per_second": 308552.6950149455,
+      "bytes_allocated": 28683056,
+      "allocs_per_op": 48.0175,
+      "total_allocs": 480175
+    },
+    {
+      "name": "RandomReads_setup_100000_read_25000",
+      "engine": "pebble",
+      "duration": 105041959,
+      "operations": 25000,
+      "ops_per_second": 238000.13097623206,
+      "bytes_allocated": 67357144,
+      "allocs_per_op": 47.54084,
+      "total_allocs": 1188521
+    },
+    {
+      "name": "UpsertIfNewer_setup_100000_upsert_10000",
+      "engine": "pebble",
+      "duration": 41891292,
+      "operations": 10000,
+      "ops_per_second": 238713.09579088658,
+      "bytes_allocated": 10035632,
+      "allocs_per_op": 9.0197,
+      "total_allocs": 90197
+    },
+    {
+      "name": "UpsertIfNewer_setup_500000_upsert_50000",
+      "engine": "pebble",
+      "duration": 224678250,
+      "operations": 50000,
+      "ops_per_second": 222540.4550729766,
+      "bytes_allocated": 64646096,
+      "allocs_per_op": 9.02692,
+      "total_allocs": 451346
+    },
+    {
+      "name": "CleanupSync_100000",
+      "engine": "pebble",
+      "duration": 167831208,
+      "operations": 150000,
+      "ops_per_second": 893755.111385482,
+      "bytes_allocated": 2091056,
+      "allocs_per_op": 0.01054,
+      "total_allocs": 1581
+    },
+    {
+      "name": "CleanupSync_500000",
+      "engine": "pebble",
+      "duration": 593068958,
+      "operations": 750000,
+      "ops_per_second": 1264608.4234946587,
+      "bytes_allocated": 7896944,
+      "allocs_per_op": 0.0052573333333333335,
+      "total_allocs": 3943
+    }
+  ],
+  "sqlite_results": [
+    {
+      "name": "RawInserts_100000",
+      "engine": "sqlite",
+      "duration": 1114383250,
+      "operations": 100000,
+      "ops_per_second": 89735.73499063271,
+      "bytes_allocated": 246686736,
+      "allocs_per_op": 53.46461,
+      "total_allocs": 5346461
+    },
+    {
+      "name": "RawInserts_500000",
+      "engine": "sqlite",
+      "duration": 6066955834,
+      "operations": 500000,
+      "ops_per_second": 82413.65417528438,
+      "bytes_allocated": 1240477352,
+      "allocs_per_op": 53.461612,
+      "total_allocs": 26730806
+    },
+    {
+      "name": "SequentialReads_setup_100000_read_10000",
+      "engine": "sqlite",
+      "duration": 5808959,
+      "operations": 10000,
+      "ops_per_second": 1721478.8398403225,
+      "bytes_allocated": 9311168,
+      "allocs_per_op": 12.9994,
+      "total_allocs": 129994
+    },
+    {
+      "name": "SequentialReads_setup_100000_read_50000",
+      "engine": "sqlite",
+      "duration": 5533584,
+      "operations": 50000,
+      "ops_per_second": 9035735.248620061,
+      "bytes_allocated": 9311056,
+      "allocs_per_op": 2.59984,
+      "total_allocs": 129992
+    },
+    {
+      "name": "RandomReads_setup_100000_read_10000",
+      "engine": "sqlite",
+      "duration": 257887042,
+      "operations": 10000,
+      "ops_per_second": 38776.667189040076,
+      "bytes_allocated": 143054816,
+      "allocs_per_op": 355.0026,
+      "total_allocs": 3550026
+    },
+    {
+      "name": "RandomReads_setup_100000_read_25000",
+      "engine": "sqlite",
+      "duration": 671208625,
+      "operations": 25000,
+      "ops_per_second": 37246.2436697681,
+      "bytes_allocated": 357617840,
+      "allocs_per_op": 355.00056,
+      "total_allocs": 8875014
+    },
+    {
+      "name": "UpsertIfNewer_setup_100000_upsert_10000",
+      "engine": "sqlite",
+      "duration": 79136167,
+      "operations": 10000,
+      "ops_per_second": 126364.47251735102,
+      "bytes_allocated": 23880272,
+      "allocs_per_op": 53.4972,
+      "total_allocs": 534972
+    },
+    {
+      "name": "UpsertIfNewer_setup_500000_upsert_50000",
+      "engine": "sqlite",
+      "duration": 529303125,
+      "operations": 50000,
+      "ops_per_second": 94463.82920939679,
+      "bytes_allocated": 119344048,
+      "allocs_per_op": 53.46754,
+      "total_allocs": 2673377
+    },
+    {
+      "name": "CleanupSync_100000",
+      "engine": "sqlite",
+      "duration": 83583,
+      "operations": 150000,
+      "ops_per_second": 1794623308.5675316,
+      "bytes_allocated": 8936,
+      "allocs_per_op": 0.00126,
+      "total_allocs": 189
+    },
+    {
+      "name": "CleanupSync_500000",
+      "engine": "sqlite",
+      "duration": 117542,
+      "operations": 750000,
+      "ops_per_second": 6380697963.281211,
+      "bytes_allocated": 8936,
+      "allocs_per_op": 0.000252,
+      "total_allocs": 189
+    }
+  ],
+  "comparisons": [
+    {
+      "test_name": "UpsertIfNewer_setup_500000_upsert_50000",
+      "pebble_ops_per_sec": 222540.4550729766,
+      "sqlite_ops_per_sec": 94463.82920939679,
+      "speedup_ratio": 1.3558271661809722,
+      "pebble_allocs_per_op": 9.02692,
+      "sqlite_allocs_per_op": 53.46754,
+      "alloc_ratio": -0.8311700893663706,
+      "alloc_percentage_diff": -83.11700893663706,
+      "winner": "pebble"
+    },
+    {
+      "test_name": "CleanupSync_100000",
+      "pebble_ops_per_sec": 893755.111385482,
+      "sqlite_ops_per_sec": 1794623308.5675316,
+      "speedup_ratio": -0.9995019817768337,
+      "pebble_allocs_per_op": 0.01054,
+      "sqlite_allocs_per_op": 0.00126,
+      "alloc_ratio": 7.365079365079365,
+      "alloc_percentage_diff": 736.5079365079365,
+      "winner": "sqlite"
+    },
+    {
+      "test_name": "CleanupSync_500000",
+      "pebble_ops_per_sec": 1264608.4234946587,
+      "sqlite_ops_per_sec": 6380697963.281211,
+      "speedup_ratio": -0.9998018071955809,
+      "pebble_allocs_per_op": 0.0052573333333333335,
+      "sqlite_allocs_per_op": 0.000252,
+      "alloc_ratio": 19.862433862433864,
+      "alloc_percentage_diff": 1986.2433862433863,
+      "winner": "sqlite"
+    },
+    {
+      "test_name": "RawInserts_500000",
+      "pebble_ops_per_sec": 1103217.4870244854,
+      "sqlite_ops_per_sec": 82413.65417528438,
+      "speedup_ratio": 12.386343538148042,
+      "pebble_allocs_per_op": 9.0035,
+      "sqlite_allocs_per_op": 53.461612,
+      "alloc_ratio": -0.8315894402884821,
+      "alloc_percentage_diff": -83.15894402884821,
+      "winner": "pebble"
+    },
+    {
+      "test_name": "SequentialReads_setup_100000_read_10000",
+      "pebble_ops_per_sec": 19951756.652414463,
+      "sqlite_ops_per_sec": 1721478.8398403225,
+      "speedup_ratio": 10.589893637185288,
+      "pebble_allocs_per_op": 1.3119,
+      "sqlite_allocs_per_op": 12.9994,
+      "alloc_ratio": -0.8990799575365017,
+      "alloc_percentage_diff": -89.90799575365017,
+      "winner": "pebble"
+    },
+    {
+      "test_name": "RandomReads_setup_100000_read_25000",
+      "pebble_ops_per_sec": 238000.13097623206,
+      "sqlite_ops_per_sec": 37246.2436697681,
+      "speedup_ratio": 5.389909626495066,
+      "pebble_allocs_per_op": 47.54084,
+      "sqlite_allocs_per_op": 355.00056,
+      "alloc_ratio": -0.8660823520954446,
+      "alloc_percentage_diff": -86.60823520954446,
+      "winner": "pebble"
+    },
+    {
+      "test_name": "RawInserts_100000",
+      "pebble_ops_per_sec": 1020858.6952915445,
+      "sqlite_ops_per_sec": 89735.73499063271,
+      "speedup_ratio": 10.376278306497511,
+      "pebble_allocs_per_op": 9.01203,
+      "sqlite_allocs_per_op": 53.46461,
+      "alloc_ratio": -0.8314393390319316,
+      "alloc_percentage_diff": -83.14393390319316,
+      "winner": "pebble"
+    },
+    {
+      "test_name": "SequentialReads_setup_100000_read_50000",
+      "pebble_ops_per_sec": 141827073.08632728,
+      "sqlite_ops_per_sec": 9035735.248620061,
+      "speedup_ratio": 14.696240447946627,
+      "pebble_allocs_per_op": 0.2612,
+      "sqlite_allocs_per_op": 2.59984,
+      "alloc_ratio": -0.8995322789094713,
+      "alloc_percentage_diff": -89.95322789094713,
+      "winner": "pebble"
+    },
+    {
+      "test_name": "RandomReads_setup_100000_read_10000",
+      "pebble_ops_per_sec": 308552.6950149455,
+      "sqlite_ops_per_sec": 38776.667189040076,
+      "speedup_ratio": 6.9571741818532455,
+      "pebble_allocs_per_op": 48.0175,
+      "sqlite_allocs_per_op": 355.0026,
+      "alloc_ratio": -0.8647404272532089,
+      "alloc_percentage_diff": -86.47404272532088,
+      "winner": "pebble"
+    },
+    {
+      "test_name": "UpsertIfNewer_setup_100000_upsert_10000",
+      "pebble_ops_per_sec": 238713.09579088658,
+      "sqlite_ops_per_sec": 126364.47251735102,
+      "speedup_ratio": 0.8890839413594596,
+      "pebble_allocs_per_op": 9.0197,
+      "sqlite_allocs_per_op": 53.4972,
+      "alloc_ratio": -0.8313986526397643,
+      "alloc_percentage_diff": -83.13986526397643,
+      "winner": "pebble"
+    }
+  ],
+  "summary": {
+    "total_tests": 10,
+    "pebble_wins": 8,
+    "sqlite_wins": 2,
+    "average_speedup_ratio": 6.06414470566938,
+    "average_alloc_ratio": 2.0372480690392054,
+    "pebble_avg_ops_per_sec": 16706907.583279297,
+    "sqlite_avg_ops_per_sec": 818654748.6538954,
+    "recommended_engine": "pebble",
+    "recommendation_reason": "Pebble won 8/10 tests with 606.41% better average performance"
+  }
+}

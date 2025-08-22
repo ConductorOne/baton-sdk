@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine"
 )
 
 var tracer = otel.Tracer("baton-sdk/pkg.dotc1z.manager.local")
@@ -80,7 +81,7 @@ func (l *localManager) LoadRaw(ctx context.Context) (io.ReadCloser, error) {
 }
 
 // LoadC1Z loads the C1Z file from the local file system.
-func (l *localManager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
+func (l *localManager) LoadC1Z(ctx context.Context) (engine.StorageEngine, error) {
 	ctx, span := tracer.Start(ctx, "localManager.LoadC1Z")
 	defer span.End()
 

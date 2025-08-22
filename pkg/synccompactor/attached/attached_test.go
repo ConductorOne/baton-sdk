@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine"
+
 	"github.com/stretchr/testify/require"
 )
 
@@ -80,7 +82,7 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	defer baseDB.Close()
 
 	// Start a full sync and add some base data
-	baseSyncID, err := baseDB.StartNewSyncV2(ctx, string(dotc1z.SyncTypeFull), "")
+	baseSyncID, err := baseDB.StartNewSyncV2(ctx, string(engine.SyncTypeFull), "")
 	require.NoError(t, err)
 	require.NotEmpty(t, baseSyncID)
 
@@ -93,7 +95,7 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	defer appliedDB.Close()
 
 	// Start an incremental sync and add some applied data
-	appliedSyncID, err := appliedDB.StartNewSyncV2(ctx, string(dotc1z.SyncTypePartial), baseSyncID)
+	appliedSyncID, err := appliedDB.StartNewSyncV2(ctx, string(engine.SyncTypePartial), baseSyncID)
 	require.NoError(t, err)
 	require.NotEmpty(t, appliedSyncID)
 
@@ -140,7 +142,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	defer baseDB.Close()
 
 	// Start an incremental sync in base (should cause compaction to fail)
-	baseSyncID, err := baseDB.StartNewSyncV2(ctx, string(dotc1z.SyncTypePartial), "some-parent")
+	baseSyncID, err := baseDB.StartNewSyncV2(ctx, string(engine.SyncTypePartial), "some-parent")
 	require.NoError(t, err)
 	require.NotEmpty(t, baseSyncID)
 
@@ -152,7 +154,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	require.NoError(t, err)
 	defer appliedDB.Close()
 
-	appliedSyncID, err := appliedDB.StartNewSyncV2(ctx, string(dotc1z.SyncTypeFull), "")
+	appliedSyncID, err := appliedDB.StartNewSyncV2(ctx, string(engine.SyncTypeFull), "")
 	require.NoError(t, err)
 	require.NotEmpty(t, appliedSyncID)
 
@@ -193,7 +195,7 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	require.NoError(t, err)
 	defer baseDB.Close()
 
-	baseSyncID, err := baseDB.StartNewSyncV2(ctx, string(dotc1z.SyncTypeFull), "")
+	baseSyncID, err := baseDB.StartNewSyncV2(ctx, string(engine.SyncTypeFull), "")
 	require.NoError(t, err)
 	require.NotEmpty(t, baseSyncID)
 
@@ -206,7 +208,7 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	defer appliedDB.Close()
 
 	// First sync: full
-	firstAppliedSyncID, err := appliedDB.StartNewSyncV2(ctx, string(dotc1z.SyncTypeFull), "")
+	firstAppliedSyncID, err := appliedDB.StartNewSyncV2(ctx, string(engine.SyncTypeFull), "")
 	require.NoError(t, err)
 	require.NotEmpty(t, firstAppliedSyncID)
 
@@ -214,7 +216,7 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second sync: incremental (this should be the one selected)
-	secondAppliedSyncID, err := appliedDB.StartNewSyncV2(ctx, string(dotc1z.SyncTypePartial), firstAppliedSyncID)
+	secondAppliedSyncID, err := appliedDB.StartNewSyncV2(ctx, string(engine.SyncTypePartial), firstAppliedSyncID)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondAppliedSyncID)
 

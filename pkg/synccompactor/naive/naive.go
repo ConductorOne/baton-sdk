@@ -3,13 +3,14 @@ package naive
 import (
 	"context"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine"
+
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 )
 
-func NewNaiveCompactor(base *dotc1z.C1File, applied *dotc1z.C1File, dest *dotc1z.C1File) *Compactor {
+func NewNaiveCompactor(base engine.StorageEngine, applied engine.StorageEngine, dest engine.StorageEngine) *Compactor {
 	return &Compactor{
 		base:    base,
 		applied: applied,
@@ -18,9 +19,9 @@ func NewNaiveCompactor(base *dotc1z.C1File, applied *dotc1z.C1File, dest *dotc1z
 }
 
 type Compactor struct {
-	base    *dotc1z.C1File
-	applied *dotc1z.C1File
-	dest    *dotc1z.C1File
+	base    engine.StorageEngine
+	applied engine.StorageEngine
+	dest    engine.StorageEngine
 }
 
 func (n *Compactor) Compact(ctx context.Context) error {

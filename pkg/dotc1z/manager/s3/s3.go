@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine"
 	"github.com/conductorone/baton-sdk/pkg/us3"
 )
 
@@ -90,7 +91,7 @@ func (s *s3Manager) LoadRaw(ctx context.Context) (io.ReadCloser, error) {
 }
 
 // LoadC1Z gets a file from the AWS S3 bucket and copies it to a temp file.
-func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
+func (s *s3Manager) LoadC1Z(ctx context.Context) (engine.StorageEngine, error) {
 	ctx, span := tracer.Start(ctx, "s3Manager.LoadC1Z")
 	defer span.End()
 

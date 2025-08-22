@@ -13,13 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/conductorone/baton-sdk/pkg/bid"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/retry"
-	"github.com/conductorone/baton-sdk/pkg/sync/expand"
-	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
-	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
-	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
@@ -28,6 +21,15 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/conductorone/baton-sdk/pkg/bid"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine"
+	"github.com/conductorone/baton-sdk/pkg/retry"
+	"github.com/conductorone/baton-sdk/pkg/sync/expand"
+	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
+	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
 
 	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -288,7 +290,7 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 
 	// Get most recent completed full sync if it exists
 	latestFullSyncResponse, err := s.store.GetLatestFinishedSync(ctx, &reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest{
-		SyncType: string(dotc1z.SyncTypeFull),
+		SyncType: string(engine.SyncTypeFull),
 	})
 	if err != nil {
 		return "", false, err
@@ -2371,7 +2373,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("runGrantExpandActions: error fetching source grants: %w", err)
 	}
 
-	var newGrants []*v2.Grant = make([]*v2.Grant, 0)
+	var newGrants = make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.List {
 		// Skip this grant if it is not for a resource type we care about
 		if len(action.ResourceTypeIDs) > 0 {

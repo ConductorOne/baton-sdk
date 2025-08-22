@@ -4,16 +4,17 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/engine"
 )
 
 type Compactor struct {
-	base    *dotc1z.C1File
-	applied *dotc1z.C1File
-	dest    *dotc1z.C1File
+	base    engine.StorageEngine
+	applied engine.StorageEngine
+	dest    engine.StorageEngine
 }
 
-func NewAttachedCompactor(base *dotc1z.C1File, applied *dotc1z.C1File, dest *dotc1z.C1File) *Compactor {
+func NewAttachedCompactor(base engine.StorageEngine, applied engine.StorageEngine, dest engine.StorageEngine) *Compactor {
 	return &Compactor{
 		base:    base,
 		applied: applied,
@@ -23,19 +24,25 @@ func NewAttachedCompactor(base *dotc1z.C1File, applied *dotc1z.C1File, dest *dot
 
 func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) error {
 	// Get the latest finished full sync ID from base
-	baseSyncID, err := c.base.LatestFinishedSync(ctx)
+	baseSyncResp, err := c.base.GetLatestFinishedSync(ctx, &v2.SyncsReaderServiceGetLatestFinishedSyncRequest{
+		SyncType: string(engine.SyncTypeFull),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to get base sync ID: %w", err)
 	}
+	baseSyncID := baseSyncResp.GetSync().GetId()
 	if baseSyncID == "" {
 		return fmt.Errorf("no finished full sync found in base")
 	}
 
 	// Get the latest finished sync ID from applied (any type)
-	appliedSyncID, err := c.applied.LatestFinishedSyncAnyType(ctx)
+	appliedSyncResp, err := c.applied.GetLatestFinishedSync(ctx, &v2.SyncsReaderServiceGetLatestFinishedSyncRequest{
+		SyncType: string(engine.SyncTypeAny),
+	})
 	if err != nil {
 		return fmt.Errorf("failed to get applied sync ID: %w", err)
 	}
+	appliedSyncID := appliedSyncResp.GetSync().GetId()
 	if appliedSyncID == "" {
 		return fmt.Errorf("no finished sync found in applied")
 	}
@@ -65,7 +72,7 @@ func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) er
 	return nil
 }
 
-func (c *Compactor) processRecords(ctx context.Context, attached *dotc1z.C1FileAttached, destSyncID string, baseSyncID string, appliedSyncID string) error {
+func (c *Compactor) processRecords(ctx context.Context, attached engine.AttachedStorageEngine, destSyncID string, baseSyncID string, appliedSyncID string) error {
 	// Compact all tables: copy base records and merge newer applied records using raw SQL
 	if err := attached.CompactResourceTypes(ctx, destSyncID, baseSyncID, appliedSyncID); err != nil {
 		return fmt.Errorf("failed to compact resource types: %w", err)
