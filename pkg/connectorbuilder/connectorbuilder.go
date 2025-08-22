@@ -1135,6 +1135,18 @@ func (b *builderImpl) ListEventFeeds(ctx context.Context, request *v2.ListEventF
 	}, nil
 }
 
+// filterEvents filters out ResourceChange events that have no resource ID.
+func filterEvents(event *v2.Event) bool {
+	rce := event.GetResourceChangeEvent()
+	if rce == nil {
+		return false
+	}
+	if rce.ResourceId == nil || rce.ResourceId.ResourceType == "" || rce.ResourceId.Resource == "" {
+		return true
+	}
+	return false
+}
+
 func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (*v2.ListEventsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.ListEvents")
 	defer span.End()
@@ -1161,9 +1173,11 @@ func (b *builderImpl) ListEvents(ctx context.Context, request *v2.ListEventsRequ
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing events failed: %w", err)
 	}
+
+	filteredEvents := slices.DeleteFunc(events, filterEvents)
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return &v2.ListEventsResponse{
-		Events:      events,
+		Events:      filteredEvents,
 		Cursor:      streamState.Cursor,
 		HasMore:     streamState.HasMore,
 		Annotations: annotations,
