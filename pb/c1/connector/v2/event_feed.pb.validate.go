@@ -1418,11 +1418,9 @@ func (m *CreateGrantEvent) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for EntitlementId
-
-	if m.GetResourceId() == nil {
+	if m.GetEntitlement() == nil {
 		err := CreateGrantEventValidationError{
-			field:  "ResourceId",
+			field:  "Entitlement",
 			reason: "value is required",
 		}
 		if !all {
@@ -1432,11 +1430,11 @@ func (m *CreateGrantEvent) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetResourceId()).(type) {
+		switch v := interface{}(m.GetEntitlement()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, CreateGrantEventValidationError{
-					field:  "ResourceId",
+					field:  "Entitlement",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -1444,30 +1442,39 @@ func (m *CreateGrantEvent) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, CreateGrantEventValidationError{
-					field:  "ResourceId",
+					field:  "Entitlement",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetResourceId()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetEntitlement()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return CreateGrantEventValidationError{
-				field:  "ResourceId",
+				field:  "Entitlement",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
 		}
 	}
 
-	// no validation rules for PrincipalId
+	if m.GetPrincipal() == nil {
+		err := CreateGrantEventValidationError{
+			field:  "Principal",
+			reason: "value is required",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
 	if all {
-		switch v := interface{}(m.GetParentResourceId()).(type) {
+		switch v := interface{}(m.GetPrincipal()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, CreateGrantEventValidationError{
-					field:  "ParentResourceId",
+					field:  "Principal",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -1475,23 +1482,55 @@ func (m *CreateGrantEvent) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, CreateGrantEventValidationError{
-					field:  "ParentResourceId",
+					field:  "Principal",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetParentResourceId()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetPrincipal()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return CreateGrantEventValidationError{
-				field:  "ParentResourceId",
+				field:  "Principal",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
 		}
 	}
 
-	// no validation rules for ParentPrincipalId
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CreateGrantEventValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CreateGrantEventValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CreateGrantEventValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
 
 	if len(errors) > 0 {
 		return CreateGrantEventMultiError(errors)

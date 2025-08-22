@@ -87,11 +87,15 @@ message GrantEvent {
 }
 
 message CreateGrantEvent {
-  string entitlement_id = 1;
-  ResourceId resource_id = 2 [(validate.rules).message = {required: true}];
-  string principal_id = 3;
-  ResourceId parent_resource_id = 4;
-  string parent_principal_id = 5;
+  // string entitlement_id = 1 [(validate.rules).message = {required: true}];
+  // ResourceId resource_id = 2 [(validate.rules).message = {required: true}];
+  // ResourceId principal_id = 3 [(validate.rules).message = {required: true}];
+  // ResourceId parent_resource_id = 4;
+  // ResourceId parent_principal_id = 5;
+
+  c1.connector.v2.Entitlement entitlement = 1 [(validate.rules).message = {required: true}];
+  c1.connector.v2.Resource principal = 2 [(validate.rules).message = {required: true}];
+  repeated google.protobuf.Any annotations = 3;
 }
 
 message RevokeEvent {
