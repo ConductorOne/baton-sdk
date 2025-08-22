@@ -1559,6 +1559,15 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 	resource := resourceResponse.Resource
 
+	shouldSkipGrants, err := s.shouldSkipGrants(ctx, resource)
+	if shouldSkipGrants {
+		// TODO(lauren) should we do this? .handleProgress(ctx, s.state.Current(), 0)
+		s.counts.GrantsProgress[resourceID.ResourceType] += 1
+		s.counts.LogGrantsProgress(ctx, resourceID.ResourceType)
+		s.state.FinishAction(ctx)
+		return nil
+	}
+
 	var prevSyncID string
 	var prevEtag *v2.ETag
 	var etagMatch bool
