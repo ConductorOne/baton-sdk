@@ -1560,6 +1560,10 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	resource := resourceResponse.Resource
 
 	shouldSkipGrants, err := s.shouldSkipGrants(ctx, resource)
+	if err != nil {
+		return err
+	}
+
 	if shouldSkipGrants {
 		// TODO(lauren) should we do this? .handleProgress(ctx, s.state.Current(), 0)
 		s.counts.GrantsProgress[resourceID.ResourceType] += 1
