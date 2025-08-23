@@ -211,7 +211,7 @@ type syncer struct {
 	onlyExpandGrants                    bool
 	syncID                              string
 	skipEGForResourceType               map[string]bool
-	externalGrants                      []*v2.Grant
+	externalGrants                      map[*v2.Entitlement][]*v2.Resource
 	skipSyncGrants                      bool
 }
 
@@ -415,6 +415,29 @@ func (s *syncer) Sync(ctx context.Context) error {
 			s.state.FinishAction(ctx)
 
 			if len(targetedResources) > 0 || len(s.externalGrants) > 0 {
+				// if we have external grants, lets sync them last.
+				if len(s.externalGrants) > 0 {
+					s.state.PushAction(ctx, Action{Op: SyncExternalGrantsOp})
+				}
+				// For each grant, get the resource and principal.
+				for entitlement, principals := range s.externalGrants {
+					for _, principal := range principals {
+						s.state.PushAction(ctx, Action{
+							Op:                   SyncTargetedResourceOp,
+							ResourceID:           principal.GetId().GetResource(),
+							ResourceTypeID:       principal.GetId().GetResourceType(),
+							ParentResourceID:     principal.GetParentResourceId().GetResource(),
+							ParentResourceTypeID: principal.GetParentResourceId().GetResourceType(),
+						})
+					}
+					s.state.PushAction(ctx, Action{
+						Op:                   SyncEntitlementsOp,
+						ResourceID:           entitlement.GetResource().GetId().GetResource(),
+						ResourceTypeID:       entitlement.GetResource().GetId().GetResourceType(),
+						ParentResourceID:     entitlement.GetResource().GetParentResourceId().GetResource(),
+						ParentResourceTypeID: entitlement.GetResource().GetParentResourceId().GetResourceType(),
+					})
+				}
 				for _, r := range targetedResources {
 					s.state.PushAction(ctx, Action{
 						Op:                   SyncTargetedResourceOp,
@@ -426,10 +449,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 				}
 				s.state.SetShouldFetchRelatedResources()
 				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
-				// MJP should we create syncTargetedResourceOps for each resouce/principal in the grants?
-				if len(s.externalGrants) > 0 {
-					s.state.PushAction(ctx, Action{Op: SyncExternalGrantsOp})
-				}
 				err = s.Checkpoint(ctx, true)
 				if err != nil {
 					return err
@@ -729,7 +748,9 @@ func (s *syncer) SyncExternalGrants(ctx context.Context) error {
 		return nil
 	}
 
-	err := s.store.PutGrants(ctx, s.externalGrants...)
+	grants := grantMapToGrants(s.externalGrants)
+
+	err := s.store.PutGrants(ctx, grants...)
 	if err != nil {
 		return err
 	}
@@ -757,6 +778,18 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 			ResourceType: parentResourceTypeID,
 			Resource:     parentResourceID,
 		}
+	}
+
+	// We might as well check if its already in the DB to avoid double fetch?
+	_, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
+		ResourceId: &v2.ResourceId{ResourceType: resourceTypeID, Resource: resourceID},
+	})
+	if err == nil {
+		s.state.FinishAction(ctx)
+		return nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
 	}
 
 	resource, err := s.getResourceFromConnector(ctx, &v2.ResourceId{
@@ -2793,7 +2826,7 @@ func WithSkipSyncGrants() SyncOpt {
 func WithExternalGrants(grantMap map[*v2.Entitlement][]*v2.Resource) SyncOpt {
 	// MJP should we convert these here? we could do it later, and get some free structure later.=
 	return func(s *syncer) {
-		s.externalGrants = grantMapToGrants(grantMap)
+		s.externalGrants = grantMap
 	}
 }
 
