@@ -211,6 +211,8 @@ type syncer struct {
 	onlyExpandGrants                    bool
 	syncID                              string
 	skipEGForResourceType               map[string]bool
+	externalGrants                      []*v2.Grant
+	skipSyncGrants                      bool
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -412,7 +414,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 		case InitOp:
 			s.state.FinishAction(ctx)
 
-			if len(targetedResources) > 0 {
+			if len(targetedResources) > 0 || len(s.externalGrants) > 0 {
 				for _, r := range targetedResources {
 					s.state.PushAction(ctx, Action{
 						Op:                   SyncTargetedResourceOp,
@@ -424,6 +426,10 @@ func (s *syncer) Sync(ctx context.Context) error {
 				}
 				s.state.SetShouldFetchRelatedResources()
 				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
+				// MJP should we create syncTargetedResourceOps for each resouce/principal in the grants?
+				if len(s.externalGrants) > 0 {
+					s.state.PushAction(ctx, Action{Op: SyncExternalGrantsOp})
+				}
 				err = s.Checkpoint(ctx, true)
 				if err != nil {
 					return err
@@ -479,6 +485,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 				s.state.FinishAction(ctx)
 				continue
 			}
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
+				return err
+			}
+			continue
+
+		case SyncExternalGrantsOp:
+			err = s.SyncExternalGrants(ctx)
 			if !retryer.ShouldWaitAndRetry(ctx, err) {
 				return err
 			}
@@ -707,6 +720,25 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 	return nil, err
 }
 
+// This is a dumb step which just directly puts our grants into the database.
+func (s *syncer) SyncExternalGrants(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "syncer.SyncExternalGrants")
+	defer span.End()
+
+	if len(s.externalGrants) == 0 {
+		return nil
+	}
+
+	err := s.store.PutGrants(ctx, s.externalGrants...)
+	if err != nil {
+		return err
+	}
+
+	s.state.FinishAction(ctx)
+
+	return nil
+}
+
 func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncTargetedResource")
 	defer span.End()
@@ -754,7 +786,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if !shouldSkipGrants {
+	if !shouldSkipGrants && !s.skipSyncGrants {
 		s.state.PushAction(ctx, Action{
 			Op:             SyncGrantsOp,
 			ResourceTypeID: resourceTypeID,
@@ -1476,6 +1508,21 @@ func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v
 	}
 
 	return previousSyncID, nil, nil
+}
+
+func grantMapToGrants(grantMap map[*v2.Entitlement][]*v2.Resource) []*v2.Grant {
+	grants := make([]*v2.Grant, 0, len(grantMap)*2)
+	for entitlement, principals := range grantMap {
+		for _, principal := range principals {
+			grants = append(grants, &v2.Grant{
+				Entitlement: entitlement,
+				Principal:   principal,
+				Id:          batonGrant.NewGrantID(principal, entitlement),
+				// MJP TODO: is this enough fields? custom source/annotation?
+			})
+		}
+	}
+	return grants
 }
 
 func (s *syncer) fetchEtaggedGrantsForResource(
@@ -2734,6 +2781,19 @@ func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
 func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
 	return func(s *syncer) {
 		s.targetedSyncResourceIDs = resourceIDs
+	}
+}
+
+func WithSkipSyncGrants() SyncOpt {
+	return func(s *syncer) {
+		s.skipSyncGrants = true
+	}
+}
+
+func WithExternalGrants(grantMap map[*v2.Entitlement][]*v2.Resource) SyncOpt {
+	// MJP should we convert these here? we could do it later, and get some free structure later.=
+	return func(s *syncer) {
+		s.externalGrants = grantMapToGrants(grantMap)
 	}
 }
 

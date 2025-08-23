@@ -57,6 +57,8 @@ func (s ActionOp) String() string {
 		return "grant-expansion"
 	case SyncTargetedResourceOp:
 		return "targeted-resource-sync"
+	case SyncExternalGrantsOp:
+		return "list-external-grants"
 	default:
 		return "unknown"
 	}
@@ -100,6 +102,8 @@ func newActionOp(str string) ActionOp {
 		return SyncExternalResourcesOp
 	case SyncTargetedResourceOp.String():
 		return SyncTargetedResourceOp
+	case SyncExternalGrantsOp.String():
+		return SyncExternalGrantsOp
 	default:
 		return UnknownOp
 	}
@@ -117,6 +121,7 @@ const (
 	SyncAssetsOp
 	SyncGrantExpansionOp
 	SyncTargetedResourceOp
+	SyncExternalGrantsOp
 )
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
