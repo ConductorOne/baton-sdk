@@ -471,7 +471,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 				}
 				continue
 			}
-			s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
+			if !s.skipSyncGrants {
+				s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
+			}
 			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
 			s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
@@ -739,7 +741,7 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 	return nil, err
 }
 
-// This is a dumb step which just directly puts our grants into the database.
+// This is a simple step which just directly puts our grants into the database.
 func (s *syncer) SyncExternalGrants(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncExternalGrants")
 	defer span.End()
@@ -780,7 +782,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 		}
 	}
 
-	// We might as well check if its already in the DB to avoid double fetch?
+	// MJP is it fair to check if this is already in the DB and skip if it is?
 	_, err := s.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
 		ResourceId: &v2.ResourceId{ResourceType: resourceTypeID, Resource: resourceID},
 	})
@@ -2823,8 +2825,8 @@ func WithSkipSyncGrants() SyncOpt {
 	}
 }
 
+// MJP: Should we just avoid the map entierly? just take raw grants here?
 func WithExternalGrants(grantMap map[*v2.Entitlement][]*v2.Resource) SyncOpt {
-	// MJP should we convert these here? we could do it later, and get some free structure later.=
 	return func(s *syncer) {
 		s.externalGrants = grantMap
 	}
