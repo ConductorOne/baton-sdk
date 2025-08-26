@@ -438,7 +438,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 			// FIXME(jirwin): Disabling syncing assets for now
 			// s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
-			s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
+			if !s.state.ShouldSkipEntitlementsAndGrants() {
+				s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
+			}
 			if s.externalResourceReader != nil {
 				s.state.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
 			}
@@ -450,8 +452,10 @@ func (s *syncer) Sync(ctx context.Context) error {
 				}
 				continue
 			}
-			s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
-			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+			if !s.state.ShouldSkipEntitlementsAndGrants() {
+				s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
+				s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+			}
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
 			s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
 
@@ -818,7 +822,7 @@ func (s *syncer) SyncResources(ctx context.Context) error {
 		for _, rt := range resp.List {
 			action := Action{Op: SyncResourcesOp, ResourceTypeID: rt.Id}
 			// If this request specified a parent resource, only queue up syncing resources for children of the parent resource
-			if s.state.Current().ParentResourceTypeID != "" && s.state.Current().ParentResourceID != "" {
+			if s.state.Current() != nil && s.state.Current().ParentResourceTypeID != "" && s.state.Current().ParentResourceID != "" {
 				action.ParentResourceID = s.state.Current().ParentResourceID
 				action.ParentResourceTypeID = s.state.Current().ParentResourceTypeID
 			}
