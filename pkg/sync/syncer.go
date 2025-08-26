@@ -413,6 +413,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 		case InitOp:
 			s.state.FinishAction(ctx)
 
+			if s.skipEntitlementsAndGrants {
+				s.state.SetShouldSkipEntitlementsAndGrants()
+			}
 			if len(targetedResources) > 0 {
 				for _, r := range targetedResources {
 					s.state.PushAction(ctx, Action{
@@ -955,7 +958,7 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlementsAndGrants")
 	defer span.End()
 
-	if s.skipEntitlementsAndGrants {
+	if s.state.ShouldSkipEntitlementsAndGrants() {
 		return true, nil
 	}
 
