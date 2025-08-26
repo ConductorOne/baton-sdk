@@ -211,6 +211,7 @@ type syncer struct {
 	onlyExpandGrants                    bool
 	syncID                              string
 	skipEGForResourceType               map[string]bool
+	skipEntitlementsAndGrants           bool
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -953,6 +954,10 @@ func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) err
 func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Resource) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlementsAndGrants")
 	defer span.End()
+
+	if s.skipEntitlementsAndGrants {
+		return true, nil
+	}
 
 	rAnnos := annotations.Annotations(r.GetAnnotations())
 	if rAnnos.Contains(&v2.SkipEntitlementsAndGrants{}) {
@@ -2746,6 +2751,12 @@ func WithOnlyExpandGrants() SyncOpt {
 func WithSyncID(syncID string) SyncOpt {
 	return func(s *syncer) {
 		s.syncID = syncID
+	}
+}
+
+func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
+	return func(s *syncer) {
+		s.skipEntitlementsAndGrants = skip
 	}
 }
 
