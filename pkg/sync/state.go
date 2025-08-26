@@ -148,11 +148,11 @@ type state struct {
 type serializedToken struct {
 	Actions                         []Action                 `json:"actions"`
 	CurrentAction                   *Action                  `json:"current_action"`
-	NeedsExpansion                  bool                     `json:"needs_expansion"`
+	NeedsExpansion                  bool                     `json:"needs_expansion,omitempty"`
 	EntitlementGraph                *expand.EntitlementGraph `json:"entitlement_graph"`
-	HasExternalResourceGrants       bool                     `json:"has_external_resource_grants"`
-	ShouldFetchRelatedResources     bool                     `json:"should_fetch_related_resources"`
-	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants"`
+	HasExternalResourceGrants       bool                     `json:"has_external_resource_grants,omitempty"`
+	ShouldFetchRelatedResources     bool                     `json:"should_fetch_related_resources,omitempty"`
+	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
 }
 
 // push adds a new action to the stack. If there is no current state, the action is directly set to current, else
