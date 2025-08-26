@@ -182,12 +182,13 @@ func cpFile(sourcePath string, destPath string) error {
 }
 
 func (c *Compactor) getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, *dotc1z.C1File, c1zmanager.Manager, func(), error) {
+	cleanup := func() {}
 	baseC1Z, err := c1zmanager.New(ctx, info.FilePath, c1zmanager.WithTmpDir(c.tmpDir))
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, cleanup, err
 	}
 
-	cleanup := func() {
+	cleanup = func() {
 		_ = baseC1Z.Close(ctx)
 	}
 
