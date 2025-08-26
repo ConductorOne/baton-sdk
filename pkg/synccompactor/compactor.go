@@ -181,13 +181,14 @@ func cpFile(sourcePath string, destPath string) error {
 	return nil
 }
 
-func getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, *dotc1z.C1File, c1zmanager.Manager, func(), error) {
-	baseC1Z, err := c1zmanager.New(ctx, info.FilePath)
+func (c *Compactor) getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, *dotc1z.C1File, c1zmanager.Manager, func(), error) {
+	cleanup := func() {}
+	baseC1Z, err := c1zmanager.New(ctx, info.FilePath, c1zmanager.WithTmpDir(c.tmpDir))
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, cleanup, err
 	}
 
-	cleanup := func() {
+	cleanup = func() {
 		_ = baseC1Z.Close(ctx)
 	}
 
@@ -243,13 +244,13 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 		return nil, err
 	}
 
-	_, baseFile, _, cleanupBase, err := getLatestObjects(ctx, base)
+	_, baseFile, _, cleanupBase, err := c.getLatestObjects(ctx, base)
 	defer cleanupBase()
 	if err != nil {
 		return nil, err
 	}
 
-	_, appliedFile, _, cleanupApplied, err := getLatestObjects(ctx, applied)
+	_, appliedFile, _, cleanupApplied, err := c.getLatestObjects(ctx, applied)
 	defer cleanupApplied()
 	if err != nil {
 		return nil, err
