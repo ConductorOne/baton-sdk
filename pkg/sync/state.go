@@ -223,6 +223,7 @@ func (st *state) Unmarshal(input string) error {
 		st.needsExpansion = token.NeedsExpansion
 		st.hasExternalResourceGrants = token.HasExternalResourceGrants
 		st.shouldSkipEntitlementsAndGrants = token.ShouldSkipEntitlementsAndGrants
+		st.shouldFetchRelatedResources = token.ShouldFetchRelatedResources
 	} else {
 		st.actions = nil
 		st.entitlementGraph = nil
@@ -243,6 +244,7 @@ func (st *state) Marshal() (string, error) {
 		NeedsExpansion:                  st.needsExpansion,
 		EntitlementGraph:                st.entitlementGraph,
 		HasExternalResourceGrants:       st.hasExternalResourceGrants,
+		ShouldFetchRelatedResources:     st.shouldFetchRelatedResources,
 		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants,
 	})
 	if err != nil {
