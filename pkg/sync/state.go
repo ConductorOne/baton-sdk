@@ -207,8 +207,8 @@ func (st *state) Current() *Action {
 // Unmarshal takes an input string and unmarshals it onto the state object. If the input is empty, we set the state to
 // have an init action.
 func (st *state) Unmarshal(input string) error {
-	st.mtx.RLock()
-	defer st.mtx.RUnlock()
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
 
 	token := serializedToken{}
 
