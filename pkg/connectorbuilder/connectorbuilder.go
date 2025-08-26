@@ -325,25 +325,36 @@ func (b *builderImpl) ListTicketSchemas(ctx context.Context, request *v2.Tickets
 		return nil, fmt.Errorf("error: ticket manager not implemented")
 	}
 
-	out, nextPageToken, annos, err := b.ticketManager.ListTicketSchemas(ctx, &pagination.Token{
-		Size:  int(request.PageSize),
-		Token: request.PageToken,
+	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
+		MaxAttempts:  10,
+		InitialDelay: 15 * time.Second,
+		MaxDelay:     0,
 	})
-	if err != nil {
+
+	for {
+		out, nextPageToken, annos, err := b.ticketManager.ListTicketSchemas(ctx, &pagination.Token{
+			Size:  int(request.PageSize),
+			Token: request.PageToken,
+		})
+		if err == nil {
+			if request.PageToken != "" && request.PageToken == nextPageToken {
+				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+				return nil, fmt.Errorf("error: listing ticket schemas failed: next page token is the same as the current page token. this is most likely a connector bug")
+			}
+
+			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+			return &v2.TicketsServiceListTicketSchemasResponse{
+				List:          out,
+				NextPageToken: nextPageToken,
+				Annotations:   annos,
+			}, nil
+		}
+		if retryer.ShouldWaitAndRetry(ctx, err) {
+			continue
+		}
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: listing ticket schemas failed: %w", err)
 	}
-	if request.PageToken != "" && request.PageToken == nextPageToken {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: listing ticket schemas failed: next page token is the same as the current page token. this is most likely a connector bug")
-	}
-
-	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-	return &v2.TicketsServiceListTicketSchemasResponse{
-		List:          out,
-		NextPageToken: nextPageToken,
-		Annotations:   annos,
-	}, nil
 }
 
 func (b *builderImpl) CreateTicket(ctx context.Context, request *v2.TicketsServiceCreateTicketRequest) (*v2.TicketsServiceCreateTicketResponse, error) {
@@ -977,12 +988,24 @@ func (b *builderImpl) Validate(ctx context.Context, request *v2.ConnectorService
 	ctx, span := tracer.Start(ctx, "builderImpl.Validate")
 	defer span.End()
 
-	annos, err := b.cb.Validate(ctx)
-	if err != nil {
-		return nil, err
-	}
+	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
+		MaxAttempts:  5,
+		InitialDelay: 1 * time.Second,
+		MaxDelay:     0,
+	})
 
-	return &v2.ConnectorServiceValidateResponse{Annotations: annos}, nil
+	for {
+		annos, err := b.cb.Validate(ctx)
+		if err == nil {
+			return &v2.ConnectorServiceValidateResponse{Annotations: annos}, nil
+		}
+
+		if retryer.ShouldWaitAndRetry(ctx, err) {
+			continue
+		}
+
+		return nil, fmt.Errorf("validate failed: %w", err)
+	}
 }
 
 func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (*v2.GrantManagerServiceGrantResponse, error) {
@@ -1032,9 +1055,8 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 		if retryer.ShouldWaitAndRetry(ctx, err) {
 			continue
 		}
-		l.Error("error: grant failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("err: grant failed: %w", err)
+		return nil, fmt.Errorf("grant failed: %w", err)
 	}
 }
 
@@ -1080,9 +1102,8 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		if retryer.ShouldWaitAndRetry(ctx, err) {
 			continue
 		}
-		l.Error("error: revoke failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: revoke failed: %w", err)
+		return nil, fmt.Errorf("revoke failed: %w", err)
 	}
 }
 

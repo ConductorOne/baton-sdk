@@ -89,6 +89,12 @@ func TestToBid(t *testing.T) {
 	}
 	_, err := MakeBid(&v2.Resource{})
 	require.Error(t, err)
+	_, err = MakeBid(&v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: "user",
+		},
+	})
+	require.Error(t, err)
 }
 
 func TestParseBid(t *testing.T) {

@@ -69,6 +69,7 @@ message Event {
     GrantEvent grant_event = 101;
     RevokeEvent revoke_event = 102;
     ResourceChangeEvent resource_change_event = 103;
+    CreateGrantEvent create_grant_event = 104;
   }
 
   // May contain resources for targets, actor, or items referenced in events
@@ -83,6 +84,12 @@ message UsageEvent {
 // Unrelated to this effort, but valuable for other projects
 message GrantEvent {
   c1.connector.v2.Grant grant = 1;
+}
+
+message CreateGrantEvent {
+  c1.connector.v2.Entitlement entitlement = 1 [(validate.rules).message = {required: true}];
+  c1.connector.v2.Resource principal = 2 [(validate.rules).message = {required: true}];
+  repeated google.protobuf.Any annotations = 3;
 }
 
 message RevokeEvent {
@@ -101,6 +108,7 @@ enum EventType {
   EVENT_TYPE_UNSPECIFIED = 0;
   EVENT_TYPE_USAGE = 1;
   EVENT_TYPE_RESOURCE_CHANGE = 4;
+  EVENT_TYPE_CREATE_GRANT = 5;
 }
 
 message EventFeedMetadata {

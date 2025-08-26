@@ -188,6 +188,26 @@ func MakeMainCommand[T field.Configurable](
 						v.GetString("create-account-email"),
 						profile,
 					))
+			case v.GetString("invoke-action") != "":
+				invokeActionArgsStr := v.GetString("invoke-action-args")
+				invokeActionArgs := map[string]any{}
+				if invokeActionArgsStr != "" {
+					err := json.Unmarshal([]byte(invokeActionArgsStr), &invokeActionArgs)
+					if err != nil {
+						return fmt.Errorf("failed to parse invoke-action-args: %w", err)
+					}
+				}
+				invokeActionArgsStruct, err := structpb.NewStruct(invokeActionArgs)
+				if err != nil {
+					return fmt.Errorf("failed to parse invoke-action-args: %w", err)
+				}
+				opts = append(opts,
+					connectorrunner.WithActionsEnabled(),
+					connectorrunner.WithOnDemandInvokeAction(
+						v.GetString("file"),
+						v.GetString("invoke-action"),
+						invokeActionArgsStruct,
+					))
 			case v.GetString("delete-resource") != "":
 				opts = append(opts,
 					connectorrunner.WithProvisioningEnabled(),
@@ -269,6 +289,8 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithExternalResourceEntitlementFilter(externalResourceEntitlementIdFilter))
 		}
 
+		opts = append(opts, connectorrunner.WithSkipEntitlementsAndGrants(v.GetBool("skip-entitlements-and-grants")))
+
 		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
@@ -327,7 +349,7 @@ func initOtel(ctx context.Context, name string, v *viper.Viper, initialLogFields
 		otelOpts = append(otelOpts, uotel.WithOtelEndpoint(otelEndpoint, otelTLSCertPath, otelTLSCert))
 	}
 
-	return uotel.InitOtel(context.Background(), otelOpts...)
+	return uotel.InitOtel(ctx, otelOpts...)
 }
 
 func MakeGRPCServerCommand[T field.Configurable](

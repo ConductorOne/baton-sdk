@@ -134,7 +134,7 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 // WithJSONResponse is a wrapper that marshals the returned response body into
 // the provided shape. If the API should return an empty JSON body (i.e. HTTP
 // status code 204 No Content), then pass a `nil` to `response`.
-func WithJSONResponse(response interface{}) DoOption {
+func WithJSONResponse(response any) DoOption {
 	return func(resp *WrapperResponse) error {
 		contentHeader := resp.Header.Get(ContentType)
 
@@ -158,7 +158,7 @@ func WithJSONResponse(response interface{}) DoOption {
 }
 
 // Ignore content type header and always try to parse the response as JSON.
-func WithAlwaysJSONResponse(response interface{}) DoOption {
+func WithAlwaysJSONResponse(response any) DoOption {
 	return func(resp *WrapperResponse) error {
 		if response == nil && len(resp.Body) == 0 {
 			return nil
@@ -167,6 +167,36 @@ func WithAlwaysJSONResponse(response interface{}) DoOption {
 		if err != nil {
 			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
 			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d", err, resp.StatusCode)
+		}
+		return nil
+	}
+}
+
+func WithXMLResponse(response any) DoOption {
+	return func(resp *WrapperResponse) error {
+		if !IsXMLContentType(resp.Header.Get(ContentType)) {
+			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get(ContentType))
+		}
+		if response == nil && len(resp.Body) == 0 {
+			return nil
+		}
+		err := xml.Unmarshal(resp.Body, response)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal xml response: %w. status code: %d", err, resp.StatusCode)
+		}
+		return nil
+	}
+}
+
+// Ignore content type header and always try to parse the response as XML.
+func WithAlwaysXMLResponse(response any) DoOption {
+	return func(resp *WrapperResponse) error {
+		if response == nil && len(resp.Body) == 0 {
+			return nil
+		}
+		err := xml.Unmarshal(resp.Body, response)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal xml response: %w. status code: %d", err, resp.StatusCode)
 		}
 		return nil
 	}
@@ -221,23 +251,7 @@ func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 	}
 }
 
-func WithXMLResponse(response interface{}) DoOption {
-	return func(resp *WrapperResponse) error {
-		if !IsXMLContentType(resp.Header.Get(ContentType)) {
-			return fmt.Errorf("unexpected content type for xml response: %s", resp.Header.Get(ContentType))
-		}
-		if response == nil && len(resp.Body) == 0 {
-			return nil
-		}
-		err := xml.Unmarshal(resp.Body, response)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal xml response: %w. body %v", err, resp.Body)
-		}
-		return nil
-	}
-}
-
-func WithResponse(response interface{}) DoOption {
+func WithResponse(response any) DoOption {
 	return func(resp *WrapperResponse) error {
 		if IsJSONContentType(resp.Header.Get(ContentType)) {
 			return WithJSONResponse(response)(resp)
@@ -257,6 +271,11 @@ func WithGenericResponse(response *map[string]any) DoOption {
 		if response == nil {
 			return status.Error(codes.InvalidArgument, "response is nil")
 		}
+
+		if resp.StatusCode == http.StatusNoContent {
+			return nil
+		}
+
 		var v any
 		var err error
 
@@ -334,7 +353,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		c.rateLimiter.Take()
 	}
 
-	if req.Method == http.MethodGet {
+	if req.Method == http.MethodGet && req.Header.Get("Cache-Control") != "no-cache" {
 		resp, err = c.baseHttpCache.Get(req)
 		if err != nil {
 			return nil, err
@@ -418,7 +437,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	switch resp.StatusCode {
 	case http.StatusRequestTimeout:
 		return resp, WrapErrorsWithRateLimitInfo(codes.DeadlineExceeded, resp, optErrs...)
-	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable:
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return resp, WrapErrorsWithRateLimitInfo(codes.Unavailable, resp, optErrs...)
 	case http.StatusNotFound:
 		return resp, WrapErrorsWithRateLimitInfo(codes.NotFound, resp, optErrs...)
@@ -471,13 +490,21 @@ func WithHeader(key, value string) RequestOption {
 	}
 }
 
+func WithNoCache() RequestOption {
+	return func() (io.ReadWriter, map[string]string, error) {
+		return nil, map[string]string{
+			"Cache-Control": "no-cache",
+		}, nil
+	}
+}
+
 func WithBody(body []byte) RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		return bytes.NewBuffer(body), nil, nil
 	}
 }
 
-func WithJSONBody(body interface{}) RequestOption {
+func WithJSONBody(body any) RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		buffer := new(bytes.Buffer)
 		err := json.NewEncoder(buffer).Encode(body)
@@ -511,7 +538,7 @@ func WithFormBody(body string) RequestOption {
 	}
 }
 
-func WithXMLBody(body interface{}) RequestOption {
+func WithXMLBody(body any) RequestOption {
 	return func() (io.ReadWriter, map[string]string, error) {
 		var buffer bytes.Buffer
 

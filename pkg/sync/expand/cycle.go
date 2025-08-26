@@ -4,6 +4,92 @@ import (
 	mapset "github.com/deckarep/golang-set/v2"
 )
 
+const (
+	colorWhite uint8 = iota
+	colorGray
+	colorBlack
+)
+
+// cycleDetector encapsulates coloring state for cycle detection on an
+// EntitlementGraph. Node IDs are dense (1..NextNodeID), so slices are used for
+// O(1) access and zero per-op allocations.
+type cycleDetector struct {
+	g      *EntitlementGraph
+	state  []uint8
+	parent []int
+}
+
+func newCycleDetector(g *EntitlementGraph) *cycleDetector {
+	cd := &cycleDetector{
+		g:      g,
+		state:  make([]uint8, g.NextNodeID+1),
+		parent: make([]int, g.NextNodeID+1),
+	}
+	for i := range cd.parent {
+		cd.parent[i] = -1
+	}
+	return cd
+}
+
+// dfs performs a coloring-based DFS from u, returning the first detected cycle
+// as a slice of node IDs or nil if no cycle is reachable from u.
+func (cd *cycleDetector) dfs(u int) ([]int, bool) {
+	// Self-loop fast path.
+	if nbrs, ok := cd.g.SourcesToDestinations[u]; ok {
+		if _, ok := nbrs[u]; ok {
+			return []int{u}, true
+		}
+	}
+
+	cd.state[u] = colorGray
+	if nbrs, ok := cd.g.SourcesToDestinations[u]; ok {
+		for v := range nbrs {
+			switch cd.state[v] {
+			case colorWhite:
+				cd.parent[v] = u
+				if cyc, ok := cd.dfs(v); ok {
+					return cyc, true
+				}
+			case colorGray:
+				// Back-edge to a node on the current recursion stack.
+				// Reconstruct cycle by walking parents from u back to v (inclusive), then reverse.
+				cycle := make([]int, 0, 8)
+				for x := u; ; x = cd.parent[x] {
+					cycle = append(cycle, x)
+					if x == v || cd.parent[x] == -1 {
+						break
+					}
+				}
+				for i, j := 0, len(cycle)-1; i < j; i, j = i+1, j-1 {
+					cycle[i], cycle[j] = cycle[j], cycle[i]
+				}
+				return cycle, true
+			}
+		}
+	}
+	cd.state[u] = colorBlack
+	return nil, false
+}
+
+// FindAny scans all nodes and returns the first detected cycle or nil if none exist.
+func (cd *cycleDetector) FindAny() []int {
+	for nodeID := range cd.g.Nodes {
+		if cd.state[nodeID] != colorWhite {
+			continue
+		}
+		if cyc, ok := cd.dfs(nodeID); ok {
+			return cyc
+		}
+	}
+	return nil
+}
+
+// FindFrom starts cycle detection from a specific node and returns the first
+// cycle reachable from that node, or nil,false if none.
+func (cd *cycleDetector) FindFrom(start int) ([]int, bool) {
+	return cd.dfs(start)
+}
+
 // GetFirstCycle given an entitlements graph, return a cycle by node ID if it
 // exists. Returns nil if no cycle exists. If there is a single
 // node pointing to itself, that will count as a cycle.
@@ -11,46 +97,18 @@ func (g *EntitlementGraph) GetFirstCycle() []int {
 	if g.HasNoCycles {
 		return nil
 	}
-	visited := mapset.NewSet[int]()
-	for nodeID := range g.Nodes {
-		cycle, hasCycle := g.cycleDetectionHelper(nodeID, visited, []int{})
-		if hasCycle {
-			return cycle
-		}
-	}
-
-	return nil
+	cd := newCycleDetector(g)
+	return cd.FindAny()
 }
 
 func (g *EntitlementGraph) cycleDetectionHelper(
 	nodeID int,
-	visited mapset.Set[int],
-	currentCycle []int,
 ) ([]int, bool) {
-	visited.Add(nodeID)
-	if destinations, ok := g.SourcesToDestinations[nodeID]; ok {
-		for destinationID := range destinations {
-			nextCycle := make([]int, len(currentCycle))
-			copy(nextCycle, currentCycle)
-			nextCycle = append(nextCycle, nodeID)
-
-			if !visited.Contains(destinationID) {
-				if cycle, hasCycle := g.cycleDetectionHelper(destinationID, visited, nextCycle); hasCycle {
-					return cycle, true
-				}
-			} else {
-				// Make sure to not include part of the start before the cycle.
-				outputCycle := make([]int, 0)
-				for i := len(nextCycle) - 1; i >= 0; i-- {
-					outputCycle = append(outputCycle, nextCycle[i])
-					if nextCycle[i] == destinationID {
-						return outputCycle, true
-					}
-				}
-			}
-		}
-	}
-	return nil, false
+	// Thin wrapper around the coloring-based DFS, starting from a specific node.
+	// The provided visited/currentCycle are ignored here; coloring provides the
+	// necessary state for correctness and performance.
+	cd := newCycleDetector(g)
+	return cd.FindFrom(nodeID)
 }
 
 // removeNode obliterates a node and all incoming/outgoing edges.
