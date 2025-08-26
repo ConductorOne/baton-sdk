@@ -1279,7 +1279,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 				return err
 			}
 		} else {
-			l.Info("Finished loading entitlement graph", zap.Int("edges", len(entitlementGraph.Edges)))
+			l.Debug("Finished loading grants to expand")
 			entitlementGraph.Loaded = true
 		}
 
@@ -1347,6 +1347,9 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 					return fmt.Errorf("error adding edge to graph: %w", err)
 				}
 			}
+		}
+		if entitlementGraph.Loaded {
+			l.Info("Finished loading entitlement graph", zap.Int("edges", len(entitlementGraph.Edges)))
 		}
 		return nil
 	}

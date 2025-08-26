@@ -148,11 +148,11 @@ type state struct {
 type serializedToken struct {
 	Actions                         []Action                 `json:"actions"`
 	CurrentAction                   *Action                  `json:"current_action"`
-	NeedsExpansion                  bool                     `json:"needs_expansion"`
+	NeedsExpansion                  bool                     `json:"needs_expansion,omitempty"`
 	EntitlementGraph                *expand.EntitlementGraph `json:"entitlement_graph"`
-	HasExternalResourceGrants       bool                     `json:"has_external_resource_grants"`
-	ShouldFetchRelatedResources     bool                     `json:"should_fetch_related_resources"`
-	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants"`
+	HasExternalResourceGrants       bool                     `json:"has_external_resource_grants,omitempty"`
+	ShouldFetchRelatedResources     bool                     `json:"should_fetch_related_resources,omitempty"`
+	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
 }
 
 // push adds a new action to the stack. If there is no current state, the action is directly set to current, else
@@ -207,8 +207,8 @@ func (st *state) Current() *Action {
 // Unmarshal takes an input string and unmarshals it onto the state object. If the input is empty, we set the state to
 // have an init action.
 func (st *state) Unmarshal(input string) error {
-	st.mtx.RLock()
-	defer st.mtx.RUnlock()
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
 
 	token := serializedToken{}
 
@@ -223,6 +223,7 @@ func (st *state) Unmarshal(input string) error {
 		st.needsExpansion = token.NeedsExpansion
 		st.hasExternalResourceGrants = token.HasExternalResourceGrants
 		st.shouldSkipEntitlementsAndGrants = token.ShouldSkipEntitlementsAndGrants
+		st.shouldFetchRelatedResources = token.ShouldFetchRelatedResources
 	} else {
 		st.actions = nil
 		st.entitlementGraph = nil
@@ -243,6 +244,7 @@ func (st *state) Marshal() (string, error) {
 		NeedsExpansion:                  st.needsExpansion,
 		EntitlementGraph:                st.entitlementGraph,
 		HasExternalResourceGrants:       st.hasExternalResourceGrants,
+		ShouldFetchRelatedResources:     st.shouldFetchRelatedResources,
 		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants,
 	})
 	if err != nil {
