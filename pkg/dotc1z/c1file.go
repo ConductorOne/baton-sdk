@@ -154,6 +154,11 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 func (c *C1File) Close() error {
 	var err error
 
+	defer func() {
+		// Cleanup the database filepath. This should always be a file within a temp directory, so we remove the entire dir.
+		_ = os.RemoveAll(filepath.Dir(c.dbFilePath))
+	}()
+
 	if c.rawDb != nil {
 		err = c.rawDb.Close()
 		if err != nil {
@@ -169,12 +174,6 @@ func (c *C1File) Close() error {
 		if err != nil {
 			return err
 		}
-	}
-
-	// Cleanup the database filepath. This should always be a file within a temp directory, so we remove the entire dir.
-	err = os.RemoveAll(filepath.Dir(c.dbFilePath))
-	if err != nil {
-		return err
 	}
 
 	return nil
