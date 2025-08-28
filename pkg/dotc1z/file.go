@@ -69,12 +69,6 @@ func saveC1z(dbFilePath string, outputFilePath string) error {
 		if err != nil {
 			zap.L().Error("failed to close db file", zap.Error(err))
 		}
-
-		// Cleanup the database filepath. This should always be a file within a temp directory, so we remove the entire dir.
-		err = os.RemoveAll(filepath.Dir(dbFilePath))
-		if err != nil {
-			zap.L().Error("failed to remove db dir", zap.Error(err))
-		}
 	}()
 
 	outFile, err := os.OpenFile(outputFilePath, os.O_RDWR|os.O_CREATE|syscall.O_TRUNC, 0644)
