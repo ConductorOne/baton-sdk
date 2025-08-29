@@ -610,6 +610,11 @@ func (ps *parallelSyncer) initializeSync(ctx context.Context) error {
 	}
 	ps.syncer.state = state
 
+	// Set progress counts to parallel mode for thread safety
+	if ps.syncer.counts != nil {
+		ps.syncer.counts.SetSequentialMode(false)
+	}
+
 	return nil
 }
 
