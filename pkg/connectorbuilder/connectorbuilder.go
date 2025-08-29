@@ -1326,11 +1326,6 @@ func (b *builderImpl) DeleteResourceV2(ctx context.Context, request *v2.DeleteRe
 	if !ok {
 		rsDeleter, ok = b.resourceDeleters[rt]
 	}
-
-	rsDeleter, ok = b.resourceManagers[rt]
-	if !ok {
-		rsDeleter, ok = b.resourceDeleters[rt]
-	}
 	if ok {
 		annos, err := rsDeleter.Delete(ctx, request.GetResourceId())
 		if err != nil {
