@@ -340,6 +340,7 @@ type runnerConfig struct {
 	syncDifferConfig                    *syncDifferConfig
 	syncCompactorConfig                 *syncCompactorConfig
 	skipFullSync                        bool
+	parallelSync                        bool
 	targetedSyncResourceIDs             []string
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
@@ -550,6 +551,13 @@ func WithActionsEnabled() Option {
 func WithFullSyncDisabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.skipFullSync = true
+		return nil
+	}
+}
+
+func WithParallelSyncEnabled() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.parallelSync = true
 		return nil
 	}
 }
@@ -769,6 +777,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
 				local.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs),
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
+				local.WithParallelSyncEnabled(cfg.parallelSync),
 			)
 			if err != nil {
 				return nil, err
@@ -781,7 +790,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		return runner, nil
 	}
 
-	tm, err := c1api.NewC1TaskManager(ctx,
+	tm, err := c1api.NewC1TaskManager(
+		ctx,
 		cfg.clientID,
 		cfg.clientSecret,
 		cfg.tempDir,
@@ -789,6 +799,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.externalResourceC1Z,
 		cfg.externalResourceEntitlementIdFilter,
 		cfg.targetedSyncResourceIDs,
+		cfg.parallelSync,
 	)
 	if err != nil {
 		return nil, err
