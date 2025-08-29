@@ -130,14 +130,14 @@ message Task {
     repeated google.protobuf.Any annotations = 3;
   }
 
-  message CreateSyncDiffTask  {
+  message CreateSyncDiffTask {
     // Open to suggestions here
     string base_sync_id = 1;
     string new_sync_id = 2;
     repeated google.protobuf.Any annotations = 3;
   }
 
-  message CompactSyncs  {
+  message CompactSyncs {
     message CompactableSync {
       string file_path = 1;
       string sync_id = 2;
