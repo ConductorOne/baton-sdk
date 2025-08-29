@@ -13,6 +13,7 @@ import (
 	aws_lambda "github.com/aws/aws-lambda-go/lambda"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -21,11 +22,15 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	pb_connector_api "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/auth"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	c1_lambda_grpc "github.com/conductorone/baton-sdk/pkg/lambda/grpc"
 	c1_lambda_config "github.com/conductorone/baton-sdk/pkg/lambda/grpc/config"
 	"github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware"
+	"github.com/conductorone/baton-sdk/pkg/session"
+	"github.com/conductorone/baton-sdk/pkg/types"
+	"google.golang.org/grpc"
 )
 
 func OptionallyAddLambdaCommand[T field.Configurable](
@@ -101,17 +106,21 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 
-		client, webKey, err := c1_lambda_config.GetConnectorConfigServiceClient(
+		// Create DPoP client with authentication
+		grpcClient, webKey, _, err := c1_lambda_config.NewDPoPClient(
 			runCtx,
 			v.GetString(field.LambdaServerClientIDField.GetName()),
 			v.GetString(field.LambdaServerClientSecretField.GetName()),
 		)
 		if err != nil {
-			return fmt.Errorf("lambda-run: failed to get connector manager client: %w", err)
+			return fmt.Errorf("lambda-run: failed to create DPoP client: %w", err)
 		}
 
+		// Create connector config service client using the DPoP client
+		configClient := pb_connector_api.NewConnectorConfigServiceClient(grpcClient)
+
 		// Get configuration, convert it to viper flag values, then proceed.
-		config, err := client.GetConnectorConfig(runCtx, &pb_connector_api.GetConnectorConfigRequest{})
+		config, err := configClient.GetConnectorConfig(runCtx, &pb_connector_api.GetConnectorConfigRequest{})
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to get connector config: %w", err)
 		}
@@ -152,6 +161,14 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to validate config: %w", err)
 		}
 
+		// Create session cache and add to context
+		// Use the same DPoP credentials for the session cache
+		sessionCacheConstructor := createSessionCacheConstructor(grpcClient)
+		runCtx, err = WithSessionCache(runCtx, sessionCacheConstructor)
+		if err != nil {
+			return fmt.Errorf("lambda-run: failed to create session cache: %w", err)
+		}
+
 		c, err := getconnector(runCtx, t)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
@@ -184,11 +201,24 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			TicketingEnabled:    true,
 		}
 
-		s := c1_lambda_grpc.NewServer(authOpt)
+		chain := ugrpc.ChainUnaryInterceptors(authOpt, ugrpc.SessionCacheUnaryInterceptor(runCtx))
+
+		s := c1_lambda_grpc.NewServer(chain)
 		connector.Register(runCtx, s, c, opts)
 
 		aws_lambda.StartWithOptions(s.Handler, aws_lambda.WithContext(runCtx))
 		return nil
 	}
+
 	return nil
+}
+
+// createSessionCacheConstructor creates a session cache constructor function that uses the provided gRPC client
+func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) types.SessionCacheConstructor {
+	return func(ctx context.Context, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
+		// Create the gRPC session client using the same gRPC connection
+		client := v1.NewBatonSessionServiceClient(grpcClient)
+		// Create and return the session cache
+		return session.NewGRPCSessionCache(ctx, client, opt...)
+	}
 }
