@@ -453,11 +453,29 @@ func (w *worker) processTask(task *task) error {
 		l.Info("calling syncResources", zap.String("resource_type", task.Action.ResourceTypeID))
 		return w.syncer.syncResources(ctx, task.Action)
 	case SyncEntitlementsOp:
-		l.Info("calling syncEntitlementsForResourceType", zap.String("resource_type", task.Action.ResourceTypeID))
-		return w.syncer.syncEntitlementsForResourceType(ctx, task.Action)
+		if task.Action.ResourceID != "" {
+			// Process specific resource's entitlements
+			l.Info("calling syncEntitlementsForResource",
+				zap.String("resource_type", task.Action.ResourceTypeID),
+				zap.String("resource_id", task.Action.ResourceID))
+			return w.syncer.syncEntitlementsForResource(ctx, task.Action)
+		} else {
+			// Fallback to resource type processing (for backward compatibility)
+			l.Info("calling syncEntitlementsForResourceType", zap.String("resource_type", task.Action.ResourceTypeID))
+			return w.syncer.syncEntitlementsForResourceType(ctx, task.Action)
+		}
 	case SyncGrantsOp:
-		l.Info("calling syncGrantsForResourceType", zap.String("resource_type", task.Action.ResourceTypeID))
-		return w.syncer.syncGrantsForResourceType(ctx, task.Action)
+		if task.Action.ResourceID != "" {
+			// Process specific resource's grants
+			l.Info("calling syncGrantsForResource",
+				zap.String("resource_type", task.Action.ResourceTypeID),
+				zap.String("resource_id", task.Action.ResourceID))
+			return w.syncer.syncGrantsForResource(ctx, task.Action)
+		} else {
+			// Fallback to resource type processing (for backward compatibility)
+			l.Info("calling syncGrantsForResourceType", zap.String("resource_type", task.Action.ResourceTypeID))
+			return w.syncer.syncGrantsForResourceType(ctx, task.Action)
+		}
 	default:
 		return fmt.Errorf("unsupported operation: %s", task.Action.Op.String())
 	}
@@ -1074,18 +1092,19 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 	l.Info("all resource pages complete, creating entitlement and grant tasks",
 		zap.String("resource_type", action.ResourceTypeID))
 
-	// Debug: Check how many resources we have for this resource type
-	debugResp, err := ps.syncer.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+	// Get all resources for this resource type to create individual tasks
+	allResourcesResp, err := ps.syncer.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
 		ResourceTypeId: action.ResourceTypeID,
 		PageToken:      "",
 	})
 	if err != nil {
-		l.Error("failed to list resources for debugging", zap.Error(err))
-	} else {
-		l.Info("resource count for grants/entitlements creation",
-			zap.String("resource_type", action.ResourceTypeID),
-			zap.Int("total_resource_count", len(debugResp.List)))
+		l.Error("failed to list resources for task creation", zap.Error(err))
+		return err
 	}
+
+	l.Info("creating resource-level tasks",
+		zap.String("resource_type", action.ResourceTypeID),
+		zap.Int("total_resource_count", len(allResourcesResp.List)))
 
 	// Check if this resource type has child resource types that need to be processed
 	// We need to process child resources before entitlements and grants
@@ -1094,51 +1113,64 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 		return err
 	}
 
-	// Create task to sync all entitlements for this resource type
-	entitlementsTask := &task{
-		Action: Action{
-			Op:             SyncEntitlementsOp,
-			ResourceTypeID: action.ResourceTypeID,
-		},
-		Priority: 2,
+	// Create individual tasks for each resource's entitlements and grants
+	for _, resource := range allResourcesResp.List {
+		// Check if we should skip entitlements and grants for this resource
+		shouldSkip, err := ps.shouldSkipEntitlementsAndGrants(ctx, resource)
+		if err != nil {
+			l.Error("failed to check if resource should be skipped", zap.Error(err))
+			return err
+		}
+		if shouldSkip {
+			l.Debug("skipping entitlements and grants for resource",
+				zap.String("resource_type", resource.Id.ResourceType),
+				zap.String("resource_id", resource.Id.Resource))
+			continue
+		}
+
+		// Create task to sync entitlements for this specific resource
+		entitlementsTask := &task{
+			Action: Action{
+				Op:             SyncEntitlementsOp,
+				ResourceTypeID: action.ResourceTypeID,
+				ResourceID:     resource.Id.Resource,
+			},
+			Priority: 2,
+		}
+
+		l.Debug("adding entitlements task for resource",
+			zap.String("resource_type", action.ResourceTypeID),
+			zap.String("resource_id", resource.Id.Resource))
+
+		if err := ps.taskQueue.AddTask(entitlementsTask); err != nil {
+			l.Error("failed to add entitlements task", zap.Error(err))
+			return fmt.Errorf("failed to add entitlements task for resource %s: %w", resource.Id.Resource, err)
+		}
+
+		// Create task to sync grants for this specific resource
+		grantsTask := &task{
+			Action: Action{
+				Op:             SyncGrantsOp,
+				ResourceTypeID: action.ResourceTypeID,
+				ResourceID:     resource.Id.Resource,
+			},
+			Priority: 3,
+		}
+
+		l.Debug("adding grants task for resource",
+			zap.String("resource_type", action.ResourceTypeID),
+			zap.String("resource_id", resource.Id.Resource))
+
+		if err := ps.taskQueue.AddTask(grantsTask); err != nil {
+			l.Error("failed to add grants task", zap.Error(err))
+			return fmt.Errorf("failed to add grants task for resource %s: %w", resource.Id.Resource, err)
+		}
 	}
 
-	l.Info("about to add entitlements task",
+	l.Info("resource-level task creation complete",
 		zap.String("resource_type", action.ResourceTypeID),
-		zap.String("task_op", entitlementsTask.Action.Op.String()))
-
-	if err := ps.taskQueue.AddTask(entitlementsTask); err != nil {
-		l.Error("failed to add entitlements task", zap.Error(err))
-		return fmt.Errorf("failed to add entitlements task for resource type %s: %w", action.ResourceTypeID, err)
-	}
-
-	l.Info("entitlements task added", zap.String("resource_type", action.ResourceTypeID))
-
-	// Create task to sync all grants for this resource type
-	grantsTask := &task{
-		Action: Action{
-			Op:             SyncGrantsOp,
-			ResourceTypeID: action.ResourceTypeID,
-		},
-		Priority: 3,
-	}
-
-	l.Info("about to add grants task",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.String("task_op", grantsTask.Action.Op.String()))
-
-	if err := ps.taskQueue.AddTask(grantsTask); err != nil {
-		l.Error("failed to add grants task", zap.Error(err))
-		return fmt.Errorf("failed to add grants task for resource type %s: %w", action.ResourceTypeID, err)
-	}
-
-	l.Info("grants task added", zap.String("resource_type", action.ResourceTypeID))
-
-	// Debug: Log the total number of grants tasks we expect to create
-	l.Info("grants task creation summary",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.String("task_operation", "grants"),
-		zap.String("task_priority", "3"))
+		zap.Int("entitlement_tasks_created", len(allResourcesResp.List)),
+		zap.Int("grant_tasks_created", len(allResourcesResp.List)))
 
 	return nil
 }
@@ -1284,7 +1316,6 @@ func (ps *parallelSyncer) syncEntitlementsForResourceType(ctx context.Context, a
 			if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
 				l.Error("failed to update local state with next page token",
 					zap.String("resource_type", r.Id.ResourceType),
-					zap.String("resource_id", r.Id.Resource),
 					zap.String("page_token", decision.NextPageToken),
 					zap.Error(err))
 				return err
@@ -1299,6 +1330,126 @@ func (ps *parallelSyncer) syncEntitlementsForResourceType(ctx context.Context, a
 					zap.Error(err))
 				return err
 			}
+		}
+	}
+
+	return nil
+}
+
+// syncEntitlementsForResource processes entitlements for a specific resource
+func (ps *parallelSyncer) syncEntitlementsForResource(ctx context.Context, action Action) error {
+	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncEntitlementsForResource")
+	defer span.End()
+
+	l := ctxzap.Extract(ctx)
+	l.Info("starting entitlements sync for specific resource",
+		zap.String("resource_type", action.ResourceTypeID),
+		zap.String("resource_id", action.ResourceID))
+
+	// Create resource ID from action
+	resourceID := &v2.ResourceId{
+		ResourceType: action.ResourceTypeID,
+		Resource:     action.ResourceID,
+	}
+
+	// Create local state context for this resource
+	localState := NewLocalStateContext(resourceID)
+
+	// Use existing logic but for single resource
+	decision, err := ps.syncEntitlementsForResourceLogic(ctx, resourceID, localState)
+	if err != nil {
+		l.Error("failed to sync entitlements for resource",
+			zap.String("resource_type", action.ResourceTypeID),
+			zap.String("resource_id", action.ResourceID),
+			zap.Error(err))
+		return err
+	}
+
+	// Handle pagination if needed
+	for decision.ShouldContinue && decision.Action == "next_page" {
+		l.Info("continuing entitlements sync with next page",
+			zap.String("resource_type", action.ResourceTypeID),
+			zap.String("resource_id", action.ResourceID),
+			zap.String("page_token", decision.NextPageToken))
+
+		// Update the local state with the new page token before continuing
+		if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
+			l.Error("failed to update local state with next page token",
+				zap.String("resource_type", action.ResourceTypeID),
+				zap.String("resource_id", action.ResourceID),
+				zap.String("page_token", decision.NextPageToken),
+				zap.Error(err))
+			return err
+		}
+
+		// Continue with next page
+		decision, err = ps.syncEntitlementsForResourceLogic(ctx, resourceID, localState)
+		if err != nil {
+			l.Error("failed to sync entitlements for resource on next page",
+				zap.String("resource_type", action.ResourceTypeID),
+				zap.String("resource_id", action.ResourceID),
+				zap.Error(err))
+			return err
+		}
+	}
+
+	return nil
+}
+
+// syncGrantsForResource processes grants for a specific resource
+func (ps *parallelSyncer) syncGrantsForResource(ctx context.Context, action Action) error {
+	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncGrantsForResource")
+	defer span.End()
+
+	l := ctxzap.Extract(ctx)
+	l.Info("starting grants sync for specific resource",
+		zap.String("resource_type", action.ResourceTypeID),
+		zap.String("resource_id", action.ResourceID))
+
+	// Create resource ID from action
+	resourceID := &v2.ResourceId{
+		ResourceType: action.ResourceTypeID,
+		Resource:     action.ResourceID,
+	}
+
+	// Create local state context for this resource
+	localState := NewLocalStateContext(resourceID)
+
+	// Use existing logic but for single resource
+	decision, err := ps.syncGrantsForResourceLogic(ctx, resourceID, localState)
+	if err != nil {
+		l.Error("failed to sync grants for resource",
+			zap.String("resource_type", action.ResourceTypeID),
+			zap.String("resource_id", action.ResourceID),
+			zap.Error(err))
+		return err
+	}
+
+	// Handle pagination if needed
+	for decision.ShouldContinue && decision.Action == "next_page" {
+		l.Info("continuing grants sync with next page",
+			zap.String("resource_type", action.ResourceTypeID),
+			zap.String("resource_id", action.ResourceID),
+			zap.String("page_token", decision.NextPageToken))
+
+		// Update the local state with the new page token before continuing
+		if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
+			l.Error("failed to update local state with next page token",
+				zap.String("resource_type", action.ResourceTypeID),
+				zap.String("resource_id", action.ResourceID),
+				zap.String("page_token", decision.NextPageToken),
+				zap.Error(err))
+			return err
+		}
+
+		// Continue with next page
+		decision, err = ps.syncGrantsForResourceLogic(ctx, resourceID, localState)
+		if err != nil {
+			l.Error("failed to sync grants for resource on next page",
+				zap.String("resource_type", action.ResourceTypeID),
+				zap.String("resource_id", action.ResourceID),
+				zap.Error(err))
+			return err
 		}
 	}
 
