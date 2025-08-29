@@ -3,10 +3,10 @@ package dotc1z
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -237,6 +237,10 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	// Start timing the query execution
 	queryStartTime := time.Now()
 
+	// Acquire checkpoint lock to coordinate with WAL checkpointing
+	c.acquireCheckpointLock()
+	defer c.releaseCheckpointLock()
+
 	// Execute the query
 	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -436,6 +440,10 @@ func prepareConnectorObjectRows[T proto.Message](
 	return prepareConnectorObjectRowsSerial(c, msgs, extractFields)
 }
 
+func isSQLiteBusy(err error) bool {
+	return strings.Contains(err.Error(), "database is locked") || strings.Contains(err.Error(), "SQLITE_BUSY")
+}
+
 // executeChunkedInsert executes the insert query in chunks.
 func executeChunkedInsert(
 	ctx context.Context,
@@ -450,13 +458,6 @@ func executeChunkedInsert(
 		chunks++
 	}
 
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-
-	var txError error
-
 	for i := 0; i < chunks; i++ {
 		start := i * chunkSize
 		end := (i + 1) * chunkSize
@@ -465,40 +466,95 @@ func executeChunkedInsert(
 		}
 		chunkedRows := rows[start:end]
 
-		// Create the base insert dataset
+		err := executeChunkWithRetry(ctx, c, tableName, chunkedRows, buildQueryFn)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// executeChunkWithRetry executes a single chunk with retry logic for SQLITE_BUSY errors
+func executeChunkWithRetry(
+	ctx context.Context,
+	c *C1File,
+	tableName string,
+	chunkedRows []*goqu.Record,
+	buildQueryFn func(*goqu.InsertDataset, []*goqu.Record) (*goqu.InsertDataset, error),
+) error {
+	maxRetries := 5
+	baseDelay := 10 * time.Millisecond
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Acquire checkpoint lock to coordinate with WAL checkpointing
+		c.acquireCheckpointLock()
+
+		tx, err := c.db.BeginTx(ctx, nil)
+		if err != nil {
+			c.releaseCheckpointLock()
+			if isSQLiteBusy(err) && attempt < maxRetries-1 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(time.Duration(attempt+1) * baseDelay):
+					continue
+				}
+			}
+			return err
+		}
+
 		insertDs := tx.Insert(tableName)
 
-		// Apply the custom query building function
 		insertDs, err = buildQueryFn(insertDs, chunkedRows)
 		if err != nil {
-			txError = err
-			break
+			c.releaseCheckpointLock()
+			tx.Rollback()
+			return err
 		}
 
 		// Generate the SQL
 		query, args, err := insertDs.ToSQL()
 		if err != nil {
-			txError = err
-			break
+			c.releaseCheckpointLock()
+			tx.Rollback()
+			return err
 		}
 
-		// Execute the query
 		_, err = tx.ExecContext(ctx, query, args...)
 		if err != nil {
-			txError = err
-			break
+			c.releaseCheckpointLock()
+			tx.Rollback()
+			if isSQLiteBusy(err) && attempt < maxRetries-1 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(time.Duration(attempt+1) * baseDelay):
+					continue
+				}
+			}
+			return err
 		}
+
+		err = tx.Commit()
+		if err != nil {
+			c.releaseCheckpointLock()
+			if isSQLiteBusy(err) && attempt < maxRetries-1 {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(time.Duration(attempt+1) * baseDelay):
+					continue
+				}
+			}
+			return err
+		}
+
+		c.releaseCheckpointLock()
+		return nil
 	}
 
-	if txError != nil {
-		if rollbackErr := tx.Rollback(); rollbackErr != nil {
-			return errors.Join(rollbackErr, txError)
-		}
-
-		return fmt.Errorf("error executing chunked insert: %w", txError)
-	}
-
-	return tx.Commit()
+	return fmt.Errorf("failed to execute chunk after %d retries", maxRetries)
 }
 
 func bulkPutConnectorObject[T proto.Message](
