@@ -18,8 +18,9 @@ type Manager interface {
 }
 
 type managerOptions struct {
-	tmpDir         string
-	decoderOptions []dotc1z.DecoderOption
+	tmpDir              string
+	decoderOptions      []dotc1z.DecoderOption
+	enableWALCheckpoint bool
 }
 
 type ManagerOption func(*managerOptions)
@@ -33,6 +34,12 @@ func WithTmpDir(tmpDir string) ManagerOption {
 func WithDecoderOptions(opts ...dotc1z.DecoderOption) ManagerOption {
 	return func(o *managerOptions) {
 		o.decoderOptions = opts
+	}
+}
+
+func WithWALCheckpoint(enable bool) ManagerOption {
+	return func(o *managerOptions) {
+		o.enableWALCheckpoint = enable
 	}
 }
 
@@ -56,6 +63,9 @@ func New(ctx context.Context, filePath string, opts ...ManagerOption) (Manager, 
 		if len(options.decoderOptions) > 0 {
 			s3Opts = append(s3Opts, s3.WithDecoderOptions(options.decoderOptions...))
 		}
+		if options.enableWALCheckpoint {
+			s3Opts = append(s3Opts, s3.WithWALCheckpoint(true))
+		}
 		return s3.NewS3Manager(ctx, filePath, s3Opts...)
 	default:
 		var localOpts []local.Option
@@ -64,6 +74,9 @@ func New(ctx context.Context, filePath string, opts ...ManagerOption) (Manager, 
 		}
 		if len(options.decoderOptions) > 0 {
 			localOpts = append(localOpts, local.WithDecoderOptions(options.decoderOptions...))
+		}
+		if options.enableWALCheckpoint {
+			localOpts = append(localOpts, local.WithWALCheckpoint(true))
 		}
 		return local.New(ctx, filePath, localOpts...)
 	}
