@@ -1,7 +1,7 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 import (
-	"context"
+	"encoding/json"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -24,7 +24,7 @@ var allActionOps = []ActionOp{
 	SyncStaticEntitlementsOp,
 }
 
-func compareSyncerState(t *testing.T, expected Action, actual *Action) {
+func compareSyncerState(t *testing.T, expected Action, actual Action) {
 	require.NotNil(t, actual)
 	require.Equal(t, expected.Op, actual.Op)
 	require.Equal(t, expected.PageToken, actual.PageToken)
@@ -39,55 +39,58 @@ func TestActionOps(t *testing.T) {
 }
 
 func TestSyncerToken(t *testing.T) {
-	st := &state{}
+	ctx := t.Context()
+	st := newState()
 	op1 := Action{Op: InitOp, PageToken: ""}
 	op2 := Action{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"}
 	op3 := Action{Op: SyncEntitlementsOp, PageToken: "1234", ResourceTypeID: "repo", ResourceID: "repo42"}
 	op4 := Action{Op: SyncEntitlementsOp, PageToken: "5678", ResourceTypeID: "repo", ResourceID: "repo42"}
 
-	st.push(op1)
-	compareSyncerState(t, op1, st.Current())
-	require.Empty(t, st.actions)
-	st.push(op2)
-	compareSyncerState(t, op2, st.Current())
+	st.PushAction(ctx, op1)
+	compareSyncerState(t, op1, *st.Current())
 	require.Len(t, st.actions, 1)
-	compareSyncerState(t, op1, &st.actions[0])
-
-	popped := st.pop()
-	compareSyncerState(t, op2, popped)
-	compareSyncerState(t, op1, st.Current())
-	require.Len(t, st.actions, 0)
-
-	st.push(op3)
-	compareSyncerState(t, op3, st.Current())
-	require.Len(t, st.actions, 1)
-	compareSyncerState(t, op1, &st.actions[0])
-
-	st.push(op4)
-	compareSyncerState(t, op4, st.Current())
+	st.PushAction(ctx, op2)
+	compareSyncerState(t, op2, *st.Current())
 	require.Len(t, st.actions, 2)
-	compareSyncerState(t, op1, &st.actions[0])
-	compareSyncerState(t, op3, &st.actions[1])
+	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
+	compareSyncerState(t, op2, st.actions[st.actionOrder[1]])
 
-	popped = st.pop()
-	compareSyncerState(t, op4, popped)
-	compareSyncerState(t, op3, st.Current())
+	compareSyncerState(t, op2, *st.Current())
+	st.FinishAction(ctx, st.Current())
+	compareSyncerState(t, op1, *st.Current())
 	require.Len(t, st.actions, 1)
-	compareSyncerState(t, op1, &st.actions[0])
 
-	popped = st.pop()
-	compareSyncerState(t, op3, popped)
-	compareSyncerState(t, op1, st.Current())
-	require.Len(t, st.actions, 0)
+	st.PushAction(ctx, op3)
+	compareSyncerState(t, op3, *st.Current())
+	require.Len(t, st.actions, 2)
+	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
+	compareSyncerState(t, op3, st.actions[st.actionOrder[1]])
 
-	popped = st.pop()
-	compareSyncerState(t, op1, popped)
+	st.PushAction(ctx, op4)
+	compareSyncerState(t, op4, *st.Current())
+	require.Len(t, st.actions, 3)
+
+	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
+	compareSyncerState(t, op3, st.actions[st.actionOrder[1]])
+	compareSyncerState(t, op4, st.actions[st.actionOrder[2]])
+
+	st.FinishAction(ctx, st.Current())
+	compareSyncerState(t, op3, *st.Current())
+	require.Len(t, st.actions, 2)
+	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
+
+	st.FinishAction(ctx, st.Current())
+	compareSyncerState(t, op1, *st.Current())
+	require.Len(t, st.actions, 1)
+
+	st.FinishAction(ctx, st.Current())
 	require.Nil(t, st.Current())
 	require.Len(t, st.actions, 0)
 }
 
 func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
-	st := &state{}
+	ctx := t.Context()
+	st := newState()
 	states := []Action{
 		{Op: InitOp, PageToken: ""},
 		{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"},
@@ -96,19 +99,20 @@ func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 	}
 
 	for _, s := range states {
-		st.push(s)
+		st.PushAction(ctx, s)
 	}
 
 	tokenString, err := st.Marshal()
 	require.NoError(t, err)
 
-	newToken := &state{}
+	newToken := newState()
 	err = newToken.Unmarshal(tokenString)
 	require.NoError(t, err)
 
 	i := len(states) - 1
 	for newToken.Current() != nil {
-		compareSyncerState(t, states[i], newToken.pop())
+		compareSyncerState(t, states[i], *newToken.Current())
+		newToken.FinishAction(ctx, newToken.Current())
 		i--
 	}
 
@@ -116,35 +120,58 @@ func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 }
 
 func TestSyncerTokenUnmarshalEmptyString(t *testing.T) {
-	st := &state{}
+	ctx := t.Context()
+	st := newState()
 	op1 := Action{Op: InitOp}
 
 	err := st.Unmarshal("")
 	require.NoError(t, err)
 
-	st.push(op1)
-	compareSyncerState(t, op1, st.Current())
+	st.PushAction(ctx, op1)
+	compareSyncerState(t, op1, *st.Current())
 }
 
 func TestSyncerTokenNextPage(t *testing.T) {
-	ctx := context.Background()
-	st := &state{}
+	ctx := t.Context()
+	st := newState()
 	op1 := Action{Op: InitOp}
 	op2 := Action{Op: InitOp, PageToken: "next-page"}
 
 	st.PushAction(ctx, op1)
-	compareSyncerState(t, op1, st.Current())
-	require.Len(t, st.actions, 0)
+	compareSyncerState(t, op1, *st.Current())
+	require.Len(t, st.actions, 1)
 
-	err := st.NextPage(ctx, "next-page")
+	err := st.NextPage(ctx, st.Current().ID, "next-page")
 	require.NoError(t, err)
-	require.Len(t, st.actions, 0)
-	compareSyncerState(t, op2, st.Current())
+	require.Len(t, st.actions, 1)
+	compareSyncerState(t, op2, *st.Current())
+}
+
+func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
+	initOp := Action{Op: InitOp}
+	serializedTokenV0 := serializedTokenV0{
+		Actions:                         []Action{initOp},
+		CurrentAction:                   &initOp,
+		NeedsExpansion:                  false,
+		EntitlementGraph:                nil,
+		HasExternalResourceGrants:       false,
+		ShouldFetchRelatedResources:     false,
+		ShouldSkipEntitlementsAndGrants: false,
+		ShouldSkipGrants:                false,
+		CompletedActionsCount:           0,
+	}
+	serializedToken, err := json.Marshal(serializedTokenV0)
+	require.NoError(t, err)
+	require.NotEmpty(t, serializedToken)
+	st := newState()
+	err = st.Unmarshal(string(serializedToken))
+	// TODO: Add forward migration to resume syncs started by older versions of baton-sdk.
+	require.ErrorIs(t, err, ErrUnsupportedStateTokenVersion)
 }
 
 func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
-	ctx := context.Background()
-	st := &state{}
+	ctx := t.Context()
+	st := newState()
 
 	// Push an action to initialize the state
 	op1 := Action{Op: SyncGrantExpansionOp}
@@ -198,12 +225,12 @@ func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
 	require.NotEmpty(t, tokenString)
 
 	// Create a new state and unmarshal
-	newState := &state{}
+	newState := newState()
 	err = newState.Unmarshal(tokenString)
 	require.NoError(t, err)
 
 	// Verify the action was restored
-	compareSyncerState(t, op1, newState.Current())
+	compareSyncerState(t, op1, *newState.Current())
 
 	// Get the entitlement graph from the new state
 	restoredGraph := newState.entitlementGraph

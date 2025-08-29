@@ -3,6 +3,7 @@ package local
 import (
 	"context"
 	"errors"
+	"runtime"
 	"sync"
 	"time"
 
@@ -26,6 +27,7 @@ type localSyncer struct {
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
 	syncResourceTypeIDs                 []string
+	parallelSync                        bool
 }
 
 type Option func(*localSyncer)
@@ -72,6 +74,12 @@ func WithSkipGrants(skip bool) Option {
 	}
 }
 
+func WithParallelSyncEnabled(parallel bool) Option {
+	return func(m *localSyncer) {
+		m.parallelSync = parallel
+	}
+}
+
 func (m *localSyncer) GetTempDir() string {
 	return ""
 }
@@ -98,7 +106,8 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	if ssetSessionStore, ok := cc.(session.SetSessionStore); ok {
 		setSessionStore = ssetSessionStore
 	}
-	syncer, err := sdkSync.NewSyncer(ctx, cc,
+
+	syncOpts := []sdkSync.SyncOpt{
 		sdkSync.WithC1ZPath(m.dbPath),
 		sdkSync.WithTmpDir(m.tmpDir),
 		sdkSync.WithExternalResourceC1ZPath(m.externalResourceC1Z),
@@ -108,7 +117,15 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithSkipGrants(m.skipGrants),
 		sdkSync.WithSessionStore(setSessionStore),
 		sdkSync.WithSyncResourceTypes(m.syncResourceTypeIDs),
-	)
+	}
+
+	if m.parallelSync {
+		workerCount := min(max(runtime.GOMAXPROCS(0), 1), 4)
+		// TODO: allow configurable worker count
+		syncOpts = append(syncOpts, sdkSync.WithWorkerCount(workerCount))
+	}
+
+	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)
 	if err != nil {
 		return err
 	}
