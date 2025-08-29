@@ -340,6 +340,7 @@ type runnerConfig struct {
 	syncDifferConfig                    *syncDifferConfig
 	syncCompactorConfig                 *syncCompactorConfig
 	skipFullSync                        bool
+	parallelSync                        bool
 	targetedSyncResourceIDs             []string
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
@@ -539,6 +540,13 @@ func WithActionsEnabled() Option {
 func WithFullSyncDisabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.skipFullSync = true
+		return nil
+	}
+}
+
+func WithParallelSyncEnabled() Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.parallelSync = true
 		return nil
 	}
 }
@@ -754,6 +762,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
 				local.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs),
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
+				local.WithParallelSyncEnabled(cfg.parallelSync),
 			)
 			if err != nil {
 				return nil, err

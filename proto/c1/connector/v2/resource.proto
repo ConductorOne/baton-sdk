@@ -44,6 +44,12 @@ message ResourceType {
     ignore_empty: true
   }];
   bool sourced_externally = 6;
+  
+  // Sync bucketing configuration for parallel processing
+  // Resource types with the same bucket name will be processed sequentially within that bucket
+  // Resource types with different bucket names can be processed in parallel
+  // If not specified, the default bucket from ParallelSyncConfig will be used
+  string sync_bucket = 7;
 }
 
 message ResourceTypesServiceListResourceTypesRequest {
