@@ -333,6 +333,10 @@ func MakeMainCommand[T field.Configurable](
 			}
 		}
 
+		if v.GetBool("parallel-sync") {
+			opts = append(opts, connectorrunner.WithParallelSyncEnabled())
+		}
+
 		if v.GetString("c1z-temp-dir") != "" {
 			c1zTmpDir := v.GetString("c1z-temp-dir")
 			if _, err := os.Stat(c1zTmpDir); os.IsNotExist(err) {

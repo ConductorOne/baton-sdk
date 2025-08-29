@@ -165,6 +165,8 @@ func (m *ResourceType) validate(all bool) error {
 
 	// no validation rules for SourcedExternally
 
+	// no validation rules for SyncBucket
+
 	if len(errors) > 0 {
 		return ResourceTypeMultiError(errors)
 	}

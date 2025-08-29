@@ -49,6 +49,14 @@ type C1File struct {
 	slowQueryLogTimesMu   sync.Mutex
 	slowQueryThreshold    time.Duration
 	slowQueryLogFrequency time.Duration
+
+	// WAL checkpointing
+	checkpointTicker  *time.Ticker
+	checkpointStop    chan struct{}
+	checkpointDone    chan struct{}
+	checkpointOnce    sync.Once
+	checkpointMu      sync.RWMutex // Prevents DB activity during WAL checkpoint to avoid WAL file growth under heavy load
+	checkpointEnabled bool         // Whether WAL checkpointing is enabled
 }
 
 var _ connectorstore.Writer = (*C1File)(nil)
@@ -64,6 +72,12 @@ func WithC1FTmpDir(tempDir string) C1FOption {
 func WithC1FPragma(name string, value string) C1FOption {
 	return func(o *C1File) {
 		o.pragmas = append(o.pragmas, pragma{name, value})
+	}
+}
+
+func WithC1FWALCheckpoint(enable bool) C1FOption {
+	return func(o *C1File) {
+		o.checkpointEnabled = enable
 	}
 }
 
@@ -87,6 +101,8 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		slowQueryLogTimes:     make(map[string]time.Time),
 		slowQueryThreshold:    5 * time.Second,
 		slowQueryLogFrequency: 1 * time.Minute,
+		checkpointStop:        make(chan struct{}),
+		checkpointDone:        make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -107,9 +123,10 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 }
 
 type c1zOptions struct {
-	tmpDir         string
-	pragmas        []pragma
-	decoderOptions []DecoderOption
+	tmpDir              string
+	pragmas             []pragma
+	decoderOptions      []DecoderOption
+	enableWALCheckpoint bool
 }
 type C1ZOption func(*c1zOptions)
 
@@ -131,6 +148,12 @@ func WithDecoderOptions(opts ...DecoderOption) C1ZOption {
 	}
 }
 
+func WithWALCheckpoint(enable bool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.enableWALCheckpoint = enable
+	}
+}
+
 // Returns a new C1File instance with its state stored at the provided filename.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
@@ -149,6 +172,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	var c1fopts []C1FOption
 	for _, pragma := range options.pragmas {
 		c1fopts = append(c1fopts, WithC1FPragma(pragma.name, pragma.value))
+	}
+	if options.enableWALCheckpoint {
+		c1fopts = append(c1fopts, WithC1FWALCheckpoint(true))
 	}
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)
@@ -173,6 +199,15 @@ func cleanupDbDir(dbFilePath string, err error) error {
 // with our changes.
 func (c *C1File) Close() error {
 	var err error
+
+	// Stop WAL checkpointing if it's running
+	if c.checkpointTicker != nil {
+		c.checkpointTicker.Stop()
+		c.checkpointOnce.Do(func() {
+			close(c.checkpointStop)
+		})
+		<-c.checkpointDone // Wait for goroutine to finish
+	}
 
 	if c.rawDb != nil {
 		err = c.rawDb.Close()
@@ -221,6 +256,11 @@ func (c *C1File) init(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	// Start WAL checkpointing if enabled, journal mode is WAL, and checkpointing is enabled
+	if c.checkpointEnabled && c.isWALMode() {
+		c.startWALCheckpointing()
 	}
 
 	return nil
@@ -411,4 +451,67 @@ func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 	}
 
 	return stats, nil
+}
+
+// isWALMode checks if the database is using WAL mode
+func (c *C1File) isWALMode() bool {
+	for _, pragma := range c.pragmas {
+		if pragma.name == "journal_mode" && pragma.value == "WAL" {
+			return true
+		}
+	}
+	return false
+}
+
+// startWALCheckpointing starts a background goroutine to perform WAL checkpoints every 5 minutes
+func (c *C1File) startWALCheckpointing() {
+	c.checkpointTicker = time.NewTicker(5 * time.Minute)
+
+	go func() {
+		defer close(c.checkpointDone)
+		for {
+			select {
+			case <-c.checkpointTicker.C:
+				c.performWALCheckpoint()
+			case <-c.checkpointStop:
+				return
+			}
+		}
+	}()
+}
+
+// acquireCheckpointLock acquires a read lock for database operations
+func (c *C1File) acquireCheckpointLock() {
+	if c.checkpointEnabled {
+		c.checkpointMu.RLock()
+	}
+}
+
+// releaseCheckpointLock releases the read lock for database operations
+func (c *C1File) releaseCheckpointLock() {
+	if c.checkpointEnabled {
+		c.checkpointMu.RUnlock()
+	}
+}
+
+// performWALCheckpoint performs a WAL checkpoint using SQLITE_CHECKPOINT_RESTART or SQLITE_CHECKPOINT_TRUNCATE
+func (c *C1File) performWALCheckpoint() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	// Acquire write lock to pause all database operations during checkpoint
+	c.checkpointMu.Lock()
+	defer c.checkpointMu.Unlock()
+
+	// First try SQLITE_CHECKPOINT_TRUNCATE
+	_, err := c.rawDb.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+	if err != nil {
+		// If TRUNCATE fails, try RESTART
+		_, err = c.rawDb.ExecContext(ctx, "PRAGMA wal_checkpoint(RESTART)")
+		if err != nil {
+			// Log error but don't fail the operation
+			// In a real implementation, you might want to use a logger here
+			fmt.Printf("WAL checkpoint failed: %v\n", err)
+		}
+	}
 }
