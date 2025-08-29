@@ -40,7 +40,7 @@ func (t *testResourceSyncer) Create(ctx context.Context, resource *v2.Resource) 
 	return nil, nil, nil
 }
 
-func (t *testResourceSyncer) Delete(ctx context.Context, resource *v2.Resource) (annotations.Annotations, error) {
+func (t *testResourceSyncer) Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error) {
 	return nil, nil
 }
 
