@@ -228,7 +228,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 	}
 
 	if stopForLoop {
-		return fmt.Errorf("Unable to communicate with gRPC server")
+		return fmt.Errorf("unable to communicate with gRPC server")
 	}
 
 	return nil

@@ -41,8 +41,8 @@ func NewOutstandingAction(id, name string) *OutstandingAction {
 }
 
 func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActionStatus) {
-	oa.Mutex.Lock()
-	defer oa.Mutex.Unlock()
+	oa.Lock()
+	defer oa.Unlock()
 	l := ctxzap.Extract(ctx).With(
 		zap.String("action_id", oa.Id),
 		zap.String("action_name", oa.Name),
@@ -59,8 +59,8 @@ func (oa *OutstandingAction) SetStatus(ctx context.Context, status v2.BatonActio
 }
 
 func (oa *OutstandingAction) setError(_ context.Context, err error) {
-	oa.Mutex.Lock()
-	defer oa.Mutex.Unlock()
+	oa.Lock()
+	defer oa.Unlock()
 	if oa.Rv == nil {
 		oa.Rv = &structpb.Struct{}
 	}

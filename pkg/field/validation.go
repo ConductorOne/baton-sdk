@@ -115,7 +115,7 @@ func isValidDomain(hostname string) bool {
 
 		// Labels can only contain letters, digits, or hyphens
 		for i := range label {
-			if !(isAlphaNumeric(label[i]) || label[i] == '-') {
+			if !isAlphaNumeric(label[i]) && label[i] != '-' {
 				return false
 			}
 		}

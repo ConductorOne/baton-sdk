@@ -52,7 +52,7 @@ func DefineConfiguration[T field.Configurable](
 	uniqueFields := make(map[string]field.SchemaField)
 	for _, f := range confschema.Fields {
 		if s, ok := uniqueFields[f.FieldName]; ok {
-			if !(f.WasReExported || s.WasReExported) {
+			if !f.WasReExported && !s.WasReExported {
 				return nil, nil, fmt.Errorf("multiple fields with the same name: %s.If you want to use a default field in the SDK, use ExportAs on the connector schema field", f.FieldName)
 			}
 		}
@@ -140,7 +140,7 @@ func verifyStructFields[T field.Configurable](schema field.Configuration) error 
 		configType = configType.Elem()
 	}
 	if configType.Kind() != reflect.Struct {
-		return fmt.Errorf("T must be a struct type, got %v", configType.Kind())
+		return fmt.Errorf("T must be a struct type, got %v", configType.Kind()) //nolint:staticcheck // we want to capital letter here
 	}
 	for _, field := range schema.Fields {
 		fieldFound := false
