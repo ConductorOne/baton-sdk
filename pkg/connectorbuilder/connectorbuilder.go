@@ -111,7 +111,7 @@ type ResourceDeleter interface {
 // It differs from ResourceDeleter by having the resource, not just the id.
 type ResourceDeleterV2 interface {
 	ResourceSyncer
-	Delete(ctx context.Context, resource *v2.Resource) (annotations.Annotations, error)
+	Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error)
 }
 
 // ResourceTargetedSyncer extends ResourceSyncer to add capabilities for directly syncing an individual resource
@@ -1264,7 +1264,7 @@ func (b *builderImpl) DeleteResource(ctx context.Context, request *v2.DeleteReso
 	}
 
 	if ok {
-		annos, err := rsDeleterV2.Delete(ctx, request.Resource)
+		annos, err := rsDeleterV2.Delete(ctx, request.ResourceId, request.ParentResourceId)
 		if err != nil {
 			l.Error("error: deleteV2 resource failed", zap.Error(err))
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
@@ -1312,7 +1312,7 @@ func (b *builderImpl) DeleteResourceV2(ctx context.Context, request *v2.DeleteRe
 	}
 
 	if ok {
-		annos, err := rsDeleterV2.Delete(ctx, request.Resource)
+		annos, err := rsDeleterV2.Delete(ctx, request.ResourceId, request.ParentResourceId)
 		if err != nil {
 			l.Error("error: deleteV2 resource failed", zap.Error(err))
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))

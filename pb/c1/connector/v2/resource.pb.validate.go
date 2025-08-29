@@ -982,11 +982,11 @@ func (m *DeleteResourceRequest) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetResource()).(type) {
+		switch v := interface{}(m.GetParentResourceId()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, DeleteResourceRequestValidationError{
-					field:  "Resource",
+					field:  "ParentResourceId",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -994,16 +994,16 @@ func (m *DeleteResourceRequest) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, DeleteResourceRequestValidationError{
-					field:  "Resource",
+					field:  "ParentResourceId",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetParentResourceId()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return DeleteResourceRequestValidationError{
-				field:  "Resource",
+				field:  "ParentResourceId",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -1278,11 +1278,11 @@ func (m *DeleteResourceV2Request) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetResource()).(type) {
+		switch v := interface{}(m.GetParentResourceId()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, DeleteResourceV2RequestValidationError{
-					field:  "Resource",
+					field:  "ParentResourceId",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -1290,16 +1290,16 @@ func (m *DeleteResourceV2Request) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, DeleteResourceV2RequestValidationError{
-					field:  "Resource",
+					field:  "ParentResourceId",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetParentResourceId()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return DeleteResourceV2RequestValidationError{
-				field:  "Resource",
+				field:  "ParentResourceId",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
