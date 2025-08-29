@@ -41,7 +41,7 @@ func testActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.St
 		return nil, nil, fmt.Errorf("missing dn")
 	}
 
-	var userStruct structpb.Struct = structpb.Struct{
+	var userStruct = structpb.Struct{
 		Fields: map[string]*structpb.Value{
 			"success": {
 				Kind: &structpb.Value_BoolValue{BoolValue: true},
@@ -66,7 +66,7 @@ func testAsyncActionHandler(ctx context.Context, args *structpb.Struct) (*struct
 		}
 	}
 
-	var userStruct structpb.Struct = structpb.Struct{
+	var userStruct = structpb.Struct{
 		Fields: map[string]*structpb.Value{
 			"success": {
 				Kind: &structpb.Value_BoolValue{BoolValue: true},
@@ -109,7 +109,7 @@ func testAsyncCancelActionHandler(ctx context.Context, args *structpb.Struct) (*
 		}
 	}
 
-	var userStruct structpb.Struct = structpb.Struct{
+	var userStruct = structpb.Struct{
 		Fields: map[string]*structpb.Value{
 			"success": {
 				Kind: &structpb.Value_BoolValue{BoolValue: true},
