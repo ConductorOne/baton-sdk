@@ -3,6 +3,7 @@ package local
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ type localSyncer struct {
 	externalResourceEntitlementIdFilter string
 	targetedSyncResourceIDs             []string
 	skipEntitlementsAndGrants           bool
+	parallelSync                        bool
 }
 
 type Option func(*localSyncer)
@@ -56,6 +58,12 @@ func WithSkipEntitlementsAndGrants(skip bool) Option {
 	}
 }
 
+func WithParallelSyncEnabled(parallel bool) Option {
+	return func(m *localSyncer) {
+		m.parallelSync = parallel
+	}
+}
+
 func (m *localSyncer) GetTempDir() string {
 	return ""
 }
@@ -78,7 +86,8 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	ctx, span := tracer.Start(ctx, "localSyncer.Process", trace.WithNewRoot())
 	defer span.End()
 
-	syncer, err := sdkSync.NewSyncer(ctx, cc,
+	var syncer sdkSync.Syncer
+	baseSyncer, err := sdkSync.NewSyncer(ctx, cc,
 		sdkSync.WithC1ZPath(m.dbPath),
 		sdkSync.WithTmpDir(m.tmpDir),
 		sdkSync.WithExternalResourceC1ZPath(m.externalResourceC1Z),
@@ -88,6 +97,15 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	)
 	if err != nil {
 		return err
+	}
+
+	if m.parallelSync {
+		fmt.Println("****** parallel sync enabled **********")
+		config := sdkSync.DefaultParallelSyncConfig()
+		config.WithWorkerCount(10)
+		syncer = sdkSync.NewParallelSyncer(baseSyncer, config)
+	} else {
+		syncer = baseSyncer
 	}
 
 	err = syncer.Sync(ctx)
