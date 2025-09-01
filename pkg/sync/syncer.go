@@ -1362,18 +1362,18 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	}
 
 	if entitlementGraph.Loaded {
-		cycle := entitlementGraph.GetFirstCycle()
-		if cycle != nil {
+		comps := entitlementGraph.ComputeCyclicComponents(ctx)
+		if len(comps) > 0 {
+			// Log a sample cycle
 			l.Warn(
 				"cycle detected in entitlement graph",
-				zap.Any("cycle", cycle),
+				zap.Any("cycle", comps[0]),
 			)
 			l.Debug("initial graph", zap.Any("initial graph", entitlementGraph))
 			if dontFixCycles {
 				return fmt.Errorf("cycles detected in entitlement graph")
 			}
-
-			err := entitlementGraph.FixCycles(ctx)
+			err := entitlementGraph.FixCyclesFromComponents(ctx, comps)
 			if err != nil {
 				return err
 			}

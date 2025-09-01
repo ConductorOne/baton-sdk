@@ -309,3 +309,64 @@ func (g *EntitlementGraph) DeleteEdge(ctx context.Context, srcEntitlementID stri
 	}
 	return nil
 }
+
+// toAdjacency builds an adjacency map for SCC. If nodesSubset is non-nil, only
+// include those nodes (and edges between them). Always include all nodes in the
+// subset as keys, even if they have zero outgoing edges.
+func (g *EntitlementGraph) toAdjacency(nodesSubset map[int]struct{}) map[int]map[int]int {
+	adj := make(map[int]map[int]int, len(g.Nodes))
+	include := func(id int) bool {
+		if nodesSubset == nil {
+			return true
+		}
+		_, ok := nodesSubset[id]
+		return ok
+	}
+
+	// Ensure keys for all included nodes.
+	for id := range g.Nodes {
+		if include(id) {
+			adj[id] = make(map[int]int)
+		}
+	}
+
+	// Add edges where both endpoints are included.
+	for src, dsts := range g.SourcesToDestinations {
+		if !include(src) {
+			continue
+		}
+		row := adj[src]
+		for dst := range dsts {
+			if include(dst) {
+				row[dst] = 1
+			}
+		}
+	}
+	return adj
+}
+
+// reachableFrom computes the set of node IDs reachable from start over
+// SourcesToDestinations using an iterative BFS.
+func (g *EntitlementGraph) reachableFrom(start int) map[int]struct{} {
+	if _, ok := g.Nodes[start]; !ok {
+		return nil
+	}
+	visited := make(map[int]struct{}, 16)
+	queue := make([]int, 0, 16)
+	queue = append(queue, start)
+	visited[start] = struct{}{}
+	for len(queue) > 0 {
+		u := queue[0]
+		queue = queue[1:]
+		if nbrs, ok := g.SourcesToDestinations[u]; ok {
+			for v := range nbrs {
+				if _, seen := visited[v]; seen {
+					continue
+				}
+				visited[v] = struct{}{}
+				queue = append(queue, v)
+			}
+		}
+	}
+	return visited
+}
