@@ -369,6 +369,13 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		resp, err = c.HttpClient.Do(req)
 		if err != nil {
 			l.Error("base-http-client: HTTP error response", zap.Error(err))
+			// Turn certain network errors into grpc statuses so we retry
+			if errors.Is(err, io.ErrUnexpectedEOF) {
+				return resp, WrapErrors(codes.Unavailable, "unexpected EOF", err)
+			}
+			if errors.Is(err, syscall.ECONNRESET) {
+				return nil, WrapErrors(codes.Unavailable, "connection reset", err)
+			}
 			var urlErr *url.Error
 			if errors.As(err, &urlErr) {
 				if urlErr.Timeout() {
