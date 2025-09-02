@@ -41,9 +41,18 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
 
+	if c.task.GetSyncFull() == nil {
+		return errors.New("task is not a full sync task")
+	}
+
 	syncOpts := []sdkSync.SyncOpt{
 		sdkSync.WithC1ZPath(c1zPath),
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
+	}
+
+	if c.task.GetSyncFull().GetSkipExpandGrants() {
+		// Have C1 expand grants. This is faster & results in a smaller c1z upload.
+		syncOpts = append(syncOpts, sdkSync.WithDontExpandGrants())
 	}
 
 	if c.externalResourceC1ZPath != "" {

@@ -47,6 +47,7 @@ message Task {
 
   message SyncFullTask {
     repeated google.protobuf.Any annotations = 1;
+    bool skip_expand_grants = 2;
   }
 
   message EventFeedTask {
