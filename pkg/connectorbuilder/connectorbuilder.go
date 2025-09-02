@@ -1225,9 +1225,9 @@ func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateReso
 		Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error)
 	}
 
-	manager, ok := b.resourceManagers[rt]
+	manager, ok := b.resourceManagersV2[rt]
 	if !ok {
-		manager, ok = b.resourceManagersV2[rt]
+		manager, ok = b.resourceManagers[rt]
 	}
 
 	if ok {
