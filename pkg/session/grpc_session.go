@@ -159,6 +159,10 @@ func (g *GRPCSessionCache) Get(ctx context.Context, key string, opt ...types.Ses
 		return nil, false, fmt.Errorf("failed to get value from gRPC session cache: %w", err)
 	}
 
+	if resp == nil {
+		return nil, false, nil
+	}
+
 	return resp.Value, true, nil
 }
 
@@ -199,10 +203,9 @@ func (g *GRPCSessionCache) GetMany(ctx context.Context, keys []string, opt ...ty
 			return nil, fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
 		}
 		if bag.Prefix != "" {
-			result[resp.Key[len(bag.Prefix)+len(KeyPrefixDelimiter):]] = resp.Value
-		} else {
-			result[resp.Key] = resp.Value
+			resp.Key = strings.TrimPrefix(resp.Key, bag.Prefix+KeyPrefixDelimiter)
 		}
+		result[resp.Key] = resp.Value
 	}
 
 	return result, nil
@@ -316,11 +319,11 @@ func (g *GRPCSessionCache) GetAll(ctx context.Context, opt ...types.SessionCache
 		return nil, err
 	}
 
-	result := make(map[string][]byte)
-	fullPrefix := ""
 	if bag.Prefix != "" {
-		fullPrefix = bag.Prefix + KeyPrefixDelimiter
+		return nil, fmt.Errorf("prefix is not supported for GetAll in gRPC session cache")
 	}
+
+	result := make(map[string][]byte)
 
 	pageToken := ""
 	for {
@@ -349,12 +352,6 @@ func (g *GRPCSessionCache) GetAll(ctx context.Context, opt ...types.SessionCache
 			}
 
 			key := resp.Key
-			if fullPrefix != "" {
-				if !strings.HasPrefix(key, fullPrefix) {
-					continue
-				}
-				key = key[len(fullPrefix):]
-			}
 			if key != "" {
 				result[key] = resp.Value
 			}

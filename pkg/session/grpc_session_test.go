@@ -218,7 +218,8 @@ func TestGRPCSessionCache_Get(t *testing.T) {
 			if req.Key == "test-key" && req.SyncId == "test-sync-id" {
 				return &v1.GetResponse{Value: expectedValue}, nil
 			}
-			return &v1.GetResponse{Value: []byte{}}, nil
+			// Return nil for non-existent keys to indicate "not found"
+			return nil, nil
 		},
 	}
 
@@ -244,7 +245,7 @@ func TestGRPCSessionCache_Get(t *testing.T) {
 		t.Fatalf("Get failed: %v", err)
 	}
 	if found {
-		t.Fatal("Expected not to find value")
+		t.Fatal("Expected not to find value", value)
 	}
 	if value != nil {
 		t.Fatalf("Expected nil value, got %v", value)

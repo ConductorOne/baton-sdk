@@ -2,6 +2,8 @@ package session
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -126,6 +128,10 @@ func (m *MemorySessionCache) GetAll(ctx context.Context, opt ...types.SessionCac
 		return nil, err
 	}
 
+	if bag.Prefix != "" {
+		return nil, fmt.Errorf("prefix is not supported for GetAll in memory session cache")
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -136,9 +142,6 @@ func (m *MemorySessionCache) GetAll(ctx context.Context, opt ...types.SessionCac
 
 	result := make(map[string][]byte)
 	for key, value := range syncCache {
-		if bag.Prefix != "" {
-			key = bag.Prefix + KeyPrefixDelimiter + key
-		}
 		result[key] = value
 	}
 	return result, nil
@@ -161,10 +164,8 @@ func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...
 
 	result := make(map[string][]byte)
 	for _, key := range keys {
-		if bag.Prefix != "" {
-			key = bag.Prefix + KeyPrefixDelimiter + key
-		}
-		if value, found := syncCache[key]; found {
+		k := strings.TrimPrefix(key, bag.Prefix+KeyPrefixDelimiter)
+		if value, found := syncCache[k]; found {
 			result[key] = value
 		}
 	}
