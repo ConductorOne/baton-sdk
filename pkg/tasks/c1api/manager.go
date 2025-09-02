@@ -132,7 +132,7 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 		zap.Stringer("task_type", tasks.GetType(resp.GetTask())),
 	)
 
-	l.Debug("c1_api_task_manager.Next(): got task")
+	l.Debug("c1_api_task_manager.Next(): got task", zap.Duration("next_poll", nextPoll))
 	return resp.GetTask(), nextPoll, nil
 }
 
