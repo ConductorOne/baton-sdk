@@ -3,7 +3,6 @@ package local
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -100,7 +99,6 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	}
 
 	if m.parallelSync {
-		fmt.Println("****** parallel sync enabled **********")
 		config := sdkSync.DefaultParallelSyncConfig()
 		config.WithWorkerCount(10)
 		syncer = sdkSync.NewParallelSyncer(baseSyncer, config)

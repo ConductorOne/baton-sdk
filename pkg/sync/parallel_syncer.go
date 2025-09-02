@@ -572,21 +572,17 @@ func (ps *parallelSyncer) Sync(ctx context.Context) error {
 	}
 
 	// Now that all parallel processing is complete, run grant expansion sequentially
-	l.Info("worker queue complete, running grant expansion sequentially")
 	if err := ps.syncGrantExpansion(ctx); err != nil {
 		l.Error("failed to run grant expansion", zap.Error(err))
 		return fmt.Errorf("failed to run grant expansion: %w", err)
 	}
-	l.Info("grant expansion completed successfully")
 
 	// Run external resources sync if configured
 	if ps.syncer.externalResourceReader != nil {
-		l.Info("running external resources sync sequentially")
 		if err := ps.syncExternalResources(ctx); err != nil {
 			l.Error("failed to run external resources sync", zap.Error(err))
 			return fmt.Errorf("failed to run external resources sync: %w", err)
 		}
-		l.Info("external resources sync completed successfully")
 	}
 
 	// Finalize sync
@@ -594,7 +590,6 @@ func (ps *parallelSyncer) Sync(ctx context.Context) error {
 		return err
 	}
 
-	l.Info("parallel sync completed successfully")
 	return nil
 }
 
@@ -677,7 +672,6 @@ func (ps *parallelSyncer) generateInitialTasks(ctx context.Context) error {
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	l.Info("starting to generate initial tasks")
 
 	// Follow the exact same workflow as the original sync
 	// 1. Start with resource types
@@ -687,38 +681,28 @@ func (ps *parallelSyncer) generateInitialTasks(ctx context.Context) error {
 	// 5. Then grant expansion and external resources
 
 	// First, sync resource types
-	l.Info("syncing resource types")
 	if err := ps.syncResourceTypes(ctx); err != nil {
 		l.Error("failed to sync resource types", zap.Error(err))
 		return err
 	}
 
 	// Get all resource types and create resource sync tasks
-	l.Info("listing resource types from store")
 	resp, err := ps.syncer.store.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{})
 	if err != nil {
 		l.Error("failed to list resource types", zap.Error(err))
 		return err
 	}
 
-	l.Info("found resource types", zap.Int("count", len(resp.List)))
-
 	// Group resource types by their buckets for better task organization
 	bucketGroups := make(map[string][]*v2.ResourceType)
 	for _, rt := range resp.List {
 		bucket := ps.getBucketForResourceType(rt)
 		bucketGroups[bucket] = append(bucketGroups[bucket], rt)
-		l.Debug("resource type bucketing",
-			zap.String("resource_type", rt.Id),
-			zap.String("bucket", bucket))
 	}
 
 	// Create tasks for each bucket, ensuring sequential processing within each bucket
-	for bucket, resourceTypes := range bucketGroups {
+	for _, resourceTypes := range bucketGroups {
 		l := ctxzap.Extract(ctx)
-		l.Info("creating tasks for bucket",
-			zap.String("bucket", bucket),
-			zap.Int("resource_type_count", len(resourceTypes)))
 
 		// Create tasks for this bucket
 		for _, rt := range resourceTypes {
@@ -731,10 +715,6 @@ func (ps *parallelSyncer) generateInitialTasks(ctx context.Context) error {
 				Priority:     1,
 				ResourceType: rt, // Include the resource type for bucket determination
 			}
-
-			l.Info("creating resource sync task",
-				zap.String("resource_type", rt.Id),
-				zap.String("bucket", bucket))
 
 			if err := ps.taskQueue.AddTask(task); err != nil {
 				l.Error("failed to add resource sync task", zap.Error(err))
@@ -772,7 +752,6 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	l.Info("waiting for task completion")
 
 	// Monitor task completion with periodic status updates
 	ticker := time.NewTicker(5 * time.Second)
@@ -796,19 +775,12 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 
 			// Log progress
 			if len(bucketStats) > 0 {
-				l.Info("task completion progress",
-					zap.Int("total_tasks", totalTasks),
-					zap.Any("bucket_stats", bucketStats))
-
 				// Debug: Log which buckets still have active tasks
 				activeBuckets := make([]string, 0)
 				for bucketName, taskCount := range bucketStats {
 					if taskCount > 0 && bucketName != "resource-type-" {
 						activeBuckets = append(activeBuckets, fmt.Sprintf("%s:%d", bucketName, taskCount))
 					}
-				}
-				if len(activeBuckets) > 0 {
-					l.Info("active resource processing buckets", zap.Strings("active_buckets", activeBuckets))
 				}
 			}
 
@@ -845,7 +817,6 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 
 				if allResourceProcessingComplete {
 					// Additional safety check: wait a bit more to ensure workers are truly idle
-					l.Info("all resource processing complete, waiting additional time for workers to finish")
 					time.Sleep(2 * time.Second)
 
 					// Check one more time to ensure no new tasks appeared
@@ -858,16 +829,13 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 					if finalTotalTasks == 0 {
 						// Final check: ensure all workers are actually idle
 						if ps.areWorkersIdle() {
-							l.Info("worker queue confirmed empty and all workers idle, proceeding to finalization")
 							return nil
 						} else {
-							l.Info("workers still processing, continuing to wait")
 							// Reset progress counters since we're not done yet
 							noProgressCount = 0
 							lastTaskCount = finalTotalTasks
 						}
 					} else {
-						l.Info("new tasks appeared, continuing to wait", zap.Int("final_total_tasks", finalTotalTasks))
 						// Reset progress counters since we're not done yet
 						noProgressCount = 0
 						lastTaskCount = finalTotalTasks
@@ -882,9 +850,6 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 func (ps *parallelSyncer) syncGrantExpansion(ctx context.Context) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncGrantExpansion")
 	defer span.End()
-
-	l := ctxzap.Extract(ctx)
-	l.Info("starting grant expansion using base syncer")
 
 	// The base syncer's SyncGrantExpansion expects to have actions in its state stack
 	// We need to set up the proper state context before calling it
@@ -906,9 +871,6 @@ func (ps *parallelSyncer) syncGrantExpansion(ctx context.Context) error {
 func (ps *parallelSyncer) syncExternalResources(ctx context.Context) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncExternalResources")
 	defer span.End()
-
-	l := ctxzap.Extract(ctx)
-	l.Info("starting external resources sync using base syncer")
 
 	// The base syncer's SyncExternalResources expects to have actions in its state stack
 	// We need to set up the proper state context before calling it
@@ -964,9 +926,6 @@ func (ps *parallelSyncer) syncResourceTypes(ctx context.Context) error {
 
 	ps.syncer.counts.AddResourceTypes(len(resp.List))
 
-	// Log progress
-	ctxzap.Extract(ctx).Info("Synced resource types", zap.Int("count", len(resp.List)))
-
 	return nil
 }
 
@@ -976,9 +935,6 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	l.Info("processing resources",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.String("page_token", action.PageToken))
 
 	// Add panic recovery to catch any unexpected errors
 	defer func() {
@@ -1001,32 +957,13 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 			ResourceType: action.ParentResourceTypeID,
 			Resource:     action.ParentResourceID,
 		}
-		l.Info("listing child resources with parent",
-			zap.String("resource_type", action.ResourceTypeID),
-			zap.String("parent_resource_type", action.ParentResourceTypeID),
-			zap.String("parent_resource_id", action.ParentResourceID))
 	}
-
-	l.Info("calling connector ListResources",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.String("page_token", action.PageToken),
-		zap.Any("connector_type", fmt.Sprintf("%T", ps.syncer.connector)))
 
 	resp, err := ps.syncer.connector.ListResources(ctx, req)
 	if err != nil {
 		l.Error("failed to list resources", zap.Error(err))
 		return err
 	}
-
-	l.Info("connector call completed successfully",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.Int("response_list_length", len(resp.List)))
-
-	l.Info("resource listing response",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.Int("resource_count", len(resp.List)),
-		zap.String("next_page_token", resp.NextPageToken),
-		zap.Any("request", req))
 
 	// Store resources
 	if len(resp.List) > 0 {
@@ -1035,8 +972,6 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 			l.Error("failed to store resources", zap.Error(err))
 			return err
 		}
-	} else {
-		l.Info("no resources found for resource type", zap.String("resource_type", action.ResourceTypeID))
 	}
 
 	// Update progress counts
@@ -1046,13 +981,9 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 	// Log progress
 	if len(resp.List) > 0 {
 		ps.syncer.counts.LogResourcesProgress(ctx, resourceTypeId)
-		l.Info("stored resources",
-			zap.String("resource_type", resourceTypeId),
-			zap.Int("count", len(resp.List)))
 	} else {
 		// Even with no resources, we should log progress
 		ps.syncer.counts.LogResourcesProgress(ctx, resourceTypeId)
-		l.Info("no resources to store, but logging progress", zap.String("resource_type", resourceTypeId))
 	}
 
 	// Process each resource (handle sub-resources)
@@ -1066,10 +997,6 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 
 	// Handle pagination - if there are more pages, create a task for the next page
 	if resp.NextPageToken != "" {
-		l.Info("more pages available, creating next page task",
-			zap.String("resource_type", action.ResourceTypeID),
-			zap.String("next_page_token", resp.NextPageToken))
-
 		nextPageTask := &task{
 			Action: Action{
 				Op:             SyncResourcesOp,
@@ -1080,17 +1007,11 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 		}
 
 		if err := ps.taskQueue.AddTask(nextPageTask); err != nil {
-			l.Error("failed to add next page task", zap.Error(err))
 			return fmt.Errorf("failed to add next page task for resource type %s: %w", action.ResourceTypeID, err)
 		}
 
-		l.Info("next page task added, continuing with pagination")
 		return nil // Don't create entitlement/grant tasks yet, wait for all pages
 	}
-
-	// All pages complete for this resource type - now create entitlement and grant tasks
-	l.Info("all resource pages complete, creating entitlement and grant tasks",
-		zap.String("resource_type", action.ResourceTypeID))
 
 	// Get all resources for this resource type to create individual tasks
 	allResourcesResp, err := ps.syncer.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
@@ -1101,11 +1022,6 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 		l.Error("failed to list resources for task creation", zap.Error(err))
 		return err
 	}
-
-	l.Info("creating resource-level tasks",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.Int("total_resource_count", len(allResourcesResp.List)))
-
 	// Check if this resource type has child resource types that need to be processed
 	// We need to process child resources before entitlements and grants
 	if err := ps.processChildResourceTypes(ctx, action.ResourceTypeID); err != nil {
@@ -1122,9 +1038,6 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 			return err
 		}
 		if shouldSkip {
-			l.Debug("skipping entitlements and grants for resource",
-				zap.String("resource_type", resource.Id.ResourceType),
-				zap.String("resource_id", resource.Id.Resource))
 			continue
 		}
 
@@ -1138,12 +1051,7 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 			Priority: 2,
 		}
 
-		l.Debug("adding entitlements task for resource",
-			zap.String("resource_type", action.ResourceTypeID),
-			zap.String("resource_id", resource.Id.Resource))
-
 		if err := ps.taskQueue.AddTask(entitlementsTask); err != nil {
-			l.Error("failed to add entitlements task", zap.Error(err))
 			return fmt.Errorf("failed to add entitlements task for resource %s: %w", resource.Id.Resource, err)
 		}
 
@@ -1157,20 +1065,11 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 			Priority: 3,
 		}
 
-		l.Debug("adding grants task for resource",
-			zap.String("resource_type", action.ResourceTypeID),
-			zap.String("resource_id", resource.Id.Resource))
-
 		if err := ps.taskQueue.AddTask(grantsTask); err != nil {
 			l.Error("failed to add grants task", zap.Error(err))
 			return fmt.Errorf("failed to add grants task for resource %s: %w", resource.Id.Resource, err)
 		}
 	}
-
-	l.Info("resource-level task creation complete",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.Int("entitlement_tasks_created", len(allResourcesResp.List)),
-		zap.Int("grant_tasks_created", len(allResourcesResp.List)))
 
 	return nil
 }
@@ -1181,7 +1080,6 @@ func (ps *parallelSyncer) processChildResourceTypes(ctx context.Context, parentR
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	l.Info("processing child resource types", zap.String("parent_resource_type", parentResourceTypeID))
 
 	// Get all resources of the parent resource type
 	resp, err := ps.syncer.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
@@ -1192,10 +1090,6 @@ func (ps *parallelSyncer) processChildResourceTypes(ctx context.Context, parentR
 		l.Error("failed to list parent resources", zap.Error(err))
 		return err
 	}
-
-	l.Info("found parent resources for child processing",
-		zap.String("parent_resource_type", parentResourceTypeID),
-		zap.Int("parent_resource_count", len(resp.List)))
 
 	// For each parent resource, check if it has child resource types
 	for _, parentResource := range resp.List {
@@ -1216,11 +1110,6 @@ func (ps *parallelSyncer) processChildResourcesForParent(ctx context.Context, pa
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.processChildResourcesForParent")
 	defer span.End()
 
-	l := ctxzap.Extract(ctx)
-	l.Info("processing child resources for parent",
-		zap.String("parent_resource_id", parentResource.Id.Resource),
-		zap.String("parent_resource_type", parentResource.Id.ResourceType))
-
 	// Check for ChildResourceType annotations
 	for _, annotation := range parentResource.Annotations {
 		var childResourceType v2.ChildResourceType
@@ -1230,9 +1119,6 @@ func (ps *parallelSyncer) processChildResourcesForParent(ctx context.Context, pa
 		}
 
 		childResourceTypeID := childResourceType.ResourceTypeId
-		l.Info("found child resource type annotation",
-			zap.String("child_resource_type", childResourceTypeID),
-			zap.String("parent_resource_id", parentResource.Id.Resource))
 
 		// Create a task to sync child resources for this parent
 		childResourcesTask := &task{
@@ -1246,14 +1132,9 @@ func (ps *parallelSyncer) processChildResourcesForParent(ctx context.Context, pa
 		}
 
 		if err := ps.taskQueue.AddTask(childResourcesTask); err != nil {
-			l.Error("failed to add child resources task", zap.Error(err))
 			return fmt.Errorf("failed to add child resources task for %s under parent %s: %w",
 				childResourceTypeID, parentResource.Id.Resource, err)
 		}
-
-		l.Info("child resources task added",
-			zap.String("child_resource_type", childResourceTypeID),
-			zap.String("parent_resource_id", parentResource.Id.Resource))
 	}
 
 	return nil
@@ -1265,7 +1146,6 @@ func (ps *parallelSyncer) syncEntitlementsForResourceType(ctx context.Context, a
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	l.Info("starting entitlements sync for resource type", zap.String("resource_type", action.ResourceTypeID))
 
 	// Get all resources for this resource type
 	resp, err := ps.syncer.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
@@ -1276,10 +1156,6 @@ func (ps *parallelSyncer) syncEntitlementsForResourceType(ctx context.Context, a
 		l.Error("failed to list resources for entitlements", zap.Error(err))
 		return err
 	}
-
-	l.Info("found resources for entitlements sync",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.Int("resource_count", len(resp.List)))
 
 	// Process each resource's entitlements sequentially
 	for _, r := range resp.List {
@@ -1307,10 +1183,6 @@ func (ps *parallelSyncer) syncEntitlementsForResourceType(ctx context.Context, a
 
 		// Handle pagination if needed
 		for decision.ShouldContinue && decision.Action == "next_page" {
-			l.Info("continuing entitlements sync with next page",
-				zap.String("resource_type", r.Id.ResourceType),
-				zap.String("resource_id", r.Id.Resource),
-				zap.String("page_token", decision.NextPageToken))
 
 			// Update the local state with the new page token before continuing
 			if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
@@ -1342,10 +1214,6 @@ func (ps *parallelSyncer) syncEntitlementsForResource(ctx context.Context, actio
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	l.Info("starting entitlements sync for specific resource",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.String("resource_id", action.ResourceID))
-
 	// Create resource ID from action
 	resourceID := &v2.ResourceId{
 		ResourceType: action.ResourceTypeID,
@@ -1367,11 +1235,6 @@ func (ps *parallelSyncer) syncEntitlementsForResource(ctx context.Context, actio
 
 	// Handle pagination if needed
 	for decision.ShouldContinue && decision.Action == "next_page" {
-		l.Info("continuing entitlements sync with next page",
-			zap.String("resource_type", action.ResourceTypeID),
-			zap.String("resource_id", action.ResourceID),
-			zap.String("page_token", decision.NextPageToken))
-
 		// Update the local state with the new page token before continuing
 		if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
 			l.Error("failed to update local state with next page token",
@@ -1402,10 +1265,6 @@ func (ps *parallelSyncer) syncGrantsForResource(ctx context.Context, action Acti
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	l.Info("starting grants sync for specific resource",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.String("resource_id", action.ResourceID))
-
 	// Create resource ID from action
 	resourceID := &v2.ResourceId{
 		ResourceType: action.ResourceTypeID,
@@ -1427,11 +1286,6 @@ func (ps *parallelSyncer) syncGrantsForResource(ctx context.Context, action Acti
 
 	// Handle pagination if needed
 	for decision.ShouldContinue && decision.Action == "next_page" {
-		l.Info("continuing grants sync with next page",
-			zap.String("resource_type", action.ResourceTypeID),
-			zap.String("resource_id", action.ResourceID),
-			zap.String("page_token", decision.NextPageToken))
-
 		// Update the local state with the new page token before continuing
 		if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
 			l.Error("failed to update local state with next page token",
@@ -1462,7 +1316,6 @@ func (ps *parallelSyncer) syncGrantsForResourceType(ctx context.Context, action 
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	l.Info("starting grants sync for resource type", zap.String("resource_type", action.ResourceTypeID))
 
 	// Get all resources for this resource type
 	resp, err := ps.syncer.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
@@ -1473,10 +1326,6 @@ func (ps *parallelSyncer) syncGrantsForResourceType(ctx context.Context, action 
 		l.Error("failed to list resources for grants", zap.Error(err))
 		return err
 	}
-
-	l.Info("found resources for grants sync",
-		zap.String("resource_type", action.ResourceTypeID),
-		zap.Int("resource_count", len(resp.List)))
 
 	// Process each resource's grants sequentially
 	for _, r := range resp.List {
@@ -1504,11 +1353,6 @@ func (ps *parallelSyncer) syncGrantsForResourceType(ctx context.Context, action 
 
 		// Handle pagination if needed
 		for decision.ShouldContinue && decision.Action == "next_page" {
-			l.Info("continuing grants sync with next page",
-				zap.String("resource_type", r.Id.ResourceType),
-				zap.String("resource_id", r.Id.Resource),
-				zap.String("page_token", decision.NextPageToken))
-
 			// Update the local state with the new page token before continuing
 			if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
 				l.Error("failed to update local state with next page token",
@@ -1541,9 +1385,6 @@ func (ps *parallelSyncer) syncGrantsForResourceLogic(ctx context.Context, resour
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	l.Info("syncing grants for resource logic",
-		zap.String("resource_type", resourceID.ResourceType),
-		zap.String("resource_id", resourceID.Resource))
 
 	// Get the resource from the store
 	resourceResponse, err := ps.syncer.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
@@ -1695,11 +1536,6 @@ func (ps *parallelSyncer) syncGrantsForResourceLogic(ctx context.Context, resour
 func (ps *parallelSyncer) syncEntitlementsForResourceLogic(ctx context.Context, resourceID *v2.ResourceId, state StateInterface) (*ActionDecision, error) {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncEntitlementsForResourceLogic")
 	defer span.End()
-
-	l := ctxzap.Extract(ctx)
-	l.Info("syncing entitlements for resource logic",
-		zap.String("resource_type", resourceID.ResourceType),
-		zap.String("resource_id", resourceID.Resource))
 
 	// Get the resource from the store
 	resourceResponse, err := ps.syncer.store.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
