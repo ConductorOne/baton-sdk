@@ -148,6 +148,31 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 
 	l := ctxzap.Extract(ctx)
 
+	var err error
+	for i := range 3 {
+		err = c.upload(ctx, task, r)
+		if err == nil {
+			return nil
+		}
+		l.Warn("failed to upload asset", zap.Error(err))
+		time.Sleep(time.Second * time.Duration(i))
+	}
+
+	return err
+}
+
+func (c *c1ServiceClient) upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error {
+	ctx, span := tracer.Start(ctx, "c1ServiceClient.Upload")
+	defer span.End()
+
+	l := ctxzap.Extract(ctx)
+
+	_, err := r.Seek(0, io.SeekStart)
+	if err != nil {
+		l.Error("failed to seek to start of upload asset", zap.Error(err))
+		return err
+	}
+
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return err
