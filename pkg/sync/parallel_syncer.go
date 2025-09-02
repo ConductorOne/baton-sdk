@@ -440,8 +440,6 @@ func (w *worker) processTask(task *task) error {
 	ctx, span := parallelTracer.Start(w.ctx, "worker.processTask")
 	defer span.End()
 
-	l := ctxzap.Extract(ctx)
-
 	span.SetAttributes(
 		attribute.Int("worker_id", w.id),
 		attribute.String("operation", task.Action.Op.String()),
@@ -450,30 +448,21 @@ func (w *worker) processTask(task *task) error {
 
 	switch task.Action.Op {
 	case SyncResourcesOp:
-		l.Info("calling syncResources", zap.String("resource_type", task.Action.ResourceTypeID))
 		return w.syncer.syncResources(ctx, task.Action)
 	case SyncEntitlementsOp:
 		if task.Action.ResourceID != "" {
 			// Process specific resource's entitlements
-			l.Info("calling syncEntitlementsForResource",
-				zap.String("resource_type", task.Action.ResourceTypeID),
-				zap.String("resource_id", task.Action.ResourceID))
 			return w.syncer.syncEntitlementsForResource(ctx, task.Action)
 		} else {
 			// Fallback to resource type processing (for backward compatibility)
-			l.Info("calling syncEntitlementsForResourceType", zap.String("resource_type", task.Action.ResourceTypeID))
 			return w.syncer.syncEntitlementsForResourceType(ctx, task.Action)
 		}
 	case SyncGrantsOp:
 		if task.Action.ResourceID != "" {
 			// Process specific resource's grants
-			l.Info("calling syncGrantsForResource",
-				zap.String("resource_type", task.Action.ResourceTypeID),
-				zap.String("resource_id", task.Action.ResourceID))
 			return w.syncer.syncGrantsForResource(ctx, task.Action)
 		} else {
 			// Fallback to resource type processing (for backward compatibility)
-			l.Info("calling syncGrantsForResourceType", zap.String("resource_type", task.Action.ResourceTypeID))
 			return w.syncer.syncGrantsForResourceType(ctx, task.Action)
 		}
 	default:
@@ -542,9 +531,6 @@ func (ps *parallelSyncer) Sync(ctx context.Context) error {
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	l.Info("starting parallel sync",
-		zap.Int("worker_count", ps.config.WorkerCount),
-		zap.String("default_bucket", ps.config.DefaultBucket))
 
 	// Initialize the sync
 	if err := ps.initializeSync(ctx); err != nil {
