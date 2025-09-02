@@ -149,13 +149,21 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 	l := ctxzap.Extract(ctx)
 
 	var err error
-	for i := range 3 {
+	const maxAttempts = 3
+	for i := range maxAttempts {
 		err = c.upload(ctx, task, r)
 		if err == nil {
 			return nil
 		}
 		l.Warn("failed to upload asset", zap.Error(err))
-		time.Sleep(time.Second * time.Duration(i))
+		if i < maxAttempts-1 {
+			backoff := time.Second * time.Duration(i)
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
 	}
 
 	return err
