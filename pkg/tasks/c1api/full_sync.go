@@ -44,6 +44,8 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	syncOpts := []sdkSync.SyncOpt{
 		sdkSync.WithC1ZPath(c1zPath),
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
+		// Have C1 expand grants. This is faster & results in a smaller c1z upload.
+		sdkSync.WithDontExpandGrants(),
 	}
 
 	if c.externalResourceC1ZPath != "" {

@@ -209,6 +209,7 @@ type syncer struct {
 	counts                              *ProgressCounts
 	targetedSyncResourceIDs             []string
 	onlyExpandGrants                    bool
+	dontExpandGrants                    bool
 	syncID                              string
 	skipEGForResourceType               map[string]bool
 	skipEntitlementsAndGrants           bool
@@ -533,7 +534,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			continue
 
 		case SyncGrantExpansionOp:
-			if !s.state.NeedsExpansion() {
+			if s.dontExpandGrants || !s.state.NeedsExpansion() {
 				l.Debug("skipping grant expansion, no grants to expand")
 				s.state.FinishAction(ctx)
 				continue
@@ -1614,7 +1615,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	l := ctxzap.Extract(ctx)
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
-		if grantAnnos.Contains(&v2.GrantExpandable{}) {
+		if !s.dontExpandGrants && grantAnnos.Contains(&v2.GrantExpandable{}) {
 			s.state.SetNeedsExpansion()
 		}
 		if grantAnnos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
@@ -2764,6 +2765,11 @@ func WithOnlyExpandGrants() SyncOpt {
 	}
 }
 
+func WithDontExpandGrants() SyncOpt {
+	return func(s *syncer) {
+		s.dontExpandGrants = true
+	}
+}
 func WithSyncID(syncID string) SyncOpt {
 	return func(s *syncer) {
 		s.syncID = syncID
