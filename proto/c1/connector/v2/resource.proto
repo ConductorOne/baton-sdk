@@ -106,6 +106,7 @@ message CreateResourceResponse {
 
 message DeleteResourceRequest {
   ResourceId resource_id = 1;
+  ResourceId parent_resource_id = 2;
 }
 
 message DeleteResourceResponse {
@@ -114,6 +115,7 @@ message DeleteResourceResponse {
 
 message DeleteResourceV2Request {
   ResourceId resource_id = 1;
+  ResourceId parent_resource_id = 2;
 }
 
 message DeleteResourceV2Response {
