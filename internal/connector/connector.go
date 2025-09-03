@@ -308,7 +308,9 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 			fmt.Sprintf("127.0.0.1:%d", listenPort),
 			grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
 			grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
-			grpc.WithChainUnaryInterceptor(ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...)),
+			grpc.WithChainUnaryInterceptor(
+				ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...),
+			),
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler(
 				otelgrpc.WithPropagators(
 					propagation.NewCompositeTextMapPropagator(
