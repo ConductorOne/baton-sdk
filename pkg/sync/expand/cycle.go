@@ -1,6 +1,8 @@
 package expand
 
 import (
+	"context"
+
 	mapset "github.com/deckarep/golang-set/v2"
 )
 
@@ -147,22 +149,26 @@ func (g *EntitlementGraph) removeNode(nodeID int) {
 
 // FixCycles if any cycles of nodes exist, merge all nodes in that cycle into a
 // single node and then repeat. Iteration ends when there are no more cycles.
-func (g *EntitlementGraph) FixCycles() error {
+func (g *EntitlementGraph) FixCycles(ctx context.Context) error {
 	if g.HasNoCycles {
 		return nil
 	}
-	cycle := g.GetFirstCycle()
-	if cycle == nil {
-		g.HasNoCycles = true
-		return nil
-	}
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		cycle := g.GetFirstCycle()
+		if cycle == nil {
+			g.HasNoCycles = true
+			return nil
+		}
 
-	if err := g.fixCycle(cycle); err != nil {
-		return err
+		if err := g.fixCycle(cycle); err != nil {
+			return err
+		}
 	}
-
-	// Recurse!
-	return g.FixCycles()
 }
 
 // fixCycle takes a list of Node IDs that form a cycle and merges them into a

@@ -1373,7 +1373,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 				return fmt.Errorf("cycles detected in entitlement graph")
 			}
 
-			err := entitlementGraph.FixCycles()
+			err := entitlementGraph.FixCycles(ctx)
 			if err != nil {
 				return err
 			}

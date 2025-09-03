@@ -201,7 +201,7 @@ func TestHandleCycle(t *testing.T) {
 			}
 			require.True(t, found)
 
-			err := graph.FixCycles()
+			err := graph.FixCycles(ctx)
 			require.NoError(t, err, graph.Str())
 			err = graph.Validate()
 			require.NoError(t, err)
@@ -221,7 +221,7 @@ func TestHandleComplexCycle(t *testing.T) {
 	require.Equal(t, 4, len(graph.Edges))
 	require.Equal(t, 3, len(graph.GetEntitlements()))
 
-	err := graph.FixCycles()
+	err := graph.FixCycles(ctx)
 	require.NoError(t, err, graph.Str())
 	err = graph.Validate()
 	require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestHandleCliqueCycle(t *testing.T) {
 		require.Equal(t, 6, len(graph.Edges))
 		require.Equal(t, 3, len(graph.GetEntitlements()))
 
-		err := graph.FixCycles()
+		err := graph.FixCycles(ctx)
 		require.NoError(t, err, graph.Str())
 		err = graph.Validate()
 		require.NoError(t, err)
