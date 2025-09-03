@@ -2412,7 +2412,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("runGrantExpandActions: error fetching source grants: %w", err)
 	}
 
-	var newGrants []*v2.Grant = make([]*v2.Grant, 0)
+	var newGrants = make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.List {
 		// Skip this grant if it is not for a resource type we care about
 		if len(action.ResourceTypeIDs) > 0 {

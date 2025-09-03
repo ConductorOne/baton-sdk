@@ -9,7 +9,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 )
 
-var EncryptionProviderNotRegisteredError = fmt.Errorf("crypto/providers: encryption provider not registered")
+var ErrEncryptionProviderNotRegistered = fmt.Errorf("crypto/providers: encryption provider not registered")
 
 type EncryptionProvider interface {
 	Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plainText *v2.PlaintextData) (*v2.EncryptedData, error)
@@ -29,7 +29,7 @@ func normalizeProviderName(name string) string {
 func GetEncryptionProvider(name string) (EncryptionProvider, error) {
 	provider, ok := providerRegistry[normalizeProviderName(name)]
 	if !ok {
-		return nil, fmt.Errorf("%w (%s)", EncryptionProviderNotRegisteredError, name)
+		return nil, fmt.Errorf("%w (%s)", ErrEncryptionProviderNotRegistered, name)
 	}
 	return provider, nil
 }
@@ -37,7 +37,7 @@ func GetEncryptionProvider(name string) (EncryptionProvider, error) {
 // GetEncryptionProviderForConfig returns the encryption provider for the given config.
 // If the config specifies a provider, we will fetch it directly by name and return an error if it's not found.
 // If the config contains a non-nil well-known configuration (like JWKPublicKeyConfig), we will return the provider for that by name.
-// If we can't find a provider, we return an EncryptionProviderNotRegisteredError.
+// If we can't find a provider, we return an ErrEncryptionProviderNotRegistered.
 func GetEncryptionProviderForConfig(ctx context.Context, conf *v2.EncryptionConfig) (EncryptionProvider, error) {
 	providerName := normalizeProviderName(conf.GetProvider())
 
@@ -51,7 +51,7 @@ func GetEncryptionProviderForConfig(ctx context.Context, conf *v2.EncryptionConf
 
 	// If we don't have a provider by now, bail.
 	if providerName == "" {
-		return nil, EncryptionProviderNotRegisteredError
+		return nil, ErrEncryptionProviderNotRegistered
 	}
 
 	return GetEncryptionProvider(providerName)

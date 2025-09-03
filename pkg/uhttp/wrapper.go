@@ -605,7 +605,7 @@ func WithBearerToken(token string) RequestOption {
 
 func (c *BaseHttpClient) NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error) {
 	var buffer io.ReadWriter
-	var headers map[string]string = make(map[string]string)
+	var headers = make(map[string]string)
 	for _, option := range options {
 		buf, h, err := option()
 		if err != nil {
