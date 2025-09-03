@@ -514,8 +514,7 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 		// Gate parallelism: if frontier small, do sequential step to avoid overhead
 		if len(frontier) <= 64 || maxWorkers == 1 {
 			next := make([]int, 0, len(frontier))
-			for i := 0; i < len(frontier); i++ {
-				u := frontier[i]
+			for _, u := range frontier {
 				rs, re := getRow(u)
 				for p := rs; p < re; p++ {
 					v := getCol(p)
@@ -535,17 +534,14 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 			continue
 		}
 
-		workers := maxWorkers
-		if workers > len(frontier) {
-			workers = len(frontier)
-		}
+		workers := min(maxWorkers, len(frontier))
 		var wg sync.WaitGroup
 		wg.Add(workers)
 
 		chunkSize := (len(frontier) + workers - 1) / workers
 		nextBuckets := make([][]int, workers)
 
-		for w := 0; w < workers; w++ {
+		for w := range workers {
 			start := w * chunkSize
 			end := start + chunkSize
 			if start >= len(frontier) {
@@ -652,7 +648,7 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 	queue := getIntSlice(0)
 	defer putIntSlice(queue)
 	// Out-degree within active.
-	for u := 0; u < n; u++ {
+	for u := range n {
 		if !active.test(u) {
 			continue
 		}
@@ -667,7 +663,7 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 		outDeg[u] = d
 	}
 	// In-degree within active (via transpose).
-	for v := 0; v < n; v++ {
+	for v := range n {
 		if !active.test(v) {
 			continue
 		}
@@ -681,7 +677,7 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 		}
 		inDeg[v] = d
 	}
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if !active.test(i) {
 			continue
 		}
@@ -746,7 +742,7 @@ func tarjanSCC(csr *CSR) []int {
 	onstack := make([]bool, n)
 	stack := make([]int, 0, n)
 	comp := make([]int, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		indices[i] = -1
 		comp[i] = -1
 	}
@@ -784,7 +780,7 @@ func tarjanSCC(csr *CSR) []int {
 			compID++
 		}
 	}
-	for v := 0; v < n; v++ {
+	for v := range n {
 		if indices[v] == -1 {
 			strongConnect(v)
 		}
