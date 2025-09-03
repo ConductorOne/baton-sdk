@@ -523,7 +523,7 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 					}
 					// Non-atomic is safe because we are single-threaded on this step
 					w := v >> 6
-					mask := uint64(1) << (uint(v) & 63)
+					mask := uint64(1) << (uint(v) & 63) //nolint:gosec //active.test returns false for negative values.
 					if (visited.w[w] & mask) == 0 {
 						visited.w[w] |= mask
 						next = append(next, v)
