@@ -214,6 +214,9 @@ func newBitset(n int) *bitset {
 // test reads a bit without synchronization. Do not call concurrently with any
 // writer to the same bitset.
 func (b *bitset) test(i int) bool {
+	if i < 0 {
+		return false
+	}
 	w := i >> 6
 	return (b.w[w] & (1 << (uint(i) & 63))) != 0
 }
@@ -221,6 +224,9 @@ func (b *bitset) test(i int) bool {
 // set writes a bit without synchronization. Not safe to race with other
 // accesses (reads or writes) to the same bitset.
 func (b *bitset) set(i int) {
+	if i < 0 {
+		return
+	}
 	w := i >> 6
 	b.w[w] |= 1 << (uint(i) & 63)
 }
@@ -228,6 +234,9 @@ func (b *bitset) set(i int) {
 // testAndSetAtomic atomically sets bit i and returns true if it was already
 // set. Safe for concurrent use by multiple goroutines.
 func (b *bitset) testAndSetAtomic(i int) bool {
+	if i < 0 {
+		return false
+	}
 	w := i >> 6
 	mask := uint64(1) << (uint(i) & 63)
 	addr := &b.w[w]
@@ -245,6 +254,9 @@ func (b *bitset) testAndSetAtomic(i int) bool {
 // clearAtomic atomically clears bit i. Safe for concurrent use by multiple
 // goroutines.
 func (b *bitset) clearAtomic(i int) {
+	if i < 0 {
+		return
+	}
 	w := i >> 6
 	mask := ^(uint64(1) << (uint(i) & 63))
 	addr := &b.w[w]
@@ -306,7 +318,7 @@ func (b *bitset) forEachSet(fn func(i int)) {
 			tz := bits.TrailingZeros64(w)
 			i := (wi << 6) + tz
 			fn(i)
-			w &^= 1 << uint(tz)
+			w &^= 1 << uint(tz) //nolint:gosec //bits.TrailingZeros64 never returns negative.
 		}
 	}
 }
