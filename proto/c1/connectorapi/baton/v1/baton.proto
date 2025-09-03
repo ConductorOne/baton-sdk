@@ -47,6 +47,7 @@ message Task {
 
   message SyncFullTask {
     repeated google.protobuf.Any annotations = 1;
+    bool skip_expand_grants = 2;
   }
 
   message EventFeedTask {
@@ -78,6 +79,7 @@ message Task {
 
   message DeleteResourceTask {
     connector.v2.ResourceId resource_id = 1;
+    connector.v2.ResourceId parent_resource_id = 2;
   }
 
   message RotateCredentialsTask {
@@ -130,14 +132,14 @@ message Task {
     repeated google.protobuf.Any annotations = 3;
   }
 
-  message CreateSyncDiffTask  {
+  message CreateSyncDiffTask {
     // Open to suggestions here
     string base_sync_id = 1;
     string new_sync_id = 2;
     repeated google.protobuf.Any annotations = 3;
   }
 
-  message CompactSyncs  {
+  message CompactSyncs {
     message CompactableSync {
       string file_path = 1;
       string sync_id = 2;
