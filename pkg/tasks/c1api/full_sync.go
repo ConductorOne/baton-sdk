@@ -201,45 +201,45 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 			l.Warn("unable to get the current working directory", zap.Error(err))
 		}
 		if wd != "" {
-			l.Warn("no temporal folder found on this system according to our sync helper,"+
+			l.Warn("no temporary folder found on this system according to our sync helper,"+
 				" we may create files in the current working directory by mistake as a result",
 				zap.String("current working directory", wd))
 		} else {
-			l.Warn("no temporal folder found on this system according to our sync helper")
+			l.Warn("no temporary folder found on this system according to our sync helper")
 		}
 	}
-	debugfilelocation := filepath.Join(tempDir, "debug.log")
+	debugPath := filepath.Join(tempDir, "debug.log")
 
-	_, err := os.Stat(debugfilelocation)
+	_, err := os.Stat(debugPath)
 	if err != nil {
 		switch {
 		case errors.Is(err, os.ErrNotExist):
-			l.Warn("debug log file does not exists", zap.Error(err))
+			l.Debug("debug log file does not exist", zap.Error(err))
 		case errors.Is(err, os.ErrPermission):
 			l.Warn("debug log file cannot be stat'd due to lack of permissions", zap.Error(err))
 		default:
 			l.Warn("cannot stat debug log file", zap.Error(err))
 		}
 		return nil
-	} else {
-		debugfile, err := os.Open(debugfilelocation)
-		if err != nil {
-			return err
-		}
-		defer debugfile.Close()
-
-		l.Info("uploading debug logs", zap.String("file", debugfilelocation))
-		err = helper.Upload(ctx, debugfile)
-		if err != nil {
-			return err
-		}
-		defer func() {
-			err := os.Remove(debugfilelocation)
-			if err != nil {
-				l.Error("failed to delete file with debug logs", zap.Error(err), zap.String("file", debugfilelocation))
-			}
-		}()
-
-		return nil
 	}
+
+	debugfile, err := os.Open(debugPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err := os.Remove(debugPath)
+		if err != nil {
+			l.Error("failed to delete file with debug logs", zap.Error(err), zap.String("file", debugPath))
+		}
+	}()
+	defer debugfile.Close()
+
+	l.Info("uploading debug logs", zap.String("file", debugPath))
+	err = helper.Upload(ctx, debugfile)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
