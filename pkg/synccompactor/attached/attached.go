@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 type Compactor struct {
@@ -45,8 +47,12 @@ func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) er
 	if err != nil {
 		return fmt.Errorf("failed to attach databases to destination: %w", err)
 	}
+	l := ctxzap.Extract(ctx)
 	defer func() {
-		_, _ = base.DetachFile("base")
+		_, err := base.DetachFile("base")
+		if err != nil {
+			l.Error("failed to detach file", zap.Error(err))
+		}
 	}()
 
 	// Attach both the base and applied databases to the destination
@@ -55,7 +61,10 @@ func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) er
 		return fmt.Errorf("failed to attach databases to destination: %w", err)
 	}
 	defer func() {
-		_, _ = attached.DetachFile("attached")
+		_, err := attached.DetachFile("attached")
+		if err != nil {
+			l.Error("failed to detach file", zap.Error(err))
+		}
 	}()
 
 	if err := c.processRecords(ctx, attached, destSyncID, baseSyncID, appliedSyncID); err != nil {
