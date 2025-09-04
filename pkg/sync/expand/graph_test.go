@@ -160,7 +160,7 @@ func TestGetFirstCycle(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.message, func(t *testing.T) {
 			graph := parseExpression(t, ctx, testCase.expression)
-			cycle := graph.GetFirstCycle()
+			cycle := graph.GetFirstCycle(ctx)
 			if testCase.expectedCycleSize == 0 {
 				require.Nil(t, cycle)
 			} else {
@@ -189,7 +189,7 @@ func TestHandleCycle(t *testing.T) {
 
 			graph := parseExpression(t, ctx, testCase.expression)
 
-			cycle := graph.GetFirstCycle()
+			cycle := graph.GetFirstCycle(ctx)
 			expectedCycles := createNodeIDList(testCase.expectedCycles)
 			require.NotNil(t, cycle)
 			found := false
@@ -201,11 +201,11 @@ func TestHandleCycle(t *testing.T) {
 			}
 			require.True(t, found)
 
-			err := graph.FixCycles()
+			err := graph.FixCycles(ctx)
 			require.NoError(t, err, graph.Str())
 			err = graph.Validate()
 			require.NoError(t, err)
-			cycle = graph.GetFirstCycle()
+			cycle = graph.GetFirstCycle(ctx)
 			require.Nil(t, cycle)
 		})
 	}
@@ -221,7 +221,7 @@ func TestHandleComplexCycle(t *testing.T) {
 	require.Equal(t, 4, len(graph.Edges))
 	require.Equal(t, 3, len(graph.GetEntitlements()))
 
-	err := graph.FixCycles()
+	err := graph.FixCycles(ctx)
 	require.NoError(t, err, graph.Str())
 	err = graph.Validate()
 	require.NoError(t, err)
@@ -230,7 +230,7 @@ func TestHandleComplexCycle(t *testing.T) {
 	require.Equal(t, 0, len(graph.Edges))
 	require.Equal(t, 3, len(graph.GetEntitlements()))
 
-	cycle := graph.GetFirstCycle()
+	cycle := graph.GetFirstCycle(ctx)
 	require.Nil(t, cycle)
 }
 
@@ -248,7 +248,7 @@ func TestHandleCliqueCycle(t *testing.T) {
 		require.Equal(t, 6, len(graph.Edges))
 		require.Equal(t, 3, len(graph.GetEntitlements()))
 
-		err := graph.FixCycles()
+		err := graph.FixCycles(ctx)
 		require.NoError(t, err, graph.Str())
 		err = graph.Validate()
 		require.NoError(t, err)
@@ -257,7 +257,7 @@ func TestHandleCliqueCycle(t *testing.T) {
 		require.Equal(t, 0, len(graph.Edges))
 		require.Equal(t, 3, len(graph.GetEntitlements()))
 
-		cycle := graph.GetFirstCycle()
+		cycle := graph.GetFirstCycle(ctx)
 		require.Nil(t, cycle)
 	}
 }

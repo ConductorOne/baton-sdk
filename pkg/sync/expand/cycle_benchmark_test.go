@@ -151,6 +151,8 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 }
 
 func BenchmarkGetFirstCycle(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	sizes := []int{100, 1000}
 
 	for _, n := range sizes {
@@ -158,7 +160,7 @@ func BenchmarkGetFirstCycle(b *testing.B) {
 			g := buildRing(b, n)
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = g.GetFirstCycle()
+				_ = g.GetFirstCycle(ctx)
 			}
 		})
 	}
@@ -168,7 +170,7 @@ func BenchmarkGetFirstCycle(b *testing.B) {
 			g := buildChain(b, n)
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = g.GetFirstCycle()
+				_ = g.GetFirstCycle(ctx)
 			}
 		})
 	}
