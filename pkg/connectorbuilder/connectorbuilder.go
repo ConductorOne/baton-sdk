@@ -23,6 +23,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/retry"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
@@ -738,7 +739,6 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list resources with unknown resource type %s", request.ResourceTypeId)
 	}
-
 	out, nextPageToken, annos, err := rb.List(ctx, request.ParentResourceId, &pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
@@ -844,6 +844,8 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
 	})
+
+	// annos.Append(&v2.ActiveSync{ActiveSyncId: request.Annotations.GetActiveSyncId()})
 	resp := &v2.GrantsServiceListGrantsResponse{
 		List:          out,
 		NextPageToken: nextPageToken,
@@ -1399,8 +1401,25 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 
 func (b *builderImpl) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
 	l := ctxzap.Extract(ctx)
+
+	// Clear session cache if available in context
+	sessionCache, err := session.GetSession(ctx)
+	if err != nil {
+		l.Warn("error getting session cache", zap.Error(err))
+	} else {
+		activeSync, err := annotations.GetActiveSyncIdFromAnnotations(annotations.Annotations(request.GetAnnotations()))
+		if err != nil {
+			l.Warn("error getting active sync id", zap.Error(err))
+		}
+		if activeSync != "" {
+			err = sessionCache.Clear(ctx)
+			if err != nil {
+				l.Warn("error clearing session cache", zap.Error(err))
+			}
+		}
+	}
 	// Clear all http caches at the end of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
-	err := uhttp.ClearCaches(ctx)
+	err = uhttp.ClearCaches(ctx)
 	if err != nil {
 		l.Warn("error clearing http caches", zap.Error(err))
 	}
