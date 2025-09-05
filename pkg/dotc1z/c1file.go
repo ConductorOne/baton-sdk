@@ -103,8 +103,9 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 }
 
 type c1zOptions struct {
-	tmpDir  string
-	pragmas []pragma
+	tmpDir         string
+	pragmas        []pragma
+	decoderOptions []DecoderOption
 }
 type C1ZOption func(*c1zOptions)
 
@@ -120,6 +121,12 @@ func WithPragma(name string, value string) C1ZOption {
 	}
 }
 
+func WithDecoderOptions(opts ...DecoderOption) C1ZOption {
+	return func(o *c1zOptions) {
+		o.decoderOptions = opts
+	}
+}
+
 // Returns a new C1File instance with its state stored at the provided filename.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
@@ -130,7 +137,7 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 		opt(options)
 	}
 
-	dbFilePath, err := loadC1z(outputFilePath, options.tmpDir)
+	dbFilePath, err := loadC1z(outputFilePath, options.tmpDir, options.decoderOptions...)
 	if err != nil {
 		return nil, err
 	}

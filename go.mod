@@ -24,7 +24,7 @@ require (
 	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
-	github.com/klauspost/compress v1.17.11
+	github.com/klauspost/compress v1.18.0
 	github.com/maypok86/otter v1.2.4
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pquerna/xjwt v0.3.0

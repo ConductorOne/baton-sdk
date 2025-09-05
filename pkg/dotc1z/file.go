@@ -11,7 +11,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func loadC1z(filePath string, tmpDir string) (string, error) {
+func loadC1z(filePath string, tmpDir string, opts ...DecoderOption) (string, error) {
 	var err error
 	workingDir, err := os.MkdirTemp(tmpDir, "c1z")
 	if err != nil {
@@ -38,7 +38,7 @@ func loadC1z(filePath string, tmpDir string) (string, error) {
 		}
 		defer c1zFile.Close()
 
-		r, err := NewDecoder(c1zFile)
+		r, err := NewDecoder(c1zFile, opts...)
 		if err != nil {
 			return "", err
 		}
