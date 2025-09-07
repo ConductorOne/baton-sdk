@@ -62,7 +62,6 @@ type CSR struct {
 	TRow        []int // len N+1
 	TCol        []int // len = m, m = TRow[N]
 	IdxToNodeID []int // len N
-	NodeIDToIdx map[int]int
 }
 
 // Source is a minimal read-only graph provider used to build CSR without
@@ -208,7 +207,6 @@ func buildCSRFromSource(src Source, opts Options) *CSR {
 		TRow:        trow,
 		TCol:        tcol,
 		IdxToNodeID: nodes,
-		NodeIDToIdx: id2idx,
 	}
 	validateCSR(csr)
 	return csr
@@ -273,13 +271,7 @@ func validateCSR(csr *CSR) {
 			panic("scc: TCol index out of range")
 		}
 	}
-	// NodeID mapping bijection check
-	for i := 0; i < n; i++ {
-		id := csr.IdxToNodeID[i]
-		if j, ok := csr.NodeIDToIdx[id]; !ok || j != i {
-			panic("scc: NodeIDToIdx/IdxToNodeID mismatch")
-		}
-	}
+	// NodeID mapping bijection check removed: CSR does not store NodeIDToIdx.
 	// Transpose degree equals inbound counts
 	inDeg := make([]int, n)
 	for _, v := range csr.Col {
