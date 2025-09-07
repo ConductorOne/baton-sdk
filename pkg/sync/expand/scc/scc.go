@@ -1,8 +1,25 @@
-// Package scc provides a parallel FW–BW SCC condensation for directed graphs,
+// Package scc provides an iterative FW–BW SCC condensation for directed graphs,
 // adapted for Baton’s entitlement graph. It builds an immutable CSR + transpose,
-// runs reachability-based SCC (with parallel BFS and parallel recursion), and
-// returns components as groups of your original node IDs.
+// runs reachability-based SCC with a stack-based driver (no recursion, BFS may
+// run in parallel), and returns components as groups of your original node IDs.
 package scc
+
+// Iterative FW–BW SCC condensation for directed graphs.
+//
+// High-level algorithm: Build CSR + transpose; maintain a LIFO stack of
+// subproblems (bitset masks). For each mask:
+//   1) Trim sources/sinks repeatedly; each peeled vertex is a singleton SCC.
+//   2) Pick a pivot (lowest-index active vertex), run forward/backward BFS
+//      restricted to the mask to get F and B.
+//   3) The SCC is C = F ∩ B. Assign its component id and clear those bits
+//      from the mask.
+//   4) Partition the remaining mask into F\C, B\C, and U = mask \ (F ∪ B),
+//      and push the non-empty masks onto the stack in a deterministic order.
+//
+// Parallelism is contained inside BFS (bounded by Options.MaxWorkers) and no
+// recursive goroutines are spawned by the driver. Determinism is achieved via
+// deterministic CSR construction (sorted ids and neighbors) and by using the
+// lowest-index active pivot with a fixed child-push order.
 
 import (
 	"context"
@@ -13,47 +30,12 @@ import (
 	"sync/atomic"
 )
 
-// Lightweight pools to reduce transient allocations in hot paths.
-var (
-	intSlicePool    sync.Pool // *([]int)
-	bucketSlicePool sync.Pool // *([]int)
-)
-
-func getIntSlice(n int) []int {
-	p, _ := intSlicePool.Get().(*[]int)
-	if p == nil || cap(*p) < n {
-		return make([]int, n)
-	}
-	s := (*p)[:n]
-	return s
-}
-
-func putIntSlice(s []int) {
-	intSlicePool.Put(&s)
-}
-
-func getBucketSlice() []int {
-	p, _ := bucketSlicePool.Get().(*[]int)
-	if p == nil {
-		return make([]int, 0, 256)
-	}
-	return (*p)[:0]
-}
-
-func putBucketSlice(s []int) {
-	bucketSlicePool.Put(&s)
-}
-
-// Options controls parallel SCC execution.
+// Options controls SCC execution.
+//
+// MaxWorkers bounds BFS concurrency per level. Deterministic toggles stable
+// CSR index assignment and neighbor ordering.
 type Options struct {
-	// MaxWorkers bounds concurrency for BFS/recursion. Defaults to GOMAXPROCS.
-	MaxWorkers int
-	// EnableTrim peels vertices with min(in,out)==0 before FW–BW (usually beneficial).
-	EnableTrim bool
-	// SmallCutoff size below which we switch to a simpler (sequential) routine.
-	// You can later swap this to Tarjan for tiny subgraphs.
-	SmallCutoff int
-	// Deterministic maps node IDs to CSR indices in sorted order (recommended).
+	MaxWorkers    int
 	Deterministic bool
 }
 
@@ -61,26 +43,33 @@ type Options struct {
 func DefaultOptions() Options {
 	return Options{
 		MaxWorkers:    runtime.GOMAXPROCS(0),
-		EnableTrim:    false,
-		SmallCutoff:   8192,
 		Deterministic: false,
 	}
 }
 
 // CSR is a compact adjacency for G and its transpose Gᵗ.
 // Indices are 0..N-1; IdxToNodeID maps back to the original node IDs.
+//
+// Invariants (validated by validateCSR):
+//   - len(Row)  == N+1; Row[0] == 0; Row is non-decreasing; Row[N] == len(Col)
+//   - len(TRow) == N+1; TRow[0] == 0; TRow is non-decreasing; TRow[N] == len(TCol)
+//   - 0 <= Col[p]  < N for all p; 0 <= TCol[p] < N for all p
+//   - len(IdxToNodeID) == N; NodeIDToIdx[IdxToNodeID[i]] == i for all i
+//   - For each v, (TRow[v+1]-TRow[v]) equals the number of occurrences of v in Col
+//     (transpose degree matches inbound counts)
 type CSR struct {
 	N           int
 	Row         []int // len N+1
-	Col         []int // len = m
+	Col         []int // len = m, m = Row[N]
 	TRow        []int // len N+1
-	TCol        []int // len = m
-	IdxToNodeID []int
+	TCol        []int // len = m, m = TRow[N]
+	IdxToNodeID []int // len N
 	NodeIDToIdx map[int]int
 }
 
 // BuildCSRFromAdj constructs CSR/transpose from adjacency map[int]map[int]int.
-// If opts.Deterministic, node IDs are sorted before assigning indices.
+// If opts.Deterministic, node IDs are sorted before assigning indices and
+// neighbors are stored in sorted order.
 // Isolated nodes must appear as keys in adj (with empty inner map).
 func BuildCSRFromAdj(adj map[int]map[int]int, opts Options) *CSR {
 	nodes := make([]int, 0, len(adj)*2)
@@ -117,7 +106,7 @@ func BuildCSRFromAdj(adj map[int]map[int]int, opts Options) *CSR {
 	}
 
 	row := make([]int, n+1)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		row[i+1] = row[i] + outDeg[i]
 	}
 	col := make([]int, m)
@@ -155,13 +144,13 @@ func BuildCSRFromAdj(adj map[int]map[int]int, opts Options) *CSR {
 		inDeg[v]++
 	}
 	trow := make([]int, n+1)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		trow[i+1] = trow[i] + inDeg[i]
 	}
 	tcol := make([]int, m)
 	tcur := make([]int, n)
 	copy(tcur, trow)
-	for u := 0; u < n; u++ {
+	for u := range n {
 		start, end := row[u], row[u+1]
 		for p := start; p < end; p++ {
 			v := col[p]
@@ -171,7 +160,7 @@ func BuildCSRFromAdj(adj map[int]map[int]int, opts Options) *CSR {
 		}
 	}
 
-	return &CSR{
+	csr := &CSR{
 		N:           n,
 		Row:         row,
 		Col:         col,
@@ -180,28 +169,96 @@ func BuildCSRFromAdj(adj map[int]map[int]int, opts Options) *CSR {
 		IdxToNodeID: nodes,
 		NodeIDToIdx: id2idx,
 	}
+	validateCSR(csr)
+	return csr
+}
+
+// validateCSR performs internal consistency checks on CSR and panics
+// with a descriptive message when a violation is found. This is intended to
+// catch programmer errors at build time and in tests; it runs unconditionally.
+func validateCSR(csr *CSR) {
+	if csr == nil {
+		panic("scc: CSR is nil")
+	}
+	n := csr.N
+	if n < 0 {
+		panic("scc: CSR.N is negative")
+	}
+	if len(csr.Row) != n+1 {
+		panic("scc: len(Row) != N+1")
+	}
+	if len(csr.TRow) != n+1 {
+		panic("scc: len(TRow) != N+1")
+	}
+	if len(csr.IdxToNodeID) != n {
+		panic("scc: len(IdxToNodeID) != N")
+	}
+	// Row invariants and degree sums
+	if csr.Row[0] != 0 {
+		panic("scc: Row[0] != 0")
+	}
+	for i := 0; i+1 < len(csr.Row); i++ {
+		if csr.Row[i] > csr.Row[i+1] {
+			panic("scc: Row is not non-decreasing")
+		}
+	}
+	m := csr.Row[n]
+	if m != len(csr.Col) {
+		panic("scc: Row[N] != len(Col)")
+	}
+	// TRow invariants
+	if csr.TRow[0] != 0 {
+		panic("scc: TRow[0] != 0")
+	}
+	for i := 0; i+1 < len(csr.TRow); i++ {
+		if csr.TRow[i] > csr.TRow[i+1] {
+			panic("scc: TRow is not non-decreasing")
+		}
+	}
+	mt := csr.TRow[n]
+	if mt != len(csr.TCol) {
+		panic("scc: TRow[N] != len(TCol)")
+	}
+	// Col bounds
+	for p := 0; p < len(csr.Col); p++ {
+		v := csr.Col[p]
+		if v < 0 || v >= n {
+			panic("scc: Col index out of range")
+		}
+	}
+	for p := 0; p < len(csr.TCol); p++ {
+		v := csr.TCol[p]
+		if v < 0 || v >= n {
+			panic("scc: TCol index out of range")
+		}
+	}
+	// NodeID mapping bijection check
+	for i := 0; i < n; i++ {
+		id := csr.IdxToNodeID[i]
+		if j, ok := csr.NodeIDToIdx[id]; !ok || j != i {
+			panic("scc: NodeIDToIdx/IdxToNodeID mismatch")
+		}
+	}
+	// Transpose degree equals inbound counts
+	inDeg := make([]int, n)
+	for _, v := range csr.Col {
+		inDeg[v]++
+	}
+	for v := 0; v < n; v++ {
+		expected := inDeg[v]
+		span := csr.TRow[v+1] - csr.TRow[v]
+		if span != expected {
+			panic("scc: transpose degree mismatch")
+		}
+	}
 }
 
 // bitset is a packed, atomically updatable bitset.
 //
-// Concurrency notes for callers:
-//   - Only testAndSetAtomic and clearAtomic are safe for concurrent use on the
-//     same bitset value. They perform CAS loops on 64-bit words.
-//   - All other methods (test, set, clone, and, or, andNot, isEmpty, count,
-//     forEachSet) are NOT safe to call concurrently with writers and must not
-//     race with any mutation of the same bitset.
-//   - Concurrent calls to test are fine only if no goroutine may write to that
-//     bitset at the same time (including via atomic methods), otherwise it is a
-//     data race by the Go memory model and race detector.
-//   - Slice storage for []uint64 is 64-bit aligned, satisfying atomic.*Uint64
-//     alignment requirements across architectures.
-//
-// Package usage:
-//   - In BFS, multiple workers set bits in the per-search "visited" bitset via
-//     testAndSetAtomic only; there are no concurrent non-atomic reads/writes.
-//   - The shared "active" mask is only modified outside an in-flight BFS; BFS
-//     reads it (test) while no goroutine mutates it, and recursive calls operate
-//     on disjoint cloned masks.
+// Concurrency notes:
+//   - Only testAndSetAtomic and clearAtomic are safe concurrently.
+//   - All other methods must not race with writers.
+//   - Slice storage aligns on 64-bit boundaries for atomic ops.
 type bitset struct{ w []uint64 }
 
 func newBitset(n int) *bitset {
@@ -211,8 +268,6 @@ func newBitset(n int) *bitset {
 	return &bitset{w: make([]uint64, (n+63)>>6)}
 }
 
-// test reads a bit without synchronization. Do not call concurrently with any
-// writer to the same bitset.
 func (b *bitset) test(i int) bool {
 	if i < 0 {
 		return false
@@ -221,8 +276,6 @@ func (b *bitset) test(i int) bool {
 	return (b.w[w] & (1 << (uint(i) & 63))) != 0
 }
 
-// set writes a bit without synchronization. Not safe to race with other
-// accesses (reads or writes) to the same bitset.
 func (b *bitset) set(i int) {
 	if i < 0 {
 		return
@@ -231,8 +284,6 @@ func (b *bitset) set(i int) {
 	b.w[w] |= 1 << (uint(i) & 63)
 }
 
-// testAndSetAtomic atomically sets bit i and returns true if it was already
-// set. Safe for concurrent use by multiple goroutines.
 func (b *bitset) testAndSetAtomic(i int) bool {
 	if i < 0 {
 		return false
@@ -251,8 +302,6 @@ func (b *bitset) testAndSetAtomic(i int) bool {
 	}
 }
 
-// clearAtomic atomically clears bit i. Safe for concurrent use by multiple
-// goroutines.
 func (b *bitset) clearAtomic(i int) {
 	if i < 0 {
 		return
@@ -304,65 +353,36 @@ func (b *bitset) isEmpty() bool {
 	return true
 }
 
-func (b *bitset) count() int {
-	total := 0
-	for _, w := range b.w {
-		total += bits.OnesCount64(w)
-	}
-	return total
-}
-
 func (b *bitset) forEachSet(fn func(i int)) {
 	for wi, w := range b.w {
 		for w != 0 {
 			tz := bits.TrailingZeros64(w)
 			i := (wi << 6) + tz
 			fn(i)
-			w &^= 1 << uint(tz) //nolint:gosec //bits.TrailingZeros64 never returns negative.
+			w &^= 1 << uint(tz) //nolint:gosec // trailing zeros is non-negative
 		}
 	}
 }
 
-// CondenseFWBWGroupsFromAdj runs parallel FW–BW SCC on adj and returns only
-// the component groups as slices of original node IDs. This avoids building the
-// idToComp map when callers don't need it.
+// CondenseFWBWGroupsFromAdj runs iterative FW–BW SCC on adj and returns the
+// component groups as slices of original node IDs.
 func CondenseFWBWGroupsFromAdj(ctx context.Context, adj map[int]map[int]int, opts Options) [][]int {
 	if opts.MaxWorkers <= 0 {
 		opts.MaxWorkers = runtime.GOMAXPROCS(0)
 	}
 	csr := BuildCSRFromAdj(adj, opts)
-	// Small graphs: use low-overhead Tarjan SCC
-	if csr.N <= opts.SmallCutoff {
-		comp := tarjanSCC(csr)
-		maxID := -1
-		for _, c := range comp {
-			if c > maxID {
-				maxID = c
-			}
-		}
-		groups := make([][]int, maxID+1)
-		for idx := 0; idx < csr.N; idx++ {
-			cid := comp[idx]
-			groups[cid] = append(groups[cid], csr.IdxToNodeID[idx])
-		}
-		return groups
-	}
 	comp := make([]int, csr.N)
 	for i := range comp {
 		comp[i] = -1
 	}
-	active := newBitset(csr.N)
-	for i := 0; i < csr.N; i++ {
-		active.set(i)
-	}
-	nextID := 0
-	sccFWBW(ctx, csr, active, comp, &nextID, opts)
+
+	nextID := sccFWBWIterative(ctx, csr, comp, opts)
 
 	groups := make([][]int, nextID)
 	for idx := 0; idx < csr.N; idx++ {
 		cid := comp[idx]
 		if cid < 0 {
-			// Defensive: assign singleton if anything slipped through
+			// Defensive: assign singleton if anything slipped through.
 			cid = nextID
 			nextID++
 			comp[idx] = cid
@@ -377,109 +397,77 @@ func CondenseFWBWGroupsFromAdj(ctx context.Context, adj map[int]map[int]int, opt
 	return groups
 }
 
-func sccFWBW(ctx context.Context, csr *CSR, active *bitset, comp []int, nextID *int, opts Options) {
-	// Optional trimming loop.
-	if opts.EnableTrim {
+// sccFWBWIterative implements the driver loop described at the top.
+func sccFWBWIterative(ctx context.Context, csr *CSR, comp []int, opts Options) (nextID int) {
+	nextID = 0
+
+	// Initialize root mask with all vertices.
+	root := newBitset(csr.N)
+	for i := range csr.N {
+		root.set(i)
+	}
+
+	type item struct{ mask *bitset }
+	stack := make([]item, 0, 64)
+	stack = append(stack, item{mask: root})
+
+	for len(stack) > 0 {
+		select {
+		case <-ctx.Done():
+			return nextID
+		default:
+		}
+
+		it := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		active := it.mask
+
+		// Trim loop: peel sources/sinks; each peeled vertex becomes its own SCC.
 		for {
-			if n := trimSingletons(csr, active, comp, nextID); n == 0 {
+			if n := trimSingletons(csr, active, comp, &nextID); n == 0 {
 				break
 			}
 			if active.isEmpty() {
-				return
+				break
 			}
+		}
+		if active.isEmpty() {
+			continue
+		}
+
+		// Pivot and BFS (restricted to active mask).
+		pivot := firstActive(active)
+		f := bfsMultiSource(ctx, csr, []int{pivot}, active, false, opts.MaxWorkers)
+		b := bfsMultiSource(ctx, csr, []int{pivot}, active, true, opts.MaxWorkers)
+
+		// Component and partition masks.
+		c := f.clone().and(b)
+		assignComponent(c, comp, &nextID, active)
+
+		fNotC := f.clone().andNot(c)
+		bNotC := b.clone().andNot(c)
+		fOrB := f.clone().or(b)
+		u := active.clone().andNot(fOrB)
+
+		// assignComponent cleared C from 'active'; child masks are disjoint subsets
+		// of the original mask. Push children in a fixed order for determinism.
+		if !u.isEmpty() {
+			stack = append(stack, item{mask: u})
+		}
+		if !bNotC.isEmpty() {
+			stack = append(stack, item{mask: bNotC})
+		}
+		if !fNotC.isEmpty() {
+			stack = append(stack, item{mask: fNotC})
 		}
 	}
 
-	// Base case: small subgraph — do simple repeated FW–BW (Tarjan hook point).
-	if active.count() <= opts.SmallCutoff {
-		for !active.isEmpty() {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			pivot := firstActive(active)
-			f := bfsMultiSource(ctx, csr, []int{pivot}, active, false, opts.MaxWorkers)
-			b := bfsMultiSource(ctx, csr, []int{pivot}, active, true, opts.MaxWorkers)
-			c := f.clone().and(b)
-			assignComponent(c, comp, nextID, active)
-
-			// Partitions
-			fNotC := f.clone().andNot(c)
-			bNotC := b.clone().andNot(c)
-			fOrB := f.clone().or(b)
-			u := active.clone().andNot(fOrB)
-
-			if !fNotC.isEmpty() {
-				sccFWBW(ctx, csr, fNotC, comp, nextID, opts)
-				active.andNot(fNotC)
-			}
-			if !bNotC.isEmpty() {
-				sccFWBW(ctx, csr, bNotC, comp, nextID, opts)
-				active.andNot(bNotC)
-			}
-			if !u.isEmpty() {
-				sccFWBW(ctx, csr, u, comp, nextID, opts)
-				active.andNot(u)
-			}
-		}
-		return
-	}
-
-	// General case: one pivot; add pivot batching later for extra speed.
-	pivot := firstActive(active)
-	f := bfsMultiSource(ctx, csr, []int{pivot}, active, false, opts.MaxWorkers)
-	b := bfsMultiSource(ctx, csr, []int{pivot}, active, true, opts.MaxWorkers)
-	c := f.clone().and(b)
-	assignComponent(c, comp, nextID, active)
-
-	// F\C, B\C, and U = active \ (F ∪ B)
-	fNotC := f.clone().andNot(c)
-	bNotC := b.clone().andNot(c)
-	fOrB := f.clone().or(b)
-	u := active.clone().andNot(fOrB)
-
-	type sub struct{ mask *bitset }
-	var subs []sub
-	if !fNotC.isEmpty() {
-		subs = append(subs, sub{fNotC})
-	}
-	if !bNotC.isEmpty() {
-		subs = append(subs, sub{bNotC})
-	}
-	if !u.isEmpty() {
-		subs = append(subs, sub{u})
-	}
-	if len(subs) == 0 {
-		return
-	}
-
-	if len(subs) == 1 || opts.MaxWorkers <= 1 {
-		for _, s := range subs {
-			sccFWBW(ctx, csr, s.mask, comp, nextID, opts)
-			active.andNot(s.mask)
-		}
-		return
-	}
-
-	var wg sync.WaitGroup
-	wg.Add(len(subs))
-	for _, s := range subs {
-		mask := s.mask
-		go func() {
-			defer wg.Done()
-			sccFWBW(ctx, csr, mask, comp, nextID, opts)
-		}()
-	}
-	wg.Wait()
-	for _, s := range subs {
-		active.andNot(s.mask)
-	}
+	return nextID
 }
 
 // bfsMultiSource runs a parallel BFS from sources over csr.
-// If useTranspose is true, traverses csr.T* arrays.
-// Traversal respects 'active' mask; returns visited including sources.
+// If useTranspose is true, traverses csr.T* arrays. Traversal respects
+// 'active' mask; returns visited including sources.
 // Cancellation: checks ctx between levels.
 func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset, useTranspose bool, maxWorkers int) *bitset {
 	if maxWorkers <= 0 {
@@ -511,7 +499,7 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 		default:
 		}
 
-		// Gate parallelism: if frontier small, do sequential step to avoid overhead
+		// If frontier small, do sequential step to avoid overhead.
 		if len(frontier) <= 64 || maxWorkers == 1 {
 			next := make([]int, 0, len(frontier))
 			for _, u := range frontier {
@@ -521,9 +509,8 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 					if !active.test(v) {
 						continue
 					}
-					// Non-atomic is safe because we are single-threaded on this step
 					w := v >> 6
-					mask := uint64(1) << (uint(v) & 63) //nolint:gosec //active.test returns false for negative values.
+					mask := uint64(1) << (uint(v) & 63)
 					if (visited.w[w] & mask) == 0 {
 						visited.w[w] |= mask
 						next = append(next, v)
@@ -534,14 +521,17 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 			continue
 		}
 
-		workers := min(maxWorkers, len(frontier))
+		workers := maxWorkers
+		if workers > len(frontier) {
+			workers = len(frontier)
+		}
 		var wg sync.WaitGroup
 		wg.Add(workers)
 
 		chunkSize := (len(frontier) + workers - 1) / workers
 		nextBuckets := make([][]int, workers)
 
-		for w := range workers {
+		for w := 0; w < workers; w++ {
 			start := w * chunkSize
 			end := start + chunkSize
 			if start >= len(frontier) {
@@ -555,7 +545,7 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 			w := w // capture
 			go func(start, end int) {
 				defer wg.Done()
-				local := getBucketSlice()
+				local := make([]int, 0, 256)
 				for i := start; i < end; i++ {
 					u := frontier[i]
 					rs, re := getRow(u)
@@ -574,7 +564,6 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 		}
 		wg.Wait()
 
-		// Flatten next frontier and return bucket buffers to pool.
 		total := 0
 		for _, b := range nextBuckets {
 			total += len(b)
@@ -584,7 +573,6 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 		for _, b := range nextBuckets {
 			copy(next[off:], b)
 			off += len(b)
-			putBucketSlice(b)
 		}
 		frontier = next
 	}
@@ -610,7 +598,7 @@ func frontierSeed(sources []int, active, visited *bitset) []int {
 }
 
 func firstActive(active *bitset) int {
-	var pivot = -1
+	pivot := -1
 	active.forEachSet(func(i int) {
 		if pivot == -1 {
 			pivot = i
@@ -626,11 +614,35 @@ func assignComponent(cMask *bitset, comp []int, nextID *int, active *bitset) {
 	}
 	cid := *nextID
 	*nextID++
-
 	cMask.forEachSet(func(i int) {
 		comp[i] = cid
 		active.clearAtomic(i)
 	})
+}
+
+// Degree-array pool for trim to reduce allocations for small graphs.
+var (
+	intSlicePool sync.Pool // *([]int)
+)
+
+func getIntSlice(n int) []int {
+	p, _ := intSlicePool.Get().(*[]int)
+	if p == nil || cap(*p) < n {
+		return make([]int, n)
+	}
+	s := (*p)[:n]
+	for i := range s {
+		s[i] = 0
+	}
+	return s
+}
+
+func putIntSlice(s []int) {
+	// avoid keeping very large slices
+	if cap(s) > 1<<14 {
+		return
+	}
+	intSlicePool.Put(&s)
 }
 
 // trimSingletons peels vertices with restricted in/out degree within 'active'.
@@ -639,16 +651,10 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 	n := csr.N
 	inDeg := getIntSlice(n)
 	outDeg := getIntSlice(n)
-	defer func() {
-		putIntSlice(inDeg)
-		putIntSlice(outDeg)
-	}()
+	defer func() { putIntSlice(inDeg); putIntSlice(outDeg) }()
 
-	// Initialize degrees within active and queue zeros
-	queue := getIntSlice(0)
-	defer putIntSlice(queue)
 	// Out-degree within active.
-	for u := range n {
+	for u := 0; u < n; u++ {
 		if !active.test(u) {
 			continue
 		}
@@ -663,7 +669,7 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 		outDeg[u] = d
 	}
 	// In-degree within active (via transpose).
-	for v := range n {
+	for v := 0; v < n; v++ {
 		if !active.test(v) {
 			continue
 		}
@@ -677,7 +683,11 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 		}
 		inDeg[v] = d
 	}
-	for i := range n {
+
+	// Initialize queue of zeros.
+	queue := getIntSlice(0)
+	defer putIntSlice(queue)
+	for i := 0; i < n; i++ {
 		if !active.test(i) {
 			continue
 		}
@@ -696,11 +706,13 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 		if inDeg[u] > 0 && outDeg[u] > 0 {
 			continue
 		}
+
 		// assign and remove u
 		comp[u] = *nextID
 		*nextID++
 		active.clearAtomic(u)
 		peeled++
+
 		// Decrement out-neighbors' inDeg
 		rs, re := csr.Row[u], csr.Row[u+1]
 		for p := rs; p < re; p++ {
@@ -731,59 +743,4 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 		}
 	}
 	return peeled
-}
-
-// Add a simple sequential Tarjan SCC for small graphs.
-func tarjanSCC(csr *CSR) []int {
-	n := csr.N
-	index := 0
-	indices := make([]int, n)
-	lowlink := make([]int, n)
-	onstack := make([]bool, n)
-	stack := make([]int, 0, n)
-	comp := make([]int, n)
-	for i := range n {
-		indices[i] = -1
-		comp[i] = -1
-	}
-	compID := 0
-	var strongConnect func(v int)
-	strongConnect = func(v int) {
-		indices[v] = index
-		lowlink[v] = index
-		index++
-		stack = append(stack, v)
-		onstack[v] = true
-		for p := csr.Row[v]; p < csr.Row[v+1]; p++ {
-			w := csr.Col[p]
-			if indices[w] == -1 {
-				strongConnect(w)
-				if lowlink[w] < lowlink[v] {
-					lowlink[v] = lowlink[w]
-				}
-			} else if onstack[w] {
-				if indices[w] < lowlink[v] {
-					lowlink[v] = indices[w]
-				}
-			}
-		}
-		if lowlink[v] == indices[v] {
-			for {
-				w := stack[len(stack)-1]
-				stack = stack[:len(stack)-1]
-				onstack[w] = false
-				comp[w] = compID
-				if w == v {
-					break
-				}
-			}
-			compID++
-		}
-	}
-	for v := range n {
-		if indices[v] == -1 {
-			strongConnect(v)
-		}
-	}
-	return comp
 }
