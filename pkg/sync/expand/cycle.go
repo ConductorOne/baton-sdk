@@ -36,10 +36,10 @@ func (g *EntitlementGraph) cycleDetectionHelper(
 	if len(reach) == 0 {
 		return nil, false
 	}
-	adj := g.toAdjacency(reach)
-	groups := scc.CondenseFWBWGroupsFromAdj(context.Background(), adj, scc.DefaultOptions())
+	fg := filteredGraph{g: g, include: func(id int) bool { _, ok := reach[id]; return ok }}
+	groups := scc.CondenseFWBW(context.Background(), fg, scc.DefaultOptions())
 	for _, comp := range groups {
-		if len(comp) > 1 || (len(comp) == 1 && adj[comp[0]][comp[0]] != 0) {
+		if len(comp) > 1 || (len(comp) == 1 && g.hasSelfLoop(comp[0])) {
 			return comp, true
 		}
 	}
@@ -56,15 +56,56 @@ func (g *EntitlementGraph) ComputeCyclicComponents(ctx context.Context) [][]int 
 	if g.HasNoCycles {
 		return nil
 	}
-	adj := g.toAdjacency(nil)
-	groups := scc.CondenseFWBWGroupsFromAdj(ctx, adj, scc.DefaultOptions())
+	groups := scc.CondenseFWBW(ctx, g, scc.DefaultOptions())
 	cyclic := make([][]int, 0)
 	for _, comp := range groups {
-		if len(comp) > 1 || (len(comp) == 1 && adj[comp[0]][comp[0]] != 0) {
+		if len(comp) > 1 || (len(comp) == 1 && g.hasSelfLoop(comp[0])) {
 			cyclic = append(cyclic, comp)
 		}
 	}
 	return cyclic
+}
+
+// hasSelfLoop reports whether a node has a self-edge.
+func (g *EntitlementGraph) hasSelfLoop(id int) bool {
+	if row, ok := g.SourcesToDestinations[id]; ok {
+		_, ok := row[id]
+		return ok
+	}
+	return false
+}
+
+// filteredGraph restricts EntitlementGraph iteration to nodes for which include(id) is true.
+type filteredGraph struct {
+	g       *EntitlementGraph
+	include func(int) bool
+}
+
+func (fg filteredGraph) ForEachNode(fn func(id int) bool) {
+	for id := range fg.g.Nodes {
+		if fg.include != nil && !fg.include(id) {
+			continue
+		}
+		if !fn(id) {
+			return
+		}
+	}
+}
+
+func (fg filteredGraph) ForEachEdgeFrom(src int, fn func(dst int) bool) {
+	if fg.include != nil && !fg.include(src) {
+		return
+	}
+	if dsts, ok := fg.g.SourcesToDestinations[src]; ok {
+		for dst := range dsts {
+			if fg.include != nil && !fg.include(dst) {
+				continue
+			}
+			if !fn(dst) {
+				return
+			}
+		}
+	}
 }
 
 // removeNode obliterates a node and all incoming/outgoing edges.

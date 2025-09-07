@@ -2,6 +2,7 @@ package scc
 
 import (
 	"context"
+	"encoding/binary"
 	"math"
 	"math/rand"
 	"reflect"
@@ -295,42 +296,6 @@ func generateAdjacency(numNodes, edgeBudget, mode int, r *rand.Rand, selfLoopFra
 
 // Fuzzers
 
-// Deterministic params-based fuzzer with invariants and idempotence check.
-func FuzzCondenseFWBW_FromParams(f *testing.F) {
-	// Canonical seeds
-	f.Add(16, uint64(1), 24, uint8(0), uint8(0), uint8(0))
-	f.Add(128, uint64(2), 1024, uint8(3), uint8(16), uint8(64))
-	f.Add(256, uint64(3), 256, uint8(1), uint8(0), uint8(0))
-
-	f.Fuzz(func(t *testing.T, numNodes int, seed uint64, edgeBudget int, mode uint8, selfLoopFrac uint8, bidirFrac uint8) {
-		numNodes = clamp(numNodes, 1, 1000)
-		// clamp edgeBudget to min(100000, numNodes*numNodes)
-		if edgeBudget > 100000 {
-			edgeBudget = 100000
-		}
-		maxEdges := numNodes * numNodes
-		if edgeBudget > maxEdges {
-			edgeBudget = maxEdges
-		}
-		r := rand.New(rand.NewSource(int64(seed)))
-
-		adj := generateAdjacency(numNodes, edgeBudget, int(mode%8), r, int(selfLoopFrac), int(bidirFrac))
-		opts := DefaultOptions()
-		opts.Deterministic = true
-		opts.MaxWorkers = 1
-
-		ctx := context.Background()
-		groups := CondenseFWBWGroupsFromAdj(ctx, adj, opts)
-		assertPartition(t, adj, groups)
-		assertDAGCondensation(t, adj, groups)
-
-		groups2 := CondenseFWBWGroupsFromAdj(ctx, adj, opts)
-		if !equalGroups(normalizeGroups(groups), normalizeGroups(groups2)) {
-			t.Fatalf("non-deterministic result with Deterministic=true")
-		}
-	})
-}
-
 // Cancellation fuzzer: short deadline; only assert return (no structural checks).
 func FuzzCondenseFWBW_Cancellation(f *testing.F) {
 	f.Add(512, uint64(4), 2048, uint8(2), uint8(8), uint8(0))
@@ -349,6 +314,121 @@ func FuzzCondenseFWBW_Cancellation(f *testing.F) {
 		opts.MaxWorkers = 1
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 		defer cancel()
-		_ = CondenseFWBWGroupsFromAdj(ctx, adj, opts)
+		_ = CondenseFWBW(ctx, adjSource{adj: adj}, opts)
+	})
+}
+
+// --- Byte-based fuzzer ---
+
+// decodeVarint decodes a little varint (LEB128-style) from data starting at *i.
+// Returns value and whether decoding succeeded.
+func decodeVarint(data []byte, i *int) (uint64, bool) {
+	var x uint64
+	var s uint
+	for {
+		if *i >= len(data) || s >= 64 {
+			return 0, false
+		}
+		b := data[*i]
+		*i++
+		if b < 0x80 {
+			x |= uint64(b) << s
+			return x, true
+		}
+		x |= uint64(b&0x7f) << s
+		s += 7
+	}
+}
+
+// generateAdjFromBytes builds an adjacency from a byte stream with caps.
+func generateAdjFromBytes(data []byte, maxN, maxM int) map[int]map[int]int {
+	if len(data) == 0 {
+		return map[int]map[int]int{0: {}}
+	}
+	i := 0
+	n64, ok := decodeVarint(data, &i)
+	if !ok {
+		n64 = 1
+	}
+	m64, ok := decodeVarint(data, &i)
+	if !ok {
+		m64 = 0
+	}
+	n := int(n64)
+	if n < 1 {
+		n = 1
+	}
+	if n > maxN {
+		n = maxN
+	}
+	m := int(m64)
+	if m < 0 {
+		m = 0
+	}
+	if m > maxM {
+		m = maxM
+	}
+	adj := make(map[int]map[int]int, n)
+	for v := 0; v < n; v++ {
+		adj[v] = make(map[int]int)
+	}
+	// Edge pairs
+	for e := 0; e < m && i < len(data); e++ {
+		// If not enough bytes left, break
+		if i+8 > len(data) {
+			break
+		}
+		u := int(binary.LittleEndian.Uint32(data[i:])) % n
+		i += 4
+		v := int(binary.LittleEndian.Uint32(data[i:])) % n
+		i += 4
+		adj[u][v] = 1
+	}
+	// Optional flags for reverse edges and self-loops
+	if i < len(data) {
+		flags := data[i]
+		// bit0: add reverse for all edges
+		if flags&0x1 != 0 {
+			for u, nbrs := range adj {
+				for v := range nbrs {
+					adj[v][u] = 1
+				}
+			}
+		}
+		// bit1: sprinkle self-loops for some nodes based on subsequent bytes
+		if flags&0x2 != 0 {
+			i++
+			for v := 0; v < n && i < len(data); v++ {
+				if data[i]%3 == 0 {
+					adj[v][v] = 1
+				}
+				i++
+			}
+		}
+	}
+	return adj
+}
+
+func FuzzCondenseFWBW_FromBytes(f *testing.F) {
+	// Seed with simple patterns
+	f.Add([]byte{5, 10, 0, 0, 0, 0, 1, 0, 0, 0}) // n=5,m=10, one edge 0->1
+	f.Add([]byte{10, 20})                        // small n,m with empty pairs
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		// Caps for CI-friendly fuzz
+		const maxN = 1000
+		const maxM = 100000
+		adj := generateAdjFromBytes(data, maxN, maxM)
+		opts := DefaultOptions()
+		opts.Deterministic = true
+		opts.MaxWorkers = 1
+		groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
+		assertPartition(t, adj, groups)
+		assertDAGCondensation(t, adj, groups)
+		// idempotence in deterministic mode
+		groups2 := CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
+		if !equalGroups(normalizeGroups(groups), normalizeGroups(groups2)) {
+			t.Fatalf("non-deterministic result with Deterministic=true")
+		}
 	})
 }

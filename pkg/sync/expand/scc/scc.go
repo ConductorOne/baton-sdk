@@ -23,11 +23,9 @@ package scc
 
 import (
 	"context"
-	"math/bits"
 	"runtime"
 	"sort"
 	"sync"
-	"sync/atomic"
 )
 
 // Options controls SCC execution.
@@ -67,25 +65,55 @@ type CSR struct {
 	NodeIDToIdx map[int]int
 }
 
-// BuildCSRFromAdj constructs CSR/transpose from adjacency map[int]map[int]int.
-// If opts.Deterministic, node IDs are sorted before assigning indices and
-// neighbors are stored in sorted order.
-// Isolated nodes must appear as keys in adj (with empty inner map).
-func BuildCSRFromAdj(adj map[int]map[int]int, opts Options) *CSR {
-	nodes := make([]int, 0, len(adj)*2)
-	seen := make(map[int]struct{}, len(adj)*2)
-	for u, nbrs := range adj {
-		if _, ok := seen[u]; !ok {
-			seen[u] = struct{}{}
-			nodes = append(nodes, u)
-		}
-		for v := range nbrs {
-			if _, ok := seen[v]; !ok {
-				seen[v] = struct{}{}
-				nodes = append(nodes, v)
+// Source is a minimal read-only graph provider used to build CSR without
+// materializing an intermediate adjacency map. It must enumerate all nodes
+// (including isolated nodes) and for each node provide its unique outgoing
+// destinations.
+type Source interface {
+	ForEachNode(fn func(id int) bool)
+	ForEachEdgeFrom(src int, fn func(dst int) bool)
+}
+
+// CondenseFWBW runs SCC directly from a streaming Source. Preferred entry point.
+func CondenseFWBW(ctx context.Context, src Source, opts Options) [][]int {
+	if opts.MaxWorkers <= 0 {
+		opts.MaxWorkers = runtime.GOMAXPROCS(0)
+	}
+	csr := buildCSRFromSource(src, opts)
+	comp := make([]int, csr.N)
+	for i := range comp {
+		comp[i] = -1
+	}
+	nextID := sccFWBWIterative(ctx, csr, comp, opts)
+
+	groups := make([][]int, nextID)
+	for idx := 0; idx < csr.N; idx++ {
+		cid := comp[idx]
+		if cid < 0 {
+			cid = nextID
+			nextID++
+			comp[idx] = cid
+			if cid >= len(groups) {
+				tmp := make([][]int, cid+1)
+				copy(tmp, groups)
+				groups = tmp
 			}
 		}
+		groups[cid] = append(groups[cid], csr.IdxToNodeID[idx])
 	}
+	return groups
+}
+
+// buildCSRFromSource constructs CSR/transpose from a Source without
+// materializing an intermediate adjacency map. If opts.Deterministic, node IDs
+// are sorted and per-row neighbors are written in ascending order.
+func buildCSRFromSource(src Source, opts Options) *CSR {
+	// 1) Collect nodes
+	nodes := make([]int, 0, 1024)
+	src.ForEachNode(func(id int) bool {
+		nodes = append(nodes, id)
+		return true
+	})
 	if opts.Deterministic {
 		sort.Ints(nodes)
 	}
@@ -95,68 +123,81 @@ func BuildCSRFromAdj(adj map[int]map[int]int, opts Options) *CSR {
 	}
 	n := len(nodes)
 
-	// Count edges per row.
+	// 2) Count out-degrees and total edges
 	outDeg := make([]int, n)
 	m := 0
-	for uID, nbrs := range adj {
-		u := id2idx[uID]
-		deg := len(nbrs)
-		outDeg[u] += deg
-		m += deg
+	for i := 0; i < n; i++ {
+		srcID := nodes[i]
+		src.ForEachEdgeFrom(srcID, func(dst int) bool {
+			j, ok := id2idx[dst]
+			if !ok {
+				return true
+			}
+			_ = j // only used to validate membership
+			outDeg[i]++
+			m++
+			return true
+		})
 	}
 
+	// 3) Allocate Row/Col
 	row := make([]int, n+1)
-	for i := range n {
+	for i := 0; i < n; i++ {
 		row[i+1] = row[i] + outDeg[i]
 	}
 	col := make([]int, m)
-
-	// Fill CSR.
 	cur := make([]int, n)
 	copy(cur, row)
-	for uID, nbrs := range adj {
-		u := id2idx[uID]
-		if opts.Deterministic {
-			vs := make([]int, 0, len(nbrs))
-			for vID := range nbrs {
-				vs = append(vs, vID)
-			}
-			sort.Ints(vs)
-			for _, vID := range vs {
-				v := id2idx[vID]
-				pos := cur[u]
-				col[pos] = v
-				cur[u]++
-			}
-		} else {
-			for vID := range nbrs {
-				v := id2idx[vID]
-				pos := cur[u]
-				col[pos] = v
-				cur[u]++
-			}
+
+	// 4) Fill rows
+	if opts.Deterministic {
+		for i := 0; i < n; i++ {
+			srcID := nodes[i]
+			neighbors := make([]int, 0, outDeg[i])
+			src.ForEachEdgeFrom(srcID, func(dst int) bool {
+				if j, ok := id2idx[dst]; ok {
+					neighbors = append(neighbors, j)
+				}
+				return true
+			})
+			sort.Ints(neighbors)
+			off := cur[i]
+			copy(col[off:off+len(neighbors)], neighbors)
+			cur[i] += len(neighbors)
+		}
+	} else {
+		for i := 0; i < n; i++ {
+			srcID := nodes[i]
+			src.ForEachEdgeFrom(srcID, func(dst int) bool {
+				if j, ok := id2idx[dst]; ok {
+					pos := cur[i]
+					col[pos] = j
+					cur[i] = pos + 1
+				}
+				return true
+			})
 		}
 	}
 
-	// Transpose.
+	// 5) Transpose
 	inDeg := make([]int, n)
 	for _, v := range col {
 		inDeg[v]++
 	}
 	trow := make([]int, n+1)
-	for i := range n {
+	for i := 0; i < n; i++ {
 		trow[i+1] = trow[i] + inDeg[i]
 	}
 	tcol := make([]int, m)
 	tcur := make([]int, n)
 	copy(tcur, trow)
-	for u := range n {
+	for u := 0; u < n; u++ {
 		start, end := row[u], row[u+1]
 		for p := start; p < end; p++ {
 			v := col[p]
 			pos := tcur[v]
 			tcol[pos] = u
-			tcur[v]++
+			tcur[v] = pos + 1
 		}
 	}
 
@@ -253,149 +294,7 @@ func validateCSR(csr *CSR) {
 	}
 }
 
-// bitset is a packed, atomically updatable bitset.
-//
-// Concurrency notes:
-//   - Only testAndSetAtomic and clearAtomic are safe concurrently.
-//   - All other methods must not race with writers.
-//   - Slice storage aligns on 64-bit boundaries for atomic ops.
-type bitset struct{ w []uint64 }
-
-func newBitset(n int) *bitset {
-	if n <= 0 {
-		return &bitset{}
-	}
-	return &bitset{w: make([]uint64, (n+63)>>6)}
-}
-
-func (b *bitset) test(i int) bool {
-	if i < 0 {
-		return false
-	}
-	w := i >> 6
-	return (b.w[w] & (1 << (uint(i) & 63))) != 0
-}
-
-func (b *bitset) set(i int) {
-	if i < 0 {
-		return
-	}
-	w := i >> 6
-	b.w[w] |= 1 << (uint(i) & 63)
-}
-
-func (b *bitset) testAndSetAtomic(i int) bool {
-	if i < 0 {
-		return false
-	}
-	w := i >> 6
-	mask := uint64(1) << (uint(i) & 63)
-	addr := &b.w[w]
-	for {
-		old := atomic.LoadUint64(addr)
-		if old&mask != 0 {
-			return true
-		}
-		if atomic.CompareAndSwapUint64(addr, old, old|mask) {
-			return false
-		}
-	}
-}
-
-func (b *bitset) clearAtomic(i int) {
-	if i < 0 {
-		return
-	}
-	w := i >> 6
-	mask := ^(uint64(1) << (uint(i) & 63))
-	addr := &b.w[w]
-	for {
-		old := atomic.LoadUint64(addr)
-		if atomic.CompareAndSwapUint64(addr, old, old&mask) {
-			return
-		}
-	}
-}
-
-func (b *bitset) clone() *bitset {
-	cp := &bitset{w: make([]uint64, len(b.w))}
-	copy(cp.w, b.w)
-	return cp
-}
-
-func (b *bitset) and(x *bitset) *bitset {
-	for i := range b.w {
-		b.w[i] &= x.w[i]
-	}
-	return b
-}
-
-func (b *bitset) or(x *bitset) *bitset {
-	for i := range b.w {
-		b.w[i] |= x.w[i]
-	}
-	return b
-}
-
-func (b *bitset) andNot(x *bitset) *bitset {
-	for i := range b.w {
-		b.w[i] &^= x.w[i]
-	}
-	return b
-}
-
-func (b *bitset) isEmpty() bool {
-	for _, w := range b.w {
-		if w != 0 {
-			return false
-		}
-	}
-	return true
-}
-
-func (b *bitset) forEachSet(fn func(i int)) {
-	for wi, w := range b.w {
-		for w != 0 {
-			tz := bits.TrailingZeros64(w)
-			i := (wi << 6) + tz
-			fn(i)
-			w &^= 1 << uint(tz) //nolint:gosec // trailing zeros is non-negative
-		}
-	}
-}
-
-// CondenseFWBWGroupsFromAdj runs iterative FW–BW SCC on adj and returns the
-// component groups as slices of original node IDs.
-func CondenseFWBWGroupsFromAdj(ctx context.Context, adj map[int]map[int]int, opts Options) [][]int {
-	if opts.MaxWorkers <= 0 {
-		opts.MaxWorkers = runtime.GOMAXPROCS(0)
-	}
-	csr := BuildCSRFromAdj(adj, opts)
-	comp := make([]int, csr.N)
-	for i := range comp {
-		comp[i] = -1
-	}
-
-	nextID := sccFWBWIterative(ctx, csr, comp, opts)
-
-	groups := make([][]int, nextID)
-	for idx := 0; idx < csr.N; idx++ {
-		cid := comp[idx]
-		if cid < 0 {
-			// Defensive: assign singleton if anything slipped through.
-			cid = nextID
-			nextID++
-			comp[idx] = cid
-			if cid >= len(groups) {
-				tmp := make([][]int, cid+1)
-				copy(tmp, groups)
-				groups = tmp
-			}
-		}
-		groups[cid] = append(groups[cid], csr.IdxToNodeID[idx])
-	}
-	return groups
-}
+// bitset moved to bitset.go
 
 // sccFWBWIterative implements the driver loop described at the top.
 func sccFWBWIterative(ctx context.Context, csr *CSR, comp []int, opts Options) (nextID int) {

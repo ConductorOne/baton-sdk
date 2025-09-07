@@ -59,7 +59,7 @@ func TestRingSingleComponent(t *testing.T) {
 	}
 	adj := makeAdj(nodes, edges)
 
-	groups := CondenseFWBWGroupsFromAdj(context.Background(), adj, defaultOpts())
+	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	if len(groups) != 1 {
 		t.Fatalf("expected 1 component, got %d: %+v", len(groups), groups)
 	}
@@ -80,7 +80,7 @@ func TestChainAllSingletons(t *testing.T) {
 	}
 	adj := makeAdj(nodes, edges)
 
-	groups := CondenseFWBWGroupsFromAdj(context.Background(), adj, defaultOpts())
+	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	if len(groups) != n {
 		t.Fatalf("expected %d singleton components, got %d", n, len(groups))
 	}
@@ -96,7 +96,7 @@ func TestSelfLoopIsolatedCyclicSingleton(t *testing.T) {
 	edges := [][2]int{{1, 1}, {1, 2}}
 	adj := makeAdj(nodes, edges)
 
-	groups := CondenseFWBWGroupsFromAdj(context.Background(), adj, defaultOpts())
+	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	// Expect two components: {1} and {2}
 	if len(groups) != 2 {
 		t.Fatalf("expected 2 components, got %d: %+v", len(groups), groups)
@@ -136,7 +136,7 @@ func TestCliqueSingleComponent(t *testing.T) {
 		}
 	}
 	adj := makeAdj(nodes, edges)
-	groups := CondenseFWBWGroupsFromAdj(context.Background(), adj, defaultOpts())
+	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	if len(groups) != 1 || len(groups[0]) != n {
 		t.Fatalf("expected one SCC of size %d, got %+v", n, groups)
 	}
@@ -159,7 +159,7 @@ func TestTailIntoRing(t *testing.T) {
 	edges = append(edges, [2]int{tail[0], tail[1]}, [2]int{tail[1], tail[2]}, [2]int{tail[2], 0})
 	adj := makeAdj(nodes, edges)
 
-	groups := CondenseFWBWGroupsFromAdj(context.Background(), adj, defaultOpts())
+	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	// Expect: 1 SCC of size ringN, plus len(tail) singletons
 	if len(groups) != 1+len(tail) {
 		t.Fatalf("expected %d components, got %d: %+v", 1+len(tail), len(groups), groups)
@@ -188,7 +188,7 @@ func TestMultipleDisjointSCCs(t *testing.T) {
 	edges := [][2]int{{0, 1}, {1, 2}, {2, 0}, {10, 11}, {11, 12}, {12, 13}, {13, 10}}
 	adj := makeAdj(nodes, edges)
 
-	groups := CondenseFWBWGroupsFromAdj(context.Background(), adj, defaultOpts())
+	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	// Filter out any empty groups (should not occur logically, but tolerate
 	// preallocated empty slots when packing components).
 	sizes := make([]int, 0, len(groups))
@@ -226,7 +226,7 @@ func TestDeterminismWithSingleWorker(t *testing.T) {
 
 	var ref [][]int
 	for i := 0; i < 5; i++ {
-		groups := CondenseFWBWGroupsFromAdj(context.Background(), adj, opts)
+		groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
 		ng := normalizeGroups(groups)
 		if i == 0 {
 			ref = ng

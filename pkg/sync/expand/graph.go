@@ -4,6 +4,7 @@ import (
 	"context"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/sync/expand/scc"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
@@ -313,36 +314,30 @@ func (g *EntitlementGraph) DeleteEdge(ctx context.Context, srcEntitlementID stri
 // toAdjacency builds an adjacency map for SCC. If nodesSubset is non-nil, only
 // include those nodes (and edges between them). Always include all nodes in the
 // subset as keys, even if they have zero outgoing edges.
-func (g *EntitlementGraph) toAdjacency(nodesSubset map[int]struct{}) map[int]map[int]int {
-	adj := make(map[int]map[int]int, len(g.Nodes))
-	include := func(id int) bool {
-		if nodesSubset == nil {
-			return true
-		}
-		_, ok := nodesSubset[id]
-		return ok
-	}
+// toAdjacency removed: use SCC via scc.Source on EntitlementGraph
 
-	// Ensure keys for all included nodes.
+var _ scc.Source = (*EntitlementGraph)(nil)
+
+// ForEachNode implements scc.Source iteration over nodes (including isolated nodes).
+// It does not import scc; matching the method names/signatures is sufficient.
+func (g *EntitlementGraph) ForEachNode(fn func(id int) bool) {
 	for id := range g.Nodes {
-		if include(id) {
-			adj[id] = make(map[int]int)
+		if !fn(id) {
+			return
 		}
 	}
+}
 
-	// Add edges where both endpoints are included.
-	for src, dsts := range g.SourcesToDestinations {
-		if !include(src) {
-			continue
-		}
-		row := adj[src]
+// ForEachEdgeFrom implements scc.Source iteration of outgoing edges for src.
+// It enumerates unique destination node IDs.
+func (g *EntitlementGraph) ForEachEdgeFrom(src int, fn func(dst int) bool) {
+	if dsts, ok := g.SourcesToDestinations[src]; ok {
 		for dst := range dsts {
-			if include(dst) {
-				row[dst] = 1
+			if !fn(dst) {
+				return
 			}
 		}
 	}
-	return adj
 }
 
 // reachableFrom computes the set of node IDs reachable from start over
