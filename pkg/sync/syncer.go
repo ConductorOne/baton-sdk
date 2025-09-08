@@ -282,9 +282,16 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	var newSync bool
 	var err error
 	if len(s.targetedSyncResourceIDs) == 0 {
-		syncID, newSync, err = s.store.StartSync(ctx)
-		if err != nil {
-			return "", false, err
+		if s.skipEntitlementsAndGrants {
+			syncID, err = s.store.StartNewSyncV2(ctx, string(dotc1z.SyncTypeResourcesOnly), "")
+			if err != nil {
+				return "", false, err
+			}
+		} else {
+			syncID, newSync, err = s.store.StartSync(ctx)
+			if err != nil {
+				return "", false, err
+			}
 		}
 		return syncID, newSync, nil
 	}

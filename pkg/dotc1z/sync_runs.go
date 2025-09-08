@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -85,10 +88,18 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) error
 type SyncType string
 
 const (
-	SyncTypeFull    SyncType = "full"
-	SyncTypePartial SyncType = "partial"
-	SyncTypeAny     SyncType = ""
+	SyncTypeFull          SyncType = "full"
+	SyncTypePartial       SyncType = "partial"
+	SyncTypeResourcesOnly SyncType = "resources_only"
+	SyncTypeAny           SyncType = ""
 )
+
+var AllSyncTypes = []SyncType{
+	SyncTypeAny,
+	SyncTypeFull,
+	SyncTypePartial,
+	SyncTypeResourcesOnly,
+}
 
 type syncRun struct {
 	ID           string
@@ -136,6 +147,51 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context) (*syncRun, error) 
 	return ret, nil
 }
 
+func (c *C1File) getLatestUnfinishedSyncs(ctx context.Context, syncType SyncType) ([]*syncRun, error) {
+	ctx, span := tracer.Start(ctx, "C1File.getLatestUnfinishedSyncs")
+	defer span.End()
+
+	err := c.validateDb(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Don't resume syncs that started over a week ago
+	oneWeekAgo := time.Now().AddDate(0, 0, -7)
+	ret := []*syncRun{}
+	q := c.db.From(syncRuns.Name())
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id")
+	q = q.Where(goqu.C("ended_at").IsNull())
+	q = q.Where(goqu.C("started_at").Gte(oneWeekAgo))
+	q = q.Order(goqu.C("started_at").Desc())
+	if syncType != SyncTypeAny {
+		q = q.Where(goqu.C("sync_type").Eq(syncType))
+	}
+	q = q.Limit(100)
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		row := &syncRun{}
+		err = rows.Scan(&row.ID, &row.StartedAt, &row.EndedAt, &row.SyncToken, &row.Type, &row.ParentSyncID)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, row)
+	}
+
+	return ret, nil
+}
+
 func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType SyncType) (*syncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getFinishedSync")
 	defer span.End()
@@ -146,7 +202,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType Sync
 	}
 
 	// Validate syncType
-	if syncType != SyncTypeFull && syncType != SyncTypePartial && syncType != SyncTypeAny {
+	if !slices.Contains(AllSyncTypes, syncType) {
 		return nil, fmt.Errorf("invalid sync type: %s", syncType)
 	}
 
@@ -444,10 +500,18 @@ func (c *C1File) StartNewSyncV2(ctx context.Context, syncType string, parentSync
 	switch syncType {
 	case "full":
 		syncTypeEnum = SyncTypeFull
+		if parentSyncID != "" {
+			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for full sync")
+		}
 	case "partial":
 		syncTypeEnum = SyncTypePartial
+	case "resources_only":
+		syncTypeEnum = SyncTypeResourcesOnly
+		if parentSyncID != "" {
+			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for resources only sync")
+		}
 	default:
-		return "", fmt.Errorf("invalid sync type: %s", syncType)
+		return "", status.Errorf(codes.InvalidArgument, "invalid sync type: %s", syncType)
 	}
 	return c.startNewSyncInternal(ctx, syncTypeEnum, parentSyncID)
 }
@@ -456,6 +520,17 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType SyncType, pa
 	// Not sure if we want to do this here
 	if c.currentSyncID != "" {
 		return c.currentSyncID, nil
+	}
+
+	if syncType == SyncTypeResourcesOnly || syncType == SyncTypeFull {
+		// Find unfinished syncs of the same type and resume those if they exist.
+		syncs, err := c.getLatestUnfinishedSyncs(ctx, syncType)
+		if err != nil {
+			return "", err
+		}
+		if len(syncs) > 0 {
+			return syncs[0].ID, nil
+		}
 	}
 
 	syncID := ksuid.New().String()
@@ -580,7 +655,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 			if sr.EndedAt == nil {
 				continue
 			}
-			if sr.Type == SyncTypePartial {
+			if sr.Type == SyncTypePartial || sr.Type == SyncTypeResourcesOnly {
 				partials = append(partials, sr)
 			} else {
 				ret = append(ret, sr)
@@ -612,7 +687,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		l.Info("Removed old sync data.", zap.String("sync_date", ret[i].EndedAt.Format(time.RFC3339)), zap.String("sync_id", ret[i].ID))
 	}
 
-	// Delete partial syncs that ended before the earliest-kept sync started
+	// Delete non-full syncs that ended before the earliest-kept full sync started
 	if len(ret) > syncLimit {
 		earliestKeptSync := ret[len(ret)-syncLimit]
 		l.Debug("Earliest kept sync", zap.String("sync_id", earliestKeptSync.ID), zap.Time("started_at", *earliestKeptSync.StartedAt))
