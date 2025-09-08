@@ -108,7 +108,7 @@ func CondenseFWBW(ctx context.Context, src Source, opts Options) ([][]int, *Metr
 	nextID := sccFWBWIterative(ctx, csr, comp, opts, &metrics)
 
 	groups := make([][]int, nextID)
-	for idx := 0; idx < csr.N; idx++ {
+	for idx := range csr.N {
 		cid := comp[idx]
 		if cid < 0 {
 			cid = nextID
@@ -149,7 +149,7 @@ func buildCSRFromSource(src Source, opts Options) *CSR {
 	// 2) Count out-degrees and total edges
 	outDeg := make([]int, n)
 	m := 0
-	for i := 0; i < n; i++ {
+	for i := range n {
 		srcID := nodes[i]
 		src.ForEachEdgeFrom(srcID, func(dst int) bool {
 			j, ok := id2idx[dst]
@@ -165,7 +165,7 @@ func buildCSRFromSource(src Source, opts Options) *CSR {
 
 	// 3) Allocate Row/Col
 	row := make([]int, n+1)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		row[i+1] = row[i] + outDeg[i]
 	}
 	col := make([]int, m)
@@ -174,7 +174,7 @@ func buildCSRFromSource(src Source, opts Options) *CSR {
 
 	// 4) Fill rows
 	if opts.Deterministic {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			srcID := nodes[i]
 			neighbors := make([]int, 0, outDeg[i])
 			src.ForEachEdgeFrom(srcID, func(dst int) bool {
@@ -189,7 +189,7 @@ func buildCSRFromSource(src Source, opts Options) *CSR {
 			cur[i] += len(neighbors)
 		}
 	} else {
-		for i := 0; i < n; i++ {
+		for i := range n {
 			srcID := nodes[i]
 			src.ForEachEdgeFrom(srcID, func(dst int) bool {
 				if j, ok := id2idx[dst]; ok {
@@ -208,13 +208,13 @@ func buildCSRFromSource(src Source, opts Options) *CSR {
 		inDeg[v]++
 	}
 	trow := make([]int, n+1)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		trow[i+1] = trow[i] + inDeg[i]
 	}
 	tcol := make([]int, m)
 	tcur := make([]int, n)
 	copy(tcur, trow)
-	for u := 0; u < n; u++ {
+	for u := range n {
 		start, end := row[u], row[u+1]
 		for p := start; p < end; p++ {
 			v := col[p]
@@ -260,7 +260,7 @@ func validateCSR(csr *CSR) {
 	if csr.Row[0] != 0 {
 		panic("scc: Row[0] != 0")
 	}
-	for i := 0; i+1 < len(csr.Row); i++ {
+	for i := range len(csr.Row) - 1 {
 		if csr.Row[i] > csr.Row[i+1] {
 			panic("scc: Row is not non-decreasing")
 		}
@@ -273,7 +273,7 @@ func validateCSR(csr *CSR) {
 	if csr.TRow[0] != 0 {
 		panic("scc: TRow[0] != 0")
 	}
-	for i := 0; i+1 < len(csr.TRow); i++ {
+	for i := range len(csr.TRow) - 1 {
 		if csr.TRow[i] > csr.TRow[i+1] {
 			panic("scc: TRow is not non-decreasing")
 		}
@@ -283,13 +283,13 @@ func validateCSR(csr *CSR) {
 		panic("scc: TRow[N] != len(TCol)")
 	}
 	// Col bounds
-	for p := 0; p < len(csr.Col); p++ {
+	for p := range len(csr.Col) {
 		v := csr.Col[p]
 		if v < 0 || v >= n {
 			panic("scc: Col index out of range")
 		}
 	}
-	for p := 0; p < len(csr.TCol); p++ {
+	for p := range len(csr.TCol) {
 		v := csr.TCol[p]
 		if v < 0 || v >= n {
 			panic("scc: TCol index out of range")
@@ -301,7 +301,7 @@ func validateCSR(csr *CSR) {
 	for _, v := range csr.Col {
 		inDeg[v]++
 	}
-	for v := 0; v < n; v++ {
+	for v := range n {
 		expected := inDeg[v]
 		span := csr.TRow[v+1] - csr.TRow[v]
 		if span != expected {
@@ -587,7 +587,7 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 	defer func() { putIntSlice(inDeg); putIntSlice(outDeg) }()
 
 	// Out-degree within active.
-	for u := 0; u < n; u++ {
+	for u := range n {
 		if !active.test(u) {
 			continue
 		}
@@ -602,7 +602,7 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 		outDeg[u] = d
 	}
 	// In-degree within active (via transpose).
-	for v := 0; v < n; v++ {
+	for v := range n {
 		if !active.test(v) {
 			continue
 		}
@@ -620,7 +620,7 @@ func trimSingletons(csr *CSR, active *bitset, comp []int, nextID *int) int {
 	// Initialize queue of zeros.
 	queue := getIntSlice(0)
 	defer putIntSlice(queue)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		if !active.test(i) {
 			continue
 		}

@@ -25,6 +25,9 @@ func (b *bitset) test(i int) bool {
 		return false
 	}
 	w := i >> 6
+	if w >= len(b.w) {
+		return false
+	}
 	return (b.w[w] & (1 << (uint(i) & 63))) != 0
 }
 
@@ -41,6 +44,9 @@ func (b *bitset) testAndSetAtomic(i int) bool {
 		return false
 	}
 	w := i >> 6
+	if w >= len(b.w) {
+		return false
+	}
 	mask := uint64(1) << (uint(i) & 63)
 	addr := &b.w[w]
 	for {
@@ -59,6 +65,9 @@ func (b *bitset) clearAtomic(i int) {
 		return
 	}
 	w := i >> 6
+	if w >= len(b.w) {
+		return
+	}
 	mask := ^(uint64(1) << (uint(i) & 63))
 	addr := &b.w[w]
 	for {

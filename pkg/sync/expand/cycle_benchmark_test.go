@@ -107,6 +107,8 @@ func buildTailIntoRing(b *testing.B, tail, ring int) *EntitlementGraph {
 }
 
 func BenchmarkCycleDetectionHelper(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	sizes := []int{100, 1000}
 
 	for _, n := range sizes {
@@ -115,7 +117,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 			start := g.EntitlementsToNodes["1"]
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, _ = g.cycleDetectionHelper(start)
+				_, _ = g.cycleDetectionHelper(ctx, start)
 			}
 		})
 	}
@@ -126,7 +128,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 			start := g.EntitlementsToNodes["1"]
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, _ = g.cycleDetectionHelper(start)
+				_, _ = g.cycleDetectionHelper(ctx, start)
 			}
 		})
 	}
@@ -136,7 +138,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 		start := g.EntitlementsToNodes["1"]
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_, _ = g.cycleDetectionHelper(start)
+			_, _ = g.cycleDetectionHelper(ctx, start)
 		}
 	})
 
@@ -145,7 +147,7 @@ func BenchmarkCycleDetectionHelper(b *testing.B) {
 		start := g.EntitlementsToNodes["1"]
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			_, _ = g.cycleDetectionHelper(start)
+			_, _ = g.cycleDetectionHelper(ctx, start)
 		}
 	})
 }

@@ -31,6 +31,7 @@ func (g *EntitlementGraph) HasCycles(ctx context.Context) bool {
 }
 
 func (g *EntitlementGraph) cycleDetectionHelper(
+	ctx context.Context,
 	nodeID int,
 ) ([]int, bool) {
 	reach := g.reachableFrom(nodeID)
@@ -38,7 +39,7 @@ func (g *EntitlementGraph) cycleDetectionHelper(
 		return nil, false
 	}
 	fg := filteredGraph{g: g, include: func(id int) bool { _, ok := reach[id]; return ok }}
-	groups, _ := scc.CondenseFWBW(context.Background(), fg, scc.DefaultOptions())
+	groups, _ := scc.CondenseFWBW(ctx, fg, scc.DefaultOptions())
 	for _, comp := range groups {
 		if len(comp) > 1 || (len(comp) == 1 && g.hasSelfLoop(comp[0])) {
 			return comp, true
