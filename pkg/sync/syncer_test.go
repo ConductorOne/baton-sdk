@@ -12,7 +12,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/bid"
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
@@ -774,7 +774,7 @@ func TestPartialSyncUnimplemented(t *testing.T) {
 	syncs, _, err := store.ListSyncRuns(ctx, "", 100)
 	require.NoError(t, err)
 	require.Equal(t, 1, len(syncs))
-	require.Equal(t, dotc1z.SyncTypePartial, syncs[0].Type)
+	require.Equal(t, connectorstore.SyncTypePartial, syncs[0].Type)
 
 	resources, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
 		ResourceTypeId: groupResourceType.Id,

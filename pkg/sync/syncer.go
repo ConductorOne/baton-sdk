@@ -283,12 +283,12 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	var err error
 	if len(s.targetedSyncResourceIDs) == 0 {
 		if s.skipEntitlementsAndGrants {
-			syncID, err = s.store.StartNewSyncV2(ctx, string(dotc1z.SyncTypeResourcesOnly), "")
+			syncID, newSync, err = s.store.StartSync(ctx, connectorstore.SyncTypeResourcesOnly)
 			if err != nil {
 				return "", false, err
 			}
 		} else {
-			syncID, newSync, err = s.store.StartSync(ctx)
+			syncID, newSync, err = s.store.StartSync(ctx, connectorstore.SyncTypeFull)
 			if err != nil {
 				return "", false, err
 			}
@@ -298,7 +298,7 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 
 	// Get most recent completed full sync if it exists
 	latestFullSyncResponse, err := s.store.GetLatestFinishedSync(ctx, &reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest{
-		SyncType: string(dotc1z.SyncTypeFull),
+		SyncType: string(connectorstore.SyncTypeFull),
 	})
 	if err != nil {
 		return "", false, err
@@ -308,7 +308,7 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	if latestFullSync != nil {
 		latestFullSyncId = latestFullSync.Id
 	}
-	syncID, err = s.store.StartNewSyncV2(ctx, "partial", latestFullSyncId)
+	syncID, err = s.store.StartNewSyncV2(ctx, connectorstore.SyncTypePartial, latestFullSyncId)
 	if err != nil {
 		return "", false, err
 	}
@@ -611,7 +611,8 @@ func (s *syncer) SkipSync(ctx context.Context) error {
 		return err
 	}
 
-	_, err = s.store.StartNewSync(ctx)
+	// TODO: Create a new sync type for empty syncs.
+	_, err = s.store.StartNewSync(ctx, connectorstore.SyncTypeFull)
 	if err != nil {
 		return err
 	}

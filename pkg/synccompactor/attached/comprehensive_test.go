@@ -7,6 +7,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
 )
@@ -38,7 +39,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 	defer baseDB.Close()
 
-	_, _, err = baseDB.StartSync(ctx)
+	_, _, err = baseDB.StartSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 
 	// Create resource types
@@ -126,7 +127,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 	defer appliedDB.Close()
 
-	_, _, err = appliedDB.StartSync(ctx)
+	_, _, err = appliedDB.StartSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 
 	// Add same resource types to applied
@@ -210,7 +211,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	defer destDB.Close()
 
 	// Start a sync in destination and run compaction
-	destSyncID, err := destDB.StartNewSync(ctx)
+	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 
 	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)

@@ -14,6 +14,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 const testResourceType = "test-resource-type"
@@ -91,7 +92,7 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start a new sync
-	syncID, newSync, err := f.StartSync(ctx)
+	syncID, newSync, err := f.StartSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.True(t, newSync)
 	require.NotEmpty(t, syncID)
@@ -110,7 +111,7 @@ func TestC1Z(t *testing.T) {
 
 	var syncID2 string
 	// Resume the previous sync
-	syncID2, newSync, err = f.StartSync(ctx)
+	syncID2, newSync, err = f.StartSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.False(t, newSync)
 	require.Equal(t, syncID, syncID2)
@@ -164,7 +165,7 @@ func TestC1ZDecoder(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start a new sync
-	_, newSync, err := f.StartSync(ctx)
+	_, newSync, err := f.StartSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.True(t, newSync)
 

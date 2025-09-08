@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 func TestGenerateSyncDiff(t *testing.T) {
@@ -21,7 +22,7 @@ func TestGenerateSyncDiff(t *testing.T) {
 	defer syncFile.Close()
 
 	// Start a sync in the base file
-	baseSyncID, err := syncFile.StartNewSyncV2(ctx, string(SyncTypeFull), "")
+	baseSyncID, err := syncFile.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, baseSyncID)
 
@@ -45,7 +46,7 @@ func TestGenerateSyncDiff(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start a sync in the new file
-	newSyncID, err := syncFile.StartNewSyncV2(ctx, string(SyncTypeFull), "")
+	newSyncID, err := syncFile.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, newSyncID)
 
