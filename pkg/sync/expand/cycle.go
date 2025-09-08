@@ -14,7 +14,7 @@ func (g *EntitlementGraph) GetFirstCycle(ctx context.Context) []int {
 	if g.HasNoCycles {
 		return nil
 	}
-	comps := g.ComputeCyclicComponents(ctx)
+	comps, _ := g.ComputeCyclicComponents(ctx)
 	if len(comps) == 0 {
 		return nil
 	}
@@ -26,7 +26,8 @@ func (g *EntitlementGraph) HasCycles(ctx context.Context) bool {
 	if g.HasNoCycles {
 		return false
 	}
-	return len(g.ComputeCyclicComponents(ctx)) > 0
+	comps, _ := g.ComputeCyclicComponents(ctx)
+	return len(comps) > 0
 }
 
 func (g *EntitlementGraph) cycleDetectionHelper(
@@ -37,7 +38,7 @@ func (g *EntitlementGraph) cycleDetectionHelper(
 		return nil, false
 	}
 	fg := filteredGraph{g: g, include: func(id int) bool { _, ok := reach[id]; return ok }}
-	groups := scc.CondenseFWBW(context.Background(), fg, scc.DefaultOptions())
+	groups, _ := scc.CondenseFWBW(context.Background(), fg, scc.DefaultOptions())
 	for _, comp := range groups {
 		if len(comp) > 1 || (len(comp) == 1 && g.hasSelfLoop(comp[0])) {
 			return comp, true
@@ -47,23 +48,24 @@ func (g *EntitlementGraph) cycleDetectionHelper(
 }
 
 func (g *EntitlementGraph) FixCycles(ctx context.Context) error {
-	return g.FixCyclesFromComponents(ctx, g.ComputeCyclicComponents(ctx))
+	comps, _ := g.ComputeCyclicComponents(ctx)
+	return g.FixCyclesFromComponents(ctx, comps)
 }
 
 // ComputeCyclicComponents runs SCC once and returns only cyclic components.
 // A component is cyclic if len>1 or a singleton with a self-loop.
-func (g *EntitlementGraph) ComputeCyclicComponents(ctx context.Context) [][]int {
+func (g *EntitlementGraph) ComputeCyclicComponents(ctx context.Context) ([][]int, *scc.Metrics) {
 	if g.HasNoCycles {
-		return nil
+		return nil, nil
 	}
-	groups := scc.CondenseFWBW(ctx, g, scc.DefaultOptions())
+	groups, metrics := scc.CondenseFWBW(ctx, g, scc.DefaultOptions())
 	cyclic := make([][]int, 0)
 	for _, comp := range groups {
 		if len(comp) > 1 || (len(comp) == 1 && g.hasSelfLoop(comp[0])) {
 			cyclic = append(cyclic, comp)
 		}
 	}
-	return cyclic
+	return cyclic, metrics
 }
 
 // hasSelfLoop reports whether a node has a self-edge.

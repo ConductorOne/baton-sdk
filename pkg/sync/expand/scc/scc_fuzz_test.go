@@ -313,7 +313,7 @@ func FuzzCondenseFWBW_Cancellation(f *testing.F) {
 		opts.MaxWorkers = 1
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 		defer cancel()
-		_ = CondenseFWBW(ctx, adjSource{adj: adj}, opts)
+		_, _ = CondenseFWBW(ctx, adjSource{adj: adj}, opts)
 	})
 }
 
@@ -428,11 +428,11 @@ func FuzzCondenseFWBW_FromBytes(f *testing.F) {
 		opts := DefaultOptions()
 		opts.Deterministic = true
 		opts.MaxWorkers = 1
-		groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
+		groups, _ := CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
 		assertPartition(t, adj, groups)
 		assertDAGCondensation(t, adj, groups)
 		// idempotence in deterministic mode
-		groups2 := CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
+		groups2, _ := CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
 		if !equalGroups(normalizeGroups(groups), normalizeGroups(groups2)) {
 			t.Fatalf("non-deterministic result with Deterministic=true")
 		}

@@ -117,7 +117,7 @@ func TestNoHang_GeneralCase(t *testing.T) {
 			funcName("general", gi, false),
 			func(t *testing.T) {
 				withTimeout(t, 2*time.Second, func(t *testing.T) {
-					_ = CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
+					_, _ = CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
 				})
 			},
 		)
@@ -238,7 +238,7 @@ func TestNoHang_DeepChain(t *testing.T) {
 		cfg := cfg
 		t.Run(cfg.name, func(t *testing.T) {
 			withTimeout(t, 2*time.Second, func(t *testing.T) {
-				_ = CondenseFWBW(context.Background(), adjSource{adj: adj}, cfg.opt)
+				_, _ = CondenseFWBW(context.Background(), adjSource{adj: adj}, cfg.opt)
 			})
 		})
 	}
@@ -264,7 +264,7 @@ func TestNoHang_Lollipop(t *testing.T) {
 		cfg := cfg
 		t.Run(cfg.name, func(t *testing.T) {
 			withTimeout(t, 2*time.Second, func(t *testing.T) {
-				_ = CondenseFWBW(context.Background(), adjSource{adj: adj}, cfg.opt)
+				_, _ = CondenseFWBW(context.Background(), adjSource{adj: adj}, cfg.opt)
 			})
 		})
 	}
@@ -284,7 +284,7 @@ func TestNoHang_Isolates_And_SelfLoops(t *testing.T) {
 			withTimeout(t, 3*time.Second, func(t *testing.T) {
 				o := DefaultOptions()
 				o.MaxWorkers = 4
-				_ = CondenseFWBW(context.Background(), adjSource{adj: tc.adj}, o)
+				_, _ = CondenseFWBW(context.Background(), adjSource{adj: tc.adj}, o)
 			})
 		})
 	}
@@ -298,7 +298,7 @@ func TestNoHang_BipartiteDense(t *testing.T) {
 			withTimeout(t, 2*time.Second, func(t *testing.T) {
 				o := DefaultOptions()
 				o.MaxWorkers = mw
-				_ = CondenseFWBW(context.Background(), adjSource{adj: adj}, o)
+				_, _ = CondenseFWBW(context.Background(), adjSource{adj: adj}, o)
 			})
 		})
 	}
@@ -309,7 +309,7 @@ func TestNoHang_ManyTwoCycles(t *testing.T) {
 	withTimeout(t, 2*time.Second, func(t *testing.T) {
 		o := DefaultOptions()
 		o.MaxWorkers = 4
-		_ = CondenseFWBW(context.Background(), adjSource{adj: adj}, o)
+		_, _ = CondenseFWBW(context.Background(), adjSource{adj: adj}, o)
 	})
 }
 
@@ -330,7 +330,7 @@ func TestCancel_HeavyGraphs(t *testing.T) {
 			start := time.Now()
 			o := DefaultOptions()
 			o.MaxWorkers = 8
-			_ = CondenseFWBW(ctx, adjSource{adj: tc.adj}, o)
+			_, _ = CondenseFWBW(ctx, adjSource{adj: tc.adj}, o)
 			if time.Since(start) > 200*time.Millisecond {
 				t.Fatalf("cancellation not honored promptly")
 			}

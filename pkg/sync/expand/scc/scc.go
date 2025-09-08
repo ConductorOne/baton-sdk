@@ -26,6 +26,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"time"
 )
 
 // Options controls SCC execution.
@@ -73,17 +74,38 @@ type Source interface {
 	ForEachEdgeFrom(src int, fn func(dst int) bool)
 }
 
+// Metrics captures a few summary counters for a condense run.
+type Metrics struct {
+	Nodes          int
+	Edges          int
+	Components     int
+	Peeled         int
+	MasksProcessed int
+	MasksPushed    int
+	BFScalls       int
+	Duration       time.Duration
+	MaxWorkers     int
+	Deterministic  bool
+}
+
 // CondenseFWBW runs SCC directly from a streaming Source. Preferred entry point.
-func CondenseFWBW(ctx context.Context, src Source, opts Options) [][]int {
+func CondenseFWBW(ctx context.Context, src Source, opts Options) ([][]int, *Metrics) {
 	if opts.MaxWorkers <= 0 {
 		opts.MaxWorkers = runtime.GOMAXPROCS(0)
 	}
+	start := time.Now()
 	csr := buildCSRFromSource(src, opts)
+	metrics := Metrics{
+		Nodes:         csr.N,
+		Edges:         len(csr.Col),
+		MaxWorkers:    opts.MaxWorkers,
+		Deterministic: opts.Deterministic,
+	}
 	comp := make([]int, csr.N)
 	for i := range comp {
 		comp[i] = -1
 	}
-	nextID := sccFWBWIterative(ctx, csr, comp, opts)
+	nextID := sccFWBWIterative(ctx, csr, comp, opts, &metrics)
 
 	groups := make([][]int, nextID)
 	for idx := 0; idx < csr.N; idx++ {
@@ -100,7 +122,9 @@ func CondenseFWBW(ctx context.Context, src Source, opts Options) [][]int {
 		}
 		groups[cid] = append(groups[cid], csr.IdxToNodeID[idx])
 	}
-	return groups
+	metrics.Components = nextID
+	metrics.Duration = time.Since(start)
+	return groups, &metrics
 }
 
 // buildCSRFromSource constructs CSR/transpose from a Source without
@@ -289,7 +313,7 @@ func validateCSR(csr *CSR) {
 // bitset moved to bitset.go
 
 // sccFWBWIterative implements the driver loop described at the top.
-func sccFWBWIterative(ctx context.Context, csr *CSR, comp []int, opts Options) int {
+func sccFWBWIterative(ctx context.Context, csr *CSR, comp []int, opts Options, metrics *Metrics) int {
 	nextID := 0
 
 	// Initialize root mask with all vertices.
@@ -312,11 +336,16 @@ func sccFWBWIterative(ctx context.Context, csr *CSR, comp []int, opts Options) i
 		it := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		active := it.mask
+		if metrics != nil {
+			metrics.MasksProcessed++
+		}
 
 		// Trim loop: peel sources/sinks; each peeled vertex becomes its own SCC.
 		for {
 			if n := trimSingletons(csr, active, comp, &nextID); n == 0 {
 				break
+			} else if metrics != nil {
+				metrics.Peeled += n
 			}
 			if active.isEmpty() {
 				break
@@ -330,6 +359,9 @@ func sccFWBWIterative(ctx context.Context, csr *CSR, comp []int, opts Options) i
 		pivot := firstActive(active)
 		f := bfsMultiSource(ctx, csr, []int{pivot}, active, false, opts.MaxWorkers)
 		b := bfsMultiSource(ctx, csr, []int{pivot}, active, true, opts.MaxWorkers)
+		if metrics != nil {
+			metrics.BFScalls += 2
+		}
 
 		// Component and partition masks.
 		c := f.clone().and(b)
@@ -342,14 +374,21 @@ func sccFWBWIterative(ctx context.Context, csr *CSR, comp []int, opts Options) i
 
 		// assignComponent cleared C from 'active'; child masks are disjoint subsets
 		// of the original mask. Push children in a fixed order for determinism.
+		pushes := 0
 		if !u.isEmpty() {
 			stack = append(stack, item{mask: u})
+			pushes++
 		}
 		if !bNotC.isEmpty() {
 			stack = append(stack, item{mask: bNotC})
+			pushes++
 		}
 		if !fNotC.isEmpty() {
 			stack = append(stack, item{mask: fNotC})
+			pushes++
+		}
+		if metrics != nil {
+			metrics.MasksPushed += pushes
 		}
 	}
 

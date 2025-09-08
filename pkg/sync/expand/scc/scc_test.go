@@ -59,12 +59,15 @@ func TestRingSingleComponent(t *testing.T) {
 	}
 	adj := makeAdj(nodes, edges)
 
-	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
+	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	if len(groups) != 1 {
 		t.Fatalf("expected 1 component, got %d: %+v", len(groups), groups)
 	}
 	if len(groups[0]) != n {
 		t.Fatalf("expected ring size %d, got %d", n, len(groups[0]))
+	}
+	if m == nil || m.Components != 1 || m.Nodes != n || m.Edges != n || m.Peeled != 0 {
+		t.Fatalf("metrics unexpected: %+v", m)
 	}
 }
 
@@ -80,7 +83,7 @@ func TestChainAllSingletons(t *testing.T) {
 	}
 	adj := makeAdj(nodes, edges)
 
-	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
+	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	if len(groups) != n {
 		t.Fatalf("expected %d singleton components, got %d", n, len(groups))
 	}
@@ -89,6 +92,9 @@ func TestChainAllSingletons(t *testing.T) {
 			t.Fatalf("expected singleton at comp %d, got size %d", idx, len(g))
 		}
 	}
+	if m == nil || m.Components != n || m.Nodes != n || m.Edges != n-1 || m.Peeled != n || m.BFScalls != 0 {
+		t.Fatalf("metrics unexpected: %+v", m)
+	}
 }
 
 func TestSelfLoopIsolatedCyclicSingleton(t *testing.T) {
@@ -96,7 +102,7 @@ func TestSelfLoopIsolatedCyclicSingleton(t *testing.T) {
 	edges := [][2]int{{1, 1}, {1, 2}}
 	adj := makeAdj(nodes, edges)
 
-	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
+	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	// Expect two components: {1} and {2}
 	if len(groups) != 2 {
 		t.Fatalf("expected 2 components, got %d: %+v", len(groups), groups)
@@ -118,6 +124,9 @@ func TestSelfLoopIsolatedCyclicSingleton(t *testing.T) {
 	if adj[1][1] == 0 {
 		t.Fatalf("expected self-loop for node 1 in adjacency")
 	}
+	if m == nil || m.Components != 2 || m.Nodes != 2 || m.Peeled < 1 { // at least node 2 is peeled
+		t.Fatalf("metrics unexpected: %+v", m)
+	}
 }
 
 func TestCliqueSingleComponent(t *testing.T) {
@@ -136,9 +145,12 @@ func TestCliqueSingleComponent(t *testing.T) {
 		}
 	}
 	adj := makeAdj(nodes, edges)
-	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
+	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	if len(groups) != 1 || len(groups[0]) != n {
 		t.Fatalf("expected one SCC of size %d, got %+v", n, groups)
+	}
+	if m == nil || m.Components != 1 || m.Nodes != n || m.Peeled != 0 || m.Edges != n*(n-1) {
+		t.Fatalf("metrics unexpected: %+v", m)
 	}
 }
 
@@ -159,7 +171,7 @@ func TestTailIntoRing(t *testing.T) {
 	edges = append(edges, [2]int{tail[0], tail[1]}, [2]int{tail[1], tail[2]}, [2]int{tail[2], 0})
 	adj := makeAdj(nodes, edges)
 
-	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
+	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	// Expect: 1 SCC of size ringN, plus len(tail) singletons
 	if len(groups) != 1+len(tail) {
 		t.Fatalf("expected %d components, got %d: %+v", 1+len(tail), len(groups), groups)
@@ -178,6 +190,9 @@ func TestTailIntoRing(t *testing.T) {
 	if !reflect.DeepEqual(sizes, want) {
 		t.Fatalf("component sizes mismatch: got %v want %v", sizes, want)
 	}
+	if m == nil || m.Components != 1+len(tail) || m.Nodes != ringN+len(tail) || m.Peeled != len(tail) {
+		t.Fatalf("metrics unexpected: %+v", m)
+	}
 }
 
 func TestMultipleDisjointSCCs(t *testing.T) {
@@ -188,7 +203,7 @@ func TestMultipleDisjointSCCs(t *testing.T) {
 	edges := [][2]int{{0, 1}, {1, 2}, {2, 0}, {10, 11}, {11, 12}, {12, 13}, {13, 10}}
 	adj := makeAdj(nodes, edges)
 
-	groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
+	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
 	// Filter out any empty groups (should not occur logically, but tolerate
 	// preallocated empty slots when packing components).
 	sizes := make([]int, 0, len(groups))
@@ -215,6 +230,9 @@ func TestMultipleDisjointSCCs(t *testing.T) {
 			t.Fatalf("node %d missing from partition", id)
 		}
 	}
+	if m == nil || m.Components != 4 || m.Peeled != 2 {
+		t.Fatalf("metrics unexpected: %+v", m)
+	}
 }
 
 func TestDeterminismWithSingleWorker(t *testing.T) {
@@ -226,7 +244,7 @@ func TestDeterminismWithSingleWorker(t *testing.T) {
 
 	var ref [][]int
 	for i := 0; i < 5; i++ {
-		groups := CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
+		groups, _ := CondenseFWBW(context.Background(), adjSource{adj: adj}, opts)
 		ng := normalizeGroups(groups)
 		if i == 0 {
 			ref = ng
