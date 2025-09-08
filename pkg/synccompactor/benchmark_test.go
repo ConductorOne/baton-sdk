@@ -61,7 +61,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	baseSync, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 	require.NoError(t, err)
 
-	baseSyncID, _, err := baseSync.StartSync(ctx, connectorstore.SyncTypeFull)
+	baseSyncID, err := baseSync.StartNewSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 
 	// Generate resource types
@@ -128,7 +128,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	appliedSync, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
 
-	appliedSyncID, _, err := appliedSync.StartSync(ctx, connectorstore.SyncTypeFull)
+	appliedSyncID, err := appliedSync.StartNewSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 
 	// Reuse same resource types

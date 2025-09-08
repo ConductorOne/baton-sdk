@@ -329,27 +329,11 @@ func (c *C1File) PreviousSyncID(ctx context.Context) (string, error) {
 	return s.ID, nil
 }
 
-func (c *C1File) LatestFinishedSync(ctx context.Context) (string, error) {
+func (c *C1File) LatestFinishedSync(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.LatestFinishedSync")
 	defer span.End()
 
-	s, err := c.getFinishedSync(ctx, 0, connectorstore.SyncTypeFull)
-	if err != nil {
-		return "", err
-	}
-
-	if s == nil {
-		return "", nil
-	}
-
-	return s.ID, nil
-}
-
-func (c *C1File) LatestFinishedSyncAnyType(ctx context.Context) (string, error) {
-	ctx, span := tracer.Start(ctx, "C1File.LatestFinishedSyncAnyType")
-	defer span.End()
-
-	s, err := c.getFinishedSync(ctx, 0, connectorstore.SyncTypeAny)
+	s, err := c.getFinishedSync(ctx, 0, syncType)
 	if err != nil {
 		return "", err
 	}
@@ -442,8 +426,8 @@ func (c *C1File) CheckpointSync(ctx context.Context, syncToken string) error {
 }
 
 // StartSync generates a sync ID to be associated with all objects discovered during this run.
-func (c *C1File) StartSync(ctx context.Context, syncType connectorstore.SyncType) (string, bool, error) {
-	ctx, span := tracer.Start(ctx, "C1File.StartSync")
+func (c *C1File) StartOrResumeSync(ctx context.Context, syncType connectorstore.SyncType) (string, bool, error) {
+	ctx, span := tracer.Start(ctx, "C1File.StartOrResumeSync")
 	defer span.End()
 
 	if c.currentSyncID != "" {
@@ -508,7 +492,7 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType connectorsto
 		return c.currentSyncID, nil
 	}
 
-	if syncType == connectorstore.SyncTypeResourcesOnly || syncType == connectorstore.SyncTypeFull {
+	if syncType != connectorstore.SyncTypePartial {
 		// Find unfinished syncs of the same type and resume those if they exist.
 		syncs, err := c.getLatestUnfinishedSyncs(ctx, syncType)
 		if err != nil {

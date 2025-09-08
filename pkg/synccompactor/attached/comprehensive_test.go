@@ -39,7 +39,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 	defer baseDB.Close()
 
-	_, _, err = baseDB.StartSync(ctx, connectorstore.SyncTypeFull)
+	_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 
 	// Create resource types
@@ -127,7 +127,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 	defer appliedDB.Close()
 
-	_, _, err = appliedDB.StartSync(ctx, connectorstore.SyncTypeFull)
+	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 
 	// Add same resource types to applied

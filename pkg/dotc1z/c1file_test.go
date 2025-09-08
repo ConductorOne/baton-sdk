@@ -92,7 +92,7 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start a new sync
-	syncID, newSync, err := f.StartSync(ctx, connectorstore.SyncTypeFull)
+	syncID, newSync, err := f.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.True(t, newSync)
 	require.NotEmpty(t, syncID)
@@ -111,7 +111,7 @@ func TestC1Z(t *testing.T) {
 
 	var syncID2 string
 	// Resume the previous sync
-	syncID2, newSync, err = f.StartSync(ctx, connectorstore.SyncTypeFull)
+	syncID2, newSync, err = f.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.False(t, newSync)
 	require.Equal(t, syncID, syncID2)
@@ -165,9 +165,8 @@ func TestC1ZDecoder(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start a new sync
-	_, newSync, err := f.StartSync(ctx, connectorstore.SyncTypeFull)
+	_, err = f.StartNewSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
-	require.True(t, newSync)
 
 	resourceTypeID := testResourceType
 	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})

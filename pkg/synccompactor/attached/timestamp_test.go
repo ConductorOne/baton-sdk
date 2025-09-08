@@ -35,7 +35,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 		defer baseDB.Close()
 
-		_, _, err = baseDB.StartSync(ctx, connectorstore.SyncTypeFull)
+		_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 		require.NoError(t, err)
 
 		userRT := &v2.ResourceType{Id: "user", DisplayName: "User"}
@@ -64,7 +64,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 		defer appliedDB.Close()
 
-		_, _, err = appliedDB.StartSync(ctx, connectorstore.SyncTypeFull)
+		_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 		require.NoError(t, err)
 
 		err = appliedDB.PutResourceTypes(ctx, userRT)
@@ -124,7 +124,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 		defer appliedDB.Close()
 
-		_, _, err = appliedDB.StartSync(ctx, connectorstore.SyncTypeFull)
+		_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 		require.NoError(t, err)
 
 		userRT := &v2.ResourceType{Id: "user", DisplayName: "User"}
@@ -153,7 +153,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 		defer baseDB.Close()
 
-		_, _, err = baseDB.StartSync(ctx, connectorstore.SyncTypeFull)
+		_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 		require.NoError(t, err)
 
 		err = baseDB.PutResourceTypes(ctx, userRT)

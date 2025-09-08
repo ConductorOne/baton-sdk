@@ -283,12 +283,12 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	var err error
 	if len(s.targetedSyncResourceIDs) == 0 {
 		if s.skipEntitlementsAndGrants {
-			syncID, newSync, err = s.store.StartSync(ctx, connectorstore.SyncTypeResourcesOnly)
+			syncID, newSync, err = s.store.StartOrResumeSync(ctx, connectorstore.SyncTypeResourcesOnly)
 			if err != nil {
 				return "", false, err
 			}
 		} else {
-			syncID, newSync, err = s.store.StartSync(ctx, connectorstore.SyncTypeFull)
+			syncID, newSync, err = s.store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
 			if err != nil {
 				return "", false, err
 			}
@@ -1452,7 +1452,7 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 }
 
 type latestSyncFetcher interface {
-	LatestFinishedSync(ctx context.Context) (string, error)
+	LatestFinishedSync(ctx context.Context, syncType connectorstore.SyncType) (string, error)
 }
 
 func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v2.ResourceId) (string, *v2.ETag, error) {
@@ -1465,7 +1465,7 @@ func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v
 	var err error
 
 	if psf, ok := s.store.(latestSyncFetcher); ok {
-		previousSyncID, err = psf.LatestFinishedSync(ctx)
+		previousSyncID, err = psf.LatestFinishedSync(ctx, connectorstore.SyncTypeFull)
 		if err != nil {
 			return "", nil, err
 		}

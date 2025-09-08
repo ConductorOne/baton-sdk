@@ -67,7 +67,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	firstSyncID, isNewSync, err := firstSync.StartSync(ctx, connectorstore.SyncTypeFull)
+	firstSyncID, isNewSync, err := firstSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.NotEmpty(t, firstSyncID)
 	require.True(t, isNewSync)
@@ -199,7 +199,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	secondSyncID, isNewSync, err := secondSync.StartSync(ctx, connectorstore.SyncTypeFull)
+	secondSyncID, isNewSync, err := secondSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondSyncID)
 	require.True(t, isNewSync)
@@ -329,7 +329,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	thirdSyncID, isNewSync, err := thirdSync.StartSync(ctx, connectorstore.SyncTypeFull)
+	thirdSyncID, isNewSync, err := thirdSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.NotEmpty(t, thirdSyncID)
 	require.True(t, isNewSync)
