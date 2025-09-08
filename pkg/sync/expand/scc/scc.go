@@ -289,8 +289,8 @@ func validateCSR(csr *CSR) {
 // bitset moved to bitset.go
 
 // sccFWBWIterative implements the driver loop described at the top.
-func sccFWBWIterative(ctx context.Context, csr *CSR, comp []int, opts Options) (nextID int) {
-	nextID = 0
+func sccFWBWIterative(ctx context.Context, csr *CSR, comp []int, opts Options) int {
+	nextID := 0
 
 	// Initialize root mask with all vertices.
 	root := newBitset(csr.N)
@@ -400,8 +400,11 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 					if !active.test(v) {
 						continue
 					}
+					if v < 0 {
+						continue
+					}
 					w := v >> 6
-					mask := uint64(1) << (uint(v) & 63)
+					mask := uint64(1) << (uint64(v) & 63)
 					if (visited.w[w] & mask) == 0 {
 						visited.w[w] |= mask
 						next = append(next, v)

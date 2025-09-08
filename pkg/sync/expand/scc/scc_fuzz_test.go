@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// Helper utilities
 func clamp(x, lo, hi int) int {
 	if x < lo {
 		return lo
@@ -308,7 +307,7 @@ func FuzzCondenseFWBW_Cancellation(f *testing.F) {
 		if edgeBudget > maxEdges {
 			edgeBudget = maxEdges
 		}
-		r := rand.New(rand.NewSource(int64(seed)))
+		r := rand.New(rand.NewSource(int64(seed))) //nolint:gosec // math/rand is acceptable for fuzzing/tests
 		adj := generateAdjacency(numNodes, edgeBudget, int(mode%8), r, int(selfLoopFrac), int(bidirFrac))
 		opts := DefaultOptions()
 		opts.MaxWorkers = 1
@@ -354,19 +353,26 @@ func generateAdjFromBytes(data []byte, maxN, maxM int) map[int]map[int]int {
 	if !ok {
 		m64 = 0
 	}
-	n := int(n64)
-	if n < 1 {
+	// Helper utilities.
+	var n int
+	switch {
+	case n64 < 1:
 		n = 1
-	}
-	if n > maxN {
+	case n64 > uint64(maxN): //nolint:gosec // maxN is a small, non-negative test bound
 		n = maxN
+	case n64 > uint64(^uint(0)>>1):
+		n = maxN
+	default:
+		n = int(n64)
 	}
-	m := int(m64)
-	if m < 0 {
-		m = 0
-	}
-	if m > maxM {
+	var m int
+	switch {
+	case m64 > uint64(maxM): //nolint:gosec // maxM is a non-negative test bound
 		m = maxM
+	case m64 > uint64(^uint(0)>>1):
+		m = maxM
+	default:
+		m = int(m64)
 	}
 	adj := make(map[int]map[int]int, n)
 	for v := 0; v < n; v++ {
