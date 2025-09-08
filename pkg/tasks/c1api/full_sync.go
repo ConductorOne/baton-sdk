@@ -55,6 +55,11 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithDontExpandGrants())
 	}
 
+	if c.task.GetSyncFull().GetSkipEntitlementsAndGrants() {
+		// Sync only resources. This is meant to be used for a first sync so initial data gets into the UI faster.
+		syncOpts = append(syncOpts, sdkSync.WithSkipEntitlementsAndGrants(true))
+	}
+
 	if c.externalResourceC1ZPath != "" {
 		syncOpts = append(syncOpts, sdkSync.WithExternalResourceC1ZPath(c.externalResourceC1ZPath))
 	}
