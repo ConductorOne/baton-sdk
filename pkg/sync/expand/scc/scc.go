@@ -429,35 +429,7 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 		default:
 		}
 
-		// If frontier small, do sequential step to avoid overhead.
-		if len(frontier) <= 64 || maxWorkers == 1 {
-			next := make([]int, 0, len(frontier))
-			for _, u := range frontier {
-				rs, re := getRow(u)
-				for p := rs; p < re; p++ {
-					v := getCol(p)
-					if !active.test(v) {
-						continue
-					}
-					if v < 0 {
-						continue
-					}
-					w := v >> 6
-					mask := uint64(1) << (uint64(v) & 63)
-					if (visited.w[w] & mask) == 0 {
-						visited.w[w] |= mask
-						next = append(next, v)
-					}
-				}
-			}
-			frontier = next
-			continue
-		}
-
-		workers := maxWorkers
-		if workers > len(frontier) {
-			workers = len(frontier)
-		}
+		workers := min(maxWorkers, len(frontier))
 		var wg sync.WaitGroup
 		wg.Add(workers)
 
@@ -471,9 +443,7 @@ func bfsMultiSource(ctx context.Context, csr *CSR, sources []int, active *bitset
 				wg.Done()
 				continue
 			}
-			if end > len(frontier) {
-				end = len(frontier)
-			}
+			end = min(end, len(frontier))
 
 			w := w // capture
 			go func(start, end int) {
