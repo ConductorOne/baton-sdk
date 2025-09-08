@@ -1362,12 +1362,13 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	}
 
 	if entitlementGraph.Loaded {
-		comps := entitlementGraph.ComputeCyclicComponents(ctx)
+		comps, sccMetrics := entitlementGraph.ComputeCyclicComponents(ctx)
 		if len(comps) > 0 {
 			// Log a sample cycle
 			l.Warn(
 				"cycle detected in entitlement graph",
 				zap.Any("cycle", comps[0]),
+				zap.Any("scc_metrics", sccMetrics),
 			)
 			l.Debug("initial graph", zap.Any("initial graph", entitlementGraph))
 			if dontFixCycles {

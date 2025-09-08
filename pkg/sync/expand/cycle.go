@@ -14,7 +14,7 @@ func (g *EntitlementGraph) GetFirstCycle(ctx context.Context) []int {
 	if g.HasNoCycles {
 		return nil
 	}
-	comps := g.ComputeCyclicComponents(ctx)
+	comps, _ := g.ComputeCyclicComponents(ctx)
 	if len(comps) == 0 {
 		return nil
 	}
@@ -26,20 +26,22 @@ func (g *EntitlementGraph) HasCycles(ctx context.Context) bool {
 	if g.HasNoCycles {
 		return false
 	}
-	return len(g.ComputeCyclicComponents(ctx)) > 0
+	comps, _ := g.ComputeCyclicComponents(ctx)
+	return len(comps) > 0
 }
 
 func (g *EntitlementGraph) cycleDetectionHelper(
+	ctx context.Context,
 	nodeID int,
 ) ([]int, bool) {
 	reach := g.reachableFrom(nodeID)
 	if len(reach) == 0 {
 		return nil, false
 	}
-	adj := g.toAdjacency(reach)
-	groups := scc.CondenseFWBWGroupsFromAdj(context.Background(), adj, scc.DefaultOptions())
+	fg := filteredGraph{g: g, include: func(id int) bool { _, ok := reach[id]; return ok }}
+	groups, _ := scc.CondenseFWBW(ctx, fg, scc.DefaultOptions())
 	for _, comp := range groups {
-		if len(comp) > 1 || (len(comp) == 1 && adj[comp[0]][comp[0]] != 0) {
+		if len(comp) > 1 || (len(comp) == 1 && g.hasSelfLoop(comp[0])) {
 			return comp, true
 		}
 	}
@@ -47,24 +49,66 @@ func (g *EntitlementGraph) cycleDetectionHelper(
 }
 
 func (g *EntitlementGraph) FixCycles(ctx context.Context) error {
-	return g.FixCyclesFromComponents(ctx, g.ComputeCyclicComponents(ctx))
+	comps, _ := g.ComputeCyclicComponents(ctx)
+	return g.FixCyclesFromComponents(ctx, comps)
 }
 
 // ComputeCyclicComponents runs SCC once and returns only cyclic components.
 // A component is cyclic if len>1 or a singleton with a self-loop.
-func (g *EntitlementGraph) ComputeCyclicComponents(ctx context.Context) [][]int {
+func (g *EntitlementGraph) ComputeCyclicComponents(ctx context.Context) ([][]int, *scc.Metrics) {
 	if g.HasNoCycles {
-		return nil
+		return nil, nil
 	}
-	adj := g.toAdjacency(nil)
-	groups := scc.CondenseFWBWGroupsFromAdj(ctx, adj, scc.DefaultOptions())
+	groups, metrics := scc.CondenseFWBW(ctx, g, scc.DefaultOptions())
 	cyclic := make([][]int, 0)
 	for _, comp := range groups {
-		if len(comp) > 1 || (len(comp) == 1 && adj[comp[0]][comp[0]] != 0) {
+		if len(comp) > 1 || (len(comp) == 1 && g.hasSelfLoop(comp[0])) {
 			cyclic = append(cyclic, comp)
 		}
 	}
-	return cyclic
+	return cyclic, metrics
+}
+
+// hasSelfLoop reports whether a node has a self-edge.
+func (g *EntitlementGraph) hasSelfLoop(id int) bool {
+	if row, ok := g.SourcesToDestinations[id]; ok {
+		_, ok := row[id]
+		return ok
+	}
+	return false
+}
+
+// filteredGraph restricts EntitlementGraph iteration to nodes for which include(id) is true.
+type filteredGraph struct {
+	g       *EntitlementGraph
+	include func(int) bool
+}
+
+func (fg filteredGraph) ForEachNode(fn func(id int) bool) {
+	for id := range fg.g.Nodes {
+		if fg.include != nil && !fg.include(id) {
+			continue
+		}
+		if !fn(id) {
+			return
+		}
+	}
+}
+
+func (fg filteredGraph) ForEachEdgeFrom(src int, fn func(dst int) bool) {
+	if fg.include != nil && !fg.include(src) {
+		return
+	}
+	if dsts, ok := fg.g.SourcesToDestinations[src]; ok {
+		for dst := range dsts {
+			if fg.include != nil && !fg.include(dst) {
+				continue
+			}
+			if !fn(dst) {
+				return
+			}
+		}
+	}
 }
 
 // removeNode obliterates a node and all incoming/outgoing edges.

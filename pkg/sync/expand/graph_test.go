@@ -2,6 +2,7 @@ package expand
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -20,8 +21,8 @@ func elementsMatch(listA []int, listB []int) bool {
 	if len(listA) != len(listB) {
 		return false
 	}
-	setA := mapset.NewSet[int](listA...)
-	setB := mapset.NewSet[int](listB...)
+	setA := mapset.NewSet(listA...)
+	setB := mapset.NewSet(listB...)
 
 	differenceA := setA.Difference(setB)
 	if differenceA.Cardinality() > 0 {
@@ -241,7 +242,7 @@ func TestHandleCliqueCycle(t *testing.T) {
 
 	// Test can be flaky.
 	N := 1
-	for i := 0; i < N; i++ {
+	for range N {
 		graph := parseExpression(t, ctx, "1>2>3>2>1>3>1")
 
 		require.Equal(t, 3, len(graph.Nodes))
@@ -284,4 +285,63 @@ func TestMarkEdgeExpanded(t *testing.T) {
 	require.True(t, graph.IsEntitlementExpanded("1"))
 	require.True(t, graph.IsEntitlementExpanded("2"))
 	require.True(t, graph.IsExpanded())
+}
+
+func TestDeepNoCycles(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	depth := 40
+
+	expressionStr := ""
+	for i := range depth {
+		expressionStr += fmt.Sprintf("%d>%d", i+1, i+2)
+	}
+	graph := parseExpression(t, ctx, expressionStr)
+
+	require.Equal(t, depth+1, len(graph.Nodes))
+	require.Equal(t, depth, len(graph.Edges))
+	require.Equal(t, depth+1, len(graph.GetEntitlements()))
+
+	err := graph.FixCycles(ctx)
+	require.NoError(t, err, graph.Str())
+	err = graph.Validate()
+	require.NoError(t, err)
+
+	require.Equal(t, depth+1, len(graph.Nodes))
+	require.Equal(t, depth, len(graph.Edges))
+	require.Equal(t, depth+1, len(graph.GetEntitlements()))
+
+	cycle := graph.GetFirstCycle(ctx)
+	require.Nil(t, cycle)
+}
+
+func TestDeepCycles(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	depth := 40
+
+	expressionStr := ""
+	for i := range depth {
+		expressionStr += fmt.Sprintf("%d>%d", i+1, i+2)
+	}
+	expressionStr += fmt.Sprintf("%d>%d", depth, 1)
+	graph := parseExpression(t, ctx, expressionStr)
+
+	require.Equal(t, depth+1, len(graph.Nodes))
+	require.Equal(t, depth+1, len(graph.Edges))
+	require.Equal(t, depth+1, len(graph.GetEntitlements()))
+
+	err := graph.FixCycles(ctx)
+	require.NoError(t, err, graph.Str())
+	err = graph.Validate()
+	require.NoError(t, err)
+
+	require.Equal(t, 1, len(graph.Nodes))
+	require.Equal(t, 0, len(graph.Edges))
+	require.Equal(t, depth+1, len(graph.GetEntitlements()))
+
+	cycle := graph.GetFirstCycle(ctx)
+	require.Nil(t, cycle)
 }
