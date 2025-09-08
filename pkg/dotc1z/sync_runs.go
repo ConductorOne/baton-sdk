@@ -484,24 +484,22 @@ func (c *C1File) StartNewSyncV2(ctx context.Context, syncType connectorstore.Syn
 	ctx, span := tracer.Start(ctx, "C1File.StartNewSyncV2")
 	defer span.End()
 
-	var syncTypeEnum connectorstore.SyncType
 	switch syncType {
-	case "full":
-		syncTypeEnum = connectorstore.SyncTypeFull
+	case connectorstore.SyncTypeFull:
 		if parentSyncID != "" {
 			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for full sync")
 		}
-	case "partial":
-		syncTypeEnum = connectorstore.SyncTypePartial
-	case "resources_only":
-		syncTypeEnum = connectorstore.SyncTypeResourcesOnly
+	case connectorstore.SyncTypeResourcesOnly:
 		if parentSyncID != "" {
 			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for resources only sync")
 		}
+	case connectorstore.SyncTypePartial:
+	case connectorstore.SyncTypeAny:
+		return "", status.Errorf(codes.InvalidArgument, "sync cannot be started with SyncTypeAny")
 	default:
 		return "", status.Errorf(codes.InvalidArgument, "invalid sync type: %s", syncType)
 	}
-	return c.startNewSyncInternal(ctx, syncTypeEnum, parentSyncID)
+	return c.startNewSyncInternal(ctx, syncType, parentSyncID)
 }
 
 func (c *C1File) startNewSyncInternal(ctx context.Context, syncType connectorstore.SyncType, parentSyncID string) (string, error) {
@@ -517,7 +515,8 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType connectorsto
 			return "", err
 		}
 		if len(syncs) > 0 {
-			return syncs[0].ID, nil
+			c.currentSyncID = syncs[0].ID
+			return c.currentSyncID, nil
 		}
 	}
 
