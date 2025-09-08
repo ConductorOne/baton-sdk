@@ -683,3 +683,405 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = EntitlementsServiceListEntitlementsResponseValidationError{}
+
+// Validate checks the field values on
+// EntitlementsServiceListEntitlementsRequestStream with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *EntitlementsServiceListEntitlementsRequestStream) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// EntitlementsServiceListEntitlementsRequestStream with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in
+// EntitlementsServiceListEntitlementsRequestStreamMultiError, or nil if none found.
+func (m *EntitlementsServiceListEntitlementsRequestStream) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *EntitlementsServiceListEntitlementsRequestStream) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetResource()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, EntitlementsServiceListEntitlementsRequestStreamValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, EntitlementsServiceListEntitlementsRequestStreamValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return EntitlementsServiceListEntitlementsRequestStreamValidationError{
+				field:  "Resource",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if m.GetPageSize() != 0 {
+
+		if m.GetPageSize() > 250 {
+			err := EntitlementsServiceListEntitlementsRequestStreamValidationError{
+				field:  "PageSize",
+				reason: "value must be less than or equal to 250",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if m.GetPageToken() != "" {
+
+		if l := len(m.GetPageToken()); l < 1 || l > 1048576 {
+			err := EntitlementsServiceListEntitlementsRequestStreamValidationError{
+				field:  "PageToken",
+				reason: "value length must be between 1 and 1048576 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, EntitlementsServiceListEntitlementsRequestStreamValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, EntitlementsServiceListEntitlementsRequestStreamValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return EntitlementsServiceListEntitlementsRequestStreamValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return EntitlementsServiceListEntitlementsRequestStreamMultiError(errors)
+	}
+
+	return nil
+}
+
+// EntitlementsServiceListEntitlementsRequestStreamMultiError is an error
+// wrapping multiple validation errors returned by
+// EntitlementsServiceListEntitlementsRequestStream.ValidateAll() if the
+// designated constraints aren't met.
+type EntitlementsServiceListEntitlementsRequestStreamMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m EntitlementsServiceListEntitlementsRequestStreamMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m EntitlementsServiceListEntitlementsRequestStreamMultiError) AllErrors() []error { return m }
+
+// EntitlementsServiceListEntitlementsRequestStreamValidationError is the
+// validation error returned by
+// EntitlementsServiceListEntitlementsRequestStream.Validate if the designated
+// constraints aren't met.
+type EntitlementsServiceListEntitlementsRequestStreamValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e EntitlementsServiceListEntitlementsRequestStreamValidationError) Field() string {
+	return e.field
+}
+
+// Reason function returns reason value.
+func (e EntitlementsServiceListEntitlementsRequestStreamValidationError) Reason() string {
+	return e.reason
+}
+
+// Cause function returns cause value.
+func (e EntitlementsServiceListEntitlementsRequestStreamValidationError) Cause() error {
+	return e.cause
+}
+
+// Key function returns key value.
+func (e EntitlementsServiceListEntitlementsRequestStreamValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e EntitlementsServiceListEntitlementsRequestStreamValidationError) ErrorName() string {
+	return "EntitlementsServiceListEntitlementsRequestStreamValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e EntitlementsServiceListEntitlementsRequestStreamValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sEntitlementsServiceListEntitlementsRequestStream.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = EntitlementsServiceListEntitlementsRequestStreamValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = EntitlementsServiceListEntitlementsRequestStreamValidationError{}
+
+// Validate checks the field values on
+// EntitlementsServiceListEntitlementsResponseStream with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *EntitlementsServiceListEntitlementsResponseStream) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// EntitlementsServiceListEntitlementsResponseStream with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in
+// EntitlementsServiceListEntitlementsResponseStreamMultiError, or nil if none found.
+func (m *EntitlementsServiceListEntitlementsResponseStream) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *EntitlementsServiceListEntitlementsResponseStream) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetList() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, EntitlementsServiceListEntitlementsResponseStreamValidationError{
+						field:  fmt.Sprintf("List[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, EntitlementsServiceListEntitlementsResponseStreamValidationError{
+						field:  fmt.Sprintf("List[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return EntitlementsServiceListEntitlementsResponseStreamValidationError{
+					field:  fmt.Sprintf("List[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if m.GetNextPageToken() != "" {
+
+		if l := len(m.GetNextPageToken()); l < 1 || l > 1048576 {
+			err := EntitlementsServiceListEntitlementsResponseStreamValidationError{
+				field:  "NextPageToken",
+				reason: "value length must be between 1 and 1048576 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, EntitlementsServiceListEntitlementsResponseStreamValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, EntitlementsServiceListEntitlementsResponseStreamValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return EntitlementsServiceListEntitlementsResponseStreamValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return EntitlementsServiceListEntitlementsResponseStreamMultiError(errors)
+	}
+
+	return nil
+}
+
+// EntitlementsServiceListEntitlementsResponseStreamMultiError is an error
+// wrapping multiple validation errors returned by
+// EntitlementsServiceListEntitlementsResponseStream.ValidateAll() if the
+// designated constraints aren't met.
+type EntitlementsServiceListEntitlementsResponseStreamMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m EntitlementsServiceListEntitlementsResponseStreamMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m EntitlementsServiceListEntitlementsResponseStreamMultiError) AllErrors() []error { return m }
+
+// EntitlementsServiceListEntitlementsResponseStreamValidationError is the
+// validation error returned by
+// EntitlementsServiceListEntitlementsResponseStream.Validate if the
+// designated constraints aren't met.
+type EntitlementsServiceListEntitlementsResponseStreamValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e EntitlementsServiceListEntitlementsResponseStreamValidationError) Field() string {
+	return e.field
+}
+
+// Reason function returns reason value.
+func (e EntitlementsServiceListEntitlementsResponseStreamValidationError) Reason() string {
+	return e.reason
+}
+
+// Cause function returns cause value.
+func (e EntitlementsServiceListEntitlementsResponseStreamValidationError) Cause() error {
+	return e.cause
+}
+
+// Key function returns key value.
+func (e EntitlementsServiceListEntitlementsResponseStreamValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e EntitlementsServiceListEntitlementsResponseStreamValidationError) ErrorName() string {
+	return "EntitlementsServiceListEntitlementsResponseStreamValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e EntitlementsServiceListEntitlementsResponseStreamValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sEntitlementsServiceListEntitlementsResponseStream.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = EntitlementsServiceListEntitlementsResponseStreamValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = EntitlementsServiceListEntitlementsResponseStreamValidationError{}

@@ -25,6 +25,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -214,6 +215,8 @@ type syncer struct {
 	skipEGForResourceType               map[string]bool
 	skipEntitlementsAndGrants           bool
 	resourceTypeTraits                  map[string][]v2.ResourceType_Trait
+
+	entitlementStreamer grpc.BidiStreamingClient[v2.EntitlementsServiceListEntitlementsRequestStream, v2.EntitlementsServiceListEntitlementsResponseStream]
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -1075,13 +1078,31 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 
 	pageToken := s.state.PageToken(ctx)
 
-	resp, err := s.connector.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+	if s.entitlementStreamer == nil {
+		entitlementStreamer, err := s.connector.ListEntitlementsStream(ctx)
+		if err != nil {
+			return err
+		}
+		s.entitlementStreamer = entitlementStreamer
+	}
+
+	err = s.entitlementStreamer.Send(&v2.EntitlementsServiceListEntitlementsRequestStream{
 		Resource:  resourceResponse.Resource,
 		PageToken: pageToken,
 	})
 	if err != nil {
 		return err
 	}
+
+	resp, err := s.entitlementStreamer.Recv()
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			s.entitlementStreamer = nil
+			return errors.New("expected entitlement response but got end of stream")
+		}
+		return err
+	}
+
 	err = s.store.PutEntitlements(ctx, resp.List...)
 	if err != nil {
 		return err
@@ -1736,7 +1757,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	}
 
 	ents := make([]*v2.Entitlement, 0)
-	principals := make([]*v2.Resource, 0)
+	resources := make([]*v2.Resource, 0)
 	resourceTypes := make([]*v2.ResourceType, 0)
 	resourceTypeIDs := mapset.NewSet[string]()
 	resourceIDs := make(map[string]*v2.ResourceId)
@@ -1784,17 +1805,17 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		batonID := &v2.BatonID{}
 		resourceAnnos.Update(batonID)
 		resourceVal.Annotations = resourceAnnos
-		principals = append(principals, resourceVal)
+		resources = append(resources, resourceVal)
 	}
 
-	for _, principal := range principals {
-		rAnnos := annotations.Annotations(principal.GetAnnotations())
-		skipEnts := skipEGForResourceType[principal.Id.ResourceType] || rAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
+	for _, resource := range resources {
+		rAnnos := annotations.Annotations(resource.GetAnnotations())
+		skipEnts := skipEGForResourceType[resource.Id.ResourceType] || rAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
 		if skipEnts {
 			continue
 		}
 
-		resourceEnts, err := s.listExternalEntitlementsForResource(ctx, principal)
+		resourceEnts, err := s.listExternalEntitlementsForResource(ctx, resource)
 		if err != nil {
 			return err
 		}
@@ -1818,7 +1839,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		return err
 	}
 
-	err = s.store.PutResources(ctx, principals...)
+	err = s.store.PutResources(ctx, resources...)
 	if err != nil {
 		return err
 	}
@@ -1835,12 +1856,12 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 
 	l.Info("Synced external resources for entitlement",
 		zap.Int("resource_type_count", len(resourceTypes)),
-		zap.Int("resource_count", len(principals)),
+		zap.Int("resource_count", len(resources)),
 		zap.Int("entitlement_count", len(ents)),
 		zap.Int("grant_count", len(grantsForEnts)),
 	)
 
-	err = s.processGrantsWithExternalPrincipals(ctx, principals)
+	err = s.processGrantsWithExternalPrincipals(ctx, resources)
 	if err != nil {
 		return err
 	}
@@ -1984,6 +2005,7 @@ func (s *syncer) listExternalResourcesForResourceType(ctx context.Context, resou
 
 func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resource *v2.Resource) ([]*v2.Entitlement, error) {
 	ents := make([]*v2.Entitlement, 0)
+
 	entitlementToken := ""
 	for {
 		entitlementsList, err := s.externalResourceReader.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{

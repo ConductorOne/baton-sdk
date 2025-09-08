@@ -53,6 +53,14 @@ func (n *emptyConnector) ListEntitlements(
 	}, nil
 }
 
+// ListEntitlementsStream returns a list of entitlements.
+func (n *emptyConnector) ListEntitlementsStream(ctx context.Context, opts ...grpc.CallOption) (
+	grpc.BidiStreamingClient[v2.EntitlementsServiceListEntitlementsRequestStream, v2.EntitlementsServiceListEntitlementsResponseStream],
+	error,
+) {
+	return MockBidiClient[v2.EntitlementsServiceListEntitlementsRequestStream, v2.EntitlementsServiceListEntitlementsResponseStream]{}, nil
+}
+
 // ListGrants returns a list of grants.
 func (n *emptyConnector) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
 	return &v2.GrantsServiceListGrantsResponse{
