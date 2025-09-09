@@ -15,6 +15,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/sdk"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	gt "github.com/conductorone/baton-sdk/pkg/types/grant"
 	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -941,6 +942,13 @@ func (mc *mockConnector) GetResource(ctx context.Context, in *v2.ResourceGetterS
 
 func (mc *mockConnector) ListEntitlements(ctx context.Context, in *v2.EntitlementsServiceListEntitlementsRequest, opts ...grpc.CallOption) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	return &v2.EntitlementsServiceListEntitlementsResponse{List: mc.entDB[in.Resource.Id.Resource]}, nil
+}
+
+func (mc *mockConnector) ListEntitlementsStream(ctx context.Context, opts ...grpc.CallOption) (
+	grpc.BidiStreamingClient[v2.EntitlementsServiceListEntitlementsRequestStream, v2.EntitlementsServiceListEntitlementsResponseStream],
+	error,
+) {
+	return sdk.MockBidiClient[v2.EntitlementsServiceListEntitlementsRequestStream, v2.EntitlementsServiceListEntitlementsResponseStream]{}, nil
 }
 
 func (mc *mockConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {

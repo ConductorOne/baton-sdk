@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -824,6 +826,54 @@ func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.Entitlem
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
+}
+
+// ListEntitlementsStream returns all the entitlements for a given resource.
+func (b *builderImpl) ListEntitlementsStream(s grpc.BidiStreamingServer[v2.EntitlementsServiceListEntitlementsRequestStream, v2.EntitlementsServiceListEntitlementsResponseStream]) error {
+	ctx := s.Context()
+	ctx, span := tracer.Start(ctx, "builderImpl.ListEntitlementsStream")
+	defer span.End()
+
+	for {
+		request, err := s.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+
+		start := b.nowFunc()
+		tt := tasks.ListEntitlementsType
+		rb, ok := b.resourceBuilders[request.Resource.Id.ResourceType]
+		if !ok {
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			return fmt.Errorf("error: list entitlements with unknown resource type %s", request.Resource.Id.ResourceType)
+		}
+
+		out, nextPageToken, annos, err := rb.Entitlements(ctx, request.Resource, &pagination.Token{
+			Size:  int(request.PageSize),
+			Token: request.PageToken,
+		})
+		resp := &v2.EntitlementsServiceListEntitlementsResponseStream{
+			List:          out,
+			NextPageToken: nextPageToken,
+			Annotations:   annos,
+		}
+		if err != nil {
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			return fmt.Errorf("error: listing entitlements failed: %w", err)
+		}
+		if request.PageToken != "" && request.PageToken == nextPageToken {
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			return fmt.Errorf("error: listing entitlements failed: next page token is the same as the current page token. this is most likely a connector bug")
+		}
+
+		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+		if err := s.Send(resp); err != nil {
+			return err
+		}
+	}
 }
 
 // ListGrants lists all the grants for a given resource.

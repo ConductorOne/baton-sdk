@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+
 	// NOTE: required to register the dialect for goqu.
 	//
 	// If you remove this import, goqu.Dialect("sqlite3") will

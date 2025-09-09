@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	EntitlementsService_ListEntitlements_FullMethodName = "/c1.connector.v2.EntitlementsService/ListEntitlements"
+	EntitlementsService_ListEntitlements_FullMethodName       = "/c1.connector.v2.EntitlementsService/ListEntitlements"
+	EntitlementsService_ListEntitlementsStream_FullMethodName = "/c1.connector.v2.EntitlementsService/ListEntitlementsStream"
 )
 
 // EntitlementsServiceClient is the client API for EntitlementsService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type EntitlementsServiceClient interface {
 	ListEntitlements(ctx context.Context, in *EntitlementsServiceListEntitlementsRequest, opts ...grpc.CallOption) (*EntitlementsServiceListEntitlementsResponse, error)
+	ListEntitlementsStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[EntitlementsServiceListEntitlementsRequestStream, EntitlementsServiceListEntitlementsResponseStream], error)
 }
 
 type entitlementsServiceClient struct {
@@ -47,11 +49,25 @@ func (c *entitlementsServiceClient) ListEntitlements(ctx context.Context, in *En
 	return out, nil
 }
 
+func (c *entitlementsServiceClient) ListEntitlementsStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[EntitlementsServiceListEntitlementsRequestStream, EntitlementsServiceListEntitlementsResponseStream], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &EntitlementsService_ServiceDesc.Streams[0], EntitlementsService_ListEntitlementsStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[EntitlementsServiceListEntitlementsRequestStream, EntitlementsServiceListEntitlementsResponseStream]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type EntitlementsService_ListEntitlementsStreamClient = grpc.BidiStreamingClient[EntitlementsServiceListEntitlementsRequestStream, EntitlementsServiceListEntitlementsResponseStream]
+
 // EntitlementsServiceServer is the server API for EntitlementsService service.
 // All implementations should embed UnimplementedEntitlementsServiceServer
 // for forward compatibility.
 type EntitlementsServiceServer interface {
 	ListEntitlements(context.Context, *EntitlementsServiceListEntitlementsRequest) (*EntitlementsServiceListEntitlementsResponse, error)
+	ListEntitlementsStream(grpc.BidiStreamingServer[EntitlementsServiceListEntitlementsRequestStream, EntitlementsServiceListEntitlementsResponseStream]) error
 }
 
 // UnimplementedEntitlementsServiceServer should be embedded to have
@@ -63,6 +79,9 @@ type UnimplementedEntitlementsServiceServer struct{}
 
 func (UnimplementedEntitlementsServiceServer) ListEntitlements(context.Context, *EntitlementsServiceListEntitlementsRequest) (*EntitlementsServiceListEntitlementsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListEntitlements not implemented")
+}
+func (UnimplementedEntitlementsServiceServer) ListEntitlementsStream(grpc.BidiStreamingServer[EntitlementsServiceListEntitlementsRequestStream, EntitlementsServiceListEntitlementsResponseStream]) error {
+	return status.Errorf(codes.Unimplemented, "method ListEntitlementsStream not implemented")
 }
 func (UnimplementedEntitlementsServiceServer) testEmbeddedByValue() {}
 
@@ -102,6 +121,13 @@ func _EntitlementsService_ListEntitlements_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EntitlementsService_ListEntitlementsStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(EntitlementsServiceServer).ListEntitlementsStream(&grpc.GenericServerStream[EntitlementsServiceListEntitlementsRequestStream, EntitlementsServiceListEntitlementsResponseStream]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type EntitlementsService_ListEntitlementsStreamServer = grpc.BidiStreamingServer[EntitlementsServiceListEntitlementsRequestStream, EntitlementsServiceListEntitlementsResponseStream]
+
 // EntitlementsService_ServiceDesc is the grpc.ServiceDesc for EntitlementsService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -114,6 +140,13 @@ var EntitlementsService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _EntitlementsService_ListEntitlements_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "ListEntitlementsStream",
+			Handler:       _EntitlementsService_ListEntitlementsStream_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+	},
 	Metadata: "c1/connector/v2/entitlement.proto",
 }

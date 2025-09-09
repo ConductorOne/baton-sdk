@@ -2,9 +2,12 @@ package dotc1z
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 
 	"github.com/doug-martin/goqu/v9"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -76,6 +79,45 @@ func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsS
 		List:          ret,
 		NextPageToken: nextPageToken,
 	}, nil
+}
+
+func (c *C1File) ListEntitlementsStream(g grpc.BidiStreamingServer[v2.EntitlementsServiceListEntitlementsRequestStream, v2.EntitlementsServiceListEntitlementsResponseStream]) error {
+	ctx := g.Context()
+	ctx, span := tracer.Start(ctx, "C1File.ListEntitlementsStream")
+	defer span.End()
+
+	for {
+		req, err := g.Recv()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				// End of stream
+				return nil
+			}
+			return err
+		}
+
+		objs, nextPageToken, err := c.listConnectorObjects(ctx, entitlements.Name(), req)
+		if err != nil {
+			return fmt.Errorf("error listing entitlements: %w", err)
+		}
+
+		ret := make([]*v2.Entitlement, 0, len(objs))
+		for _, o := range objs {
+			en := &v2.Entitlement{}
+			err = proto.Unmarshal(o, en)
+			if err != nil {
+				return err
+			}
+			ret = append(ret, en)
+		}
+
+		if err := g.Send(&v2.EntitlementsServiceListEntitlementsResponseStream{
+			List:          ret,
+			NextPageToken: nextPageToken,
+		}); err != nil {
+			return err
+		}
+	}
 }
 
 func (c *C1File) GetEntitlement(ctx context.Context, request *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
