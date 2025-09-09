@@ -337,7 +337,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
 	_, err = s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
 		return err
@@ -356,6 +355,25 @@ func (s *syncer) Sync(ctx context.Context) error {
 	syncID, newSync, err := s.startOrResumeSync(ctx)
 	if err != nil {
 		return err
+	}
+	s.syncID = syncID
+
+	// Set the syncID on the wrapper after we have it
+	if syncID == "" {
+		err = errors.New("no syncID found after starting or resuming sync")
+		l.Error("no syncID found after starting or resuming sync", zap.Error(err))
+		return err
+	}
+	if wrapper, ok := s.connector.(*syncIDClientWrapper); ok {
+		wrapper.syncID = syncID
+	} else {
+		l.Error("connector is not a syncIDClientWrapper")
+		return errors.New("connector is not a syncIDClientWrapper")
+	}
+
+	// Add ActiveSync to context once after we have the syncID
+	if syncID != "" {
+		ctx = types.SetSyncIDInContext(ctx, syncID)
 	}
 
 	span.SetAttributes(attribute.String("sync_id", syncID))
@@ -639,7 +657,9 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 		return err
 	}
 
-	resp, err := s.connector.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{PageToken: pageToken})
+	resp, err := s.connector.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{
+		PageToken: pageToken,
+	})
 	if err != nil {
 		return err
 	}
@@ -1021,7 +1041,11 @@ func (s *syncer) SyncEntitlements(ctx context.Context) error {
 			s.handleInitialActionForStep(ctx, *s.state.Current())
 		}
 
-		resp, err := s.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{PageToken: pageToken})
+		a := annotations.New(&v2.ActiveSync{
+			Id: s.syncID,
+		})
+
+		resp, err := s.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{PageToken: pageToken, Annotations: a})
 		if err != nil {
 			return err
 		}
@@ -1075,8 +1099,15 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 
 	pageToken := s.state.PageToken(ctx)
 
+	resource := resourceResponse.Resource
+	resourceAnnos := annotations.Annotations(resource.Annotations)
+	resourceAnnos.Append(&v2.ActiveSync{
+		Id: s.syncID,
+	})
+	resource.Annotations = resourceAnnos
+
 	resp, err := s.connector.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
-		Resource:  resourceResponse.Resource,
+		Resource:  resource,
 		PageToken: pageToken,
 	})
 	if err != nil {
@@ -1273,8 +1304,10 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 			l.Info("Expanding grants...")
 			s.handleInitialActionForStep(ctx, *s.state.Current())
 		}
-
-		resp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageToken: pageToken})
+		a := annotations.New(&v2.ActiveSync{
+			Id: s.syncID,
+		})
+		resp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{PageToken: pageToken, Annotations: a})
 		if err != nil {
 			return err
 		}
@@ -1403,7 +1436,12 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 			s.handleInitialActionForStep(ctx, *s.state.Current())
 		}
 
-		resp, err := s.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{PageToken: pageToken})
+		a := annotations.New()
+		a.Append(&v2.ActiveSync{
+			Id: s.syncID,
+		})
+
+		resp, err := s.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{PageToken: pageToken, Annotations: a})
 		if err != nil {
 			return err
 		}
@@ -1541,7 +1579,9 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 	storeAnnos.Update(&c1zpb.SyncDetails{
 		Id: prevSyncID,
 	})
-
+	storeAnnos.Update(&v2.ActiveSync{
+		Id: s.syncID,
+	})
 	for {
 		prevGrantsResp, err := s.store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
 			Resource:    resource,
@@ -1595,6 +1635,9 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		return err
 	}
 	resourceAnnos.Update(prevEtag)
+	resourceAnnos.Update(&v2.ActiveSync{
+		Id: s.syncID,
+	})
 	resource.Annotations = resourceAnnos
 
 	resp, err := s.connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{Resource: resource, PageToken: pageToken})
@@ -1721,10 +1764,15 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	l := ctxzap.Extract(ctx)
 	l.Info("Syncing external baton resources with grants to entitlement...")
 
+	a := annotations.New(&v2.ActiveSync{
+		Id: s.syncID,
+	})
+
 	skipEGForResourceType := make(map[string]bool)
 
 	filterEntitlement, err := s.externalResourceReader.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
 		EntitlementId: entitlementId,
+		Annotations:   a,
 	})
 	if err != nil {
 		return err
@@ -1965,10 +2013,14 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 func (s *syncer) listExternalResourcesForResourceType(ctx context.Context, resourceTypeId string) ([]*v2.Resource, error) {
 	resources := make([]*v2.Resource, 0)
 	pageToken := ""
+	a := annotations.New(&v2.ActiveSync{
+		Id: s.syncID,
+	})
 	for {
 		resourceResp, err := s.externalResourceReader.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
 			PageToken:      pageToken,
 			ResourceTypeId: resourceTypeId,
+			Annotations:    a,
 		})
 		if err != nil {
 			return nil, err
@@ -1985,10 +2037,21 @@ func (s *syncer) listExternalResourcesForResourceType(ctx context.Context, resou
 func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resource *v2.Resource) ([]*v2.Entitlement, error) {
 	ents := make([]*v2.Entitlement, 0)
 	entitlementToken := ""
+	a := annotations.New(&v2.ActiveSync{
+		Id: s.syncID,
+	})
+
+	resourceAnnos := annotations.Annotations(resource.Annotations)
+	resourceAnnos.Append(&v2.ActiveSync{
+		Id: s.syncID,
+	})
+	resource.Annotations = resourceAnnos
+
 	for {
 		entitlementsList, err := s.externalResourceReader.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
-			PageToken: entitlementToken,
-			Resource:  resource,
+			PageToken:   entitlementToken,
+			Resource:    resource,
+			Annotations: a,
 		})
 		if err != nil {
 			return nil, err
@@ -2005,10 +2068,14 @@ func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resour
 func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.Entitlement) ([]*v2.Grant, error) {
 	grantsForEnts := make([]*v2.Grant, 0)
 	entitlementGrantPageToken := ""
+	a := annotations.New(&v2.ActiveSync{
+		Id: s.syncID,
+	})
 	for {
 		grantsForEntitlementResp, err := s.externalResourceReader.ListGrantsForEntitlement(ctx, &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
 			Entitlement: ent,
 			PageToken:   entitlementGrantPageToken,
+			Annotations: a,
 		})
 		if err != nil {
 			return nil, err
@@ -2025,9 +2092,13 @@ func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.E
 func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceType, error) {
 	resourceTypes := make([]*v2.ResourceType, 0)
 	rtPageToken := ""
+	a := annotations.New(&v2.ActiveSync{
+		Id: s.syncID,
+	})
 	for {
 		resourceTypesResp, err := s.externalResourceReader.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{
-			PageToken: rtPageToken,
+			PageToken:   rtPageToken,
+			Annotations: a,
 		})
 		if err != nil {
 			return nil, err
@@ -2786,7 +2857,7 @@ func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 // NewSyncer returns a new syncer object.
 func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
 	s := &syncer{
-		connector:             c,
+		connector:             &syncIDClientWrapper{ConnectorClient: c, syncID: ""}, // we only get the syncid later
 		skipEGForResourceType: make(map[string]bool),
 		resourceTypeTraits:    make(map[string][]v2.ResourceType_Trait),
 		counts:                NewProgressCounts(),

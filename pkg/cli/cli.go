@@ -12,7 +12,18 @@ import (
 	"github.com/spf13/viper"
 )
 
-type GetConnectorFunc[T field.Configurable] func(context.Context, T) (types.ConnectorServer, error)
+// GetConnectorFunc is a function type that creates a connector instance.
+// It takes a context and configuration. The session cache constructor is retrieved from the context.
+type GetConnectorFunc[T field.Configurable] func(ctx context.Context, cfg T) (types.ConnectorServer, error)
+
+// WithSessionCache creates a session cache using the provided constructor and adds it to the context.
+func WithSessionCache(ctx context.Context, constructor types.SessionCacheConstructor) (context.Context, error) {
+	sessionCache, err := constructor(ctx)
+	if err != nil {
+		return ctx, fmt.Errorf("failed to create session cache: %w", err)
+	}
+	return context.WithValue(ctx, types.SessionCacheKey{}, sessionCache), nil
+}
 
 func MakeGenericConfiguration[T field.Configurable](v *viper.Viper) (T, error) {
 	// Create an instance of the struct type T using reflection
