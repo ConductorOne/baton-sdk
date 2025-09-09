@@ -22,7 +22,6 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	pb_connector_api "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/auth"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	c1_lambda_grpc "github.com/conductorone/baton-sdk/pkg/lambda/grpc"
@@ -217,7 +216,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) types.SessionCacheConstructor {
 	return func(ctx context.Context, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
 		// Create the gRPC session client using the same gRPC connection
-		client := v1.NewBatonSessionServiceClient(grpcClient)
+		client := pb_connector_api.NewBatonSessionServiceClient(grpcClient)
 		// Create and return the session cache
 		return session.NewGRPCSessionCache(ctx, client, opt...)
 	}

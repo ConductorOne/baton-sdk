@@ -544,21 +544,21 @@ func TestMemorySessionCache_Concurrency(t *testing.T) {
 
 					// Set value
 					err := memCache.SetWithSyncID(ctx, namespace, key, value)
-					require.NoError(t, err)
+					assert.NoError(t, err)
 
 					// Get value
 					retrieved, found, err := memCache.GetWithSyncID(ctx, namespace, key)
-					require.NoError(t, err)
+					assert.NoError(t, err)
 					assert.True(t, found)
 					assert.Equal(t, value, retrieved)
 
 					// Delete value
 					err = memCache.DeleteWithSyncID(ctx, namespace, key)
-					require.NoError(t, err)
+					assert.NoError(t, err)
 
 					// Verify deletion
 					_, found, err = memCache.GetWithSyncID(ctx, namespace, key)
-					require.NoError(t, err)
+					assert.NoError(t, err)
 					assert.False(t, found)
 				}
 			}(i)
@@ -620,7 +620,7 @@ func TestMemorySessionCache_Concurrency(t *testing.T) {
 				defer wg.Done()
 				keys := []string{"key1", "key2", "key3", "non-existent"}
 				values, err := memCache.GetManyWithSyncID(ctx, namespace, keys)
-				require.NoError(t, err)
+				assert.NoError(t, err)
 				assert.Len(t, values, 3)
 				assert.Equal(t, []byte("value1"), values["key1"])
 				assert.Equal(t, []byte("value2"), values["key2"])
@@ -908,19 +908,19 @@ func TestMemorySessionCache_StressTest(t *testing.T) {
 					case 0:
 						// Set
 						err := memCache.SetWithSyncID(ctx, namespace, key, value)
-						require.NoError(t, err)
+						assert.NoError(t, err)
 					case 1:
 						// Get
 						_, _, err := memCache.GetWithSyncID(ctx, namespace, key)
-						require.NoError(t, err)
+						assert.NoError(t, err)
 					case 2:
 						// Delete
 						err := memCache.DeleteWithSyncID(ctx, namespace, key)
-						require.NoError(t, err)
+						assert.NoError(t, err)
 					case 3:
 						// GetAll
 						_, err := memCache.GetAllWithSyncID(ctx, namespace)
-						require.NoError(t, err)
+						assert.NoError(t, err)
 					}
 				}
 			}(i)
@@ -1177,11 +1177,11 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 
 					// Set value
 					err := memCache.SetWithSyncID(ctx, syncID, key, value)
-					require.NoError(t, err)
+					assert.NoError(t, err)
 
 					// Get value
 					retrieved, found, err := memCache.GetWithSyncID(ctx, syncID, key)
-					require.NoError(t, err)
+					assert.NoError(t, err)
 					assert.True(t, found)
 					assert.Equal(t, value, retrieved)
 				}
