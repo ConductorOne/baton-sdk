@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -25,7 +26,7 @@ func NewAttachedCompactor(base *dotc1z.C1File, applied *dotc1z.C1File, dest *dot
 
 func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) error {
 	// Get the latest finished full sync ID from base
-	baseSyncID, err := c.base.LatestFinishedSync(ctx)
+	baseSyncID, err := c.base.LatestFinishedSync(ctx, connectorstore.SyncTypeFull)
 	if err != nil {
 		return fmt.Errorf("failed to get base sync ID: %w", err)
 	}
@@ -34,7 +35,7 @@ func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) er
 	}
 
 	// Get the latest finished sync ID from applied (any type)
-	appliedSyncID, err := c.applied.LatestFinishedSyncAnyType(ctx)
+	appliedSyncID, err := c.applied.LatestFinishedSync(ctx, connectorstore.SyncTypeAny)
 	if err != nil {
 		return fmt.Errorf("failed to get applied sync ID: %w", err)
 	}

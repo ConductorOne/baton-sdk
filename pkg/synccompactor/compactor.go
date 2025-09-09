@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
@@ -239,7 +240,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	}
 	defer func() { _ = newFile.Close() }()
 
-	newSyncId, err := newFile.StartNewSyncV2(ctx, string(dotc1z.SyncTypeFull), "")
+	newSyncId, err := newFile.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
 	if err != nil {
 		return nil, err
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/segmentio/ksuid"
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,7 @@ func TestPutResources(t *testing.T) {
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
 
-	_, err = c1zFile.StartNewSync(ctx)
+	_, err = c1zFile.StartNewSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 
 	resourceType := &v2.ResourceType{
@@ -91,7 +92,7 @@ func BenchmarkPutResources(b *testing.B) {
 				c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 				require.NoError(b, err)
 
-				_, err = c1zFile.StartNewSync(ctx)
+				_, err = c1zFile.StartNewSync(ctx, connectorstore.SyncTypeFull)
 				require.NoError(b, err)
 
 				resourceType := &v2.ResourceType{

@@ -8,6 +8,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
 )
@@ -57,6 +58,7 @@ func TestNaiveCompactorWithTmpDir(t *testing.T) {
 func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 	}
 
 	// Create the first sync file
@@ -65,7 +67,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	firstSyncID, isNewSync, err := firstSync.StartSync(ctx)
+	firstSyncID, isNewSync, err := firstSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.NotEmpty(t, firstSyncID)
 	require.True(t, isNewSync)
@@ -197,7 +199,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	secondSyncID, isNewSync, err := secondSync.StartSync(ctx)
+	secondSyncID, isNewSync, err := secondSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondSyncID)
 	require.True(t, isNewSync)
@@ -327,7 +329,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	thirdSyncID, isNewSync, err := thirdSync.StartSync(ctx)
+	thirdSyncID, isNewSync, err := thirdSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
 	require.NotEmpty(t, thirdSyncID)
 	require.True(t, isNewSync)

@@ -8,6 +8,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 		defer baseDB.Close()
 
-		_, _, err = baseDB.StartSync(ctx)
+		_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 		require.NoError(t, err)
 
 		userRT := &v2.ResourceType{Id: "user", DisplayName: "User"}
@@ -63,7 +64,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 		defer appliedDB.Close()
 
-		_, _, err = appliedDB.StartSync(ctx)
+		_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 		require.NoError(t, err)
 
 		err = appliedDB.PutResourceTypes(ctx, userRT)
@@ -88,7 +89,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 		defer destDB.Close()
 
-		destSyncID, err := destDB.StartNewSync(ctx)
+		destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 		require.NoError(t, err)
 
 		compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
@@ -123,7 +124,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 		defer appliedDB.Close()
 
-		_, _, err = appliedDB.StartSync(ctx)
+		_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 		require.NoError(t, err)
 
 		userRT := &v2.ResourceType{Id: "user", DisplayName: "User"}
@@ -152,7 +153,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 		defer baseDB.Close()
 
-		_, _, err = baseDB.StartSync(ctx)
+		_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 		require.NoError(t, err)
 
 		err = baseDB.PutResourceTypes(ctx, userRT)
@@ -177,7 +178,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 		defer destDB.Close()
 
-		destSyncID, err := destDB.StartNewSync(ctx)
+		destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
 		require.NoError(t, err)
 
 		compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
