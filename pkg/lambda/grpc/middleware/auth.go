@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/conductorone/baton-sdk/pkg/auth"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -22,6 +24,8 @@ func ClaimsFromContext(ctx context.Context) (map[string]interface{}, bool) {
 // AuthInterceptor creates a new unary interceptor for JWT authentication.
 func AuthInterceptor(validator *auth.Validator) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		l := ctxzap.Extract(ctx)
+		l.Info("AuthInterceptor", zap.String("info.FullMethod", info.FullMethod))
 		// Extract metadata from context.
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.uber.org/zap"
 	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -18,6 +19,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	pbtransport "github.com/conductorone/baton-sdk/pb/c1/transport/v1"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
 var ErrIllegalSendHeader = status.Errorf(codes.Internal, "transport: SendHeader called multiple times")
@@ -209,22 +211,30 @@ func TimeoutForRequest(req *Request) (time.Duration, bool, error) {
 }
 
 func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
+	l := ctxzap.Extract(ctx)
+	l.Info("Handler", zap.String("method", req.Method()))
 	serviceName, methodName, err := parseMethod(req.Method())
 	if err != nil {
 		return ErrorResponse(err), nil
 	}
+	l.Info("Service", zap.String("service", serviceName))
 	service, ok := s.services[serviceName]
 	if !ok {
 		return ErrorResponse(status.Errorf(codes.Unimplemented, "unknown service %v", serviceName)), nil
 	}
+	l.Info("Method", zap.String("method", methodName))
 	method, ok := service.methods[methodName]
 	if !ok {
 		return ErrorResponse(status.Errorf(codes.Unimplemented, "unknown method %v for service %v", method, service)), nil
 	}
 
+	l.Info("MetadataForRequest")
 	md := MetadataForRequest(req)
+	l.Info("MetadataForRequest", zap.Any("metadata", md))
 	p := PeerForRequest(req)
+	l.Info("PeerForRequest", zap.Any("peer", p))
 	timeout, ok, err := TimeoutForRequest(req)
+	l.Info("TimeoutForRequest", zap.Any("timeout", timeout), zap.Any("ok", ok), zap.Any("err", err))
 	if err != nil {
 		return ErrorResponse(err), nil
 	}
@@ -236,20 +246,24 @@ func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
 	}
 
 	ctx = peer.NewContext(ctx, p)
+	l.Info("NewContext", zap.Any("ctx", ctx))
 	ctx = metadata.NewIncomingContext(ctx, md)
+	l.Info("NewIncomingContext", zap.Any("ctx", ctx))
 	stream := NewTransportStream(method)
 	ctx = grpc.NewContextWithServerTransportStream(ctx, stream)
-
+	l.Info("NewContextWithServerTransportStream", zap.Any("ctx", ctx))
 	df := func(v any) error {
+		l.Info("UnmarshalRequest", zap.Any("v", v))
 		err := req.UnmarshalRequest(v)
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed to unmarshal request: %v", err)
 		}
 		return nil
 	}
-
+	l.Info("Handler", zap.Any("service.serviceImpl", service.serviceImpl))
 	resp, err := method.Handler(service.serviceImpl, ctx, df, s.unaryInterceptor)
 	if err != nil {
+		l.Info("ErrorResponse", zap.Any("err", err))
 		appStatus, ok := status.FromError(err)
 		if ok {
 			err = appStatus.Err()
@@ -264,6 +278,7 @@ func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
 
 	err = stream.SetResponse(resp)
 	if err != nil {
+		l.Info("ErrorResponse", zap.Any("err", err))
 		return ErrorResponse(err), nil
 	}
 
