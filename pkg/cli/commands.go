@@ -25,8 +25,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/conductorone/baton-sdk/pkg/session"
-	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -35,11 +33,6 @@ const (
 )
 
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
-
-// defaultSessionCacheConstructor creates a default in-memory session cache.
-func defaultSessionCacheConstructor(ctx context.Context, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
-	return session.NewMemorySessionCache(ctx, opt...)
-}
 
 func MakeMainCommand[T field.Configurable](
 	ctx context.Context,
@@ -303,12 +296,6 @@ func MakeMainCommand[T field.Configurable](
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
 
-		// Create session cache and add to context
-		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
-		if err != nil {
-			return fmt.Errorf("failed to create session cache: %w", err)
-		}
-
 		c, err := getconnector(runCtx, t)
 		if err != nil {
 			return err
@@ -419,12 +406,6 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
-		// Create session cache and add to context
-		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
-		if err != nil {
-			return fmt.Errorf("failed to create session cache: %w", err)
-		}
-
 		c, err := getconnector(runCtx, t)
 		if err != nil {
 			return err
@@ -549,12 +530,6 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
-		}
-
-		// Create session cache and add to context
-		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
-		if err != nil {
-			return fmt.Errorf("failed to create session cache: %w", err)
 		}
 
 		c, err := getconnector(runCtx, t)

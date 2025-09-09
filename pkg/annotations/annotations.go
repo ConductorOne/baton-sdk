@@ -124,7 +124,6 @@ func (a *Annotations) WithRateLimiting(rateLimit *v2.RateLimitDescription) *Anno
 	return a
 }
 
-// NOTE: the store is the only usage of this.
 func GetSyncIdFromAnnotations(annos Annotations) (string, error) {
 	syncDetails := &c1zpb.SyncDetails{}
 	ok, err := annos.Pick(syncDetails)
@@ -136,14 +135,4 @@ func GetSyncIdFromAnnotations(annos Annotations) (string, error) {
 	}
 
 	return "", nil
-}
-
-// NOTE: this is used to communicate the active sync to the connector proper, for session storage.
-func GetActiveSyncIdFromAnnotations(annos Annotations) (string, error) {
-	v2SyncId := &v2.ActiveSync{}
-	_, err := annos.Pick(v2SyncId)
-	if err != nil {
-		return "", err
-	}
-	return v2SyncId.GetId(), nil
 }
