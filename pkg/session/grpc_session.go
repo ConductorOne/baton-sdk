@@ -367,7 +367,7 @@ func (g *GRPCSessionCache) GetAll(ctx context.Context, opt ...types.SessionCache
 }
 
 // Close performs any necessary cleanup when the cache is no longer needed.
-func (g *GRPCSessionCache) Close() error {
+func (g *GRPCSessionCache) Close(ctx context.Context) error {
 	// No cleanup needed for gRPC client
 	return nil
 }

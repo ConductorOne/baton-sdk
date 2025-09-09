@@ -16,7 +16,7 @@ type SessionCache interface {
 	Delete(ctx context.Context, key string, opt ...SessionCacheOption) error
 	Clear(ctx context.Context, opt ...SessionCacheOption) error
 	GetAll(ctx context.Context, opt ...SessionCacheOption) (map[string][]byte, error)
-	Close() error
+	Close(ctx context.Context) error
 }
 
 // SessionCacheOption is a function that modifies a SessionCacheBag.

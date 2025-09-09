@@ -176,7 +176,13 @@ func ContextWithSyncID(ctx context.Context, req interface{}) context.Context {
 	}
 
 	syncID, err := annotations.GetActiveSyncIdFromAnnotations(annos)
-	if err != nil || syncID == "" {
+	if err != nil {
+		l := ctxzap.Extract(ctx)
+		l.Warn("error getting active sync id from annotations", zap.Error(err))
+		return ctx
+	}
+
+	if syncID == "" {
 		return ctx
 	}
 
