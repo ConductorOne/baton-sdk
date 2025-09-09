@@ -27,6 +27,7 @@ var allTableDescriptors = []tableDescriptor{
 	grants,
 	syncRuns,
 	assets,
+	sessionStore,
 }
 
 type tableDescriptor interface {
