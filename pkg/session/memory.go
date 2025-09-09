@@ -62,7 +62,9 @@ func (m *MemorySessionCache) Get(ctx context.Context, key string, opt ...types.S
 	if !found {
 		return nil, false, nil
 	}
-	return append([]byte(nil), value...), true, nil
+	dst := make([]byte, len(value)) // allocate destination
+	_ = copy(dst, value)
+	return dst, true, nil
 }
 
 // Set stores a value in the cache with the given key.
@@ -145,7 +147,9 @@ func (m *MemorySessionCache) GetAll(ctx context.Context, opt ...types.SessionCac
 
 	result := make(map[string][]byte)
 	for key, value := range syncCache {
-		result[key] = append([]byte(nil), value...)
+		dst := make([]byte, len(value)) // allocate destination
+		_ = copy(dst, value)
+		result[key] = dst
 	}
 	return result, nil
 }
@@ -169,7 +173,9 @@ func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...
 	for _, key := range keys {
 		if value, found := syncCache[key]; found {
 			k := strings.TrimPrefix(key, bag.Prefix+KeyPrefixDelimiter)
-			result[k] = append([]byte(nil), value...)
+			dst := make([]byte, len(value)) // allocate destination
+			_ = copy(dst, value)
+			result[k] = dst
 		}
 	}
 

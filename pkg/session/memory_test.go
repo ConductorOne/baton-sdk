@@ -108,7 +108,7 @@ func TestMemorySessionCache_Set(t *testing.T) {
 		value, found, err := memCache.GetWithSyncID(ctx, "test-sync", "nil-key")
 		require.NoError(t, err)
 		assert.True(t, found)
-		assert.Nil(t, value)
+		assert.Equal(t, []byte{}, value)
 	})
 
 	t.Run("overwrite existing value", func(t *testing.T) {
@@ -466,7 +466,7 @@ func TestMemorySessionCache_SetMany(t *testing.T) {
 			value, found, err := memCache.GetWithSyncID(ctx, "test-sync", key)
 			require.NoError(t, err)
 			assert.True(t, found)
-			assert.Nil(t, value)
+			assert.Equal(t, []byte{}, value)
 		}
 	})
 
@@ -828,7 +828,7 @@ func TestMemorySessionCache_EdgeCases(t *testing.T) {
 		value, found, err := memCache.GetWithSyncID(ctx, "test-sync", "nil-value")
 		require.NoError(t, err)
 		assert.True(t, found)
-		assert.Nil(t, value)
+		assert.Equal(t, []byte{}, value)
 	})
 }
 
