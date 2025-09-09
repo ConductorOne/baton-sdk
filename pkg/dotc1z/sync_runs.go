@@ -431,7 +431,9 @@ func (c *C1File) CheckpointSync(ctx context.Context, syncToken string) error {
 	return nil
 }
 
-// StartSync generates a sync ID to be associated with all objects discovered during this run.
+// StartOrResumeSync checks if a sync is already running and resumes it if it is.
+// If no sync is running, it starts a new sync.
+// It returns the sync ID and a boolean indicating if a new sync was started.
 func (c *C1File) StartOrResumeSync(ctx context.Context, syncType connectorstore.SyncType) (string, bool, error) {
 	ctx, span := tracer.Start(ctx, "C1File.StartOrResumeSync")
 	defer span.End()
@@ -440,27 +442,26 @@ func (c *C1File) StartOrResumeSync(ctx context.Context, syncType connectorstore.
 		return c.currentSyncID, false, nil
 	}
 
-	newSync := false
+	if syncType != connectorstore.SyncTypePartial {
+		// Find unfinished syncs of the same type and resume those if they exist.
+		syncs, err := c.getLatestUnfinishedSyncs(ctx, syncType)
+		if err != nil {
+			return "", false, err
+		}
+		if len(syncs) > 0 && syncs[0].EndedAt == nil {
+			c.currentSyncID = syncs[0].ID
+			return c.currentSyncID, false, nil
+		}
+	}
 
-	sync, err := c.getLatestUnfinishedSync(ctx, syncType)
+	syncID, err := c.startNewSyncInternal(ctx, syncType, "")
 	if err != nil {
 		return "", false, err
 	}
 
-	var syncID string
-	if sync != nil && sync.EndedAt == nil {
-		syncID = sync.ID
-	} else {
-		syncID, err = c.StartNewSync(ctx, syncType)
-		if err != nil {
-			return "", false, err
-		}
-		newSync = true
-	}
-
 	c.currentSyncID = syncID
 
-	return c.currentSyncID, newSync, nil
+	return c.currentSyncID, true, nil
 }
 
 func (c *C1File) StartNewSync(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
@@ -474,21 +475,6 @@ func (c *C1File) StartNewSyncV2(ctx context.Context, syncType connectorstore.Syn
 	ctx, span := tracer.Start(ctx, "C1File.StartNewSyncV2")
 	defer span.End()
 
-	switch syncType {
-	case connectorstore.SyncTypeFull:
-		if parentSyncID != "" {
-			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for full sync")
-		}
-	case connectorstore.SyncTypeResourcesOnly:
-		if parentSyncID != "" {
-			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for resources only sync")
-		}
-	case connectorstore.SyncTypePartial:
-	case connectorstore.SyncTypeAny:
-		return "", status.Errorf(codes.InvalidArgument, "sync cannot be started with SyncTypeAny")
-	default:
-		return "", status.Errorf(codes.InvalidArgument, "invalid sync type: %s", syncType)
-	}
 	return c.startNewSyncInternal(ctx, syncType, parentSyncID)
 }
 
@@ -504,16 +490,20 @@ func (c *C1File) startNewSyncInternal(ctx context.Context, syncType connectorsto
 		return c.currentSyncID, nil
 	}
 
-	if syncType != connectorstore.SyncTypePartial {
-		// Find unfinished syncs of the same type and resume those if they exist.
-		syncs, err := c.getLatestUnfinishedSyncs(ctx, syncType)
-		if err != nil {
-			return "", err
+	switch syncType {
+	case connectorstore.SyncTypeFull:
+		if parentSyncID != "" {
+			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for full sync")
 		}
-		if len(syncs) > 0 {
-			c.currentSyncID = syncs[0].ID
-			return c.currentSyncID, nil
+	case connectorstore.SyncTypeResourcesOnly:
+		if parentSyncID != "" {
+			return "", status.Errorf(codes.InvalidArgument, "parent sync id must be empty for resources only sync")
 		}
+	case connectorstore.SyncTypePartial:
+	case connectorstore.SyncTypeAny:
+		return "", status.Errorf(codes.InvalidArgument, "sync cannot be started with SyncTypeAny")
+	default:
+		return "", status.Errorf(codes.InvalidArgument, "invalid sync type: %s", syncType)
 	}
 
 	syncID := ksuid.New().String()
