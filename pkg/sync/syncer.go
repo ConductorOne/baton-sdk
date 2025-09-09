@@ -214,6 +214,7 @@ type syncer struct {
 	skipEGForResourceType               map[string]bool
 	skipEntitlementsAndGrants           bool
 	resourceTypeTraits                  map[string][]v2.ResourceType_Trait
+	syncType                            connectorstore.SyncType
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -267,8 +268,10 @@ func isWarning(ctx context.Context, err error) bool {
 
 func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	// Sync resuming logic:
-	// If no targetedSyncResourceIDs, find the most recent sync and resume it (regardless of partial or full).
-	// If targetedSyncResourceIDs, start a new partial sync. Use the most recent completed sync as the parent sync ID (if it exists).
+	// If we know our sync ID, set it as the current sync and return (resuming that sync).
+	// If targetedSyncResourceIDs is not set, find the most recent unfinished sync of our desired sync type & resume it (regardless of partial or full).
+	//   If there are no unfinished syncs of our desired sync type, start a new sync.
+	// If targetedSyncResourceIDs is set, start a new partial sync. Use the most recent completed sync as the parent sync ID (if it exists).
 
 	if s.syncID != "" {
 		err := s.store.SetCurrentSync(ctx, s.syncID)
@@ -282,16 +285,9 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	var newSync bool
 	var err error
 	if len(s.targetedSyncResourceIDs) == 0 {
-		if s.skipEntitlementsAndGrants {
-			syncID, newSync, err = s.store.StartOrResumeSync(ctx, connectorstore.SyncTypeResourcesOnly)
-			if err != nil {
-				return "", false, err
-			}
-		} else {
-			syncID, newSync, err = s.store.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
-			if err != nil {
-				return "", false, err
-			}
+		syncID, newSync, err = s.store.StartOrResumeSync(ctx, s.syncType)
+		if err != nil {
+			return "", false, err
 		}
 		return syncID, newSync, nil
 	}
@@ -2765,6 +2761,7 @@ func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
 func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
 	return func(s *syncer) {
 		s.targetedSyncResourceIDs = resourceIDs
+		s.syncType = connectorstore.SyncTypePartial
 	}
 }
 
@@ -2788,6 +2785,15 @@ func WithSyncID(syncID string) SyncOpt {
 func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 	return func(s *syncer) {
 		s.skipEntitlementsAndGrants = skip
+		// Partial syncs can skip entitlements and grants, so don't update the sync type in that case.
+		if s.syncType == connectorstore.SyncTypePartial {
+			return
+		}
+		if skip {
+			s.syncType = connectorstore.SyncTypeResourcesOnly
+		} else {
+			s.syncType = connectorstore.SyncTypeFull
+		}
 	}
 }
 
@@ -2798,6 +2804,7 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 		skipEGForResourceType: make(map[string]bool),
 		resourceTypeTraits:    make(map[string][]v2.ResourceType_Trait),
 		counts:                NewProgressCounts(),
+		syncType:              connectorstore.SyncTypeFull,
 	}
 
 	for _, o := range opts {
