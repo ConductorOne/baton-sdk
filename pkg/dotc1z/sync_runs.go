@@ -191,7 +191,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 
 	// Validate syncType
 	if !slices.Contains(connectorstore.AllSyncTypes, syncType) {
-		return nil, fmt.Errorf("invalid sync type: %s", syncType)
+		return nil, status.Errorf(codes.InvalidArgument, "invalid sync type: %s", syncType)
 	}
 
 	ret := &syncRun{}
