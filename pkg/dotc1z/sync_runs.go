@@ -493,8 +493,14 @@ func (c *C1File) StartNewSyncV2(ctx context.Context, syncType connectorstore.Syn
 }
 
 func (c *C1File) startNewSyncInternal(ctx context.Context, syncType connectorstore.SyncType, parentSyncID string) (string, error) {
-	// Not sure if we want to do this here
 	if c.currentSyncID != "" {
+		cur, err := c.getSync(ctx, c.currentSyncID)
+		if err != nil {
+			return "", err
+		}
+		if cur != nil && cur.EndedAt == nil && cur.Type != syncType {
+			return "", status.Errorf(codes.FailedPrecondition, "current sync (id %s) is type %s. cannot start %s", cur.ID, cur.Type, syncType)
+		}
 		return c.currentSyncID, nil
 	}
 
