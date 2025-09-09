@@ -2761,7 +2761,12 @@ func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
 func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
 	return func(s *syncer) {
 		s.targetedSyncResourceIDs = resourceIDs
-		s.syncType = connectorstore.SyncTypePartial
+		if len(resourceIDs) > 0 {
+			s.syncType = connectorstore.SyncTypePartial
+			return
+		}
+		// No targeted resource IDs, so we need to update the sync type to either full or resources only.
+		WithSkipEntitlementsAndGrants(s.skipEntitlementsAndGrants)(s)
 	}
 }
 
