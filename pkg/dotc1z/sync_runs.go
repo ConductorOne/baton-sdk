@@ -176,6 +176,9 @@ func (c *C1File) getLatestUnfinishedSyncs(ctx context.Context, syncType connecto
 		}
 		ret = append(ret, row)
 	}
+	if rows.Err() != nil {
+		return nil, rows.Err()
+	}
 
 	return ret, nil
 }
@@ -277,6 +280,9 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 		}
 		lastRow = rowId
 		ret = append(ret, data)
+	}
+	if rows.Err() != nil {
+		return nil, "", rows.Err()
 	}
 
 	nextPageToken := ""

@@ -255,6 +255,9 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 		lastRow = rowId
 		ret = append(ret, data)
 	}
+	if rows.Err() != nil {
+		return nil, "", rows.Err()
+	}
 
 	nextPageToken := ""
 	if count > pageSize {
