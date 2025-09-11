@@ -295,6 +295,8 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		return nil, err
 	}
 
+	// test ci
+
 	// The server won't start up immediately, so we may need to retry connecting
 	// This allows retrying connecting for 5 seconds every 500ms. Once initially
 	// connected, grpc will handle retries for us.
