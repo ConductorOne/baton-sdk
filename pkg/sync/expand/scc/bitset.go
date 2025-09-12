@@ -31,14 +31,19 @@ func (b *bitset) test(i int) bool {
 	return (b.w[w] & (1 << (uint(i) & 63))) != 0
 }
 
+// set sets the bit at index i.
 func (b *bitset) set(i int) {
 	if i < 0 {
 		return
 	}
 	w := i >> 6
+	if w >= len(b.w) {
+		return
+	}
 	b.w[w] |= 1 << (uint(i) & 63)
 }
 
+// testAndSetAtomic sets the bit at index i and returns true if the bit was already set, false otherwise.
 func (b *bitset) testAndSetAtomic(i int) bool {
 	if i < 0 {
 		return false
