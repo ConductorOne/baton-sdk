@@ -240,7 +240,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	}
 	defer func() { _ = newFile.Close() }()
 
-	newSyncId, err := newFile.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
+	newSyncId, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	if err != nil {
 		return nil, err
 	}
