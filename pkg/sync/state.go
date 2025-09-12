@@ -146,10 +146,10 @@ type state struct {
 // serializedToken is used to serialize the token to JSON. This separate object is used to avoid having exported fields
 // on the object used externally. We should interface this, probably.
 type serializedToken struct {
-	Actions                         []Action                 `json:"actions"`
-	CurrentAction                   *Action                  `json:"current_action"`
+	Actions                         []Action                 `json:"actions,omitempty"`
+	CurrentAction                   *Action                  `json:"current_action,omitempty"`
 	NeedsExpansion                  bool                     `json:"needs_expansion,omitempty"`
-	EntitlementGraph                *expand.EntitlementGraph `json:"entitlement_graph"`
+	EntitlementGraph                *expand.EntitlementGraph `json:"entitlement_graph,omitempty"`
 	HasExternalResourceGrants       bool                     `json:"has_external_resource_grants,omitempty"`
 	ShouldFetchRelatedResources     bool                     `json:"should_fetch_related_resources,omitempty"`
 	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
