@@ -493,7 +493,10 @@ func (s *syncer) Sync(ctx context.Context) error {
 				continue
 			}
 			if !retryer.ShouldWaitAndRetry(ctx, err) {
-				return err
+				l.Error("max attempts reached for sync targeted resource action", zap.Any("stateAction", stateAction), zap.Error(err))
+				// We want to continue here to make sure we finish other syncs
+				// we need a better solution for this.
+				continue
 			}
 			continue
 
