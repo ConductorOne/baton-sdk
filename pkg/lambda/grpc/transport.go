@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"encoding/json"
+	"errors"
 
 	spb "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
@@ -88,16 +89,12 @@ func (f *Request) UnmarshalJSON(b []byte) error {
 
 	filteredJSON, err := json.Marshal(top)
 	if err != nil {
-		// TODO(kans): maybe log this?
-		// If we can't marshal the filtered JSON, return the original error instead of transmuting it.
-		return originalErr
+		return errors.Join(originalErr, err)
 	}
 
 	err = protojson.Unmarshal(filteredJSON, f.msg)
 	if err != nil {
-		// TODO(kans): maybe log this?
-		// If we can't unmarshal the filtered JSON, return the original error instead of transmuting it.
-		return originalErr
+		return errors.Join(originalErr, err)
 	}
 
 	return nil
