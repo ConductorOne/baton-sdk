@@ -283,7 +283,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 
 	combinedType := unionSyncTypes(baseType, appliedType)
 
-	newSyncId, err := newFile.StartNewSyncV2(ctx, combinedType, "")
+	newSyncId, err := newFile.StartNewSync(ctx, combinedType, "")
 	if err != nil {
 		return nil, err
 	}

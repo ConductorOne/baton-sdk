@@ -61,7 +61,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	baseSync, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 	require.NoError(t, err)
 
-	baseSyncID, err := baseSync.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	baseSyncID, err := baseSync.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	// Generate resource types
@@ -128,7 +128,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	appliedSync, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
 
-	appliedSyncID, err := appliedSync.StartNewSync(ctx, connectorstore.SyncTypePartial)
+	appliedSyncID, err := appliedSync.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
 	require.NoError(t, err)
 
 	// Reuse same resource types
@@ -251,7 +251,7 @@ func benchmarkNaiveCompactor(b *testing.B, dataset BenchmarkData) {
 		defer destC1Z.Close()
 
 		// Start a sync in the destination file
-		_, err = destC1Z.StartNewSync(ctx, connectorstore.SyncTypeFull)
+		_, err = destC1Z.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(b, err)
 
 		b.StartTimer()
@@ -313,7 +313,7 @@ func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 		b.StartTimer()
 
 		// Start sync in destination
-		destSyncID, err := destC1Z.StartNewSync(ctx, connectorstore.SyncTypeFull)
+		destSyncID, err := destC1Z.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(b, err)
 
 		// Benchmark the attached compaction

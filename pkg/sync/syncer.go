@@ -285,7 +285,7 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	var newSync bool
 	var err error
 	if len(s.targetedSyncResourceIDs) == 0 {
-		syncID, newSync, err = s.store.StartOrResumeSync(ctx, s.syncType)
+		syncID, newSync, err = s.store.StartOrResumeSync(ctx, s.syncType, "")
 		if err != nil {
 			return "", false, err
 		}
@@ -304,7 +304,7 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	if latestFullSync != nil {
 		latestFullSyncId = latestFullSync.Id
 	}
-	syncID, err = s.store.StartNewSyncV2(ctx, connectorstore.SyncTypePartial, latestFullSyncId)
+	syncID, err = s.store.StartNewSync(ctx, connectorstore.SyncTypePartial, latestFullSyncId)
 	if err != nil {
 		return "", false, err
 	}
@@ -608,7 +608,7 @@ func (s *syncer) SkipSync(ctx context.Context) error {
 	}
 
 	// TODO: Create a new sync type for empty syncs.
-	_, err = s.store.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	_, err = s.store.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	if err != nil {
 		return err
 	}
