@@ -240,19 +240,24 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	}
 	defer func() { _ = newFile.Close() }()
 
-	newSyncId, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		return nil, err
-	}
-
-	_, baseFile, _, cleanupBase, err := c.getLatestObjects(ctx, base)
+	baseSync, baseFile, _, cleanupBase, err := c.getLatestObjects(ctx, base)
 	defer cleanupBase()
 	if err != nil {
 		return nil, err
 	}
 
-	_, appliedFile, _, cleanupApplied, err := c.getLatestObjects(ctx, applied)
+	appliedSync, appliedFile, _, cleanupApplied, err := c.getLatestObjects(ctx, applied)
 	defer cleanupApplied()
+	if err != nil {
+		return nil, err
+	}
+
+	syncType := connectorstore.SyncTypePartial
+	if baseSync.SyncType == string(connectorstore.SyncTypeFull) || appliedSync.SyncType == string(connectorstore.SyncTypeFull) {
+		syncType = connectorstore.SyncTypeFull
+	}
+
+	newSyncId, err := newFile.StartNewSync(ctx, syncType, "")
 	if err != nil {
 		return nil, err
 	}
