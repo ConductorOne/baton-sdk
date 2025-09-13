@@ -30,7 +30,7 @@ func TestAttachedCompactor(t *testing.T) {
 	defer baseDB.Close()
 
 	// Start sync and add some base data
-	_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	err = baseDB.EndSync(ctx)
@@ -42,7 +42,7 @@ func TestAttachedCompactor(t *testing.T) {
 	defer appliedDB.Close()
 
 	// Start sync and add some applied data
-	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	err = appliedDB.EndSync(ctx)
@@ -54,7 +54,7 @@ func TestAttachedCompactor(t *testing.T) {
 	defer destDB.Close()
 
 	// Start a sync in destination and run compaction
-	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
@@ -89,7 +89,7 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	defer baseDB.Close()
 
 	// Start a full sync and add some base data
-	baseSyncID, err := baseDB.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
+	baseSyncID, err := baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, baseSyncID)
 
@@ -102,7 +102,7 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	defer appliedDB.Close()
 
 	// Start an incremental sync and add some applied data
-	appliedSyncID, err := appliedDB.StartNewSyncV2(ctx, connectorstore.SyncTypePartial, baseSyncID)
+	appliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, baseSyncID)
 	require.NoError(t, err)
 	require.NotEmpty(t, appliedSyncID)
 
@@ -115,7 +115,7 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	defer destDB.Close()
 
 	// Start a sync in destination and run compaction
-	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
@@ -152,7 +152,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	defer baseDB.Close()
 
 	// Start an incremental sync in base (should cause compaction to fail)
-	baseSyncID, err := baseDB.StartNewSyncV2(ctx, connectorstore.SyncTypePartial, "some-parent")
+	baseSyncID, err := baseDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "some-parent")
 	require.NoError(t, err)
 	require.NotEmpty(t, baseSyncID)
 
@@ -164,7 +164,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	require.NoError(t, err)
 	defer appliedDB.Close()
 
-	appliedSyncID, err := appliedDB.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
+	appliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, appliedSyncID)
 
@@ -177,7 +177,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	defer destDB.Close()
 
 	// Start a sync in destination and attempt compaction - this should fail
-	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
@@ -208,7 +208,7 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	require.NoError(t, err)
 	defer baseDB.Close()
 
-	baseSyncID, err := baseDB.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
+	baseSyncID, err := baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, baseSyncID)
 
@@ -221,7 +221,7 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	defer appliedDB.Close()
 
 	// First sync: full
-	firstAppliedSyncID, err := appliedDB.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
+	firstAppliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, firstAppliedSyncID)
 
@@ -229,7 +229,7 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	require.NoError(t, err)
 
 	// Second sync: incremental (this should be the one selected)
-	secondAppliedSyncID, err := appliedDB.StartNewSyncV2(ctx, connectorstore.SyncTypePartial, firstAppliedSyncID)
+	secondAppliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, firstAppliedSyncID)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondAppliedSyncID)
 
@@ -242,7 +242,7 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	defer destDB.Close()
 
 	// Start a sync in destination and run compaction
-	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)

@@ -22,7 +22,7 @@ func TestGenerateSyncDiff(t *testing.T) {
 	defer syncFile.Close()
 
 	// Start a sync in the base file
-	baseSyncID, err := syncFile.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
+	baseSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, baseSyncID)
 
@@ -46,7 +46,7 @@ func TestGenerateSyncDiff(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start a sync in the new file
-	newSyncID, err := syncFile.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
+	newSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, newSyncID)
 

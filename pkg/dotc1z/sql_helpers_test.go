@@ -41,7 +41,7 @@ func TestPutResources(t *testing.T) {
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
 
-	_, err = c1zFile.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	syncId, err := c1zFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	resourceType := &v2.ResourceType{
@@ -60,7 +60,7 @@ func TestPutResources(t *testing.T) {
 	err = c1zFile.EndSync(ctx)
 	require.NoError(t, err)
 
-	stats, err := c1zFile.Stats(ctx)
+	stats, err := c1zFile.Stats(ctx, connectorstore.SyncTypeFull, syncId)
 	require.NoError(t, err)
 
 	require.Equal(t, int64(10_000), stats[resourceType.Id])
@@ -92,7 +92,7 @@ func BenchmarkPutResources(b *testing.B) {
 				c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 				require.NoError(b, err)
 
-				_, err = c1zFile.StartNewSync(ctx, connectorstore.SyncTypeFull)
+				_, err = c1zFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 				require.NoError(b, err)
 
 				resourceType := &v2.ResourceType{

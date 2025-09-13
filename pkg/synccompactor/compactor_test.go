@@ -67,7 +67,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	firstSyncID, isNewSync, err := firstSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
+	firstSyncID, isNewSync, err := firstSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, firstSyncID)
 	require.True(t, isNewSync)
@@ -199,10 +199,9 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	secondSyncID, isNewSync, err := secondSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
+	secondSyncID, err := secondSync.StartNewSync(ctx, connectorstore.SyncTypePartial, firstSyncID)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondSyncID)
-	require.True(t, isNewSync)
 
 	// Create the same resource types
 	err = secondSync.PutResourceTypes(ctx, &v2.ResourceType{
@@ -329,10 +328,9 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	thirdSyncID, isNewSync, err := thirdSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
+	thirdSyncID, err := thirdSync.StartNewSync(ctx, connectorstore.SyncTypePartial, secondSyncID)
 	require.NoError(t, err)
 	require.NotEmpty(t, thirdSyncID)
-	require.True(t, isNewSync)
 
 	// Create the same resource types
 	err = thirdSync.PutResourceTypes(ctx, &v2.ResourceType{
@@ -487,6 +485,12 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	defer compactedFile.Close()
 
 	// Verify the compacted file contains the expected data
+
+	// The compacted file should have one full sync.
+	syncs, _, err := compactedFile.ListSyncRuns(ctx, "", 10)
+	require.NoError(t, err)
+	require.Equal(t, 1, len(syncs))
+	require.Equal(t, connectorstore.SyncTypeFull, syncs[0].Type)
 
 	// ========= Resource Types Verification =========
 	// All resource types should be present
