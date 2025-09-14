@@ -26,7 +26,7 @@ func TestAttachedCompactorWithTmpDir(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(outputDir)
 
-	// Create temporary directory for intermediate files
+	// Create temporary directory for intermediate files.
 	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
@@ -728,7 +728,7 @@ func makeEmptySync(t *testing.T, ctx context.Context, inputSyncsDir string, opts
 	}
 }
 
-// Test cases for sync type union logic
+// Test cases for sync type union logic.
 func TestSyncTypeUnion_AttachedCompactor(t *testing.T) {
 	runSyncTypeUnionTests(t, CompactorTypeAttached, getAllSyncTypeTestCases())
 }
@@ -737,7 +737,7 @@ func TestSyncTypeUnion_NaiveCompactor(t *testing.T) {
 	runSyncTypeUnionTests(t, CompactorTypeNaive, getBasicSyncTypeTestCases())
 }
 
-// getAllSyncTypeTestCases returns comprehensive test cases for sync type union logic
+// getAllSyncTypeTestCases returns comprehensive test cases for sync type union logic.
 func getAllSyncTypeTestCases() []syncTypeTestCase {
 	return []syncTypeTestCase{
 		// Two-sync combinations
@@ -762,7 +762,7 @@ func getAllSyncTypeTestCases() []syncTypeTestCase {
 	}
 }
 
-// getBasicSyncTypeTestCases returns a subset of test cases for basic validation
+// getBasicSyncTypeTestCases returns a subset of test cases for basic validation.
 func getBasicSyncTypeTestCases() []syncTypeTestCase {
 	return []syncTypeTestCase{
 		{name: "Full + Partial = Full", input: []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypeFull},
@@ -778,7 +778,7 @@ type syncTypeTestCase struct {
 	expected connectorstore.SyncType
 }
 
-// runSyncTypeUnionTests runs sync type union tests for a specific compactor type
+// runSyncTypeUnionTests runs sync type union tests for a specific compactor type.
 func runSyncTypeUnionTests(t *testing.T, compactorType CompactorType, testCases []syncTypeTestCase) {
 	ctx := context.Background()
 
@@ -790,7 +790,7 @@ func runSyncTypeUnionTests(t *testing.T, compactorType CompactorType, testCases 
 	require.NoError(t, err)
 	defer os.RemoveAll(outputDir)
 
-	// Create temporary directory for intermediate files
+	// Create temporary directory for intermediate files.
 	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
@@ -799,7 +799,7 @@ func runSyncTypeUnionTests(t *testing.T, compactorType CompactorType, testCases 
 		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(compactorType))
 	}
 
-	// Run all test cases
+	// Run all test cases.
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor, tc.input, tc.expected)
@@ -813,14 +813,14 @@ func runSyncTypeTest(t *testing.T, ctx context.Context, inputSyncsDir string, cr
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 	}
 
-	// Create empty syncs for each sync type
+	// Create empty syncs for each sync type.
 	var compactableSyncs []*CompactableSync
 	for _, syncType := range types {
 		compactableSync := makeEmptySync(t, ctx, inputSyncsDir, opts, syncType)
 		compactableSyncs = append(compactableSyncs, compactableSync)
 	}
 
-	// Create compactor using the callback
+	// Create compactor using the callback.
 	compactor, cleanup, err := createCompactor(compactableSyncs)
 	require.NoError(t, err)
 	defer func() {
@@ -828,17 +828,17 @@ func runSyncTypeTest(t *testing.T, ctx context.Context, inputSyncsDir string, cr
 		require.NoError(t, err)
 	}()
 
-	// Run the compaction
+	// Run the compaction.
 	compactedSync, err := compactor.Compact(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, compactedSync)
 
-	// Open the compacted file
+	// Open the compacted file.
 	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath, opts...)
 	require.NoError(t, err)
 	defer compactedFile.Close()
 
-	// Verify the compacted file is the correct type
+	// Verify the compacted file is the correct type.
 	compactedSyncType, err := compactedFile.LatestFinishedSyncType(ctx)
 	require.NoError(t, err)
 	require.Equal(t, expectedSyncType, compactedSyncType)
