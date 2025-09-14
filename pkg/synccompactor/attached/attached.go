@@ -26,12 +26,12 @@ func NewAttachedCompactor(base *dotc1z.C1File, applied *dotc1z.C1File, dest *dot
 
 func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) error {
 	// Get the latest finished full sync ID from base
-	baseSyncID, err := c.base.LatestFinishedSync(ctx, connectorstore.SyncTypeFull)
+	baseSyncID, err := c.base.LatestFinishedSync(ctx, connectorstore.SyncTypeAny)
 	if err != nil {
 		return fmt.Errorf("failed to get base sync ID: %w", err)
 	}
 	if baseSyncID == "" {
-		return fmt.Errorf("no finished full sync found in base")
+		return fmt.Errorf("no finished sync found in base")
 	}
 
 	// Get the latest finished sync ID from applied (any type)

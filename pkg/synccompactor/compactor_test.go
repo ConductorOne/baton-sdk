@@ -2,6 +2,7 @@ package synccompactor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,7 +26,7 @@ func TestAttachedCompactorWithTmpDir(t *testing.T) {
 	require.NoError(t, err)
 	defer os.RemoveAll(outputDir)
 
-	// Create temporary directory for intermediate files
+	// Create temporary directory for intermediate files.
 	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)
@@ -199,7 +201,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	secondSyncID, isNewSync, err := secondSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
+	secondSyncID, isNewSync, err := secondSync.StartOrResumeSync(ctx, connectorstore.SyncTypePartial)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondSyncID)
 	require.True(t, isNewSync)
@@ -329,7 +331,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	thirdSyncID, isNewSync, err := thirdSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
+	thirdSyncID, isNewSync, err := thirdSync.StartOrResumeSync(ctx, connectorstore.SyncTypePartial)
 	require.NoError(t, err)
 	require.NotEmpty(t, thirdSyncID)
 	require.True(t, isNewSync)
@@ -487,6 +489,11 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	defer compactedFile.Close()
 
 	// Verify the compacted file contains the expected data
+
+	// sync type should be full
+	compactedSyncType, err := compactedFile.LatestFinishedSyncType(ctx)
+	require.NoError(t, err)
+	require.Equal(t, connectorstore.SyncTypeFull, compactedSyncType)
 
 	// ========= Resource Types Verification =========
 	// All resource types should be present
@@ -671,4 +678,247 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	})
 	require.NoError(t, err)
 	require.Equal(t, userModeratorGrant.Id, userModeratorGrantResp.Grant.Id)
+}
+
+func makeEmptySync(t *testing.T, ctx context.Context, inputSyncsDir string, opts []dotc1z.C1ZOption, syncType connectorstore.SyncType) *CompactableSync {
+	// Create the first sync file
+	randomID := uuid.New().String()
+	syncPath := filepath.Join(inputSyncsDir, fmt.Sprintf("sync-%s.c1z", randomID))
+	sync, err := dotc1z.NewC1ZFile(ctx, syncPath, opts...)
+	require.NoError(t, err)
+
+	// Start a new sync
+	syncID, isNewSync, err := sync.StartOrResumeSync(ctx, syncType)
+	require.NoError(t, err)
+	require.NotEmpty(t, syncID)
+	require.True(t, isNewSync)
+
+	// Create resource types
+	userResourceTypeID := "user"
+	groupResourceTypeID := "group"
+	roleResourceTypeID := "role"
+
+	err = sync.PutResourceTypes(ctx, &v2.ResourceType{
+		Id:          userResourceTypeID,
+		DisplayName: "User",
+	})
+	require.NoError(t, err)
+
+	err = sync.PutResourceTypes(ctx, &v2.ResourceType{
+		Id:          groupResourceTypeID,
+		DisplayName: "Group",
+	})
+	require.NoError(t, err)
+
+	err = sync.PutResourceTypes(ctx, &v2.ResourceType{
+		Id:          roleResourceTypeID,
+		DisplayName: "Role",
+	})
+	require.NoError(t, err)
+
+	// End the first sync
+	err = sync.EndSync(ctx)
+	require.NoError(t, err)
+	err = sync.Close()
+	require.NoError(t, err)
+
+	return &CompactableSync{
+		FilePath: syncPath,
+		SyncID:   syncID,
+	}
+}
+
+// Test cases for sync type union logic.
+func TestSyncTypeUnion_AttachedCompactor(t *testing.T) {
+	runSyncTypeUnionTests(t, CompactorTypeAttached, getAllSyncTypeTestCases())
+}
+
+func TestSyncTypeUnion_NaiveCompactor(t *testing.T) {
+	runSyncTypeUnionTests(t, CompactorTypeNaive, getBasicSyncTypeTestCases())
+}
+
+// getAllSyncTypeTestCases returns comprehensive test cases for sync type union logic.
+func getAllSyncTypeTestCases() []syncTypeTestCase {
+	return []syncTypeTestCase{
+		// Two-sync combinations
+		{
+			name:     "Full + Full = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeFull},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "Full + Partial = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "Partial + Full = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "Full + ResourcesOnly = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "ResourcesOnly + Full = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeFull},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "ResourcesOnly + ResourcesOnly = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeResourcesOnly},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "ResourcesOnly + Partial = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "Partial + ResourcesOnly = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "Partial + Partial = Partial",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypePartial,
+		},
+
+		// Three-sync combinations
+		{
+			name:     "Full + Partial + ResourcesOnly = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "Partial + ResourcesOnly + Partial = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "Partial + Partial + Partial = Partial",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypePartial,
+		},
+
+		// Four-sync combinations
+		{
+			name:     "ResourcesOnly + Partial + Partial + Partial = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "Partial + Full + ResourcesOnly + Partial = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeFull,
+		},
+	}
+}
+
+// getBasicSyncTypeTestCases returns a subset of test cases for basic validation.
+func getBasicSyncTypeTestCases() []syncTypeTestCase {
+	return []syncTypeTestCase{
+		{
+			name:     "Full + Partial = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "ResourcesOnly + Partial = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "Partial + Partial = Partial",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypePartial,
+		},
+		{
+			name:     "Full + ResourcesOnly + Partial = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeFull,
+		},
+	}
+}
+
+type syncTypeTestCase struct {
+	name     string
+	input    []connectorstore.SyncType
+	expected connectorstore.SyncType
+}
+
+// runSyncTypeUnionTests runs sync type union tests for a specific compactor type.
+func runSyncTypeUnionTests(t *testing.T, compactorType CompactorType, testCases []syncTypeTestCase) {
+	ctx := context.Background()
+
+	inputSyncsDir, err := os.MkdirTemp("", "compactor-sync-type-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(inputSyncsDir)
+
+	outputDir, err := os.MkdirTemp("", "compactor-output")
+	require.NoError(t, err)
+	defer os.RemoveAll(outputDir)
+
+	// Create temporary directory for intermediate files.
+	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	createCompactor := func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(compactorType))
+	}
+
+	// Run all test cases.
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor, tc.input, tc.expected)
+		})
+	}
+}
+
+func runSyncTypeTest(
+	t *testing.T,
+	ctx context.Context,
+	inputSyncsDir string,
+	createCompactor func([]*CompactableSync) (*Compactor, func() error, error),
+	types []connectorstore.SyncType,
+	expectedSyncType connectorstore.SyncType,
+) {
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
+	}
+
+	// Create empty syncs for each sync type.
+	var compactableSyncs []*CompactableSync
+	for _, syncType := range types {
+		compactableSync := makeEmptySync(t, ctx, inputSyncsDir, opts, syncType)
+		compactableSyncs = append(compactableSyncs, compactableSync)
+	}
+
+	// Create compactor using the callback.
+	compactor, cleanup, err := createCompactor(compactableSyncs)
+	require.NoError(t, err)
+	defer func() {
+		err := cleanup()
+		require.NoError(t, err)
+	}()
+
+	// Run the compaction.
+	compactedSync, err := compactor.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, compactedSync)
+
+	// Open the compacted file.
+	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath, opts...)
+	require.NoError(t, err)
+	defer compactedFile.Close()
+
+	// Verify the compacted file is the correct type.
+	compactedSyncType, err := compactedFile.LatestFinishedSyncType(ctx)
+	require.NoError(t, err)
+	require.Equal(t, expectedSyncType, compactedSyncType)
 }
