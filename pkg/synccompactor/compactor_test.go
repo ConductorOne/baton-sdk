@@ -879,7 +879,14 @@ func runSyncTypeUnionTests(t *testing.T, compactorType CompactorType, testCases 
 	}
 }
 
-func runSyncTypeTest(t *testing.T, ctx context.Context, inputSyncsDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error), types []connectorstore.SyncType, expectedSyncType connectorstore.SyncType) {
+func runSyncTypeTest(
+	t *testing.T,
+	ctx context.Context,
+	inputSyncsDir string,
+	createCompactor func([]*CompactableSync) (*Compactor, func() error, error),
+	types []connectorstore.SyncType,
+	expectedSyncType connectorstore.SyncType,
+) {
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
