@@ -741,34 +741,106 @@ func TestSyncTypeUnion_NaiveCompactor(t *testing.T) {
 func getAllSyncTypeTestCases() []syncTypeTestCase {
 	return []syncTypeTestCase{
 		// Two-sync combinations
-		{name: "Full + Full = Full", input: []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeFull}, expected: connectorstore.SyncTypeFull},
-		{name: "Full + Partial = Full", input: []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypeFull},
-		{name: "Partial + Full = Full", input: []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull}, expected: connectorstore.SyncTypeFull},
-		{name: "Full + ResourcesOnly = Full", input: []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly}, expected: connectorstore.SyncTypeFull},
-		{name: "ResourcesOnly + Full = Full", input: []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeFull}, expected: connectorstore.SyncTypeFull},
-		{name: "ResourcesOnly + ResourcesOnly = ResourcesOnly", input: []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeResourcesOnly}, expected: connectorstore.SyncTypeResourcesOnly},
-		{name: "ResourcesOnly + Partial = ResourcesOnly", input: []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypeResourcesOnly},
-		{name: "Partial + ResourcesOnly = ResourcesOnly", input: []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly}, expected: connectorstore.SyncTypeResourcesOnly},
-		{name: "Partial + Partial = Partial", input: []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypePartial},
+		{
+			name:     "Full + Full = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeFull},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "Full + Partial = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "Partial + Full = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "Full + ResourcesOnly = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "ResourcesOnly + Full = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeFull},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "ResourcesOnly + ResourcesOnly = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeResourcesOnly},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "ResourcesOnly + Partial = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "Partial + ResourcesOnly = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "Partial + Partial = Partial",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypePartial,
+		},
 
 		// Three-sync combinations
-		{name: "Full + Partial + ResourcesOnly = Full", input: []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly}, expected: connectorstore.SyncTypeFull},
-		{name: "Partial + ResourcesOnly + Partial = ResourcesOnly", input: []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypeResourcesOnly},
-		{name: "Partial + Partial + Partial = Partial", input: []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypePartial},
+		{
+			name:     "Full + Partial + ResourcesOnly = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "Partial + ResourcesOnly + Partial = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "Partial + Partial + Partial = Partial",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypePartial,
+		},
 
 		// Four-sync combinations
-		{name: "ResourcesOnly + Partial + Partial + Partial = ResourcesOnly", input: []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypeResourcesOnly},
-		{name: "Partial + Full + ResourcesOnly + Partial = Full", input: []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypeFull},
+		{
+			name:     "ResourcesOnly + Partial + Partial + Partial = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "Partial + Full + ResourcesOnly + Partial = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeFull,
+		},
 	}
 }
 
 // getBasicSyncTypeTestCases returns a subset of test cases for basic validation.
 func getBasicSyncTypeTestCases() []syncTypeTestCase {
 	return []syncTypeTestCase{
-		{name: "Full + Partial = Full", input: []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypeFull},
-		{name: "ResourcesOnly + Partial = ResourcesOnly", input: []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypeResourcesOnly},
-		{name: "Partial + Partial = Partial", input: []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypePartial},
-		{name: "Full + ResourcesOnly + Partial = Full", input: []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial}, expected: connectorstore.SyncTypeFull},
+		{
+			name:     "Full + Partial = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeFull,
+		},
+		{
+			name:     "ResourcesOnly + Partial = ResourcesOnly",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeResourcesOnly,
+		},
+		{
+			name:     "Partial + Partial = Partial",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypePartial,
+		},
+		{
+			name:     "Full + ResourcesOnly + Partial = Full",
+			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			expected: connectorstore.SyncTypeFull,
+		},
 	}
 }
 
