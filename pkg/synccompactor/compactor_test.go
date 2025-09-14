@@ -728,6 +728,165 @@ func makeEmptySync(t *testing.T, ctx context.Context, inputSyncsDir string, opts
 	}
 }
 
+// Test cases for sync type union logic
+func TestSyncTypeUnion_AttachedCompactor(t *testing.T) {
+	ctx := context.Background()
+
+	inputSyncsDir, err := os.MkdirTemp("", "compactor-sync-type-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(inputSyncsDir)
+
+	outputDir, err := os.MkdirTemp("", "compactor-output")
+	require.NoError(t, err)
+	defer os.RemoveAll(outputDir)
+
+	// Create temporary directory for intermediate files
+	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	createCompactor := func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(CompactorTypeAttached))
+	}
+
+	// Test cases based on unionSyncTypes logic:
+	// 1. If either sync is Full → result is Full
+	// 2. If either sync is ResourcesOnly → result is ResourcesOnly
+	// 3. Otherwise → result is Partial
+
+	t.Run("Full + Full = Full", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeFull},
+			connectorstore.SyncTypeFull)
+	})
+
+	t.Run("Full + Partial = Full", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypeFull)
+	})
+
+	t.Run("Partial + Full = Full", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull},
+			connectorstore.SyncTypeFull)
+	})
+
+	t.Run("Full + ResourcesOnly = Full", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly},
+			connectorstore.SyncTypeFull)
+	})
+
+	t.Run("ResourcesOnly + Full = Full", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeFull},
+			connectorstore.SyncTypeFull)
+	})
+
+	t.Run("ResourcesOnly + ResourcesOnly = ResourcesOnly", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeResourcesOnly},
+			connectorstore.SyncTypeResourcesOnly)
+	})
+
+	t.Run("ResourcesOnly + Partial = ResourcesOnly", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypeResourcesOnly)
+	})
+
+	t.Run("Partial + ResourcesOnly = ResourcesOnly", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly},
+			connectorstore.SyncTypeResourcesOnly)
+	})
+
+	t.Run("Partial + Partial = Partial", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypePartial)
+	})
+
+	// Test cases with three syncs (chaining)
+	t.Run("Full + Partial + ResourcesOnly = Full", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly},
+			connectorstore.SyncTypeFull)
+	})
+
+	t.Run("Partial + ResourcesOnly + Partial = ResourcesOnly", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypeResourcesOnly)
+	})
+
+	t.Run("Partial + Partial + Partial = Partial", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypePartial)
+	})
+
+	// Test cases with four syncs
+	t.Run("ResourcesOnly + Partial + Partial + Partial = ResourcesOnly", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypeResourcesOnly)
+	})
+
+	t.Run("Partial + Full + ResourcesOnly + Partial = Full", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypeFull)
+	})
+}
+
+func TestSyncTypeUnion_NaiveCompactor(t *testing.T) {
+	ctx := context.Background()
+
+	inputSyncsDir, err := os.MkdirTemp("", "compactor-sync-type-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(inputSyncsDir)
+
+	outputDir, err := os.MkdirTemp("", "compactor-output")
+	require.NoError(t, err)
+	defer os.RemoveAll(outputDir)
+
+	// Create temporary directory for intermediate files
+	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	createCompactor := func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(CompactorTypeNaive))
+	}
+
+	// Test the same cases with naive compactor
+	t.Run("Full + Partial = Full", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypeFull)
+	})
+
+	t.Run("ResourcesOnly + Partial = ResourcesOnly", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypeResourcesOnly)
+	})
+
+	t.Run("Partial + Partial = Partial", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypePartial)
+	})
+
+	t.Run("Full + ResourcesOnly + Partial = Full", func(t *testing.T) {
+		runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor,
+			[]connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+			connectorstore.SyncTypeFull)
+	})
+}
+
 func runSyncTypeTest(t *testing.T, ctx context.Context, inputSyncsDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error), types []connectorstore.SyncType, expectedSyncType connectorstore.SyncType) {
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
