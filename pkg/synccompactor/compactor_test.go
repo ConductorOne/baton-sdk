@@ -2,6 +2,7 @@ package synccompactor
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -676,4 +678,89 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	})
 	require.NoError(t, err)
 	require.Equal(t, userModeratorGrant.Id, userModeratorGrantResp.Grant.Id)
+}
+
+func makeEmptySync(t *testing.T, ctx context.Context, inputSyncsDir string, opts []dotc1z.C1ZOption, syncType connectorstore.SyncType) *CompactableSync {
+	// Create the first sync file
+	randomID := uuid.New().String()
+	syncPath := filepath.Join(inputSyncsDir, fmt.Sprintf("sync-%s.c1z", randomID))
+	sync, err := dotc1z.NewC1ZFile(ctx, syncPath, opts...)
+	require.NoError(t, err)
+
+	// Start a new sync
+	syncID, isNewSync, err := sync.StartOrResumeSync(ctx, syncType)
+	require.NoError(t, err)
+	require.NotEmpty(t, syncID)
+	require.True(t, isNewSync)
+
+	// Create resource types
+	userResourceTypeID := "user"
+	groupResourceTypeID := "group"
+	roleResourceTypeID := "role"
+
+	err = sync.PutResourceTypes(ctx, &v2.ResourceType{
+		Id:          userResourceTypeID,
+		DisplayName: "User",
+	})
+	require.NoError(t, err)
+
+	err = sync.PutResourceTypes(ctx, &v2.ResourceType{
+		Id:          groupResourceTypeID,
+		DisplayName: "Group",
+	})
+	require.NoError(t, err)
+
+	err = sync.PutResourceTypes(ctx, &v2.ResourceType{
+		Id:          roleResourceTypeID,
+		DisplayName: "Role",
+	})
+	require.NoError(t, err)
+
+	// End the first sync
+	err = sync.EndSync(ctx)
+	require.NoError(t, err)
+	err = sync.Close()
+	require.NoError(t, err)
+
+	return &CompactableSync{
+		FilePath: syncPath,
+		SyncID:   syncID,
+	}
+}
+
+func runSyncTypeTest(t *testing.T, ctx context.Context, inputSyncsDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error), types []connectorstore.SyncType, expectedSyncType connectorstore.SyncType) {
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
+	}
+
+	// Create empty syncs for each sync type
+	var compactableSyncs []*CompactableSync
+	for _, syncType := range types {
+		compactableSync := makeEmptySync(t, ctx, inputSyncsDir, opts, syncType)
+		compactableSyncs = append(compactableSyncs, compactableSync)
+	}
+
+	// Create compactor using the callback
+	compactor, cleanup, err := createCompactor(compactableSyncs)
+	require.NoError(t, err)
+	defer func() {
+		err := cleanup()
+		require.NoError(t, err)
+	}()
+
+	// Run the compaction
+	compactedSync, err := compactor.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, compactedSync)
+
+	// Open the compacted file
+	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath, opts...)
+	require.NoError(t, err)
+	defer compactedFile.Close()
+
+	// Verify the compacted file is the correct type
+	compactedSyncType, err := compactedFile.LatestFinishedSyncType(ctx)
+	require.NoError(t, err)
+	require.Equal(t, expectedSyncType, compactedSyncType)
 }
