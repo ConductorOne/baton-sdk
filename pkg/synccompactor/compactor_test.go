@@ -199,7 +199,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	secondSyncID, isNewSync, err := secondSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
+	secondSyncID, isNewSync, err := secondSync.StartOrResumeSync(ctx, connectorstore.SyncTypePartial)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondSyncID)
 	require.True(t, isNewSync)
@@ -329,7 +329,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	thirdSyncID, isNewSync, err := thirdSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
+	thirdSyncID, isNewSync, err := thirdSync.StartOrResumeSync(ctx, connectorstore.SyncTypePartial)
 	require.NoError(t, err)
 	require.NotEmpty(t, thirdSyncID)
 	require.True(t, isNewSync)
@@ -487,6 +487,11 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	defer compactedFile.Close()
 
 	// Verify the compacted file contains the expected data
+
+	// sync type should be full
+	compactedSyncType, err := compactedFile.LatestFinishedSyncType(ctx)
+	require.NoError(t, err)
+	require.Equal(t, connectorstore.SyncTypeFull, compactedSyncType)
 
 	// ========= Resource Types Verification =========
 	// All resource types should be present

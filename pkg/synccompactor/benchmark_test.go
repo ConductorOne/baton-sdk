@@ -128,7 +128,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	appliedSync, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
 
-	appliedSyncID, err := appliedSync.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	appliedSyncID, err := appliedSync.StartNewSync(ctx, connectorstore.SyncTypePartial)
 	require.NoError(t, err)
 
 	// Reuse same resource types

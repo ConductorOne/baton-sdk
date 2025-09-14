@@ -214,6 +214,17 @@ func (c *Compactor) getLatestObjects(ctx context.Context, info *CompactableSync)
 	return latestAppliedSync.Sync, baseFile, baseC1Z, cleanup, nil
 }
 
+func unionSyncTypes(a, b connectorstore.SyncType) connectorstore.SyncType {
+	switch {
+	case a == connectorstore.SyncTypeFull || b == connectorstore.SyncTypeFull:
+		return connectorstore.SyncTypeFull
+	case a == connectorstore.SyncTypeResourcesOnly || b == connectorstore.SyncTypeResourcesOnly:
+		return connectorstore.SyncTypeResourcesOnly
+	default:
+		return connectorstore.SyncTypePartial
+	}
+}
+
 func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, applied *CompactableSync) (*CompactableSync, error) {
 	ctx, span := tracer.Start(ctx, "Compactor.doOneCompaction")
 	defer span.End()
@@ -240,11 +251,6 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	}
 	defer func() { _ = newFile.Close() }()
 
-	newSyncId, err := newFile.StartNewSyncV2(ctx, connectorstore.SyncTypeFull, "")
-	if err != nil {
-		return nil, err
-	}
-
 	_, baseFile, _, cleanupBase, err := c.getLatestObjects(ctx, base)
 	defer cleanupBase()
 	if err != nil {
@@ -253,6 +259,31 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 
 	_, appliedFile, _, cleanupApplied, err := c.getLatestObjects(ctx, applied)
 	defer cleanupApplied()
+	if err != nil {
+		return nil, err
+	}
+
+	baseType, err := baseFile.LatestFinishedSyncType(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if baseType == connectorstore.SyncTypeAny {
+		return nil, fmt.Errorf("base file sync type is not valid") // TODO is this possible? is this secretly valid?
+	}
+
+	appliedType, err := appliedFile.LatestFinishedSyncType(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if appliedType == connectorstore.SyncTypeAny {
+		return nil, fmt.Errorf("applied file sync type is not valid")
+	}
+
+	combinedType := unionSyncTypes(baseType, appliedType)
+
+	newSyncId, err := newFile.StartNewSyncV2(ctx, combinedType, "")
 	if err != nil {
 		return nil, err
 	}

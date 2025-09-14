@@ -335,6 +335,22 @@ func (c *C1File) PreviousSyncID(ctx context.Context) (string, error) {
 	return s.ID, nil
 }
 
+func (c *C1File) LatestFinishedSyncType(ctx context.Context) (connectorstore.SyncType, error) {
+	ctx, span := tracer.Start(ctx, "C1File.LatestFinishedSyncType")
+	defer span.End()
+
+	s, err := c.getFinishedSync(ctx, 0, connectorstore.SyncTypeAny)
+	if err != nil {
+		return "", err
+	}
+
+	if s == nil {
+		return "", nil
+	}
+
+	return s.Type, nil
+}
+
 func (c *C1File) LatestFinishedSync(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.LatestFinishedSync")
 	defer span.End()

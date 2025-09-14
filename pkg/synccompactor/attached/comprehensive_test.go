@@ -127,7 +127,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 	defer appliedDB.Close()
 
-	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial)
 	require.NoError(t, err)
 
 	// Add same resource types to applied
