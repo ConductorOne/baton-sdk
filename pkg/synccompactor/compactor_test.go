@@ -916,8 +916,8 @@ func runSyncTypeTest(
 	require.NoError(t, err)
 	defer compactedFile.Close()
 
-	// Verify the compacted file is the correct type.
-	compactedSyncType, err := compactedFile.LatestFinishedSyncType(ctx)
+	syncRuns, _, err := compactedFile.ListSyncRuns(ctx, "", 10)
 	require.NoError(t, err)
-	require.Equal(t, expectedSyncType, compactedSyncType)
+	require.Equal(t, 1, len(syncRuns))
+	require.Equal(t, expectedSyncType, syncRuns[0].Type)
 }
