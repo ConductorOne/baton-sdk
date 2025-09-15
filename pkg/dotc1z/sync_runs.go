@@ -401,7 +401,7 @@ func (c *C1File) ResumeSync(ctx context.Context, syncType connectorstore.SyncTyp
 		if err != nil {
 			return "", err
 		}
-		if syncRun.Type != syncType {
+		if syncType != connectorstore.SyncTypeAny && syncRun.Type != syncType {
 			return "", status.Errorf(codes.FailedPrecondition, "cannot resume sync (%s) when a different sync type (%s) is running", syncRun.Type, syncType)
 		}
 		if syncRun.EndedAt != nil {
