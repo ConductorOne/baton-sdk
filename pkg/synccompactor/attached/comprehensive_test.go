@@ -39,7 +39,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 	defer baseDB.Close()
 
-	_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	// Create resource types
@@ -127,7 +127,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 	defer appliedDB.Close()
 
-	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial)
+	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
 	require.NoError(t, err)
 
 	// Add same resource types to applied
@@ -211,7 +211,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	defer destDB.Close()
 
 	// Start a sync in destination and run compaction
-	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull)
+	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
 	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)

@@ -69,7 +69,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	firstSyncID, isNewSync, err := firstSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull)
+	firstSyncID, isNewSync, err := firstSync.StartOrResumeSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, firstSyncID)
 	require.True(t, isNewSync)
@@ -201,10 +201,9 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	secondSyncID, isNewSync, err := secondSync.StartOrResumeSync(ctx, connectorstore.SyncTypePartial)
+	secondSyncID, err := secondSync.StartNewSync(ctx, connectorstore.SyncTypePartial, firstSyncID)
 	require.NoError(t, err)
 	require.NotEmpty(t, secondSyncID)
-	require.True(t, isNewSync)
 
 	// Create the same resource types
 	err = secondSync.PutResourceTypes(ctx, &v2.ResourceType{
@@ -331,10 +330,9 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	require.NoError(t, err)
 
 	// Start a new sync
-	thirdSyncID, isNewSync, err := thirdSync.StartOrResumeSync(ctx, connectorstore.SyncTypePartial)
+	thirdSyncID, err := thirdSync.StartNewSync(ctx, connectorstore.SyncTypePartial, secondSyncID)
 	require.NoError(t, err)
 	require.NotEmpty(t, thirdSyncID)
-	require.True(t, isNewSync)
 
 	// Create the same resource types
 	err = thirdSync.PutResourceTypes(ctx, &v2.ResourceType{
@@ -490,10 +488,11 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 
 	// Verify the compacted file contains the expected data
 
-	// sync type should be full
-	compactedSyncType, err := compactedFile.LatestFinishedSyncType(ctx)
+	// The compacted file should have one full sync.
+	syncs, _, err := compactedFile.ListSyncRuns(ctx, "", 10)
 	require.NoError(t, err)
-	require.Equal(t, connectorstore.SyncTypeFull, compactedSyncType)
+	require.Equal(t, 1, len(syncs))
+	require.Equal(t, connectorstore.SyncTypeFull, syncs[0].Type)
 
 	// ========= Resource Types Verification =========
 	// All resource types should be present
@@ -688,7 +687,7 @@ func makeEmptySync(t *testing.T, ctx context.Context, inputSyncsDir string, opts
 	require.NoError(t, err)
 
 	// Start a new sync
-	syncID, isNewSync, err := sync.StartOrResumeSync(ctx, syncType)
+	syncID, isNewSync, err := sync.StartOrResumeSync(ctx, syncType, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, syncID)
 	require.True(t, isNewSync)
@@ -917,8 +916,84 @@ func runSyncTypeTest(
 	require.NoError(t, err)
 	defer compactedFile.Close()
 
-	// Verify the compacted file is the correct type.
-	compactedSyncType, err := compactedFile.LatestFinishedSyncType(ctx)
+	syncRuns, _, err := compactedFile.ListSyncRuns(ctx, "", 10)
 	require.NoError(t, err)
-	require.Equal(t, expectedSyncType, compactedSyncType)
+	require.Equal(t, 1, len(syncRuns))
+	require.Equal(t, expectedSyncType, syncRuns[0].Type)
+}
+
+// The compacting two partial syncs should result in a partial sync.
+func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	baseFile := filepath.Join(tmpDir, "base.c1z")
+	appliedFile := filepath.Join(tmpDir, "applied.c1z")
+
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithTmpDir(tmpDir),
+	}
+
+	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
+	require.NoError(t, err)
+
+	baseSyncID, err := baseDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "some-parent")
+	require.NoError(t, err)
+	require.NotEmpty(t, baseSyncID)
+
+	err = baseDB.EndSync(ctx)
+	require.NoError(t, err)
+	err = baseDB.Close()
+	require.NoError(t, err)
+
+	baseCompactableSync := &CompactableSync{
+		FilePath: baseFile,
+		SyncID:   baseSyncID,
+	}
+
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+	require.NoError(t, err)
+
+	appliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, appliedSyncID)
+
+	err = appliedDB.EndSync(ctx)
+	require.NoError(t, err)
+	err = appliedDB.Close()
+	require.NoError(t, err)
+
+	appliedCompactableSync := &CompactableSync{
+		FilePath: appliedFile,
+		SyncID:   appliedSyncID,
+	}
+
+	compactableSyncs := []*CompactableSync{baseCompactableSync, appliedCompactableSync}
+	compactor, cleanup, err := NewCompactor(
+		ctx,
+		tmpDir,
+		compactableSyncs,
+		WithTmpDir(tmpDir),
+		WithCompactorType(CompactorTypeAttached))
+	require.NoError(t, err)
+	defer func() {
+		err := cleanup()
+		require.NoError(t, err)
+	}()
+
+	compactedSync, err := compactor.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, compactedSync)
+
+	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath, opts...)
+	require.NoError(t, err)
+	defer compactedFile.Close()
+
+	// The compacted file should have one partial sync.
+	syncRuns, _, err := compactedFile.ListSyncRuns(ctx, "", 10)
+	require.NoError(t, err)
+	require.Equal(t, connectorstore.SyncTypePartial, syncRuns[0].Type)
+	require.Equal(t, compactedSync.SyncID, syncRuns[0].ID)
+	require.NotNil(t, syncRuns[0].EndedAt)
 }

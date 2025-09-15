@@ -251,45 +251,28 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	}
 	defer func() { _ = newFile.Close() }()
 
-	_, baseFile, _, cleanupBase, err := c.getLatestObjects(ctx, base)
+	baseSync, baseFile, _, cleanupBase, err := c.getLatestObjects(ctx, base)
 	defer cleanupBase()
 	if err != nil {
 		return nil, err
 	}
 
-	_, appliedFile, _, cleanupApplied, err := c.getLatestObjects(ctx, applied)
+	appliedSync, appliedFile, _, cleanupApplied, err := c.getLatestObjects(ctx, applied)
 	defer cleanupApplied()
 	if err != nil {
 		return nil, err
 	}
 
-	baseType, err := baseFile.LatestFinishedSyncType(ctx)
-	if err != nil {
-		return nil, err
-	}
+	syncType := unionSyncTypes(connectorstore.SyncType(baseSync.SyncType), connectorstore.SyncType(appliedSync.SyncType))
 
-	if baseType == connectorstore.SyncTypeAny {
-		return nil, fmt.Errorf("base file sync type is not valid") // TODO is this possible? is this secretly valid?
-	}
-
-	appliedType, err := appliedFile.LatestFinishedSyncType(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	if appliedType == connectorstore.SyncTypeAny {
-		return nil, fmt.Errorf("applied file sync type is not valid")
-	}
-
-	combinedType := unionSyncTypes(baseType, appliedType)
-
-	newSyncId, err := newFile.StartNewSyncV2(ctx, combinedType, "")
+	newSyncId, err := newFile.StartNewSync(ctx, syncType, "")
 	if err != nil {
 		return nil, err
 	}
 
 	switch c.compactorType {
 	case CompactorTypeNaive:
+		// TODO: Add support for syncID or remove naive compactor.
 		runner := naive.NewNaiveCompactor(baseFile, appliedFile, newFile)
 		if err := runner.Compact(ctx); err != nil {
 			l.Error("error running compaction", zap.Error(err))
