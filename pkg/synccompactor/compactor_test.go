@@ -921,3 +921,79 @@ func runSyncTypeTest(
 	require.Equal(t, 1, len(syncRuns))
 	require.Equal(t, expectedSyncType, syncRuns[0].Type)
 }
+
+// The compacting two partial syncs should result in a partial sync.
+func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	baseFile := filepath.Join(tmpDir, "base.c1z")
+	appliedFile := filepath.Join(tmpDir, "applied.c1z")
+
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithTmpDir(tmpDir),
+	}
+
+	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
+	require.NoError(t, err)
+
+	baseSyncID, err := baseDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "some-parent")
+	require.NoError(t, err)
+	require.NotEmpty(t, baseSyncID)
+
+	err = baseDB.EndSync(ctx)
+	require.NoError(t, err)
+	err = baseDB.Close()
+	require.NoError(t, err)
+
+	baseCompactableSync := &CompactableSync{
+		FilePath: baseFile,
+		SyncID:   baseSyncID,
+	}
+
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+	require.NoError(t, err)
+
+	appliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, appliedSyncID)
+
+	err = appliedDB.EndSync(ctx)
+	require.NoError(t, err)
+	err = appliedDB.Close()
+	require.NoError(t, err)
+
+	appliedCompactableSync := &CompactableSync{
+		FilePath: appliedFile,
+		SyncID:   appliedSyncID,
+	}
+
+	compactableSyncs := []*CompactableSync{baseCompactableSync, appliedCompactableSync}
+	compactor, cleanup, err := NewCompactor(
+		ctx,
+		tmpDir,
+		compactableSyncs,
+		WithTmpDir(tmpDir),
+		WithCompactorType(CompactorTypeAttached))
+	require.NoError(t, err)
+	defer func() {
+		err := cleanup()
+		require.NoError(t, err)
+	}()
+
+	compactedSync, err := compactor.Compact(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, compactedSync)
+
+	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath, opts...)
+	require.NoError(t, err)
+	defer compactedFile.Close()
+
+	// The compacted file should have one partial sync.
+	syncRuns, _, err := compactedFile.ListSyncRuns(ctx, "", 10)
+	require.NoError(t, err)
+	require.Equal(t, connectorstore.SyncTypePartial, syncRuns[0].Type)
+	require.Equal(t, compactedSync.SyncID, syncRuns[0].ID)
+	require.NotNil(t, syncRuns[0].EndedAt)
+}
