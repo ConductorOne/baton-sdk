@@ -11,6 +11,9 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	// NOTE: required to register the dialect for goqu.
 	//
 	// If you remove this import, goqu.Dialect("sqlite3") will
@@ -21,6 +24,7 @@ import (
 	_ "github.com/glebarez/go-sqlite"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
@@ -235,6 +239,17 @@ func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		syncId, err = c.LatestSyncID(ctx, syncType)
 		if err != nil {
 			return nil, err
+		}
+	} else {
+		sync, err := c.GetSync(ctx, &reader_v2.SyncsReaderServiceGetSyncRequest{SyncId: syncId})
+		if err != nil {
+			return nil, err
+		}
+		if sync == nil {
+			return nil, status.Errorf(codes.NotFound, "sync '%s' not found", syncId)
+		}
+		if syncType != connectorstore.SyncTypeAny && syncType != connectorstore.SyncType(sync.Sync.SyncType) {
+			return nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncId, syncType)
 		}
 	}
 

@@ -11,6 +11,8 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -275,4 +277,103 @@ func TestC1ZInvalidFile(t *testing.T) {
 
 	_, err = NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
 	require.ErrorIs(t, err, ErrInvalidFile)
+}
+
+func TestC1ZStats(t *testing.T) {
+	ctx := context.Background()
+	testFilePath := filepath.Join(c1zTests.workingDir, "test-stats.c1z")
+
+	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+
+	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, syncID)
+
+	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: testResourceType})
+	require.NoError(t, err)
+
+	err = f.PutResources(ctx, &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: testResourceType,
+			Resource:     "test-resource",
+		},
+	})
+	require.NoError(t, err)
+
+	err = f.EndSync(ctx)
+	require.NoError(t, err)
+
+	expectedStats := map[string]int64{
+		"resource_types": 1,
+		testResourceType: 1,
+		"entitlements":   0,
+		"grants":         0,
+	}
+
+	stats, err := f.Stats(ctx, connectorstore.SyncTypeFull, syncID)
+	require.NoError(t, err)
+	for k, v := range expectedStats {
+		require.Equal(t, v, stats[k])
+	}
+
+	_, err = f.Stats(ctx, connectorstore.SyncTypePartial, syncID)
+	require.ErrorIs(t, err, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncID, connectorstore.SyncTypePartial))
+
+	_, err = f.Stats(ctx, connectorstore.SyncTypeAny, syncID)
+	require.NoError(t, err)
+	for k, v := range expectedStats {
+		require.Equal(t, v, stats[k])
+	}
+
+	stats, err = f.Stats(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	for k, v := range expectedStats {
+		require.Equal(t, v, stats[k])
+	}
+
+	err = f.Close()
+	require.NoError(t, err)
+}
+
+func TestC1ZStatsPartialSync(t *testing.T) {
+	ctx := context.Background()
+	testFilePath := filepath.Join(c1zTests.workingDir, "test-stats-partial-sync.c1z")
+
+	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+
+	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, syncID)
+
+	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: testResourceType})
+	require.NoError(t, err)
+
+	err = f.PutResources(ctx, &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: testResourceType,
+			Resource:     "test-resource",
+		},
+	})
+	require.NoError(t, err)
+
+	err = f.EndSync(ctx)
+	require.NoError(t, err)
+
+	expectedStats := map[string]int64{
+		"resource_types": 1,
+		testResourceType: 1,
+		"entitlements":   0,
+		"grants":         0,
+	}
+
+	stats, err := f.Stats(ctx, connectorstore.SyncTypePartial, syncID)
+	require.NoError(t, err)
+	for k, v := range expectedStats {
+		require.Equal(t, v, stats[k])
+	}
+
+	err = f.Close()
+	require.NoError(t, err)
 }
