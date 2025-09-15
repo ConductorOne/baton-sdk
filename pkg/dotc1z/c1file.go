@@ -353,3 +353,62 @@ func (c *C1FileAttached) DetachFile(dbName string) (*C1FileAttached, error) {
 		file: c.file,
 	}, nil
 }
+
+// GrantStats introspects the database and returns the count of grants for the given sync run.
+// If syncId is empty, it will use the latest sync run of the given type.
+func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
+	ctx, span := tracer.Start(ctx, "C1File.GrantStats")
+	defer span.End()
+
+	var err error
+	if syncId == "" {
+		syncId, err = c.LatestSyncID(ctx, syncType)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		lastSync, err := c.GetSync(ctx, &reader_v2.SyncsReaderServiceGetSyncRequest{SyncId: syncId})
+		if err != nil {
+			return nil, err
+		}
+		if lastSync == nil {
+			return nil, status.Errorf(codes.NotFound, "sync '%s' not found", syncId)
+		}
+		if syncType != connectorstore.SyncTypeAny && syncType != connectorstore.SyncType(lastSync.Sync.SyncType) {
+			return nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncId, syncType)
+		}
+	}
+
+	var allResourceTypes []*v2.ResourceType
+	pageToken := ""
+	for {
+		resp, err := c.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{PageToken: pageToken})
+		if err != nil {
+			return nil, err
+		}
+
+		allResourceTypes = append(allResourceTypes, resp.List...)
+
+		if resp.NextPageToken == "" {
+			break
+		}
+
+		pageToken = resp.NextPageToken
+	}
+
+	stats := make(map[string]int64)
+
+	for _, resourceType := range allResourceTypes {
+		grantsCount, err := c.db.From(grants.Name()).
+			Where(goqu.C("sync_id").Eq(syncId)).
+			Where(goqu.C("resource_type_id").Eq(resourceType.Id)).
+			CountContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+
+		stats[resourceType.Id] = grantsCount
+	}
+
+	return stats, nil
+}

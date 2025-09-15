@@ -424,3 +424,63 @@ func equalStats(t *testing.T, expectedStats map[string]int64, stats map[string]i
 		require.Equal(t, v, val)
 	}
 }
+
+func TestC1ZGrantStatsSync(t *testing.T) {
+	ctx := context.Background()
+
+	testFilePath := filepath.Join(c1zTests.workingDir, "test-grant-stats-sync.c1z")
+
+	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+
+	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, syncID)
+
+	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: testResourceType})
+	require.NoError(t, err)
+
+	err = f.PutGrants(ctx, &v2.Grant{
+		Id: "grant-id",
+		Principal: &v2.Resource{
+			Id: &v2.ResourceId{
+				ResourceType: testResourceType,
+				Resource:     "principal-id",
+			},
+		},
+		Entitlement: &v2.Entitlement{
+			Id: "entitlement-id",
+			Resource: &v2.Resource{
+				Id: &v2.ResourceId{
+					ResourceType: testResourceType,
+					Resource:     "resource-id2",
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	err = f.PutResources(ctx, &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: testResourceType,
+			Resource:     "test-resource",
+		},
+	})
+	require.NoError(t, err)
+
+	err = f.EndSync(ctx)
+	require.NoError(t, err)
+
+	expectedGrantStats := map[string]int64{
+		testResourceType: 1,
+	}
+
+	stats, err := f.GrantStats(ctx, connectorstore.SyncTypeAny, syncID)
+	require.NoError(t, err)
+	for k, v := range expectedGrantStats {
+		require.Equal(t, v, stats[k])
+	}
+
+	err = f.Close()
+	require.NoError(t, err)
+}
