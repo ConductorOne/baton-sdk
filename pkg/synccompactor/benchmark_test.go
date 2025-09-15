@@ -79,7 +79,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	// Generate resources for base sync (about 60% of total)
 	baseResourceCount := int(float64(dataset.Resources) * 0.6)
 	baseResources := make([]*v2.Resource, baseResourceCount)
-	for i := 0; i < baseResourceCount; i++ {
+	for i := range baseResourceCount {
 		resource := &v2.Resource{
 			Id: &v2.ResourceId{
 				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
@@ -95,7 +95,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	// Generate entitlements for base sync
 	baseEntitlementCount := int(float64(dataset.Entitlements) * 0.6)
 	baseEntitlements := make([]*v2.Entitlement, baseEntitlementCount)
-	for i := 0; i < baseEntitlementCount; i++ {
+	for i := range baseEntitlementCount {
 		entitlement := &v2.Entitlement{
 			Id:          fmt.Sprintf("base-entitlement-%d", i),
 			DisplayName: fmt.Sprintf("Base Entitlement %d", i),
@@ -109,7 +109,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 
 	// Generate grants for base sync
 	baseGrantCount := int(float64(dataset.Grants) * 0.6)
-	for i := 0; i < baseGrantCount; i++ {
+	for i := range baseGrantCount {
 		grant := &v2.Grant{
 			Id:          fmt.Sprintf("base-grant-%d", i),
 			Principal:   baseResources[i%len(baseResources)],
@@ -146,7 +146,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 
 	// Add some overlapping resources from base
 	overlapCount := int(float64(baseResourceCount) * 0.2)
-	for i := 0; i < overlapCount; i++ {
+	for i := range overlapCount {
 		resource := &v2.Resource{
 			Id: &v2.ResourceId{
 				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
@@ -161,7 +161,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 
 	// Add new resources only in applied
 	newResourceCount := appliedResourceCount - overlapCount
-	for i := 0; i < newResourceCount; i++ {
+	for i := range newResourceCount {
 		resource := &v2.Resource{
 			Id: &v2.ResourceId{
 				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
@@ -177,7 +177,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	// Generate entitlements for applied sync
 	appliedEntitlementCount := dataset.Entitlements - baseEntitlementCount
 	appliedEntitlements := make([]*v2.Entitlement, appliedEntitlementCount)
-	for i := 0; i < appliedEntitlementCount; i++ {
+	for i := range appliedEntitlementCount {
 		entitlement := &v2.Entitlement{
 			Id:          fmt.Sprintf("applied-entitlement-%d", i),
 			DisplayName: fmt.Sprintf("Applied Entitlement %d", i),
@@ -191,7 +191,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 
 	// Generate grants for applied sync
 	appliedGrantCount := dataset.Grants - baseGrantCount
-	for i := 0; i < appliedGrantCount; i++ {
+	for i := range appliedGrantCount {
 		grant := &v2.Grant{
 			Id:          fmt.Sprintf("applied-grant-%d", i),
 			Principal:   appliedResources[i%len(appliedResources)],
@@ -213,7 +213,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 func benchmarkNaiveCompactor(b *testing.B, dataset BenchmarkData) {
 	ctx := context.Background()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 
 		// Create temporary directories
@@ -277,7 +277,7 @@ func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 		dotc1z.WithPragma("journal_mode", "WAL"),
 	}
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		b.StopTimer()
 
 		// Create temporary directories

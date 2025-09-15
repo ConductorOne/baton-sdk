@@ -272,6 +272,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 
 	switch c.compactorType {
 	case CompactorTypeNaive:
+		// TODO: Add support for syncID or remove naive compactor.
 		runner := naive.NewNaiveCompactor(baseFile, appliedFile, newFile)
 		if err := runner.Compact(ctx); err != nil {
 			l.Error("error running compaction", zap.Error(err))
