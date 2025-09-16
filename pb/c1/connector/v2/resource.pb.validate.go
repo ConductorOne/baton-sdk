@@ -2101,6 +2101,8 @@ func (m *CredentialOptions) validate(all bool) error {
 
 	var errors []error
 
+	// no validation rules for ForceChangeAtNextLogin
+
 	switch v := m.Options.(type) {
 	case *CredentialOptions_RandomPassword_:
 		if v == nil {
@@ -2219,6 +2221,47 @@ func (m *CredentialOptions) validate(all bool) error {
 			if err := v.Validate(); err != nil {
 				return CredentialOptionsValidationError{
 					field:  "Sso",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *CredentialOptions_EncryptedPassword_:
+		if v == nil {
+			err := CredentialOptionsValidationError{
+				field:  "Options",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetEncryptedPassword()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CredentialOptionsValidationError{
+						field:  "EncryptedPassword",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CredentialOptionsValidationError{
+						field:  "EncryptedPassword",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetEncryptedPassword()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CredentialOptionsValidationError{
+					field:  "EncryptedPassword",
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
@@ -5033,6 +5076,174 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = CredentialOptions_SSOValidationError{}
+
+// Validate checks the field values on CredentialOptions_EncryptedPassword with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *CredentialOptions_EncryptedPassword) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on CredentialOptions_EncryptedPassword
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// CredentialOptions_EncryptedPasswordMultiError, or nil if none found.
+func (m *CredentialOptions_EncryptedPassword) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CredentialOptions_EncryptedPassword) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetConstraints() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CredentialOptions_EncryptedPasswordValidationError{
+						field:  fmt.Sprintf("Constraints[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CredentialOptions_EncryptedPasswordValidationError{
+						field:  fmt.Sprintf("Constraints[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CredentialOptions_EncryptedPasswordValidationError{
+					field:  fmt.Sprintf("Constraints[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if all {
+		switch v := interface{}(m.GetEncryptedPassword()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CredentialOptions_EncryptedPasswordValidationError{
+					field:  "EncryptedPassword",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CredentialOptions_EncryptedPasswordValidationError{
+					field:  "EncryptedPassword",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetEncryptedPassword()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CredentialOptions_EncryptedPasswordValidationError{
+				field:  "EncryptedPassword",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return CredentialOptions_EncryptedPasswordMultiError(errors)
+	}
+
+	return nil
+}
+
+// CredentialOptions_EncryptedPasswordMultiError is an error wrapping multiple
+// validation errors returned by
+// CredentialOptions_EncryptedPassword.ValidateAll() if the designated
+// constraints aren't met.
+type CredentialOptions_EncryptedPasswordMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CredentialOptions_EncryptedPasswordMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CredentialOptions_EncryptedPasswordMultiError) AllErrors() []error { return m }
+
+// CredentialOptions_EncryptedPasswordValidationError is the validation error
+// returned by CredentialOptions_EncryptedPassword.Validate if the designated
+// constraints aren't met.
+type CredentialOptions_EncryptedPasswordValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CredentialOptions_EncryptedPasswordValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CredentialOptions_EncryptedPasswordValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CredentialOptions_EncryptedPasswordValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CredentialOptions_EncryptedPasswordValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CredentialOptions_EncryptedPasswordValidationError) ErrorName() string {
+	return "CredentialOptions_EncryptedPasswordValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CredentialOptions_EncryptedPasswordValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCredentialOptions_EncryptedPassword.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CredentialOptions_EncryptedPasswordValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CredentialOptions_EncryptedPasswordValidationError{}
 
 // Validate checks the field values on CreateAccountResponse_SuccessResult with
 // the rules defined in the proto definition for this message. If any rules
