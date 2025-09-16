@@ -3226,47 +3226,6 @@ func (m *EncryptionConfig) validate(all bool) error {
 			}
 		}
 
-	case *EncryptionConfig_JwkPrivateKeyConfig:
-		if v == nil {
-			err := EncryptionConfigValidationError{
-				field:  "Config",
-				reason: "oneof value cannot be a typed-nil",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-		if all {
-			switch v := interface{}(m.GetJwkPrivateKeyConfig()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, EncryptionConfigValidationError{
-						field:  "JwkPrivateKeyConfig",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, EncryptionConfigValidationError{
-						field:  "JwkPrivateKeyConfig",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetJwkPrivateKeyConfig()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return EncryptionConfigValidationError{
-					field:  "JwkPrivateKeyConfig",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
 	default:
 		_ = v // ensures v is used
 	}
@@ -3348,6 +3307,154 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = EncryptionConfigValidationError{}
+
+// Validate checks the field values on DecryptionConfig with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *DecryptionConfig) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on DecryptionConfig with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// DecryptionConfigMultiError, or nil if none found.
+func (m *DecryptionConfig) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *DecryptionConfig) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Provider
+
+	switch v := m.Config.(type) {
+	case *DecryptionConfig_JwkPrivateKeyConfig:
+		if v == nil {
+			err := DecryptionConfigValidationError{
+				field:  "Config",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetJwkPrivateKeyConfig()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, DecryptionConfigValidationError{
+						field:  "JwkPrivateKeyConfig",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, DecryptionConfigValidationError{
+						field:  "JwkPrivateKeyConfig",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetJwkPrivateKeyConfig()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return DecryptionConfigValidationError{
+					field:  "JwkPrivateKeyConfig",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	default:
+		_ = v // ensures v is used
+	}
+
+	if len(errors) > 0 {
+		return DecryptionConfigMultiError(errors)
+	}
+
+	return nil
+}
+
+// DecryptionConfigMultiError is an error wrapping multiple validation errors
+// returned by DecryptionConfig.ValidateAll() if the designated constraints
+// aren't met.
+type DecryptionConfigMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m DecryptionConfigMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m DecryptionConfigMultiError) AllErrors() []error { return m }
+
+// DecryptionConfigValidationError is the validation error returned by
+// DecryptionConfig.Validate if the designated constraints aren't met.
+type DecryptionConfigValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e DecryptionConfigValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e DecryptionConfigValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e DecryptionConfigValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e DecryptionConfigValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e DecryptionConfigValidationError) ErrorName() string { return "DecryptionConfigValidationError" }
+
+// Error satisfies the builtin error interface
+func (e DecryptionConfigValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sDecryptionConfig.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = DecryptionConfigValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = DecryptionConfigValidationError{}
 
 // Validate checks the field values on ResourceId with the rules defined in the
 // proto definition for this message. If any rules are violated, the first
@@ -5141,40 +5248,6 @@ func (m *CredentialOptions_EncryptedPassword) validate(all bool) error {
 
 	var errors []error
 
-	for idx, item := range m.GetConstraints() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, CredentialOptions_EncryptedPasswordValidationError{
-						field:  fmt.Sprintf("Constraints[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, CredentialOptions_EncryptedPasswordValidationError{
-						field:  fmt.Sprintf("Constraints[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return CredentialOptions_EncryptedPasswordValidationError{
-					field:  fmt.Sprintf("Constraints[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
 	if all {
 		switch v := interface{}(m.GetEncryptedPassword()).(type) {
 		case interface{ ValidateAll() error }:
@@ -5205,11 +5278,11 @@ func (m *CredentialOptions_EncryptedPassword) validate(all bool) error {
 	}
 
 	if all {
-		switch v := interface{}(m.GetEncryptionConfig()).(type) {
+		switch v := interface{}(m.GetDecryptionConfig()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, CredentialOptions_EncryptedPasswordValidationError{
-					field:  "EncryptionConfig",
+					field:  "DecryptionConfig",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -5217,16 +5290,16 @@ func (m *CredentialOptions_EncryptedPassword) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, CredentialOptions_EncryptedPasswordValidationError{
-					field:  "EncryptionConfig",
+					field:  "DecryptionConfig",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetEncryptionConfig()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetDecryptionConfig()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return CredentialOptions_EncryptedPasswordValidationError{
-				field:  "EncryptionConfig",
+				field:  "DecryptionConfig",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -5697,46 +5770,55 @@ var _ interface {
 	ErrorName() string
 } = EncryptionConfig_JWKPublicKeyConfigValidationError{}
 
-// Validate checks the field values on EncryptionConfig_JWKPrivateKeyConfig
+// Validate checks the field values on DecryptionConfig_JWKPrivateKeyConfig
 // with the rules defined in the proto definition for this message. If any
 // rules are violated, the first error encountered is returned, or nil if
 // there are no violations.
-func (m *EncryptionConfig_JWKPrivateKeyConfig) Validate() error {
+func (m *DecryptionConfig_JWKPrivateKeyConfig) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on EncryptionConfig_JWKPrivateKeyConfig
+// ValidateAll checks the field values on DecryptionConfig_JWKPrivateKeyConfig
 // with the rules defined in the proto definition for this message. If any
 // rules are violated, the result is a list of violation errors wrapped in
-// EncryptionConfig_JWKPrivateKeyConfigMultiError, or nil if none found.
-func (m *EncryptionConfig_JWKPrivateKeyConfig) ValidateAll() error {
+// DecryptionConfig_JWKPrivateKeyConfigMultiError, or nil if none found.
+func (m *DecryptionConfig_JWKPrivateKeyConfig) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *EncryptionConfig_JWKPrivateKeyConfig) validate(all bool) error {
+func (m *DecryptionConfig_JWKPrivateKeyConfig) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	// no validation rules for PrivKey
+	if len(m.GetPrivKey()) < 1 {
+		err := DecryptionConfig_JWKPrivateKeyConfigValidationError{
+			field:  "PrivKey",
+			reason: "value length must be at least 1 bytes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
 	if len(errors) > 0 {
-		return EncryptionConfig_JWKPrivateKeyConfigMultiError(errors)
+		return DecryptionConfig_JWKPrivateKeyConfigMultiError(errors)
 	}
 
 	return nil
 }
 
-// EncryptionConfig_JWKPrivateKeyConfigMultiError is an error wrapping multiple
+// DecryptionConfig_JWKPrivateKeyConfigMultiError is an error wrapping multiple
 // validation errors returned by
-// EncryptionConfig_JWKPrivateKeyConfig.ValidateAll() if the designated
+// DecryptionConfig_JWKPrivateKeyConfig.ValidateAll() if the designated
 // constraints aren't met.
-type EncryptionConfig_JWKPrivateKeyConfigMultiError []error
+type DecryptionConfig_JWKPrivateKeyConfigMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m EncryptionConfig_JWKPrivateKeyConfigMultiError) Error() string {
+func (m DecryptionConfig_JWKPrivateKeyConfigMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -5745,12 +5827,12 @@ func (m EncryptionConfig_JWKPrivateKeyConfigMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m EncryptionConfig_JWKPrivateKeyConfigMultiError) AllErrors() []error { return m }
+func (m DecryptionConfig_JWKPrivateKeyConfigMultiError) AllErrors() []error { return m }
 
-// EncryptionConfig_JWKPrivateKeyConfigValidationError is the validation error
-// returned by EncryptionConfig_JWKPrivateKeyConfig.Validate if the designated
+// DecryptionConfig_JWKPrivateKeyConfigValidationError is the validation error
+// returned by DecryptionConfig_JWKPrivateKeyConfig.Validate if the designated
 // constraints aren't met.
-type EncryptionConfig_JWKPrivateKeyConfigValidationError struct {
+type DecryptionConfig_JWKPrivateKeyConfigValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -5758,24 +5840,24 @@ type EncryptionConfig_JWKPrivateKeyConfigValidationError struct {
 }
 
 // Field function returns field value.
-func (e EncryptionConfig_JWKPrivateKeyConfigValidationError) Field() string { return e.field }
+func (e DecryptionConfig_JWKPrivateKeyConfigValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e EncryptionConfig_JWKPrivateKeyConfigValidationError) Reason() string { return e.reason }
+func (e DecryptionConfig_JWKPrivateKeyConfigValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e EncryptionConfig_JWKPrivateKeyConfigValidationError) Cause() error { return e.cause }
+func (e DecryptionConfig_JWKPrivateKeyConfigValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e EncryptionConfig_JWKPrivateKeyConfigValidationError) Key() bool { return e.key }
+func (e DecryptionConfig_JWKPrivateKeyConfigValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e EncryptionConfig_JWKPrivateKeyConfigValidationError) ErrorName() string {
-	return "EncryptionConfig_JWKPrivateKeyConfigValidationError"
+func (e DecryptionConfig_JWKPrivateKeyConfigValidationError) ErrorName() string {
+	return "DecryptionConfig_JWKPrivateKeyConfigValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e EncryptionConfig_JWKPrivateKeyConfigValidationError) Error() string {
+func (e DecryptionConfig_JWKPrivateKeyConfigValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -5787,14 +5869,14 @@ func (e EncryptionConfig_JWKPrivateKeyConfigValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sEncryptionConfig_JWKPrivateKeyConfig.%s: %s%s",
+		"invalid %sDecryptionConfig_JWKPrivateKeyConfig.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = EncryptionConfig_JWKPrivateKeyConfigValidationError{}
+var _ error = DecryptionConfig_JWKPrivateKeyConfigValidationError{}
 
 var _ interface {
 	Field() string
@@ -5802,4 +5884,4 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = EncryptionConfig_JWKPrivateKeyConfigValidationError{}
+} = DecryptionConfig_JWKPrivateKeyConfigValidationError{}

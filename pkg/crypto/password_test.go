@@ -1,7 +1,6 @@
 package crypto
 
 import (
-	"encoding/base64"
 	"strings"
 	"testing"
 	"unicode"
@@ -131,16 +130,12 @@ func TestGeneratePassword(t *testing.T) {
 		privKeyBytes, err := privKey.MarshalJSON()
 		require.NoError(t, err)
 
-		secretKeyBytes := []byte(strings.Join([]string{
-			"secret-token",
-			"conductorone.com",
-			"v1",
-			base64.RawURLEncoding.EncodeToString(privKeyBytes),
-		}, ":"))
-
-		encryptionConfig.Config = &v2.EncryptionConfig_JwkPrivateKeyConfig{
-			JwkPrivateKeyConfig: &v2.EncryptionConfig_JWKPrivateKeyConfig{
-				PrivKey: secretKeyBytes,
+		decryptionConfig := &v2.DecryptionConfig{
+			Provider: jwk.EncryptionProviderJwkPrivate,
+			Config: &v2.DecryptionConfig_JwkPrivateKeyConfig{
+				JwkPrivateKeyConfig: &v2.DecryptionConfig_JWKPrivateKeyConfig{
+					PrivKey: privKeyBytes,
+				},
 			},
 		}
 
@@ -148,7 +143,7 @@ func TestGeneratePassword(t *testing.T) {
 			Options: &v2.CredentialOptions_EncryptedPassword_{
 				EncryptedPassword: &v2.CredentialOptions_EncryptedPassword{
 					EncryptedPassword: encryptedPassword,
-					EncryptionConfig:  encryptionConfig,
+					DecryptionConfig:  decryptionConfig,
 				},
 			},
 		}
