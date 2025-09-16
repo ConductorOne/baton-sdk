@@ -240,18 +240,19 @@ func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		sync, err := c.GetSync(ctx, &reader_v2.SyncsReaderServiceGetSyncRequest{SyncId: syncId})
-		if err != nil {
-			return nil, err
-		}
-		if sync == nil {
-			return nil, status.Errorf(codes.NotFound, "sync '%s' not found", syncId)
-		}
-		if syncType != connectorstore.SyncTypeAny && syncType != connectorstore.SyncType(sync.Sync.SyncType) {
-			return nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncId, syncType)
-		}
 	}
+	resp, err := c.GetSync(ctx, &reader_v2.SyncsReaderServiceGetSyncRequest{SyncId: syncId})
+	if err != nil {
+		return nil, err
+	}
+	if resp == nil || resp.Sync == nil {
+		return nil, status.Errorf(codes.NotFound, "sync '%s' not found", syncId)
+	}
+	sync := resp.Sync
+	if syncType != connectorstore.SyncTypeAny && syncType != connectorstore.SyncType(sync.SyncType) {
+		return nil, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncId, syncType)
+	}
+	syncType = connectorstore.SyncType(sync.SyncType)
 
 	counts["resource_types"] = 0
 
