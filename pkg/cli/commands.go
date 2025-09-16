@@ -23,6 +23,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
@@ -452,11 +453,11 @@ func MakeGRPCServerCommand[T field.Configurable](
 
 		clientID := v.GetString("client-id")
 		if clientID != "" {
-			runCtx = context.WithValue(runCtx, "client-id", clientID)
+			runCtx = context.WithValue(runCtx, crypto.ContextClientID, clientID)
 		}
 		clientSecret := v.GetString("client-secret")
 		if clientSecret != "" {
-			runCtx = context.WithValue(runCtx, "client-secret", clientSecret)
+			runCtx = context.WithValue(runCtx, crypto.ContextClientSecret, clientSecret)
 		}
 
 		cw, err := connector.NewWrapper(runCtx, c, copts...)

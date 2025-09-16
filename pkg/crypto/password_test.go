@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 	"unicode"
@@ -8,9 +9,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 )
 
 func TestGeneratePassword(t *testing.T) {
+	ctx := t.Context()
 	t.Run("should generate password with specified length", func(t *testing.T) {
 		opts := &v2.CredentialOptions{
 			Options: &v2.CredentialOptions_RandomPassword_{
@@ -19,7 +23,7 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		p, err := GeneratePassword(opts)
+		p, err := GeneratePassword(ctx, opts)
 		require.NoError(t, err)
 		require.Len(t, p, 12)
 	})
@@ -31,7 +35,7 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		p, err := GeneratePassword(opts)
+		p, err := GeneratePassword(ctx, opts)
 		require.Error(t, err)
 		require.Empty(t, p)
 		require.Equal(t, ErrInvalidPasswordLength, err)
@@ -44,7 +48,7 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		p, err := GeneratePassword(opts)
+		p, err := GeneratePassword(ctx, opts)
 		require.NoError(t, err)
 		isValid := isPasswordValid(p)
 		require.True(t, isValid)
@@ -67,7 +71,7 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		p, err := GeneratePassword(opts)
+		p, err := GeneratePassword(ctx, opts)
 		require.NoError(t, err)
 		occurences := countOccurences(p, digits)
 		require.GreaterOrEqual(t, occurences, minCount)
@@ -90,8 +94,67 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		_, err := GeneratePassword(opts)
+		_, err := GeneratePassword(ctx, opts)
 		require.Error(t, err)
+	})
+
+	t.Run("error when encrypted password is invalid", func(t *testing.T) {
+		opts := &v2.CredentialOptions{
+			Options: &v2.CredentialOptions_EncryptedPassword_{
+				EncryptedPassword: &v2.CredentialOptions_EncryptedPassword{
+					EncryptedPassword: &v2.EncryptedData{
+						Provider:       jwk.EncryptionProviderJwkPrivate,
+						EncryptedBytes: []byte("invalid"),
+					},
+				},
+			},
+		}
+		_, err := GeneratePassword(ctx, opts)
+		require.Error(t, err)
+	})
+
+	t.Run("decrypt password", func(t *testing.T) {
+		password := "test_password"
+		provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwkPrivate)
+		require.NoError(t, err)
+		encryptionConfig, privKey, err := provider.GenerateKey(ctx)
+		require.NoError(t, err)
+
+		encryptedPassword, err := provider.Encrypt(ctx, encryptionConfig, &v2.PlaintextData{
+			Name:        "password",
+			Description: "this is the password",
+			Schema:      "",
+			Bytes:       []byte(password),
+		})
+		require.NoError(t, err)
+
+		privKeyBytes, err := privKey.MarshalJSON()
+		require.NoError(t, err)
+
+		secretKeyBytes := []byte(strings.Join([]string{
+			"secret-token",
+			"conductorone.com",
+			"v1",
+			base64.RawURLEncoding.EncodeToString(privKeyBytes),
+		}, ":"))
+
+		encryptionConfig.Config = &v2.EncryptionConfig_JwkPrivateKeyConfig{
+			JwkPrivateKeyConfig: &v2.EncryptionConfig_JWKPrivateKeyConfig{
+				PrivKey: secretKeyBytes,
+			},
+		}
+
+		opts := &v2.CredentialOptions{
+			Options: &v2.CredentialOptions_EncryptedPassword_{
+				EncryptedPassword: &v2.CredentialOptions_EncryptedPassword{
+					EncryptedPassword: encryptedPassword,
+					EncryptionConfig:  encryptionConfig,
+				},
+			},
+		}
+		plainText, err := GeneratePassword(ctx, opts)
+		require.NoError(t, err)
+		require.Equal(t, password, plainText)
 	})
 }
 

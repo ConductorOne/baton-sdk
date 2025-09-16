@@ -7,6 +7,14 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
 )
 
+type key string
+
+const (
+	ContextClientID        = key("client-id")
+	ContextClientSecret    = key("client-secret")
+	ContextClientSecretKey = key("client-secret-key")
+)
+
 type PlaintextCredential struct {
 	Name        string
 	Description string
