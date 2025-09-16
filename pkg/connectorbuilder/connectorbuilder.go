@@ -27,6 +27,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 )
 
@@ -1369,26 +1370,25 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 	}
 
 	opts := request.GetCredentialOptions()
+	runCtx := ctx
 
 	if opts.GetEncryptedPassword() != nil {
 		encryptionConfig := opts.GetEncryptedPassword()
 		if encryptionConfig.GetEncryptionConfig() != nil {
 			return nil, status.Error(codes.InvalidArgument, "encryption config should never be supplied for encrypted passwords")
 		}
-		clientSecret, ok := ctx.Value("client-secret").(string)
+		clientSecret, ok := ctx.Value(crypto.ContextClientSecret).(string)
 		if !ok {
 			return nil, status.Error(codes.InvalidArgument, "client-secret is required")
 		}
-		// if clientSecret == nil {
-		// 	return nil, status.Error(codes.InvalidArgument, "client-secret is required")
-		// }
-		// if clientSecret != "" {
-		// 	parsedSecret, err := ugrpc.ParseSecret(clientSecret)
-		// 	if err != nil {
-		// 		return err
-		// 	}
-		// 	runCtx = context.WithValue(runCtx, "client-secret", parsedSecret)
-		// }
+
+		if clientSecret != "" {
+			parsedSecret, err := ugrpc.ParseSecret([]byte(clientSecret))
+			if err != nil {
+				return nil, err
+			}
+			runCtx = context.WithValue(ctx, crypto.ContextClientSecretKey, parsedSecret)
+		}
 
 		encryptionConfig.EncryptionConfig = &v2.EncryptionConfig{
 			// Principal: request.GetResourceId(),
@@ -1402,7 +1402,7 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		}
 	}
 
-	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
+	plaintexts, annos, err := manager.Rotate(runCtx, request.GetResourceId(), request.GetCredentialOptions())
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))

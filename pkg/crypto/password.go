@@ -11,6 +11,10 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 const (
@@ -24,7 +28,7 @@ const (
 var ErrInvalidCredentialOptions = errors.New("unknown credential options")
 var ErrInvalidPasswordLength = errors.New("invalid password length")
 
-func GeneratePassword(credentialOptions *v2.CredentialOptions) (string, error) {
+func GeneratePassword(ctx context.Context, credentialOptions *v2.CredentialOptions) (string, error) {
 	randomPassword := credentialOptions.GetRandomPassword()
 	if randomPassword != nil {
 		return GenerateRandomPassword(randomPassword)
@@ -32,41 +36,38 @@ func GeneratePassword(credentialOptions *v2.CredentialOptions) (string, error) {
 
 	encryptedPassword := credentialOptions.GetEncryptedPassword()
 	if encryptedPassword != nil {
-		return DecryptPassword(encryptedPassword)
+		return DecryptPassword(ctx, encryptedPassword)
 	}
 
 	return "", ErrInvalidCredentialOptions
 }
 
-func DecryptPassword(encryptedPassword *v2.CredentialOptions_EncryptedPassword) (string, error) {
+func DecryptPassword(ctx context.Context, encryptedPassword *v2.CredentialOptions_EncryptedPassword) (string, error) {
+	l := ctxzap.Extract(ctx)
 	encryptionConfig := encryptedPassword.GetEncryptionConfig()
 	if encryptionConfig == nil {
 		return "", ErrInvalidCredentialOptions
 	}
-	ctx := context.Background()
 
 	provider, err := providers.GetEncryptionProviderForConfig(ctx, encryptionConfig)
 	if err != nil {
-		fmt.Println("error getting encryption provider for config", err)
-		return "", err
+		return "", status.Errorf(codes.Internal, "error getting encryption provider for config: %v", err)
 	}
 	key := encryptedPassword.GetEncryptionConfig().GetJwkPrivateKeyConfig().GetPrivKey()
 	if len(key) == 0 {
-		fmt.Println("key is empty")
-		return "", ErrInvalidCredentialOptions
+		return "", status.Errorf(codes.Internal, "key is empty")
 	}
 	secret, err := ugrpc.ParseSecret(key)
 	if err != nil {
-		fmt.Println("error parsing secret", err)
+		l.Error("error parsing secret", zap.Error(err))
 		return "", err
 	}
 
 	plaintext, err := provider.Decrypt(ctx, encryptedPassword.GetEncryptedPassword(), secret)
 	if err != nil {
-		fmt.Println("error decrypting password", err)
-		return "", err
+		return "", status.Errorf(codes.Internal, "error decrypting password: %v", err)
 	}
-	fmt.Println("plaintext", plaintext)
+
 	return string(plaintext.Bytes), nil
 }
 
