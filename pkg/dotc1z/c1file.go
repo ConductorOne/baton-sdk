@@ -283,22 +283,23 @@ func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 		counts[rt.Id] = resourceCount
 	}
 
-	entitlementsCount, err := c.db.From(entitlements.Name()).
-		Where(goqu.C("sync_id").Eq(syncId)).
-		CountContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	counts["entitlements"] = entitlementsCount
+	if syncType != connectorstore.SyncTypeResourcesOnly {
+		entitlementsCount, err := c.db.From(entitlements.Name()).
+			Where(goqu.C("sync_id").Eq(syncId)).
+			CountContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		counts["entitlements"] = entitlementsCount
 
-	grantsCount, err := c.db.From(grants.Name()).
-		Where(goqu.C("sync_id").Eq(syncId)).
-		CountContext(ctx)
-	if err != nil {
-		return nil, err
+		grantsCount, err := c.db.From(grants.Name()).
+			Where(goqu.C("sync_id").Eq(syncId)).
+			CountContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+		counts["grants"] = grantsCount
 	}
-
-	counts["grants"] = grantsCount
 
 	return counts, nil
 }
