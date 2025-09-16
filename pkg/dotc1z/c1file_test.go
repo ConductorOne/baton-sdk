@@ -313,24 +313,18 @@ func TestC1ZStats(t *testing.T) {
 
 	stats, err := f.Stats(ctx, connectorstore.SyncTypeFull, syncID)
 	require.NoError(t, err)
-	for k, v := range expectedStats {
-		require.Equal(t, v, stats[k])
-	}
+	equalStats(t, expectedStats, stats)
 
 	_, err = f.Stats(ctx, connectorstore.SyncTypePartial, syncID)
 	require.ErrorIs(t, err, status.Errorf(codes.InvalidArgument, "sync '%s' is not of type '%s'", syncID, connectorstore.SyncTypePartial))
 
-	_, err = f.Stats(ctx, connectorstore.SyncTypeAny, syncID)
+	stats, err = f.Stats(ctx, connectorstore.SyncTypeAny, syncID)
 	require.NoError(t, err)
-	for k, v := range expectedStats {
-		require.Equal(t, v, stats[k])
-	}
+	equalStats(t, expectedStats, stats)
 
 	stats, err = f.Stats(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
-	for k, v := range expectedStats {
-		require.Equal(t, v, stats[k])
-	}
+	equalStats(t, expectedStats, stats)
 
 	err = f.Close()
 	require.NoError(t, err)
@@ -370,10 +364,63 @@ func TestC1ZStatsPartialSync(t *testing.T) {
 
 	stats, err := f.Stats(ctx, connectorstore.SyncTypePartial, syncID)
 	require.NoError(t, err)
-	for k, v := range expectedStats {
-		require.Equal(t, v, stats[k])
-	}
+	equalStats(t, expectedStats, stats)
 
 	err = f.Close()
 	require.NoError(t, err)
+}
+
+func TestC1ZStatsResourcesOnlySync(t *testing.T) {
+	ctx := context.Background()
+	testFilePath := filepath.Join(c1zTests.workingDir, "test-stats-resources-only-sync.c1z")
+
+	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+
+	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeResourcesOnly, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, syncID)
+
+	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: testResourceType})
+	require.NoError(t, err)
+
+	err = f.PutResources(ctx, &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: testResourceType,
+			Resource:     "test-resource",
+		},
+	})
+	require.NoError(t, err)
+
+	err = f.EndSync(ctx)
+	require.NoError(t, err)
+
+	expectedStats := map[string]int64{
+		"resource_types": 1,
+		testResourceType: 1,
+	}
+
+	stats, err := f.Stats(ctx, connectorstore.SyncTypeAny, syncID)
+	require.NoError(t, err)
+	equalStats(t, expectedStats, stats)
+
+	stats, err = f.Stats(ctx, connectorstore.SyncTypeResourcesOnly, syncID)
+	require.NoError(t, err)
+	equalStats(t, expectedStats, stats)
+
+	err = f.Close()
+	require.NoError(t, err)
+}
+
+func equalStats(t *testing.T, expectedStats map[string]int64, stats map[string]int64) {
+	for k, v := range expectedStats {
+		val, ok := stats[k]
+		require.True(t, ok)
+		require.Equal(t, v, val)
+	}
+	for k, v := range stats {
+		val, ok := expectedStats[k]
+		require.True(t, ok)
+		require.Equal(t, v, val)
+	}
 }
