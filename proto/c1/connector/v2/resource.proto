@@ -162,9 +162,9 @@ message CredentialOptions {
     string sso_provider = 1;
   }
   message EncryptedPassword {
-    repeated PasswordConstraint constraints = 1;
-    EncryptedData encrypted_password = 2;
-    EncryptionConfig encryption_config = 3;
+    EncryptedData encrypted_password = 1;
+    // This field must be empty in the initial request. It is populated by connectorbuilder so CreateAccount & RotateCredential can decrypt the password.
+    DecryptionConfig decryption_config = 2;
   }
   oneof options {
     RandomPassword random_password = 100;
@@ -230,12 +230,19 @@ message EncryptionConfig {
     bytes pub_key = 1;
   }
 
+  oneof config {
+    JWKPublicKeyConfig jwk_public_key_config = 100;
+  }
+}
+
+message DecryptionConfig {
+  string provider = 1;
+
   message JWKPrivateKeyConfig {
-    bytes priv_key = 1;
+    bytes priv_key = 1 [(validate.rules).bytes = {min_len: 1}];
   }
 
   oneof config {
-    JWKPublicKeyConfig jwk_public_key_config = 100;
     JWKPrivateKeyConfig jwk_private_key_config = 101;
   }
 }

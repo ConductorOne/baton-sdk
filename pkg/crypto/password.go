@@ -8,11 +8,10 @@ import (
 	"math/big"
 	"strings"
 
+	"github.com/go-jose/go-jose/v4"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
-	"github.com/conductorone/baton-sdk/pkg/ugrpc"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -43,24 +42,23 @@ func GeneratePassword(ctx context.Context, credentialOptions *v2.CredentialOptio
 }
 
 func DecryptPassword(ctx context.Context, encryptedPassword *v2.CredentialOptions_EncryptedPassword) (string, error) {
-	l := ctxzap.Extract(ctx)
-	encryptionConfig := encryptedPassword.GetEncryptionConfig()
-	if encryptionConfig == nil {
+	decryptionConfig := encryptedPassword.GetDecryptionConfig()
+	if decryptionConfig == nil {
 		return "", ErrInvalidCredentialOptions
 	}
 
-	provider, err := providers.GetEncryptionProviderForConfig(ctx, encryptionConfig)
+	provider, err := providers.GetDecryptionProviderForConfig(ctx, decryptionConfig)
 	if err != nil {
-		return "", status.Errorf(codes.Internal, "error getting encryption provider for config: %v", err)
+		return "", status.Errorf(codes.Internal, "error getting decryption provider for config: %v", err)
 	}
-	key := encryptedPassword.GetEncryptionConfig().GetJwkPrivateKeyConfig().GetPrivKey()
+	key := decryptionConfig.GetJwkPrivateKeyConfig().GetPrivKey()
 	if len(key) == 0 {
-		return "", status.Errorf(codes.Internal, "key is empty")
+		return "", status.Errorf(codes.InvalidArgument, "decryption config key is empty")
 	}
-	secret, err := ugrpc.ParseSecret(key)
+	secret := &jose.JSONWebKey{}
+	err = secret.UnmarshalJSON(key)
 	if err != nil {
-		l.Error("error parsing secret", zap.Error(err))
-		return "", err
+		return "", status.Errorf(codes.Internal, "error unmarshalling secret: %v", err)
 	}
 
 	plaintext, err := provider.Decrypt(ctx, encryptedPassword.GetEncryptedPassword(), secret)

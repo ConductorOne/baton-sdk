@@ -10,8 +10,6 @@ import (
 type key string
 
 const (
-	ContextClientID        = key("client-id")
-	ContextClientSecret    = key("client-secret")
 	ContextClientSecretKey = key("client-secret-key")
 )
 

@@ -26,6 +26,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -451,13 +452,18 @@ func MakeGRPCServerCommand[T field.Configurable](
 			copts = append(copts, connector.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")))
 		}
 
-		clientID := v.GetString("client-id")
-		if clientID != "" {
-			runCtx = context.WithValue(runCtx, crypto.ContextClientID, clientID)
-		}
 		clientSecret := v.GetString("client-secret")
 		if clientSecret != "" {
-			runCtx = context.WithValue(runCtx, crypto.ContextClientSecret, clientSecret)
+			parsedSecret, err := ugrpc.ParseSecret([]byte(clientSecret))
+			if err != nil {
+				// TODO: maybe just log this and not error?
+				return err
+			}
+			secretBytes, err := parsedSecret.MarshalJSON()
+			if err != nil {
+				return err
+			}
+			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretBytes)
 		}
 
 		cw, err := connector.NewWrapper(runCtx, c, copts...)

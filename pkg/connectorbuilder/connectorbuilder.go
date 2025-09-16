@@ -26,7 +26,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
-	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
 )
 
@@ -1368,39 +1367,35 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 	}
 
 	opts := request.GetCredentialOptions()
-	runCtx := ctx
 
 	if opts.GetEncryptedPassword() != nil {
-		encryptionConfig := opts.GetEncryptedPassword()
-		if encryptionConfig.GetEncryptionConfig() != nil {
-			return nil, status.Error(codes.InvalidArgument, "encryption config should never be supplied for encrypted passwords")
+		encryptedPassword := opts.GetEncryptedPassword()
+		if encryptedPassword.GetDecryptionConfig() != nil {
+			return nil, status.Error(codes.InvalidArgument, "decryption config should never be supplied for encrypted passwords")
 		}
-		clientSecret, ok := ctx.Value(crypto.ContextClientSecret).(string)
+		clientSecret, ok := ctx.Value(crypto.ContextClientSecretKey).([]byte)
 		if !ok {
+			clientSecretType := fmt.Sprintf("%T", ctx.Value(crypto.ContextClientSecretKey))
+			l.Error("error: client-secret is required", zap.String("client-secret-type", clientSecretType))
 			return nil, status.Error(codes.InvalidArgument, "client-secret is required")
 		}
 
-		if clientSecret != "" {
-			parsedSecret, err := ugrpc.ParseSecret([]byte(clientSecret))
-			if err != nil {
-				return nil, err
-			}
-			runCtx = context.WithValue(ctx, crypto.ContextClientSecretKey, parsedSecret)
-		}
-
-		encryptionConfig.EncryptionConfig = &v2.EncryptionConfig{
-			// Principal: request.GetResourceId(),
+		encryptedPassword.DecryptionConfig = &v2.DecryptionConfig{
 			Provider: jwk.EncryptionProviderJwkPrivate,
-			KeyId:    encryptionConfig.GetEncryptionConfig().GetKeyId(),
-			Config: &v2.EncryptionConfig_JwkPrivateKeyConfig{
-				JwkPrivateKeyConfig: &v2.EncryptionConfig_JWKPrivateKeyConfig{
-					PrivKey: []byte(clientSecret),
+			Config: &v2.DecryptionConfig_JwkPrivateKeyConfig{
+				JwkPrivateKeyConfig: &v2.DecryptionConfig_JWKPrivateKeyConfig{
+					PrivKey: clientSecret,
 				},
 			},
 		}
+		// Both Matt & Geoff think this constraint is silly.
+		if len(request.GetEncryptionConfigs()) > 0 {
+			l.Error("error: encryption configs should never be supplied for encrypted passwords")
+			return nil, status.Error(codes.InvalidArgument, "encryption configs should never be supplied for encrypted passwords")
+		}
 	}
 
-	plaintexts, annos, err := manager.Rotate(runCtx, request.GetResourceId(), request.GetCredentialOptions())
+	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), opts)
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))

@@ -12,6 +12,7 @@ import (
 )
 
 var ErrEncryptionProviderNotRegistered = fmt.Errorf("crypto/providers: encryption provider not registered")
+var ErrNoProviderSpecified = fmt.Errorf("crypto/providers: no provider specified")
 
 type EncryptionProvider interface {
 	Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plainText *v2.PlaintextData) (*v2.EncryptedData, error)
@@ -55,6 +56,16 @@ func GetEncryptionProviderForConfig(ctx context.Context, conf *v2.EncryptionConf
 	// If we don't have a provider by now, bail.
 	if providerName == "" {
 		return nil, ErrEncryptionProviderNotRegistered
+	}
+
+	return GetEncryptionProvider(providerName)
+}
+
+func GetDecryptionProviderForConfig(ctx context.Context, conf *v2.DecryptionConfig) (EncryptionProvider, error) {
+	providerName := normalizeProviderName(conf.GetProvider())
+
+	if providerName == "" {
+		return nil, ErrNoProviderSpecified
 	}
 
 	return GetEncryptionProvider(providerName)
