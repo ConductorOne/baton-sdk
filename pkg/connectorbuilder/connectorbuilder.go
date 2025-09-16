@@ -20,6 +20,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/retry"
@@ -1365,6 +1366,40 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		l.Error("error: resource type does not have credential manager configured", zap.String("resource_type", rt))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
+	}
+
+	opts := request.GetCredentialOptions()
+
+	if opts.GetEncryptedPassword() != nil {
+		encryptionConfig := opts.GetEncryptedPassword()
+		if encryptionConfig.GetEncryptionConfig() != nil {
+			return nil, status.Error(codes.InvalidArgument, "encryption config should never be supplied for encrypted passwords")
+		}
+		clientSecret, ok := ctx.Value("client-secret").(string)
+		if !ok {
+			return nil, status.Error(codes.InvalidArgument, "client-secret is required")
+		}
+		// if clientSecret == nil {
+		// 	return nil, status.Error(codes.InvalidArgument, "client-secret is required")
+		// }
+		// if clientSecret != "" {
+		// 	parsedSecret, err := ugrpc.ParseSecret(clientSecret)
+		// 	if err != nil {
+		// 		return err
+		// 	}
+		// 	runCtx = context.WithValue(runCtx, "client-secret", parsedSecret)
+		// }
+
+		encryptionConfig.EncryptionConfig = &v2.EncryptionConfig{
+			// Principal: request.GetResourceId(),
+			Provider: jwk.EncryptionProviderJwkPrivate,
+			KeyId:    encryptionConfig.GetEncryptionConfig().GetKeyId(),
+			Config: &v2.EncryptionConfig_JwkPrivateKeyConfig{
+				JwkPrivateKeyConfig: &v2.EncryptionConfig_JWKPrivateKeyConfig{
+					PrivKey: []byte(clientSecret),
+				},
+			},
+		}
 	}
 
 	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())

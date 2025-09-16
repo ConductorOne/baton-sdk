@@ -164,6 +164,7 @@ message CredentialOptions {
   message EncryptedPassword {
     repeated PasswordConstraint constraints = 1;
     EncryptedData encrypted_password = 2;
+    EncryptionConfig encryption_config = 3;
   }
   oneof options {
     RandomPassword random_password = 100;
@@ -229,8 +230,13 @@ message EncryptionConfig {
     bytes pub_key = 1;
   }
 
+  message JWKPrivateKeyConfig {
+    bytes priv_key = 1;
+  }
+
   oneof config {
     JWKPublicKeyConfig jwk_public_key_config = 100;
+    JWKPrivateKeyConfig jwk_private_key_config = 101;
   }
 }
 

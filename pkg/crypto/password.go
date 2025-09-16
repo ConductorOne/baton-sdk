@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"context"
 	"crypto/rand"
 	"errors"
 	"fmt"
@@ -8,6 +9,8 @@ import (
 	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
+	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 )
 
 const (
@@ -27,7 +30,44 @@ func GeneratePassword(credentialOptions *v2.CredentialOptions) (string, error) {
 		return GenerateRandomPassword(randomPassword)
 	}
 
+	encryptedPassword := credentialOptions.GetEncryptedPassword()
+	if encryptedPassword != nil {
+		return DecryptPassword(encryptedPassword)
+	}
+
 	return "", ErrInvalidCredentialOptions
+}
+
+func DecryptPassword(encryptedPassword *v2.CredentialOptions_EncryptedPassword) (string, error) {
+	encryptionConfig := encryptedPassword.GetEncryptionConfig()
+	if encryptionConfig == nil {
+		return "", ErrInvalidCredentialOptions
+	}
+	ctx := context.Background()
+
+	provider, err := providers.GetEncryptionProviderForConfig(ctx, encryptionConfig)
+	if err != nil {
+		fmt.Println("error getting encryption provider for config", err)
+		return "", err
+	}
+	key := encryptedPassword.GetEncryptionConfig().GetJwkPrivateKeyConfig().GetPrivKey()
+	if len(key) == 0 {
+		fmt.Println("key is empty")
+		return "", ErrInvalidCredentialOptions
+	}
+	secret, err := ugrpc.ParseSecret(key)
+	if err != nil {
+		fmt.Println("error parsing secret", err)
+		return "", err
+	}
+
+	plaintext, err := provider.Decrypt(ctx, encryptedPassword.GetEncryptedPassword(), secret)
+	if err != nil {
+		fmt.Println("error decrypting password", err)
+		return "", err
+	}
+	fmt.Println("plaintext", plaintext)
+	return string(plaintext.Bytes), nil
 }
 
 func addBasicValidityCharacters(password *strings.Builder) error {

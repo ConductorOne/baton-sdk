@@ -469,6 +469,15 @@ func MakeGRPCServerCommand[T field.Configurable](
 			copts = append(copts, connector.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")))
 		}
 
+		clientID := v.GetString("client-id")
+		if clientID != "" {
+			runCtx = context.WithValue(runCtx, "client-id", clientID)
+		}
+		clientSecret := v.GetString("client-secret")
+		if clientSecret != "" {
+			runCtx = context.WithValue(runCtx, "client-secret", clientSecret)
+		}
+
 		cw, err := connector.NewWrapper(runCtx, c, copts...)
 		if err != nil {
 			return err
