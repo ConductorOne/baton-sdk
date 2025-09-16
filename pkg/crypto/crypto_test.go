@@ -17,10 +17,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 )
 
-func marshalJWK(t *testing.T, privKey interface{}) (*v2.EncryptionConfig, []byte) {
+func marshalJWK(t *testing.T, privKey interface{}) (*v2.EncryptionConfig, *jose.JSONWebKey) {
 	privJWK := &jose.JSONWebKey{Key: privKey}
-	privJWKBytes, err := privJWK.MarshalJSON()
-	require.NoError(t, err)
 	pubJWK := privJWK.Public()
 	pubJWKBytes, err := pubJWK.MarshalJSON()
 	require.NoError(t, err)
@@ -34,10 +32,10 @@ func marshalJWK(t *testing.T, privKey interface{}) (*v2.EncryptionConfig, []byte
 		},
 	}
 
-	return config, privJWKBytes
+	return config, privJWK
 }
 
-func testEncryptionProvider(t *testing.T, ctx context.Context, config *v2.EncryptionConfig, privKey []byte) {
+func testEncryptionProvider(t *testing.T, ctx context.Context, config *v2.EncryptionConfig, privKey *jose.JSONWebKey) {
 	provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwk)
 	require.NoError(t, err)
 

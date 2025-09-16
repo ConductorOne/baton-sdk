@@ -66,6 +66,10 @@ func parseClientID(input string) (string, string, error) {
 	return clientName, items[0], nil
 }
 
+func ParseSecret(input []byte) (*jose.JSONWebKey, error) {
+	return parseSecret(input)
+}
+
 func parseSecret(input []byte) (*jose.JSONWebKey, error) {
 	items := bytes.SplitN(input, []byte(":"), 4)
 	if len(items) != 4 {

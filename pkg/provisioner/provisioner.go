@@ -47,16 +47,16 @@ type Provisioner struct {
 
 // makeCrypto is used by rotateCredentials and createAccount.
 // FIXME(morgabra/ggreer): Huge hack for testing.
-func makeCrypto(ctx context.Context) ([]byte, *v2.CredentialOptions, []*v2.EncryptionConfig, error) {
+func makeCrypto(ctx context.Context) (*v2.CredentialOptions, []*v2.EncryptionConfig, error) {
 	// Default to generating a random key and random password that is 12 characters long
 	provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwk)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
-	config, privateKey, err := provider.GenerateKey(ctx)
+	config, _, err := provider.GenerateKey(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	opts := &v2.CredentialOptions{
@@ -66,7 +66,7 @@ func makeCrypto(ctx context.Context) ([]byte, *v2.CredentialOptions, []*v2.Encry
 			},
 		},
 	}
-	return privateKey, opts, []*v2.EncryptionConfig{config}, nil
+	return opts, []*v2.EncryptionConfig{config}, nil
 }
 
 func (p *Provisioner) Run(ctx context.Context) error {
@@ -281,7 +281,7 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 		})
 	}
 
-	_, opts, config, err := makeCrypto(ctx)
+	opts, config, err := makeCrypto(ctx)
 	if err != nil {
 		return err
 	}
@@ -326,7 +326,7 @@ func (p *Provisioner) rotateCredentials(ctx context.Context) error {
 
 	l := ctxzap.Extract(ctx)
 
-	_, opts, config, err := makeCrypto(ctx)
+	opts, config, err := makeCrypto(ctx)
 	if err != nil {
 		return err
 	}
