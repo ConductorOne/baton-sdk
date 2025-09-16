@@ -795,12 +795,7 @@ func (c *C1File) GetLatestFinishedSync(ctx context.Context, request *reader_v2.S
 	ctx, span := tracer.Start(ctx, "C1File.GetLatestFinishedSync")
 	defer span.End()
 
-	syncType := request.SyncType
-	if syncType == "" {
-		syncType = string(connectorstore.SyncTypeFull)
-	}
-
-	sync, err := c.getFinishedSync(ctx, 0, connectorstore.SyncType(syncType))
+	sync, err := c.getFinishedSync(ctx, 0, connectorstore.SyncType(request.SyncType))
 	if err != nil {
 		return nil, fmt.Errorf("error fetching latest finished sync: %w", err)
 	}
