@@ -161,11 +161,17 @@ message CredentialOptions {
   message SSO {
     string sso_provider = 1;
   }
+  message EncryptedPassword {
+    repeated PasswordConstraint constraints = 1;
+    EncryptedData encrypted_password = 2;
+  }
   oneof options {
     RandomPassword random_password = 100;
     NoPassword no_password = 101;
     SSO sso = 102;
+    EncryptedPassword encrypted_password = 103;
   }
+  bool force_change_at_next_login = 1;
 }
 
 message PasswordConstraint {
