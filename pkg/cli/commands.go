@@ -413,12 +413,11 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if clientSecret != "" {
 			parsedSecret, err := ugrpc.ParseSecret([]byte(clientSecret))
 			if err != nil {
-				// TODO: maybe just log this and not error?
-				return err
+				l.Error("error parsing client secret", zap.Error(err))
 			}
 			secretBytes, err := parsedSecret.MarshalJSON()
 			if err != nil {
-				return err
+				l.Error("error marshalling client secret", zap.Error(err))
 			}
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretBytes)
 		}
