@@ -275,6 +275,7 @@ type builderImpl struct {
 	ticketingEnabled        bool
 	m                       *metrics.M
 	nowFunc                 func() time.Time
+	clientSecret            []byte
 }
 
 func (b *builderImpl) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketsRequest) (*v2.TicketsServiceBulkCreateTicketsResponse, error) {
@@ -482,6 +483,8 @@ func (b *builderImpl) GetTicketSchema(ctx context.Context, request *v2.TicketsSe
 func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.ConnectorServer, error) {
 	switch c := in.(type) {
 	case ConnectorBuilder:
+		clientSecret := ctx.Value(crypto.ContextClientSecretKey)
+		clientSecretBytes, _ := clientSecret.([]byte)
 		ret := &builderImpl{
 			resourceBuilders:        make(map[string]ResourceSyncer),
 			resourceProvisioners:    make(map[string]ResourceProvisioner),
@@ -498,6 +501,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			cb:                      c,
 			ticketManager:           nil,
 			nowFunc:                 time.Now,
+			clientSecret:            clientSecretBytes,
 		}
 
 		err := ret.options(opts...)
@@ -1373,10 +1377,8 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		if encryptedPassword.GetDecryptionConfig() != nil {
 			return nil, status.Error(codes.InvalidArgument, "decryption config should never be supplied for encrypted passwords")
 		}
-		clientSecret, ok := ctx.Value(crypto.ContextClientSecretKey).([]byte)
-		if !ok {
-			clientSecretType := fmt.Sprintf("%T", ctx.Value(crypto.ContextClientSecretKey))
-			l.Error("error: client-secret is required", zap.String("client-secret-type", clientSecretType))
+
+		if b.clientSecret == nil {
 			return nil, status.Error(codes.InvalidArgument, "client-secret is required")
 		}
 
@@ -1384,7 +1386,7 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 			Provider: jwk.EncryptionProviderJwkPrivate,
 			Config: &v2.DecryptionConfig_JwkPrivateKeyConfig{
 				JwkPrivateKeyConfig: &v2.DecryptionConfig_JWKPrivateKeyConfig{
-					PrivKey: clientSecret,
+					PrivKey: b.clientSecret,
 				},
 			},
 		}

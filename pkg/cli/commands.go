@@ -408,6 +408,21 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
+
+		clientSecret := v.GetString("client-secret")
+		if clientSecret != "" {
+			parsedSecret, err := ugrpc.ParseSecret([]byte(clientSecret))
+			if err != nil {
+				// TODO: maybe just log this and not error?
+				return err
+			}
+			secretBytes, err := parsedSecret.MarshalJSON()
+			if err != nil {
+				return err
+			}
+			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretBytes)
+		}
+
 		c, err := getconnector(runCtx, t)
 		if err != nil {
 			return err
@@ -450,20 +465,6 @@ func MakeGRPCServerCommand[T field.Configurable](
 			copts = append(copts, connector.WithTicketingEnabled())
 		case len(v.GetStringSlice("sync-resources")) > 0:
 			copts = append(copts, connector.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")))
-		}
-
-		clientSecret := v.GetString("client-secret")
-		if clientSecret != "" {
-			parsedSecret, err := ugrpc.ParseSecret([]byte(clientSecret))
-			if err != nil {
-				// TODO: maybe just log this and not error?
-				return err
-			}
-			secretBytes, err := parsedSecret.MarshalJSON()
-			if err != nil {
-				return err
-			}
-			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretBytes)
 		}
 
 		cw, err := connector.NewWrapper(runCtx, c, copts...)
