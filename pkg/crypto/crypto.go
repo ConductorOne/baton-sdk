@@ -130,11 +130,11 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 	}
 
 	for _, encryptedPassword := range encryptedPasswords {
-		keyIds := encryptedPassword.GetKeyIds()
-		if len(keyIds) == 0 {
+		keyIDs := encryptedPassword.GetKeyIds()
+		if len(keyIDs) == 0 {
 			continue
 		}
-		for _, keyId := range keyIds {
+		for _, keyId := range keyIDs {
 			// TODO: check that key ids match
 			l.Debug("decrypting password", zap.String("keyId", keyId), zap.String("clientSecretKeyID", clientSecret.KeyID))
 			password, err := decryptPassword(ctx, encryptedPassword, &providers.DecryptionConfig{
