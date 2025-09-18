@@ -166,7 +166,7 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 	}
 
 	if localOpts.Options == nil {
-		return nil, ErrInvalidCredentialOptions
+		return nil, status.Errorf(codes.InvalidArgument, "no encrypted password matched client secret key id %q", clientSecret.KeyID)
 	}
 
 	return localOpts, nil
