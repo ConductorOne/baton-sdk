@@ -1357,6 +1357,40 @@ func (b *builderImpl) DeleteResourceV2(ctx context.Context, request *v2.DeleteRe
 	return nil, status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Delete() configured", rt))
 }
 
+func (b builderImpl) convertPasswordCredentialOptions(ctx context.Context, opts *v2.CredentialOptions, encryptionConfigs []*v2.EncryptionConfig) (*v2.CredentialOptions, error) {
+	l := ctxzap.Extract(ctx)
+	if opts == nil {
+		return nil, nil
+	}
+	if opts.GetEncryptedPassword() == nil {
+		return opts, nil
+	}
+
+	encryptedPassword := opts.GetEncryptedPassword()
+	if encryptedPassword.GetDecryptionConfig() != nil {
+		return nil, status.Error(codes.InvalidArgument, "decryption config should never be supplied for encrypted passwords")
+	}
+
+	if b.clientSecret == nil {
+		return nil, status.Error(codes.InvalidArgument, "client-secret is required")
+	}
+
+	encryptedPassword.DecryptionConfig = &v2.DecryptionConfig{
+		Provider: jwk.EncryptionProviderJwkPrivate,
+		Config: &v2.DecryptionConfig_JwkPrivateKeyConfig{
+			JwkPrivateKeyConfig: &v2.DecryptionConfig_JWKPrivateKeyConfig{
+				PrivKey: b.clientSecret,
+			},
+		},
+	}
+	// Both Matt & Geoff think this constraint is silly.
+	if len(encryptionConfigs) > 0 {
+		l.Error("error: encryption configs should never be supplied for encrypted passwords")
+		return nil, status.Error(codes.InvalidArgument, "encryption configs should never be supplied for encrypted passwords")
+	}
+	return opts, nil
+}
+
 func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (*v2.RotateCredentialResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.RotateCredential")
 	defer span.End()
@@ -1372,31 +1406,11 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		return nil, status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
 	}
 
-	opts := request.GetCredentialOptions()
-
-	if opts.GetEncryptedPassword() != nil {
-		encryptedPassword := opts.GetEncryptedPassword()
-		if encryptedPassword.GetDecryptionConfig() != nil {
-			return nil, status.Error(codes.InvalidArgument, "decryption config should never be supplied for encrypted passwords")
-		}
-
-		if b.clientSecret == nil {
-			return nil, status.Error(codes.InvalidArgument, "client-secret is required")
-		}
-
-		encryptedPassword.DecryptionConfig = &v2.DecryptionConfig{
-			Provider: jwk.EncryptionProviderJwkPrivate,
-			Config: &v2.DecryptionConfig_JwkPrivateKeyConfig{
-				JwkPrivateKeyConfig: &v2.DecryptionConfig_JWKPrivateKeyConfig{
-					PrivKey: b.clientSecret,
-				},
-			},
-		}
-		// Both Matt & Geoff think this constraint is silly.
-		if len(request.GetEncryptionConfigs()) > 0 {
-			l.Error("error: encryption configs should never be supplied for encrypted passwords")
-			return nil, status.Error(codes.InvalidArgument, "encryption configs should never be supplied for encrypted passwords")
-		}
+	opts, err := b.convertPasswordCredentialOptions(ctx, request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	if err != nil {
+		l.Error("error: converting credential options failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
 	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), opts)
@@ -1471,7 +1485,15 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
 	}
-	result, plaintexts, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
+
+	opts, err := b.convertPasswordCredentialOptions(ctx, request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	if err != nil {
+		l.Error("error: converting credential options failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
+	}
+
+	result, plaintexts, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
