@@ -490,13 +490,9 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	case ConnectorBuilder:
 		clientSecret := ctx.Value(crypto.ContextClientSecretKey)
 		clientSecretBytes, _ := clientSecret.([]byte)
-		var clientSecretJWK *jose.JSONWebKey
-		if len(clientSecretBytes) > 0 {
-			clientSecretJWK = &jose.JSONWebKey{}
-			err := clientSecretJWK.UnmarshalJSON(clientSecretBytes)
-			if err != nil {
-				return nil, fmt.Errorf("error unmarshalling client secret: %w", err)
-			}
+		clientSecretJWK, err := crypto.ParseClientSecret(ctx, clientSecretBytes)
+		if err != nil {
+			return nil, err
 		}
 
 		ret := &builderImpl{
@@ -518,7 +514,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			clientSecret:            clientSecretJWK,
 		}
 
-		err := ret.options(opts...)
+		err = ret.options(opts...)
 		if err != nil {
 			return nil, err
 		}

@@ -50,18 +50,13 @@ func (j *JWKEncryptionProvider) GenerateKey(ctx context.Context) (*v2.Encryption
 }
 
 func (j *JWKEncryptionProvider) marshalKey(ctx context.Context, privKeyJWK *jose.JSONWebKey) (*v2.EncryptionConfig, *jose.JSONWebKey, error) {
-	// privKeyJWKBytes, err := privKeyJWK.MarshalJSON()
-	// if err != nil {
-	// 	return nil, nil, fmt.Errorf("jwk: failed to marshal private key: %w", err)
-	// }
-
 	pubKeyJWK := privKeyJWK.Public()
 	pubKeyJWKBytes, err := pubKeyJWK.MarshalJSON()
 	if err != nil {
 		return nil, nil, fmt.Errorf("jwk: failed to marshal public key: %w", err)
 	}
 
-	kid, err := thumbprint(&pubKeyJWK)
+	kid, err := Thumbprint(&pubKeyJWK)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -105,7 +100,7 @@ func (j *JWKEncryptionProvider) Encrypt(ctx context.Context, conf *v2.Encryption
 		return nil, ErrJWKUnsupportedKeyType
 	}
 
-	tp, err := thumbprint(jwk)
+	tp, err := Thumbprint(jwk)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +153,7 @@ func (j *JWKEncryptionProvider) Decrypt(ctx context.Context, cipherText *v2.Encr
 	}, nil
 }
 
-func thumbprint(jwk *jose.JSONWebKey) (string, error) {
+func Thumbprint(jwk *jose.JSONWebKey) (string, error) {
 	tp, err := jwk.Thumbprint(crypto.SHA256)
 	if err != nil {
 		return "", fmt.Errorf("jwk: failed to compute key id: %w", err)

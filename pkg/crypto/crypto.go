@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"context"
+	"fmt"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
@@ -59,6 +60,28 @@ func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (
 		configs: ec,
 	}
 	return em, nil
+}
+
+func ParseClientSecret(ctx context.Context, clientSecretBytes []byte) (*jose.JSONWebKey, error) {
+	if len(clientSecretBytes) == 0 {
+		return nil, nil
+	}
+
+	clientSecretJWK := &jose.JSONWebKey{}
+	err := clientSecretJWK.UnmarshalJSON(clientSecretBytes)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling client secret: %w", err)
+	}
+
+	kid, err := jwk.Thumbprint(clientSecretJWK)
+	if err != nil {
+		return nil, err
+	}
+
+	if clientSecretJWK.KeyID == "" {
+		clientSecretJWK.KeyID = kid
+	}
+	return clientSecretJWK, nil
 }
 
 func decryptPassword(ctx context.Context, encryptedPassword *v2.EncryptedData, decryptionConfig *providers.DecryptionConfig) (string, error) {
@@ -135,15 +158,16 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 			continue
 		}
 		for _, keyId := range keyIDs {
-			// TODO: check that key ids match
-			l.Debug("decrypting password", zap.String("keyId", keyId), zap.String("clientSecretKeyID", clientSecret.KeyID))
+			if keyId != clientSecret.KeyID {
+				l.Warn("convert-credential-options: key id does not match client secret key id", zap.String("keyId", keyId), zap.String("clientSecretKeyID", clientSecret.KeyID))
+				continue
+			}
 			password, err := decryptPassword(ctx, encryptedPassword, &providers.DecryptionConfig{
 				Provider:   jwk.EncryptionProviderJwkPrivate,
 				PrivateKey: clientSecret,
 			})
 			if err != nil {
-				l.Warn("error decrypting password", zap.String("keyId", keyId), zap.String("clientSecretKeyID", clientSecret.KeyID), zap.Error(err))
-				continue
+				return nil, fmt.Errorf("convert-credential-options: error decrypting password: %w", err)
 			}
 			localOpts.Options = &v2.LocalCredentialOptions_PlaintextPassword_{
 				PlaintextPassword: &v2.LocalCredentialOptions_PlaintextPassword{
@@ -156,6 +180,7 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 			break
 		}
 	}
+
 	if localOpts.Options == nil {
 		return nil, ErrInvalidCredentialOptions
 	}
