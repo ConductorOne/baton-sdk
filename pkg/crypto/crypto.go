@@ -106,6 +106,12 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 		localOpts.Options = &v2.LocalCredentialOptions_NoPassword_{
 			NoPassword: &v2.LocalCredentialOptions_NoPassword{},
 		}
+	case *v2.CredentialOptions_Sso:
+		localOpts.Options = &v2.LocalCredentialOptions_Sso{
+			Sso: &v2.LocalCredentialOptions_SSO{
+				SsoProvider: opts.GetSso().GetSsoProvider(),
+			},
+		}
 	case *v2.CredentialOptions_EncryptedPassword_:
 	default:
 		return nil, status.Error(codes.InvalidArgument, "invalid credential options")
@@ -120,7 +126,7 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 		return localOpts, nil
 	}
 
-	// Both Matt & Geoff think this constraint is silly.
+	// Whatever's setting the password should already know it. Don't let us encrypt it and send it back.
 	if len(encryptionConfigs) > 0 {
 		l.Error("error: encryption configs should never be supplied for encrypted passwords")
 		return localOpts, status.Error(codes.InvalidArgument, "encryption configs should never be supplied for encrypted passwords")
