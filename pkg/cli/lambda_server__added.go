@@ -14,7 +14,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
@@ -173,7 +172,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 
 		clientSecret := v.GetString("client-secret")
 		if clientSecret != "" {
-			parsedSecret, err := ugrpc.ParseSecret([]byte(clientSecret))
+			parsedSecret, err := crypto.ParseClientSecret([]byte(clientSecret))
 			if err != nil {
 				// TODO: maybe just log this and not error?
 				l.Error("error parsing client secret", zap.Error(err))

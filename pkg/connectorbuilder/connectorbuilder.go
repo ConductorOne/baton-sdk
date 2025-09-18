@@ -490,7 +490,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	case ConnectorBuilder:
 		clientSecret := ctx.Value(crypto.ContextClientSecretKey)
 		clientSecretBytes, _ := clientSecret.([]byte)
-		clientSecretJWK, err := crypto.ParseClientSecret(ctx, clientSecretBytes)
+		clientSecretJWK, err := crypto.ParseClientSecretKey(ctx, clientSecretBytes)
 		if err != nil {
 			return nil, err
 		}

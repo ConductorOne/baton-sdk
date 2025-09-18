@@ -28,7 +28,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
-	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -430,7 +429,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 
 		clientSecret := v.GetString("client-secret")
 		if clientSecret != "" {
-			parsedSecret, err := ugrpc.ParseSecret([]byte(clientSecret))
+			parsedSecret, err := crypto.ParseClientSecret([]byte(clientSecret))
 			if err != nil {
 				l.Error("error parsing client secret", zap.Error(err))
 			}

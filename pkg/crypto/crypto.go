@@ -62,7 +62,7 @@ func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (
 	return em, nil
 }
 
-func ParseClientSecret(ctx context.Context, clientSecretBytes []byte) (*jose.JSONWebKey, error) {
+func ParseClientSecretKey(ctx context.Context, clientSecretBytes []byte) (*jose.JSONWebKey, error) {
 	if len(clientSecretBytes) == 0 {
 		return nil, nil
 	}

@@ -1,12 +1,10 @@
 package config
 
 import (
-	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -20,6 +18,7 @@ import (
 
 	"github.com/conductorone/dpop/pkg/dpop"
 
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	dpop_grpc "github.com/conductorone/dpop/integrations/dpop_grpc"
 	dpop_oauth "github.com/conductorone/dpop/integrations/dpop_oauth2"
@@ -27,9 +26,7 @@ import (
 )
 
 var (
-	ErrInvalidClientSecret  = errors.New("invalid client secret")
-	ErrInvalidClientID      = errors.New("invalid client id")
-	v1SecretTokenIdentifier = []byte("v1")
+	ErrInvalidClientID = errors.New("invalid client id")
 )
 
 // NewDPoPClient creates a gRPC client with DPoP authentication.
@@ -61,7 +58,7 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (g
 		Use:       "sig",
 	}
 
-	clientSecretJWK, err := parseSecret([]byte(clientSecret))
+	clientSecretJWK, err := crypto.ParseClientSecret([]byte(clientSecret))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to unmarshal client secret: %w", err)
 	}
@@ -127,37 +124,4 @@ func parseClientID(input string) (string, string, error) {
 	}
 
 	return clientName, items[0], nil
-}
-
-func parseSecret(input []byte) (*jose.JSONWebKey, error) {
-	items := bytes.SplitN(input, []byte(":"), 4)
-	if len(items) != 4 {
-		return nil, ErrInvalidClientSecret
-	}
-
-	if !bytes.Equal(items[2], v1SecretTokenIdentifier) {
-		return nil, ErrInvalidClientSecret
-	}
-
-	jwkData, err := base64.RawURLEncoding.DecodeString(string(items[3]))
-	if err != nil {
-		return nil, ErrInvalidClientSecret
-	}
-
-	npk := &jose.JSONWebKey{}
-	err = npk.UnmarshalJSON(jwkData)
-	if err != nil {
-		return nil, ErrInvalidClientSecret
-	}
-
-	if npk.IsPublic() || !npk.Valid() {
-		return nil, ErrInvalidClientSecret
-	}
-
-	_, ok := npk.Key.(ed25519.PrivateKey)
-	if !ok {
-		return nil, ErrInvalidClientSecret
-	}
-
-	return npk, nil
 }
