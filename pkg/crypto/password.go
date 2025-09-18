@@ -8,12 +8,7 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/go-jose/go-jose/v4"
-
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const (
@@ -27,45 +22,18 @@ const (
 var ErrInvalidCredentialOptions = errors.New("unknown credential options")
 var ErrInvalidPasswordLength = errors.New("invalid password length")
 
-func GeneratePassword(ctx context.Context, credentialOptions *v2.CredentialOptions, decryptionConfig *providers.DecryptionConfig) (string, error) {
+func GeneratePassword(ctx context.Context, credentialOptions *v2.LocalCredentialOptions) (string, error) {
 	randomPassword := credentialOptions.GetRandomPassword()
 	if randomPassword != nil {
 		return GenerateRandomPassword(randomPassword)
 	}
 
-	encryptedPassword := credentialOptions.GetEncryptedPassword()
-	if encryptedPassword != nil {
-		return DecryptPassword(ctx, encryptedPassword, decryptionConfig)
+	plaintextPassword := credentialOptions.GetPlaintextPassword()
+	if plaintextPassword != nil {
+		return plaintextPassword.GetPlaintextPassword(), nil
 	}
 
 	return "", ErrInvalidCredentialOptions
-}
-
-func DecryptPassword(ctx context.Context, encryptedPassword *v2.CredentialOptions_EncryptedPassword, decryptionConfig *providers.DecryptionConfig) (string, error) {
-	if decryptionConfig == nil {
-		return "", ErrInvalidCredentialOptions
-	}
-
-	provider, err := providers.GetDecryptionProviderForConfig(ctx, decryptionConfig)
-	if err != nil {
-		return "", status.Errorf(codes.Internal, "error getting decryption provider for config: %v", err)
-	}
-	key := decryptionConfig.PrivateKey
-	if len(key) == 0 {
-		return "", status.Errorf(codes.InvalidArgument, "decryption config key is empty")
-	}
-	secret := &jose.JSONWebKey{}
-	err = secret.UnmarshalJSON(key)
-	if err != nil {
-		return "", status.Errorf(codes.Internal, "error unmarshalling secret: %v", err)
-	}
-
-	plaintext, err := provider.Decrypt(ctx, encryptedPassword.GetEncryptedPassword(), secret)
-	if err != nil {
-		return "", status.Errorf(codes.Internal, "error decrypting password: %v", err)
-	}
-
-	return string(plaintext.Bytes), nil
 }
 
 func addBasicValidityCharacters(password *strings.Builder) error {
@@ -92,7 +60,7 @@ func addCharacterToPassword(password *strings.Builder, set string) error {
 	return nil
 }
 
-func GenerateRandomPassword(randomPassword *v2.CredentialOptions_RandomPassword) (string, error) {
+func GenerateRandomPassword(randomPassword *v2.LocalCredentialOptions_RandomPassword) (string, error) {
 	passwordLength := randomPassword.GetLength()
 	if passwordLength < 8 {
 		return "", ErrInvalidPasswordLength

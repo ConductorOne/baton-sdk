@@ -23,7 +23,7 @@ type EncryptionProvider interface {
 
 type DecryptionConfig struct {
 	Provider   string
-	PrivateKey []byte
+	PrivateKey *jose.JSONWebKey
 }
 
 var providerRegistry = map[string]EncryptionProvider{

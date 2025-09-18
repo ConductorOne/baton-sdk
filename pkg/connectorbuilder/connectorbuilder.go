@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -20,8 +21,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
-	"github.com/conductorone/baton-sdk/pkg/crypto/providers"
-	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/retry"
@@ -143,8 +142,7 @@ type AccountManager interface {
 	ResourceSyncer
 	CreateAccount(ctx context.Context,
 		accountInfo *v2.AccountInfo,
-		credentialOptions *v2.CredentialOptions,
-		decryptionConfig *providers.DecryptionConfig) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
+		credentialOptions *v2.LocalCredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
 	CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error)
 }
 
@@ -157,8 +155,7 @@ type CredentialManager interface {
 	ResourceSyncer
 	Rotate(ctx context.Context,
 		resourceId *v2.ResourceId,
-		credentialOptions *v2.CredentialOptions,
-		decryptionConfig *providers.DecryptionConfig) ([]*v2.PlaintextData, annotations.Annotations, error)
+		credentialOptions *v2.LocalCredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
 	RotateCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error)
 }
 
@@ -283,7 +280,7 @@ type builderImpl struct {
 	ticketingEnabled        bool
 	m                       *metrics.M
 	nowFunc                 func() time.Time
-	clientSecret            []byte
+	clientSecret            *jose.JSONWebKey
 }
 
 func (b *builderImpl) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketsRequest) (*v2.TicketsServiceBulkCreateTicketsResponse, error) {
@@ -493,6 +490,15 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	case ConnectorBuilder:
 		clientSecret := ctx.Value(crypto.ContextClientSecretKey)
 		clientSecretBytes, _ := clientSecret.([]byte)
+		var clientSecretJWK *jose.JSONWebKey
+		if len(clientSecretBytes) > 0 {
+			clientSecretJWK = &jose.JSONWebKey{}
+			err := clientSecretJWK.UnmarshalJSON(clientSecretBytes)
+			if err != nil {
+				return nil, fmt.Errorf("error unmarshalling client secret: %w", err)
+			}
+		}
+
 		ret := &builderImpl{
 			resourceBuilders:        make(map[string]ResourceSyncer),
 			resourceProvisioners:    make(map[string]ResourceProvisioner),
@@ -509,7 +515,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			cb:                      c,
 			ticketManager:           nil,
 			nowFunc:                 time.Now,
-			clientSecret:            clientSecretBytes,
+			clientSecret:            clientSecretJWK,
 		}
 
 		err := ret.options(opts...)
@@ -1364,33 +1370,6 @@ func (b *builderImpl) DeleteResourceV2(ctx context.Context, request *v2.DeleteRe
 	return nil, status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Delete() configured", rt))
 }
 
-func (b builderImpl) getDecryptionConfig(ctx context.Context, opts *v2.CredentialOptions, encryptionConfigs []*v2.EncryptionConfig) (*providers.DecryptionConfig, error) {
-	l := ctxzap.Extract(ctx)
-	if opts == nil {
-		return nil, nil
-	}
-	if opts.GetEncryptedPassword() == nil {
-		return nil, nil
-	}
-
-	// Both Matt & Geoff think this constraint is silly.
-	if len(encryptionConfigs) > 0 {
-		l.Error("error: encryption configs should never be supplied for encrypted passwords")
-		return nil, status.Error(codes.InvalidArgument, "encryption configs should never be supplied for encrypted passwords")
-	}
-
-	if b.clientSecret == nil {
-		return nil, status.Error(codes.InvalidArgument, "client-secret is required")
-	}
-
-	decryptionConfig := &providers.DecryptionConfig{
-		Provider:   jwk.EncryptionProviderJwkPrivate,
-		PrivateKey: b.clientSecret,
-	}
-
-	return decryptionConfig, nil
-}
-
 func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (*v2.RotateCredentialResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.RotateCredential")
 	defer span.End()
@@ -1406,14 +1385,14 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		return nil, status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
 	}
 
-	decryptionConfig, err := b.getDecryptionConfig(ctx, request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	opts, err := crypto.ConvertCredentialOptions(ctx, b.clientSecret, request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: converting credential options failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
-	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions(), decryptionConfig)
+	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), opts)
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
@@ -1486,14 +1465,14 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
 	}
 
-	decryptionConfig, err := b.getDecryptionConfig(ctx, request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	opts, err := crypto.ConvertCredentialOptions(ctx, b.clientSecret, request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: converting credential options failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
-	result, plaintexts, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), request.GetCredentialOptions(), decryptionConfig)
+	result, plaintexts, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
