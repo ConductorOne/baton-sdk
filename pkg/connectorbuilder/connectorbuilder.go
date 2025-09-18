@@ -488,12 +488,8 @@ func (b *builderImpl) GetTicketSchema(ctx context.Context, request *v2.TicketsSe
 func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.ConnectorServer, error) {
 	switch c := in.(type) {
 	case ConnectorBuilder:
-		clientSecret := ctx.Value(crypto.ContextClientSecretKey)
-		clientSecretBytes, _ := clientSecret.([]byte)
-		clientSecretJWK, err := crypto.ParseClientSecretKey(ctx, clientSecretBytes)
-		if err != nil {
-			return nil, err
-		}
+		clientSecretValue := ctx.Value(crypto.ContextClientSecretKey)
+		clientSecretJWK, _ := clientSecretValue.(*jose.JSONWebKey)
 
 		ret := &builderImpl{
 			resourceBuilders:        make(map[string]ResourceSyncer),
@@ -514,7 +510,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			clientSecret:            clientSecretJWK,
 		}
 
-		err = ret.options(opts...)
+		err := ret.options(opts...)
 		if err != nil {
 			return nil, err
 		}

@@ -62,28 +62,6 @@ func NewEncryptionManager(co *v2.CredentialOptions, ec []*v2.EncryptionConfig) (
 	return em, nil
 }
 
-func ParseClientSecretKey(ctx context.Context, clientSecretBytes []byte) (*jose.JSONWebKey, error) {
-	if len(clientSecretBytes) == 0 {
-		return nil, nil
-	}
-
-	clientSecretJWK := &jose.JSONWebKey{}
-	err := clientSecretJWK.UnmarshalJSON(clientSecretBytes)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling client secret: %w", err)
-	}
-
-	kid, err := jwk.Thumbprint(clientSecretJWK)
-	if err != nil {
-		return nil, err
-	}
-
-	if clientSecretJWK.KeyID == "" {
-		clientSecretJWK.KeyID = kid
-	}
-	return clientSecretJWK, nil
-}
-
 func decryptPassword(ctx context.Context, encryptedPassword *v2.EncryptedData, decryptionConfig *providers.DecryptionConfig) (string, error) {
 	if decryptionConfig == nil {
 		return "", ErrInvalidCredentialOptions

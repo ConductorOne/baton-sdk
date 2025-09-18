@@ -14,7 +14,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	"github.com/conductorone/baton-sdk/pkg/logging"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -41,7 +40,6 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 	connectorSchema field.Configuration,
 	mainCmd *cobra.Command,
 ) error {
-	l := ctxzap.Extract(ctx)
 	lambdaSchema := field.NewConfiguration(field.LambdaServerFields(), field.WithConstraints(field.LambdaServerRelationships...))
 
 	lambdaCmd, err := AddCommand(mainCmd, v, &lambdaSchema, &cobra.Command{
@@ -172,16 +170,11 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 
 		clientSecret := v.GetString("client-secret")
 		if clientSecret != "" {
-			parsedSecret, err := crypto.ParseClientSecret([]byte(clientSecret))
+			secretJwk, err := crypto.ParseClientSecret([]byte(clientSecret), true)
 			if err != nil {
-				// TODO: maybe just log this and not error?
-				l.Error("error parsing client secret", zap.Error(err))
+				return err
 			}
-			secretBytes, err := parsedSecret.MarshalJSON()
-			if err != nil {
-				l.Error("error marshalling client secret", zap.Error(err))
-			}
-			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretBytes)
+			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
 		c, err := getconnector(runCtx, t)

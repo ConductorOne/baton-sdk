@@ -58,7 +58,7 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (g
 		Use:       "sig",
 	}
 
-	clientSecretJWK, err := crypto.ParseClientSecret([]byte(clientSecret))
+	clientSecretJWK, err := crypto.ParseClientSecret([]byte(clientSecret), false)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to unmarshal client secret: %w", err)
 	}

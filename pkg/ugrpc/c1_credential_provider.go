@@ -159,7 +159,7 @@ func newC1TokenSource(ctx context.Context, clientID string, clientSecret string)
 		return nil, "", "", err
 	}
 
-	secret, err := crypto.ParseClientSecret([]byte(clientSecret))
+	secret, err := crypto.ParseClientSecret([]byte(clientSecret), false)
 	if err != nil {
 		return nil, "", "", err
 	}

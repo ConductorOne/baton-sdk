@@ -429,15 +429,11 @@ func MakeGRPCServerCommand[T field.Configurable](
 
 		clientSecret := v.GetString("client-secret")
 		if clientSecret != "" {
-			parsedSecret, err := crypto.ParseClientSecret([]byte(clientSecret))
+			secretJwk, err := crypto.ParseClientSecret([]byte(clientSecret), true)
 			if err != nil {
-				l.Error("error parsing client secret", zap.Error(err))
+				return err
 			}
-			secretBytes, err := parsedSecret.MarshalJSON()
-			if err != nil {
-				l.Error("error marshalling client secret", zap.Error(err))
-			}
-			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretBytes)
+			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
 		c, err := getconnector(runCtx, t)
