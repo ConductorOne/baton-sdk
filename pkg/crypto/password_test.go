@@ -22,7 +22,7 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		p, err := GeneratePassword(ctx, opts)
+		p, err := GeneratePassword(ctx, opts, nil)
 		require.NoError(t, err)
 		require.Len(t, p, 12)
 	})
@@ -34,7 +34,7 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		p, err := GeneratePassword(ctx, opts)
+		p, err := GeneratePassword(ctx, opts, nil)
 		require.Error(t, err)
 		require.Empty(t, p)
 		require.Equal(t, ErrInvalidPasswordLength, err)
@@ -47,7 +47,7 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		p, err := GeneratePassword(ctx, opts)
+		p, err := GeneratePassword(ctx, opts, nil)
 		require.NoError(t, err)
 		isValid := isPasswordValid(p)
 		require.True(t, isValid)
@@ -70,7 +70,7 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		p, err := GeneratePassword(ctx, opts)
+		p, err := GeneratePassword(ctx, opts, nil)
 		require.NoError(t, err)
 		occurences := countOccurences(p, digits)
 		require.GreaterOrEqual(t, occurences, minCount)
@@ -93,7 +93,7 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		_, err := GeneratePassword(ctx, opts)
+		_, err := GeneratePassword(ctx, opts, nil)
 		require.Error(t, err)
 	})
 
@@ -108,7 +108,7 @@ func TestGeneratePassword(t *testing.T) {
 				},
 			},
 		}
-		_, err := GeneratePassword(ctx, opts)
+		_, err := GeneratePassword(ctx, opts, nil)
 		require.Error(t, err)
 	})
 
@@ -130,24 +130,19 @@ func TestGeneratePassword(t *testing.T) {
 		privKeyBytes, err := privKey.MarshalJSON()
 		require.NoError(t, err)
 
-		decryptionConfig := &v2.DecryptionConfig{
-			Provider: jwk.EncryptionProviderJwkPrivate,
-			Config: &v2.DecryptionConfig_JwkPrivateKeyConfig{
-				JwkPrivateKeyConfig: &v2.DecryptionConfig_JWKPrivateKeyConfig{
-					PrivKey: privKeyBytes,
-				},
-			},
+		decryptionConfig := &providers.DecryptionConfig{
+			Provider:   jwk.EncryptionProviderJwkPrivate,
+			PrivateKey: privKeyBytes,
 		}
 
 		opts := &v2.CredentialOptions{
 			Options: &v2.CredentialOptions_EncryptedPassword_{
 				EncryptedPassword: &v2.CredentialOptions_EncryptedPassword{
 					EncryptedPassword: encryptedPassword,
-					DecryptionConfig:  decryptionConfig,
 				},
 			},
 		}
-		plainText, err := GeneratePassword(ctx, opts)
+		plainText, err := GeneratePassword(ctx, opts, decryptionConfig)
 		require.NoError(t, err)
 		require.Equal(t, password, plainText)
 	})

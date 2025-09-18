@@ -27,7 +27,7 @@ const (
 var ErrInvalidCredentialOptions = errors.New("unknown credential options")
 var ErrInvalidPasswordLength = errors.New("invalid password length")
 
-func GeneratePassword(ctx context.Context, credentialOptions *v2.CredentialOptions) (string, error) {
+func GeneratePassword(ctx context.Context, credentialOptions *v2.CredentialOptions, decryptionConfig *providers.DecryptionConfig) (string, error) {
 	randomPassword := credentialOptions.GetRandomPassword()
 	if randomPassword != nil {
 		return GenerateRandomPassword(randomPassword)
@@ -35,14 +35,13 @@ func GeneratePassword(ctx context.Context, credentialOptions *v2.CredentialOptio
 
 	encryptedPassword := credentialOptions.GetEncryptedPassword()
 	if encryptedPassword != nil {
-		return DecryptPassword(ctx, encryptedPassword)
+		return DecryptPassword(ctx, encryptedPassword, decryptionConfig)
 	}
 
 	return "", ErrInvalidCredentialOptions
 }
 
-func DecryptPassword(ctx context.Context, encryptedPassword *v2.CredentialOptions_EncryptedPassword) (string, error) {
-	decryptionConfig := encryptedPassword.GetDecryptionConfig()
+func DecryptPassword(ctx context.Context, encryptedPassword *v2.CredentialOptions_EncryptedPassword, decryptionConfig *providers.DecryptionConfig) (string, error) {
 	if decryptionConfig == nil {
 		return "", ErrInvalidCredentialOptions
 	}
@@ -51,7 +50,7 @@ func DecryptPassword(ctx context.Context, encryptedPassword *v2.CredentialOption
 	if err != nil {
 		return "", status.Errorf(codes.Internal, "error getting decryption provider for config: %v", err)
 	}
-	key := decryptionConfig.GetJwkPrivateKeyConfig().GetPrivKey()
+	key := decryptionConfig.PrivateKey
 	if len(key) == 0 {
 		return "", status.Errorf(codes.InvalidArgument, "decryption config key is empty")
 	}

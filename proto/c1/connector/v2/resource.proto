@@ -163,8 +163,7 @@ message CredentialOptions {
   }
   message EncryptedPassword {
     EncryptedData encrypted_password = 1;
-    // This field must be empty in the initial request. It is populated by connectorbuilder so CreateAccount & RotateCredential can decrypt the password.
-    DecryptionConfig decryption_config = 2;
+    // repeated EncryptedData encrypted_password = 1 [(validate.rules).repeated = {min_items: 1}];
   }
   oneof options {
     RandomPassword random_password = 100;
@@ -232,18 +231,6 @@ message EncryptionConfig {
 
   oneof config {
     JWKPublicKeyConfig jwk_public_key_config = 100;
-  }
-}
-
-message DecryptionConfig {
-  string provider = 1;
-
-  message JWKPrivateKeyConfig {
-    bytes priv_key = 1 [(validate.rules).bytes = {min_len: 1}];
-  }
-
-  oneof config {
-    JWKPrivateKeyConfig jwk_private_key_config = 101;
   }
 }
 

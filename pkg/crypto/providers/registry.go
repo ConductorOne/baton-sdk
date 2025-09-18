@@ -21,6 +21,11 @@ type EncryptionProvider interface {
 	GenerateKey(ctx context.Context) (*v2.EncryptionConfig, *jose.JSONWebKey, error)
 }
 
+type DecryptionConfig struct {
+	Provider   string
+	PrivateKey []byte
+}
+
 var providerRegistry = map[string]EncryptionProvider{
 	normalizeProviderName(jwk.EncryptionProviderJwk):        &jwk.JWKEncryptionProvider{},
 	normalizeProviderName(jwk.EncryptionProviderJwkPrivate): &jwk.JWKEncryptionProvider{},
@@ -61,8 +66,8 @@ func GetEncryptionProviderForConfig(ctx context.Context, conf *v2.EncryptionConf
 	return GetEncryptionProvider(providerName)
 }
 
-func GetDecryptionProviderForConfig(ctx context.Context, conf *v2.DecryptionConfig) (EncryptionProvider, error) {
-	providerName := normalizeProviderName(conf.GetProvider())
+func GetDecryptionProviderForConfig(ctx context.Context, conf *DecryptionConfig) (EncryptionProvider, error) {
+	providerName := normalizeProviderName(conf.Provider)
 
 	if providerName == "" {
 		return nil, ErrNoProviderSpecified
