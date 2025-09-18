@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/go-jose/go-jose/v4"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -139,7 +140,9 @@ type CreateAccountResponse interface {
 // represents users or accounts that can be provisioned.
 type AccountManager interface {
 	ResourceSyncer
-	CreateAccount(ctx context.Context, accountInfo *v2.AccountInfo, credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
+	CreateAccount(ctx context.Context,
+		accountInfo *v2.AccountInfo,
+		credentialOptions *v2.LocalCredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
 	CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error)
 }
 
@@ -150,7 +153,9 @@ type AccountManager interface {
 // or service accounts that have rotatable credentials.
 type CredentialManager interface {
 	ResourceSyncer
-	Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.CredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
+	Rotate(ctx context.Context,
+		resourceId *v2.ResourceId,
+		credentialOptions *v2.LocalCredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
 	RotateCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error)
 }
 
@@ -275,6 +280,7 @@ type builderImpl struct {
 	ticketingEnabled        bool
 	m                       *metrics.M
 	nowFunc                 func() time.Time
+	clientSecret            *jose.JSONWebKey
 }
 
 func (b *builderImpl) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketsRequest) (*v2.TicketsServiceBulkCreateTicketsResponse, error) {
@@ -482,6 +488,9 @@ func (b *builderImpl) GetTicketSchema(ctx context.Context, request *v2.TicketsSe
 func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.ConnectorServer, error) {
 	switch c := in.(type) {
 	case ConnectorBuilder:
+		clientSecretValue := ctx.Value(crypto.ContextClientSecretKey)
+		clientSecretJWK, _ := clientSecretValue.(*jose.JSONWebKey)
+
 		ret := &builderImpl{
 			resourceBuilders:        make(map[string]ResourceSyncer),
 			resourceProvisioners:    make(map[string]ResourceProvisioner),
@@ -498,6 +507,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			cb:                      c,
 			ticketManager:           nil,
 			nowFunc:                 time.Now,
+			clientSecret:            clientSecretJWK,
 		}
 
 		err := ret.options(opts...)
@@ -1367,7 +1377,14 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 		return nil, status.Error(codes.Unimplemented, "resource type does not have credential manager configured")
 	}
 
-	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), request.GetCredentialOptions())
+	opts, err := crypto.ConvertCredentialOptions(ctx, b.clientSecret, request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	if err != nil {
+		l.Error("error: converting credential options failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
+	}
+
+	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), opts)
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
@@ -1439,7 +1456,15 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
 	}
-	result, plaintexts, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), request.GetCredentialOptions())
+
+	opts, err := crypto.ConvertCredentialOptions(ctx, b.clientSecret, request.GetCredentialOptions(), request.GetEncryptionConfigs())
+	if err != nil {
+		l.Error("error: converting credential options failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
+	}
+
+	result, plaintexts, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))

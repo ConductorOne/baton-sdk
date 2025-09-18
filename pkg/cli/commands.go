@@ -23,6 +23,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/session"
@@ -419,10 +420,20 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
+
 		// Create session cache and add to context
 		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
 		if err != nil {
 			return fmt.Errorf("failed to create session cache: %w", err)
+		}
+
+		clientSecret := v.GetString("client-secret")
+		if clientSecret != "" {
+			secretJwk, err := crypto.ParseClientSecret([]byte(clientSecret), true)
+			if err != nil {
+				return err
+			}
+			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
 		c, err := getconnector(runCtx, t)

@@ -75,12 +75,10 @@ message SetRequest {
     min_len: 1
     max_len: 256
   }];
-  bytes value = 3 [(validate.rules).bytes = {
-    max_len: 1048576
-  }];
+  bytes value = 3 [(validate.rules).bytes = {max_len: 1048576}];
 }
 
-message SetResponse {} 
+message SetResponse {}
 
 message SetManyRequest {
   string sync_id = 1 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
@@ -92,9 +90,7 @@ message SetManyRequest {
       }
     }
     values: {
-      bytes: {
-        max_len: 1048576
-      }
+      bytes: {max_len: 1048576}
     }
   }];
 }
@@ -131,4 +127,3 @@ message ClearRequest {
 }
 
 message ClearResponse {}
-

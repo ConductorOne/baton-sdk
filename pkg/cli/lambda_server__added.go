@@ -11,6 +11,7 @@ import (
 	"time"
 
 	aws_lambda "github.com/aws/aws-lambda-go/lambda"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
@@ -166,6 +167,15 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		runCtx, err = WithSessionCache(runCtx, sessionCacheConstructor)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to create session cache: %w", err)
+		}
+
+		clientSecret := v.GetString("client-secret")
+		if clientSecret != "" {
+			secretJwk, err := crypto.ParseClientSecret([]byte(clientSecret), true)
+			if err != nil {
+				return err
+			}
+			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
 		c, err := getconnector(runCtx, t)

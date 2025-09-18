@@ -22,10 +22,6 @@ func TestGenerateKey(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, config)
 	require.NotNil(t, privKey)
-
-	jwk, err := unmarshalJWK(privKey)
-	require.NoError(t, err)
-	require.False(t, jwk.IsPublic())
 }
 
 func TestEncryptDecrypt(t *testing.T) {
@@ -61,11 +57,9 @@ func TestInvalidKeyType(t *testing.T) {
 	_, privKey, err := provider.GenerateKey(ctx)
 	require.NoError(t, err)
 
-	jwk, err := unmarshalJWK(privKey)
-	require.NoError(t, err)
+	privKey.Key = []byte("invalid key type")
 
-	jwk.Key = []byte("invalid key type")
-	privKeyBytes, err := jwk.MarshalJSON()
+	privKeyBytes, err := privKey.MarshalJSON()
 	require.NoError(t, err)
 
 	plainText := &v2.PlaintextData{

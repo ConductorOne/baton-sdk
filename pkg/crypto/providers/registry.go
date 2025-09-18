@@ -5,21 +5,30 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/go-jose/go-jose/v4"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 )
 
 var ErrEncryptionProviderNotRegistered = fmt.Errorf("crypto/providers: encryption provider not registered")
+var ErrNoProviderSpecified = fmt.Errorf("crypto/providers: no provider specified")
 
 type EncryptionProvider interface {
 	Encrypt(ctx context.Context, conf *v2.EncryptionConfig, plainText *v2.PlaintextData) (*v2.EncryptedData, error)
-	Decrypt(ctx context.Context, cipherText *v2.EncryptedData, privateKey []byte) (*v2.PlaintextData, error)
+	Decrypt(ctx context.Context, cipherText *v2.EncryptedData, privateKey *jose.JSONWebKey) (*v2.PlaintextData, error)
 
-	GenerateKey(ctx context.Context) (*v2.EncryptionConfig, []byte, error)
+	GenerateKey(ctx context.Context) (*v2.EncryptionConfig, *jose.JSONWebKey, error)
+}
+
+type DecryptionConfig struct {
+	Provider   string
+	PrivateKey *jose.JSONWebKey
 }
 
 var providerRegistry = map[string]EncryptionProvider{
-	normalizeProviderName(jwk.EncryptionProviderJwk): &jwk.JWKEncryptionProvider{},
+	normalizeProviderName(jwk.EncryptionProviderJwk):        &jwk.JWKEncryptionProvider{},
+	normalizeProviderName(jwk.EncryptionProviderJwkPrivate): &jwk.JWKEncryptionProvider{},
 }
 
 func normalizeProviderName(name string) string {
@@ -52,6 +61,16 @@ func GetEncryptionProviderForConfig(ctx context.Context, conf *v2.EncryptionConf
 	// If we don't have a provider by now, bail.
 	if providerName == "" {
 		return nil, ErrEncryptionProviderNotRegistered
+	}
+
+	return GetEncryptionProvider(providerName)
+}
+
+func GetDecryptionProviderForConfig(ctx context.Context, conf *DecryptionConfig) (EncryptionProvider, error) {
+	providerName := normalizeProviderName(conf.Provider)
+
+	if providerName == "" {
+		return nil, ErrNoProviderSpecified
 	}
 
 	return GetEncryptionProvider(providerName)

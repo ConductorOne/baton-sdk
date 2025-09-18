@@ -17,10 +17,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 )
 
-func marshalJWK(t *testing.T, privKey interface{}) (*v2.EncryptionConfig, []byte) {
+func marshalJWK(t *testing.T, privKey interface{}) (*v2.EncryptionConfig, *jose.JSONWebKey) {
 	privJWK := &jose.JSONWebKey{Key: privKey}
-	privJWKBytes, err := privJWK.MarshalJSON()
-	require.NoError(t, err)
 	pubJWK := privJWK.Public()
 	pubJWKBytes, err := pubJWK.MarshalJSON()
 	require.NoError(t, err)
@@ -34,10 +32,10 @@ func marshalJWK(t *testing.T, privKey interface{}) (*v2.EncryptionConfig, []byte
 		},
 	}
 
-	return config, privJWKBytes
+	return config, privJWK
 }
 
-func testEncryptionProvider(t *testing.T, ctx context.Context, config *v2.EncryptionConfig, privKey []byte) {
+func testEncryptionProvider(t *testing.T, ctx context.Context, config *v2.EncryptionConfig, privKey *jose.JSONWebKey) {
 	provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwk)
 	require.NoError(t, err)
 
@@ -141,4 +139,83 @@ func TestEncryptionProviderJWKSymmetric(t *testing.T) {
 	cipherText, err := provider.Encrypt(ctx, config, plainText)
 	require.ErrorIs(t, err, jwk.ErrJWKUnsupportedKeyType)
 	require.Nil(t, cipherText)
+}
+
+func TestConvertCredentialOptions(t *testing.T) {
+	ctx := context.Background()
+	provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwk)
+	require.NoError(t, err)
+	encryptionConfig, privateKey, err := provider.GenerateKey(ctx)
+	require.NoError(t, err)
+	encryptionConfigs := []*v2.EncryptionConfig{encryptionConfig}
+
+	privateKey.KeyID = encryptionConfig.KeyId
+	t.Run("error when credential options is encrypted password but encryption configs are provided", func(t *testing.T) {
+		opts := &v2.CredentialOptions{
+			Options: &v2.CredentialOptions_EncryptedPassword_{
+				EncryptedPassword: &v2.CredentialOptions_EncryptedPassword{
+					EncryptedPasswords: []*v2.EncryptedData{
+						{
+							Provider:       jwk.EncryptionProviderJwkPrivate,
+							EncryptedBytes: []byte("invalid"),
+						},
+					},
+				},
+			},
+		}
+		_, err := ConvertCredentialOptions(ctx, privateKey, opts, encryptionConfigs)
+		require.Error(t, err)
+	})
+	t.Run("error when encrypted password is invalid", func(t *testing.T) {
+		opts := &v2.CredentialOptions{
+			Options: &v2.CredentialOptions_EncryptedPassword_{
+				EncryptedPassword: &v2.CredentialOptions_EncryptedPassword{
+					EncryptedPasswords: []*v2.EncryptedData{
+						{
+							Provider:       jwk.EncryptionProviderJwkPrivate,
+							EncryptedBytes: []byte("invalid"),
+						},
+					},
+				},
+			},
+		}
+		_, err := ConvertCredentialOptions(ctx, privateKey, opts, nil)
+		require.Error(t, err)
+	})
+
+	t.Run("decrypt password", func(t *testing.T) {
+		password := "test_password"
+		provider, err := providers.GetEncryptionProvider(jwk.EncryptionProviderJwkPrivate)
+		require.NoError(t, err)
+		require.NoError(t, err)
+
+		encryptedPassword, err := provider.Encrypt(ctx, encryptionConfig, &v2.PlaintextData{
+			Name:        "password",
+			Description: "this is the password",
+			Schema:      "",
+			Bytes:       []byte(password),
+		})
+		require.NoError(t, err)
+
+		encryptionConfig2, _, err := provider.GenerateKey(ctx)
+		require.NoError(t, err)
+		encryptedPassword2, err := provider.Encrypt(ctx, encryptionConfig2, &v2.PlaintextData{
+			Name:        "password",
+			Description: "this is the password",
+			Schema:      "",
+			Bytes:       []byte(password),
+		})
+		require.NoError(t, err)
+
+		opts := &v2.CredentialOptions{
+			Options: &v2.CredentialOptions_EncryptedPassword_{
+				EncryptedPassword: &v2.CredentialOptions_EncryptedPassword{
+					EncryptedPasswords: []*v2.EncryptedData{encryptedPassword2, encryptedPassword},
+				},
+			},
+		}
+		localOpts, err := ConvertCredentialOptions(ctx, privateKey, opts, nil)
+		require.NoError(t, err)
+		require.Equal(t, password, localOpts.GetPlaintextPassword().GetPlaintextPassword())
+	})
 }
