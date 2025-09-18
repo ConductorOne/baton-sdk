@@ -215,6 +215,7 @@ type syncer struct {
 	skipEntitlementsAndGrants           bool
 	resourceTypeTraits                  map[string][]v2.ResourceType_Trait
 	syncType                            connectorstore.SyncType
+	injectSyncIDAnnotation              bool
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -367,11 +368,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 		l.Error("no syncID found after starting or resuming sync", zap.Error(err))
 		return err
 	}
-	if wrapper, ok := s.connector.(*syncIDClientWrapper); ok {
-		wrapper.syncID = syncID
-	} else {
-		l.Error("connector is not a syncIDClientWrapper")
-		return errors.New("connector is not a syncIDClientWrapper")
+	if s.injectSyncIDAnnotation {
+		if wrapper, ok := s.connector.(*syncIDClientWrapper); ok {
+			wrapper.syncID = syncID
+		} else {
+			l.Error("connector is not a syncIDClientWrapper")
+			return errors.New("connector is not a syncIDClientWrapper")
+		}
 	}
 
 	// Add ActiveSync to context once after we have the syncID
@@ -2855,6 +2858,12 @@ func WithDontExpandGrants() SyncOpt {
 func WithSyncID(syncID string) SyncOpt {
 	return func(s *syncer) {
 		s.syncID = syncID
+	}
+}
+
+func WithInjectSyncIDAnnotation(inject bool) SyncOpt {
+	return func(s *syncer) {
+		s.injectSyncIDAnnotation = inject
 	}
 }
 
