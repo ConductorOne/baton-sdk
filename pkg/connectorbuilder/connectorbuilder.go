@@ -146,6 +146,12 @@ type AccountManager interface {
 	CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error)
 }
 
+type OldAccountManager interface {
+	CreateAccount(ctx context.Context,
+		accountInfo *v2.AccountInfo,
+		credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
+}
+
 // CredentialManager extends ResourceSyncer to add capabilities for managing credentials.
 //
 // Implementing this interface indicates the connector supports rotating credentials
@@ -157,6 +163,12 @@ type CredentialManager interface {
 		resourceId *v2.ResourceId,
 		credentialOptions *v2.LocalCredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
 	RotateCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error)
+}
+
+type OldCredentialManager interface {
+	Rotate(ctx context.Context,
+		resourceId *v2.ResourceId,
+		credentialOptions *v2.CredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
 }
 
 // Compatibility interface lets us handle both EventFeed and EventProvider the same.
@@ -644,11 +656,19 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 				}
 			}
 
+			if _, ok := rb.(OldAccountManager); ok {
+				return nil, fmt.Errorf("error: old account manager interface implemented for %s", rType.Id)
+			}
+
 			if accountManager, ok := rb.(AccountManager); ok {
 				if ret.accountManager != nil {
 					return nil, fmt.Errorf("error: duplicate resource type found for account manager %s", rType.Id)
 				}
 				ret.accountManager = accountManager
+			}
+
+			if _, ok := rb.(OldCredentialManager); ok {
+				return nil, fmt.Errorf("error: old credential manager interface implemented for %s", rType.Id)
 			}
 
 			if credentialManagers, ok := rb.(CredentialManager); ok {
