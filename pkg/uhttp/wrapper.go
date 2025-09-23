@@ -110,9 +110,13 @@ func NewBaseHttpClient(httpClient *http.Client, opts ...WrapperOption) *BaseHttp
 }
 
 func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, opts ...WrapperOption) (*BaseHttpClient, error) {
+	return NewBaseHttpClientWithContextCache(ctx, httpClient, nil, opts...)
+}
+
+func NewBaseHttpClientWithContextCache(ctx context.Context, httpClient *http.Client, cacheConfig *CacheConfig, opts ...WrapperOption) (*BaseHttpClient, error) {
 	l := ctxzap.Extract(ctx)
 
-	cache, err := NewHttpCache(ctx, nil)
+	cache, err := NewHttpCache(ctx, cacheConfig)
 	if err != nil {
 		l.Error("error creating http cache", zap.Error(err))
 		return nil, err
