@@ -1559,7 +1559,7 @@ func (b *builderImpl) ListActionSchemas(ctx context.Context, request *v2.ListAct
 	return rv, nil
 }
 
-// filterActionSchemas applies the specified filter to the list of action schemas
+// filterActionSchemas applies the specified filter to the list of action schemas.
 func (b *builderImpl) filterActionSchemas(schemas []*v2.BatonActionSchema, filter *v2.ActionSchemaFilter) []*v2.BatonActionSchema {
 	if filter == nil {
 		return schemas
@@ -1577,7 +1577,7 @@ func (b *builderImpl) filterActionSchemas(schemas []*v2.BatonActionSchema, filte
 	}
 }
 
-// filterSchemasWithLifecycleTrait filters schemas based on whether they have a lifecycle management trait
+// filterSchemasWithLifecycleTrait filters schemas based on whether they have a lifecycle management trait.
 func (b *builderImpl) filterSchemasWithLifecycleTrait(schemas []*v2.BatonActionSchema, hasTrait bool) []*v2.BatonActionSchema {
 	var filtered []*v2.BatonActionSchema
 
@@ -1591,7 +1591,7 @@ func (b *builderImpl) filterSchemasWithLifecycleTrait(schemas []*v2.BatonActionS
 	return filtered
 }
 
-// schemaHasLifecycleTrait checks if a schema has a lifecycle management action trait
+// schemaHasLifecycleTrait checks if a schema has a lifecycle management action trait.
 func (b *builderImpl) schemaHasLifecycleTrait(schema *v2.BatonActionSchema) bool {
 	for _, trait := range schema.Traits {
 		var lifecycleTrait v2.LifecycleManagementActionTrait

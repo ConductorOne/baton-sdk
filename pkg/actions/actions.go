@@ -200,7 +200,7 @@ func (a *ActionManager) ListActionSchemas(ctx context.Context) ([]*v2.BatonActio
 	return rv, nil, nil
 }
 
-// schemaHasLifecycleTrait checks if a schema has a lifecycle management action trait
+// schemaHasLifecycleTrait checks if a schema has a lifecycle management action trait.
 func (a *ActionManager) schemaHasLifecycleTrait(schema *v2.BatonActionSchema) bool {
 	for _, trait := range schema.Traits {
 		var lifecycleTrait v2.LifecycleManagementActionTrait
@@ -211,7 +211,7 @@ func (a *ActionManager) schemaHasLifecycleTrait(schema *v2.BatonActionSchema) bo
 	return false
 }
 
-// CreateLifecycleManagementTrait creates a lifecycle management action trait with the specified action types
+// CreateLifecycleManagementTrait creates a lifecycle management action trait with the specified action types.
 func CreateLifecycleManagementTrait(actionTypes []v2.BatonLifeCycleManagementActionType) (*anypb.Any, error) {
 	trait := &v2.LifecycleManagementActionTrait{
 		ActionTypes: actionTypes,
