@@ -165,6 +165,40 @@ func (m *BatonActionSchema) validate(all bool) error {
 
 	// no validation rules for Description
 
+	for idx, item := range m.GetTraits() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, BatonActionSchemaValidationError{
+						field:  fmt.Sprintf("Traits[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, BatonActionSchemaValidationError{
+						field:  fmt.Sprintf("Traits[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return BatonActionSchemaValidationError{
+					field:  fmt.Sprintf("Traits[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return BatonActionSchemaMultiError(errors)
 	}
@@ -244,6 +278,109 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = BatonActionSchemaValidationError{}
+
+// Validate checks the field values on LifecycleManagementActionTrait with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *LifecycleManagementActionTrait) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on LifecycleManagementActionTrait with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// LifecycleManagementActionTraitMultiError, or nil if none found.
+func (m *LifecycleManagementActionTrait) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *LifecycleManagementActionTrait) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return LifecycleManagementActionTraitMultiError(errors)
+	}
+
+	return nil
+}
+
+// LifecycleManagementActionTraitMultiError is an error wrapping multiple
+// validation errors returned by LifecycleManagementActionTrait.ValidateAll()
+// if the designated constraints aren't met.
+type LifecycleManagementActionTraitMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m LifecycleManagementActionTraitMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m LifecycleManagementActionTraitMultiError) AllErrors() []error { return m }
+
+// LifecycleManagementActionTraitValidationError is the validation error
+// returned by LifecycleManagementActionTrait.Validate if the designated
+// constraints aren't met.
+type LifecycleManagementActionTraitValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e LifecycleManagementActionTraitValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e LifecycleManagementActionTraitValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e LifecycleManagementActionTraitValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e LifecycleManagementActionTraitValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e LifecycleManagementActionTraitValidationError) ErrorName() string {
+	return "LifecycleManagementActionTraitValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e LifecycleManagementActionTraitValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sLifecycleManagementActionTrait.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = LifecycleManagementActionTraitValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = LifecycleManagementActionTraitValidationError{}
 
 // Validate checks the field values on InvokeActionRequest with the rules
 // defined in the proto definition for this message. If any rules are
@@ -1253,6 +1390,35 @@ func (m *ListActionSchemasRequest) validate(all bool) error {
 
 	}
 
+	if all {
+		switch v := interface{}(m.GetFilter()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ListActionSchemasRequestValidationError{
+					field:  "Filter",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ListActionSchemasRequestValidationError{
+					field:  "Filter",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetFilter()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ListActionSchemasRequestValidationError{
+				field:  "Filter",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
 	if len(errors) > 0 {
 		return ListActionSchemasRequestMultiError(errors)
 	}
@@ -1332,6 +1498,110 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = ListActionSchemasRequestValidationError{}
+
+// Validate checks the field values on ActionSchemaFilter with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ActionSchemaFilter) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ActionSchemaFilter with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ActionSchemaFilterMultiError, or nil if none found.
+func (m *ActionSchemaFilter) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ActionSchemaFilter) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for FilterType
+
+	if len(errors) > 0 {
+		return ActionSchemaFilterMultiError(errors)
+	}
+
+	return nil
+}
+
+// ActionSchemaFilterMultiError is an error wrapping multiple validation errors
+// returned by ActionSchemaFilter.ValidateAll() if the designated constraints
+// aren't met.
+type ActionSchemaFilterMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ActionSchemaFilterMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ActionSchemaFilterMultiError) AllErrors() []error { return m }
+
+// ActionSchemaFilterValidationError is the validation error returned by
+// ActionSchemaFilter.Validate if the designated constraints aren't met.
+type ActionSchemaFilterValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ActionSchemaFilterValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ActionSchemaFilterValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ActionSchemaFilterValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ActionSchemaFilterValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ActionSchemaFilterValidationError) ErrorName() string {
+	return "ActionSchemaFilterValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ActionSchemaFilterValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sActionSchemaFilter.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ActionSchemaFilterValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ActionSchemaFilterValidationError{}
 
 // Validate checks the field values on ListActionSchemasResponse with the rules
 // defined in the proto definition for this message. If any rules are

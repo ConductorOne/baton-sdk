@@ -32,7 +32,21 @@ message BatonActionSchema {
   repeated c1.config.v1.Field return_types = 4;
 
   string display_name = 5;
-  string description = 6;
+  string description = 6;  
+  repeated google.protobuf.Any traits = 7;
+}
+
+enum BatonLifeCycleManagementActionType {
+  BATON_LIFE_CYCLE_MANAGEMENT_ACTION_TYPE_UNSPECIFIED = 0;
+  BATON_LIFE_CYCLE_MANAGEMENT_ACTION_TYPE_NONE = 1;
+  BATON_LIFE_CYCLE_MANAGEMENT_ACTION_TYPE_ENABLE = 2;
+  BATON_LIFE_CYCLE_MANAGEMENT_ACTION_TYPE_DISABLE = 3;
+  BATON_LIFE_CYCLE_MANAGEMENT_ACTION_TYPE_DELETE = 4;
+  BATON_LIFE_CYCLE_MANAGEMENT_ACTION_TYPE_CREATE = 5;
+}
+
+message LifecycleManagementActionTrait {
+  repeated BatonLifeCycleManagementActionType action_types = 1;
 }
 
 message InvokeActionRequest {
@@ -74,7 +88,19 @@ message GetActionSchemaResponse {
 }
 
 message ListActionSchemasRequest {
-  repeated google.protobuf.Any annotations = 1;
+  repeated google.protobuf.Any annotations = 1;  
+  ActionSchemaFilter filter = 2;
+}
+
+message ActionSchemaFilter {
+  ActionSchemaFilterType filter_type = 1;
+}
+
+enum ActionSchemaFilterType {
+  ACTION_SCHEMA_FILTER_TYPE_UNSPECIFIED = 0;
+  ACTION_SCHEMA_FILTER_TYPE_ALL = 1;
+  ACTION_SCHEMA_FILTER_TYPE_WITH_LIFECYCLE_TRAIT = 2;
+  ACTION_SCHEMA_FILTER_TYPE_WITHOUT_LIFECYCLE_TRAIT = 3;
 }
 
 message ListActionSchemasResponse {
