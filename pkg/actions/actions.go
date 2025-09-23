@@ -201,7 +201,7 @@ func (a *ActionManager) ListActionSchemas(ctx context.Context) ([]*v2.BatonActio
 }
 
 // schemaHasLifecycleTrait checks if a schema has a lifecycle management action trait.
-func (a *ActionManager) schemaHasLifecycleTrait(schema *v2.BatonActionSchema) bool {
+func SchemaHasLifecycleTrait(schema *v2.BatonActionSchema) bool {
 	for _, trait := range schema.Traits {
 		var lifecycleTrait v2.LifecycleManagementActionTrait
 		if err := trait.UnmarshalTo(&lifecycleTrait); err == nil {
