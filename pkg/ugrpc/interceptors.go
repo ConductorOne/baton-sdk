@@ -148,13 +148,8 @@ func ContextWithSyncID(ctx context.Context, req any) context.Context {
 
 	syncID = syncIDGetter.GetActiveSyncId()
 	if syncID == "" {
-		l := ctxzap.Extract(ctx)
-		l.Warn("active sync id is empty")
 		return ctx
 	}
-
-	l := ctxzap.Extract(ctx)
-	l.Info("setting active sync id in context", zap.String("sync_id", syncID))
 
 	return context.WithValue(ctx, types.SyncIDKey{}, syncID)
 }
