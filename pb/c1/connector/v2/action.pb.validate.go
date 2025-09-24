@@ -166,6 +166,47 @@ func (m *BatonActionSchema) validate(all bool) error {
 	// no validation rules for Description
 
 	switch v := m.ActionType.(type) {
+	case *BatonActionSchema_DynamicActionType:
+		if v == nil {
+			err := BatonActionSchemaValidationError{
+				field:  "ActionType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetDynamicActionType()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, BatonActionSchemaValidationError{
+						field:  "DynamicActionType",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, BatonActionSchemaValidationError{
+						field:  "DynamicActionType",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetDynamicActionType()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return BatonActionSchemaValidationError{
+					field:  "DynamicActionType",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	case *BatonActionSchema_AccountActionType:
 		if v == nil {
 			err := BatonActionSchemaValidationError{
@@ -290,6 +331,106 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = BatonActionSchemaValidationError{}
+
+// Validate checks the field values on DynamicAction with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *DynamicAction) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on DynamicAction with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in DynamicActionMultiError, or
+// nil if none found.
+func (m *DynamicAction) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *DynamicAction) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return DynamicActionMultiError(errors)
+	}
+
+	return nil
+}
+
+// DynamicActionMultiError is an error wrapping multiple validation errors
+// returned by DynamicAction.ValidateAll() if the designated constraints
+// aren't met.
+type DynamicActionMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m DynamicActionMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m DynamicActionMultiError) AllErrors() []error { return m }
+
+// DynamicActionValidationError is the validation error returned by
+// DynamicAction.Validate if the designated constraints aren't met.
+type DynamicActionValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e DynamicActionValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e DynamicActionValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e DynamicActionValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e DynamicActionValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e DynamicActionValidationError) ErrorName() string { return "DynamicActionValidationError" }
+
+// Error satisfies the builtin error interface
+func (e DynamicActionValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sDynamicAction.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = DynamicActionValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = DynamicActionValidationError{}
 
 // Validate checks the field values on AccountAction with the rules defined in
 // the proto definition for this message. If any rules are violated, the first

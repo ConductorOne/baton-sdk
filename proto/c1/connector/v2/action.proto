@@ -35,8 +35,14 @@ message BatonActionSchema {
   string description = 6;  
   
   oneof action_type {
-    AccountAction account_action_type = 7;
+    DynamicAction dynamic_action_type = 100;
+    AccountAction account_action_type = 101;
   }
+}
+
+// placeholder for dynamic action type
+message DynamicAction {
+
 }
 
 message AccountAction {
