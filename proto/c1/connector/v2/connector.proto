@@ -12,6 +12,11 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 message ConnectorServiceCleanupRequest {
   repeated google.protobuf.Any annotations = 1;
+  string active_sync_id = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 1024
+  }];
 }
 message ConnectorServiceCleanupResponse {
   repeated google.protobuf.Any annotations = 1;
@@ -110,6 +115,7 @@ message ConnectorServiceValidateRequest {}
 // for things like 401/403/500, etc
 message ConnectorServiceValidateResponse {
   repeated google.protobuf.Any annotations = 1;
+  string sdk_version = 2;
 }
 
 message ConnectorAccountCreationSchema {

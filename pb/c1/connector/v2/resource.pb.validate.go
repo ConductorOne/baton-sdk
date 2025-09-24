@@ -359,6 +359,21 @@ func (m *ResourceTypesServiceListResourceTypesRequest) validate(all bool) error 
 
 	}
 
+	if m.GetActiveSyncId() != "" {
+
+		if l := len(m.GetActiveSyncId()); l < 1 || l > 1024 {
+			err := ResourceTypesServiceListResourceTypesRequestValidationError{
+				field:  "ActiveSyncId",
+				reason: "value length must be between 1 and 1024 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return ResourceTypesServiceListResourceTypesRequestMultiError(errors)
 	}
@@ -4085,6 +4100,21 @@ func (m *ResourcesServiceListResourcesRequest) validate(all bool) error {
 
 	}
 
+	if m.GetActiveSyncId() != "" {
+
+		if l := len(m.GetActiveSyncId()); l < 1 || l > 1024 {
+			err := ResourcesServiceListResourcesRequestValidationError{
+				field:  "ActiveSyncId",
+				reason: "value length must be between 1 and 1024 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if len(errors) > 0 {
 		return ResourcesServiceListResourcesRequestMultiError(errors)
 	}
@@ -4467,6 +4497,21 @@ func (m *ResourceGetterServiceGetResourceRequest) validate(all bool) error {
 					cause:  err,
 				}
 			}
+		}
+
+	}
+
+	if m.GetActiveSyncId() != "" {
+
+		if l := len(m.GetActiveSyncId()); l < 1 || l > 1024 {
+			err := ResourceGetterServiceGetResourceRequestValidationError{
+				field:  "ActiveSyncId",
+				reason: "value length must be between 1 and 1024 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
 		}
 
 	}

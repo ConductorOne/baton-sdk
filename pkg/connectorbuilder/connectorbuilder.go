@@ -24,6 +24,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/retry"
+	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
@@ -875,7 +876,6 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 		Token: request.PageToken,
 	})
 
-	// annos.Append(&v2.ActiveSync{ActiveSyncId: request.Annotations.GetActiveSyncId()})
 	resp := &v2.GrantsServiceListGrantsResponse{
 		List:          out,
 		NextPageToken: nextPageToken,
@@ -1080,7 +1080,10 @@ func (b *builderImpl) Validate(ctx context.Context, request *v2.ConnectorService
 	for {
 		annos, err := b.cb.Validate(ctx)
 		if err == nil {
-			return &v2.ConnectorServiceValidateResponse{Annotations: annos}, nil
+			return &v2.ConnectorServiceValidateResponse{
+				Annotations: annos,
+				SdkVersion:  sdk.Version,
+			}, nil
 		}
 
 		if retryer.ShouldWaitAndRetry(ctx, err) {
@@ -1443,16 +1446,10 @@ func (b *builderImpl) Cleanup(ctx context.Context, request *v2.ConnectorServiceC
 	sessionCache, err := session.GetSession(ctx)
 	if err != nil {
 		l.Warn("error getting session cache", zap.Error(err))
-	} else {
-		activeSync, err := annotations.GetActiveSyncIdFromAnnotations(annotations.Annotations(request.GetAnnotations()))
+	} else if request.GetActiveSyncId() != "" {
+		err = sessionCache.Clear(ctx, session.WithSyncID(request.GetActiveSyncId()))
 		if err != nil {
-			l.Warn("error getting active sync id", zap.Error(err))
-		}
-		if activeSync != "" {
-			err = sessionCache.Clear(ctx)
-			if err != nil {
-				l.Warn("error clearing session cache", zap.Error(err))
-			}
+			l.Warn("error clearing session cache", zap.Error(err))
 		}
 	}
 	// Clear all http caches at the end of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go

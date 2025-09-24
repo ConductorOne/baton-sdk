@@ -24,12 +24,27 @@ func TestRequest_UnmarshalJSON_WithUnknownAnnotations(t *testing.T) {
 		expectedAnnotationsCount int
 	}{
 		{
+			name: "should filter out unknown fields",
+			jsonInput: `{
+				"method": "/c1.connectorapi.baton.v1.BatonService/Hello",
+				"req": {
+					"@type": "type.googleapis.com/c1.connectorapi.baton.v1.BatonServiceHelloRequest",
+					"host_id": "test-host",
+					"unknown_field": "test-value"
+				},
+				"headers": {}
+			}`,
+			expectError:              false,
+			expectedAnnotationsCount: 0,
+		},
+		{
 			name: "should filter out unknown annotation types",
 			jsonInput: `{
 				"method": "/c1.connectorapi.baton.v1.BatonService/Hello",
 				"req": {
 					"@type": "type.googleapis.com/c1.connectorapi.baton.v1.BatonServiceHelloRequest",
 					"host_id": "test-host",
+					"unknown_field": "test-value",
 					"annotations": [
 						{
 							"@type": "type.googleapis.com/c1.connector.v2.GroupTrait",

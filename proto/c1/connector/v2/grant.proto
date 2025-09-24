@@ -41,6 +41,11 @@ message GrantsServiceListGrantsRequest {
     max_bytes: 1048576 // 1MB
   }];
   repeated google.protobuf.Any annotations = 4;
+  string active_sync_id = 5 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 1024
+  }];
 }
 
 message GrantsServiceListGrantsResponse {

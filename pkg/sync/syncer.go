@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/retry"
@@ -314,6 +315,13 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	return syncID, newSync, nil
 }
 
+func (s *syncer) getActiveSyncID() string {
+	if s.injectSyncIDAnnotation {
+		return s.syncID
+	}
+	return ""
+}
+
 // Sync starts the syncing process. The sync process is driven by the action stack that is part of the state object.
 // For each page of data that is required to be fetched from the connector, a new action is pushed on to the stack. Once
 // an action is completed, it is popped off of the queue. Before processing each action, we checkpoint the state object
@@ -341,9 +349,22 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
+	resp, err := s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
 		return err
+	}
+
+	if resp.SdkVersion != "" {
+		sdkVersion, err := semver.NewVersion(resp.SdkVersion)
+		if err != nil {
+			l.Warn("error parsing sdk version", zap.String("sdk_version", resp.SdkVersion), zap.Error(err))
+		} else {
+			supportsActiveSyncId, err := semver.NewConstraint(">= 0.4.3")
+			if err != nil {
+				return fmt.Errorf("error parsing sdk version %s: %w", resp.SdkVersion, err)
+			}
+			s.injectSyncIDAnnotation = supportsActiveSyncId.Check(sdkVersion)
+		}
 	}
 
 	// Validate any targeted resource IDs before starting a sync.
@@ -367,14 +388,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 		err = errors.New("no syncID found after starting or resuming sync")
 		l.Error("no syncID found after starting or resuming sync", zap.Error(err))
 		return err
-	}
-	if s.injectSyncIDAnnotation {
-		if wrapper, ok := s.connector.(*syncIDClientWrapper); ok {
-			wrapper.syncID = syncID
-		} else {
-			l.Error("connector is not a syncIDClientWrapper")
-			return errors.New("connector is not a syncIDClientWrapper")
-		}
 	}
 
 	// Add ActiveSync to context once after we have the syncID
@@ -593,7 +606,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	}
 
 	_, err = s.connector.Cleanup(ctx, &v2.ConnectorServiceCleanupRequest{
-		Annotations: annotations.New(&v2.ActiveSync{Id: s.syncID}),
+		ActiveSyncId: s.getActiveSyncID(),
 	})
 	if err != nil {
 		l.Error("error clearing connector caches", zap.Error(err))
@@ -667,8 +680,8 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 	}
 
 	resp, err := s.connector.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{
-		PageToken:   pageToken,
-		Annotations: annotations.New(&v2.ActiveSync{Id: s.syncID}),
+		PageToken:    pageToken,
+		ActiveSyncId: s.getActiveSyncID(),
 	})
 	if err != nil {
 		return err
@@ -730,7 +743,7 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 		&v2.ResourceGetterServiceGetResourceRequest{
 			ResourceId:       resourceID,
 			ParentResourceId: parentResourceID,
-			Annotations:      annotations.New(&v2.ActiveSync{Id: s.syncID}),
+			ActiveSyncId:     s.getActiveSyncID(),
 		},
 	)
 	if err == nil {
@@ -877,7 +890,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 	req := &v2.ResourcesServiceListResourcesRequest{
 		ResourceTypeId: s.state.ResourceTypeID(ctx),
 		PageToken:      s.state.PageToken(ctx),
-		Annotations:    annotations.New(&v2.ActiveSync{Id: s.syncID}),
+		ActiveSyncId:   s.getActiveSyncID(),
 	}
 	if s.state.ParentResourceTypeID(ctx) != "" && s.state.ParentResourceID(ctx) != "" {
 		req.ParentResourceId = &v2.ResourceId{
@@ -1110,9 +1123,9 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 	resource := resourceResponse.Resource
 
 	resp, err := s.connector.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
-		Resource:    resource,
-		PageToken:   pageToken,
-		Annotations: annotations.New(&v2.ActiveSync{Id: s.syncID}),
+		Resource:     resource,
+		PageToken:    pageToken,
+		ActiveSyncId: s.getActiveSyncID(),
 	})
 	if err != nil {
 		return err
@@ -1631,9 +1644,9 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	resource.Annotations = resourceAnnos
 
 	resp, err := s.connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
-		Resource:    resource,
-		PageToken:   pageToken,
-		Annotations: annotations.New(&v2.ActiveSync{Id: s.syncID}),
+		Resource:     resource,
+		PageToken:    pageToken,
+		ActiveSyncId: s.getActiveSyncID(),
 	})
 	if err != nil {
 		return err
@@ -2821,12 +2834,6 @@ func WithSyncID(syncID string) SyncOpt {
 	}
 }
 
-func WithInjectSyncIDAnnotation(inject bool) SyncOpt {
-	return func(s *syncer) {
-		s.injectSyncIDAnnotation = inject
-	}
-}
-
 func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 	return func(s *syncer) {
 		s.skipEntitlementsAndGrants = skip
@@ -2845,7 +2852,7 @@ func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 // NewSyncer returns a new syncer object.
 func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
 	s := &syncer{
-		connector:             &syncIDClientWrapper{ConnectorClient: c, syncID: ""}, // we only get the syncid later
+		connector:             c,
 		skipEGForResourceType: make(map[string]bool),
 		resourceTypeTraits:    make(map[string][]v2.ResourceType_Trait),
 		counts:                NewProgressCounts(),

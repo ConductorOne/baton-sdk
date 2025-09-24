@@ -2,9 +2,7 @@ package ugrpc
 
 import (
 	"context"
-	"reflect"
 
-	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
@@ -14,7 +12,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/types/known/anypb"
 )
 
 func ChainUnaryInterceptors(interceptors ...grpc.UnaryServerInterceptor) grpc.UnaryServerInterceptor {
@@ -133,55 +130,23 @@ func recoveryHandler(ctx context.Context, p interface{}) error {
 	return err
 }
 
+type syncIDGetter interface {
+	GetActiveSyncId() string
+}
+
 // ContextWithSyncID extracts syncID from a request annotations and adds it to the context.
-func ContextWithSyncID(ctx context.Context, req interface{}) context.Context {
+func ContextWithSyncID(ctx context.Context, req any) context.Context {
 	if ctx == nil || req == nil {
 		return ctx
 	}
 
-	// Use reflection to check if the request has an Annotations field
-	reqValue := reflect.ValueOf(req)
-	if reqValue.Kind() == reflect.Ptr {
-		reqValue = reqValue.Elem()
-	}
-
-	annotationsField := reqValue.FieldByName("Annotations")
-	if !annotationsField.IsValid() {
+	var syncID string
+	syncIDGetter, ok := req.(syncIDGetter)
+	if !ok {
 		return ctx
 	}
 
-	// Check if the field is of the correct type
-	if annotationsField.Type() != reflect.TypeOf(annotations.Annotations{}) &&
-		annotationsField.Type() != reflect.TypeOf([]*anypb.Any{}) {
-		return ctx
-	}
-
-	// Get the annotations from the request
-	if annotationsField.IsNil() {
-		return ctx
-	}
-
-	// Handle both annotations.Annotations and []*anypb.Any types
-	var annos annotations.Annotations
-	if annotationsField.Type() == reflect.TypeOf(annotations.Annotations{}) {
-		annos = annotationsField.Interface().(annotations.Annotations)
-	} else {
-		// Convert []*anypb.Any to annotations.Annotations
-		anySlice := annotationsField.Interface().([]*anypb.Any)
-		annos = annotations.Annotations(anySlice)
-	}
-
-	if len(annos) == 0 {
-		return ctx
-	}
-
-	syncID, err := annotations.GetActiveSyncIdFromAnnotations(annos)
-	if err != nil {
-		l := ctxzap.Extract(ctx)
-		l.Warn("error getting active sync id from annotations", zap.Error(err))
-		return ctx
-	}
-
+	syncID = syncIDGetter.GetActiveSyncId()
 	if syncID == "" {
 		return ctx
 	}

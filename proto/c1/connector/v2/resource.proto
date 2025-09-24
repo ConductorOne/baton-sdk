@@ -58,6 +58,11 @@ message ResourceTypesServiceListResourceTypesRequest {
     max_bytes: 1048576 // 1MB
   }];
   repeated google.protobuf.Any annotations = 4;
+  string active_sync_id = 5 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 1024
+  }];
 }
 
 message ResourceTypesServiceListResourceTypesResponse {
@@ -312,6 +317,11 @@ message ResourcesServiceListResourcesRequest {
     max_bytes: 1048576 // 1MB
   }];
   repeated google.protobuf.Any annotations = 5;
+  string active_sync_id = 6 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 1024
+  }];
 }
 
 message ResourcesServiceListResourcesResponse {
@@ -328,6 +338,11 @@ message ResourceGetterServiceGetResourceRequest {
   ResourceId resource_id = 1;
   ResourceId parent_resource_id = 2 [(validate.rules).message = {required: false}];
   repeated google.protobuf.Any annotations = 3;
+  string active_sync_id = 4 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 1024
+  }];
 }
 
 message ResourceGetterServiceGetResourceResponse {
