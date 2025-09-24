@@ -497,7 +497,7 @@ type Field_StringSliceField struct {
 }
 
 type Field_StringMapField struct {
-	StringMapField *StringMapField `protobuf:"bytes,104,opt,name=string_map_field,json=stringMapField,proto3,oneof"` // BatonResourceID type?
+	StringMapField *StringMapField `protobuf:"bytes,104,opt,name=string_map_field,json=stringMapField,proto3,oneof"`
 }
 
 func (*Field_StringField) isField_Field() {}

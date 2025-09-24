@@ -52,7 +52,6 @@ message Field {
     BoolField bool_field = 102;
     StringSliceField string_slice_field = 103;
     StringMapField string_map_field = 104;
-    // BatonResourceID type?
   }
 }
 

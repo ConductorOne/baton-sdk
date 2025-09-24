@@ -1544,62 +1544,13 @@ func (b *builderImpl) ListActionSchemas(ctx context.Context, request *v2.ListAct
 		return nil, fmt.Errorf("error: listing action schemas failed: %w", err)
 	}
 
-	// Apply filtering if specified
-	filteredSchemas := actionSchemas
-	if request.Filter != nil {
-		filteredSchemas = b.filterActionSchemas(actionSchemas, request.Filter)
-	}
-
 	rv := &v2.ListActionSchemasResponse{
-		Schemas:     filteredSchemas,
+		Schemas:     actionSchemas,
 		Annotations: annos,
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return rv, nil
-}
-
-// filterActionSchemas applies the specified filter to the list of action schemas.
-func (b *builderImpl) filterActionSchemas(schemas []*v2.BatonActionSchema, filter *v2.ActionSchemaFilter) []*v2.BatonActionSchema {
-	if filter == nil {
-		return schemas
-	}
-
-	switch filter.FilterType {
-	case v2.ActionSchemaFilterType_ACTION_SCHEMA_FILTER_TYPE_ALL:
-		return schemas
-	case v2.ActionSchemaFilterType_ACTION_SCHEMA_FILTER_TYPE_WITH_LIFECYCLE_TRAIT:
-		return b.filterSchemasWithLifecycleTrait(schemas, true)
-	case v2.ActionSchemaFilterType_ACTION_SCHEMA_FILTER_TYPE_WITHOUT_LIFECYCLE_TRAIT:
-		return b.filterSchemasWithLifecycleTrait(schemas, false)
-	default:
-		return schemas
-	}
-}
-
-// filterSchemasWithLifecycleTrait filters schemas based on whether they have a lifecycle management trait.
-func (b *builderImpl) filterSchemasWithLifecycleTrait(schemas []*v2.BatonActionSchema, hasTrait bool) []*v2.BatonActionSchema {
-	var filtered []*v2.BatonActionSchema
-
-	for _, schema := range schemas {
-		hasLifecycleTrait := b.schemaHasLifecycleTrait(schema)
-		if (hasTrait && hasLifecycleTrait) || (!hasTrait && !hasLifecycleTrait) {
-			filtered = append(filtered, schema)
-		}
-	}
-
-	return filtered
-}
-
-// schemaHasLifecycleTrait checks if a schema has a lifecycle management action trait.
-func (b *builderImpl) schemaHasLifecycleTrait(schema *v2.BatonActionSchema) bool {
-	for _, trait := range schema.Traits {
-		var lifecycleTrait v2.LifecycleManagementActionTrait
-		if err := trait.UnmarshalTo(&lifecycleTrait); err == nil {
-			return true
-		}
-	}
-	return false
 }
 
 func (b *builderImpl) GetActionSchema(ctx context.Context, request *v2.GetActionSchemaRequest) (*v2.GetActionSchemaResponse, error) {
