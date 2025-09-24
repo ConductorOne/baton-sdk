@@ -32,16 +32,19 @@ message BatonActionSchema {
   repeated c1.config.v1.Field return_types = 4;
 
   string display_name = 5;
-  string description = 6;  
-  
+  string description = 6;
+
   repeated ActionType action_type = 7;
 }
 
 // This defines the action type.
 enum ActionType {
   ACTION_TYPE_UNSPECIFIED = 0;
-  ACTION_TYPE_ACCOUNT = 1;
-  ACTION_TYPE_DYNAMIC = 2;
+  ACTION_TYPE_DYNAMIC = 1;
+  ACTION_TYPE_ACCOUNT = 2;
+  ACTION_TYPE_ACCOUNT_UPDATE_PROFILE = 3;
+  ACTION_TYPE_ACCOUNT_DISABLE = 4;
+  ACTION_TYPE_ACCOUNT_ENABLE = 5;
 }
 
 message InvokeActionRequest {
@@ -83,7 +86,7 @@ message GetActionSchemaResponse {
 }
 
 message ListActionSchemasRequest {
-  repeated google.protobuf.Any annotations = 1;  
+  repeated google.protobuf.Any annotations = 1;
 }
 
 message ListActionSchemasResponse {
