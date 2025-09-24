@@ -38,10 +38,10 @@ message BatonActionSchema {
 
 // This signifies whether an action is a lifecycle management action, and if so, what type of lifecycle management action it is.
 enum AccountActionType {
-  BATON_LIFE_CYCLE_MANAGEMENT_ACTION_TYPE_UNSPECIFIED = 0;
-  BATON_LIFE_CYCLE_MANAGEMENT_ACTION_TYPE_NONE = 1;
-  BATON_LIFE_CYCLE_MANAGEMENT_ACTION_TYPE_ENABLE = 2;
-  BATON_LIFE_CYCLE_MANAGEMENT_ACTION_TYPE_DISABLE = 3;
+  ACCOUNT_ACTION_TYPE_UNSPECIFIED = 0;
+  ACCOUNT_ACTION_TYPE_NONE = 1;
+  ACCOUNT_ACTION_TYPE_ENABLE = 2;
+  ACCOUNT_ACTION_TYPE_DISABLE = 3;
 }
 
 message InvokeActionRequest {
