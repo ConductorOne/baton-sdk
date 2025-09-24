@@ -34,26 +34,14 @@ message BatonActionSchema {
   string display_name = 5;
   string description = 6;  
   
-  oneof action_type {
-    DynamicAction dynamic_action_type = 100;
-    AccountAction account_action_type = 101;
-  }
+  repeated ActionType action_type = 7;
 }
 
-// placeholder for dynamic action type
-message DynamicAction {
-
-}
-
-message AccountAction {
-  repeated AccountActionType account_action_types = 1;
-}
-
-// This defines the account action type.
-enum AccountActionType {
-  ACCOUNT_ACTION_TYPE_UNSPECIFIED = 0;
-  ACCOUNT_ACTION_TYPE_ENABLE = 1;
-  ACCOUNT_ACTION_TYPE_DISABLE = 2;
+// This defines the action type.
+enum ActionType {
+  ACTION_TYPE_UNSPECIFIED = 0;
+  ACTION_TYPE_ACCOUNT = 1;
+  ACTION_TYPE_DYNAMIC = 2;
 }
 
 message InvokeActionRequest {
