@@ -33,10 +33,17 @@ message BatonActionSchema {
 
   string display_name = 5;
   string description = 6;  
-  repeated AccountActionType account_action_types = 7;
+  
+  oneof action_type {
+    AccountAction account_action_type = 7;
+  }
 }
 
-// This signifies whether an action is a lifecycle management action, and if so, what type of lifecycle management action it is.
+message AccountAction {
+  repeated AccountActionType account_action_types = 1;
+}
+
+// This defines the account action type.
 enum AccountActionType {
   ACCOUNT_ACTION_TYPE_UNSPECIFIED = 0;
   ACCOUNT_ACTION_TYPE_NONE = 1;
