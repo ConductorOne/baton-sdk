@@ -46,9 +46,8 @@ message AccountAction {
 // This defines the account action type.
 enum AccountActionType {
   ACCOUNT_ACTION_TYPE_UNSPECIFIED = 0;
-  ACCOUNT_ACTION_TYPE_NONE = 1;
-  ACCOUNT_ACTION_TYPE_ENABLE = 2;
-  ACCOUNT_ACTION_TYPE_DISABLE = 3;
+  ACCOUNT_ACTION_TYPE_ENABLE = 1;
+  ACCOUNT_ACTION_TYPE_DISABLE = 2;
 }
 
 message InvokeActionRequest {
