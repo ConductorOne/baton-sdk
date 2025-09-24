@@ -21,9 +21,9 @@ type Request struct {
 }
 
 /*
-UnmarshalJSON unmarshals the JSON into a Request of course,
+UnmarshalJSON unmarshals the JSON into a Request, discarding any unknown fields.
 
-filtering out any annotations that are not known to the global registry
+It also filters out any annotations that are not known to the global registry
 which happens frequently for new features and would otherwise require
 rolling every lambda function.
 
@@ -32,7 +32,10 @@ so the performance impact is negligible.
 */
 func (f *Request) UnmarshalJSON(b []byte) error {
 	f.msg = &pbtransport.Request{}
-	err := protojson.Unmarshal(b, f.msg)
+	unmarshalOptions := protojson.UnmarshalOptions{
+		DiscardUnknown: true,
+	}
+	err := unmarshalOptions.Unmarshal(b, f.msg)
 	if err == nil {
 		return nil
 	}
@@ -92,7 +95,7 @@ func (f *Request) UnmarshalJSON(b []byte) error {
 		return errors.Join(originalErr, err)
 	}
 
-	err = protojson.Unmarshal(filteredJSON, f.msg)
+	err = unmarshalOptions.Unmarshal(filteredJSON, f.msg)
 	if err != nil {
 		return errors.Join(originalErr, err)
 	}
