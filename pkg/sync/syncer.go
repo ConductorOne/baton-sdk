@@ -357,14 +357,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if resp.SdkVersion != "" {
 		sdkVersion, err := semver.NewVersion(resp.SdkVersion)
 		if err != nil {
-			return fmt.Errorf("error parsing sdk version %s: %w", resp.SdkVersion, err)
-		}
-		supportsActiveSyncId, err := semver.NewConstraint(">= 0.4.3")
-		if err != nil {
-			return fmt.Errorf("error parsing sdk version %s: %w", resp.SdkVersion, err)
-		}
-		if supportsActiveSyncId.Check(sdkVersion) {
-			s.injectSyncIDAnnotation = true
+			l.Warn("error parsing sdk version", zap.String("sdk_version", resp.SdkVersion), zap.Error(err))
+		} else {
+			supportsActiveSyncId, err := semver.NewConstraint(">= 0.4.3")
+			if err != nil {
+				return fmt.Errorf("error parsing sdk version %s: %w", resp.SdkVersion, err)
+			}
+			s.injectSyncIDAnnotation = supportsActiveSyncId.Check(sdkVersion)
 		}
 	}
 
