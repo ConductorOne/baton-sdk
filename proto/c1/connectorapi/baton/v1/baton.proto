@@ -14,7 +14,7 @@ import "google/protobuf/timestamp.proto";
 import "google/rpc/status.proto";
 import "validate/validate.proto";
 
-option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1";
 
 service BatonService {
   rpc Hello(BatonServiceHelloRequest) returns (BatonServiceHelloResponse) {}
