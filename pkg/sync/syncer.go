@@ -1417,7 +1417,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 				zap.Any("cycle", comps[0]),
 				zap.Any("scc_metrics", sccMetrics),
 			)
-			l.Debug("initial graph", zap.Any("initial graph", entitlementGraph))
+			//l.Debug("initial graph", zap.Any("initial graph", entitlementGraph))
 			if dontFixCycles {
 				return fmt.Errorf("cycles detected in entitlement graph")
 			}
