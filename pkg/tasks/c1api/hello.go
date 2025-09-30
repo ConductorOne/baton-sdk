@@ -52,18 +52,31 @@ func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloReq
 
 func (c *helloTaskHandler) buildInfo(ctx context.Context) *v1.BatonServiceHelloRequest_BuildInfo {
 	l := ctxzap.Extract(ctx)
+	buildInfo := &v1.BatonServiceHelloRequest_BuildInfo{
+		LangVersion:    "0.0.0",
+		Package:        "/dummy/path",
+		PackageVersion: "0.0.0",
+	}
 
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
 		l.Error("failed to get build info")
-		return &v1.BatonServiceHelloRequest_BuildInfo{}
+		return buildInfo
 	}
 
-	return &v1.BatonServiceHelloRequest_BuildInfo{
-		LangVersion:    bi.GoVersion,
-		Package:        bi.Main.Path,
-		PackageVersion: bi.Main.Version,
+	if bi.Main.Path != "" {
+		buildInfo.Package = bi.Main.Path
 	}
+
+	if bi.Main.Version != "" {
+		buildInfo.PackageVersion = bi.Main.Version
+	}
+
+	if bi.GoVersion != "" {
+		buildInfo.LangVersion = bi.GoVersion
+	}
+
+	return buildInfo
 }
 
 func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
