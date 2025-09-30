@@ -18,6 +18,7 @@ message Configuration {
   string catalog_id = 8;
   bool supports_external_resources = 9;
   bool requires_external_connector = 10;
+  repeated FieldGroup field_groups = 11;
 }
 
 enum ConstraintKind {
@@ -35,6 +36,14 @@ message Constraint {
   string name = 4; // optional
   string help_text = 5; // optional
   bool is_field_group = 6;
+}
+
+message FieldGroup {
+  string name = 1; // Unique ID.
+  string display_name = 2;
+  string help_text = 3;
+  repeated Field fields = 4;
+  repeated Constraint constraints = 5;
 }
 
 message Field {
