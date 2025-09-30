@@ -45,10 +45,7 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 				Name:        "group1",
 				DisplayName: "Group 1",
 				HelpText:    "This is group 1",
-				Fields:      []SchemaField{ss, intF},
-				Constraints: []SchemaFieldRelationship{
-					FieldsMutuallyExclusive(ss, intF),
-				},
+				Fields:      []SchemaField{StringField("onlyInGroup1"), StringField("onlyInGroup2")},
 			},
 		}),
 	)
@@ -79,31 +76,10 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
     "displayName": "Great Connector",
     "fieldGroups": [
         {
-            "constraints": [
-                {
-                    "fieldNames": [
-                        "ss",
-                        "if"
-                    ],
-                    "kind": "CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE"
-                }
-            ],
             "displayName": "Group 1",
             "fields": [
-                {
-                    "description": "Field 1",
-                    "name": "ss",
-                    "stringField": {
-                        "defaultValue": "default"
-                    }
-                },
-                {
-                    "description": "Field 2",
-                    "intField": {
-                        "defaultValue": "42"
-                    },
-                    "name": "if"
-                }
+                "onlyInGroup1",
+                "onlyInGroup2"
             ],
             "helpText": "This is group 1",
             "name": "group1"

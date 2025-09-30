@@ -587,12 +587,6 @@ func TestFieldGroupMapping(t *testing.T) {
 						StringField("field1"),
 						StringField("field2"),
 					},
-					Constraints: []SchemaFieldRelationship{
-						FieldsMutuallyExclusive(
-							StringField("field1"),
-							StringField("field2"),
-						),
-					},
 				},
 			},
 		}
@@ -605,6 +599,5 @@ func TestFieldGroupMapping(t *testing.T) {
 		require.Equal(t, "Group 1", marshal.FieldGroups[0].DisplayName)
 		require.Equal(t, "This is group 1", marshal.FieldGroups[0].HelpText)
 		require.Len(t, marshal.FieldGroups[0].Fields, 2)
-		require.Len(t, marshal.FieldGroups[0].Constraints, 1)
 	})
 }

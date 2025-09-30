@@ -55,34 +55,27 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 	}
 
 	fieldGroups := make([]*v1_conf.FieldGroup, 0, len(c.FieldGroups))
-	for i, group := range c.FieldGroups {
-		fg, err := fieldGroupToV1(group)
-		if err != nil {
-			return nil, fmt.Errorf("failed to convert field group %d to v1: %w", i, err)
-		}
-
-		fieldGroups = append(fieldGroups, fg)
+	for _, group := range c.FieldGroups {
+		fieldGroups = append(fieldGroups, fieldGroupToV1(group))
 	}
 	conf.FieldGroups = fieldGroups
 
 	return conf, nil
 }
 
-func fieldGroupToV1(fg FieldGroup) (*v1_conf.FieldGroup, error) {
-	var err error
-
+func fieldGroupToV1(fg FieldGroup) *v1_conf.FieldGroup {
 	fieldGroupV1 := &v1_conf.FieldGroup{
 		Name:        fg.Name,
 		DisplayName: fg.DisplayName,
 		HelpText:    fg.HelpText,
 	}
 
-	fieldGroupV1.Fields, fieldGroupV1.Constraints, err = mapFieldsAndConstraints(fg.Fields, fg.Constraints)
-	if err != nil {
-		return nil, fmt.Errorf("failed to convert field group '%s' to v1: %w", fg.Name, err)
+	fieldGroupV1.Fields = make([]string, 0, len(fg.Fields))
+	for _, f := range fg.Fields {
+		fieldGroupV1.Fields = append(fieldGroupV1.Fields, f.FieldName)
 	}
 
-	return fieldGroupV1, nil
+	return fieldGroupV1
 }
 
 func mapFieldsAndConstraints(fields []SchemaField, constraints []SchemaFieldRelationship) ([]*v1_conf.Field, []*v1_conf.Constraint, error) {
