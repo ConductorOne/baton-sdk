@@ -65,14 +65,17 @@ func (c *helloTaskHandler) buildInfo(ctx context.Context) *v1.BatonServiceHelloR
 	}
 
 	if bi.Main.Path != "" {
+		l.Warn("missing build info Main.path")
 		buildInfo.Package = bi.Main.Path
 	}
 
 	if bi.Main.Version != "" {
+		l.Warn("missing build info Main.version")
 		buildInfo.PackageVersion = bi.Main.Version
 	}
 
 	if bi.GoVersion != "" {
+		l.Warn("missing build info GoVersion")
 		buildInfo.LangVersion = bi.GoVersion
 	}
 
