@@ -5,7 +5,6 @@ type FieldGroup struct {
 	DisplayName string
 	HelpText    string
 	Fields      []SchemaField
-	Constraints []SchemaFieldRelationship
 }
 
 func WithFieldGroups(fieldGroups []FieldGroup) configOption {

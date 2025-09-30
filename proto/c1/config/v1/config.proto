@@ -42,8 +42,7 @@ message FieldGroup {
   string name = 1; // Unique ID.
   string display_name = 2;
   string help_text = 3;
-  repeated Field fields = 4;
-  repeated Constraint constraints = 5;
+  repeated string fields = 4;
 }
 
 message Field {
