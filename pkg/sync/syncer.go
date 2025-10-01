@@ -1417,7 +1417,13 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 				zap.Any("cycle", comps[0]),
 				zap.Any("scc_metrics", sccMetrics),
 			)
-			l.Debug("initial graph", zap.Any("initial graph", entitlementGraph))
+			l.Debug("initial graph stats",
+				zap.Int("edges", len(entitlementGraph.Edges)),
+				zap.Int("nodes", len(entitlementGraph.Nodes)),
+				zap.Int("actions", len(entitlementGraph.Actions)),
+				zap.Int("depth", entitlementGraph.Depth),
+				zap.Bool("has_no_cycles", entitlementGraph.HasNoCycles),
+			)
 			if dontFixCycles {
 				return fmt.Errorf("cycles detected in entitlement graph")
 			}
