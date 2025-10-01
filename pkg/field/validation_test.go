@@ -578,7 +578,7 @@ func TestFieldGroupMapping(t *testing.T) {
 			Fields: []SchemaField{
 				StringField("key"),
 			},
-			FieldGroups: []FieldGroup{
+			FieldGroups: []SchemaFieldGroup{
 				{
 					Name:        "group1",
 					DisplayName: "Group 1",

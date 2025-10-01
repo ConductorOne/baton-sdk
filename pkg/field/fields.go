@@ -76,7 +76,7 @@ type SchemaField struct {
 	WasReExported bool
 
 	// Groups
-	FieldGroups []FieldGroup
+	FieldGroups []SchemaFieldGroup
 }
 
 type SchemaTypes interface {
