@@ -40,7 +40,7 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 		WithIsDirectory(false),
 		WithSupportsExternalResources(true),
 		WithConstraints(constraints...),
-		WithFieldGroups([]FieldGroup{
+		WithFieldGroups([]SchemaFieldGroup{
 			{
 				Name:        "group1",
 				DisplayName: "Group 1",

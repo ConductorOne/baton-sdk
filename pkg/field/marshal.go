@@ -63,7 +63,7 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 	return conf, nil
 }
 
-func fieldGroupToV1(fg FieldGroup) *v1_conf.FieldGroup {
+func fieldGroupToV1(fg SchemaFieldGroup) *v1_conf.FieldGroup {
 	fieldGroupV1 := &v1_conf.FieldGroup{
 		Name:        fg.Name,
 		DisplayName: fg.DisplayName,
