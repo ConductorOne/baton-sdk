@@ -571,3 +571,33 @@ func TestStringMapRules_Validate(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+func TestFieldGroupMapping(t *testing.T) {
+	t.Run("field group mapping", func(t *testing.T) {
+		carrier := Configuration{
+			Fields: []SchemaField{
+				StringField("key"),
+			},
+			FieldGroups: []SchemaFieldGroup{
+				{
+					Name:        "group1",
+					DisplayName: "Group 1",
+					HelpText:    "This is group 1",
+					Fields: []SchemaField{
+						StringField("field1"),
+						StringField("field2"),
+					},
+				},
+			},
+		}
+
+		marshal, err := carrier.marshal()
+		require.NoError(t, err)
+
+		require.Len(t, marshal.FieldGroups, 1)
+		require.Equal(t, "group1", marshal.FieldGroups[0].Name)
+		require.Equal(t, "Group 1", marshal.FieldGroups[0].DisplayName)
+		require.Equal(t, "This is group 1", marshal.FieldGroups[0].HelpText)
+		require.Len(t, marshal.FieldGroups[0].Fields, 2)
+	})
+}
