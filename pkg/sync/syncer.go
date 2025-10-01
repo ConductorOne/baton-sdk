@@ -433,7 +433,7 @@ func (s *SequentialSyncer) startOrResumeSync(ctx context.Context) (string, bool,
 	return syncID, newSync, nil
 }
 
-func (s *syncer) getActiveSyncID() string {
+func (s *SequentialSyncer) getActiveSyncID() string {
 	if s.injectSyncIDAnnotation {
 		return s.syncID
 	}
@@ -2948,7 +2948,7 @@ func WithOnlyExpandGrants() SyncOpt {
 }
 
 func WithDontExpandGrants() SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.dontExpandGrants = true
 	}
 }
