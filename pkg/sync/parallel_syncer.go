@@ -97,7 +97,7 @@ func NewLocalStateContext(resourceID *v2.ResourceId) *LocalStateContext {
 		pageToken:            "",
 		needsExpansion:       false,
 		hasExternalResources: false,
-		shouldFetchRelated:   true, // Default to true for backward compatibility
+		shouldFetchRelated:   false,
 	}
 }
 
