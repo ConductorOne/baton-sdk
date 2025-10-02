@@ -218,7 +218,10 @@ func (q *taskQueue) AddTask(ctx context.Context, t *task) error {
 	case <-time.After(timeout):
 		return errTaskQueueFull
 	case <-ctx.Done():
+		return ctx.Err()
 	}
+
+	return nil
 }
 
 // getBucketForTask determines the bucket for a task based on the resource type's sync_bucket
