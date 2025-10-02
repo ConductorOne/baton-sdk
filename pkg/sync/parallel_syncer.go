@@ -24,7 +24,39 @@ import (
 
 var _ Syncer = (*parallelSyncer)(nil)
 
+var taskRetryLimit = 5
+var errTaskQueueFull = errors.New("task queue is full")
 var parallelTracer = otel.Tracer("baton-sdk/parallel-sync")
+
+// addTaskWithRetry adds a task to the queue with retry logic for queue full errors
+func (ps *parallelSyncer) addTaskWithRetry(ctx context.Context, task *task, maxRetries int) error {
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		err := ps.taskQueue.AddTask(task)
+		if err == nil {
+			return nil
+		}
+
+		if !errors.Is(err, errTaskQueueFull) {
+			return err
+		}
+
+		// If this is the last attempt, return the error
+		if attempt == maxRetries {
+			return fmt.Errorf("failed to add task after %d retries: %w", maxRetries, err)
+		}
+
+		// Wait before retrying, with exponential backoff
+		backoffDuration := time.Duration(attempt+1) * 100 * time.Millisecond
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoffDuration):
+			continue
+		}
+	}
+
+	return nil // This should never be reached
+}
 
 // StateInterface defines the minimal interface needed by helper methods
 // This allows helper methods to work with either the sequential syncer's state machine
@@ -170,7 +202,9 @@ func (q *taskQueue) AddTask(t *task) error {
 		q.bucketQueues[bucket] = make(chan *task, queueSize)
 	}
 
-	// Add the task to the appropriate bucket queue
+	// Add the task to the appropriate bucket queue with timeout
+	// This prevents indefinite blocking while still allowing graceful handling of full queues
+	timeout := 30 * time.Second
 	select {
 	case q.bucketQueues[bucket] <- t:
 		// Log task addition for debugging
@@ -181,8 +215,8 @@ func (q *taskQueue) AddTask(t *task) error {
 			zap.String("resource_type", t.Action.ResourceTypeID),
 			zap.Int("queue_length", len(q.bucketQueues[bucket])))
 		return nil
-	default:
-		return fmt.Errorf("bucket queue '%s' is full", bucket)
+	case <-time.After(timeout):
+		return errTaskQueueFull
 	}
 }
 
@@ -702,7 +736,7 @@ func (ps *parallelSyncer) generateInitialTasks(ctx context.Context) error {
 				ResourceType: rt, // Include the resource type for bucket determination
 			}
 
-			if err := ps.taskQueue.AddTask(task); err != nil {
+			if err := ps.addTaskWithRetry(ctx, task, taskRetryLimit); err != nil {
 				l.Error("failed to add resource sync task", zap.Error(err))
 				return fmt.Errorf("failed to add resource sync task for resource type %s: %w", rt.Id, err)
 			}
@@ -992,7 +1026,7 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 			Priority: 1,
 		}
 
-		if err := ps.taskQueue.AddTask(nextPageTask); err != nil {
+		if err := ps.addTaskWithRetry(ctx, nextPageTask, taskRetryLimit); err != nil {
 			return fmt.Errorf("failed to add next page task for resource type %s: %w", action.ResourceTypeID, err)
 		}
 
@@ -1037,7 +1071,7 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 			Priority: 2,
 		}
 
-		if err := ps.taskQueue.AddTask(entitlementsTask); err != nil {
+		if err := ps.addTaskWithRetry(ctx, entitlementsTask, taskRetryLimit); err != nil {
 			return fmt.Errorf("failed to add entitlements task for resource %s: %w", resource.Id.Resource, err)
 		}
 
@@ -1051,7 +1085,7 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 			Priority: 3,
 		}
 
-		if err := ps.taskQueue.AddTask(grantsTask); err != nil {
+		if err := ps.addTaskWithRetry(ctx, grantsTask, taskRetryLimit); err != nil {
 			l.Error("failed to add grants task", zap.Error(err))
 			return fmt.Errorf("failed to add grants task for resource %s: %w", resource.Id.Resource, err)
 		}
@@ -1117,7 +1151,7 @@ func (ps *parallelSyncer) processChildResourcesForParent(ctx context.Context, pa
 			Priority: 1, // Lower priority than parent resources
 		}
 
-		if err := ps.taskQueue.AddTask(childResourcesTask); err != nil {
+		if err := ps.addTaskWithRetry(ctx, childResourcesTask, taskRetryLimit); err != nil {
 			return fmt.Errorf("failed to add child resources task for %s under parent %s: %w",
 				childResourceTypeID, parentResource.Id.Resource, err)
 		}
@@ -1593,7 +1627,7 @@ func (ps *parallelSyncer) getSubResources(ctx context.Context, parent *v2.Resour
 				Priority: 1,
 			}
 
-			if err := ps.taskQueue.AddTask(childTask); err != nil {
+			if err := ps.addTaskWithRetry(ctx, childTask, taskRetryLimit); err != nil {
 				return fmt.Errorf("failed to add child resource task: %w", err)
 			}
 		}
