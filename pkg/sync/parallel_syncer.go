@@ -208,7 +208,7 @@ func (q *taskQueue) AddTask(ctx context.Context, t *task) error {
 	select {
 	case q.bucketQueues[bucket] <- t:
 		// Log task addition for debugging
-		l := ctxzap.Extract(context.Background())
+		l := ctxzap.Extract(ctx)
 		l.Info("task added to queue",
 			zap.String("bucket", bucket),
 			zap.String("operation", t.Action.Op.String()),
