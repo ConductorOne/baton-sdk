@@ -506,8 +506,9 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return err
 		}
+		sessionConstructor := defaultGRPCSessionConstructor(runCtx, serverCfg)
 		// Create session cache and add to context
-		runCtx = WithLazySession(runCtx, defaultGRPCSessionConstructor(runCtx, serverCfg))
+		runCtx = WithLazySession(runCtx, sessionConstructor)
 
 		clientSecret := v.GetString("client-secret")
 		if clientSecret != "" {
@@ -566,6 +567,8 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return err
 		}
+
+		cw.SessionConstructor = sessionConstructor
 
 		return cw.Run(runCtx, serverCfg)
 	}

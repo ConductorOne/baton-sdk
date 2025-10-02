@@ -95,7 +95,8 @@ type wrapper struct {
 
 	now func() time.Time
 
-	SessionServer session.SetSessionStore
+	SessionServer      session.SetSessionStore
+	SessionConstructor types.SessionConstructor
 }
 
 type Option func(ctx context.Context, w *wrapper) error

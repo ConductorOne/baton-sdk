@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/spf13/cobra"
@@ -12,9 +13,16 @@ import (
 	"github.com/spf13/viper"
 )
 
+type RunTimeOpts struct {
+	SessionStore types.SessionStore
+}
+
 // GetConnectorFunc is a function type that creates a connector instance.
 // It takes a context and configuration. The session cache constructor is retrieved from the context.
-type GetConnectorFunc[T field.Configurable] func(ctx context.Context, cfg T) (types.ConnectorServer, error)
+type GetConnectorFunc[T field.Configurable] func(ctx context.Context, cfg T, runTimeOpts ...*RunTimeOpts) (types.ConnectorServer, error)
+
+type ConnectorOpts struct{}
+type NewConnector[T field.Configurable] func(ctx context.Context, cfg T, opts *ConnectorOpts) (connectorbuilder.ConnectorBuilder2, []connectorbuilder.Opt, error)
 
 // WithLazySession creates a lazy session cache using the provided constructor and adds it to the context.
 // The actual session cache is only created when a method is called for the first time.

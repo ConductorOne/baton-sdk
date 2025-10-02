@@ -25,7 +25,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
-	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
@@ -51,6 +50,13 @@ type ResourceSyncer interface {
 	List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error)
 	Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error)
 	Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error)
+}
+
+type ResourceSyncer2 interface {
+	ResourceType(ctx context.Context) *v2.ResourceType
+	List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token, opts types.ResourceSyncerOptions) ([]*v2.Resource, string, annotations.Annotations, error)
+	Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token, opts types.ResourceSyncerOptions) ([]*v2.Entitlement, string, annotations.Annotations, error)
+	Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token, opts types.ResourceSyncerOptions) ([]*v2.Grant, string, annotations.Annotations, error)
 }
 
 // ResourceProvisioner extends ResourceSyncer to add capabilities for granting and revoking access.
@@ -275,6 +281,12 @@ type ConnectorBuilder interface {
 	ResourceSyncers(ctx context.Context) []ResourceSyncer
 }
 
+type ConnectorBuilder2 interface {
+	Metadata(ctx context.Context) (*v2.ConnectorMetadata, error)
+	Validate(ctx context.Context) (annotations.Annotations, error)
+	ResourceSyncers(ctx context.Context) []ResourceSyncer2
+}
+
 type builderImpl struct {
 	resourceBuilders        map[string]ResourceSyncer
 	resourceProvisioners    map[string]ResourceProvisioner
@@ -291,6 +303,7 @@ type builderImpl struct {
 	cb                      ConnectorBuilder
 	ticketManager           TicketManager
 	ticketingEnabled        bool
+	sessionStoreEnabled     bool
 	m                       *metrics.M
 	nowFunc                 func() time.Time
 	clientSecret            *jose.JSONWebKey
@@ -691,6 +704,13 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 
 type Opt func(b *builderImpl) error
 
+func WithSessionStoreEnabled() Opt {
+	return func(b *builderImpl) error {
+		b.sessionStoreEnabled = true
+		return nil
+	}
+}
+
 func WithTicketingEnabled() Opt {
 	return func(b *builderImpl) error {
 		if _, ok := b.cb.(TicketManager); ok {
@@ -770,6 +790,7 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list resources with unknown resource type %s", request.ResourceTypeId)
 	}
+
 	out, nextPageToken, annos, err := rb.List(ctx, request.ParentResourceId, &pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
@@ -1442,18 +1463,18 @@ func (b *builderImpl) RotateCredential(ctx context.Context, request *v2.RotateCr
 func (b *builderImpl) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
 	l := ctxzap.Extract(ctx)
 
-	// Clear session cache if available in context
-	sessionCache, err := session.GetSession(ctx)
-	if err != nil {
-		l.Warn("error getting session cache", zap.Error(err))
-	} else if request.GetActiveSyncId() != "" {
-		err = sessionCache.Clear(ctx, session.WithSyncID(request.GetActiveSyncId()))
-		if err != nil {
-			l.Warn("error clearing session cache", zap.Error(err))
-		}
-	}
+	// // Clear session cache if available in context
+	// sessionCache, err := session.GetSession(ctx)
+	// if err != nil {
+	// 	l.Warn("error getting session cache", zap.Error(err))
+	// } else if request.GetActiveSyncId() != "" {
+	// 	err = sessionCache.Clear(ctx, session.WithSyncID(request.GetActiveSyncId()))
+	// 	if err != nil {
+	// 		l.Warn("error clearing session cache", zap.Error(err))
+	// 	}
+	// }
 	// Clear all http caches at the end of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
-	err = uhttp.ClearCaches(ctx)
+	err := uhttp.ClearCaches(ctx)
 	if err != nil {
 		l.Warn("error clearing http caches", zap.Error(err))
 	}
