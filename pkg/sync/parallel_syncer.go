@@ -31,7 +31,7 @@ var parallelTracer = otel.Tracer("baton-sdk/parallel-sync")
 // addTaskWithRetry adds a task to the queue with retry logic for queue full errors
 func (ps *parallelSyncer) addTaskWithRetry(ctx context.Context, task *task, maxRetries int) error {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		err := ps.taskQueue.AddTask(task)
+		err := ps.taskQueue.AddTask(ctx, task)
 		if err == nil {
 			return nil
 		}
@@ -185,7 +185,7 @@ func newTaskQueue(config *ParallelSyncConfig) *taskQueue {
 }
 
 // AddTask adds a task to the appropriate queue
-func (q *taskQueue) AddTask(t *task) error {
+func (q *taskQueue) AddTask(ctx context.Context, t *task) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -217,6 +217,7 @@ func (q *taskQueue) AddTask(t *task) error {
 		return nil
 	case <-time.After(timeout):
 		return errTaskQueueFull
+	case <-ctx.Done():
 	}
 }
 
