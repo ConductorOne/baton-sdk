@@ -436,9 +436,41 @@ func (m *GetManyResponse) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for Key
+	for idx, item := range m.GetItems() {
+		_, _ = idx, item
 
-	// no validation rules for Value
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, GetManyResponseValidationError{
+						field:  fmt.Sprintf("Items[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, GetManyResponseValidationError{
+						field:  fmt.Sprintf("Items[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return GetManyResponseValidationError{
+					field:  fmt.Sprintf("Items[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	// no validation rules for PageToken
 
 	if len(errors) > 0 {
 		return GetManyResponseMultiError(errors)
@@ -517,6 +549,109 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = GetManyResponseValidationError{}
+
+// Validate checks the field values on GetManyItem with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *GetManyItem) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetManyItem with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in GetManyItemMultiError, or
+// nil if none found.
+func (m *GetManyItem) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetManyItem) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Key
+
+	// no validation rules for Value
+
+	if len(errors) > 0 {
+		return GetManyItemMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetManyItemMultiError is an error wrapping multiple validation errors
+// returned by GetManyItem.ValidateAll() if the designated constraints aren't met.
+type GetManyItemMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetManyItemMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetManyItemMultiError) AllErrors() []error { return m }
+
+// GetManyItemValidationError is the validation error returned by
+// GetManyItem.Validate if the designated constraints aren't met.
+type GetManyItemValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetManyItemValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetManyItemValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetManyItemValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetManyItemValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetManyItemValidationError) ErrorName() string { return "GetManyItemValidationError" }
+
+// Error satisfies the builtin error interface
+func (e GetManyItemValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetManyItem.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetManyItemValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetManyItemValidationError{}
 
 // Validate checks the field values on GetAllRequest with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
@@ -655,11 +790,41 @@ func (m *GetAllResponse) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for Key
+	for idx, item := range m.GetItems() {
+		_, _ = idx, item
 
-	// no validation rules for Value
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, GetAllResponseValidationError{
+						field:  fmt.Sprintf("Items[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, GetAllResponseValidationError{
+						field:  fmt.Sprintf("Items[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return GetAllResponseValidationError{
+					field:  fmt.Sprintf("Items[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
 
-	// no validation rules for NextPageToken
+	}
+
+	// no validation rules for PageToken
 
 	if len(errors) > 0 {
 		return GetAllResponseMultiError(errors)
@@ -739,6 +904,109 @@ var _ interface {
 	ErrorName() string
 } = GetAllResponseValidationError{}
 
+// Validate checks the field values on GetAllItem with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *GetAllItem) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetAllItem with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in GetAllItemMultiError, or
+// nil if none found.
+func (m *GetAllItem) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetAllItem) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Key
+
+	// no validation rules for Value
+
+	if len(errors) > 0 {
+		return GetAllItemMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetAllItemMultiError is an error wrapping multiple validation errors
+// returned by GetAllItem.ValidateAll() if the designated constraints aren't met.
+type GetAllItemMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetAllItemMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetAllItemMultiError) AllErrors() []error { return m }
+
+// GetAllItemValidationError is the validation error returned by
+// GetAllItem.Validate if the designated constraints aren't met.
+type GetAllItemValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetAllItemValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetAllItemValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetAllItemValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetAllItemValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetAllItemValidationError) ErrorName() string { return "GetAllItemValidationError" }
+
+// Error satisfies the builtin error interface
+func (e GetAllItemValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetAllItem.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetAllItemValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetAllItemValidationError{}
+
 // Validate checks the field values on SetRequest with the rules defined in the
 // proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
@@ -783,10 +1051,10 @@ func (m *SetRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if len(m.GetValue()) > 1048576 {
+	if len(m.GetValue()) > 1047552 {
 		err := SetRequestValidationError{
 			field:  "Value",
-			reason: "value length must be at most 1048576 bytes",
+			reason: "value length must be at most 1047552 bytes",
 		}
 		if !all {
 			return err
@@ -1028,10 +1296,10 @@ func (m *SetManyRequest) validate(all bool) error {
 				errors = append(errors, err)
 			}
 
-			if len(val) > 1048576 {
+			if len(val) > 1047552 {
 				err := SetManyRequestValidationError{
 					field:  fmt.Sprintf("Values[%v]", key),
-					reason: "value length must be at most 1048576 bytes",
+					reason: "value length must be at most 1047552 bytes",
 				}
 				if !all {
 					return err

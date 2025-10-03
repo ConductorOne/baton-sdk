@@ -70,6 +70,9 @@ func (c *C1File) diffTableQuery(table tableDescriptor, baseSyncID, appliedSyncID
 	tableName := table.Name()
 	// Add table-specific columns
 	switch {
+	case strings.Contains(tableName, sessionStoreTableName):
+		// caching is not relevant to diffs.
+		return "", nil, nil
 	case strings.Contains(tableName, resourcesTableName):
 		columns = append(columns, "resource_type_id", "parent_resource_type_id", "parent_resource_id")
 	case strings.Contains(tableName, resourceTypesTableName):
