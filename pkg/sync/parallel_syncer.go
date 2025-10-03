@@ -1040,10 +1040,10 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 			if totalTasks == lastTaskCount {
 				noProgressCount++
 				if noProgressCount >= maxNoProgressCount {
-					l.Warn("no task progress detected, assuming completion",
+					l.Warn("no task progress detected",
 						zap.Int("no_progress_count", noProgressCount),
+						zap.Int("last_task_count", lastTaskCount),
 						zap.Int("total_tasks", totalTasks))
-					return nil
 				}
 			} else {
 				noProgressCount = 0
