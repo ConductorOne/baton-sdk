@@ -28,6 +28,14 @@ var taskRetryLimit = 5
 var errTaskQueueFull = errors.New("task queue is full")
 var parallelTracer = otel.Tracer("baton-sdk/parallel-sync")
 
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // addTaskWithRetry adds a task to the queue with retry logic for queue full errors
 func (ps *parallelSyncer) addTaskWithRetry(ctx context.Context, task *task, maxRetries int) error {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -56,6 +64,88 @@ func (ps *parallelSyncer) addTaskWithRetry(ctx context.Context, task *task, maxR
 	}
 
 	return nil // This should never be reached
+}
+
+// addTasksAfterCompletion safely adds tasks after a worker has completed its current task
+func (w *worker) addTasksAfterCompletion(tasks []*task) {
+	l := ctxzap.Extract(w.ctx)
+	l.Debug("adding tasks after completion", zap.Int("task_count", len(tasks)))
+
+	for _, task := range tasks {
+		// Try multiple strategies to ensure task is never lost
+		if err := w.addTaskWithGuarantee(task); err != nil {
+			l.Error("CRITICAL: failed to add task after completion - this should never happen",
+				zap.String("operation", task.Action.Op.String()),
+				zap.Error(err))
+			// This is a critical error - we should panic or handle it differently
+			panic(fmt.Sprintf("failed to add task after completion: %v", err))
+		}
+	}
+}
+
+// addTaskWithGuarantee ensures a task is never lost by trying multiple strategies
+func (w *worker) addTaskWithGuarantee(task *task) error {
+	l := ctxzap.Extract(w.ctx)
+
+	// Strategy 1: Try normal queue with short timeout
+	if err := w.taskQueue.AddTaskWithTimeout(w.ctx, task, 100*time.Millisecond); err == nil {
+		return nil
+	}
+
+	l.Warn("queue full, trying alternative strategies",
+		zap.String("operation", task.Action.Op.String()))
+
+	// Strategy 2: Try with longer timeout
+	if err := w.taskQueue.AddTaskWithTimeout(w.ctx, task, 5*time.Second); err == nil {
+		return nil
+	}
+
+	// Strategy 3: Process immediately in current worker (fallback)
+	l.Info("processing task immediately as fallback",
+		zap.String("operation", task.Action.Op.String()),
+		zap.String("resource_type", task.Action.ResourceTypeID))
+
+	return w.processTaskImmediately(task)
+}
+
+// processTaskImmediately processes a task directly without going through the queue
+func (w *worker) processTaskImmediately(task *task) error {
+	l := ctxzap.Extract(w.ctx)
+	l.Debug("processing task immediately",
+		zap.String("operation", task.Action.Op.String()),
+		zap.String("resource_type", task.Action.ResourceTypeID),
+		zap.String("resource_id", task.Action.ResourceID))
+
+	switch task.Action.Op {
+	case SyncEntitlementsOp:
+		if task.Action.ResourceID != "" {
+			return w.syncer.syncEntitlementsForResource(w.ctx, task.Action)
+		} else {
+			return w.syncer.syncEntitlementsForResourceType(w.ctx, task.Action)
+		}
+	case SyncGrantsOp:
+		if task.Action.ResourceID != "" {
+			return w.syncer.syncGrantsForResource(w.ctx, task.Action)
+		} else {
+			return w.syncer.syncGrantsForResourceType(w.ctx, task.Action)
+		}
+	case SyncResourcesOp:
+		// For resource tasks, we need to collect any sub-tasks and process them immediately too
+		tasks, err := w.syncer.syncResourcesCollectTasks(w.ctx, task.Action)
+		if err != nil {
+			return err
+		}
+		// Process any collected tasks immediately
+		for _, subTask := range tasks {
+			if err := w.processTaskImmediately(subTask); err != nil {
+				l.Error("failed to process sub-task immediately", zap.Error(err))
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported operation for immediate processing: %s", task.Action.Op.String())
+	}
 }
 
 // StateInterface defines the minimal interface needed by helper methods
@@ -166,6 +256,42 @@ type task struct {
 	ResourceType *v2.ResourceType // The resource type for this task
 }
 
+// TaskResult contains tasks that should be created after completing a task
+type TaskResult struct {
+	Tasks []*task
+	Error error
+}
+
+// DeferredTaskAdder collects tasks during processing and adds them after completion
+type DeferredTaskAdder struct {
+	pendingTasks []*task
+	sync.RWMutex
+}
+
+func NewDeferredTaskAdder() *DeferredTaskAdder {
+	return &DeferredTaskAdder{
+		pendingTasks: make([]*task, 0),
+	}
+}
+
+func (dta *DeferredTaskAdder) AddPendingTask(task *task) {
+	dta.Lock()
+	defer dta.Unlock()
+	dta.pendingTasks = append(dta.pendingTasks, task)
+}
+
+func (dta *DeferredTaskAdder) GetPendingTasks() []*task {
+	dta.RLock()
+	defer dta.RUnlock()
+	return dta.pendingTasks
+}
+
+func (dta *DeferredTaskAdder) Clear() {
+	dta.Lock()
+	defer dta.Unlock()
+	dta.pendingTasks = dta.pendingTasks[:0] // Reuse slice
+}
+
 // taskQueue manages the distribution of tasks to workers using dynamic bucketing
 type taskQueue struct {
 	bucketQueues map[string]chan *task // Map of bucket name to task channel
@@ -220,8 +346,95 @@ func (q *taskQueue) AddTask(ctx context.Context, t *task) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
 
-	return nil
+// AddTaskWithTimeout adds a task with a custom timeout and dynamic queue expansion
+func (q *taskQueue) AddTaskWithTimeout(ctx context.Context, t *task, timeout time.Duration) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if q.closed {
+		return errors.New("task queue is closed")
+	}
+
+	// Determine the bucket for this task
+	bucket := q.getBucketForTask(t)
+
+	// Create the bucket queue if it doesn't exist
+	if _, exists := q.bucketQueues[bucket]; !exists {
+		queueSize := q.config.WorkerCount * 10
+		q.bucketQueues[bucket] = make(chan *task, queueSize)
+	}
+
+	// Try to add the task
+	select {
+	case q.bucketQueues[bucket] <- t:
+		return nil
+	case <-time.After(timeout):
+		// Queue is full, try to expand it
+		return q.expandQueueAndRetry(bucket, t, timeout)
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// expandQueueAndRetry attempts to expand the queue and retry adding the task
+func (q *taskQueue) expandQueueAndRetry(bucket string, t *task, timeout time.Duration) error {
+	l := ctxzap.Extract(context.Background())
+
+	// Get current queue
+	currentQueue := q.bucketQueues[bucket]
+	currentSize := cap(currentQueue)
+	currentLen := len(currentQueue)
+
+	// Only expand if queue is nearly full
+	if currentLen < currentSize-1 {
+		return errTaskQueueFull
+	}
+
+	// Calculate new size (double it, but cap at reasonable limit)
+	newSize := min(currentSize*2, 50000) // Cap at 50k tasks per bucket
+
+	if newSize <= currentSize {
+		l.Warn("queue expansion blocked - already at maximum size",
+			zap.String("bucket", bucket),
+			zap.Int("current_size", currentSize))
+		return errTaskQueueFull
+	}
+
+	l.Info("expanding queue due to pressure",
+		zap.String("bucket", bucket),
+		zap.Int("old_size", currentSize),
+		zap.Int("new_size", newSize),
+		zap.Int("current_length", currentLen))
+
+	// Create new larger queue
+	newQueue := make(chan *task, newSize)
+
+	// Copy existing tasks to new queue
+	for len(currentQueue) > 0 {
+		task := <-currentQueue
+		select {
+		case newQueue <- task:
+		default:
+			// This should never happen since new queue is larger
+			l.Error("failed to copy task to expanded queue")
+			return errTaskQueueFull
+		}
+	}
+
+	// Replace the queue
+	q.bucketQueues[bucket] = newQueue
+
+	// Try to add the new task
+	select {
+	case newQueue <- t:
+		return nil
+	default:
+		// This should never happen since we just expanded
+		l.Error("failed to add task to expanded queue")
+		return errTaskQueueFull
+	}
 }
 
 // getBucketForTask determines the bucket for a task based on the resource type's sync_bucket
@@ -428,7 +641,13 @@ func (w *worker) Start() {
 			w.isProcessing.Store(true)
 
 			// Process the task
-			if err := w.processTask(task); err != nil {
+			taskResult, err := w.processTask(task)
+			if err != nil {
+
+				// Add pending tasks after task completion (even if failed, they might be valid)
+				if taskResult != nil && len(taskResult.Tasks) > 0 {
+					w.addTasksAfterCompletion(taskResult.Tasks)
+				}
 				l.Error("failed to process task",
 					zap.Int("worker_id", w.id),
 					zap.String("bucket", taskBucket),
@@ -462,7 +681,12 @@ func (w *worker) Start() {
 					w.rateLimited.Store(false)
 				}
 			} else {
-				// Task succeeded, reset failure counters
+				// Task succeeded, add any pending tasks after completion
+				if taskResult != nil && len(taskResult.Tasks) > 0 {
+					w.addTasksAfterCompletion(taskResult.Tasks)
+				}
+
+				// Reset failure counters
 				w.rateLimited.Store(false)
 				consecutiveFailures = 0
 			}
@@ -473,38 +697,42 @@ func (w *worker) Start() {
 	}
 }
 
-// processTask processes a single task
-func (w *worker) processTask(task *task) error {
+// processTask processes a single task and returns any tasks that should be created after completion
+func (w *worker) processTask(t *task) (*TaskResult, error) {
 	ctx, span := parallelTracer.Start(w.ctx, "worker.processTask")
 	defer span.End()
 
 	span.SetAttributes(
 		attribute.Int("worker_id", w.id),
-		attribute.String("operation", task.Action.Op.String()),
-		attribute.String("resource_type", task.Action.ResourceTypeID),
+		attribute.String("operation", t.Action.Op.String()),
+		attribute.String("resource_type", t.Action.ResourceTypeID),
 	)
 
-	switch task.Action.Op {
+	switch t.Action.Op {
 	case SyncResourcesOp:
-		return w.syncer.syncResources(ctx, task.Action)
+		tasks, err := w.syncer.syncResourcesCollectTasks(ctx, t.Action)
+		return &TaskResult{
+			Tasks: tasks,
+			Error: err,
+		}, err
 	case SyncEntitlementsOp:
-		if task.Action.ResourceID != "" {
-			// Process specific resource's entitlements
-			return w.syncer.syncEntitlementsForResource(ctx, task.Action)
+		if t.Action.ResourceID != "" {
+			err := w.syncer.syncEntitlementsForResource(ctx, t.Action)
+			return &TaskResult{Tasks: []*task{}, Error: err}, err
 		} else {
-			// Fallback to resource type processing (for backward compatibility)
-			return w.syncer.syncEntitlementsForResourceType(ctx, task.Action)
+			err := w.syncer.syncEntitlementsForResourceType(ctx, t.Action)
+			return &TaskResult{Tasks: []*task{}, Error: err}, err
 		}
 	case SyncGrantsOp:
-		if task.Action.ResourceID != "" {
-			// Process specific resource's grants
-			return w.syncer.syncGrantsForResource(ctx, task.Action)
+		if t.Action.ResourceID != "" {
+			err := w.syncer.syncGrantsForResource(ctx, t.Action)
+			return &TaskResult{Tasks: []*task{}, Error: err}, err
 		} else {
-			// Fallback to resource type processing (for backward compatibility)
-			return w.syncer.syncGrantsForResourceType(ctx, task.Action)
+			err := w.syncer.syncGrantsForResourceType(ctx, t.Action)
+			return &TaskResult{Tasks: []*task{}, Error: err}, err
 		}
 	default:
-		return fmt.Errorf("unsupported operation: %s", task.Action.Op.String())
+		return nil, fmt.Errorf("unsupported operation: %s", t.Action.Op.String())
 	}
 }
 
@@ -1096,6 +1324,139 @@ func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) erro
 	}
 
 	return nil
+}
+
+// syncResourcesCollectTasks does the same work as syncResources but collects tasks instead of adding them immediately
+func (ps *parallelSyncer) syncResourcesCollectTasks(ctx context.Context, action Action) ([]*task, error) {
+	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncResourcesCollectTasks")
+	defer span.End()
+
+	l := ctxzap.Extract(ctx)
+	var collectedTasks []*task
+
+	// Add panic recovery to catch any unexpected errors
+	defer func() {
+		if r := recover(); r != nil {
+			l.Error("panic in syncResourcesCollectTasks",
+				zap.String("resource_type", action.ResourceTypeID),
+				zap.Any("panic", r))
+		}
+	}()
+
+	// This replicates the exact logic from the original SyncResources
+	req := &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: action.ResourceTypeID,
+		PageToken:      action.PageToken,
+	}
+
+	// If this is a child resource task, set the parent resource ID
+	if action.ParentResourceID != "" {
+		req.ParentResourceId = &v2.ResourceId{
+			ResourceType: action.ParentResourceTypeID,
+			Resource:     action.ParentResourceID,
+		}
+	}
+
+	resp, err := ps.syncer.connector.ListResources(ctx, req)
+	if err != nil {
+		l.Error("failed to list resources", zap.Error(err))
+		return nil, err
+	}
+
+	// Store resources
+	if len(resp.List) > 0 {
+		err = ps.syncer.store.PutResources(ctx, resp.List...)
+		if err != nil {
+			l.Error("failed to store resources", zap.Error(err))
+			return nil, err
+		}
+	}
+
+	// Update progress counts
+	resourceTypeId := action.ResourceTypeID
+	ps.syncer.counts.AddResources(resourceTypeId, len(resp.List))
+
+	// Log progress
+	if len(resp.List) > 0 {
+		ps.syncer.counts.LogResourcesProgress(ctx, resourceTypeId)
+	} else {
+		ps.syncer.counts.LogResourcesProgress(ctx, resourceTypeId)
+	}
+
+	// Process each resource (handle sub-resources)
+	for _, r := range resp.List {
+		if err := ps.syncer.getSubResources(ctx, r); err != nil {
+			l.Error("failed to process sub-resources", zap.Error(err))
+			return nil, err
+		}
+	}
+
+	// Handle pagination - if there are more pages, collect the task for next page
+	if resp.NextPageToken != "" {
+		nextPageTask := &task{
+			Action: Action{
+				Op:             SyncResourcesOp,
+				ResourceTypeID: action.ResourceTypeID,
+				PageToken:      resp.NextPageToken,
+			},
+			Priority: 1,
+		}
+		collectedTasks = append(collectedTasks, nextPageTask)
+		return collectedTasks, nil // Don't create entitlement/grant tasks yet, wait for all pages
+	}
+
+	// Get all resources for this resource type to create individual tasks
+	allResourcesResp, err := ps.syncer.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: action.ResourceTypeID,
+		PageToken:      "",
+	})
+	if err != nil {
+		l.Error("failed to list resources for task creation", zap.Error(err))
+		return nil, err
+	}
+
+	// Check if this resource type has child resource types that need to be processed
+	if err := ps.processChildResourceTypes(ctx, action.ResourceTypeID); err != nil {
+		l.Error("failed to process child resource types", zap.Error(err))
+		return nil, err
+	}
+
+	// Create individual tasks for each resource's entitlements and grants
+	for _, resource := range allResourcesResp.List {
+		// Check if we should skip entitlements and grants for this resource
+		shouldSkip, err := ps.shouldSkipEntitlementsAndGrants(ctx, resource)
+		if err != nil {
+			l.Error("failed to check if resource should be skipped", zap.Error(err))
+			return nil, err
+		}
+		if shouldSkip {
+			continue
+		}
+
+		// Create task to sync entitlements for this specific resource
+		entitlementsTask := &task{
+			Action: Action{
+				Op:             SyncEntitlementsOp,
+				ResourceTypeID: action.ResourceTypeID,
+				ResourceID:     resource.Id.Resource,
+			},
+			Priority: 2,
+		}
+		collectedTasks = append(collectedTasks, entitlementsTask)
+
+		// Create task to sync grants for this specific resource
+		grantsTask := &task{
+			Action: Action{
+				Op:             SyncGrantsOp,
+				ResourceTypeID: action.ResourceTypeID,
+				ResourceID:     resource.Id.Resource,
+			},
+			Priority: 3,
+		}
+		collectedTasks = append(collectedTasks, grantsTask)
+	}
+
+	return collectedTasks, nil
 }
 
 // processChildResourceTypes processes child resource types for a given parent resource type
