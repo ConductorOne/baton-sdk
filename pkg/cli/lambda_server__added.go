@@ -67,12 +67,16 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			logLevel = "info"
 		}
 
-		initalLogFields := map[string]interface{}{
-			"tenant":       os.Getenv("tenant"),
-			"connector":    os.Getenv("connector"),
-			"installation": os.Getenv("installation"),
-			"app":          os.Getenv("app"),
-			"version":      os.Getenv("version"),
+		initialLogFields := map[string]interface{}{
+			"tenant_id":          os.Getenv("tenant"),
+			"connector_id":       os.Getenv("connector"),
+			"app_id":             os.Getenv("app"),
+			"release_version":    os.Getenv("version"),
+			"installation":       os.Getenv("installation"),
+			"catalog_id":         os.Getenv("catalog_id"),
+			"catalog_name":       os.Getenv("catalog_name"),
+			"tenant_name":        os.Getenv("tenant_name"),
+			"tenant_is_internal": os.Getenv("tenant_is_internal"),
 		}
 
 		runCtx, err := initLogger(
@@ -80,13 +84,13 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
 			logging.WithLogLevel(logLevel),
-			logging.WithInitialFields(initalLogFields),
+			logging.WithInitialFields(initialLogFields),
 		)
 		if err != nil {
 			return err
 		}
 
-		runCtx, otelShutdown, err := initOtel(runCtx, name, v, initalLogFields)
+		runCtx, otelShutdown, err := initOtel(runCtx, name, v, initialLogFields)
 		if err != nil {
 			return err
 		}

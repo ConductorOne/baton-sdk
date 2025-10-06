@@ -251,7 +251,7 @@ func (c *otelConfig) initLogging(ctx context.Context, cc *grpc.ClientConn) (cont
 		return nil, fmt.Errorf("failed to initialize otlp exporter: %w", err)
 	}
 	// TODO(morgabra): Whole bunch of tunables _here_...
-	processor := log.NewBatchProcessor(exp, log.WithExportInterval(time.Second*5))
+	processor := log.NewBatchProcessor(exp, log.WithExportInterval(time.Second*1))
 	// TODO(morgabra): Whole bunch of tunables ALSO HERE...
 	provider := log.NewLoggerProvider(
 		log.WithResource(res),
