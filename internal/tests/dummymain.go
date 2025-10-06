@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/field"
@@ -32,7 +33,7 @@ func entrypoint(ctx context.Context, cfg field.Configuration, args ...string) (*
 	return v, nil
 }
 
-func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, error) {
+func getConnector(ctx context.Context, v *viper.Viper, runTimeOpts *cli.RunTimeOpts) (types.ConnectorServer, error) {
 	dummyConnector := NewDummy()
 
 	c, err := connectorbuilder.NewConnector(ctx, dummyConnector)

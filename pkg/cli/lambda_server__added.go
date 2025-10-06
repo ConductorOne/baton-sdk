@@ -161,10 +161,6 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to validate config: %w", err)
 		}
 
-		// Create session cache and add to context
-		// Use the same DPoP credentials for the session cache
-		runCtx = WithLazySession(runCtx, createSessionCacheConstructor(grpcClient))
-
 		clientSecret := v.GetString("client-secret")
 		if clientSecret != "" {
 			secretJwk, err := crypto.ParseClientSecret([]byte(clientSecret), true)
@@ -174,7 +170,9 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
-		c, err := getconnector(runCtx, t)
+		c, err := getconnector(runCtx, t, &RunTimeOpts{
+			SessionStore: &lazySessionStore{constructor: createSessionCacheConstructor(grpcClient)},
+		})
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
 		}
@@ -206,7 +204,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			TicketingEnabled:    true,
 		}
 
-		chain := ugrpc.ChainUnaryInterceptors(authOpt, ugrpc.SessionCacheUnaryInterceptor(runCtx))
+		chain := ugrpc.ChainUnaryInterceptors(authOpt)
 
 		s := c1_lambda_grpc.NewServer(chain)
 		connector.Register(runCtx, s, c, opts)

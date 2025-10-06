@@ -41,10 +41,6 @@ const (
 
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
-func defaultSessionConstructor(ctx context.Context, opt ...types.SessionConstructorOption) (types.SessionStore, error) {
-	return session.NewMemorySessionCache(ctx, opt...)
-}
-
 func defaultGRPCSessionConstructor(ctx context.Context, serverCfg *v1.ServerConfig) func(ctx context.Context, opt ...types.SessionConstructorOption) (types.SessionStore, error) {
 	return func(_ context.Context, opt ...types.SessionConstructorOption) (types.SessionStore, error) {
 		l := ctxzap.Extract(ctx)
@@ -352,13 +348,7 @@ func MakeMainCommand[T field.Configurable](
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
 
-		// Create session cache and add to context
-		runCtx, err = WithSession(runCtx, defaultSessionConstructor)
-		if err != nil {
-			return fmt.Errorf("failed to create session cache: %w", err)
-		}
-
-		c, err := getconnector(runCtx, t)
+		c, err := getconnector(runCtx, t, &RunTimeOpts{})
 		if err != nil {
 			return err
 		}
@@ -506,10 +496,6 @@ func MakeGRPCServerCommand[T field.Configurable](
 		if err != nil {
 			return err
 		}
-		sessionConstructor := defaultGRPCSessionConstructor(runCtx, serverCfg)
-		// Create session cache and add to context
-		runCtx = WithLazySession(runCtx, sessionConstructor)
-
 		clientSecret := v.GetString("client-secret")
 		if clientSecret != "" {
 			secretJwk, err := crypto.ParseClientSecret([]byte(clientSecret), true)
@@ -518,8 +504,10 @@ func MakeGRPCServerCommand[T field.Configurable](
 			}
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
-
-		c, err := getconnector(runCtx, t)
+		sessionConstructor := defaultGRPCSessionConstructor(runCtx, serverCfg)
+		c, err := getconnector(runCtx, t, &RunTimeOpts{
+			SessionStore: &lazySessionStore{constructor: sessionConstructor},
+		})
 		if err != nil {
 			return err
 		}
@@ -568,8 +556,6 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return err
 		}
 
-		cw.SessionConstructor = sessionConstructor
-
 		return cw.Run(runCtx, serverCfg)
 	}
 }
@@ -610,13 +596,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
 
-		// Create session cache and add to context
-		runCtx, err = WithSession(runCtx, defaultSessionConstructor)
-		if err != nil {
-			return fmt.Errorf("failed to create session cache: %w", err)
-		}
-
-		c, err := getconnector(runCtx, t)
+		c, err := getconnector(runCtx, t, &RunTimeOpts{})
 		if err != nil {
 			return err
 		}

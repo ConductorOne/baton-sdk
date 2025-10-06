@@ -19,29 +19,10 @@ type RunTimeOpts struct {
 
 // GetConnectorFunc is a function type that creates a connector instance.
 // It takes a context and configuration. The session cache constructor is retrieved from the context.
-type GetConnectorFunc[T field.Configurable] func(ctx context.Context, cfg T, runTimeOpts ...*RunTimeOpts) (types.ConnectorServer, error)
+type GetConnectorFunc[T field.Configurable] func(ctx context.Context, cfg T, runTimeOpts *RunTimeOpts) (types.ConnectorServer, error)
 
 type ConnectorOpts struct{}
 type NewConnector[T field.Configurable] func(ctx context.Context, cfg T, opts *ConnectorOpts) (connectorbuilder.ConnectorBuilder2, []connectorbuilder.Opt, error)
-
-// WithLazySession creates a lazy session cache using the provided constructor and adds it to the context.
-// The actual session cache is only created when a method is called for the first time.
-func WithLazySession(ctx context.Context, constructor types.SessionConstructor) context.Context {
-	lazySession := &lazySessionStore{
-		constructor: constructor,
-		ctx:         ctx,
-	}
-	return context.WithValue(ctx, types.SessionCacheKey{}, lazySession)
-}
-
-// WithSession creates a session cache using the provided constructor and adds it to the context.
-func WithSession(ctx context.Context, constructor types.SessionConstructor) (context.Context, error) {
-	sessionCache, err := constructor(ctx)
-	if err != nil {
-		return ctx, fmt.Errorf("failed to create session cache: %w", err)
-	}
-	return context.WithValue(ctx, types.SessionCacheKey{}, sessionCache), nil
-}
 
 func MakeGenericConfiguration[T field.Configurable](v *viper.Viper) (T, error) {
 	// Create an instance of the struct type T using reflection

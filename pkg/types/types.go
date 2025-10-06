@@ -54,4 +54,5 @@ type ClientWrapper interface {
 
 type ResourceSyncerOptions struct {
 	Session SessionStore
+	SyncID  string
 }

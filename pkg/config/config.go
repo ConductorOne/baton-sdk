@@ -21,21 +21,22 @@ import (
 )
 
 func RunConnector[T field.Configurable](
-	ctx context.Context,
 	connectorName string,
 	version string,
-	cf cli.GetConnectorFunc2[T],
 	schema field.Configuration,
+	cf cli.NewConnector[T],
 	options ...connectorrunner.Option,
 ) {
+	ctx := context.Background()
+
 	l := ctxzap.Extract(ctx)
-	var f cli.GetConnectorFunc[T]
-	f = func(ctx context.Context, cfg T) (types.ConnectorServer, error) {
-		opts := make([]connectorbuilder.Opt, 0)
-		connector, err := cf(ctx, cfg, opts)
+	f := func(ctx context.Context, cfg T, runTimeOpts *cli.RunTimeOpts) (types.ConnectorServer, error) {
+		connector, opts, err := cf(ctx, cfg, &cli.ConnectorOpts{})
 		if err != nil {
 			return nil, err
 		}
+
+		opts = append(opts, connectorbuilder.WithSessionStore(runTimeOpts.SessionStore))
 
 		c, err := connectorbuilder.NewConnector(ctx, connector, opts...)
 		if err != nil {
