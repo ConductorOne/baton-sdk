@@ -23,3 +23,16 @@ message ServerConfig {
   uint32 listen_port = 3;
   ProfileConfig profile_config = 4;
 }
+
+service ProfileService {
+  // FlushProfiles writes any pending profile data to disk.
+  // Should be called before shutting down the server to ensure data is persisted.
+  rpc FlushProfiles(FlushProfilesRequest) returns (FlushProfilesResponse);
+}
+
+message FlushProfilesRequest {}
+
+message FlushProfilesResponse {
+  bool success = 1;
+  string error = 2;
+}

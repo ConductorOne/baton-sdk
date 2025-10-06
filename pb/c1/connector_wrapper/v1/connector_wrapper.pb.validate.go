@@ -328,3 +328,211 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = ServerConfigValidationError{}
+
+// Validate checks the field values on FlushProfilesRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *FlushProfilesRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on FlushProfilesRequest with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// FlushProfilesRequestMultiError, or nil if none found.
+func (m *FlushProfilesRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *FlushProfilesRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return FlushProfilesRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// FlushProfilesRequestMultiError is an error wrapping multiple validation
+// errors returned by FlushProfilesRequest.ValidateAll() if the designated
+// constraints aren't met.
+type FlushProfilesRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m FlushProfilesRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m FlushProfilesRequestMultiError) AllErrors() []error { return m }
+
+// FlushProfilesRequestValidationError is the validation error returned by
+// FlushProfilesRequest.Validate if the designated constraints aren't met.
+type FlushProfilesRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e FlushProfilesRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e FlushProfilesRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e FlushProfilesRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e FlushProfilesRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e FlushProfilesRequestValidationError) ErrorName() string {
+	return "FlushProfilesRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e FlushProfilesRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sFlushProfilesRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = FlushProfilesRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = FlushProfilesRequestValidationError{}
+
+// Validate checks the field values on FlushProfilesResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *FlushProfilesResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on FlushProfilesResponse with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// FlushProfilesResponseMultiError, or nil if none found.
+func (m *FlushProfilesResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *FlushProfilesResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Success
+
+	// no validation rules for Error
+
+	if len(errors) > 0 {
+		return FlushProfilesResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// FlushProfilesResponseMultiError is an error wrapping multiple validation
+// errors returned by FlushProfilesResponse.ValidateAll() if the designated
+// constraints aren't met.
+type FlushProfilesResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m FlushProfilesResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m FlushProfilesResponseMultiError) AllErrors() []error { return m }
+
+// FlushProfilesResponseValidationError is the validation error returned by
+// FlushProfilesResponse.Validate if the designated constraints aren't met.
+type FlushProfilesResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e FlushProfilesResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e FlushProfilesResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e FlushProfilesResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e FlushProfilesResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e FlushProfilesResponseValidationError) ErrorName() string {
+	return "FlushProfilesResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e FlushProfilesResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sFlushProfilesResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = FlushProfilesResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = FlushProfilesResponseValidationError{}

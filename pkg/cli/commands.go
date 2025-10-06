@@ -22,7 +22,6 @@ import (
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_w
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/field"
@@ -533,7 +532,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return fmt.Errorf("unexpected empty input")
 		}
 
-		serverCfg := &v1.ServerConfig{}
+		serverCfg := &connectorwrapperV1.ServerConfig{}
 		err = proto.Unmarshal(cfgBytes, serverCfg)
 		if err != nil {
 			return err

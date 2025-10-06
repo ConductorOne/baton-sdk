@@ -166,12 +166,6 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 			logger.Error("failed to start profiling", zap.Error(err))
 			return err
 		}
-		defer func() {
-			// Stop CPU profiling on exit
-			if err := profiler.Stop(ctx); err != nil {
-				logger.Error("failed to stop CPU profiling", zap.Error(err))
-			}
-		}()
 	}
 
 	l, err := cw.getListener(ctx, serverCfg)
@@ -205,6 +199,13 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		return err
 	}
 	cw.rateLimiter = rl
+
+	// Register profile service if profiling is enabled
+	if profiler != nil {
+		ps := &profileService{profiler: profiler}
+		connectorwrapperV1.RegisterProfileServiceServer(server, ps)
+	}
+
 	opts := &RegisterOps{
 		Ratelimiter:         cw.rateLimiter,
 		ProvisioningEnabled: cw.provisioningEnabled,
@@ -213,17 +214,7 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	Register(ctx, server, cw.server, opts)
 
 	// Serve blocks until server stops
-	serveErr := server.Serve(l)
-
-	// Write memory profile immediately after serving completes, before cleanup
-	// This captures memory state right after work is done, not during shutdown
-	if profiler != nil {
-		if err := profiler.WriteMemProfile(ctx); err != nil {
-			logger.Error("failed to write memory profile", zap.Error(err))
-		}
-	}
-
-	return serveErr
+	return server.Serve(l)
 }
 
 func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) (uint32, error) {
@@ -371,6 +362,29 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	cw.conn = conn
 	cw.client = NewConnectorClient(ctx, cw.conn)
 	return cw.client, nil
+}
+
+// FlushProfiles calls the ProfileService RPC to flush any active profiling data.
+func (cw *wrapper) FlushProfiles(ctx context.Context) error {
+	cw.mtx.RLock()
+	conn := cw.conn
+	cw.mtx.RUnlock()
+
+	if conn == nil {
+		return fmt.Errorf("no active connection")
+	}
+
+	client := connectorwrapperV1.NewProfileServiceClient(conn)
+	resp, err := client.FlushProfiles(ctx, &connectorwrapperV1.FlushProfilesRequest{})
+	if err != nil {
+		return err
+	}
+
+	if !resp.Success {
+		return fmt.Errorf("profile flush failed: %s", resp.Error)
+	}
+
+	return nil
 }
 
 // Close shuts down the grpc server and closes the connection.

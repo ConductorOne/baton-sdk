@@ -134,6 +134,10 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 	return nil
 }
 
+func (c *connectorRunner) flushProfiles(ctx context.Context) error {
+	return c.cw.FlushProfiles(ctx)
+}
+
 func (c *connectorRunner) backoff(ctx context.Context, errCount int) time.Duration {
 	waitDuration := time.Duration(errCount*errCount) * time.Second
 	if waitDuration > time.Minute {
@@ -185,6 +189,10 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				l.Debug("runner: no tasks to process", zap.Duration("wait_duration", waitDuration))
 				if c.oneShot {
 					l.Debug("runner: one-shot mode enabled. Exiting.")
+					// Flush profiles before exiting
+					if err := c.flushProfiles(ctx); err != nil {
+						l.Warn("failed to flush profiles", zap.Error(err))
+					}
 					return nil
 				}
 				continue

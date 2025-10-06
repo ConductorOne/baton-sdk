@@ -86,13 +86,13 @@ func (p *Profiler) Stop(ctx context.Context) error {
 
 	l := ctxzap.Extract(ctx)
 
-	// Stop CPU profiling
 	pprof.StopCPUProfile()
 	if err := p.cpuFile.Close(); err != nil {
 		l.Error("failed to close CPU profile file", zap.Error(err))
-	} else {
-		l.Info("CPU profile written", zap.String("path", p.cpuFilePath))
+		return err
 	}
+
+	l.Info("CPU profile written", zap.String("path", p.cpuFilePath))
 	p.cpuFile = nil
 	return nil
 }
@@ -113,7 +113,6 @@ func (p *Profiler) WriteMemProfile(ctx context.Context) error {
 	}
 	defer f.Close()
 
-	// Write heap profile without forcing GC - we want to see actual memory state
 	if err := pprof.WriteHeapProfile(f); err != nil {
 		l.Error("failed to write memory profile", zap.Error(err))
 		return err
