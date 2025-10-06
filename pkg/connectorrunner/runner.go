@@ -775,7 +775,17 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		return runner, nil
 	}
 
-	tm, err := c1api.NewC1TaskManager(ctx, cfg.clientID, cfg.clientSecret, cfg.tempDir, cfg.skipFullSync, cfg.externalResourceC1Z, cfg.externalResourceEntitlementIdFilter, cfg.targetedSyncResourceIDs)
+	tm, err := c1api.NewC1TaskManager(
+		ctx,
+		cfg.clientID,
+		cfg.clientSecret,
+		cfg.tempDir,
+		cfg.skipFullSync,
+		cfg.externalResourceC1Z,
+		cfg.externalResourceEntitlementIdFilter,
+		cfg.targetedSyncResourceIDs,
+		cfg.parallelSync,
+	)
 	if err != nil {
 		return nil, err
 	}

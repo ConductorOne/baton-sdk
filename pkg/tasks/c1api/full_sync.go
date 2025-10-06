@@ -33,6 +33,7 @@ type fullSyncTaskHandler struct {
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string
 	targetedSyncResourceIDs             []string
+	parallelSync                        bool
 }
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
@@ -76,10 +77,18 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithTargetedSyncResourceIDs(c.targetedSyncResourceIDs))
 	}
 
-	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), syncOpts...)
+	var syncer sdkSync.Syncer
+	baseSyncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), syncOpts...)
 	if err != nil {
 		l.Error("failed to create syncer", zap.Error(err))
 		return err
+	}
+
+	if c.parallelSync {
+		config := sdkSync.DefaultParallelSyncConfig().WithWorkerCount(10)
+		syncer = sdkSync.NewParallelSyncer(baseSyncer, config)
+	} else {
+		syncer = baseSyncer
 	}
 
 	// TODO(jirwin): Should we attempt to retry at all before failing the task?
@@ -182,6 +191,7 @@ func newFullSyncTaskHandler(
 	externalResourceC1ZPath string,
 	externalResourceEntitlementIdFilter string,
 	targetedSyncResourceIDs []string,
+	parallelSync bool,
 ) tasks.TaskHandler {
 	return &fullSyncTaskHandler{
 		task:                                task,
@@ -190,6 +200,7 @@ func newFullSyncTaskHandler(
 		externalResourceC1ZPath:             externalResourceC1ZPath,
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
 		targetedSyncResourceIDs:             targetedSyncResourceIDs,
+		parallelSync:                        parallelSync,
 	}
 }
 
