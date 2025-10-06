@@ -7,8 +7,19 @@ import "c1/utls/v1/tls.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1";
 
+message ProfileConfig {
+  // Directory to write profile files to. If empty, profiling is disabled.
+  // Filenames are generated as: cpu-{syncID}.prof and mem-{syncID}.prof
+  string output_dir = 1;
+  // Enable CPU profiling
+  bool enable_cpu = 2;
+  // Enable memory profiling
+  bool enable_mem = 3;
+}
+
 message ServerConfig {
   utls.v1.Credential credential = 1;
   ratelimit.v1.RateLimiterConfig rate_limiter_config = 2;
   uint32 listen_port = 3;
+  ProfileConfig profile_config = 4;
 }

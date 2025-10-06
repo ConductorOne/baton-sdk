@@ -24,6 +24,7 @@ import (
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	tlsV1 "github.com/conductorone/baton-sdk/pb/c1/utls/v1"
+	"github.com/conductorone/baton-sdk/pkg/profiling"
 	ratelimit2 "github.com/conductorone/baton-sdk/pkg/ratelimit"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
@@ -68,6 +69,8 @@ type wrapper struct {
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
 	rlDescriptors []*ratelimitV1.RateLimitDescriptors_Entry
+
+	profileCfg *connectorwrapperV1.ProfileConfig
 
 	now func() time.Time
 }
@@ -124,6 +127,13 @@ func WithTargetedSyncResourceIDs(resourceIDs []string) Option {
 	}
 }
 
+func WithProfileConfig(cfg *connectorwrapperV1.ProfileConfig) Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.profileCfg = cfg
+		return nil
+	}
+}
+
 // NewConnectorWrapper returns a connector wrapper for running connector services locally.
 func NewWrapper(ctx context.Context, server interface{}, opts ...Option) (*wrapper, error) {
 	connectorServer, isServer := server.(types.ConnectorServer)
@@ -148,6 +158,21 @@ func NewWrapper(ctx context.Context, server interface{}, opts ...Option) (*wrapp
 
 func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.ServerConfig) error {
 	logger := ctxzap.Extract(ctx)
+
+	// Start profiling if configured
+	profiler := profiling.New(serverCfg.ProfileConfig)
+	if profiler != nil {
+		if err := profiler.Start(ctx); err != nil {
+			logger.Error("failed to start profiling", zap.Error(err))
+			return err
+		}
+		defer func() {
+			// Stop CPU profiling on exit
+			if err := profiler.Stop(ctx); err != nil {
+				logger.Error("failed to stop CPU profiling", zap.Error(err))
+			}
+		}()
+	}
 
 	l, err := cw.getListener(ctx, serverCfg)
 	if err != nil {
@@ -186,7 +211,19 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		TicketingEnabled:    cw.ticketingEnabled,
 	}
 	Register(ctx, server, cw.server, opts)
-	return server.Serve(l)
+
+	// Serve blocks until server stops
+	serveErr := server.Serve(l)
+
+	// Write memory profile immediately after serving completes, before cleanup
+	// This captures memory state right after work is done, not during shutdown
+	if profiler != nil {
+		if err := profiler.WriteMemProfile(ctx); err != nil {
+			logger.Error("failed to write memory profile", zap.Error(err))
+		}
+	}
+
+	return serveErr
 }
 
 func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) (uint32, error) {
@@ -205,6 +242,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		Credential:        serverCred,
 		RateLimiterConfig: cw.rlCfg,
 		ListenPort:        listenPort,
+		ProfileConfig:     cw.profileCfg,
 	})
 	if err != nil {
 		return 0, err

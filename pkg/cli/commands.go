@@ -21,7 +21,8 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_w
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/field"
@@ -298,6 +299,27 @@ func MakeMainCommand[T field.Configurable](
 		}
 
 		opts = append(opts, connectorrunner.WithSkipEntitlementsAndGrants(v.GetBool("skip-entitlements-and-grants")))
+
+		// Configure profiling if requested
+		enableCPU := v.GetBool("profile-cpu")
+		enableMem := v.GetBool("profile-mem")
+		if enableCPU || enableMem {
+			profileDir := v.GetString("profile-dir")
+			if profileDir == "" {
+				// Default to current working directory
+				wd, err := os.Getwd()
+				if err != nil {
+					return fmt.Errorf("failed to get current working directory for profiling: %w", err)
+				}
+				profileDir = wd
+			}
+			profileCfg := &connectorwrapperV1.ProfileConfig{
+				OutputDir: profileDir,
+				EnableCpu: enableCPU,
+				EnableMem: enableMem,
+			}
+			opts = append(opts, connectorrunner.WithProfileConfig(profileCfg))
+		}
 
 		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {

@@ -149,6 +149,22 @@ var (
 		WithExportTarget(ExportTargetNone),
 	)
 
+	profileDirField = StringField("profile-dir",
+		WithDescription("Directory to write profile files to. Defaults to current working directory. Generates cpu-TIMESTAMP.prof and mem-TIMESTAMP.prof"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	profileCPUField = BoolField("profile-cpu",
+		WithDescription("Enable CPU profiling"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	profileMemField = BoolField("profile-mem",
+		WithDescription("Enable memory profiling"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
 	otelCollectorEndpoint = StringField(OtelCollectorEndpointFieldName,
 		WithDescription("The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided)"),
 		WithPersistent(true), WithExportTarget(ExportTargetOps))
@@ -269,6 +285,9 @@ var DefaultFields = []SchemaField{
 	compactSyncsField,
 	invokeActionField,
 	invokeActionArgsField,
+	profileDirField,
+	profileCPUField,
+	profileMemField,
 
 	otelCollectorEndpoint,
 	otelCollectorEndpointTLSCertPath,

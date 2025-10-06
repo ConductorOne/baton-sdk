@@ -27,6 +27,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
+	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 )
 
 const (
@@ -344,6 +345,7 @@ type runnerConfig struct {
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
 	skipEntitlementsAndGrants           bool
+	profileConfig                       *connectorwrapperV1.ProfileConfig
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -649,6 +651,13 @@ func WithSkipEntitlementsAndGrants(skip bool) Option {
 	}
 }
 
+func WithProfileConfig(profileCfg *connectorwrapperV1.ProfileConfig) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.profileConfig = profileCfg
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
@@ -682,6 +691,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 	if len(cfg.targetedSyncResourceIDs) > 0 {
 		wrapperOpts = append(wrapperOpts, connector.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs))
+	}
+
+	if cfg.profileConfig != nil {
+		wrapperOpts = append(wrapperOpts, connector.WithProfileConfig(cfg.profileConfig))
 	}
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)

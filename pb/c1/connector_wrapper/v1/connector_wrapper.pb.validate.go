@@ -35,6 +35,112 @@ var (
 	_ = sort.Sort
 )
 
+// Validate checks the field values on ProfileConfig with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *ProfileConfig) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ProfileConfig with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in ProfileConfigMultiError, or
+// nil if none found.
+func (m *ProfileConfig) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ProfileConfig) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for OutputDir
+
+	// no validation rules for EnableCpu
+
+	// no validation rules for EnableMem
+
+	if len(errors) > 0 {
+		return ProfileConfigMultiError(errors)
+	}
+
+	return nil
+}
+
+// ProfileConfigMultiError is an error wrapping multiple validation errors
+// returned by ProfileConfig.ValidateAll() if the designated constraints
+// aren't met.
+type ProfileConfigMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ProfileConfigMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ProfileConfigMultiError) AllErrors() []error { return m }
+
+// ProfileConfigValidationError is the validation error returned by
+// ProfileConfig.Validate if the designated constraints aren't met.
+type ProfileConfigValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ProfileConfigValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ProfileConfigValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ProfileConfigValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ProfileConfigValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ProfileConfigValidationError) ErrorName() string { return "ProfileConfigValidationError" }
+
+// Error satisfies the builtin error interface
+func (e ProfileConfigValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sProfileConfig.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ProfileConfigValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ProfileConfigValidationError{}
+
 // Validate checks the field values on ServerConfig with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
@@ -116,6 +222,35 @@ func (m *ServerConfig) validate(all bool) error {
 	}
 
 	// no validation rules for ListenPort
+
+	if all {
+		switch v := interface{}(m.GetProfileConfig()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ServerConfigValidationError{
+					field:  "ProfileConfig",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ServerConfigValidationError{
+					field:  "ProfileConfig",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetProfileConfig()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ServerConfigValidationError{
+				field:  "ProfileConfig",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
 
 	if len(errors) > 0 {
 		return ServerConfigMultiError(errors)
