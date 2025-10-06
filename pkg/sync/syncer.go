@@ -398,11 +398,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return err
 	}
 
-	// Add ActiveSync to context once after we have the syncID
-	if syncID != "" {
-		ctx = types.SetSyncIDInContext(ctx, syncID)
-	}
-
 	span.SetAttributes(attribute.String("sync_id", syncID))
 
 	if newSync {

@@ -28,22 +28,9 @@ type SessionBag struct {
 	Prefix string
 }
 
-type SyncIDKey struct{}
-
 func WithSyncID(syncID string) SessionOption {
 	return func(ctx context.Context, bag *SessionBag) error {
 		bag.SyncID = syncID
 		return nil
 	}
-}
-
-func GetSyncID(ctx context.Context) string {
-	if syncID, ok := ctx.Value(SyncIDKey{}).(string); ok {
-		return syncID
-	}
-	return ""
-}
-
-func SetSyncIDInContext(ctx context.Context, syncID string) context.Context {
-	return context.WithValue(ctx, SyncIDKey{}, syncID)
 }
