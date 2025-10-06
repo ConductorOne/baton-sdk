@@ -454,15 +454,15 @@ func (q *taskQueue) getBucketForTask(t *task) string {
 }
 
 // GetTask retrieves the next task with intelligent bucket selection
-func (q *taskQueue) GetTask() (*task, error) {
+func (q *taskQueue) GetTask(ctx context.Context) (*task, error) {
 	q.mu.Lock() // Use write lock to make the operation atomic
 	defer q.mu.Unlock()
 
 	// Debug logging
-	l := ctxzap.Extract(context.Background())
+	l := ctxzap.Extract(ctx)
 	l.Debug("GetTask called",
 		zap.Int("total_buckets", len(q.bucketQueues)),
-		zap.Any("bucket_names", getMapKeys(q.bucketQueues)))
+		zap.Strings("bucket_names", getMapKeys(q.bucketQueues)))
 
 	if len(q.bucketQueues) == 0 {
 		l.Debug("no buckets available")
@@ -609,14 +609,14 @@ func (w *worker) Start() {
 		default:
 
 			// Try to get a task, with preference for the current bucket if we're making progress
-			task, err := w.taskQueue.GetTask()
+			task, err := w.taskQueue.GetTask(w.ctx)
 			if err != nil {
 				// No tasks available, wait a bit
 				l.Debug("no tasks available, waiting", zap.Int("worker_id", w.id), zap.Error(err))
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
-			l.Info("worker got task", zap.Int("worker_id", w.id), zap.String("task_op", task.Action.Op.String()))
+			l.Debug("worker got task", zap.Int("worker_id", w.id), zap.String("task_op", task.Action.Op.String()))
 
 			// Track which bucket we're working on
 			taskBucket := w.taskQueue.getBucketForTask(task)
@@ -630,7 +630,7 @@ func (w *worker) Start() {
 			}
 
 			// Add detailed task information logging
-			l.Info("processing task details",
+			l.Debug("processing task details",
 				zap.Int("worker_id", w.id),
 				zap.String("task_op", task.Action.Op.String()),
 				zap.String("resource_type", task.Action.ResourceTypeID),
@@ -1109,14 +1109,27 @@ func (ps *parallelSyncer) syncGrantExpansion(ctx context.Context) error {
 		Op: SyncGrantExpansionOp,
 	})
 
-	// Delegate to the base syncer's grant expansion logic
-	// This ensures we get the exact same behavior as the sequential sync
-	err := ps.syncer.SyncGrantExpansion(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 
-	// Clean up the state
-	ps.syncer.state.FinishAction(ctx)
+		currentAction := ps.syncer.state.Current()
+		if currentAction == nil || currentAction.Op != SyncGrantExpansionOp {
+			break
+		}
 
-	return err
+		// Delegate to the base syncer's grant expansion logic
+		// This ensures we get the exact same behavior as the sequential sync
+		err := ps.syncer.SyncGrantExpansion(ctx)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // syncExternalResources handles external resources by delegating to the base syncer
