@@ -227,29 +227,29 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		return 0, err
 	}
 
-	cacheListenerPort, cacheListenerFile, err := cw.setupListener(ctx)
+	cacheListenerPort, sessionListenerFile, err := cw.setupListener(ctx)
 	if err != nil {
 		return 0, err
 	}
 
-	cacheListener, err := net.FileListener(cacheListenerFile)
+	sessionListener, err := net.FileListener(sessionListenerFile)
 	if err != nil {
-		_ = cacheListenerFile.Close()
+		_ = sessionListenerFile.Close()
 		return 0, err
 	}
 
 	// Start the session cache server on the cache listener
-	if cacheListenerFile != nil {
+	if sessionListenerFile != nil {
 		tlsConfig, err := utls2.ListenerConfig(ctx, serverCred)
 		if err != nil {
-			_ = cacheListenerFile.Close()
+			_ = sessionListenerFile.Close()
 			return 0, err
 		}
 		server := session.NewGRPCSessionServer()
 		cw.SessionServer = server
 		go func() {
-			defer cacheListenerFile.Close()
-			serverErr := session.StartGRPCSessionServerWithOptions(ctx, cacheListener, server, grpc.Creds(credentials.NewTLS(tlsConfig)))
+			defer sessionListenerFile.Close()
+			serverErr := session.StartGRPCSessionServerWithOptions(ctx, sessionListener, server, grpc.Creds(credentials.NewTLS(tlsConfig)))
 			if serverErr != nil {
 				l.Error("failed to create memory session cache", zap.Error(err))
 				return

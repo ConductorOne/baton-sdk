@@ -31,14 +31,14 @@ func RunConnector[T field.Configurable](
 
 	l := ctxzap.Extract(ctx)
 	f := func(ctx context.Context, cfg T, runTimeOpts *cli.RunTimeOpts) (types.ConnectorServer, error) {
-		connector, opts, err := cf(ctx, cfg, &cli.ConnectorOpts{})
+		connector, builderOpts, err := cf(ctx, cfg, &cli.ConnectorOpts{})
 		if err != nil {
 			return nil, err
 		}
 
-		opts = append(opts, connectorbuilder.WithSessionStore(runTimeOpts.SessionStore))
+		builderOpts = append(builderOpts, connectorbuilder.WithSessionStore(runTimeOpts.SessionStore))
 
-		c, err := connectorbuilder.NewConnector(ctx, connector, opts...)
+		c, err := connectorbuilder.NewConnector(ctx, connector, builderOpts...)
 		if err != nil {
 			l.Error("error creating connector", zap.Error(err))
 			return nil, err
@@ -46,7 +46,7 @@ func RunConnector[T field.Configurable](
 		return c, nil
 	}
 
-	_, cmd, err := DefineConfiguration(ctx, connectorName, f, schema, options...)
+	_, cmd, err := DefineConfiguration2(ctx, connectorName, f, schema, options...)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
@@ -62,6 +62,9 @@ func RunConnector[T field.Configurable](
 	}
 }
 
+// GetConnectorFunc is a function type that creates a connector instance.
+// It takes a context and configuration. The session cache constructor is retrieved from the context.
+// deprecated - prefer RunConnector
 func DefineConfiguration[T field.Configurable](
 	ctx context.Context,
 	connectorName string,
@@ -69,10 +72,27 @@ func DefineConfiguration[T field.Configurable](
 	schema field.Configuration,
 	options ...connectorrunner.Option,
 ) (*viper.Viper, *cobra.Command, error) {
+	f := func(ctx context.Context, cfg T, runTimeOpts *cli.RunTimeOpts) (types.ConnectorServer, error) {
+		connector, err := connector(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return connector, nil
+	}
+	return DefineConfiguration2(ctx, connectorName, f, schema, options...)
+}
+
+// deprecated - prefer RunConnector
+func DefineConfiguration2[T field.Configurable](
+	ctx context.Context,
+	connectorName string,
+	connector cli.GetConnectorFunc2[T],
+	schema field.Configuration,
+	options ...connectorrunner.Option,
+) (*viper.Viper, *cobra.Command, error) {
 	if err := verifyStructFields[T](schema); err != nil {
 		return nil, nil, fmt.Errorf("VerifyStructFields failed: %w", err)
 	}
-
 	v := viper.New()
 	v.SetConfigType("yaml")
 
