@@ -55,3 +55,47 @@ jobs:
         uses: bufbuild/buf-breaking-action@v1
         with:
           against: 'https://github.com/conductorone/baton-sdk.git#branch=main'
+  baton-demo-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: baton-sdk
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: baton-sdk/go.mod
+      - name: Checkout baton-demo
+        uses: actions/checkout@v4
+        with:
+          repository: conductorone/baton-demo
+          path: baton-demo
+          ref: main
+      - name: Replace baton-sdk with local version
+        run: |
+          cd baton-demo
+          go mod edit -replace github.com/conductorone/baton-sdk=../baton-sdk
+          go mod tidy && go mod vendor
+      - name: Build baton-demo
+        run: |
+          cd baton-demo
+          go build ./cmd/baton-demo
+      - name: Initialize database
+        run: ./baton-demo/baton-demo --init-db
+      - name: Test grant/revoke
+        uses: ConductorOne/github-workflows/actions/sync-test@v2
+        with:
+          connector: ./baton-demo/baton-demo
+          baton-entitlement: 'group:group-0000001:member'
+          baton-principal: 'user-0000000'
+          baton-principal-type: 'user'
+      - name: Test create account
+        uses: ConductorOne/github-workflows/actions/account-provisioning@v3
+        with:
+          connector: ./baton-demo/baton-demo
+          account-email: testuser1@example.com
+          account-login: testuser1
+          account-profile: '{"username": "testuser1", "email": "testuser1@example.com", "firstName": "test", "lastName": "user1"}'
+      - name: Test rotate credentials
+        run: ./baton-demo/baton-demo --rotate-credentials=user-0000000 --rotate-credentials-type=user
