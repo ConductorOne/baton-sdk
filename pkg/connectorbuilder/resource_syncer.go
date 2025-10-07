@@ -42,7 +42,7 @@ type ResourceTargetedSyncer interface {
 }
 
 // ListResourceTypes lists all available resource types.
-func (b *builderImpl) ListResourceTypes(
+func (b *builder) ListResourceTypes(
 	ctx context.Context,
 	request *v2.ResourceTypesServiceListResourceTypesRequest,
 ) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
@@ -72,7 +72,7 @@ func (b *builderImpl) ListResourceTypes(
 }
 
 // ListResources returns all available resources for a given resource type ID.
-func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
+func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.ListResources")
 	defer span.End()
 
@@ -105,7 +105,7 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 	return resp, nil
 }
 
-func (b *builderImpl) GetResource(ctx context.Context, request *v2.ResourceGetterServiceGetResourceRequest) (*v2.ResourceGetterServiceGetResourceResponse, error) {
+func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterServiceGetResourceRequest) (*v2.ResourceGetterServiceGetResourceResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.GetResource")
 	defer span.End()
 
@@ -136,7 +136,7 @@ func (b *builderImpl) GetResource(ctx context.Context, request *v2.ResourceGette
 }
 
 // ListEntitlements returns all the entitlements for a given resource.
-func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
+func (b *builder) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.ListEntitlements")
 	defer span.End()
 
@@ -171,7 +171,7 @@ func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.Entitlem
 }
 
 // ListGrants lists all the grants for a given resource.
-func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
+func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.ListGrants")
 	defer span.End()
 
@@ -207,4 +207,22 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
+}
+
+func (b *builder) addTargetedSyncer(_ context.Context, typeId string, rb ResourceSyncer) error {
+	if targetedSyncer, ok := rb.(ResourceTargetedSyncer); ok {
+		if _, ok := b.resourceTargetedSyncers[typeId]; ok {
+			return fmt.Errorf("error: duplicate resource type found for resource targeted syncer %s", typeId)
+		}
+		b.resourceTargetedSyncers[typeId] = targetedSyncer
+	}
+	return nil
+}
+
+func (b *builder) addResourceBuilders(_ context.Context, typeId string, rb ResourceSyncer) error {
+	if _, ok := b.resourceBuilders[typeId]; ok {
+		return fmt.Errorf("error: duplicate resource type found for resource builder %s", typeId)
+	}
+	b.resourceBuilders[typeId] = rb
+	return nil
 }

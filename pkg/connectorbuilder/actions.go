@@ -32,7 +32,7 @@ type RegisterActionManager interface {
 	RegisterActionManager(ctx context.Context) (CustomActionManager, error)
 }
 
-func (b *builderImpl) ListActionSchemas(ctx context.Context, request *v2.ListActionSchemasRequest) (*v2.ListActionSchemasResponse, error) {
+func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionSchemasRequest) (*v2.ListActionSchemasResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.ListActionSchemas")
 	defer span.End()
 
@@ -58,7 +58,7 @@ func (b *builderImpl) ListActionSchemas(ctx context.Context, request *v2.ListAct
 	return rv, nil
 }
 
-func (b *builderImpl) GetActionSchema(ctx context.Context, request *v2.GetActionSchemaRequest) (*v2.GetActionSchemaResponse, error) {
+func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSchemaRequest) (*v2.GetActionSchemaResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.GetActionSchema")
 	defer span.End()
 
@@ -84,7 +84,7 @@ func (b *builderImpl) GetActionSchema(ctx context.Context, request *v2.GetAction
 	return rv, nil
 }
 
-func (b *builderImpl) InvokeAction(ctx context.Context, request *v2.InvokeActionRequest) (*v2.InvokeActionResponse, error) {
+func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequest) (*v2.InvokeActionResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.InvokeAction")
 	defer span.End()
 
@@ -113,7 +113,7 @@ func (b *builderImpl) InvokeAction(ctx context.Context, request *v2.InvokeAction
 	return rv, nil
 }
 
-func (b *builderImpl) GetActionStatus(ctx context.Context, request *v2.GetActionStatusRequest) (*v2.GetActionStatusResponse, error) {
+func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStatusRequest) (*v2.GetActionStatusResponse, error) {
 	ctx, span := tracer.Start(ctx, "builderImpl.GetActionStatus")
 	defer span.End()
 
@@ -140,4 +140,28 @@ func (b *builderImpl) GetActionStatus(ctx context.Context, request *v2.GetAction
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
+}
+
+func (b *builder) addActionManager(ctx context.Context, c ConnectorBuilder) error {
+	if actionManager, ok := c.(CustomActionManager); ok {
+		if b.actionManager != nil {
+			return fmt.Errorf("error: cannot set multiple action managers")
+		}
+		b.actionManager = actionManager
+	}
+
+	if registerActionManager, ok := c.(RegisterActionManager); ok {
+		if b.actionManager != nil {
+			return fmt.Errorf("error: cannot register multiple action managers")
+		}
+		actionManager, err := registerActionManager.RegisterActionManager(ctx)
+		if err != nil {
+			return fmt.Errorf("error: registering action manager failed: %w", err)
+		}
+		if actionManager == nil {
+			return fmt.Errorf("error: action manager is nil")
+		}
+		b.actionManager = actionManager
+	}
+	return nil
 }
