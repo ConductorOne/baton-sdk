@@ -1,5 +1,7 @@
 package connectorbuilder
 
+import v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+
 // FIXME(jirwin): Come back to streaming assets soon.
 //
 // const (
@@ -40,3 +42,12 @@ package connectorbuilder
 // 	}
 // 	return nil
 // }
+
+// GetAsset streams the asset to the client.
+// FIXME(jirwin): Asset streaming is disabled.
+func (b *builderImpl) GetAsset(request *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
+	_, span := tracer.Start(server.Context(), "builderImpl.GetAsset")
+	defer span.End()
+
+	return nil
+}
