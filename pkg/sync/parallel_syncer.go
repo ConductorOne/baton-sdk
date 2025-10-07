@@ -3,6 +3,7 @@ package sync
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 )
 
 var _ Syncer = (*parallelSyncer)(nil)
@@ -27,6 +29,80 @@ var _ Syncer = (*parallelSyncer)(nil)
 var taskRetryLimit = 5
 var errTaskQueueFull = errors.New("task queue is full")
 var parallelTracer = otel.Tracer("baton-sdk/parallel-sync")
+
+// convertToDbTask converts a sync.Task to a dotc1z.Task
+func convertToDbTask(task *task) *dotc1z.Task {
+	resourceTypeJSON := ""
+	if task.ResourceType != nil {
+		// Convert ResourceType to JSON string
+		if data, err := json.Marshal(task.ResourceType); err == nil {
+			resourceTypeJSON = string(data)
+		}
+	}
+
+	return &dotc1z.Task{
+		Action: dotc1z.Action{
+			Op:                   task.Action.Op.String(),
+			PageToken:            task.Action.PageToken,
+			ResourceTypeID:       task.Action.ResourceTypeID,
+			ResourceID:           task.Action.ResourceID,
+			ParentResourceTypeID: task.Action.ParentResourceTypeID,
+			ParentResourceID:     task.Action.ParentResourceID,
+		},
+		ResourceID:   task.ResourceID,
+		Priority:     task.Priority,
+		ResourceType: resourceTypeJSON,
+	}
+}
+
+// convertFromDbTask converts a dotc1z.Task to a sync.Task
+func convertFromDbTask(dbTask *dotc1z.Task) (*task, error) {
+	// Parse ActionOp from string
+	var op ActionOp
+	switch dbTask.Action.Op {
+	case "list-resource-types":
+		op = SyncResourceTypesOp
+	case "list-resources":
+		op = SyncResourcesOp
+	case "list-entitlements":
+		op = SyncEntitlementsOp
+	case "list-grants":
+		op = SyncGrantsOp
+	case "list-external-resources":
+		op = SyncExternalResourcesOp
+	case "fetch-assets":
+		op = SyncAssetsOp
+	case "grant-expansion":
+		op = SyncGrantExpansionOp
+	case "targeted-resource-sync":
+		op = SyncTargetedResourceOp
+	default:
+		op = UnknownOp
+	}
+
+	// Parse ResourceType from JSON
+	var resourceType *v2.ResourceType
+	if dbTask.ResourceType != "" {
+		resourceType = &v2.ResourceType{}
+		if err := json.Unmarshal([]byte(dbTask.ResourceType), resourceType); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal resource type: %w", err)
+		}
+	}
+
+	return &task{
+		Action: Action{
+			Op:                   op,
+			PageToken:            dbTask.Action.PageToken,
+			ResourceTypeID:       dbTask.Action.ResourceTypeID,
+			ResourceID:           dbTask.Action.ResourceID,
+			ParentResourceTypeID: dbTask.Action.ParentResourceTypeID,
+			ParentResourceID:     dbTask.Action.ParentResourceID,
+		},
+		ResourceID:   dbTask.ResourceID,
+		Priority:     dbTask.Priority,
+		ResourceType: resourceType,
+	}, nil
+}
 
 // min returns the smaller of two integers
 func min(a, b int) int {
@@ -36,34 +112,12 @@ func min(a, b int) int {
 	return b
 }
 
-// addTaskWithRetry adds a task to the queue with retry logic for queue full errors
+// addTaskWithRetry adds a task to the task writer
 func (ps *parallelSyncer) addTaskWithRetry(ctx context.Context, task *task, maxRetries int) error {
-	for attempt := 0; attempt <= maxRetries; attempt++ {
-		err := ps.taskQueue.AddTask(ctx, task)
-		if err == nil {
-			return nil
-		}
-
-		if !errors.Is(err, errTaskQueueFull) {
-			return err
-		}
-
-		// If this is the last attempt, return the error
-		if attempt == maxRetries {
-			return fmt.Errorf("failed to add task after %d retries: %w", maxRetries, err)
-		}
-
-		// Wait before retrying, with exponential backoff
-		backoffDuration := time.Duration(attempt+1) * 100 * time.Millisecond
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoffDuration):
-			continue
-		}
-	}
-
-	return nil // This should never be reached
+	l := ctxzap.Extract(ctx)
+	l.Debug("adding task to writer", zap.String("operation", task.Action.Op.String()), zap.String("resource_type", task.Action.ResourceTypeID))
+	// Send task to the task writer - no retry needed since it uses a buffered channel
+	return ps.taskWriter.AddTask(ctx, task)
 }
 
 // addTasksAfterCompletion safely adds tasks after a worker has completed its current task
@@ -72,79 +126,14 @@ func (w *worker) addTasksAfterCompletion(tasks []*task) {
 	l.Debug("adding tasks after completion", zap.Int("task_count", len(tasks)))
 
 	for _, task := range tasks {
-		// Try multiple strategies to ensure task is never lost
-		if err := w.addTaskWithGuarantee(task); err != nil {
-			l.Error("CRITICAL: failed to add task after completion - this should never happen",
+		// Send task to the task writer
+		if err := w.syncer.taskWriter.AddTask(w.ctx, task); err != nil {
+			l.Error("failed to add task after completion",
 				zap.String("operation", task.Action.Op.String()),
 				zap.Error(err))
 			// This is a critical error - we should panic or handle it differently
 			panic(fmt.Sprintf("failed to add task after completion: %v", err))
 		}
-	}
-}
-
-// addTaskWithGuarantee ensures a task is never lost by trying multiple strategies
-func (w *worker) addTaskWithGuarantee(task *task) error {
-	l := ctxzap.Extract(w.ctx)
-
-	// Strategy 1: Try normal queue with short timeout
-	if err := w.taskQueue.AddTaskWithTimeout(w.ctx, task, 100*time.Millisecond); err == nil {
-		return nil
-	}
-
-	l.Warn("queue full, trying alternative strategies",
-		zap.String("operation", task.Action.Op.String()))
-
-	// Strategy 2: Try with longer timeout
-	if err := w.taskQueue.AddTaskWithTimeout(w.ctx, task, 5*time.Second); err == nil {
-		return nil
-	}
-
-	// Strategy 3: Process immediately in current worker (fallback)
-	l.Info("processing task immediately as fallback",
-		zap.String("operation", task.Action.Op.String()),
-		zap.String("resource_type", task.Action.ResourceTypeID))
-
-	return w.processTaskImmediately(task)
-}
-
-// processTaskImmediately processes a task directly without going through the queue
-func (w *worker) processTaskImmediately(task *task) error {
-	l := ctxzap.Extract(w.ctx)
-	l.Debug("processing task immediately",
-		zap.String("operation", task.Action.Op.String()),
-		zap.String("resource_type", task.Action.ResourceTypeID),
-		zap.String("resource_id", task.Action.ResourceID))
-
-	switch task.Action.Op {
-	case SyncEntitlementsOp:
-		if task.Action.ResourceID != "" {
-			return w.syncer.syncEntitlementsForResource(w.ctx, task.Action)
-		} else {
-			return w.syncer.syncEntitlementsForResourceType(w.ctx, task.Action)
-		}
-	case SyncGrantsOp:
-		if task.Action.ResourceID != "" {
-			return w.syncer.syncGrantsForResource(w.ctx, task.Action)
-		} else {
-			return w.syncer.syncGrantsForResourceType(w.ctx, task.Action)
-		}
-	case SyncResourcesOp:
-		// For resource tasks, we need to collect any sub-tasks and process them immediately too
-		tasks, err := w.syncer.syncResourcesCollectTasks(w.ctx, task.Action)
-		if err != nil {
-			return err
-		}
-		// Process any collected tasks immediately
-		for _, subTask := range tasks {
-			if err := w.processTaskImmediately(subTask); err != nil {
-				l.Error("failed to process sub-task immediately", zap.Error(err))
-				return err
-			}
-		}
-		return nil
-	default:
-		return fmt.Errorf("unsupported operation for immediate processing: %s", task.Action.Op.String())
 	}
 }
 
@@ -290,6 +279,255 @@ func (dta *DeferredTaskAdder) Clear() {
 	dta.Lock()
 	defer dta.Unlock()
 	dta.pendingTasks = dta.pendingTasks[:0] // Reuse slice
+}
+
+// taskWriter manages writing tasks to the database in batches
+type taskWriter struct {
+	taskChannel   chan *task
+	flushSignal   chan struct{}
+	flushComplete chan struct{}
+	syncer        *parallelSyncer
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            *sync.WaitGroup
+	batchSize     int
+	flushDelay    time.Duration
+	pendingTasks  atomic.Int64 // Track pending tasks in channel
+}
+
+// newTaskWriter creates a new task writer
+func newTaskWriter(syncer *parallelSyncer, ctx context.Context, wg *sync.WaitGroup) *taskWriter {
+	writerCtx, cancel := context.WithCancel(ctx)
+	return &taskWriter{
+		taskChannel:   make(chan *task, 1000), // Buffered channel for tasks
+		flushSignal:   make(chan struct{}, 1), // Buffered channel for flush signals
+		flushComplete: make(chan struct{}),    // Unbuffered channel for flush completion
+		syncer:        syncer,
+		ctx:           writerCtx,
+		cancel:        cancel,
+		wg:            wg,
+		batchSize:     100,                    // Write in batches of 100
+		flushDelay:    100 * time.Millisecond, // Flush every 100ms
+	}
+}
+
+// Start starts the task writer goroutine
+func (tw *taskWriter) Start() {
+	defer tw.wg.Done()
+
+	l := ctxzap.Extract(tw.ctx)
+	l.Debug("task writer started")
+
+	var batch []*task
+	ticker := time.NewTicker(tw.flushDelay)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-tw.ctx.Done():
+			// Flush any remaining tasks before shutting down
+			if len(batch) > 0 {
+				if err := tw.flushBatch(batch); err != nil {
+					l.Error("failed to flush final batch", zap.Error(err))
+				}
+			}
+			l.Debug("task writer stopped")
+			return
+
+		case task := <-tw.taskChannel:
+			tw.pendingTasks.Add(-1) // Decrement pending counter
+			l.Debug("task writer received task", zap.String("operation", task.Action.Op.String()), zap.String("resource_type", task.Action.ResourceTypeID))
+			batch = append(batch, task)
+
+			// Flush if batch is full
+			if len(batch) >= tw.batchSize {
+				if err := tw.flushBatch(batch); err != nil {
+					l.Error("failed to flush batch", zap.Error(err))
+				}
+				batch = batch[:0] // Reset batch
+			}
+
+		case <-ticker.C:
+			// Flush on timer if we have tasks
+			if len(batch) > 0 {
+				if err := tw.flushBatch(batch); err != nil {
+					l.Error("failed to flush batch on timer", zap.Error(err))
+				}
+				batch = batch[:0] // Reset batch
+			}
+
+		case <-tw.flushSignal:
+			// Force flush any pending tasks
+			if len(batch) > 0 {
+				if err := tw.flushBatch(batch); err != nil {
+					l.Error("failed to flush batch on signal", zap.Error(err))
+				}
+				batch = batch[:0] // Reset batch
+			}
+			// Signal that flush is complete
+			select {
+			case tw.flushComplete <- struct{}{}:
+			default:
+			}
+		}
+	}
+}
+
+// flushBatch writes a batch of tasks to the database
+func (tw *taskWriter) flushBatch(batch []*task) error {
+	if len(batch) == 0 {
+		return nil
+	}
+
+	l := ctxzap.Extract(tw.ctx)
+	l.Debug("flushing task batch", zap.Int("count", len(batch)), zap.String("sync_id", tw.syncer.syncer.syncID))
+
+	// Convert tasks to the format expected by PutTasks
+	dbTasks := make([]*dotc1z.Task, len(batch))
+	for i, t := range batch {
+		dbTasks[i] = convertToDbTask(t)
+	}
+
+	err := tw.syncer.syncer.store.(*dotc1z.C1File).PutTasks(tw.ctx, tw.syncer.syncer.syncID, dbTasks...)
+	if err != nil {
+		return fmt.Errorf("failed to put tasks: %w", err)
+	}
+
+	l.Debug("task batch flushed successfully", zap.Int("count", len(batch)))
+	return nil
+}
+
+// AddTask adds a task to the writer channel
+func (tw *taskWriter) AddTask(ctx context.Context, t *task) error {
+	select {
+	case tw.taskChannel <- t:
+		tw.pendingTasks.Add(1) // Increment pending counter
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		// Channel is full, block until we can add it
+		select {
+		case tw.taskChannel <- t:
+			tw.pendingTasks.Add(1) // Increment pending counter
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+}
+
+// FlushAndWait forces a flush of any pending tasks and waits for completion
+func (tw *taskWriter) FlushAndWait() {
+	// Send a flush signal to the task writer
+	select {
+	case tw.flushSignal <- struct{}{}:
+		// Signal sent successfully
+	case <-tw.ctx.Done():
+		// Context cancelled, can't flush
+		return
+	}
+
+	// Wait for flush to complete
+	<-tw.flushComplete
+}
+
+// HasPendingTasks returns true if there are tasks waiting to be flushed
+func (tw *taskWriter) HasPendingTasks() bool {
+	return tw.pendingTasks.Load() > 0
+}
+
+// Stop stops the task writer
+func (tw *taskWriter) Stop() {
+	tw.cancel()
+}
+
+// dbTaskQueue manages fetching tasks from the database
+type dbTaskQueue struct {
+	syncer *parallelSyncer
+	config *ParallelSyncConfig
+}
+
+// newDbTaskQueue creates a new database-backed task queue
+func newDbTaskQueue(syncer *parallelSyncer, config *ParallelSyncConfig) *dbTaskQueue {
+	return &dbTaskQueue{
+		syncer: syncer,
+		config: config,
+	}
+}
+
+// TaskBatch contains tasks and their database IDs
+type TaskBatch struct {
+	Tasks   []*task
+	TaskIDs []int64
+}
+
+// GetTaskBatch fetches a batch of tasks from the database
+func (q *dbTaskQueue) GetTaskBatch(ctx context.Context, bucket string) (*TaskBatch, error) {
+	l := ctxzap.Extract(ctx)
+	l.Debug("getting task batch", zap.String("bucket", bucket))
+
+	// Fetch tasks from database
+	taskRecords, err := q.syncer.syncer.store.(*dotc1z.C1File).GetTasks(ctx, q.syncer.syncer.syncID, bucket, 50)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get tasks: %w", err)
+	}
+
+	if len(taskRecords) == 0 {
+		return &TaskBatch{Tasks: []*task{}, TaskIDs: []int64{}}, nil
+	}
+
+	// Convert TaskRecords back to tasks
+	tasks := make([]*task, len(taskRecords))
+	taskIDs := make([]int64, len(taskRecords))
+	for i, tr := range taskRecords {
+		dbTask, err := tr.DeserializeTask()
+		if err != nil {
+			l.Error("failed to deserialize task", zap.Error(err), zap.Int64("task_id", tr.ID))
+			continue
+		}
+
+		task, err := convertFromDbTask(dbTask)
+		if err != nil {
+			l.Error("failed to convert task", zap.Error(err), zap.Int64("task_id", tr.ID))
+			continue
+		}
+		tasks[i] = task
+		taskIDs[i] = tr.ID
+	}
+
+	l.Debug("retrieved task batch", zap.Int("count", len(tasks)))
+	return &TaskBatch{Tasks: tasks, TaskIDs: taskIDs}, nil
+}
+
+// GetBucketStats returns statistics about task counts per bucket
+func (q *dbTaskQueue) GetBucketStats() map[string]int64 {
+	ctx := context.Background()
+	stats := make(map[string]int64)
+
+	// Get all buckets by querying the database
+	// For now, we'll use a simple approach and check common bucket patterns
+	syncID := q.syncer.syncer.syncID
+
+	// Check default bucket
+	if count, err := q.syncer.syncer.store.(*dotc1z.C1File).GetBucketTaskCount(ctx, syncID, ""); err == nil {
+		stats["default"] = count
+	}
+
+	// Check resource-type buckets (we could make this more sophisticated)
+	for i := 0; i < 10; i++ {
+		bucket := fmt.Sprintf("resource-type-%d", i)
+		if count, err := q.syncer.syncer.store.(*dotc1z.C1File).GetBucketTaskCount(ctx, syncID, bucket); err == nil && count > 0 {
+			stats[bucket] = count
+		}
+	}
+
+	return stats
+}
+
+// Close is a no-op for dbTaskQueue since it doesn't manage resources
+func (q *dbTaskQueue) Close() {
+	// No resources to close
 }
 
 // taskQueue manages the distribution of tasks to workers using dynamic bucketing
@@ -567,7 +805,7 @@ func (q *taskQueue) Close() {
 // worker represents a worker goroutine that processes tasks
 type worker struct {
 	id           int
-	taskQueue    *taskQueue
+	dbTaskQueue  *dbTaskQueue
 	syncer       *parallelSyncer
 	ctx          context.Context
 	cancel       context.CancelFunc
@@ -577,19 +815,19 @@ type worker struct {
 }
 
 // newWorker creates a new worker
-func newWorker(id int, taskQueue *taskQueue, syncer *parallelSyncer, ctx context.Context, wg *sync.WaitGroup) *worker {
+func newWorker(id int, dbTaskQueue *dbTaskQueue, syncer *parallelSyncer, ctx context.Context, wg *sync.WaitGroup) *worker {
 	workerCtx, cancel := context.WithCancel(ctx)
 	return &worker{
-		id:        id,
-		taskQueue: taskQueue,
-		syncer:    syncer,
-		ctx:       workerCtx,
-		cancel:    cancel,
-		wg:        wg,
+		id:          id,
+		dbTaskQueue: dbTaskQueue,
+		syncer:      syncer,
+		ctx:         workerCtx,
+		cancel:      cancel,
+		wg:          wg,
 	}
 }
 
-// Start starts the worker with bucket-aware task processing and work-stealing
+// Start starts the worker with batch-based task processing
 func (w *worker) Start() {
 	defer w.wg.Done()
 
@@ -607,92 +845,133 @@ func (w *worker) Start() {
 			l.Debug("worker stopped", zap.Int("worker_id", w.id))
 			return
 		default:
-
-			// Try to get a task, with preference for the current bucket if we're making progress
-			task, err := w.taskQueue.GetTask(w.ctx)
+			// Try to get a batch of tasks from the current bucket
+			taskBatch, err := w.dbTaskQueue.GetTaskBatch(w.ctx, currentBucket)
 			if err != nil {
-				// No tasks available, wait a bit
-				l.Debug("no tasks available, waiting", zap.Int("worker_id", w.id), zap.Error(err))
-				time.Sleep(100 * time.Millisecond)
+				l.Error("failed to get task batch", zap.Int("worker_id", w.id), zap.Error(err))
+				time.Sleep(1 * time.Second)
 				continue
 			}
-			l.Debug("worker got task", zap.Int("worker_id", w.id), zap.String("task_op", task.Action.Op.String()))
 
-			// Track which bucket we're working on
-			taskBucket := w.taskQueue.getBucketForTask(task)
-			if taskBucket != currentBucket {
-				l.Debug("worker switching buckets",
-					zap.Int("worker_id", w.id),
-					zap.String("from_bucket", currentBucket),
-					zap.String("to_bucket", taskBucket))
-				currentBucket = taskBucket
-				consecutiveFailures = 0
-			}
+			if len(taskBatch.Tasks) == 0 {
+				// No tasks available anywhere, wait a bit for task writer to flush new tasks
+				l.Debug("no tasks available, waiting", zap.Int("worker_id", w.id))
+				time.Sleep(200 * time.Millisecond)
 
-			// Add detailed task information logging
-			l.Debug("processing task details",
-				zap.Int("worker_id", w.id),
-				zap.String("task_op", task.Action.Op.String()),
-				zap.String("resource_type", task.Action.ResourceTypeID),
-				zap.String("page_token", task.Action.PageToken),
-				zap.String("bucket", taskBucket))
-
-			// Set processing flag
-			w.isProcessing.Store(true)
-
-			// Process the task
-			taskResult, err := w.processTask(task)
-			if err != nil {
-
-				// Add pending tasks after task completion (even if failed, they might be valid)
-				if taskResult != nil && len(taskResult.Tasks) > 0 {
-					w.addTasksAfterCompletion(taskResult.Tasks)
+				// Check if sync is complete after waiting
+				totalTasks, err := w.dbTaskQueue.syncer.syncer.store.(*dotc1z.C1File).GetTaskCount(w.ctx, w.dbTaskQueue.syncer.syncer.syncID)
+				if err != nil {
+					l.Error("failed to get task count", zap.Int("worker_id", w.id), zap.Error(err))
+					time.Sleep(1 * time.Second)
+					continue
 				}
-				l.Error("failed to process task",
-					zap.Int("worker_id", w.id),
-					zap.String("bucket", taskBucket),
-					zap.String("operation", task.Action.Op.String()),
-					zap.String("resource_type", task.Action.ResourceTypeID),
-					zap.Error(err))
 
-				consecutiveFailures++
-
-				// Check if this is a rate limit error
-				if w.isRateLimitError(err) {
-					w.rateLimited.Store(true)
-
-					// If we're hitting rate limits in the current bucket, consider switching
-					if consecutiveFailures >= maxConsecutiveFailures {
-						l.Info("worker hitting rate limits in bucket, will try other buckets",
-							zap.Int("worker_id", w.id),
-							zap.String("bucket", taskBucket),
-							zap.Int("consecutive_failures", consecutiveFailures))
-
-						// Force bucket switch on next iteration
-						currentBucket = ""
-						consecutiveFailures = 0
+				if totalTasks == 0 {
+					// Check if task writer has pending tasks - if so, wait a bit more
+					if w.syncer.taskWriter.HasPendingTasks() {
+						l.Debug("task writer has pending tasks, waiting for flush", zap.Int("worker_id", w.id))
+						time.Sleep(200 * time.Millisecond) // Wait for task writer to flush
+						continue
 					}
 
-					// Wait before retrying with bucket-specific delay
-					delay := w.getBucketRateLimitDelay(taskBucket)
-					time.Sleep(delay)
-				} else {
-					// Non-rate-limit error, reset rate limit flag
-					w.rateLimited.Store(false)
-				}
-			} else {
-				// Task succeeded, add any pending tasks after completion
-				if taskResult != nil && len(taskResult.Tasks) > 0 {
-					w.addTasksAfterCompletion(taskResult.Tasks)
+					// No tasks left and no pending tasks, sync is complete, stop this worker
+					l.Debug("no tasks remaining, worker stopping", zap.Int("worker_id", w.id))
+					return
 				}
 
-				// Reset failure counters
-				w.rateLimited.Store(false)
-				consecutiveFailures = 0
+				// Still have tasks, continue trying
+				continue
 			}
 
-			// Reset processing flag
-			w.isProcessing.Store(false)
+			l.Debug("worker got task batch", zap.Int("worker_id", w.id), zap.Int("count", len(taskBatch.Tasks)))
+
+			// Process each task in the batch
+			for _, task := range taskBatch.Tasks {
+				// Determine bucket for this task
+				taskBucket := w.getBucketForTask(task)
+				if taskBucket != currentBucket {
+					l.Debug("worker switching buckets",
+						zap.Int("worker_id", w.id),
+						zap.String("from_bucket", currentBucket),
+						zap.String("to_bucket", taskBucket))
+					currentBucket = taskBucket
+					consecutiveFailures = 0
+				}
+
+				// Add detailed task information logging
+				l.Debug("processing task details",
+					zap.Int("worker_id", w.id),
+					zap.String("task_op", task.Action.Op.String()),
+					zap.String("resource_type", task.Action.ResourceTypeID),
+					zap.String("page_token", task.Action.PageToken),
+					zap.String("bucket", taskBucket))
+
+				// Set processing flag
+				w.isProcessing.Store(true)
+
+				// Process the task
+				taskResult, err := w.processTask(task)
+				if err != nil {
+					// Add pending tasks after task completion (even if failed, they might be valid)
+					if taskResult != nil && len(taskResult.Tasks) > 0 {
+						w.addTasksAfterCompletion(taskResult.Tasks)
+					}
+					l.Error("failed to process task",
+						zap.Int("worker_id", w.id),
+						zap.String("bucket", taskBucket),
+						zap.String("operation", task.Action.Op.String()),
+						zap.String("resource_type", task.Action.ResourceTypeID),
+						zap.Error(err))
+
+					consecutiveFailures++
+
+					// Check if this is a rate limit error
+					if w.isRateLimitError(err) {
+						w.rateLimited.Store(true)
+
+						// If we're hitting rate limits in the current bucket, consider switching
+						if consecutiveFailures >= maxConsecutiveFailures {
+							l.Info("worker hitting rate limits in bucket, will try other buckets",
+								zap.Int("worker_id", w.id),
+								zap.String("bucket", taskBucket),
+								zap.Int("consecutive_failures", consecutiveFailures))
+
+							// Force bucket switch on next iteration
+							currentBucket = ""
+							consecutiveFailures = 0
+						}
+
+						// Wait before retrying with bucket-specific delay
+						delay := w.getBucketRateLimitDelay(taskBucket)
+						time.Sleep(delay)
+					} else {
+						// Non-rate-limit error, reset rate limit flag
+						w.rateLimited.Store(false)
+					}
+				} else {
+					// Task succeeded, add any pending tasks after completion
+					if taskResult != nil && len(taskResult.Tasks) > 0 {
+						w.addTasksAfterCompletion(taskResult.Tasks)
+					}
+
+					// Reset failure counters
+					w.rateLimited.Store(false)
+					consecutiveFailures = 0
+				}
+
+				// Reset processing flag
+				w.isProcessing.Store(false)
+			}
+
+			// Mark all tasks in this batch as complete
+			if len(taskBatch.TaskIDs) > 0 {
+				err := w.syncer.syncer.store.(*dotc1z.C1File).MarkTasksComplete(w.ctx, w.syncer.syncer.syncID, taskBatch.TaskIDs...)
+				if err != nil {
+					l.Error("failed to mark tasks complete", zap.Int("worker_id", w.id), zap.Error(err))
+				} else {
+					l.Debug("marked tasks complete", zap.Int("worker_id", w.id), zap.Int("count", len(taskBatch.TaskIDs)))
+				}
+			}
 		}
 	}
 }
@@ -764,6 +1043,17 @@ func (w *worker) getBucketRateLimitDelay(bucket string) time.Duration {
 	}
 }
 
+// getBucketForTask determines the bucket for a task based on the resource type's sync_bucket
+func (w *worker) getBucketForTask(t *task) string {
+	// If the resource type has an explicit sync_bucket, use it
+	if t.ResourceType != nil && t.ResourceType.SyncBucket != "" {
+		return t.ResourceType.SyncBucket
+	}
+
+	// If no explicit bucket, create a unique bucket per resource type
+	return fmt.Sprintf("resource-type-%s", t.Action.ResourceTypeID)
+}
+
 // Stop stops the worker
 func (w *worker) Stop() {
 	w.cancel()
@@ -771,12 +1061,16 @@ func (w *worker) Stop() {
 
 // parallelSyncer extends the base syncer with parallel processing capabilities
 type parallelSyncer struct {
-	syncer    *SequentialSyncer
-	config    *ParallelSyncConfig
-	taskQueue *taskQueue
-	workers   []*worker
-	workerWg  sync.WaitGroup
-	mu        sync.RWMutex
+	syncer             *SequentialSyncer
+	config             *ParallelSyncConfig
+	taskQueue          *taskQueue
+	dbTaskQueue        *dbTaskQueue
+	taskWriter         *taskWriter
+	workers            []*worker
+	workerWg           sync.WaitGroup
+	writerWg           sync.WaitGroup
+	mu                 sync.RWMutex
+	recentTaskActivity atomic.Bool // Track if tasks were recently added
 }
 
 // NewParallelSyncer creates a new parallel syncer
@@ -803,20 +1097,36 @@ func (ps *parallelSyncer) Sync(ctx context.Context) error {
 		return err
 	}
 
-	// Create task queue
-	ps.taskQueue = newTaskQueue(ps.config)
-	defer ps.taskQueue.Close()
+	// Disable grant expansion during parallel processing
+	ps.syncer.dontExpandGrants = true
+	defer func() {
+		// Re-enable grant expansion for the final sequential phase
+		ps.syncer.dontExpandGrants = false
+	}()
+
+	// Create task writer and database task queue
+	ps.taskWriter = newTaskWriter(ps, ctx, &ps.writerWg)
+	ps.dbTaskQueue = newDbTaskQueue(ps, ps.config)
+	defer ps.dbTaskQueue.Close()
+
+	// Start task writer
+	ps.writerWg.Add(1)
+	go ps.taskWriter.Start()
+
+	// Generate initial tasks
+	l.Debug("generating initial tasks", zap.String("sync_id", ps.syncer.syncID))
+	if err := ps.generateInitialTasks(ctx); err != nil {
+		return err
+	}
+
+	// Force flush the initial batch and wait for it to complete
+	ps.taskWriter.FlushAndWait()
 
 	// Start workers
 	if err := ps.startWorkers(ctx); err != nil {
 		return err
 	}
 	defer ps.stopWorkers()
-
-	// Generate initial tasks
-	if err := ps.generateInitialTasks(ctx); err != nil {
-		return err
-	}
 
 	// Wait for all tasks to complete
 	if err := ps.waitForCompletion(ctx); err != nil {
@@ -842,6 +1152,10 @@ func (ps *parallelSyncer) Sync(ctx context.Context) error {
 		return err
 	}
 
+	// Stop task writer and wait for it to finish
+	ps.taskWriter.Stop()
+	ps.writerWg.Wait()
+
 	return nil
 }
 
@@ -858,10 +1172,12 @@ func (ps *parallelSyncer) initializeSync(ctx context.Context) error {
 	}
 
 	// Start or resume sync
-	_, _, err = ps.syncer.startOrResumeSync(ctx)
+	syncID, _, err := ps.syncer.startOrResumeSync(ctx)
 	if err != nil {
 		return err
 	}
+	ps.syncer.syncID = syncID
+	ctxzap.Extract(ctx).Debug("sync initialized", zap.String("sync_id", syncID))
 
 	// Set up state
 	currentStep, err := ps.syncer.store.CurrentSyncStep(ctx)
@@ -888,7 +1204,7 @@ func (ps *parallelSyncer) startWorkers(ctx context.Context) error {
 	ps.workers = make([]*worker, ps.config.WorkerCount)
 
 	for i := 0; i < ps.config.WorkerCount; i++ {
-		worker := newWorker(i, ps.taskQueue, ps, ctx, &ps.workerWg)
+		worker := newWorker(i, ps.dbTaskQueue, ps, ctx, &ps.workerWg)
 		ps.workers[i] = worker
 		ps.workerWg.Add(1)
 		go worker.Start()
@@ -1009,7 +1325,7 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	lastTaskCount := 0
+	lastTaskCount := int64(0)
 	noProgressCount := 0
 	maxNoProgressCount := 6 // 30 seconds without progress
 
@@ -1018,22 +1334,16 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
-			// Get current bucket statistics
-			bucketStats := ps.taskQueue.GetBucketStats()
-			totalTasks := 0
-			for _, count := range bucketStats {
-				totalTasks += count
+			// Get current task count from database
+			totalTasks, err := ps.syncer.store.(*dotc1z.C1File).GetTaskCount(ctx, ps.syncer.syncID)
+			if err != nil {
+				l.Error("failed to get task count", zap.Error(err))
+				continue
 			}
 
 			// Log progress
-			if len(bucketStats) > 0 {
-				// Debug: Log which buckets still have active tasks
-				activeBuckets := make([]string, 0)
-				for bucketName, taskCount := range bucketStats {
-					if taskCount > 0 && bucketName != "resource-type-" {
-						activeBuckets = append(activeBuckets, fmt.Sprintf("%s:%d", bucketName, taskCount))
-					}
-				}
+			if totalTasks > 0 {
+				l.Debug("tasks remaining", zap.Int64("total_tasks", totalTasks))
 			}
 
 			// Check if we're making progress
@@ -1042,56 +1352,39 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 				if noProgressCount >= maxNoProgressCount {
 					l.Warn("no task progress detected",
 						zap.Int("no_progress_count", noProgressCount),
-						zap.Int("last_task_count", lastTaskCount),
-						zap.Int("total_tasks", totalTasks))
+						zap.Int64("last_task_count", lastTaskCount),
+						zap.Int64("total_tasks", totalTasks))
 				}
 			} else {
 				noProgressCount = 0
 				lastTaskCount = totalTasks
 			}
 
-			// Check if all resource-specific tasks are complete
-			// We need to ensure ALL resource types have finished processing
+			// Check if all tasks are complete
 			if totalTasks == 0 {
-				// Double-check that we're truly done with resource processing
-				// Look for any active resource processing in the bucket stats
-				allResourceProcessingComplete := true
-				for bucketName, taskCount := range bucketStats {
-					// Skip the default bucket (used for final tasks)
-					if bucketName == "resource-type-" {
-						continue
-					}
-					if taskCount > 0 {
-						allResourceProcessingComplete = false
-						break
-					}
+				// Additional safety check: wait a bit more to ensure workers are truly idle
+				time.Sleep(2 * time.Second)
+
+				// Check one more time to ensure no new tasks appeared
+				finalTotalTasks, err := ps.syncer.store.(*dotc1z.C1File).GetTaskCount(ctx, ps.syncer.syncID)
+				if err != nil {
+					l.Error("failed to get final task count", zap.Error(err))
+					continue
 				}
 
-				if allResourceProcessingComplete {
-					// Additional safety check: wait a bit more to ensure workers are truly idle
-					time.Sleep(2 * time.Second)
-
-					// Check one more time to ensure no new tasks appeared
-					finalBucketStats := ps.taskQueue.GetBucketStats()
-					finalTotalTasks := 0
-					for _, count := range finalBucketStats {
-						finalTotalTasks += count
-					}
-
-					if finalTotalTasks == 0 {
-						// Final check: ensure all workers are actually idle
-						if ps.areWorkersIdle() {
-							return nil
-						} else {
-							// Reset progress counters since we're not done yet
-							noProgressCount = 0
-							lastTaskCount = finalTotalTasks
-						}
+				if finalTotalTasks == 0 {
+					// Final check: ensure all workers are actually idle
+					if ps.areWorkersIdle() {
+						return nil
 					} else {
 						// Reset progress counters since we're not done yet
 						noProgressCount = 0
 						lastTaskCount = finalTotalTasks
 					}
+				} else {
+					// Reset progress counters since we're not done yet
+					noProgressCount = 0
+					lastTaskCount = finalTotalTasks
 				}
 			}
 		}
@@ -1155,6 +1448,12 @@ func (ps *parallelSyncer) syncExternalResources(ctx context.Context) error {
 
 // finalizeSync performs final sync cleanup
 func (ps *parallelSyncer) finalizeSync(ctx context.Context) error {
+	// Truncate tasks table to clean up
+	if err := ps.syncer.store.(*dotc1z.C1File).TruncateTasks(ctx, ps.syncer.syncID); err != nil {
+		ctxzap.Extract(ctx).Error("failed to truncate tasks table", zap.Error(err))
+		// Don't return error, just log it
+	}
+
 	// End sync
 	if err := ps.syncer.store.EndSync(ctx); err != nil {
 		return err
@@ -2043,11 +2342,11 @@ func (ps *parallelSyncer) Close(ctx context.Context) error {
 }
 
 // GetBucketStats returns statistics about all buckets
-func (ps *parallelSyncer) GetBucketStats() map[string]int {
-	if ps.taskQueue == nil {
-		return make(map[string]int)
+func (ps *parallelSyncer) GetBucketStats() map[string]int64 {
+	if ps.dbTaskQueue == nil {
+		return make(map[string]int64)
 	}
-	return ps.taskQueue.GetBucketStats()
+	return ps.dbTaskQueue.GetBucketStats()
 }
 
 // GetWorkerStatus returns the status of all workers
