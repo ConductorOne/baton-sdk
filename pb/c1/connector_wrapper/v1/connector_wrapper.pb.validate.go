@@ -63,6 +63,8 @@ func (m *ProfileConfig) validate(all bool) error {
 
 	// no validation rules for EnableMem
 
+	// no validation rules for Prefix
+
 	if len(errors) > 0 {
 		return ProfileConfigMultiError(errors)
 	}

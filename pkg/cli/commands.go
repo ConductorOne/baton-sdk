@@ -302,6 +302,7 @@ func MakeMainCommand[T field.Configurable](
 		// Configure profiling if requested
 		enableCPU := v.GetBool("profile-cpu")
 		enableMem := v.GetBool("profile-mem")
+		enableParent := v.GetBool("profile-parent")
 		if enableCPU || enableMem {
 			profileDir := v.GetString("profile-dir")
 			if profileDir == "" {
@@ -312,12 +313,31 @@ func MakeMainCommand[T field.Configurable](
 				}
 				profileDir = wd
 			}
+
+			// Set prefix for child process if parent profiling is enabled
+			childPrefix := ""
+			if enableParent {
+				childPrefix = "child"
+			}
+
 			profileCfg := &connectorwrapperV1.ProfileConfig{
 				OutputDir: profileDir,
 				EnableCpu: enableCPU,
 				EnableMem: enableMem,
+				Prefix:    childPrefix,
 			}
 			opts = append(opts, connectorrunner.WithProfileConfig(profileCfg))
+
+			// Enable parent process profiling if requested
+			if enableParent {
+				parentProfileCfg := &connectorwrapperV1.ProfileConfig{
+					OutputDir: profileDir,
+					EnableCpu: enableCPU,
+					EnableMem: enableMem,
+					Prefix:    "parent",
+				}
+				opts = append(opts, connectorrunner.WithParentProfileConfig(parentProfileCfg))
+			}
 		}
 
 		t, err := MakeGenericConfiguration[T](v)

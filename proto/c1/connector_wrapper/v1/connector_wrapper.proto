@@ -9,12 +9,14 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v
 
 message ProfileConfig {
   // Directory to write profile files to. If empty, profiling is disabled.
-  // Filenames are generated as: cpu-{syncID}.prof and mem-{syncID}.prof
+  // Filenames are generated as: cpu-{prefix}-{timestamp}.prof and mem-{prefix}-{timestamp}.prof
   string output_dir = 1;
   // Enable CPU profiling
   bool enable_cpu = 2;
   // Enable memory profiling
   bool enable_mem = 3;
+  // Optional prefix for profile filenames (e.g., "child", "parent")
+  string prefix = 4;
 }
 
 message ServerConfig {

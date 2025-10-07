@@ -164,6 +164,11 @@ var (
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)
+	profileParentField = BoolField("profile-parent",
+		WithDescription("Enable profiling of the parent process in addition to the child process"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
 
 	otelCollectorEndpoint = StringField(OtelCollectorEndpointFieldName,
 		WithDescription("The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided)"),
@@ -288,6 +293,7 @@ var DefaultFields = []SchemaField{
 	profileDirField,
 	profileCPUField,
 	profileMemField,
+	profileParentField,
 
 	otelCollectorEndpoint,
 	otelCollectorEndpointTLSCertPath,

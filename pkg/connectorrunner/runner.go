@@ -21,6 +21,7 @@ import (
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
+	"github.com/conductorone/baton-sdk/pkg/profiling"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/tasks/c1api"
 	"github.com/conductorone/baton-sdk/pkg/tasks/local"
@@ -36,10 +37,11 @@ const (
 )
 
 type connectorRunner struct {
-	cw        types.ClientWrapper
-	oneShot   bool
-	tasks     tasks.Manager
-	debugFile *os.File
+	cw             types.ClientWrapper
+	oneShot        bool
+	tasks          tasks.Manager
+	debugFile      *os.File
+	parentProfiler *profiling.Profiler
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -94,6 +96,21 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 			cancel(ErrSigTerm)
 		}
 	}()
+
+	// Start parent profiling if configured
+	if c.parentProfiler != nil {
+		if err := c.parentProfiler.Start(ctx); err != nil {
+			l.Warn("failed to start parent profiling", zap.Error(err))
+		}
+		defer func() {
+			if err := c.parentProfiler.Stop(ctx); err != nil {
+				l.Warn("failed to stop parent CPU profiling", zap.Error(err))
+			}
+			if err := c.parentProfiler.WriteMemProfile(ctx); err != nil {
+				l.Warn("failed to write parent memory profile", zap.Error(err))
+			}
+		}()
+	}
 
 	err := c.run(ctx)
 	if err != nil {
@@ -354,6 +371,7 @@ type runnerConfig struct {
 	externalResourceEntitlementIdFilter string
 	skipEntitlementsAndGrants           bool
 	profileConfig                       *connectorwrapperV1.ProfileConfig
+	parentProfileConfig                 *connectorwrapperV1.ProfileConfig
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -666,6 +684,13 @@ func WithProfileConfig(profileCfg *connectorwrapperV1.ProfileConfig) Option {
 	}
 }
 
+func WithParentProfileConfig(profileCfg *connectorwrapperV1.ProfileConfig) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.parentProfileConfig = profileCfg
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
@@ -711,6 +736,11 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	}
 
 	runner.cw = cw
+
+	// Initialize parent profiler if configured
+	if cfg.parentProfileConfig != nil {
+		runner.parentProfiler = profiling.New(cfg.parentProfileConfig)
+	}
 
 	if cfg.onDemand {
 		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil && cfg.bulkCreateTicketConfig == nil {

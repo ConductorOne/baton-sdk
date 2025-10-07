@@ -24,7 +24,20 @@ type Profiler struct {
 
 // New creates a new Profiler from the given configuration.
 // Filenames are generated with a timestamp: cpu-YYYYMMDD-HHMMSS.prof and mem-YYYYMMDD-HHMMSS.prof
+// If cfg.Prefix is set, filenames will be: cpu-{prefix}-YYYYMMDD-HHMMSS.prof
 func New(cfg *connectorwrapperV1.ProfileConfig) *Profiler {
+	if cfg == nil || (!cfg.EnableCpu && !cfg.EnableMem) {
+		return nil
+	}
+
+	// Use prefix from config if provided
+	prefix := cfg.Prefix
+	return NewWithPrefix(cfg, prefix)
+}
+
+// NewWithPrefix creates a new Profiler with a custom prefix for filenames.
+// If prefix is "parent", filenames will be: cpu-parent-YYYYMMDD-HHMMSS.prof and mem-parent-YYYYMMDD-HHMMSS.prof
+func NewWithPrefix(cfg *connectorwrapperV1.ProfileConfig, prefix string) *Profiler {
 	if cfg == nil || (!cfg.EnableCpu && !cfg.EnableMem) {
 		return nil
 	}
@@ -41,10 +54,19 @@ func New(cfg *connectorwrapperV1.ProfileConfig) *Profiler {
 	}
 
 	timestamp := time.Now().Format("20060102-150405")
+
+	// Generate filenames with optional prefix
+	cpuFilename := "cpu"
+	memFilename := "mem"
+	if prefix != "" {
+		cpuFilename = fmt.Sprintf("cpu-%s", prefix)
+		memFilename = fmt.Sprintf("mem-%s", prefix)
+	}
+
 	return &Profiler{
 		cfg:         cfg,
-		cpuFilePath: filepath.Join(outputDir, fmt.Sprintf("cpu-%s.prof", timestamp)),
-		memFilePath: filepath.Join(outputDir, fmt.Sprintf("mem-%s.prof", timestamp)),
+		cpuFilePath: filepath.Join(outputDir, fmt.Sprintf("%s-%s.prof", cpuFilename, timestamp)),
+		memFilePath: filepath.Join(outputDir, fmt.Sprintf("%s-%s.prof", memFilename, timestamp)),
 	}
 }
 
