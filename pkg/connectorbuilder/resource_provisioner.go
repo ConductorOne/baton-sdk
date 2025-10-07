@@ -45,7 +45,7 @@ type ResourceProvisionerV2 interface {
 }
 
 func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (*v2.GrantManagerServiceGrantResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.Grant")
+	ctx, span := tracer.Start(ctx, "builder.Grant")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -83,7 +83,7 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 }
 
 func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (*v2.GrantManagerServiceRevokeResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.Revoke")
+	ctx, span := tracer.Start(ctx, "builder.Revoke")
 	defer span.End()
 
 	start := b.nowFunc()

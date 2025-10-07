@@ -173,7 +173,7 @@ func (b *builder) options(opts ...Opt) error {
 
 // GetMetadata gets all metadata for a connector.
 func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceGetMetadataRequest) (*v2.ConnectorServiceGetMetadataResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.GetMetadata")
+	ctx, span := tracer.Start(ctx, "builder.GetMetadata")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -202,7 +202,7 @@ func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceG
 
 // Validate validates the connector.
 func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceValidateRequest) (*v2.ConnectorServiceValidateResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.Validate")
+	ctx, span := tracer.Start(ctx, "builder.Validate")
 	defer span.End()
 
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{

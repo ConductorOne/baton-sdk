@@ -46,7 +46,7 @@ func (b *builder) ListResourceTypes(
 	ctx context.Context,
 	request *v2.ResourceTypesServiceListResourceTypesRequest,
 ) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListResourceTypes")
+	ctx, span := tracer.Start(ctx, "builder.ListResourceTypes")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -73,7 +73,7 @@ func (b *builder) ListResourceTypes(
 
 // ListResources returns all available resources for a given resource type ID.
 func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListResources")
+	ctx, span := tracer.Start(ctx, "builder.ListResources")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -106,7 +106,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 }
 
 func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterServiceGetResourceRequest) (*v2.ResourceGetterServiceGetResourceResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.GetResource")
+	ctx, span := tracer.Start(ctx, "builder.GetResource")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -137,7 +137,7 @@ func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterSer
 
 // ListEntitlements returns all the entitlements for a given resource.
 func (b *builder) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListEntitlements")
+	ctx, span := tracer.Start(ctx, "builder.ListEntitlements")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -172,7 +172,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 
 // ListGrants lists all the grants for a given resource.
 func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListGrants")
+	ctx, span := tracer.Start(ctx, "builder.ListGrants")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -181,7 +181,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	rb, ok := b.resourceBuilders[rid.ResourceType]
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: list entitlements with unknown resource type %s", rid.ResourceType)
+		return nil, fmt.Errorf("error: list grants with unknown resource type %s", rid.ResourceType)
 	}
 
 	out, nextPageToken, annos, err := rb.Grants(ctx, request.Resource, &pagination.Token{

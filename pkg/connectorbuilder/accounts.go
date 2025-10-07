@@ -43,7 +43,7 @@ type OldAccountManager interface {
 }
 
 func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.CreateAccount")
+	ctx, span := tracer.Start(ctx, "builder.CreateAccount")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -52,7 +52,7 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 	if b.accountManager == nil {
 		l.Error("error: connector does not have account manager configured")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
+		return nil, status.Error(codes.Unimplemented, "connector does not have account manager configured")
 	}
 
 	opts, err := crypto.ConvertCredentialOptions(ctx, b.clientSecret, request.GetCredentialOptions(), request.GetEncryptionConfigs())

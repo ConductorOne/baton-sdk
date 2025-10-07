@@ -73,7 +73,7 @@ func (e *oldEventFeedWrapper) ListEvents(
 }
 
 func (b *builder) ListEventFeeds(ctx context.Context, request *v2.ListEventFeedsRequest) (*v2.ListEventFeedsResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListEventFeeds")
+	ctx, span := tracer.Start(ctx, "builder.ListEventFeeds")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -92,7 +92,7 @@ func (b *builder) ListEventFeeds(ctx context.Context, request *v2.ListEventFeeds
 }
 
 func (b *builder) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (*v2.ListEventsResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListEvents")
+	ctx, span := tracer.Start(ctx, "builder.ListEvents")
 	defer span.End()
 
 	start := b.nowFunc()

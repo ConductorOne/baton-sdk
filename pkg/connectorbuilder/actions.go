@@ -33,7 +33,7 @@ type RegisterActionManager interface {
 }
 
 func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionSchemasRequest) (*v2.ListActionSchemasResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListActionSchemas")
+	ctx, span := tracer.Start(ctx, "builder.ListActionSchemas")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -59,7 +59,7 @@ func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionS
 }
 
 func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSchemaRequest) (*v2.GetActionSchemaResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.GetActionSchema")
+	ctx, span := tracer.Start(ctx, "builder.GetActionSchema")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -85,7 +85,7 @@ func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSche
 }
 
 func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequest) (*v2.InvokeActionResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.InvokeAction")
+	ctx, span := tracer.Start(ctx, "builder.InvokeAction")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -114,7 +114,7 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 }
 
 func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStatusRequest) (*v2.GetActionStatusResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.GetActionStatus")
+	ctx, span := tracer.Start(ctx, "builder.GetActionStatus")
 	defer span.End()
 
 	start := b.nowFunc()

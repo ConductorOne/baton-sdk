@@ -33,7 +33,7 @@ type OldCredentialManager interface {
 }
 
 func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (*v2.RotateCredentialResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.RotateCredential")
+	ctx, span := tracer.Start(ctx, "builder.RotateCredential")
 	defer span.End()
 
 	start := b.nowFunc()
