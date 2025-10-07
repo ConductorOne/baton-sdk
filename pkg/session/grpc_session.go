@@ -15,7 +15,7 @@ import (
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
-	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	dpop_grpc "github.com/conductorone/dpop/integrations/dpop_grpc"
 	"github.com/conductorone/dpop/pkg/dpop"
 	"github.com/go-jose/go-jose/v4"
@@ -35,7 +35,7 @@ type GRPCSessionCache struct {
 // It reuses an existing access token and DPoP key instead of performing a new authentication round.
 // It reads the session service address from the BATON_SESSION_SERVICE_ADDR environment variable,
 // defaulting to "localhost:50051" if not set.
-func NewGRPCSessionClient(ctx context.Context, accessToken string, dpopKey *jose.JSONWebKey, opt ...types.SessionCacheConstructorOption) (v1.BatonSessionServiceClient, error) {
+func NewGRPCSessionClient(ctx context.Context, accessToken string, dpopKey *jose.JSONWebKey, opt ...sessions.SessionStoreConstructorOption) (v1.BatonSessionServiceClient, error) {
 	// Apply constructor options
 	for _, option := range opt {
 		var err error
@@ -123,7 +123,7 @@ func (s *staticTokenSource) Token() (*oauth2.Token, error) {
 // These functions are no longer needed since we're reusing existing credentials
 
 // NewGRPCSessionCache creates a new gRPC session cache instance.
-func NewGRPCSessionCache(ctx context.Context, client v1.BatonSessionServiceClient, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
+func NewGRPCSessionCache(ctx context.Context, client v1.BatonSessionServiceClient, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
 	// Apply constructor options
 	for _, option := range opt {
 		var err error
@@ -139,7 +139,7 @@ func NewGRPCSessionCache(ctx context.Context, client v1.BatonSessionServiceClien
 }
 
 // Get retrieves a value from the cache by key.
-func (g *GRPCSessionCache) Get(ctx context.Context, key string, opt ...types.SessionCacheOption) ([]byte, bool, error) {
+func (g *GRPCSessionCache) Get(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return nil, false, err
@@ -167,7 +167,7 @@ func (g *GRPCSessionCache) Get(ctx context.Context, key string, opt ...types.Ses
 }
 
 // GetMany retrieves multiple values from the cache by keys.
-func (g *GRPCSessionCache) GetMany(ctx context.Context, keys []string, opt ...types.SessionCacheOption) (map[string][]byte, error) {
+func (g *GRPCSessionCache) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return nil, err
@@ -212,7 +212,7 @@ func (g *GRPCSessionCache) GetMany(ctx context.Context, keys []string, opt ...ty
 }
 
 // Set stores a value in the cache with the given key.
-func (g *GRPCSessionCache) Set(ctx context.Context, key string, value []byte, opt ...types.SessionCacheOption) error {
+func (g *GRPCSessionCache) Set(ctx context.Context, key string, value []byte, opt ...sessions.SessionStoreOption) error {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return err
@@ -237,7 +237,7 @@ func (g *GRPCSessionCache) Set(ctx context.Context, key string, value []byte, op
 }
 
 // SetMany stores multiple values in the cache.
-func (g *GRPCSessionCache) SetMany(ctx context.Context, values map[string][]byte, opt ...types.SessionCacheOption) error {
+func (g *GRPCSessionCache) SetMany(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return err
@@ -267,7 +267,7 @@ func (g *GRPCSessionCache) SetMany(ctx context.Context, values map[string][]byte
 }
 
 // Delete removes a value from the cache by key.
-func (g *GRPCSessionCache) Delete(ctx context.Context, key string, opt ...types.SessionCacheOption) error {
+func (g *GRPCSessionCache) Delete(ctx context.Context, key string, opt ...sessions.SessionStoreOption) error {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return err
@@ -291,7 +291,7 @@ func (g *GRPCSessionCache) Delete(ctx context.Context, key string, opt ...types.
 }
 
 // Clear removes all values from the cache.
-func (g *GRPCSessionCache) Clear(ctx context.Context, opt ...types.SessionCacheOption) error {
+func (g *GRPCSessionCache) Clear(ctx context.Context, opt ...sessions.SessionStoreOption) error {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return err
@@ -313,7 +313,7 @@ func (g *GRPCSessionCache) Clear(ctx context.Context, opt ...types.SessionCacheO
 // Note: The gRPC service doesn't have a GetAll method, so we'll need to implement this
 // by getting all keys first and then using GetMany. This is a limitation of the current
 // gRPC service definition.
-func (g *GRPCSessionCache) GetAll(ctx context.Context, opt ...types.SessionCacheOption) (map[string][]byte, error) {
+func (g *GRPCSessionCache) GetAll(ctx context.Context, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
 		return nil, err

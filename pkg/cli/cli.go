@@ -7,6 +7,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -17,12 +18,12 @@ import (
 type GetConnectorFunc[T field.Configurable] func(ctx context.Context, cfg T) (types.ConnectorServer, error)
 
 // WithSessionCache creates a session cache using the provided constructor and adds it to the context.
-func WithSessionCache(ctx context.Context, constructor types.SessionCacheConstructor) (context.Context, error) {
+func WithSessionCache(ctx context.Context, constructor sessions.SessionStoreConstructor) (context.Context, error) {
 	sessionCache, err := constructor(ctx)
 	if err != nil {
 		return ctx, fmt.Errorf("failed to create session cache: %w", err)
 	}
-	return context.WithValue(ctx, types.SessionCacheKey{}, sessionCache), nil
+	return context.WithValue(ctx, sessions.SessionStoreKey{}, sessionCache), nil
 }
 
 func MakeGenericConfiguration[T field.Configurable](v *viper.Viper) (T, error) {

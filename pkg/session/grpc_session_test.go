@@ -12,7 +12,7 @@ import (
 	"testing"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
-	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/go-jose/go-jose/v4"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -225,7 +225,7 @@ func TestGRPCSessionCache_Get(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
+	ctx = context.WithValue(ctx, sessions.SyncIDKey{}, "test-sync-id")
 
 	// Test successful get
 	value, found, err := cache.Get(ctx, "test-key")
@@ -264,7 +264,7 @@ func TestGRPCSessionCache_Set(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
+	ctx = context.WithValue(ctx, sessions.SyncIDKey{}, "test-sync-id")
 
 	err := cache.Set(ctx, "test-key", []byte("test-value"))
 	if err != nil {
@@ -292,7 +292,7 @@ func TestGRPCSessionCache_GetMany(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
+	ctx = context.WithValue(ctx, sessions.SyncIDKey{}, "test-sync-id")
 
 	values, err := cache.GetMany(ctx, []string{"key1", "key2"})
 	if err != nil {
@@ -326,7 +326,7 @@ func TestGRPCSessionCache_SetMany(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
+	ctx = context.WithValue(ctx, sessions.SyncIDKey{}, "test-sync-id")
 
 	err := cache.SetMany(ctx, values)
 	if err != nil {
@@ -346,7 +346,7 @@ func TestGRPCSessionCache_Delete(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
+	ctx = context.WithValue(ctx, sessions.SyncIDKey{}, "test-sync-id")
 
 	err := cache.Delete(ctx, "test-key")
 	if err != nil {
@@ -366,7 +366,7 @@ func TestGRPCSessionCache_Clear(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
+	ctx = context.WithValue(ctx, sessions.SyncIDKey{}, "test-sync-id")
 
 	err := cache.Clear(ctx)
 	if err != nil {
@@ -394,7 +394,7 @@ func TestGRPCSessionCache_GetAll(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
+	ctx = context.WithValue(ctx, sessions.SyncIDKey{}, "test-sync-id")
 
 	values, err := cache.GetAll(ctx)
 	if err != nil {
@@ -436,7 +436,7 @@ func TestGRPCSessionCache_GetAll_Pagination(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
+	ctx = context.WithValue(ctx, sessions.SyncIDKey{}, "test-sync-id")
 
 	values, err := cache.GetAll(ctx)
 	if err != nil {
@@ -466,7 +466,7 @@ func TestGRPCSessionCache_WithPrefix(t *testing.T) {
 
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
-	ctx = context.WithValue(ctx, types.SyncIDKey{}, "test-sync-id")
+	ctx = context.WithValue(ctx, sessions.SyncIDKey{}, "test-sync-id")
 
 	// Test with prefix
 	value, found, err := cache.Get(ctx, "test-key", WithPrefix("prefix"))

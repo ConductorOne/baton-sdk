@@ -27,7 +27,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/session"
-	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -38,7 +38,7 @@ const (
 type ContrainstSetter func(*cobra.Command, field.Configuration) error
 
 // defaultSessionCacheConstructor creates a default in-memory session cache.
-func defaultSessionCacheConstructor(ctx context.Context, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
+func defaultSessionCacheConstructor(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
 	return session.NewMemorySessionCache(ctx, opt...)
 }
 
