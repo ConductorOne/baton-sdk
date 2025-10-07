@@ -3,6 +3,8 @@ package connector
 import (
 	"context"
 
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	"github.com/conductorone/baton-sdk/pkg/profiling"
 )
@@ -15,6 +17,9 @@ type profileService struct {
 
 // FlushProfiles writes pending profile data to disk.
 func (ps *profileService) FlushProfiles(ctx context.Context, req *connectorwrapperV1.FlushProfilesRequest) (*connectorwrapperV1.FlushProfilesResponse, error) {
+	l := ctxzap.Extract(ctx)
+	l.Info("FlushProfiles RPC called, stopping profiling and writing profiles")
+
 	if ps.profiler == nil {
 		return &connectorwrapperV1.FlushProfilesResponse{
 			Success: true,

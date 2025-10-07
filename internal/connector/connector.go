@@ -162,10 +162,12 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 	// Start profiling if configured
 	profiler := profiling.New(serverCfg.ProfileConfig)
 	if profiler != nil {
+		logger.Info("starting profiling before GRPC server initialization")
 		if err := profiler.Start(ctx); err != nil {
 			logger.Error("failed to start profiling", zap.Error(err))
 			return err
 		}
+		logger.Info("profiling started, GRPC server starting...")
 	}
 
 	l, err := cw.getListener(ctx, serverCfg)
