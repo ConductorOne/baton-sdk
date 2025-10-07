@@ -3,7 +3,7 @@ package ugrpc
 import (
 	"context"
 
-	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
@@ -39,8 +39,8 @@ func SessionCacheUnaryInterceptor(serverCtx context.Context) grpc.UnaryServerInt
 		// Propagate session cache from server context to handler context
 		ctx = ContextWithSyncID(ctx, req)
 
-		if sessionCache, ok := serverCtx.Value(types.SessionCacheKey{}).(types.SessionCache); ok {
-			ctx = context.WithValue(ctx, types.SessionCacheKey{}, sessionCache)
+		if sessionCache, ok := serverCtx.Value(sessions.SessionStoreKey{}).(sessions.SessionStore); ok {
+			ctx = context.WithValue(ctx, sessions.SessionStoreKey{}, sessionCache)
 		}
 
 		return handler(ctx, req)
@@ -53,8 +53,8 @@ func SessionCacheStreamInterceptor(serverCtx context.Context) grpc.StreamServerI
 		ctx := ss.Context()
 
 		// Propagate session cache from server context to stream context
-		if sessionCache, ok := serverCtx.Value(types.SessionCacheKey{}).(types.SessionCache); ok {
-			ctx = context.WithValue(ctx, types.SessionCacheKey{}, sessionCache)
+		if sessionCache, ok := serverCtx.Value(sessions.SessionStoreKey{}).(sessions.SessionStore); ok {
+			ctx = context.WithValue(ctx, sessions.SessionStoreKey{}, sessionCache)
 		}
 
 		// Create a wrapped stream that handles both session cache and annotation extraction
@@ -151,5 +151,5 @@ func ContextWithSyncID(ctx context.Context, req any) context.Context {
 		return ctx
 	}
 
-	return context.WithValue(ctx, types.SyncIDKey{}, syncID)
+	return context.WithValue(ctx, sessions.SyncIDKey{}, syncID)
 }

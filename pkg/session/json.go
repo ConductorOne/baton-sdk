@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 )
 
-func GetManyJSON[T any](ctx context.Context, keys []string, opt ...types.SessionCacheOption) (map[string]T, error) {
+func GetManyJSON[T any](ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string]T, error) {
 	cache, err := GetSession(ctx)
 	if err != nil {
 		return nil, err
@@ -32,7 +32,7 @@ func GetManyJSON[T any](ctx context.Context, keys []string, opt ...types.Session
 	return result, nil
 }
 
-func SetManyJSON[T any](ctx context.Context, items map[string]T, opt ...types.SessionCacheOption) error {
+func SetManyJSON[T any](ctx context.Context, items map[string]T, opt ...sessions.SessionStoreOption) error {
 	cache, err := GetSession(ctx)
 	if err != nil {
 		return err
@@ -52,7 +52,7 @@ func SetManyJSON[T any](ctx context.Context, items map[string]T, opt ...types.Se
 	return cache.SetMany(ctx, bytesMap, opt...)
 }
 
-func GetJSON[T any](ctx context.Context, key string, opt ...types.SessionCacheOption) (T, bool, error) {
+func GetJSON[T any](ctx context.Context, key string, opt ...sessions.SessionStoreOption) (T, bool, error) {
 	var zero T
 	cache, err := GetSession(ctx)
 	if err != nil {
@@ -75,7 +75,7 @@ func GetJSON[T any](ctx context.Context, key string, opt ...types.SessionCacheOp
 	return item, true, nil
 }
 
-func SetJSON[T any](ctx context.Context, key string, item T, opt ...types.SessionCacheOption) error {
+func SetJSON[T any](ctx context.Context, key string, item T, opt ...sessions.SessionStoreOption) error {
 	cache, err := GetSession(ctx)
 	if err != nil {
 		return err
@@ -91,7 +91,7 @@ func SetJSON[T any](ctx context.Context, key string, item T, opt ...types.Sessio
 	return cache.Set(ctx, key, bytes, opt...)
 }
 
-func DeleteJSON(ctx context.Context, key string, opt ...types.SessionCacheOption) error {
+func DeleteJSON(ctx context.Context, key string, opt ...sessions.SessionStoreOption) error {
 	cache, err := GetSession(ctx)
 	if err != nil {
 		return err
@@ -100,7 +100,7 @@ func DeleteJSON(ctx context.Context, key string, opt ...types.SessionCacheOption
 	return cache.Delete(ctx, key, opt...)
 }
 
-func ClearJSON(ctx context.Context, opt ...types.SessionCacheOption) error {
+func ClearJSON(ctx context.Context, opt ...sessions.SessionStoreOption) error {
 	cache, err := GetSession(ctx)
 	if err != nil {
 		return err
@@ -109,7 +109,7 @@ func ClearJSON(ctx context.Context, opt ...types.SessionCacheOption) error {
 	return cache.Clear(ctx, opt...)
 }
 
-func GetAllJSON[T any](ctx context.Context, opt ...types.SessionCacheOption) (map[string]T, error) {
+func GetAllJSON[T any](ctx context.Context, opt ...sessions.SessionStoreOption) (map[string]T, error) {
 	cache, err := GetSession(ctx)
 	if err != nil {
 		return nil, err

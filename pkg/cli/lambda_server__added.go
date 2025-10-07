@@ -29,7 +29,7 @@ import (
 	c1_lambda_config "github.com/conductorone/baton-sdk/pkg/lambda/grpc/config"
 	"github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware"
 	"github.com/conductorone/baton-sdk/pkg/session"
-	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"google.golang.org/grpc"
 )
 
@@ -223,8 +223,8 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 }
 
 // createSessionCacheConstructor creates a session cache constructor function that uses the provided gRPC client
-func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) types.SessionCacheConstructor {
-	return func(ctx context.Context, opt ...types.SessionCacheConstructorOption) (types.SessionCache, error) {
+func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) sessions.SessionStoreConstructor {
+	return func(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
 		// Create the gRPC session client using the same gRPC connection
 		client := pb_connector_api.NewBatonSessionServiceClient(grpcClient)
 		// Create and return the session cache
