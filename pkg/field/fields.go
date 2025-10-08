@@ -217,6 +217,7 @@ func FileUploadField(name string, bonusStrings []string, optional ...fieldOption
 	field := SchemaField{
 		FieldName:    name,
 		Variant:      StringVariant,
+		DefaultValue: "",
 		ExportTarget: ExportTargetGUI,
 		Rules:        FieldRule{},
 		SyncerConfig: syncerConfig{},
