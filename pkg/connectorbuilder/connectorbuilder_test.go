@@ -17,7 +17,7 @@ type testConnector struct {
 	resourceSyncers []ResourceSyncer
 }
 
-func newTestConnector(resourceSyncers []ResourceSyncer) *testConnector {
+func newTestConnector(resourceSyncers []ResourceSyncer) ConnectorBuilder {
 	return &testConnector{resourceSyncers: resourceSyncers}
 }
 
@@ -40,7 +40,7 @@ type testResourceSyncer struct {
 	resourceType *v2.ResourceType
 }
 
-func newTestResourceSyncer(resourceType string) *testResourceSyncer {
+func newTestResourceSyncer(resourceType string) ResourceSyncer {
 	return &testResourceSyncer{
 		resourceType: &v2.ResourceType{
 			Id:          resourceType,
@@ -96,19 +96,19 @@ func (t *testResourceSyncer) Grants(ctx context.Context, resource *v2.Resource, 
 }
 
 type testResourceManager struct {
-	*testResourceSyncer
+	ResourceSyncer
 }
 
-func newTestResourceManager(resourceType string) *testResourceManager {
+func newTestResourceManager(resourceType string) ResourceManager {
 	return &testResourceManager{
-		testResourceSyncer: newTestResourceSyncer(resourceType),
+		ResourceSyncer: newTestResourceSyncer(resourceType),
 	}
 }
 
 func (t *testResourceManager) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
 	return &v2.Resource{
 		Id: &v2.ResourceId{
-			ResourceType: t.resourceType.Id,
+			ResourceType: t.ResourceType(ctx).Id,
 			Resource:     "created-" + resource.DisplayName,
 		},
 		DisplayName: resource.DisplayName,
@@ -120,19 +120,19 @@ func (t *testResourceManager) Delete(ctx context.Context, resourceId *v2.Resourc
 }
 
 type testResourceManagerV2 struct {
-	*testResourceSyncer
+	ResourceSyncer
 }
 
-func newTestResourceManagerV2(resourceType string) *testResourceManagerV2 {
+func newTestResourceManagerV2(resourceType string) ResourceManagerV2 {
 	return &testResourceManagerV2{
-		testResourceSyncer: newTestResourceSyncer(resourceType),
+		ResourceSyncer: newTestResourceSyncer(resourceType),
 	}
 }
 
 func (t *testResourceManagerV2) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
 	return &v2.Resource{
 		Id: &v2.ResourceId{
-			ResourceType: t.resourceType.Id,
+			ResourceType: t.ResourceType(ctx).Id,
 			Resource:     "created-v2-" + resource.DisplayName,
 		},
 		DisplayName: resource.DisplayName,
@@ -144,12 +144,12 @@ func (t *testResourceManagerV2) Delete(ctx context.Context, resourceId *v2.Resou
 }
 
 type testResourceDeleter struct {
-	*testResourceSyncer
+	ResourceSyncer
 }
 
-func newTestResourceDeleter(resourceType string) *testResourceDeleter {
+func newTestResourceDeleter(resourceType string) ResourceDeleter {
 	return &testResourceDeleter{
-		testResourceSyncer: newTestResourceSyncer(resourceType),
+		ResourceSyncer: newTestResourceSyncer(resourceType),
 	}
 }
 
@@ -158,12 +158,12 @@ func (t *testResourceDeleter) Delete(ctx context.Context, resourceId *v2.Resourc
 }
 
 type testResourceDeleterV2 struct {
-	*testResourceSyncer
+	ResourceSyncer
 }
 
-func newTestResourceDeleterV2(resourceType string) *testResourceDeleterV2 {
+func newTestResourceDeleterV2(resourceType string) ResourceDeleterV2 {
 	return &testResourceDeleterV2{
-		testResourceSyncer: newTestResourceSyncer(resourceType),
+		ResourceSyncer: newTestResourceSyncer(resourceType),
 	}
 }
 
@@ -172,12 +172,12 @@ func (t *testResourceDeleterV2) Delete(ctx context.Context, resourceId *v2.Resou
 }
 
 type testResourceProvisioner struct {
-	*testResourceSyncer
+	ResourceSyncer
 }
 
-func newTestResourceProvisioner(resourceType string) *testResourceProvisioner {
+func newTestResourceProvisioner(resourceType string) ResourceProvisioner {
 	return &testResourceProvisioner{
-		testResourceSyncer: newTestResourceSyncer(resourceType),
+		ResourceSyncer: newTestResourceSyncer(resourceType),
 	}
 }
 
@@ -190,12 +190,12 @@ func (t *testResourceProvisioner) Revoke(ctx context.Context, grant *v2.Grant) (
 }
 
 type testResourceProvisionerV2 struct {
-	*testResourceSyncer
+	ResourceSyncer
 }
 
-func newTestResourceProvisionerV2(resourceType string) *testResourceProvisionerV2 {
+func newTestResourceProvisionerV2(resourceType string) ResourceProvisionerV2 {
 	return &testResourceProvisionerV2{
-		testResourceSyncer: newTestResourceSyncer(resourceType),
+		ResourceSyncer: newTestResourceSyncer(resourceType),
 	}
 }
 
@@ -220,12 +220,12 @@ func (t *testResourceProvisionerV2) Revoke(ctx context.Context, grant *v2.Grant)
 }
 
 type testAccountManager struct {
-	*testResourceSyncer
+	ResourceSyncer
 }
 
-func newTestAccountManager(resourceType string) *testAccountManager {
+func newTestAccountManager(resourceType string) AccountManager {
 	return &testAccountManager{
-		testResourceSyncer: newTestResourceSyncer(resourceType),
+		ResourceSyncer: newTestResourceSyncer(resourceType),
 	}
 }
 
@@ -238,7 +238,7 @@ func (t *testAccountManager) CreateAccount(
 		IsCreateAccountResult: true,
 		Resource: &v2.Resource{
 			Id: &v2.ResourceId{
-				ResourceType: t.resourceType.Id,
+				ResourceType: t.ResourceType(ctx).Id,
 				Resource:     "created-account",
 			},
 			DisplayName: "Test User",
@@ -252,12 +252,12 @@ func (t *testAccountManager) CreateAccountCapabilityDetails(ctx context.Context)
 }
 
 type testCredentialManager struct {
-	*testResourceSyncer
+	ResourceSyncer
 }
 
-func newTestCredentialManager(resourceType string) *testCredentialManager {
+func newTestCredentialManager(resourceType string) CredentialManager {
 	return &testCredentialManager{
-		testResourceSyncer: newTestResourceSyncer(resourceType),
+		ResourceSyncer: newTestResourceSyncer(resourceType),
 	}
 }
 
@@ -276,12 +276,12 @@ func (t *testCredentialManager) RotateCapabilityDetails(ctx context.Context) (*v
 }
 
 type testEventProvider struct {
-	*testConnector
+	ConnectorBuilder
 }
 
-func newTestEventProvider() *testEventProvider {
+func newTestEventProvider() EventProvider {
 	return &testEventProvider{
-		testConnector: newTestConnector([]ResourceSyncer{}),
+		newTestConnector([]ResourceSyncer{}),
 	}
 }
 
@@ -299,12 +299,12 @@ func (t *testEventProvider) ListEvents(
 }
 
 type testEventProviderV2 struct {
-	*testConnector
+	ConnectorBuilder
 }
 
-func newTestEventProviderV2() *testEventProviderV2 {
+func newTestEventProviderV2() EventProviderV2 {
 	return &testEventProviderV2{
-		testConnector: newTestConnector([]ResourceSyncer{}),
+		newTestConnector([]ResourceSyncer{}),
 	}
 }
 
@@ -332,12 +332,12 @@ func (t *testEventFeed) ListEvents(ctx context.Context, earliestEvent *timestamp
 }
 
 type testTicketManager struct {
-	*testConnector
+	ConnectorBuilder
 }
 
-func newTestTicketManager() *testTicketManager {
+func newTestTicketManager() TicketManager {
 	return &testTicketManager{
-		testConnector: newTestConnector([]ResourceSyncer{}),
+		newTestConnector([]ResourceSyncer{}),
 	}
 }
 
@@ -399,7 +399,7 @@ func (t *testTicketManager) BulkGetTickets(ctx context.Context, request *v2.Tick
 
 type testCustomActionManager struct{}
 
-func newTestCustomActionManager() *testCustomActionManager {
+func newTestCustomActionManager() CustomActionManager {
 	return &testCustomActionManager{}
 }
 
@@ -428,20 +428,18 @@ func (t *testCustomActionManager) GetActionStatus(ctx context.Context, id string
 }
 
 type testRegisterActionManager struct {
-	*testConnector
+	ConnectorBuilder
 }
 
-func newTestRegisterActionManager() *testRegisterActionManager {
+func newTestRegisterActionManager() RegisterActionManager {
 	return &testRegisterActionManager{
-		testConnector: newTestConnector([]ResourceSyncer{}),
+		newTestConnector([]ResourceSyncer{}),
 	}
 }
 
 func (t *testRegisterActionManager) RegisterActionManager(ctx context.Context) (CustomActionManager, error) {
 	return newTestCustomActionManager(), nil
 }
-
-// Tests
 
 func TestConnectorBuilder(t *testing.T) {
 	ctx := context.Background()
