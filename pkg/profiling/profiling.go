@@ -24,7 +24,7 @@ type Profiler struct {
 
 // New creates a new Profiler from the given configuration.
 // Filenames are generated with a timestamp: cpu-YYYYMMDD-HHMMSS.prof and mem-YYYYMMDD-HHMMSS.prof
-// If cfg.Prefix is set, filenames will be: cpu-{prefix}-YYYYMMDD-HHMMSS.prof
+// If cfg.Prefix is set, filenames will be: cpu-{prefix}-YYYYMMDD-HHMMSS.prof.
 func New(cfg *connectorwrapperV1.ProfileConfig) *Profiler {
 	if cfg == nil || (!cfg.EnableCpu && !cfg.EnableMem) {
 		return nil
@@ -36,7 +36,7 @@ func New(cfg *connectorwrapperV1.ProfileConfig) *Profiler {
 }
 
 // NewWithPrefix creates a new Profiler with a custom prefix for filenames.
-// If prefix is "parent", filenames will be: cpu-parent-YYYYMMDD-HHMMSS.prof and mem-parent-YYYYMMDD-HHMMSS.prof
+// If prefix is "parent", filenames will be: cpu-parent-YYYYMMDD-HHMMSS.prof and mem-parent-YYYYMMDD-HHMMSS.prof.
 func NewWithPrefix(cfg *connectorwrapperV1.ProfileConfig, prefix string) *Profiler {
 	if cfg == nil || (!cfg.EnableCpu && !cfg.EnableMem) {
 		return nil
