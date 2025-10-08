@@ -2731,6 +2731,13 @@ func (s *syncer) Close(ctx context.Context) error {
 		}
 	}
 
+	if s.externalResourceReader != nil {
+		err = s.externalResourceReader.Close()
+		if err != nil {
+			return fmt.Errorf("error closing external resource reader: %w", err)
+		}
+	}
+
 	if s.c1zManager != nil {
 		err = s.c1zManager.SaveC1Z(ctx)
 		if err != nil {
