@@ -128,6 +128,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		ctx,
 		emptyConnector,
 		sync.WithC1ZPath(applied.FilePath),
+		sync.WithTmpDir(c.tmpDir),
 		sync.WithSyncID(applied.SyncID),
 		sync.WithOnlyExpandGrants(),
 	)
