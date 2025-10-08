@@ -45,7 +45,7 @@ import v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 
 // GetAsset streams the asset to the client.
 // FIXME(jirwin): Asset streaming is disabled.
-func (b *builderImpl) GetAsset(request *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
+func (b *builder) GetAsset(request *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
 	_, span := tracer.Start(server.Context(), "builderImpl.GetAsset")
 	defer span.End()
 

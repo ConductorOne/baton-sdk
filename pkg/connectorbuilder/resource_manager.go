@@ -19,8 +19,7 @@ import (
 // of the associated resource type. A ResourceManager automatically provides ResourceDeleter
 // functionality.
 type ResourceManager interface {
-	ResourceSyncer
-	Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error)
+	ResourceCreator
 	ResourceDeleter
 }
 
@@ -28,9 +27,12 @@ type ResourceManager interface {
 //
 // This is the recommended interface for implementing resource creation operations in new connectors.
 type ResourceManagerV2 interface {
-	ResourceSyncer
-	Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error)
+	ResourceCreator
 	ResourceDeleterV2
+}
+
+type ResourceCreator interface {
+	Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error)
 }
 
 // ResourceDeleter extends ResourceSyncer to add capabilities for deleting resources.
@@ -51,8 +53,8 @@ type ResourceDeleterV2 interface {
 	Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error)
 }
 
-func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.CreateResource")
+func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.CreateResource")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -60,32 +62,24 @@ func (b *builderImpl) CreateResource(ctx context.Context, request *v2.CreateReso
 	l := ctxzap.Extract(ctx)
 	rt := request.GetResource().GetId().GetResourceType()
 
-	var manager interface {
-		Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error)
-	}
-
-	manager, ok := b.resourceManagersV2[rt]
+	manager, ok := b.resourceManagers[rt]
 	if !ok {
-		manager, ok = b.resourceManagers[rt]
+		l.Error("error: resource type does not have resource Create() configured", zap.String("resource_type", rt))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Create() configured", rt))
 	}
-
-	if ok {
-		resource, annos, err := manager.Create(ctx, request.Resource)
-		if err != nil {
-			l.Error("error: create resource failed", zap.Error(err))
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: create resource failed: %w", err)
-		}
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return &v2.CreateResourceResponse{Created: resource, Annotations: annos}, nil
+	resource, annos, err := manager.Create(ctx, request.Resource)
+	if err != nil {
+		l.Error("error: create resource failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: create resource failed: %w", err)
 	}
-	l.Error("error: resource type does not have resource Create() configured", zap.String("resource_type", rt))
-	b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-	return nil, status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Create() configured", rt))
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return &v2.CreateResourceResponse{Created: resource, Annotations: annos}, nil
 }
 
-func (b *builderImpl) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (*v2.DeleteResourceResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.DeleteResource")
+func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (*v2.DeleteResourceResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.DeleteResource")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -93,47 +87,32 @@ func (b *builderImpl) DeleteResource(ctx context.Context, request *v2.DeleteReso
 
 	l := ctxzap.Extract(ctx)
 	rt := request.GetResourceId().GetResourceType()
-	var rsDeleter ResourceDeleter
-	var rsDeleterV2 ResourceDeleterV2
+	var rsDeleter ResourceDeleterV2
 	var ok bool
-
-	rsDeleterV2, ok = b.resourceManagersV2[rt]
-	if !ok {
-		rsDeleterV2, ok = b.resourceDeletersV2[rt]
-	}
-
-	if ok {
-		annos, err := rsDeleterV2.Delete(ctx, request.ResourceId, request.ParentResourceId)
-		if err != nil {
-			l.Error("error: deleteV2 resource failed", zap.Error(err))
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: delete resource failed: %w", err)
-		}
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return &v2.DeleteResourceResponse{Annotations: annos}, nil
-	}
 
 	rsDeleter, ok = b.resourceManagers[rt]
 	if !ok {
 		rsDeleter, ok = b.resourceDeleters[rt]
 	}
-	if ok {
-		annos, err := rsDeleter.Delete(ctx, request.GetResourceId())
-		if err != nil {
-			l.Error("error: delete resource failed", zap.Error(err))
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: delete resource failed: %w", err)
-		}
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return &v2.DeleteResourceResponse{Annotations: annos}, nil
+
+	if !ok {
+		l.Error("error: resource type does not have resource Delete() configured", zap.String("resource_type", rt))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Delete() configured", rt))
 	}
-	l.Error("error: resource type does not have resource Delete() configured", zap.String("resource_type", rt))
-	b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-	return nil, status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Delete() configured", rt))
+
+	annos, err := rsDeleter.Delete(ctx, request.ResourceId, request.ParentResourceId)
+	if err != nil {
+		l.Error("error: deleteV2 resource failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: delete resource failed: %w", err)
+	}
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return &v2.DeleteResourceResponse{Annotations: annos}, nil
 }
 
-func (b *builderImpl) DeleteResourceV2(ctx context.Context, request *v2.DeleteResourceV2Request) (*v2.DeleteResourceV2Response, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.DeleteResourceV2")
+func (b *builder) DeleteResourceV2(ctx context.Context, request *v2.DeleteResourceV2Request) (*v2.DeleteResourceV2Response, error) {
+	ctx, span := tracer.Start(ctx, "builder.DeleteResourceV2")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -141,41 +120,94 @@ func (b *builderImpl) DeleteResourceV2(ctx context.Context, request *v2.DeleteRe
 
 	l := ctxzap.Extract(ctx)
 	rt := request.GetResourceId().GetResourceType()
-	var rsDeleter ResourceDeleter
-	var rsDeleterV2 ResourceDeleterV2
+	var rsDeleter ResourceDeleterV2
 	var ok bool
-
-	rsDeleterV2, ok = b.resourceManagersV2[rt]
-	if !ok {
-		rsDeleterV2, ok = b.resourceDeletersV2[rt]
-	}
-
-	if ok {
-		annos, err := rsDeleterV2.Delete(ctx, request.ResourceId, request.ParentResourceId)
-		if err != nil {
-			l.Error("error: deleteV2 resource failed", zap.Error(err))
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: delete resource failed: %w", err)
-		}
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return &v2.DeleteResourceV2Response{Annotations: annos}, nil
-	}
 
 	rsDeleter, ok = b.resourceManagers[rt]
 	if !ok {
 		rsDeleter, ok = b.resourceDeleters[rt]
 	}
-	if ok {
-		annos, err := rsDeleter.Delete(ctx, request.GetResourceId())
-		if err != nil {
-			l.Error("error: delete resource failed", zap.Error(err))
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: delete resource failed: %w", err)
-		}
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return &v2.DeleteResourceV2Response{Annotations: annos}, nil
+
+	if !ok {
+		l.Error("error: resource type does not have resource Delete() configured", zap.String("resource_type", rt))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Delete() configured", rt))
 	}
-	l.Error("error: resource type does not have resource Delete() configured", zap.String("resource_type", rt))
-	b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-	return nil, status.Error(codes.Unimplemented, fmt.Sprintf("resource type %s does not have resource Delete() configured", rt))
+
+	annos, err := rsDeleter.Delete(ctx, request.ResourceId, request.ParentResourceId)
+	if err != nil {
+		l.Error("error: deleteV2 resource failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: delete resource failed: %w", err)
+	}
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return &v2.DeleteResourceV2Response{Annotations: annos}, nil
+}
+
+func newResourceManager1to2(resourceManager ResourceManager) ResourceManagerV2 {
+	return &resourceManager1to2{resourceManager}
+}
+
+type resourceManager1to2 struct {
+	ResourceManager
+}
+
+func (r *resourceManager1to2) Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error) {
+	return r.ResourceManager.Delete(ctx, resourceId)
+}
+
+func newDeleter1to2(resourceDeleter ResourceDeleter) ResourceDeleterV2 {
+	return &deleter1to2{resourceDeleter}
+}
+
+type deleter1to2 struct {
+	ResourceDeleter
+}
+
+func (d *deleter1to2) Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error) {
+	// Just drop the parentResourceID...
+	return d.ResourceDeleter.Delete(ctx, resourceId)
+}
+
+func (b *builder) addResourceManager(_ context.Context, typeId string, rb ResourceSyncer) error {
+	if resourceManager, ok := rb.(ResourceManager); ok {
+		if _, ok := b.resourceManagers[typeId]; ok {
+			return fmt.Errorf("error: duplicate resource type found for resource manager %s", typeId)
+		}
+		b.resourceManagers[typeId] = newResourceManager1to2(resourceManager)
+		// Support DeleteResourceV2 if connector implements both Create and Delete
+		if _, ok := b.resourceDeleters[typeId]; ok {
+			// This should never happen
+			return fmt.Errorf("error: duplicate resource type found for resource deleter %s", typeId)
+		}
+		b.resourceDeleters[typeId] = newDeleter1to2(resourceManager)
+	} else {
+		if resourceDeleter, ok := rb.(ResourceDeleter); ok {
+			if _, ok := b.resourceDeleters[typeId]; ok {
+				return fmt.Errorf("error: duplicate resource type found for resource deleter %s", typeId)
+			}
+			b.resourceDeleters[typeId] = newDeleter1to2(resourceDeleter)
+		}
+	}
+
+	if resourceManager, ok := rb.(ResourceManagerV2); ok {
+		if _, ok := b.resourceManagers[typeId]; ok {
+			return fmt.Errorf("error: duplicate resource type found for resource managerV2 %s", typeId)
+		}
+		b.resourceManagers[typeId] = resourceManager
+		// Support DeleteResourceV2 if connector implements both Create and Delete
+		if _, ok := b.resourceDeleters[typeId]; ok {
+			// This should never happen
+			return fmt.Errorf("error: duplicate resource type found for resource deleterV2 %s", typeId)
+		}
+		b.resourceDeleters[typeId] = resourceManager
+	} else {
+		if resourceDeleter, ok := rb.(ResourceDeleterV2); ok {
+			if _, ok := b.resourceDeleters[typeId]; ok {
+				return fmt.Errorf("error: duplicate resource type found for resource deleterV2 %s", typeId)
+			}
+			b.resourceDeleters[typeId] = resourceDeleter
+		}
+	}
+	return nil
 }

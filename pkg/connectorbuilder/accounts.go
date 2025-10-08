@@ -42,8 +42,8 @@ type OldAccountManager interface {
 		credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
 }
 
-func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.CreateAccount")
+func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.CreateAccount")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -52,7 +52,7 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 	if b.accountManager == nil {
 		l.Error("error: connector does not have account manager configured")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, status.Error(codes.Unimplemented, "connector does not have credential manager configured")
+		return nil, status.Error(codes.Unimplemented, "connector does not have account manager configured")
 	}
 
 	opts, err := crypto.ConvertCredentialOptions(ctx, b.clientSecret, request.GetCredentialOptions(), request.GetEncryptionConfigs())
@@ -103,4 +103,18 @@ func (b *builderImpl) CreateAccount(ctx context.Context, request *v2.CreateAccou
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return rv, nil
+}
+
+func (b *builder) addAccountManager(_ context.Context, typeId string, rb ResourceSyncer) error {
+	if _, ok := rb.(OldAccountManager); ok {
+		return fmt.Errorf("error: old account manager interface implemented for %s", typeId)
+	}
+
+	if accountManager, ok := rb.(AccountManager); ok {
+		if b.accountManager != nil {
+			return fmt.Errorf("error: duplicate resource type found for account manager %s", typeId)
+		}
+		b.accountManager = accountManager
+	}
+	return nil
 }

@@ -20,11 +20,16 @@ import (
 //
 // Implementing this interface indicates the connector supports provisioning operations
 // for the associated resource type.
+
+type RevokeProvisioner interface {
+	Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error)
+}
+
 type ResourceProvisioner interface {
 	ResourceSyncer
+	RevokeProvisioner
 	ResourceType(ctx context.Context) *v2.ResourceType
 	Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error)
-	Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error)
 }
 
 // ResourceProvisionerV2 extends ResourceSyncer to add capabilities for granting and revoking access
@@ -34,13 +39,13 @@ type ResourceProvisioner interface {
 // It differs from ResourceProvisioner by returning a list of grants from the Grant method.
 type ResourceProvisionerV2 interface {
 	ResourceSyncer
+	RevokeProvisioner
 	ResourceType(ctx context.Context) *v2.ResourceType
 	Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error)
-	Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error)
 }
 
-func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (*v2.GrantManagerServiceGrantResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.Grant")
+func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (*v2.GrantManagerServiceGrantResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.Grant")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -49,36 +54,22 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 
 	rt := request.Entitlement.Resource.Id.ResourceType
 
+	provisioner, ok := b.resourceProvisioners[rt]
+
+	if !ok {
+		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: resource type does not have provisioner configured")
+	}
+
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
 		MaxAttempts:  3,
 		InitialDelay: 15 * time.Second,
 		MaxDelay:     60 * time.Second,
 	})
 
-	var grantFunc func(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error)
-	provisioner, ok := b.resourceProvisioners[rt]
-	if ok {
-		grantFunc = func(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
-			annos, err := provisioner.Grant(ctx, principal, entitlement)
-			if err != nil {
-				return nil, annos, err
-			}
-			return nil, annos, nil
-		}
-	}
-	provisionerV2, ok := b.resourceProvisionersV2[rt]
-	if ok {
-		grantFunc = provisionerV2.Grant
-	}
-
-	if grantFunc == nil {
-		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: resource type does not have provisioner configured")
-	}
-
 	for {
-		grants, annos, err := grantFunc(ctx, request.Principal, request.Entitlement)
+		grants, annos, err := provisioner.Grant(ctx, request.Principal, request.Entitlement)
 		if err == nil {
 			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 			return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
@@ -91,8 +82,8 @@ func (b *builderImpl) Grant(ctx context.Context, request *v2.GrantManagerService
 	}
 }
 
-func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (*v2.GrantManagerServiceRevokeResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.Revoke")
+func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (*v2.GrantManagerServiceRevokeResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.Revoke")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -102,30 +93,26 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 
 	rt := request.Grant.Entitlement.Resource.Id.ResourceType
 
+	var revokeProvisioner RevokeProvisioner
+	provisioner, ok := b.resourceProvisioners[rt]
+	if ok {
+		revokeProvisioner = provisioner
+	}
+
+	if revokeProvisioner == nil {
+		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: resource type does not have provisioner configured")
+	}
+
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
 		MaxAttempts:  3,
 		InitialDelay: 15 * time.Second,
 		MaxDelay:     60 * time.Second,
 	})
 
-	var revokeFunc func(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error)
-	provisioner, ok := b.resourceProvisioners[rt]
-	if ok {
-		revokeFunc = provisioner.Revoke
-	}
-	provisionerV2, ok := b.resourceProvisionersV2[rt]
-	if ok {
-		revokeFunc = provisionerV2.Revoke
-	}
-
-	if revokeFunc == nil {
-		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: resource type does not have provisioner configured")
-	}
-
 	for {
-		annos, err := revokeFunc(ctx, request.Grant)
+		annos, err := revokeProvisioner.Revoke(ctx, request.Grant)
 		if err == nil {
 			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 			return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
@@ -136,4 +123,45 @@ func (b *builderImpl) Revoke(ctx context.Context, request *v2.GrantManagerServic
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("revoke failed: %w", err)
 	}
+}
+
+func newResourceProvisionerV1to2(resourceProvisioner ResourceProvisioner) ResourceProvisionerV2 {
+	return &resourceProvisionerV1to2{
+		ResourceProvisioner: resourceProvisioner,
+	}
+}
+
+type resourceProvisionerV1to2 struct {
+	ResourceProvisioner
+}
+
+func (r *resourceProvisionerV1to2) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
+	annos, err := r.ResourceProvisioner.Grant(ctx, resource, entitlement)
+	if err != nil {
+		return nil, annos, err
+	}
+	return nil, annos, nil
+}
+
+func (b *builder) addProvisioner(_ context.Context, typeId string, rb ResourceSyncer) error {
+	_, hasV1 := rb.(ResourceProvisioner)
+	_, hasV2 := rb.(ResourceProvisionerV2)
+
+	if hasV1 && hasV2 {
+		return fmt.Errorf("error: resource type %s implements both ResourceProvisioner and ResourceProvisionerV2", typeId)
+	}
+
+	if provisioner, ok := rb.(ResourceProvisioner); ok {
+		if _, ok := b.resourceProvisioners[typeId]; ok {
+			return fmt.Errorf("error: duplicate resource type found for resource provisioner %s", typeId)
+		}
+		b.resourceProvisioners[typeId] = newResourceProvisionerV1to2(provisioner)
+	}
+	if provisioner, ok := rb.(ResourceProvisionerV2); ok {
+		if _, ok := b.resourceProvisioners[typeId]; ok {
+			return fmt.Errorf("error: duplicate resource type found for resource provisioner v2 %s", typeId)
+		}
+		b.resourceProvisioners[typeId] = provisioner
+	}
+	return nil
 }

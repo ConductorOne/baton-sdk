@@ -42,11 +42,11 @@ type ResourceTargetedSyncer interface {
 }
 
 // ListResourceTypes lists all available resource types.
-func (b *builderImpl) ListResourceTypes(
+func (b *builder) ListResourceTypes(
 	ctx context.Context,
 	request *v2.ResourceTypesServiceListResourceTypesRequest,
 ) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListResourceTypes")
+	ctx, span := tracer.Start(ctx, "builder.ListResourceTypes")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -72,8 +72,8 @@ func (b *builderImpl) ListResourceTypes(
 }
 
 // ListResources returns all available resources for a given resource type ID.
-func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListResources")
+func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.ListResources")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -105,8 +105,8 @@ func (b *builderImpl) ListResources(ctx context.Context, request *v2.ResourcesSe
 	return resp, nil
 }
 
-func (b *builderImpl) GetResource(ctx context.Context, request *v2.ResourceGetterServiceGetResourceRequest) (*v2.ResourceGetterServiceGetResourceResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.GetResource")
+func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterServiceGetResourceRequest) (*v2.ResourceGetterServiceGetResourceResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.GetResource")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -136,8 +136,8 @@ func (b *builderImpl) GetResource(ctx context.Context, request *v2.ResourceGette
 }
 
 // ListEntitlements returns all the entitlements for a given resource.
-func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListEntitlements")
+func (b *builder) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.ListEntitlements")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -171,8 +171,8 @@ func (b *builderImpl) ListEntitlements(ctx context.Context, request *v2.Entitlem
 }
 
 // ListGrants lists all the grants for a given resource.
-func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.ListGrants")
+func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.ListGrants")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -181,7 +181,7 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 	rb, ok := b.resourceBuilders[rid.ResourceType]
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: list entitlements with unknown resource type %s", rid.ResourceType)
+		return nil, fmt.Errorf("error: list grants with unknown resource type %s", rid.ResourceType)
 	}
 
 	out, nextPageToken, annos, err := rb.Grants(ctx, request.Resource, &pagination.Token{
@@ -207,4 +207,22 @@ func (b *builderImpl) ListGrants(ctx context.Context, request *v2.GrantsServiceL
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
+}
+
+func (b *builder) addTargetedSyncer(_ context.Context, typeId string, rb ResourceSyncer) error {
+	if targetedSyncer, ok := rb.(ResourceTargetedSyncer); ok {
+		if _, ok := b.resourceTargetedSyncers[typeId]; ok {
+			return fmt.Errorf("error: duplicate resource type found for resource targeted syncer %s", typeId)
+		}
+		b.resourceTargetedSyncers[typeId] = targetedSyncer
+	}
+	return nil
+}
+
+func (b *builder) addResourceBuilders(_ context.Context, typeId string, rb ResourceSyncer) error {
+	if _, ok := b.resourceBuilders[typeId]; ok {
+		return fmt.Errorf("error: duplicate resource type found for resource builder %s", typeId)
+	}
+	b.resourceBuilders[typeId] = rb
+	return nil
 }

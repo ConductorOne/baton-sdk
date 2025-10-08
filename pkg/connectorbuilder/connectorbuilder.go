@@ -43,14 +43,11 @@ type ConnectorBuilder interface {
 	ResourceSyncers(ctx context.Context) []ResourceSyncer
 }
 
-type builderImpl struct {
+type builder struct {
 	resourceBuilders        map[string]ResourceSyncer
-	resourceProvisioners    map[string]ResourceProvisioner
-	resourceProvisionersV2  map[string]ResourceProvisionerV2
-	resourceManagers        map[string]ResourceManager
-	resourceManagersV2      map[string]ResourceManagerV2
-	resourceDeleters        map[string]ResourceDeleter
-	resourceDeletersV2      map[string]ResourceDeleterV2
+	resourceProvisioners    map[string]ResourceProvisionerV2
+	resourceManagers        map[string]ResourceManagerV2
+	resourceDeleters        map[string]ResourceDeleterV2
 	resourceTargetedSyncers map[string]ResourceTargetedSyncer
 	accountManager          AccountManager
 	actionManager           CustomActionManager
@@ -71,14 +68,11 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		clientSecretValue := ctx.Value(crypto.ContextClientSecretKey)
 		clientSecretJWK, _ := clientSecretValue.(*jose.JSONWebKey)
 
-		ret := &builderImpl{
+		b := &builder{
 			resourceBuilders:        make(map[string]ResourceSyncer),
-			resourceProvisioners:    make(map[string]ResourceProvisioner),
-			resourceProvisionersV2:  make(map[string]ResourceProvisionerV2),
-			resourceManagers:        make(map[string]ResourceManager),
-			resourceManagersV2:      make(map[string]ResourceManagerV2),
-			resourceDeleters:        make(map[string]ResourceDeleter),
-			resourceDeletersV2:      make(map[string]ResourceDeleterV2),
+			resourceProvisioners:    make(map[string]ResourceProvisionerV2),
+			resourceManagers:        make(map[string]ResourceManagerV2),
+			resourceDeleters:        make(map[string]ResourceDeleterV2),
 			resourceTargetedSyncers: make(map[string]ResourceTargetedSyncer),
 			accountManager:          nil,
 			actionManager:           nil,
@@ -90,163 +84,55 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 			clientSecret:            clientSecretJWK,
 		}
 
-		err := ret.options(opts...)
+		err := b.options(opts...)
 		if err != nil {
 			return nil, err
 		}
 
-		if ret.m == nil {
-			ret.m = metrics.New(metrics.NewNoOpHandler(ctx))
+		if b.m == nil {
+			b.m = metrics.New(metrics.NewNoOpHandler(ctx))
 		}
 
-		if b, ok := c.(EventProviderV2); ok {
-			for _, ef := range b.EventFeeds(ctx) {
-				feedData := ef.EventFeedMetadata(ctx)
-				if feedData == nil {
-					return nil, fmt.Errorf("error: event feed metadata is nil")
-				}
-				if err := feedData.Validate(); err != nil {
-					return nil, fmt.Errorf("error: event feed metadata for %s is invalid: %w", feedData.Id, err)
-				}
-				if _, ok := ret.eventFeeds[feedData.Id]; ok {
-					return nil, fmt.Errorf("error: duplicate event feed id found: %s", feedData.Id)
-				}
-				ret.eventFeeds[feedData.Id] = ef
-			}
+		if err := b.addEventFeed(ctx, c); err != nil {
+			return nil, err
 		}
 
-		if b, ok := c.(EventProvider); ok {
-			// Register the legacy Baton feed as a v2 event feed
-			// implementing both v1 and v2 event feeds is not supported.
-			if len(ret.eventFeeds) != 0 {
-				return nil, fmt.Errorf("error: using legacy event feed is not supported when using EventProviderV2")
-			}
-			ret.eventFeeds[LegacyBatonFeedId] = &oldEventFeedWrapper{
-				feed: b,
-			}
+		if err := b.addTicketManager(ctx, c); err != nil {
+			return nil, err
 		}
 
-		if ticketManager, ok := c.(TicketManager); ok {
-			if ret.ticketManager != nil {
-				return nil, fmt.Errorf("error: cannot set multiple ticket managers")
-			}
-			ret.ticketManager = ticketManager
-		}
-
-		if actionManager, ok := c.(CustomActionManager); ok {
-			if ret.actionManager != nil {
-				return nil, fmt.Errorf("error: cannot set multiple action managers")
-			}
-			ret.actionManager = actionManager
-		}
-
-		if registerActionManager, ok := c.(RegisterActionManager); ok {
-			if ret.actionManager != nil {
-				return nil, fmt.Errorf("error: cannot register multiple action managers")
-			}
-			actionManager, err := registerActionManager.RegisterActionManager(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("error: registering action manager failed: %w", err)
-			}
-			if actionManager == nil {
-				return nil, fmt.Errorf("error: action manager is nil")
-			}
-			ret.actionManager = actionManager
+		if err := b.addActionManager(ctx, c); err != nil {
+			return nil, err
 		}
 
 		for _, rb := range c.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)
-			if _, ok := ret.resourceBuilders[rType.Id]; ok {
-				return nil, fmt.Errorf("error: duplicate resource type found for resource builder %s", rType.Id)
-			}
-			ret.resourceBuilders[rType.Id] = rb
 
-			if err := validateProvisionerVersion(ctx, rb); err != nil {
+			if err := b.addResourceBuilders(ctx, rType.Id, rb); err != nil {
 				return nil, err
 			}
 
-			if provisioner, ok := rb.(ResourceProvisioner); ok {
-				if _, ok := ret.resourceProvisioners[rType.Id]; ok {
-					return nil, fmt.Errorf("error: duplicate resource type found for resource provisioner %s", rType.Id)
-				}
-				ret.resourceProvisioners[rType.Id] = provisioner
-			}
-			if provisioner, ok := rb.(ResourceProvisionerV2); ok {
-				if _, ok := ret.resourceProvisionersV2[rType.Id]; ok {
-					return nil, fmt.Errorf("error: duplicate resource type found for resource provisioner v2 %s", rType.Id)
-				}
-				ret.resourceProvisionersV2[rType.Id] = provisioner
-			}
-			if targetedSyncer, ok := rb.(ResourceTargetedSyncer); ok {
-				if _, ok := ret.resourceTargetedSyncers[rType.Id]; ok {
-					return nil, fmt.Errorf("error: duplicate resource type found for resource targeted syncer %s", rType.Id)
-				}
-				ret.resourceTargetedSyncers[rType.Id] = targetedSyncer
+			if err := b.addProvisioner(ctx, rType.Id, rb); err != nil {
+				return nil, err
 			}
 
-			if resourceManager, ok := rb.(ResourceManager); ok {
-				if _, ok := ret.resourceManagers[rType.Id]; ok {
-					return nil, fmt.Errorf("error: duplicate resource type found for resource manager %s", rType.Id)
-				}
-				ret.resourceManagers[rType.Id] = resourceManager
-				// Support DeleteResourceV2 if connector implements both Create and Delete
-				if _, ok := ret.resourceDeleters[rType.Id]; ok {
-					// This should never happen
-					return nil, fmt.Errorf("error: duplicate resource type found for resource deleter %s", rType.Id)
-				}
-				ret.resourceDeleters[rType.Id] = resourceManager
-			} else {
-				if resourceDeleter, ok := rb.(ResourceDeleter); ok {
-					if _, ok := ret.resourceDeleters[rType.Id]; ok {
-						return nil, fmt.Errorf("error: duplicate resource type found for resource deleter %s", rType.Id)
-					}
-					ret.resourceDeleters[rType.Id] = resourceDeleter
-				}
+			if err := b.addTargetedSyncer(ctx, rType.Id, rb); err != nil {
+				return nil, err
 			}
 
-			if resourceManager, ok := rb.(ResourceManagerV2); ok {
-				if _, ok := ret.resourceManagersV2[rType.Id]; ok {
-					return nil, fmt.Errorf("error: duplicate resource type found for resource managerV2 %s", rType.Id)
-				}
-				ret.resourceManagersV2[rType.Id] = resourceManager
-				// Support DeleteResourceV2 if connector implements both Create and Delete
-				if _, ok := ret.resourceDeletersV2[rType.Id]; ok {
-					// This should never happen
-					return nil, fmt.Errorf("error: duplicate resource type found for resource deleterV2 %s", rType.Id)
-				}
-				ret.resourceDeletersV2[rType.Id] = resourceManager
-			} else {
-				if resourceDeleter, ok := rb.(ResourceDeleterV2); ok {
-					if _, ok := ret.resourceDeletersV2[rType.Id]; ok {
-						return nil, fmt.Errorf("error: duplicate resource type found for resource deleterV2 %s", rType.Id)
-					}
-					ret.resourceDeletersV2[rType.Id] = resourceDeleter
-				}
+			if err := b.addResourceManager(ctx, rType.Id, rb); err != nil {
+				return nil, err
 			}
 
-			if _, ok := rb.(OldAccountManager); ok {
-				return nil, fmt.Errorf("error: old account manager interface implemented for %s", rType.Id)
+			if err := b.addAccountManager(ctx, rType.Id, rb); err != nil {
+				return nil, err
 			}
 
-			if accountManager, ok := rb.(AccountManager); ok {
-				if ret.accountManager != nil {
-					return nil, fmt.Errorf("error: duplicate resource type found for account manager %s", rType.Id)
-				}
-				ret.accountManager = accountManager
-			}
-
-			if _, ok := rb.(OldCredentialManager); ok {
-				return nil, fmt.Errorf("error: old credential manager interface implemented for %s", rType.Id)
-			}
-
-			if credentialManagers, ok := rb.(CredentialManager); ok {
-				if _, ok := ret.credentialManagers[rType.Id]; ok {
-					return nil, fmt.Errorf("error: duplicate resource type found for credential manager %s", rType.Id)
-				}
-				ret.credentialManagers[rType.Id] = credentialManagers
+			if err := b.addCredentialManager(ctx, rType.Id, rb); err != nil {
+				return nil, err
 			}
 		}
-		return ret, nil
+		return b, nil
 
 	case types.ConnectorServer:
 		return c, nil
@@ -256,10 +142,10 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	}
 }
 
-type Opt func(b *builderImpl) error
+type Opt func(b *builder) error
 
 func WithTicketingEnabled() Opt {
-	return func(b *builderImpl) error {
+	return func(b *builder) error {
 		if _, ok := b.cb.(TicketManager); ok {
 			b.ticketingEnabled = true
 			return nil
@@ -269,13 +155,13 @@ func WithTicketingEnabled() Opt {
 }
 
 func WithMetricsHandler(h metrics.Handler) Opt {
-	return func(b *builderImpl) error {
+	return func(b *builder) error {
 		b.m = metrics.New(h)
 		return nil
 	}
 }
 
-func (b *builderImpl) options(opts ...Opt) error {
+func (b *builder) options(opts ...Opt) error {
 	for _, opt := range opts {
 		if err := opt(b); err != nil {
 			return err
@@ -285,19 +171,9 @@ func (b *builderImpl) options(opts ...Opt) error {
 	return nil
 }
 
-func validateProvisionerVersion(ctx context.Context, p ResourceSyncer) error {
-	_, ok := p.(ResourceProvisioner)
-	_, okV2 := p.(ResourceProvisionerV2)
-
-	if ok && okV2 {
-		return fmt.Errorf("error: resource type %s implements both ResourceProvisioner and ResourceProvisionerV2", p.ResourceType(ctx).Id)
-	}
-	return nil
-}
-
 // GetMetadata gets all metadata for a connector.
-func (b *builderImpl) GetMetadata(ctx context.Context, request *v2.ConnectorServiceGetMetadataRequest) (*v2.ConnectorServiceGetMetadataResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.GetMetadata")
+func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceGetMetadataRequest) (*v2.ConnectorServiceGetMetadataResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.GetMetadata")
 	defer span.End()
 
 	start := b.nowFunc()
@@ -324,63 +200,58 @@ func (b *builderImpl) GetMetadata(ctx context.Context, request *v2.ConnectorServ
 	return &v2.ConnectorServiceGetMetadataResponse{Metadata: md}, nil
 }
 
-func validateCapabilityDetails(ctx context.Context, credDetails *v2.CredentialDetails) error {
-	if credDetails.CapabilityAccountProvisioning != nil {
-		// Ensure that the preferred option is included and is part of the supported options
-		if credDetails.CapabilityAccountProvisioning.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
-			return status.Error(codes.InvalidArgument, "error: preferred credential creation option is not set")
-		}
-		if !slices.Contains(credDetails.CapabilityAccountProvisioning.SupportedCredentialOptions, credDetails.CapabilityAccountProvisioning.PreferredCredentialOption) {
-			return status.Error(codes.InvalidArgument, "error: preferred credential creation option is not part of the supported options")
-		}
-	}
+// Validate validates the connector.
+func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceValidateRequest) (*v2.ConnectorServiceValidateResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.Validate")
+	defer span.End()
 
-	if credDetails.CapabilityCredentialRotation != nil {
-		// Ensure that the preferred option is included and is part of the supported options
-		if credDetails.CapabilityCredentialRotation.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
-			return status.Error(codes.InvalidArgument, "error: preferred credential rotation option is not set")
-		}
-		if !slices.Contains(credDetails.CapabilityCredentialRotation.SupportedCredentialOptions, credDetails.CapabilityCredentialRotation.PreferredCredentialOption) {
-			return status.Error(codes.InvalidArgument, "error: preferred credential rotation option is not part of the supported options")
-		}
-	}
+	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
+		MaxAttempts:  5,
+		InitialDelay: 1 * time.Second,
+		MaxDelay:     0,
+	})
 
-	return nil
+	for {
+		annos, err := b.cb.Validate(ctx)
+		if err == nil {
+			return &v2.ConnectorServiceValidateResponse{
+				Annotations: annos,
+				SdkVersion:  sdk.Version,
+			}, nil
+		}
+
+		if retryer.ShouldWaitAndRetry(ctx, err) {
+			continue
+		}
+
+		return nil, fmt.Errorf("validate failed: %w", err)
+	}
 }
 
-func getCredentialDetails(ctx context.Context, b *builderImpl) (*v2.CredentialDetails, error) {
+func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
 	l := ctxzap.Extract(ctx)
-	rv := &v2.CredentialDetails{}
 
-	for _, rb := range b.resourceBuilders {
-		if am, ok := rb.(AccountManager); ok {
-			accountProvisioningCapabilityDetails, _, err := am.CreateAccountCapabilityDetails(ctx)
-			if err != nil {
-				l.Error("error: getting account provisioning details", zap.Error(err))
-				return nil, fmt.Errorf("error: getting account provisioning details: %w", err)
-			}
-			rv.CapabilityAccountProvisioning = accountProvisioningCapabilityDetails
-		}
-
-		if cm, ok := rb.(CredentialManager); ok {
-			credentialRotationCapabilityDetails, _, err := cm.RotateCapabilityDetails(ctx)
-			if err != nil {
-				l.Error("error: getting credential management details", zap.Error(err))
-				return nil, fmt.Errorf("error: getting credential management details: %w", err)
-			}
-			rv.CapabilityCredentialRotation = credentialRotationCapabilityDetails
-		}
-	}
-
-	err := validateCapabilityDetails(ctx, rv)
+	// Clear session cache if available in context
+	sessionCache, err := session.GetSession(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error: validating capability details: %w", err)
+		l.Warn("error getting session cache", zap.Error(err))
+	} else if request.GetActiveSyncId() != "" {
+		err = sessionCache.Clear(ctx, session.WithSyncID(request.GetActiveSyncId()))
+		if err != nil {
+			l.Warn("error clearing session cache", zap.Error(err))
+		}
 	}
-	return rv, nil
+	// Clear all http caches at the end of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
+	err = uhttp.ClearCaches(ctx)
+	if err != nil {
+		l.Warn("error clearing http caches", zap.Error(err))
+	}
+	resp := &v2.ConnectorServiceCleanupResponse{}
+	return resp, err
 }
 
 // getCapabilities gets all capabilities for a connector.
-func getCapabilities(ctx context.Context, b *builderImpl) (*v2.ConnectorCapabilities, error) {
+func getCapabilities(ctx context.Context, b *builder) (*v2.ConnectorCapabilities, error) {
 	connectorCaps := make(map[v2.Capability]struct{})
 	resourceTypeCapabilities := []*v2.ResourceTypeCapability{}
 	for _, rb := range b.resourceBuilders {
@@ -465,52 +336,57 @@ func getCapabilities(ctx context.Context, b *builderImpl) (*v2.ConnectorCapabili
 	}, nil
 }
 
-// Validate validates the connector.
-func (b *builderImpl) Validate(ctx context.Context, request *v2.ConnectorServiceValidateRequest) (*v2.ConnectorServiceValidateResponse, error) {
-	ctx, span := tracer.Start(ctx, "builderImpl.Validate")
-	defer span.End()
-
-	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
-		MaxAttempts:  5,
-		InitialDelay: 1 * time.Second,
-		MaxDelay:     0,
-	})
-
-	for {
-		annos, err := b.cb.Validate(ctx)
-		if err == nil {
-			return &v2.ConnectorServiceValidateResponse{
-				Annotations: annos,
-				SdkVersion:  sdk.Version,
-			}, nil
+func validateCapabilityDetails(_ context.Context, credDetails *v2.CredentialDetails) error {
+	if credDetails.CapabilityAccountProvisioning != nil {
+		// Ensure that the preferred option is included and is part of the supported options
+		if credDetails.CapabilityAccountProvisioning.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+			return status.Error(codes.InvalidArgument, "error: preferred credential creation option is not set")
 		}
-
-		if retryer.ShouldWaitAndRetry(ctx, err) {
-			continue
+		if !slices.Contains(credDetails.CapabilityAccountProvisioning.SupportedCredentialOptions, credDetails.CapabilityAccountProvisioning.PreferredCredentialOption) {
+			return status.Error(codes.InvalidArgument, "error: preferred credential creation option is not part of the supported options")
 		}
-
-		return nil, fmt.Errorf("validate failed: %w", err)
 	}
+
+	if credDetails.CapabilityCredentialRotation != nil {
+		// Ensure that the preferred option is included and is part of the supported options
+		if credDetails.CapabilityCredentialRotation.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+			return status.Error(codes.InvalidArgument, "error: preferred credential rotation option is not set")
+		}
+		if !slices.Contains(credDetails.CapabilityCredentialRotation.SupportedCredentialOptions, credDetails.CapabilityCredentialRotation.PreferredCredentialOption) {
+			return status.Error(codes.InvalidArgument, "error: preferred credential rotation option is not part of the supported options")
+		}
+	}
+
+	return nil
 }
 
-func (b *builderImpl) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
+func getCredentialDetails(ctx context.Context, b *builder) (*v2.CredentialDetails, error) {
 	l := ctxzap.Extract(ctx)
+	rv := &v2.CredentialDetails{}
 
-	// Clear session cache if available in context
-	sessionCache, err := session.GetSession(ctx)
-	if err != nil {
-		l.Warn("error getting session cache", zap.Error(err))
-	} else if request.GetActiveSyncId() != "" {
-		err = sessionCache.Clear(ctx, session.WithSyncID(request.GetActiveSyncId()))
-		if err != nil {
-			l.Warn("error clearing session cache", zap.Error(err))
+	for _, rb := range b.resourceBuilders {
+		if am, ok := rb.(AccountManager); ok {
+			accountProvisioningCapabilityDetails, _, err := am.CreateAccountCapabilityDetails(ctx)
+			if err != nil {
+				l.Error("error: getting account provisioning details", zap.Error(err))
+				return nil, fmt.Errorf("error: getting account provisioning details: %w", err)
+			}
+			rv.CapabilityAccountProvisioning = accountProvisioningCapabilityDetails
+		}
+
+		if cm, ok := rb.(CredentialManager); ok {
+			credentialRotationCapabilityDetails, _, err := cm.RotateCapabilityDetails(ctx)
+			if err != nil {
+				l.Error("error: getting credential management details", zap.Error(err))
+				return nil, fmt.Errorf("error: getting credential management details: %w", err)
+			}
+			rv.CapabilityCredentialRotation = credentialRotationCapabilityDetails
 		}
 	}
-	// Clear all http caches at the end of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
-	err = uhttp.ClearCaches(ctx)
+
+	err := validateCapabilityDetails(ctx, rv)
 	if err != nil {
-		l.Warn("error clearing http caches", zap.Error(err))
+		return nil, fmt.Errorf("error: validating capability details: %w", err)
 	}
-	resp := &v2.ConnectorServiceCleanupResponse{}
-	return resp, err
+	return rv, nil
 }
