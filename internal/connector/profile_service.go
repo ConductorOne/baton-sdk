@@ -28,7 +28,7 @@ func (ps *profileService) FlushProfiles(ctx context.Context, req *connectorwrapp
 
 	// Stop CPU profiling to flush data
 	if err := ps.profiler.Stop(ctx); err != nil {
-		// nolint:nilerr // This should be nil, we're returning the error to the client
+		//nolint:nilerr // This should be nil, we're returning the error to the client
 		return &connectorwrapperV1.FlushProfilesResponse{
 			Success: false,
 			Error:   err.Error(),
@@ -37,7 +37,7 @@ func (ps *profileService) FlushProfiles(ctx context.Context, req *connectorwrapp
 
 	// Write memory profile
 	if err := ps.profiler.WriteMemProfile(ctx); err != nil {
-		// nolint:nilerr // This should be nil, we're returning the error to the client
+		//nolint:nilerr // This should be nil, we're returning the error to the client
 		return &connectorwrapperV1.FlushProfilesResponse{
 			Success: false,
 			Error:   err.Error(),
