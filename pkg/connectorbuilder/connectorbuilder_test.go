@@ -100,9 +100,7 @@ type testResourceManager struct {
 }
 
 func newTestResourceManager(resourceType string) ResourceManager {
-	return &testResourceManager{
-		ResourceSyncer: newTestResourceSyncer(resourceType),
-	}
+	return &testResourceManager{newTestResourceSyncer(resourceType)}
 }
 
 func (t *testResourceManager) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
@@ -124,9 +122,7 @@ type testResourceManagerV2 struct {
 }
 
 func newTestResourceManagerV2(resourceType string) ResourceManagerV2 {
-	return &testResourceManagerV2{
-		ResourceSyncer: newTestResourceSyncer(resourceType),
-	}
+	return &testResourceManagerV2{newTestResourceSyncer(resourceType)}
 }
 
 func (t *testResourceManagerV2) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
@@ -148,9 +144,7 @@ type testResourceDeleter struct {
 }
 
 func newTestResourceDeleter(resourceType string) ResourceDeleter {
-	return &testResourceDeleter{
-		ResourceSyncer: newTestResourceSyncer(resourceType),
-	}
+	return &testResourceDeleter{newTestResourceSyncer(resourceType)}
 }
 
 func (t *testResourceDeleter) Delete(ctx context.Context, resourceId *v2.ResourceId) (annotations.Annotations, error) {
@@ -162,9 +156,7 @@ type testResourceDeleterV2 struct {
 }
 
 func newTestResourceDeleterV2(resourceType string) ResourceDeleterV2 {
-	return &testResourceDeleterV2{
-		ResourceSyncer: newTestResourceSyncer(resourceType),
-	}
+	return &testResourceDeleterV2{newTestResourceSyncer(resourceType)}
 }
 
 func (t *testResourceDeleterV2) Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error) {
@@ -176,9 +168,7 @@ type testResourceProvisioner struct {
 }
 
 func newTestResourceProvisioner(resourceType string) ResourceProvisioner {
-	return &testResourceProvisioner{
-		ResourceSyncer: newTestResourceSyncer(resourceType),
-	}
+	return &testResourceProvisioner{newTestResourceSyncer(resourceType)}
 }
 
 func (t *testResourceProvisioner) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
@@ -194,9 +184,7 @@ type testResourceProvisionerV2 struct {
 }
 
 func newTestResourceProvisionerV2(resourceType string) ResourceProvisionerV2 {
-	return &testResourceProvisionerV2{
-		ResourceSyncer: newTestResourceSyncer(resourceType),
-	}
+	return &testResourceProvisionerV2{newTestResourceSyncer(resourceType)}
 }
 
 func (t *testResourceProvisionerV2) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
@@ -224,9 +212,7 @@ type testAccountManager struct {
 }
 
 func newTestAccountManager(resourceType string) AccountManager {
-	return &testAccountManager{
-		ResourceSyncer: newTestResourceSyncer(resourceType),
-	}
+	return &testAccountManager{newTestResourceSyncer(resourceType)}
 }
 
 func (t *testAccountManager) CreateAccount(
@@ -280,9 +266,7 @@ type testEventProvider struct {
 }
 
 func newTestEventProvider() EventProvider {
-	return &testEventProvider{
-		newTestConnector([]ResourceSyncer{}),
-	}
+	return &testEventProvider{newTestConnector([]ResourceSyncer{})}
 }
 
 func (t *testEventProvider) ListEvents(
@@ -303,9 +287,7 @@ type testEventProviderV2 struct {
 }
 
 func newTestEventProviderV2() EventProviderV2 {
-	return &testEventProviderV2{
-		newTestConnector([]ResourceSyncer{}),
-	}
+	return &testEventProviderV2{newTestConnector([]ResourceSyncer{})}
 }
 
 func (t *testEventProviderV2) EventFeeds(ctx context.Context) []EventFeed {
@@ -336,9 +318,7 @@ type testTicketManager struct {
 }
 
 func newTestTicketManager() TicketManager {
-	return &testTicketManager{
-		newTestConnector([]ResourceSyncer{}),
-	}
+	return &testTicketManager{newTestConnector([]ResourceSyncer{})}
 }
 
 func (t *testTicketManager) GetTicket(ctx context.Context, ticketId string) (*v2.Ticket, annotations.Annotations, error) {
@@ -432,9 +412,7 @@ type testRegisterActionManager struct {
 }
 
 func newTestRegisterActionManager() RegisterActionManager {
-	return &testRegisterActionManager{
-		newTestConnector([]ResourceSyncer{}),
-	}
+	return &testRegisterActionManager{newTestConnector([]ResourceSyncer{})}
 }
 
 func (t *testRegisterActionManager) RegisterActionManager(ctx context.Context) (CustomActionManager, error) {
@@ -505,11 +483,8 @@ func TestResourceManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Test error case - ResourceSyncer without ResourceManager
-	rsSyncer := &testResourceSyncer{
-		resourceType: &v2.ResourceType{
-			Id: "test-resource",
-		},
-	}
+	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "test-resource"}}
+
 	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
 	require.NoError(t, err)
 
@@ -522,7 +497,7 @@ func TestResourceManager(t *testing.T) {
 			},
 		},
 	})
-	require.Error(t, err, "error: resource type does not have resource Create() configured")
+	require.ErrorContains(t, err, "resource type test-resource does not have resource Create() configured")
 
 	// Test success case - ResourceManager implemented
 	rsManager := newTestResourceManager("test-resource")
@@ -562,7 +537,7 @@ func TestResourceManager(t *testing.T) {
 			},
 		},
 	})
-	require.Error(t, err)
+	require.ErrorContains(t, err, "resource type test-resource-2 does not have resource Create() configured")
 }
 
 func TestResourceManagerV2(t *testing.T) {
@@ -645,11 +620,8 @@ func TestResourceProvisioner(t *testing.T) {
 	ctx := context.Background()
 
 	// Test error case - ResourceSyncer without ResourceProvisioner
-	rsSyncer := &testResourceSyncer{
-		resourceType: &v2.ResourceType{
-			Id: "test-resource",
-		},
-	}
+	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "test-resource"}}
+
 	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
 	require.NoError(t, err)
 
@@ -670,7 +642,7 @@ func TestResourceProvisioner(t *testing.T) {
 			Id: "test-entitlement",
 		},
 	})
-	require.Error(t, err, "error: resource type does not have resource Grant() configured")
+	require.ErrorContains(t, err, "resource type does not have provisioner configured")
 
 	// Test success case - ResourceProvisioner implemented
 	rsProvisioner := newTestResourceProvisioner("test-resource")
@@ -780,11 +752,8 @@ func TestAccountManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Test error case - ResourceSyncer without AccountManager
-	rsSyncer := &testResourceSyncer{
-		resourceType: &v2.ResourceType{
-			Id: "user",
-		},
-	}
+	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "user"}}
+
 	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
 	require.NoError(t, err)
 
@@ -806,7 +775,7 @@ func TestAccountManager(t *testing.T) {
 			},
 		},
 	})
-	require.Error(t, err, "error: resource type does not have account Create() configured")
+	require.ErrorContains(t, err, "connector does not have account manager configured")
 
 	// Test success case - AccountManager implemented
 	accountManager := newTestAccountManager("user")
@@ -843,11 +812,8 @@ func TestCredentialManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Test error case - ResourceSyncer without CredentialManager
-	rsSyncer := &testResourceSyncer{
-		resourceType: &v2.ResourceType{
-			Id: "user",
-		},
-	}
+	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "user"}}
+
 	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
 	require.NoError(t, err)
 
@@ -862,7 +828,7 @@ func TestCredentialManager(t *testing.T) {
 			},
 		},
 	})
-	require.Error(t, err, "error: resource type does not have credential Rotate() configured")
+	require.ErrorContains(t, err, "resource type does not have credential manager configured")
 
 	// Test success case - CredentialManager implemented
 	credentialManager := newTestCredentialManager("user")
@@ -1030,11 +996,7 @@ func TestCustomActionManager(t *testing.T) {
 func TestDeleteResourceV2(t *testing.T) {
 	ctx := context.Background()
 
-	rsSyncer := &testResourceSyncer{
-		resourceType: &v2.ResourceType{
-			Id: "test-resource",
-		},
-	}
+	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "test-resource"}}
 	rsID := &v2.ResourceId{
 		ResourceType: rsSyncer.ResourceType(ctx).Id,
 	}
@@ -1045,7 +1007,7 @@ func TestDeleteResourceV2(t *testing.T) {
 	_, err = connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
 		ResourceId: rsID,
 	})
-	require.Error(t, err, "error: resource type does not have resource Delete() configured")
+	require.ErrorContains(t, err, "resource type test-resource does not have resource Delete() configured")
 
 	rsManager := newTestResourceManager("test-resource")
 	connector, err = NewConnector(ctx, newTestConnector([]ResourceSyncer{rsManager}))
