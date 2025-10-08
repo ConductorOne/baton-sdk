@@ -2,8 +2,6 @@ package connectorbuilder
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -508,8 +506,29 @@ func TestResourceSyncer(t *testing.T) {
 func TestResourceManager(t *testing.T) {
 	ctx := context.Background()
 
+	// Test error case - ResourceSyncer without ResourceManager
+	rsSyncer := &testResourceSyncer{
+		resourceType: &v2.ResourceType{
+			Id: "test-resource",
+		},
+	}
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
+	require.NoError(t, err)
+
+	_, err = connector.CreateResource(ctx, &v2.CreateResourceRequest{
+		Resource: &v2.Resource{
+			DisplayName: "New Resource",
+			Id: &v2.ResourceId{
+				ResourceType: "test-resource",
+				Resource:     "test-resource-1",
+			},
+		},
+	})
+	require.Error(t, err, "error: resource type does not have resource Create() configured")
+
+	// Test success case - ResourceManager implemented
 	rsManager := newTestResourceManager("test-resource")
-	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsManager}))
+	connector, err = NewConnector(ctx, newTestConnector([]ResourceSyncer{rsManager}))
 	require.NoError(t, err)
 
 	// Test Create
@@ -627,8 +646,37 @@ func TestResourceDeleterV2(t *testing.T) {
 func TestResourceProvisioner(t *testing.T) {
 	ctx := context.Background()
 
+	// Test error case - ResourceSyncer without ResourceProvisioner
+	rsSyncer := &testResourceSyncer{
+		resourceType: &v2.ResourceType{
+			Id: "test-resource",
+		},
+	}
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
+	require.NoError(t, err)
+
+	_, err = connector.Grant(ctx, &v2.GrantManagerServiceGrantRequest{
+		Principal: &v2.Resource{
+			Id: &v2.ResourceId{
+				ResourceType: "user",
+				Resource:     "test-user",
+			},
+		},
+		Entitlement: &v2.Entitlement{
+			Resource: &v2.Resource{
+				Id: &v2.ResourceId{
+					ResourceType: "test-resource",
+					Resource:     "test-resource-1",
+				},
+			},
+			Id: "test-entitlement",
+		},
+	})
+	require.Error(t, err, "error: resource type does not have resource Grant() configured")
+
+	// Test success case - ResourceProvisioner implemented
 	rsProvisioner := newTestResourceProvisioner("test-resource")
-	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsProvisioner}))
+	connector, err = NewConnector(ctx, newTestConnector([]ResourceSyncer{rsProvisioner}))
 	require.NoError(t, err)
 
 	// Test Grant
@@ -733,8 +781,38 @@ func TestResourceProvisionerV2(t *testing.T) {
 func TestAccountManager(t *testing.T) {
 	ctx := context.Background()
 
+	// Test error case - ResourceSyncer without AccountManager
+	rsSyncer := &testResourceSyncer{
+		resourceType: &v2.ResourceType{
+			Id: "user",
+		},
+	}
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
+	require.NoError(t, err)
+
+	_, err = connector.CreateAccount(ctx, &v2.CreateAccountRequest{
+		AccountInfo: &v2.AccountInfo{
+			Profile: &structpb.Struct{
+				Fields: map[string]*structpb.Value{
+					"display_name": {
+						Kind: &structpb.Value_StringValue{
+							StringValue: "Test User",
+						},
+					},
+				},
+			},
+		},
+		CredentialOptions: &v2.CredentialOptions{
+			Options: &v2.CredentialOptions_NoPassword_{
+				NoPassword: &v2.CredentialOptions_NoPassword{},
+			},
+		},
+	})
+	require.Error(t, err, "error: resource type does not have account Create() configured")
+
+	// Test success case - AccountManager implemented
 	accountManager := newTestAccountManager("user")
-	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{accountManager}))
+	connector, err = NewConnector(ctx, newTestConnector([]ResourceSyncer{accountManager}))
 	require.NoError(t, err)
 
 	// Test CreateAccount
@@ -757,7 +835,6 @@ func TestAccountManager(t *testing.T) {
 		},
 	})
 
-	fmt.Fprintf(os.Stderr, "createAccountResp: %+v\n", createAccountResp.GetSuccess())
 	require.NoError(t, err)
 	require.NotNil(t, createAccountResp)
 	require.Equal(t, "created-account", createAccountResp.GetSuccess().GetResource().GetId().GetResource())
@@ -767,8 +844,31 @@ func TestAccountManager(t *testing.T) {
 func TestCredentialManager(t *testing.T) {
 	ctx := context.Background()
 
+	// Test error case - ResourceSyncer without CredentialManager
+	rsSyncer := &testResourceSyncer{
+		resourceType: &v2.ResourceType{
+			Id: "user",
+		},
+	}
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
+	require.NoError(t, err)
+
+	_, err = connector.RotateCredential(ctx, &v2.RotateCredentialRequest{
+		ResourceId: &v2.ResourceId{
+			ResourceType: "user",
+			Resource:     "test-user",
+		},
+		CredentialOptions: &v2.CredentialOptions{
+			Options: &v2.CredentialOptions_NoPassword_{
+				NoPassword: &v2.CredentialOptions_NoPassword{},
+			},
+		},
+	})
+	require.Error(t, err, "error: resource type does not have credential Rotate() configured")
+
+	// Test success case - CredentialManager implemented
 	credentialManager := newTestCredentialManager("user")
-	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{credentialManager}))
+	connector, err = NewConnector(ctx, newTestConnector([]ResourceSyncer{credentialManager}))
 	require.NoError(t, err)
 
 	// Test RotateCredential

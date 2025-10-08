@@ -19,8 +19,7 @@ import (
 // of the associated resource type. A ResourceManager automatically provides ResourceDeleter
 // functionality.
 type ResourceManager interface {
-	ResourceSyncer
-	Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error)
+	ResourceCreator
 	ResourceDeleter
 }
 
@@ -28,9 +27,12 @@ type ResourceManager interface {
 //
 // This is the recommended interface for implementing resource creation operations in new connectors.
 type ResourceManagerV2 interface {
-	ResourceSyncer
-	Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error)
+	ResourceCreator
 	ResourceDeleterV2
+}
+
+type ResourceCreator interface {
+	Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error)
 }
 
 // ResourceDeleter extends ResourceSyncer to add capabilities for deleting resources.
