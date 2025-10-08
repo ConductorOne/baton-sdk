@@ -213,6 +213,27 @@ func StringField(name string, optional ...fieldOption) SchemaField {
 	return field
 }
 
+func FileUploadField(name string, bonusStrings []string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:    name,
+		Variant:      StringVariant,
+		DefaultValue: "",
+		ExportTarget: ExportTargetGUI,
+		Rules:        FieldRule{},
+		SyncerConfig: syncerConfig{},
+		ConnectorConfig: connectorConfig{
+			FieldType:    FileUpload,
+			BonusStrings: bonusStrings,
+		},
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
+}
+
 func IntField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:       name,
