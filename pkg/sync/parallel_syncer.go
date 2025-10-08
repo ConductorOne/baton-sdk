@@ -879,7 +879,38 @@ func (w *worker) Start() {
 					return
 				}
 
-				// Still have tasks, continue trying
+				// Check if there are only claimed tasks remaining (deadlock scenario)
+				taskCounts, err := w.dbTaskQueue.syncer.syncer.store.(*dotc1z.C1File).GetTaskCountByStatus(w.ctx, w.dbTaskQueue.syncer.syncer.syncID)
+				if err != nil {
+					l.Error("failed to get task counts by status", zap.Int("worker_id", w.id), zap.Error(err))
+					time.Sleep(1 * time.Second)
+					continue
+				}
+
+				pendingCount := taskCounts["pending"]
+				claimedCount := taskCounts["claimed"]
+
+				if pendingCount == 0 && claimedCount > 0 {
+					// Only claimed tasks remain - this indicates a deadlock
+					// Try to reset stuck claimed tasks (older than 5 minutes) back to pending
+					err := w.dbTaskQueue.syncer.syncer.store.(*dotc1z.C1File).ResetStuckClaimedTasks(w.ctx, w.dbTaskQueue.syncer.syncer.syncID, 5)
+					if err != nil {
+						l.Error("failed to reset stuck claimed tasks", zap.Int("worker_id", w.id), zap.Error(err))
+					} else {
+						l.Debug("attempted to reset stuck claimed tasks", zap.Int("worker_id", w.id))
+						// Wait a bit and try again
+						time.Sleep(500 * time.Millisecond)
+						continue
+					}
+
+					// If reset failed or didn't help, stop to avoid infinite loop
+					l.Debug("only claimed tasks remaining, worker stopping to avoid deadlock",
+						zap.Int("worker_id", w.id),
+						zap.Int64("claimed_count", claimedCount))
+					return
+				}
+
+				// Still have pending tasks, continue trying
 				continue
 			}
 
@@ -1343,7 +1374,17 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 
 			// Log progress
 			if totalTasks > 0 {
-				l.Debug("tasks remaining", zap.Int64("total_tasks", totalTasks))
+				// Get detailed task counts for debugging
+				taskCounts, err := ps.syncer.store.(*dotc1z.C1File).GetTaskCountByStatus(ctx, ps.syncer.syncID)
+				if err == nil {
+					l.Debug("tasks remaining",
+						zap.Int64("total_tasks", totalTasks),
+						zap.Int64("pending", taskCounts["pending"]),
+						zap.Int64("claimed", taskCounts["claimed"]),
+						zap.Int64("complete", taskCounts["complete"]))
+				} else {
+					l.Debug("tasks remaining", zap.Int64("total_tasks", totalTasks))
+				}
 			}
 
 			// Check if we're making progress

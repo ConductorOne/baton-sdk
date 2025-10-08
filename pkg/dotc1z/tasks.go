@@ -280,17 +280,10 @@ func (c *C1File) GetTasks(ctx context.Context, syncID, bucket string, limit int)
 	return nil, fmt.Errorf("failed to get tasks after %d retries", maxRetries)
 }
 
-// getTasksWithRetry performs the actual task fetching with status-based approach
+// getTasksWithRetry performs the actual task fetching with optimistic locking approach
 func (c *C1File) getTasksWithRetry(ctx context.Context, syncID, bucket string, limit int) ([]*TaskRecord, error) {
-	// Use a transaction to atomically select and update tasks
-	tx, err := c.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	// Step 1: Select pending tasks
-	query := tx.From(tasks.Name()).
+	// Step 1: Select pending tasks (no transaction, just read)
+	query := c.db.From(tasks.Name()).
 		Select("id", "sync_id", "operation", "resource_type_id", "resource_id",
 			"parent_resource_type_id", "parent_resource_id", "page_token",
 			"bucket", "data", "status", "created_at", "claimed_at", "completed_at").
@@ -310,7 +303,7 @@ func (c *C1File) getTasksWithRetry(ctx context.Context, syncID, bucket string, l
 		return nil, err
 	}
 
-	rows, err := tx.QueryContext(ctx, selectQuery, selectArgs...)
+	rows, err := c.db.QueryContext(ctx, selectQuery, selectArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -337,35 +330,54 @@ func (c *C1File) getTasksWithRetry(ctx context.Context, syncID, bucket string, l
 		return nil, err
 	}
 
-	// Step 2: Mark selected tasks as claimed
+	// Step 2: Optimistically mark tasks as claimed (short transaction)
 	if len(taskIDs) > 0 {
 		now := time.Now().Format("2006-01-02 15:04:05.999999999")
+
+		// Use a short transaction just for the update
+		tx, err := c.db.BeginTx(ctx, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+
+		// Try to update tasks from pending to claimed
+		// This will only succeed if the tasks are still pending
 		updateQuery, updateArgs, err := tx.Update(tasks.Name()).
 			Set(goqu.Record{
 				"status":     "claimed",
 				"claimed_at": now,
 			}).
 			Where(goqu.C("id").In(taskIDs)).
+			Where(goqu.C("status").Eq("pending")). // Only update if still pending
 			Prepared(true).
 			ToSQL()
 		if err != nil {
 			return nil, err
 		}
 
-		_, err = tx.ExecContext(ctx, updateQuery, updateArgs...)
+		result, err := tx.ExecContext(ctx, updateQuery, updateArgs...)
 		if err != nil {
 			return nil, err
 		}
+
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+
+		err = tx.Commit()
+		if err != nil {
+			return nil, err
+		}
+
+		l := ctxzap.Extract(ctx)
+		l.Debug("tasks claimed successfully", zap.Int("requested", len(taskIDs)), zap.Int64("claimed", rowsAffected))
+
+		// If some tasks were already claimed by other workers, that's fine
+		// We still return the tasks we selected - they're idempotent
 	}
 
-	// Commit the transaction
-	err = tx.Commit()
-	if err != nil {
-		return nil, err
-	}
-
-	l := ctxzap.Extract(ctx)
-	l.Debug("tasks claimed successfully", zap.Int("count", len(taskRecords)))
 	return taskRecords, nil
 }
 
@@ -604,6 +616,55 @@ func (c *C1File) GetBucketTaskCount(ctx context.Context, syncID, bucket string) 
 	}
 
 	return count, nil
+}
+
+// ResetStuckClaimedTasks resets claimed tasks that have been stuck for too long back to pending
+// This helps recover from deadlock scenarios where workers crashed or were interrupted
+func (c *C1File) ResetStuckClaimedTasks(ctx context.Context, syncID string, timeoutMinutes int) error {
+	ctx, span := tracer.Start(ctx, "C1File.ResetStuckClaimedTasks")
+	defer span.End()
+
+	l := ctxzap.Extract(ctx)
+	l.Debug("resetting stuck claimed tasks", zap.String("sync_id", syncID), zap.Int("timeout_minutes", timeoutMinutes))
+
+	err := c.validateDb(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Calculate cutoff time
+	cutoffTime := time.Now().Add(-time.Duration(timeoutMinutes) * time.Minute)
+	cutoffTimeStr := cutoffTime.Format("2006-01-02 15:04:05.999999999")
+
+	query, args, err := c.db.Update(tasks.Name()).
+		Set(goqu.Record{
+			"status":     "pending",
+			"claimed_at": nil,
+		}).
+		Where(goqu.C("sync_id").Eq(syncID)).
+		Where(goqu.C("status").Eq("claimed")).
+		Where(goqu.C("claimed_at").Lt(cutoffTimeStr)).
+		Prepared(true).
+		ToSQL()
+	if err != nil {
+		return err
+	}
+
+	result, err := c.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	if rowsAffected > 0 {
+		l.Info("reset stuck claimed tasks", zap.Int64("count", rowsAffected))
+	}
+
+	return nil
 }
 
 // getBucketForTask determines the bucket for a task based on the resource type's sync_bucket
