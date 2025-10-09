@@ -126,11 +126,20 @@ func ValidateField[T SchemaTypes](s *SchemaField, value T) (bool, error) {
 func (s SchemaField) validate(value any) (bool, error) {
 	switch s.Variant {
 	case StringVariant:
-		v, ok := value.(string)
-		if !ok {
-			return false, ErrWrongValueType
+		if s.ConnectorConfig.FieldType == FileUpload {
+			v, ok := value.([]byte)
+			if !ok {
+				return false, ErrWrongValueType
+			}
+			// convert to string so we can validate using the string rules for now
+			return len(v) != 0, ValidateStringRules(s.Rules.s, string(v), s.FieldName)
+		} else {
+			v, ok := value.(string)
+			if !ok {
+				return false, ErrWrongValueType
+			}
+			return v != "", ValidateStringRules(s.Rules.s, v, s.FieldName)
 		}
-		return v != "", ValidateStringRules(s.Rules.s, v, s.FieldName)
 	case BoolVariant:
 		v, ok := value.(bool)
 		if !ok {
