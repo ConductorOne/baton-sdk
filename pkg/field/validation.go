@@ -1,10 +1,12 @@
 package field
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net"
 	"net/mail"
 	"net/url"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -129,6 +131,17 @@ func isAlphaNumeric(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
+// validateFilePath checks if the given string is a valid file path and the file exists.
+func validateFilePath(filePath string) bool {
+	_, err := os.Stat(filePath)
+	return err == nil
+}
+
+func isBase64Encoded(base64String string) bool {
+	_, err := base64.StdEncoding.DecodeString(base64String)
+	return err == nil
+}
+
 func ValidateStringRules(r *v1_conf.StringRules, v string, name string) error {
 	if r == nil {
 		return nil
@@ -191,10 +204,16 @@ func ValidateStringRules(r *v1_conf.StringRules, v string, name string) error {
 			}
 		}
 	}
+	if r.ValidateFileUpload {
+		if !validateFilePath(v) && !isBase64Encoded(v) {
+			return fmt.Errorf("field %s: value must be a valid file path or base64 encoded content but got '%s'", name, v)
+		}
+	}
 	if r.WellKnown == v1_conf.WellKnownString_WELL_KNOWN_STRING_UNSPECIFIED {
 		return nil
 	}
 
+	// filepath and base64 encoded don't exactly feel like they fit in the well-known category.. plus we want to check if they are one or the other.
 	switch r.WellKnown {
 	case v1_conf.WellKnownString_WELL_KNOWN_STRING_EMAIL:
 		_, err := mail.ParseAddress(v)

@@ -108,7 +108,7 @@ type {{ .StructName }} struct {
 	{{- end }}
 }
 
-func (c* {{ .StructName }}) findFieldByTag(tagValue string) (any, bool) {
+func (c *{{ .StructName }}) findFieldByTag(tagValue string) (any, bool) {
 	v := reflect.ValueOf(c).Elem() // Dereference pointer to struct
 	t := v.Type()
 

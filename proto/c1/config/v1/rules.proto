@@ -181,6 +181,9 @@ message StringRules {
   // values
   repeated string not_in = 11;
 
+  // ValidateFileUpload specifies that this field must represent a file
+  bool validate_file_upload = 28;
+
   WellKnownString well_known = 12;
   // IgnoreEmpty specifies that the validation rules of this field should be
   // evaluated only if the field is not empty

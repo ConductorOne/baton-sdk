@@ -219,7 +219,9 @@ func FileUploadField(name string, bonusStrings []string, optional ...fieldOption
 		Variant:      StringVariant,
 		DefaultValue: "",
 		ExportTarget: ExportTargetGUI,
-		Rules:        FieldRule{},
+		Rules: FieldRule{
+			s: &v1_conf.StringRules{ValidateFileUpload: true},
+		},
 		SyncerConfig: syncerConfig{},
 		ConnectorConfig: connectorConfig{
 			FieldType:    FileUpload,
