@@ -129,20 +129,6 @@ func isAlphaNumeric(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
-// isDataURL checks if the given string is a valid data URL.
-func isDataURL(dataURL string) bool {
-	if !strings.HasPrefix(dataURL, "data:") {
-		return false
-	}
-
-	parsedURL, err := url.Parse(dataURL)
-	if err != nil {
-		return false
-	}
-
-	return parsedURL.Scheme == "data"
-}
-
 func ValidateStringRules(r *v1_conf.StringRules, v string, name string) error {
 	if r == nil {
 		return nil
