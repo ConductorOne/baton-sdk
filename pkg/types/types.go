@@ -49,5 +49,6 @@ type ConnectorClient interface {
 type ClientWrapper interface {
 	C(ctx context.Context) (ConnectorClient, error)
 	Run(ctx context.Context, cfg *connectorwrapperV1.ServerConfig) error
+	FlushProfiles(ctx context.Context) error
 	Close() error
 }

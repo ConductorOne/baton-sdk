@@ -21,7 +21,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/field"
@@ -299,6 +299,47 @@ func MakeMainCommand[T field.Configurable](
 
 		opts = append(opts, connectorrunner.WithSkipEntitlementsAndGrants(v.GetBool("skip-entitlements-and-grants")))
 
+		// Configure profiling if requested
+		enableCPU := v.GetBool("profile-cpu")
+		enableMem := v.GetBool("profile-mem")
+		enableParent := v.GetBool("profile-parent")
+		if enableCPU || enableMem {
+			profileDir := v.GetString("profile-dir")
+			if profileDir == "" {
+				// Default to current working directory
+				wd, err := os.Getwd()
+				if err != nil {
+					return fmt.Errorf("failed to get current working directory for profiling: %w", err)
+				}
+				profileDir = wd
+			}
+
+			// Set prefix for child process if parent profiling is enabled
+			childPrefix := ""
+			if enableParent {
+				childPrefix = "child"
+			}
+
+			profileCfg := &connectorwrapperV1.ProfileConfig{
+				OutputDir: profileDir,
+				EnableCpu: enableCPU,
+				EnableMem: enableMem,
+				Prefix:    childPrefix,
+			}
+			opts = append(opts, connectorrunner.WithProfileConfig(profileCfg))
+
+			// Enable parent process profiling if requested
+			if enableParent {
+				parentProfileCfg := &connectorwrapperV1.ProfileConfig{
+					OutputDir: profileDir,
+					EnableCpu: enableCPU,
+					EnableMem: enableMem,
+					Prefix:    "parent",
+				}
+				opts = append(opts, connectorrunner.WithParentProfileConfig(parentProfileCfg))
+			}
+		}
+
 		t, err := MakeGenericConfiguration[T](v)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
@@ -511,7 +552,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return fmt.Errorf("unexpected empty input")
 		}
 
-		serverCfg := &v1.ServerConfig{}
+		serverCfg := &connectorwrapperV1.ServerConfig{}
 		err = proto.Unmarshal(cfgBytes, serverCfg)
 		if err != nil {
 			return err
