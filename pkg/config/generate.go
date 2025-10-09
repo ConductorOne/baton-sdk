@@ -68,7 +68,11 @@ func Generate(name string, schema field.Configuration) {
 		}
 		switch f.Variant {
 		case field.StringVariant:
-			nf.FieldType = "string"
+			if f.ConnectorConfig.FieldType == field.FileUpload {
+				nf.FieldType = "[]byte"
+			} else {
+				nf.FieldType = "string"
+			}
 		case field.BoolVariant:
 			nf.FieldType = "bool"
 		case field.IntVariant:

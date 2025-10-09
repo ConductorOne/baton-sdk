@@ -38,8 +38,8 @@ func MakeGenericConfiguration[T field.Configurable](v *viper.Viper) (T, error) {
 		return config, fmt.Errorf("cannot convert *viper.Viper to %T", config)
 	}
 
-	// Unmarshal into the config struct
-	err := v.Unmarshal(&config)
+	// Unmarshal into the config struct with file upload decode hook
+	err := v.Unmarshal(&config, viper.DecodeHook(field.FileUploadDecodeHook()))
 	if err != nil {
 		return config, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
