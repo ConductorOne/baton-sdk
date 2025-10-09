@@ -169,8 +169,8 @@ func (d *deleter1to2) Delete(ctx context.Context, resourceId *v2.ResourceId, par
 	return d.ResourceDeleter.Delete(ctx, resourceId)
 }
 
-func (b *builder) addResourceManager(_ context.Context, typeId string, rb ResourceSyncer) error {
-	if resourceManager, ok := rb.(ResourceManager); ok {
+func (b *builder) addResourceManager(_ context.Context, typeId string, in interface{}) error {
+	if resourceManager, ok := in.(ResourceManager); ok {
 		if _, ok := b.resourceManagers[typeId]; ok {
 			return fmt.Errorf("error: duplicate resource type found for resource manager %s", typeId)
 		}
@@ -182,7 +182,7 @@ func (b *builder) addResourceManager(_ context.Context, typeId string, rb Resour
 		}
 		b.resourceDeleters[typeId] = newDeleter1to2(resourceManager)
 	} else {
-		if resourceDeleter, ok := rb.(ResourceDeleter); ok {
+		if resourceDeleter, ok := in.(ResourceDeleter); ok {
 			if _, ok := b.resourceDeleters[typeId]; ok {
 				return fmt.Errorf("error: duplicate resource type found for resource deleter %s", typeId)
 			}
@@ -190,7 +190,7 @@ func (b *builder) addResourceManager(_ context.Context, typeId string, rb Resour
 		}
 	}
 
-	if resourceManager, ok := rb.(ResourceManagerV2); ok {
+	if resourceManager, ok := in.(ResourceManagerV2); ok {
 		if _, ok := b.resourceManagers[typeId]; ok {
 			return fmt.Errorf("error: duplicate resource type found for resource managerV2 %s", typeId)
 		}
@@ -202,7 +202,7 @@ func (b *builder) addResourceManager(_ context.Context, typeId string, rb Resour
 		}
 		b.resourceDeleters[typeId] = resourceManager
 	} else {
-		if resourceDeleter, ok := rb.(ResourceDeleterV2); ok {
+		if resourceDeleter, ok := in.(ResourceDeleterV2); ok {
 			if _, ok := b.resourceDeleters[typeId]; ok {
 				return fmt.Errorf("error: duplicate resource type found for resource deleterV2 %s", typeId)
 			}

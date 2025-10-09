@@ -55,11 +55,11 @@ type ConnectorBuilder interface {
 type ConnectorBuilder2 interface {
 	MetadataProvider
 	ValidateProvider
-	ResourceSyncers(ctx context.Context) []ResourceSyncer2
+	ResourceSyncers(ctx context.Context) []ResourceSyncerV2
 }
 
 type builder struct {
-	resourceBuilders        map[string]ResourceSyncer
+	resourceBuilders        map[string]ResourceSyncerV2
 	resourceProvisioners    map[string]ResourceProvisionerV2
 	resourceManagers        map[string]ResourceManagerV2
 	resourceDeleters        map[string]ResourceDeleterV2
@@ -80,84 +80,107 @@ type builder struct {
 
 // NewConnector creates a new ConnectorServer for a new resource.
 func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.ConnectorServer, error) {
-	switch c := in.(type) {
-	case ConnectorBuilder:
-		clientSecretValue := ctx.Value(crypto.ContextClientSecretKey)
-		clientSecretJWK, _ := clientSecretValue.(*jose.JSONWebKey)
+	if in == nil {
+		return nil, fmt.Errorf("input cannot be nil")
+	}
+	// its likely nothing uses this code path anymore
+	if cs, ok := in.(types.ConnectorServer); ok {
+		return cs, nil
+	}
 
-		b := &builder{
-			resourceBuilders:        make(map[string]ResourceSyncer),
-			resourceProvisioners:    make(map[string]ResourceProvisionerV2),
-			resourceManagers:        make(map[string]ResourceManagerV2),
-			resourceDeleters:        make(map[string]ResourceDeleterV2),
-			resourceTargetedSyncers: make(map[string]ResourceTargetedSyncer),
-			accountManager:          nil,
-			actionManager:           nil,
-			credentialManagers:      make(map[string]CredentialManager),
-			eventFeeds:              make(map[string]EventFeed),
-			metadataProvider:        c,
-			validateProvider:        c,
-			ticketManager:           nil,
-			nowFunc:                 time.Now,
-			clientSecret:            clientSecretJWK,
+	clientSecretValue := ctx.Value(crypto.ContextClientSecretKey)
+	clientSecretJWK, _ := clientSecretValue.(*jose.JSONWebKey)
+
+	b := &builder{
+		resourceBuilders:        make(map[string]ResourceSyncerV2),
+		resourceProvisioners:    make(map[string]ResourceProvisionerV2),
+		resourceManagers:        make(map[string]ResourceManagerV2),
+		resourceDeleters:        make(map[string]ResourceDeleterV2),
+		resourceTargetedSyncers: make(map[string]ResourceTargetedSyncer),
+		accountManager:          nil,
+		actionManager:           nil,
+		credentialManagers:      make(map[string]CredentialManager),
+		eventFeeds:              make(map[string]EventFeed),
+		metadataProvider:        nil,
+		validateProvider:        nil,
+		ticketManager:           nil,
+		nowFunc:                 time.Now,
+		clientSecret:            clientSecretJWK,
+	}
+
+	err := b.options(in, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	if b.m == nil {
+		b.m = metrics.New(metrics.NewNoOpHandler(ctx))
+	}
+
+	if err := b.addConnectorBuilderProviders(ctx, in); err != nil {
+		return nil, err
+	}
+
+	if err := b.addEventFeed(ctx, in); err != nil {
+		return nil, err
+	}
+
+	if err := b.addTicketManager(ctx, in); err != nil {
+		return nil, err
+	}
+
+	if err := b.addActionManager(ctx, in); err != nil {
+		return nil, err
+	}
+
+	addResourceSyncers := func(ctx context.Context, rType string) error {
+		if err := b.addResourceBuilders(ctx, rType, in); err != nil {
+			return err
 		}
 
-		err := b.options(in, opts...)
-		if err != nil {
-			return nil, err
+		if err := b.addProvisioner(ctx, rType, in); err != nil {
+			return err
 		}
 
-		if b.m == nil {
-			b.m = metrics.New(metrics.NewNoOpHandler(ctx))
+		if err := b.addTargetedSyncer(ctx, rType, in); err != nil {
+			return err
 		}
 
-		if err := b.addEventFeed(ctx, c); err != nil {
-			return nil, err
+		if err := b.addResourceManager(ctx, rType, in); err != nil {
+			return err
 		}
 
-		if err := b.addTicketManager(ctx, c); err != nil {
-			return nil, err
+		if err := b.addAccountManager(ctx, rType, in); err != nil {
+			return err
 		}
 
-		if err := b.addActionManager(ctx, c); err != nil {
-			return nil, err
+		if err := b.addCredentialManager(ctx, rType, in); err != nil {
+			return err
 		}
 
-		for _, rb := range c.ResourceSyncers(ctx) {
+		return nil
+	}
+
+	if cb, ok := in.(ConnectorBuilder); ok {
+		for _, rb := range cb.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)
-
-			if err := b.addResourceBuilders(ctx, rType.Id, rb); err != nil {
-				return nil, err
-			}
-
-			if err := b.addProvisioner(ctx, rType.Id, rb); err != nil {
-				return nil, err
-			}
-
-			if err := b.addTargetedSyncer(ctx, rType.Id, rb); err != nil {
-				return nil, err
-			}
-
-			if err := b.addResourceManager(ctx, rType.Id, rb); err != nil {
-				return nil, err
-			}
-
-			if err := b.addAccountManager(ctx, rType.Id, rb); err != nil {
-				return nil, err
-			}
-
-			if err := b.addCredentialManager(ctx, rType.Id, rb); err != nil {
+			if err := addResourceSyncers(ctx, rType.Id); err != nil {
 				return nil, err
 			}
 		}
 		return b, nil
-
-	case types.ConnectorServer:
-		return c, nil
-
-	default:
-		return nil, fmt.Errorf("input was not a ConnectorBuilder or a ConnectorServer")
 	}
+
+	if cb2, ok := in.(ConnectorBuilder2); ok {
+		for _, rb := range cb2.ResourceSyncers(ctx) {
+			rType := rb.ResourceType(ctx)
+			if err := addResourceSyncers(ctx, rType.Id); err != nil {
+				return nil, err
+			}
+		}
+		return b, nil
+	}
+	return nil, fmt.Errorf("input is not a ConnectorBuilder or a ConnectorBuilder2")
 }
 
 type Opt func(b *builder, in interface{}) error
@@ -191,6 +214,22 @@ func (b *builder) options(cb interface{}, opts ...Opt) error {
 		if err := opt(b, cb); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (b *builder) addConnectorBuilderProviders(_ context.Context, in interface{}) error {
+	if mp, ok := in.(MetadataProvider); ok {
+		b.metadataProvider = mp
+	} else {
+		return fmt.Errorf("error: metadata provider not implemented")
+	}
+
+	if vp, ok := in.(ValidateProvider); ok {
+		b.validateProvider = vp
+	} else {
+		return fmt.Errorf("error: validate provider not implemented")
 	}
 
 	return nil

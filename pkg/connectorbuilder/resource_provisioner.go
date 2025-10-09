@@ -143,21 +143,21 @@ func (r *resourceProvisionerV1to2) Grant(ctx context.Context, resource *v2.Resou
 	return nil, annos, nil
 }
 
-func (b *builder) addProvisioner(_ context.Context, typeId string, rb ResourceSyncer) error {
-	_, hasV1 := rb.(ResourceProvisioner)
+func (b *builder) addProvisioner(_ context.Context, typeId string, in interface{}) error {
+	_, hasV1 := in.(ResourceProvisioner)
 	_, hasV2 := rb.(ResourceProvisionerV2)
 
 	if hasV1 && hasV2 {
 		return fmt.Errorf("error: resource type %s implements both ResourceProvisioner and ResourceProvisionerV2", typeId)
 	}
 
-	if provisioner, ok := rb.(ResourceProvisioner); ok {
+	if provisioner, ok := in.(ResourceProvisioner); ok {
 		if _, ok := b.resourceProvisioners[typeId]; ok {
 			return fmt.Errorf("error: duplicate resource type found for resource provisioner %s", typeId)
 		}
 		b.resourceProvisioners[typeId] = newResourceProvisionerV1to2(provisioner)
 	}
-	if provisioner, ok := rb.(ResourceProvisionerV2); ok {
+	if provisioner, ok := in.(ResourceProvisionerV2); ok {
 		if _, ok := b.resourceProvisioners[typeId]; ok {
 			return fmt.Errorf("error: duplicate resource type found for resource provisioner v2 %s", typeId)
 		}
