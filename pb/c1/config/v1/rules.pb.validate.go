@@ -670,8 +670,6 @@ func (m *StringRules) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for ValidateFileUpload
-
 	// no validation rules for WellKnown
 
 	// no validation rules for ValidateEmpty

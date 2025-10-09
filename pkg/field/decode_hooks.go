@@ -30,7 +30,7 @@ func FileUploadDecodeHook() mapstructure.DecodeHookFunc {
 		}
 
 		// Use the file upload logic
-		return getFileUploadContent(str), nil
+		return getFileUploadContent(str)
 	}
 }
 
@@ -40,9 +40,9 @@ func FileUploadDecodeHook() mapstructure.DecodeHookFunc {
 // 2. File paths - for service/one-shot contexts
 // 3. Raw base64 content - fallback for lambda contexts
 // 4. Direct content - fallback for service contexts
-func getFileUploadContent(fieldValue string) []byte {
+func getFileUploadContent(fieldValue string) ([]byte, error) {
 	if fieldValue == "" {
-		return []byte{}
+		return []byte{}, nil
 	}
 
 	// Check for data URL format first (most explicit)
@@ -53,7 +53,7 @@ func getFileUploadContent(fieldValue string) []byte {
 	// Check if it's a valid base64 string by trying to decode it
 	if decoded, err := base64.StdEncoding.DecodeString(fieldValue); err == nil {
 		// If it decodes successfully, it's base64 content
-		return decoded
+		return decoded, nil
 	}
 
 	// If not base64, assume it's a file path and try to read the file
@@ -61,31 +61,31 @@ func getFileUploadContent(fieldValue string) []byte {
 		// File exists, read it
 		content, err := os.ReadFile(fieldValue)
 		if err != nil {
-			panic("error reading file: " + err.Error())
+			return nil, fmt.Errorf("error reading file: %v", err)
 		}
-		return content
+		return content, nil
 	}
 
 	// If neither base64 nor file path, return the content as-is :shrug:
-	return []byte(fieldValue)
+	return []byte(fieldValue), nil
 }
 
 // parseDataURL parses a data URL and returns the decoded content.
 // Supports formats like: data:application/json;base64,<base64-content>
-func parseDataURL(dataURL string) []byte {
+func parseDataURL(dataURL string) ([]byte, error) {
 	parsedURL, err := url.Parse(dataURL)
 	if err != nil {
-		panic(fmt.Sprintf("invalid data URL: %v", err))
+		return nil, fmt.Errorf("invalid data URL: %v", err)
 	}
 
 	if parsedURL.Scheme != "data" {
-		panic(fmt.Sprintf("expected data URL scheme, got: %s", parsedURL.Scheme))
+		return nil, fmt.Errorf("expected data URL scheme, got: %s", parsedURL.Scheme)
 	}
 
 	// Split the data URL into media type and data
 	parts := strings.SplitN(parsedURL.Opaque, ",", 2)
 	if len(parts) != 2 {
-		panic("invalid data URL format: missing comma separator")
+		return nil, fmt.Errorf("invalid data URL format: missing comma separator")
 	}
 
 	mediaType := parts[0]
@@ -95,15 +95,15 @@ func parseDataURL(dataURL string) []byte {
 	if strings.HasSuffix(mediaType, ";base64") {
 		decoded, err := base64.StdEncoding.DecodeString(data)
 		if err != nil {
-			panic(fmt.Sprintf("failed to decode base64 data: %v", err))
+			return nil, fmt.Errorf("failed to decode base64 data: %v", err)
 		}
-		return decoded
+		return decoded, nil
 	}
 
 	// If not base64, return the data as-is (URL encoded)
 	decoded, err := url.QueryUnescape(data)
 	if err != nil {
-		panic(fmt.Sprintf("failed to decode URL data: %v", err))
+		return nil, fmt.Errorf("failed to decode URL data: %v", err)
 	}
-	return []byte(decoded)
+	return []byte(decoded), nil
 }

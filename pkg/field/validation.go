@@ -1,12 +1,10 @@
 package field
 
 import (
-	"encoding/base64"
 	"fmt"
 	"net"
 	"net/mail"
 	"net/url"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -131,17 +129,6 @@ func isAlphaNumeric(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
-// validateFilePath checks if the given string is a valid file path and the file exists.
-func validateFilePath(filePath string) bool {
-	_, err := os.Stat(filePath)
-	return err == nil
-}
-
-func isBase64Encoded(base64String string) bool {
-	_, err := base64.StdEncoding.DecodeString(base64String)
-	return err == nil
-}
-
 // isDataURL checks if the given string is a valid data URL.
 func isDataURL(dataURL string) bool {
 	if !strings.HasPrefix(dataURL, "data:") {
@@ -216,11 +203,6 @@ func ValidateStringRules(r *v1_conf.StringRules, v string, name string) error {
 			if v == val {
 				return fmt.Errorf("field %s: value must not be one of %v but got '%s'", name, r.NotIn, v)
 			}
-		}
-	}
-	if r.ValidateFileUpload {
-		if !validateFilePath(v) && !isBase64Encoded(v) && !isDataURL(v) {
-			return fmt.Errorf("field %s: value must be a valid file path, base64 encoded content, or data URL but got '%s'", name, v)
 		}
 	}
 	if r.WellKnown == v1_conf.WellKnownString_WELL_KNOWN_STRING_UNSPECIFIED {
