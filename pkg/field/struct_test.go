@@ -40,6 +40,14 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 		WithIsDirectory(false),
 		WithSupportsExternalResources(true),
 		WithConstraints(constraints...),
+		WithFieldGroups([]SchemaFieldGroup{
+			{
+				Name:        "group1",
+				DisplayName: "Group 1",
+				HelpText:    "This is group 1",
+				Fields:      []SchemaField{StringField("onlyInGroup1"), StringField("onlyInGroup2")},
+			},
+		}),
 	)
 
 	data, err := json.Marshal(&config)
@@ -48,70 +56,81 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 	}
 
 	expected := `{
-		"fields": [
-			{
-				"name": "ss",
-				"description": "Field 1",
-				"stringField": {
-					"defaultValue": "default"
-				}
-			},
-			{
-				"name": "if",
-				"description": "Field 2",
-				"intField": {
-					"defaultValue": "42"
-				}
-			},
-			{
-				"name": "bf",
-				"description": "Field 3",
-				"boolField": {}
-			},
-			{
-				"name": "ssf",
-				"description": "Field 4",
-				"stringSliceField": {
-					"defaultValue": [
-						"default"
-					]
-				}
-			},
-			{
-				"name": "smf",
-				"description": "Field 5",
-				"stringMapField": {
-					"defaultValue": {
-						"key": {
-							"@type": "type.googleapis.com/google.protobuf.Value",
-							"value": "value"
-						}
-					}
-				}
-			}
-		],
-		"constraints": [
-			{
-				"kind": "CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE",
-				"fieldNames": [
-					"ss",
-					"if"
-				]
-			},
-			{
-				"kind": "CONSTRAINT_KIND_REQUIRED_TOGETHER",
-				"fieldNames": [
-					"bf",
-					"ssf"
-				]
-			}
-		],
-		"displayName": "Great Connector",
-		"helpUrl": "https://great-connector.com/help",
-		"iconUrl": "https://great-connector.com/icon.png",
-		"catalogId": "ABC123",
-		"supportsExternalResources": true
-	}`
+    "catalogId": "ABC123",
+    "constraints": [
+        {
+            "fieldNames": [
+                "ss",
+                "if"
+            ],
+            "kind": "CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE"
+        },
+        {
+            "fieldNames": [
+                "bf",
+                "ssf"
+            ],
+            "kind": "CONSTRAINT_KIND_REQUIRED_TOGETHER"
+        }
+    ],
+    "displayName": "Great Connector",
+    "fieldGroups": [
+        {
+            "displayName": "Group 1",
+            "fields": [
+                "onlyInGroup1",
+                "onlyInGroup2"
+            ],
+            "helpText": "This is group 1",
+            "name": "group1"
+        }
+    ],
+    "fields": [
+        {
+            "description": "Field 1",
+            "name": "ss",
+            "stringField": {
+                "defaultValue": "default"
+            }
+        },
+        {
+            "description": "Field 2",
+            "intField": {
+                "defaultValue": "42"
+            },
+            "name": "if"
+        },
+        {
+            "boolField": {},
+            "description": "Field 3",
+            "name": "bf"
+        },
+        {
+            "description": "Field 4",
+            "name": "ssf",
+            "stringSliceField": {
+                "defaultValue": [
+                    "default"
+                ]
+            }
+        },
+        {
+            "description": "Field 5",
+            "name": "smf",
+            "stringMapField": {
+                "defaultValue": {
+                    "key": {
+                        "@type": "type.googleapis.com/google.protobuf.Value",
+                        "value": "value"
+                    }
+                }
+            }
+        }
+    ],
+    "helpUrl": "https://great-connector.com/help",
+    "iconUrl": "https://great-connector.com/icon.png",
+    "supportsExternalResources": true
+}`
 
 	n1, err := normalizeJSON(expected)
 	if err != nil {
