@@ -13,6 +13,7 @@ import (
 	aws_lambda "github.com/aws/aws-lambda-go/lambda"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
+	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/mitchellh/mapstructure"
@@ -155,7 +156,15 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				cfg.Set(k, v)
 			}
 		default:
-			err = mapstructure.Decode(configStruct.AsMap(), cfg)
+			// Use mapstructure with decode hook for file upload fields
+			decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+				DecodeHook: field.FileUploadDecodeHook(false), // false for lambda context (parse content, don't read from file)
+				Result:     cfg,
+			})
+			if err != nil {
+				return fmt.Errorf("lambda-run: failed to create decoder: %w", err)
+			}
+			err = decoder.Decode(configStruct.AsMap())
 			if err != nil {
 				return fmt.Errorf("lambda-run: failed to decode config: %w", err)
 			}

@@ -348,6 +348,7 @@ func Validate(c Configuration, v Configurable) error {
 			if f.ConnectorConfig.FieldType == FileUpload {
 				fmt.Printf("DEBUG: FileUpload field %s: value=%s\n", f.FieldName, val[:5])
 			}
+			isPresent, validationError = ValidateField(&f, val)
 		case BoolVariant:
 			isPresent, validationError = ValidateField(&f, v.GetBool(f.FieldName))
 		case IntVariant:
