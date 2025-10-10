@@ -29,6 +29,7 @@ type CreateAccountResponse interface {
 // in the external system. A resource type should implement this interface if it
 // represents users or accounts that can be provisioned.
 type AccountManager interface {
+	ResourceSyncer
 	CreateAccount(ctx context.Context,
 		accountInfo *v2.AccountInfo,
 		credentialOptions *v2.LocalCredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
@@ -36,6 +37,7 @@ type AccountManager interface {
 }
 
 type OldAccountManager interface {
+	ResourceSyncer
 	CreateAccount(ctx context.Context,
 		accountInfo *v2.AccountInfo,
 		credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)

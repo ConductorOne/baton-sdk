@@ -60,10 +60,10 @@ type ConnectorBuilder2 interface {
 
 type builder struct {
 	resourceBuilders        map[string]ResourceSyncerV2
-	resourceProvisioners    map[string]ResourceProvisionerV2
-	resourceManagers        map[string]ResourceManagerV2
-	resourceDeleters        map[string]ResourceDeleterV2
-	resourceTargetedSyncers map[string]ResourceTargetedSyncer
+	resourceProvisioners    map[string]ResourceProvisionerV2Limited
+	resourceManagers        map[string]ResourceManagerV2Limited
+	resourceDeleters        map[string]ResourceDeleterV2Limited
+	resourceTargetedSyncers map[string]ResourceTargetedSyncerLimited
 	accountManager          AccountManager
 	actionManager           CustomActionManager
 	credentialManagers      map[string]CredentialManager
@@ -93,10 +93,10 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 
 	b := &builder{
 		resourceBuilders:        make(map[string]ResourceSyncerV2),
-		resourceProvisioners:    make(map[string]ResourceProvisionerV2),
-		resourceManagers:        make(map[string]ResourceManagerV2),
-		resourceDeleters:        make(map[string]ResourceDeleterV2),
-		resourceTargetedSyncers: make(map[string]ResourceTargetedSyncer),
+		resourceProvisioners:    make(map[string]ResourceProvisionerV2Limited),
+		resourceManagers:        make(map[string]ResourceManagerV2Limited),
+		resourceDeleters:        make(map[string]ResourceDeleterV2Limited),
+		resourceTargetedSyncers: make(map[string]ResourceTargetedSyncerLimited),
 		accountManager:          nil,
 		actionManager:           nil,
 		credentialManagers:      make(map[string]CredentialManager),
@@ -133,28 +133,28 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		return nil, err
 	}
 
-	addResourceSyncers := func(ctx context.Context, rType string) error {
-		if err := b.addResourceBuilders(ctx, rType, in); err != nil {
+	addResourceType := func(ctx context.Context, rType string, rb interface{}) error {
+		if err := b.addResourceBuilders(ctx, rType, rb); err != nil {
 			return err
 		}
 
-		if err := b.addProvisioner(ctx, rType, in); err != nil {
+		if err := b.addProvisioner(ctx, rType, rb); err != nil {
 			return err
 		}
 
-		if err := b.addTargetedSyncer(ctx, rType, in); err != nil {
+		if err := b.addTargetedSyncer(ctx, rType, rb); err != nil {
 			return err
 		}
 
-		if err := b.addResourceManager(ctx, rType, in); err != nil {
+		if err := b.addResourceManager(ctx, rType, rb); err != nil {
 			return err
 		}
 
-		if err := b.addAccountManager(ctx, rType, in); err != nil {
+		if err := b.addAccountManager(ctx, rType, rb); err != nil {
 			return err
 		}
 
-		if err := b.addCredentialManager(ctx, rType, in); err != nil {
+		if err := b.addCredentialManager(ctx, rType, rb); err != nil {
 			return err
 		}
 
@@ -164,7 +164,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	if cb, ok := in.(ConnectorBuilder); ok {
 		for _, rb := range cb.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)
-			if err := addResourceSyncers(ctx, rType.Id); err != nil {
+			if err := addResourceType(ctx, rType.Id, rb); err != nil {
 				return nil, err
 			}
 		}
@@ -174,7 +174,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	if cb2, ok := in.(ConnectorBuilder2); ok {
 		for _, rb := range cb2.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)
-			if err := addResourceSyncers(ctx, rType.Id); err != nil {
+			if err := addResourceType(ctx, rType.Id, rb); err != nil {
 				return nil, err
 			}
 		}
@@ -294,17 +294,7 @@ func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceVali
 
 func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
 	l := ctxzap.Extract(ctx)
-
-	// // Clear session cache if available in context
-	// sessionCache, err := session.GetSession(ctx)
-	// if err != nil {
-	// 	l.Warn("error getting session cache", zap.Error(err))
-	// } else if request.GetActiveSyncId() != "" {
-	// 	err = sessionCache.Clear(ctx, session.WithSyncID(request.GetActiveSyncId()))
-	// 	if err != nil {
-	// 		l.Warn("error clearing session cache", zap.Error(err))
-	// 	}
-	// }
+	// TODO(kans): clear the session store here.
 	// Clear all http caches at the end of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
 	err := uhttp.ClearCaches(ctx)
 	if err != nil {
@@ -318,53 +308,44 @@ func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceClean
 func getCapabilities(ctx context.Context, b *builder) (*v2.ConnectorCapabilities, error) {
 	connectorCaps := make(map[v2.Capability]struct{})
 	resourceTypeCapabilities := []*v2.ResourceTypeCapability{}
-	for _, rb := range b.resourceBuilders {
+
+	for resourceTypeID, rb := range b.resourceBuilders {
+		connectorCaps[v2.Capability_CAPABILITY_SYNC] = struct{}{}
 		resourceTypeCapability := &v2.ResourceTypeCapability{
 			ResourceType: rb.ResourceType(ctx),
-			// Currently by default all resource types support sync.
 			Capabilities: []v2.Capability{v2.Capability_CAPABILITY_SYNC},
 		}
-		connectorCaps[v2.Capability_CAPABILITY_SYNC] = struct{}{}
-		if _, ok := rb.(ResourceTargetedSyncer); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
-			connectorCaps[v2.Capability_CAPABILITY_TARGETED_SYNC] = struct{}{}
-		}
-		if _, ok := rb.(ResourceProvisioner); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_PROVISION)
-			connectorCaps[v2.Capability_CAPABILITY_PROVISION] = struct{}{}
-		} else if _, ok = rb.(ResourceProvisionerV2); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_PROVISION)
-			connectorCaps[v2.Capability_CAPABILITY_PROVISION] = struct{}{}
-		}
-		if _, ok := rb.(AccountManager); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
-			connectorCaps[v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING] = struct{}{}
-		}
-
-		if _, ok := rb.(CredentialManager); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
-			connectorCaps[v2.Capability_CAPABILITY_CREDENTIAL_ROTATION] = struct{}{}
-		}
-
-		if _, ok := rb.(ResourceManager); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_CREATE] = struct{}{}
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
-		} else if _, ok := rb.(ResourceDeleter); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
-		}
-
-		if _, ok := rb.(ResourceManagerV2); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_CREATE] = struct{}{}
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
-		} else if _, ok := rb.(ResourceDeleterV2); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
-		}
-
 		resourceTypeCapabilities = append(resourceTypeCapabilities, resourceTypeCapability)
+
+		caps := []v2.Capability{v2.Capability_CAPABILITY_SYNC}
+		if _, exists := b.resourceTargetedSyncers[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_TARGETED_SYNC)
+		}
+
+		if _, exists := b.resourceProvisioners[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_PROVISION)
+		}
+
+		if _, exists := b.resourceManagers[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_RESOURCE_DELETE, v2.Capability_CAPABILITY_RESOURCE_CREATE)
+		} else if _, exists := b.resourceDeleters[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_RESOURCE_DELETE)
+		}
+
+		if _, exists := b.credentialManagers[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
+		}
+
+		resourceTypeCapability.Capabilities = caps
+		for _, cap := range caps {
+			connectorCaps[cap] = struct{}{}
+			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, cap)
+		}
+	}
+
+	// Check for account provisioning capability (global, not per resource type)
+	if b.accountManager != nil {
+		connectorCaps[v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING] = struct{}{}
 	}
 	sort.Slice(resourceTypeCapabilities, func(i, j int) bool {
 		return resourceTypeCapabilities[i].ResourceType.GetId() < resourceTypeCapabilities[j].ResourceType.GetId()
@@ -428,24 +409,25 @@ func getCredentialDetails(ctx context.Context, b *builder) (*v2.CredentialDetail
 	l := ctxzap.Extract(ctx)
 	rv := &v2.CredentialDetails{}
 
-	for _, rb := range b.resourceBuilders {
-		if am, ok := rb.(AccountManager); ok {
-			accountProvisioningCapabilityDetails, _, err := am.CreateAccountCapabilityDetails(ctx)
-			if err != nil {
-				l.Error("error: getting account provisioning details", zap.Error(err))
-				return nil, fmt.Errorf("error: getting account provisioning details: %w", err)
-			}
-			rv.CapabilityAccountProvisioning = accountProvisioningCapabilityDetails
+	// Check for account provisioning capability details
+	if b.accountManager != nil {
+		accountProvisioningCapabilityDetails, _, err := b.accountManager.CreateAccountCapabilityDetails(ctx)
+		if err != nil {
+			l.Error("error: getting account provisioning details", zap.Error(err))
+			return nil, fmt.Errorf("error: getting account provisioning details: %w", err)
 		}
+		rv.CapabilityAccountProvisioning = accountProvisioningCapabilityDetails
+	}
 
-		if cm, ok := rb.(CredentialManager); ok {
-			credentialRotationCapabilityDetails, _, err := cm.RotateCapabilityDetails(ctx)
-			if err != nil {
-				l.Error("error: getting credential management details", zap.Error(err))
-				return nil, fmt.Errorf("error: getting credential management details: %w", err)
-			}
-			rv.CapabilityCredentialRotation = credentialRotationCapabilityDetails
+	// Check for credential rotation capability details
+	for _, cm := range b.credentialManagers {
+		credentialRotationCapabilityDetails, _, err := cm.RotateCapabilityDetails(ctx)
+		if err != nil {
+			l.Error("error: getting credential management details", zap.Error(err))
+			return nil, fmt.Errorf("error: getting credential management details: %w", err)
 		}
+		rv.CapabilityCredentialRotation = credentialRotationCapabilityDetails
+		break // Only need one credential manager's details
 	}
 
 	err := validateCapabilityDetails(ctx, rv)

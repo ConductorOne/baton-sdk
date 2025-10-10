@@ -3,6 +3,7 @@ package connectorbuilder
 import (
 	"context"
 	"fmt"
+	"os"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -51,6 +52,10 @@ type ResourceSyncerV2 interface {
 // of the associated resource type.
 type ResourceTargetedSyncer interface {
 	ResourceSyncer
+	ResourceTargetedSyncerLimited
+}
+
+type ResourceTargetedSyncerLimited interface {
 	Get(ctx context.Context, resourceId *v2.ResourceId, parentResourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error)
 }
 
@@ -126,12 +131,14 @@ func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterSer
 	start := b.nowFunc()
 	tt := tasks.GetResourceType
 	resourceType := request.GetResourceId().GetResourceType()
+	fmt.Fprintf(os.Stdout, "🌮 GetResource %s\n", resourceType)
 	rb, ok := b.resourceTargetedSyncers[resourceType]
 	if !ok {
+		fmt.Fprintf(os.Stdout, "🌮🌮 GetResource %s not found\n", resourceType)
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, status.Errorf(codes.Unimplemented, "error: get resource with unknown resource type %s", resourceType)
 	}
-
+	fmt.Fprintf(os.Stdout, "🌮🌮 GetResource %s found\n", resourceType)
 	resource, annos, err := rb.Get(ctx, request.GetResourceId(), request.GetParentResourceId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
@@ -249,7 +256,9 @@ func (rw *resourceSyncerV1toV2) Grants(ctx context.Context, resource *v2.Resourc
 }
 
 func (b *builder) addTargetedSyncer(_ context.Context, typeId string, in interface{}) error {
-	if targetedSyncer, ok := rb.(ResourceTargetedSyncer); ok {
+	fmt.Fprintf(os.Stdout, "🌮 addTargetedSyncer %s\n", typeId)
+	if targetedSyncer, ok := in.(ResourceTargetedSyncerLimited); ok {
+		fmt.Fprintf(os.Stdout, "🌮🌮 Adding targeted syncer for resource type %s\n", typeId)
 		if _, ok := b.resourceTargetedSyncers[typeId]; ok {
 			return fmt.Errorf("error: duplicate resource type found for resource targeted syncer %s", typeId)
 		}

@@ -20,15 +20,21 @@ import (
 //
 // Implementing this interface indicates the connector supports provisioning operations
 // for the associated resource type.
+type ResourceProvisioner interface {
+	ResourceSyncer
+	ResourceProvisionerLimited
+}
+
+type ResourceProvisionerLimited interface {
+	RevokeProvisioner
+	GrantProvisioner
+}
 
 type RevokeProvisioner interface {
 	Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error)
 }
 
-type ResourceProvisioner interface {
-	ResourceSyncer
-	RevokeProvisioner
-	ResourceType(ctx context.Context) *v2.ResourceType
+type GrantProvisioner interface {
 	Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error)
 }
 
@@ -39,8 +45,15 @@ type ResourceProvisioner interface {
 // It differs from ResourceProvisioner by returning a list of grants from the Grant method.
 type ResourceProvisionerV2 interface {
 	ResourceSyncer
+	ResourceProvisionerV2Limited
+}
+
+type ResourceProvisionerV2Limited interface {
 	RevokeProvisioner
-	ResourceType(ctx context.Context) *v2.ResourceType
+	GrantProvisionerV2
+}
+
+type GrantProvisionerV2 interface {
 	Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error)
 }
 
@@ -125,18 +138,18 @@ func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRev
 	}
 }
 
-func newResourceProvisionerV1to2(resourceProvisioner ResourceProvisioner) ResourceProvisionerV2 {
+func newResourceProvisionerV1to2(p ResourceProvisionerLimited) ResourceProvisionerV2Limited {
 	return &resourceProvisionerV1to2{
-		ResourceProvisioner: resourceProvisioner,
+		ResourceProvisionerLimited: p,
 	}
 }
 
 type resourceProvisionerV1to2 struct {
-	ResourceProvisioner
+	ResourceProvisionerLimited
 }
 
 func (r *resourceProvisionerV1to2) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
-	annos, err := r.ResourceProvisioner.Grant(ctx, resource, entitlement)
+	annos, err := r.ResourceProvisionerLimited.Grant(ctx, resource, entitlement)
 	if err != nil {
 		return nil, annos, err
 	}
@@ -144,14 +157,15 @@ func (r *resourceProvisionerV1to2) Grant(ctx context.Context, resource *v2.Resou
 }
 
 func (b *builder) addProvisioner(_ context.Context, typeId string, in interface{}) error {
-	_, hasV1 := in.(ResourceProvisioner)
-	_, hasV2 := rb.(ResourceProvisionerV2)
+	// NOTE: this is currently unexpressible in golang.
+	_, hasV1 := in.(ResourceProvisionerLimited)
+	_, hasV2 := in.(ResourceProvisionerV2Limited)
 
 	if hasV1 && hasV2 {
 		return fmt.Errorf("error: resource type %s implements both ResourceProvisioner and ResourceProvisionerV2", typeId)
 	}
 
-	if provisioner, ok := in.(ResourceProvisioner); ok {
+	if provisioner, ok := in.(ResourceProvisionerLimited); ok {
 		if _, ok := b.resourceProvisioners[typeId]; ok {
 			return fmt.Errorf("error: duplicate resource type found for resource provisioner %s", typeId)
 		}

@@ -19,6 +19,7 @@ import (
 // for resources of the associated type. This is commonly used for user accounts
 // or service accounts that have rotatable credentials.
 type CredentialManager interface {
+	ResourceSyncer
 	Rotate(ctx context.Context,
 		resourceId *v2.ResourceId,
 		credentialOptions *v2.LocalCredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
