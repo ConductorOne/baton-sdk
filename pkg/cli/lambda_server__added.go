@@ -145,7 +145,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
 		}
 
-		t, err := MakeGenericConfiguration[T](v)
+		t, err := MakeGenericConfiguration[T](v, false)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
 		}

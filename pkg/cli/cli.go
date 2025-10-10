@@ -26,7 +26,7 @@ func WithSessionCache(ctx context.Context, constructor sessions.SessionStoreCons
 	return context.WithValue(ctx, sessions.SessionStoreKey{}, sessionCache), nil
 }
 
-func MakeGenericConfiguration[T field.Configurable](v *viper.Viper) (T, error) {
+func MakeGenericConfiguration[T field.Configurable](v *viper.Viper, isContextCLI bool) (T, error) {
 	// Create an instance of the struct type T using reflection
 	var config T // Create a zero-value instance of T
 
@@ -39,7 +39,8 @@ func MakeGenericConfiguration[T field.Configurable](v *viper.Viper) (T, error) {
 	}
 
 	// Unmarshal into the config struct with file upload decode hook
-	err := v.Unmarshal(&config, viper.DecodeHook(field.FileUploadDecodeHook()))
+	readFromPath := isContextCLI
+	err := v.Unmarshal(&config, viper.DecodeHook(field.FileUploadDecodeHook(readFromPath)))
 	if err != nil {
 		return config, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
