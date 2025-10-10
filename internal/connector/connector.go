@@ -228,7 +228,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		return 0, err
 	}
 
-	cacheListenerPort, sessionListenerFile, err := cw.setupListener(ctx)
+	sessionListenerPort, sessionListenerFile, err := cw.setupListener(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -252,17 +252,17 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 			defer sessionListenerFile.Close()
 			serverErr := session.StartGRPCSessionServerWithOptions(ctx, sessionListener, server, grpc.Creds(credentials.NewTLS(tlsConfig)))
 			if serverErr != nil {
-				l.Error("failed to create memory session cache", zap.Error(err))
+				l.Error("failed to create session store server", zap.Error(serverErr))
 				return
 			}
 		}()
 	}
 
 	serverCfg, err := proto.Marshal(&connectorwrapperV1.ServerConfig{
-		Credential:        serverCred,
-		RateLimiterConfig: cw.rlCfg,
-		ListenPort:        listenPort,
-		CacheListenPort:   cacheListenerPort,
+		Credential:             serverCred,
+		RateLimiterConfig:      cw.rlCfg,
+		ListenPort:             listenPort,
+		SessionStoreListenPort: sessionListenerPort,
 	})
 	if err != nil {
 		return 0, err
@@ -321,7 +321,6 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 // C returns a ConnectorClient that the caller can use to interact with a locally running connector.
 func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	// Check to see if we have a client already
-	l := ctxzap.Extract(ctx)
 	cw.mtx.RLock()
 	if cw.client != nil {
 		cw.mtx.RUnlock()
@@ -366,7 +365,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 			ctx,
 			fmt.Sprintf("127.0.0.1:%d", listenPort),
 			grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
-			grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
+			grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still for compatibility
 			grpc.WithChainUnaryInterceptor(ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...)),
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler(
 				otelgrpc.WithPropagators(
@@ -394,7 +393,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	if setsessionStore, ok := cw.client.(SetSessionStoreSetter); ok {
 		setsessionStore.SetSessionStoreSetter(cw.SessionServer)
 	} else {
-		l.Warn("client is not a SetSessionStoreSetter")
+		ctxzap.Extract(ctx).Warn("client is not a SetSessionStoreSetter")
 	}
 
 	return cw.client, nil
