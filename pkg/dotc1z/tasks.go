@@ -282,35 +282,38 @@ func (c *C1File) GetTasks(ctx context.Context, syncID, bucket string, limit int)
 
 // getTasksWithRetry performs the actual task fetching with optimistic locking approach
 func (c *C1File) getTasksWithRetry(ctx context.Context, syncID, bucket string, limit int) ([]*TaskRecord, error) {
-	// Step 1: Select pending tasks (no transaction, just read)
-	query := c.db.From(tasks.Name()).
-		Select("id", "sync_id", "operation", "resource_type_id", "resource_id",
-			"parent_resource_type_id", "parent_resource_id", "page_token",
-			"bucket", "data", "status", "created_at", "claimed_at", "completed_at").
-		Where(goqu.C("sync_id").Eq(syncID)).
-		Where(goqu.C("status").Eq("pending")).
-		Order(goqu.C("id").Asc()).
-		Limit(uint(limit)).
-		Prepared(true)
-
-	// If bucket is specified, filter by bucket; otherwise get tasks from any bucket
-	if bucket != "" {
-		query = query.Where(goqu.C("bucket").Eq(bucket))
-	}
-
-	selectQuery, selectArgs, err := query.ToSQL()
+	// Use a single transaction to atomically select and claim tasks
+	tx, err := c.db.Begin()
 	if err != nil {
 		return nil, err
 	}
+	defer tx.Rollback()
 
-	rows, err := c.db.QueryContext(ctx, selectQuery, selectArgs...)
+	ignoreBucket := bucket == ""
+	claimedAt := time.Now().Format("2006-01-02 15:04:05.999999999")
+
+	rows, err := tx.Query(`
+		WITH next AS (
+			SELECT id
+			FROM `+tasks.Name()+`
+			WHERE sync_id = ? AND status = 'pending'
+			AND (bucket = ? OR ?)
+			ORDER BY id	ASC
+			LIMIT ?
+		)
+		UPDATE `+tasks.Name()+` SET status = 'claimed', claimed_at = ?
+		WHERE id IN (SELECT id FROM next)
+		RETURNING id, sync_id, operation, resource_type_id, resource_id,
+			parent_resource_type_id, parent_resource_id, page_token,
+			bucket, data, status, created_at, claimed_at, completed_at
+	`, syncID, bucket, ignoreBucket, limit, claimedAt)
+
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	var taskRecords []*TaskRecord
-	var taskIDs []int64
 
 	for rows.Next() {
 		var tr TaskRecord
@@ -323,60 +326,20 @@ func (c *C1File) getTasksWithRetry(ctx context.Context, syncID, bucket string, l
 			return nil, err
 		}
 		taskRecords = append(taskRecords, &tr)
-		taskIDs = append(taskIDs, tr.ID)
 	}
 
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
 
-	// Step 2: Optimistically mark tasks as claimed (short transaction)
-	if len(taskIDs) > 0 {
-		now := time.Now().Format("2006-01-02 15:04:05.999999999")
-
-		// Use a short transaction just for the update
-		tx, err := c.db.BeginTx(ctx, nil)
-		if err != nil {
-			return nil, err
-		}
-		defer tx.Rollback()
-
-		// Try to update tasks from pending to claimed
-		// This will only succeed if the tasks are still pending
-		updateQuery, updateArgs, err := tx.Update(tasks.Name()).
-			Set(goqu.Record{
-				"status":     "claimed",
-				"claimed_at": now,
-			}).
-			Where(goqu.C("id").In(taskIDs)).
-			Where(goqu.C("status").Eq("pending")). // Only update if still pending
-			Prepared(true).
-			ToSQL()
-		if err != nil {
-			return nil, err
-		}
-
-		result, err := tx.ExecContext(ctx, updateQuery, updateArgs...)
-		if err != nil {
-			return nil, err
-		}
-
-		rowsAffected, err := result.RowsAffected()
-		if err != nil {
-			return nil, err
-		}
-
-		err = tx.Commit()
-		if err != nil {
-			return nil, err
-		}
-
-		l := ctxzap.Extract(ctx)
-		l.Debug("tasks claimed successfully", zap.Int("requested", len(taskIDs)), zap.Int64("claimed", rowsAffected))
-
-		// If some tasks were already claimed by other workers, that's fine
-		// We still return the tasks we selected - they're idempotent
+	// Commit the transaction
+	err = tx.Commit()
+	if err != nil {
+		return nil, err
 	}
+
+	l := ctxzap.Extract(ctx)
+	l.Debug("tasks claimed successfully", zap.Int("requested", len(taskRecords)), zap.Int64("claimed", int64(len(taskRecords))))
 
 	return taskRecords, nil
 }
