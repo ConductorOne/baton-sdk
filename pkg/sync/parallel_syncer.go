@@ -117,6 +117,20 @@ func (w *worker) processTaskImmediately(task *task) error {
 		zap.String("resource_id", task.Action.ResourceID))
 
 	switch task.Action.Op {
+	case CollectEntitlementsAndGrantsTasksOp:
+		// For resource tasks, we need to collect any sub-tasks and process them immediately too
+		tasks, err := w.syncer.collectEntitlementsAndGrantsTasks(w.ctx, task.Action)
+		if err != nil {
+			return err
+		}
+		// Process any collected tasks immediately
+		for _, subTask := range tasks {
+			if err := w.processTaskImmediately(subTask); err != nil {
+				l.Error("failed to process sub-task immediately", zap.Error(err))
+				return err
+			}
+		}
+		return nil
 	case SyncEntitlementsOp:
 		if task.Action.ResourceID != "" {
 			return w.syncer.syncEntitlementsForResource(w.ctx, task.Action)
@@ -324,7 +338,7 @@ func (q *taskQueue) AddTask(ctx context.Context, t *task) error {
 
 	// Create the bucket queue if it doesn't exist
 	if _, exists := q.bucketQueues[bucket]; !exists {
-		queueSize := q.config.WorkerCount * 10
+		queueSize := 5000 //q.config.WorkerCount * 10
 		q.bucketQueues[bucket] = make(chan *task, queueSize)
 	}
 
@@ -731,6 +745,12 @@ func (w *worker) processTask(t *task) (*TaskResult, error) {
 			err := w.syncer.syncGrantsForResourceType(ctx, t.Action)
 			return &TaskResult{Tasks: []*task{}, Error: err}, err
 		}
+	case CollectEntitlementsAndGrantsTasksOp:
+		tasks, err := w.syncer.collectEntitlementsAndGrantsTasks(ctx, t.Action)
+		return &TaskResult{
+			Tasks: tasks,
+			Error: err,
+		}, err
 	default:
 		return nil, fmt.Errorf("unsupported operation: %s", t.Action.Op.String())
 	}
@@ -1418,19 +1438,51 @@ func (ps *parallelSyncer) syncResourcesCollectTasks(ctx context.Context, action 
 		return collectedTasks, nil // Don't create entitlement/grant tasks yet, wait for all pages
 	}
 
-	// Get all resources for this resource type to create individual tasks
-	allResourcesResp, err := ps.syncer.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
-		ResourceTypeId: action.ResourceTypeID,
-		PageToken:      "",
-	})
-	if err != nil {
-		l.Error("failed to list resources for task creation", zap.Error(err))
-		return nil, err
-	}
-
 	// Check if this resource type has child resource types that need to be processed
 	if err := ps.processChildResourceTypes(ctx, action.ResourceTypeID); err != nil {
 		l.Error("failed to process child resource types", zap.Error(err))
+		return nil, err
+	}
+
+	actionForEntitlementsAndGrants := Action{
+		Op:             CollectEntitlementsAndGrantsTasksOp,
+		ResourceTypeID: action.ResourceTypeID,
+		PageToken:      "",
+	}
+	entitlementsAndGrantsTasks, err := ps.collectEntitlementsAndGrantsTasks(ctx, actionForEntitlementsAndGrants)
+	if err != nil {
+		l.Error("failed to collect entitlements and grants tasks", zap.Error(err))
+		return nil, err
+	}
+
+	collectedTasks = append(collectedTasks, entitlementsAndGrantsTasks...)
+
+	return collectedTasks, nil
+}
+
+// syncResourcesCollectTasks does the same work as syncResources but collects tasks instead of adding them immediately
+func (ps *parallelSyncer) collectEntitlementsAndGrantsTasks(ctx context.Context, action Action) ([]*task, error) {
+	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.collectEntitlementsAndGrantsTasks")
+	defer span.End()
+
+	l := ctxzap.Extract(ctx)
+	var collectedTasks []*task
+
+	// Add panic recovery to catch any unexpected errors
+	defer func() {
+		if r := recover(); r != nil {
+			l.Error("panic in collectEntitlementsAndGrantsTasks",
+				zap.String("resource_type", action.ResourceTypeID),
+				zap.Any("panic", r))
+		}
+	}()
+
+	allResourcesResp, err := ps.syncer.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+		ResourceTypeId: action.ResourceTypeID,
+		PageToken:      action.PageToken,
+	})
+	if err != nil {
+		l.Error("failed to list resources for task creation", zap.Error(err))
 		return nil, err
 	}
 
@@ -1467,6 +1519,16 @@ func (ps *parallelSyncer) syncResourcesCollectTasks(ctx context.Context, action 
 			Priority: 3,
 		}
 		collectedTasks = append(collectedTasks, grantsTask)
+	}
+	if allResourcesResp.NextPageToken != "" {
+		collectedTasks = append(collectedTasks, &task{
+			Action: Action{
+				Op:             CollectEntitlementsAndGrantsTasksOp,
+				ResourceTypeID: action.ResourceTypeID,
+				PageToken:      allResourcesResp.NextPageToken,
+			},
+			Priority: 3,
+		})
 	}
 
 	return collectedTasks, nil
