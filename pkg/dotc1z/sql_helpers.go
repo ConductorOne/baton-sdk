@@ -28,6 +28,7 @@ var allTableDescriptors = []tableDescriptor{
 	grants,
 	syncRuns,
 	assets,
+	tasks,
 }
 
 type tableDescriptor interface {
