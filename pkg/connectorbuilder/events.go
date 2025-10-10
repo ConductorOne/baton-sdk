@@ -126,8 +126,8 @@ func (b *builder) ListEvents(ctx context.Context, request *v2.ListEventsRequest)
 	}, nil
 }
 
-func (b *builder) addEventFeed(ctx context.Context, c ConnectorBuilder) error {
-	if ep, ok := c.(EventProviderV2); ok {
+func (b *builder) addEventFeed(ctx context.Context, in interface{}) error {
+	if ep, ok := in.(EventProviderV2); ok {
 		for _, ef := range ep.EventFeeds(ctx) {
 			feedData := ef.EventFeedMetadata(ctx)
 			if feedData == nil {
@@ -143,7 +143,7 @@ func (b *builder) addEventFeed(ctx context.Context, c ConnectorBuilder) error {
 		}
 	}
 
-	if ep, ok := c.(EventProvider); ok {
+	if ep, ok := in.(EventProvider); ok {
 		// Register the legacy Baton feed as a v2 event feed
 		// implementing both v1 and v2 event feeds is not supported.
 		if len(b.eventFeeds) != 0 {

@@ -3,7 +3,6 @@ package ugrpc
 import (
 	"context"
 
-	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	grpc_recovery "github.com/grpc-ecosystem/go-grpc-middleware/recovery"
 	grpc_ctxtags "github.com/grpc-ecosystem/go-grpc-middleware/tags"
@@ -29,62 +28,6 @@ func ChainUnaryInterceptors(interceptors ...grpc.UnaryServerInterceptor) grpc.Un
 	}
 }
 
-/*
-SessionCacheUnaryInterceptor creates a unary interceptor that:
-1. Propagates the session cache from the server context to the handler context.
-2. Extracts annotations from requests and adds syncID to context (for the session manager).
-*/
-func SessionCacheUnaryInterceptor(serverCtx context.Context) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
-		// Propagate session cache from server context to handler context
-		ctx = ContextWithSyncID(ctx, req)
-
-		if sessionCache, ok := serverCtx.Value(sessions.SessionStoreKey{}).(sessions.SessionStore); ok {
-			ctx = context.WithValue(ctx, sessions.SessionStoreKey{}, sessionCache)
-		}
-
-		return handler(ctx, req)
-	}
-}
-
-func SessionCacheStreamInterceptor(serverCtx context.Context) grpc.StreamServerInterceptor {
-	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		// Start with the original stream context
-		ctx := ss.Context()
-
-		// Propagate session cache from server context to stream context
-		if sessionCache, ok := serverCtx.Value(sessions.SessionStoreKey{}).(sessions.SessionStore); ok {
-			ctx = context.WithValue(ctx, sessions.SessionStoreKey{}, sessionCache)
-		}
-
-		// Create a wrapped stream that handles both session cache and annotation extraction
-		wrappedStream := &sessionCacheServerStream{
-			ServerStream: ss,
-			ctx:          ctx,
-		}
-
-		return handler(srv, wrappedStream)
-	}
-}
-
-type sessionCacheServerStream struct {
-	grpc.ServerStream
-	ctx context.Context
-}
-
-func (s *sessionCacheServerStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s *sessionCacheServerStream) RecvMsg(m interface{}) error {
-	err := s.ServerStream.RecvMsg(m)
-	if err != nil {
-		return err
-	}
-	s.ctx = ContextWithSyncID(s.ctx, m)
-	return nil
-}
-
 // StreamServerInterceptors returns a slice of interceptors that includes the default interceptors,
 // plus any interceptors passed in as arguments.
 func StreamServerInterceptors(ctx context.Context, interceptors ...grpc.StreamServerInterceptor) []grpc.StreamServerInterceptor {
@@ -93,7 +36,6 @@ func StreamServerInterceptors(ctx context.Context, interceptors ...grpc.StreamSe
 		LoggingStreamServerInterceptor(ctxzap.Extract(ctx)),
 		grpc_recovery.StreamServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryHandler)),
 		grpc_validator.StreamServerInterceptor(),
-		SessionCacheStreamInterceptor(ctx),
 	}
 
 	rv = append(rv, interceptors...)
@@ -108,7 +50,6 @@ func UnaryServerInterceptor(ctx context.Context, interceptors ...grpc.UnaryServe
 		LoggingUnaryServerInterceptor(ctxzap.Extract(ctx)),
 		grpc_recovery.UnaryServerInterceptor(grpc_recovery.WithRecoveryHandlerContext(recoveryHandler)),
 		grpc_validator.UnaryServerInterceptor(),
-		SessionCacheUnaryInterceptor(ctx),
 	}
 
 	rv = append(rv, interceptors...)
@@ -128,28 +69,4 @@ func recoveryHandler(ctx context.Context, p interface{}) error {
 		zap.Error(err),
 	)
 	return err
-}
-
-type syncIDGetter interface {
-	GetActiveSyncId() string
-}
-
-// ContextWithSyncID extracts syncID from a request annotations and adds it to the context.
-func ContextWithSyncID(ctx context.Context, req any) context.Context {
-	if ctx == nil || req == nil {
-		return ctx
-	}
-
-	var syncID string
-	syncIDGetter, ok := req.(syncIDGetter)
-	if !ok {
-		return ctx
-	}
-
-	syncID = syncIDGetter.GetActiveSyncId()
-	if syncID == "" {
-		return ctx
-	}
-
-	return context.WithValue(ctx, sessions.SyncIDKey{}, syncID)
 }

@@ -8,6 +8,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -93,6 +94,106 @@ func (t *testResourceSyncer) Grants(ctx context.Context, resource *v2.Resource, 
 			Id: "test-grant-1",
 		},
 	}, "", annotations.Annotations{}, nil
+}
+
+type testResourceTargetedSyncer struct {
+	ResourceSyncer
+}
+
+func newTestResourceTargetedSyncer(resourceType string) ResourceTargetedSyncer {
+	return &testResourceTargetedSyncer{newTestResourceSyncer(resourceType)}
+}
+
+func (t *testResourceTargetedSyncer) Get(ctx context.Context, resourceId *v2.ResourceId, parentResourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error) {
+	return &v2.Resource{
+		Id:          resourceId,
+		DisplayName: "Targeted Resource " + resourceId.Resource,
+	}, annotations.Annotations{}, nil
+}
+
+type testResourceSyncerV2WithTargetedSync struct {
+	resourceType *v2.ResourceType
+}
+
+func newTestResourceSyncerV2WithTargetedSync(resourceType string) ResourceSyncerV2 {
+	return &testResourceSyncerV2WithTargetedSync{
+		resourceType: &v2.ResourceType{
+			Id:          resourceType,
+			DisplayName: "Test " + resourceType,
+		},
+	}
+}
+
+func (t *testResourceSyncerV2WithTargetedSync) ResourceType(ctx context.Context) *v2.ResourceType {
+	return t.resourceType
+}
+
+func (t *testResourceSyncerV2WithTargetedSync) List(
+	ctx context.Context,
+	parentResourceID *v2.ResourceId,
+	pToken *pagination.Token,
+	opts resource.Options,
+) ([]*v2.Resource, string, annotations.Annotations, error) {
+	return []*v2.Resource{
+		{
+			Id: &v2.ResourceId{
+				ResourceType: t.resourceType.Id,
+				Resource:     "test-resource-1",
+			},
+			DisplayName: "Test Resource 1",
+		},
+	}, "", annotations.Annotations{}, nil
+}
+
+func (t *testResourceSyncerV2WithTargetedSync) Entitlements(
+	ctx context.Context,
+	resource *v2.Resource,
+	pToken *pagination.Token,
+	opts resource.Options,
+) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	return []*v2.Entitlement{
+		{
+			Resource:    resource,
+			Id:          "test-entitlement",
+			DisplayName: "Test Entitlement",
+		},
+	}, "", annotations.Annotations{}, nil
+}
+
+func (t *testResourceSyncerV2WithTargetedSync) Grants(
+	ctx context.Context,
+	resource *v2.Resource,
+	pToken *pagination.Token,
+	opts resource.Options,
+) ([]*v2.Grant, string, annotations.Annotations, error) {
+	return []*v2.Grant{
+		{
+			Entitlement: &v2.Entitlement{
+				Resource:    resource,
+				Id:          "test-entitlement",
+				DisplayName: "Test Entitlement",
+			},
+			Principal: &v2.Resource{
+				Id: &v2.ResourceId{
+					ResourceType: "user",
+					Resource:     "test-user",
+				},
+				DisplayName: "Test User",
+			},
+			Id: "test-grant-1",
+		},
+	}, "", annotations.Annotations{}, nil
+}
+
+func (t *testResourceSyncerV2WithTargetedSync) Get(
+	ctx context.Context,
+	resourceId *v2.ResourceId,
+	parentResourceId *v2.ResourceId,
+) (*v2.Resource, annotations.Annotations, error) {
+	return &v2.Resource{
+		Id:          resourceId,
+		DisplayName: "V2 Targeted Resource " + resourceId.Resource,
+	}, annotations.Annotations{}, nil
 }
 
 type testResourceManager struct {
@@ -477,6 +578,82 @@ func TestResourceSyncer(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, grantsResp.List, 1)
 	require.Equal(t, "test-user", grantsResp.List[0].Principal.Id.Resource)
+}
+
+func TestResourceTargetedSyncer(t *testing.T) {
+	ctx := context.Background()
+
+	// Test error case - ResourceSyncer without ResourceTargetedSyncer
+	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "test-resource"}}
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
+	require.NoError(t, err)
+
+	_, err = connector.GetResource(ctx, &v2.ResourceGetterServiceGetResourceRequest{
+		ResourceId: &v2.ResourceId{
+			ResourceType: "test-resource",
+			Resource:     "test-resource-1",
+		},
+	})
+	require.ErrorContains(t, err, "get resource with unknown resource type")
+
+	// Test success case - ResourceTargetedSyncer implemented
+	targetedSyncer := newTestResourceTargetedSyncer("test-resource")
+	connector, err = NewConnector(ctx, newTestConnector([]ResourceSyncer{targetedSyncer}))
+	require.NoError(t, err)
+
+	resp, err := connector.GetResource(ctx, &v2.ResourceGetterServiceGetResourceRequest{
+		ResourceId: &v2.ResourceId{
+			ResourceType: "test-resource",
+			Resource:     "test-resource-1",
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp.Resource)
+	require.Equal(t, "test-resource-1", resp.Resource.Id.Resource)
+	require.Equal(t, "Targeted Resource test-resource-1", resp.Resource.DisplayName)
+}
+
+func TestResourceSyncerV2WithTargetedSync(t *testing.T) {
+	ctx := context.Background()
+
+	// Test case where connector implements ResourceSyncerV2 with Get method
+	// This demonstrates the issue: ResourceSyncerV2 with Get method cannot be used
+	// with the current ResourceTargetedSyncer interface due to method signature conflicts
+	v2SyncerWithGet := newTestResourceSyncerV2WithTargetedSync("test-resource")
+
+	// Create a ConnectorBuilder2 that uses ResourceSyncerV2
+	connector2 := &testConnector2{resourceSyncers: []ResourceSyncerV2{v2SyncerWithGet}}
+	connector, err := NewConnector(ctx, connector2)
+	require.NoError(t, err)
+
+	// This should fail because GetResource only looks in resourceTargetedSyncers map
+	// but ResourceSyncerV2 gets registered in resourceBuilders map
+	_, err = connector.GetResource(ctx, &v2.ResourceGetterServiceGetResourceRequest{
+		ResourceId: &v2.ResourceId{
+			ResourceType: "test-resource",
+			Resource:     "test-resource-1",
+		},
+	})
+	require.NoError(t, err)
+}
+
+type testConnector2 struct {
+	resourceSyncers []ResourceSyncerV2
+}
+
+func (t *testConnector2) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
+	return &v2.ConnectorMetadata{
+		DisplayName: "test-connector-v2",
+		Description: "A test connector v2",
+	}, nil
+}
+
+func (t *testConnector2) Validate(ctx context.Context) (annotations.Annotations, error) {
+	return annotations.Annotations{}, nil
+}
+
+func (t *testConnector2) ResourceSyncers(ctx context.Context) []ResourceSyncerV2 {
+	return t.resourceSyncers
 }
 
 func TestResourceManager(t *testing.T) {

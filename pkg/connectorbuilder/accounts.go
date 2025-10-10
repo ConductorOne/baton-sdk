@@ -37,6 +37,7 @@ type AccountManager interface {
 }
 
 type OldAccountManager interface {
+	ResourceSyncer
 	CreateAccount(ctx context.Context,
 		accountInfo *v2.AccountInfo,
 		credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
@@ -105,12 +106,12 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 	return rv, nil
 }
 
-func (b *builder) addAccountManager(_ context.Context, typeId string, rb ResourceSyncer) error {
-	if _, ok := rb.(OldAccountManager); ok {
+func (b *builder) addAccountManager(_ context.Context, typeId string, in interface{}) error {
+	if _, ok := in.(OldAccountManager); ok {
 		return fmt.Errorf("error: old account manager interface implemented for %s", typeId)
 	}
 
-	if accountManager, ok := rb.(AccountManager); ok {
+	if accountManager, ok := in.(AccountManager); ok {
 		if b.accountManager != nil {
 			return fmt.Errorf("error: duplicate resource type found for account manager %s", typeId)
 		}

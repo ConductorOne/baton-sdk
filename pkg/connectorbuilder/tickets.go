@@ -227,8 +227,8 @@ func (b *builder) GetTicketSchema(ctx context.Context, request *v2.TicketsServic
 	}, nil
 }
 
-func (b *builder) addTicketManager(_ context.Context, c ConnectorBuilder) error {
-	if ticketManager, ok := c.(TicketManager); ok {
+func (b *builder) addTicketManager(_ context.Context, in interface{}) error {
+	if ticketManager, ok := in.(TicketManager); ok {
 		if b.ticketManager != nil {
 			return fmt.Errorf("error: cannot set multiple ticket managers")
 		}
