@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package c1.connectorapi.rtun.v1;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connectorapi/rtun/v1";
+
+service ReverseTunnel {
+  rpc Link(stream Frame) returns (stream Frame);
+}
+
+message Frame {
+  uint32 sid = 1; // 0 reserved for control
+  oneof kind {
+    Hello hello = 10; // client -> server (first)
+    Syn syn = 11; // server -> client (reverse open)
+    Data data = 12; // either direction
+    Fin fin = 13; // either direction
+    Rst rst = 14; // either direction
+  }
+}
+
+message Hello {
+  repeated uint32 ports = 1;
+  uint32 protocol = 2;
+}
+
+message Syn {
+  uint32 port = 1;
+}
+
+message Data {
+  bytes payload = 1;
+}
+
+message Fin {
+  bool ack = 1;
+}
+
+enum RstCode {
+  RST_CODE_UNSPECIFIED = 0;
+  RST_CODE_NO_LISTENER = 1;
+  RST_CODE_PORT_NOT_ADVERTISED = 2;
+  RST_CODE_TIMEOUT = 3;
+  RST_CODE_INTERNAL = 4;
+}
+
+message Rst {
+  RstCode code = 1;
+}
