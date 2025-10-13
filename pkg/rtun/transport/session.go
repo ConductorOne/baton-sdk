@@ -20,8 +20,6 @@ type options struct {
 	// allowedPorts is an allowlist of ports that the server is permitted to Open() toward the client.
 	// If nil or empty, all ports are allowed.
 	allowedPorts map[uint32]bool
-	// maxPendingSIDs caps how many distinct SIDs may accumulate DATA-before-SYN buffers.
-	maxPendingSIDs int
 	// idleTimeout controls per-SID idle expiration; zero means use default (10m). Negative disables.
 	idleTimeout time.Duration
 	// metrics handler (optional)
@@ -48,14 +46,6 @@ func WithAllowedPorts(ports []uint32) Option {
 		for _, p := range ports {
 			o.allowedPorts[p] = true
 		}
-	}
-}
-
-// WithMaxPendingSIDs sets the maximum number of distinct SIDs allowed to accumulate
-// DATA-before-SYN pending buffers. Values <= 0 select the default (64).
-func WithMaxPendingSIDs(n int) Option {
-	return func(o *options) {
-		o.maxPendingSIDs = n
 	}
 }
 
@@ -95,9 +85,8 @@ type Session struct {
 	closed    closedSet // closed SIDs for late-frame detection
 
 	// configuration
-	allowedPorts   map[uint32]bool
-	maxPendingSIDs int
-	idleTimeout    time.Duration
+	allowedPorts map[uint32]bool
+	idleTimeout  time.Duration
 
 	// metrics (optional)
 	m *transportMetrics
@@ -113,24 +102,18 @@ func NewSession(link Link, opts ...Option) *Session {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	// defaults
-	maxPending := o.maxPendingSIDs
-	if maxPending <= 0 {
-		maxPending = 64
-	}
 	idle := o.idleTimeout
 	if idle == 0 {
 		idle = 10 * time.Minute
 	}
 	s := &Session{
-		link:           link,
-		conns:          make(map[uint32]*virtConn),
-		listeners:      make(map[uint32]*rtunListener),
-		nextSID:        1,
-		logger:         logger,
-		allowedPorts:   o.allowedPorts,
-		maxPendingSIDs: maxPending,
-		idleTimeout:    idle,
+		link:         link,
+		conns:        make(map[uint32]*virtConn),
+		listeners:    make(map[uint32]*rtunListener),
+		nextSID:      1,
+		logger:       logger,
+		allowedPorts: o.allowedPorts,
+		idleTimeout:  idle,
 	}
 	if o.metrics != nil {
 		s.m = newTransportMetrics(o.metrics, func(ctx context.Context) (int64, map[string]string) {
