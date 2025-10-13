@@ -11,7 +11,34 @@ import (
 	"github.com/mitchellh/mapstructure"
 )
 
-// FileUploadDecodeHook is a mapstructure.DecodeHookFunc that automatically
+type DecodeHookOption func(*decodeHookConfig)
+
+type decodeHookConfig struct {
+	hookFuncs []mapstructure.DecodeHookFunc
+}
+
+// ComposeDecodeHookFunc returns a mapstructure.DecodeHookFunc that composes the default hook functions with any additional hook functions provided.
+func ComposeDecodeHookFunc(opts ...DecodeHookOption) mapstructure.DecodeHookFunc {
+	config := &decodeHookConfig{
+		hookFuncs: []mapstructure.DecodeHookFunc{
+			// default hook functions used by viper
+			mapstructure.StringToTimeDurationHookFunc(),
+			mapstructure.StringToSliceHookFunc(","),
+		},
+	}
+	for _, opt := range opts {
+		opt(config)
+	}
+	return mapstructure.ComposeDecodeHookFunc(config.hookFuncs...)
+}
+
+func WithAdditionalDecodeHooks(funcs ...mapstructure.DecodeHookFunc) DecodeHookOption {
+	return func(c *decodeHookConfig) {
+		c.hookFuncs = append(c.hookFuncs, funcs...)
+	}
+}
+
+// FileUploadDecodeHook returns a mapstructure.DecodeHookFunc that automatically
 // converts string values to []byte for file upload fields, supporting:
 // 1. File paths (reads file content)
 // 2. Data URLs of JSON with base64 encoding (data:application/json;base64,<content>)

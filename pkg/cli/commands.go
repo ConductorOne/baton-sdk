@@ -98,7 +98,9 @@ func MakeMainCommand[T field.Configurable](
 			}
 		}
 
-		t, err := MakeGenericConfiguration[T](v, true)
+		readFromPath := true
+		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+		t, err := MakeGenericConfiguration[T](v, decodeOpts)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
@@ -411,7 +413,9 @@ func MakeGRPCServerCommand[T field.Configurable](
 		l := ctxzap.Extract(runCtx)
 		l.Debug("starting grpc server")
 
-		t, err := MakeGenericConfiguration[T](v, true)
+		readFromPath := true
+		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+		t, err := MakeGenericConfiguration[T](v, decodeOpts)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
@@ -552,7 +556,9 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 
-		t, err := MakeGenericConfiguration[T](v, true)
+		readFromPath := true
+		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+		t, err := MakeGenericConfiguration[T](v, decodeOpts)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
