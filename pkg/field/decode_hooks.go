@@ -29,12 +29,6 @@ func FileUploadDecodeHook(readFromPath bool) mapstructure.DecodeHookFunc {
 			return data, nil
 		}
 
-		toPrint := str
-		if len(toPrint) > 5 {
-			toPrint = toPrint[:5]
-		}
-		fmt.Printf("DEBUG: FileUploadDecodeHook called with readFromPath=%v, data=%s\n", readFromPath, toPrint)
-
 		if readFromPath {
 			return getFileContentFromPath(str)
 		}
