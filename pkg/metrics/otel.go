@@ -154,6 +154,28 @@ func (h *otelHandler) Int64Gauge(name string, description string, unit Unit) Int
 	return c
 }
 
+func (h *otelHandler) RegisterInt64ObservableGauge(name string, description string, unit Unit, callback func(ctx context.Context) (int64, map[string]string)) {
+	name = strings.ToLower(name)
+	gauge, err := h.meter.Int64ObservableGauge(name, otelmetric.WithDescription(description), otelmetric.WithUnit(string(unit)))
+	if err != nil {
+		panic(err)
+	}
+	// capture default attrs pointer for this handler
+	defaultAttrs := h.defaultAttrs
+	_, err = h.meter.RegisterCallback(func(ctx context.Context, observer otelmetric.Observer) error {
+		val, tags := callback(ctx)
+		attrs := makeAttrs(tags)
+		if defaultAttrs != nil {
+			attrs = append(attrs, *defaultAttrs...)
+		}
+		observer.ObserveInt64(gauge, val, otelmetric.WithAttributes(attrs...))
+		return nil
+	}, gauge)
+	if err != nil {
+		panic(err)
+	}
+}
+
 func (h *otelHandler) WithTags(tags map[string]string) Handler {
 	attrs := makeAttrs(tags)
 

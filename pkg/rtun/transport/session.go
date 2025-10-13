@@ -135,7 +135,12 @@ func NewSession(link Link, opts ...Option) *Session {
 		idleTimeout:    idle,
 	}
 	if o.metrics != nil {
-		s.m = newTransportMetrics(o.metrics)
+		s.m = newTransportMetrics(o.metrics, func(ctx context.Context) (int64, map[string]string) {
+			s.mu.Lock()
+			n := len(s.conns)
+			s.mu.Unlock()
+			return int64(n), nil
+		})
 	}
 	return s
 }
@@ -255,8 +260,7 @@ func (s *Session) recvLoop() {
 			}
 			s.conns[sid] = vc
 			vc.startIdleTimer()
-			// capture new connection count under lock for gauge update
-			newCount := len(s.conns)
+			// connection count is observed via metrics callback
 			// Drain any pending data queued before SYN
 			if q := s.pending[sid]; len(q) > 0 {
 				for _, p := range q {
@@ -265,9 +269,6 @@ func (s *Session) recvLoop() {
 				delete(s.pending, sid)
 			}
 			s.mu.Unlock()
-			if s.m != nil {
-				s.m.setSidsActive(s.link.Context(), int64(newCount))
-			}
 			l.enqueue(vc)
 		case *rtunpb.Frame_Data:
 			s.mu.Lock()
@@ -299,13 +300,10 @@ func (s *Session) recvLoop() {
 			s.mu.Unlock()
 			if c != nil {
 				c.handleFin(k.Fin.GetAck())
-				n := s.removeConn(sid)
+				_ = s.removeConn(sid)
 				s.mu.Lock()
 				s.closed.Close(sid)
 				s.mu.Unlock()
-				if s.m != nil {
-					s.m.setSidsActive(s.link.Context(), int64(n))
-				}
 			}
 		case *rtunpb.Frame_Rst:
 			s.mu.Lock()
@@ -316,13 +314,10 @@ func (s *Session) recvLoop() {
 					s.m.recordRstRecv(s.link.Context(), k.Rst.GetCode().String())
 				}
 				c.handleRst(ErrConnReset)
-				n := s.removeConn(sid)
+				_ = s.removeConn(sid)
 				s.mu.Lock()
 				s.closed.Close(sid)
 				s.mu.Unlock()
-				if s.m != nil {
-					s.m.setSidsActive(s.link.Context(), int64(n))
-				}
 			}
 		}
 	}
@@ -366,19 +361,11 @@ func (s *Session) Open(ctx context.Context, port uint32) (net.Conn, error) {
 	// Send SYN to remote
 	if err := s.link.Send(&rtunpb.Frame{Sid: sid, Kind: &rtunpb.Frame_Syn{Syn: &rtunpb.Syn{Port: port}}}); err != nil {
 		// Cleanup on failure
-		n := s.removeConn(sid)
-		if s.m != nil {
-			s.m.setSidsActive(s.link.Context(), int64(n))
-		}
+		_ = s.removeConn(sid)
 		return nil, err
 	}
 	vc.startIdleTimer()
 	if s.m != nil {
-		// set gauge to current number of conns after successful open
-		s.mu.Lock()
-		n := len(s.conns)
-		s.mu.Unlock()
-		s.m.setSidsActive(s.link.Context(), int64(n))
 		s.m.recordFrameTx(s.link.Context(), "SYN")
 	}
 	return vc, nil
@@ -412,32 +399,26 @@ func (s *Session) failLocked(err error) {
 
 // metrics helpers.
 type transportMetrics struct {
-	framesRx  sdkmetrics.Int64Counter
-	framesTx  sdkmetrics.Int64Counter
-	bytesRx   sdkmetrics.Int64Counter
-	bytesTx   sdkmetrics.Int64Counter
-	rstSent   sdkmetrics.Int64Counter
-	rstRecv   sdkmetrics.Int64Counter
-	sidsGauge sdkmetrics.Int64Gauge
+	framesRx sdkmetrics.Int64Counter
+	framesTx sdkmetrics.Int64Counter
+	bytesRx  sdkmetrics.Int64Counter
+	bytesTx  sdkmetrics.Int64Counter
+	rstSent  sdkmetrics.Int64Counter
+	rstRecv  sdkmetrics.Int64Counter
 }
 
-func newTransportMetrics(h sdkmetrics.Handler) *transportMetrics {
+func newTransportMetrics(h sdkmetrics.Handler, observeSids func(ctx context.Context) (int64, map[string]string)) *transportMetrics {
 	m := &transportMetrics{
-		framesRx:  h.Int64Counter("rtun.transport.frames_rx_total", "transport frames received", sdkmetrics.Dimensionless),
-		framesTx:  h.Int64Counter("rtun.transport.frames_tx_total", "transport frames sent", sdkmetrics.Dimensionless),
-		bytesRx:   h.Int64Counter("rtun.transport.data_bytes_rx_total", "transport bytes received", sdkmetrics.Bytes),
-		bytesTx:   h.Int64Counter("rtun.transport.data_bytes_tx_total", "transport bytes sent", sdkmetrics.Bytes),
-		rstSent:   h.Int64Counter("rtun.transport.rst_sent_total", "RST frames sent by code", sdkmetrics.Dimensionless),
-		rstRecv:   h.Int64Counter("rtun.transport.rst_recv_total", "RST frames received by code", sdkmetrics.Dimensionless),
-		sidsGauge: h.Int64Gauge("rtun.transport.sids_active", "active SIDs per session", sdkmetrics.Dimensionless),
+		framesRx: h.Int64Counter("rtun.transport.frames_rx_total", "transport frames received", sdkmetrics.Dimensionless),
+		framesTx: h.Int64Counter("rtun.transport.frames_tx_total", "transport frames sent", sdkmetrics.Dimensionless),
+		bytesRx:  h.Int64Counter("rtun.transport.data_bytes_rx_total", "transport bytes received", sdkmetrics.Bytes),
+		bytesTx:  h.Int64Counter("rtun.transport.data_bytes_tx_total", "transport bytes sent", sdkmetrics.Bytes),
+		rstSent:  h.Int64Counter("rtun.transport.rst_sent_total", "RST frames sent by code", sdkmetrics.Dimensionless),
+		rstRecv:  h.Int64Counter("rtun.transport.rst_recv_total", "RST frames received by code", sdkmetrics.Dimensionless),
 	}
-	// initialize gauge to 0
-	m.sidsGauge.Observe(context.Background(), 0, nil)
+	// register observable gauge for active SIDs using provided callback
+	h.RegisterInt64ObservableGauge("rtun.transport.sids_active", "active SIDs per session", sdkmetrics.Dimensionless, observeSids)
 	return m
-}
-
-func (m *transportMetrics) setSidsActive(ctx context.Context, value int64) {
-	m.sidsGauge.Observe(ctx, value, nil)
 }
 
 func (m *transportMetrics) recordFrameRx(ctx context.Context, kind string) {
