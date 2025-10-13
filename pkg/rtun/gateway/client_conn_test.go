@@ -158,8 +158,9 @@ func TestGatewayConnWriteAndRemoteReceive(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, len(msg), n)
 	buf := make([]byte, len(msg))
-	_, err = rc.Read(buf)
+	rn, err := io.ReadFull(rc, buf)
 	require.NoError(t, err)
+	require.Equal(t, len(msg), rn)
 	require.Equal(t, msg, buf)
 
 	// Local FIN: close gwc; remote should see EOF

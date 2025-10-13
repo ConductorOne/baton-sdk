@@ -324,14 +324,33 @@ func (w *writer) loop() {
 		select {
 		case msg := <-w.ch:
 			if msg.fin {
-				_ = w.stream.Send(&rtunpb.ReverseDialerServiceOpenRequest{Kind: &rtunpb.ReverseDialerServiceOpenRequest_Frame{
-					Frame: &rtunpb.Frame{Sid: w.gsid, Kind: &rtunpb.Frame_Fin{Fin: &rtunpb.Fin{}}},
-				}})
+				finFrame := &rtunpb.Frame{
+					Sid:  w.gsid,
+					Kind: &rtunpb.Frame_Fin{Fin: &rtunpb.Fin{}},
+				}
+				_ = w.stream.Send(
+					&rtunpb.ReverseDialerServiceOpenRequest{
+						Kind: &rtunpb.ReverseDialerServiceOpenRequest_Frame{
+							Frame: finFrame,
+						},
+					},
+				)
 				continue
 			}
-			if err := w.stream.Send(&rtunpb.ReverseDialerServiceOpenRequest{Kind: &rtunpb.ReverseDialerServiceOpenRequest_Frame{
-				Frame: &rtunpb.Frame{Sid: w.gsid, Kind: &rtunpb.Frame_Data{Data: &rtunpb.Data{Payload: msg.payload}}},
-			}}); err != nil {
+
+			dataFrame := &rtunpb.Frame{
+				Sid: w.gsid,
+				Kind: &rtunpb.Frame_Data{
+					Data: &rtunpb.Data{Payload: msg.payload},
+				},
+			}
+			if err := w.stream.Send(
+				&rtunpb.ReverseDialerServiceOpenRequest{
+					Kind: &rtunpb.ReverseDialerServiceOpenRequest_Frame{
+						Frame: dataFrame,
+					},
+				},
+			); err != nil {
 				w.setErr(err)
 				return
 			}

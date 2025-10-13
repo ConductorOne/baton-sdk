@@ -92,8 +92,7 @@ type Session struct {
 	conns     map[uint32]*virtConn
 	listeners map[uint32]*rtunListener
 	nextSID   uint32
-	pending   map[uint32][][]byte // queued DATA before SYN processed
-	closed    closedSet           // closed SIDs for late-frame detection
+	closed    closedSet // closed SIDs for late-frame detection
 
 	// configuration
 	allowedPorts   map[uint32]bool
@@ -128,7 +127,6 @@ func NewSession(link Link, opts ...Option) *Session {
 		conns:          make(map[uint32]*virtConn),
 		listeners:      make(map[uint32]*rtunListener),
 		nextSID:        1,
-		pending:        make(map[uint32][][]byte),
 		logger:         logger,
 		allowedPorts:   o.allowedPorts,
 		maxPendingSIDs: maxPending,
@@ -259,13 +257,6 @@ func (s *Session) recvLoop() {
 			s.conns[sid] = vc
 			vc.startIdleTimer()
 			// connection count is observed via metrics callback
-			// Drain any pending data queued before SYN
-			if q := s.pending[sid]; len(q) > 0 {
-				for _, p := range q {
-					vc.feedData(p)
-				}
-				delete(s.pending, sid)
-			}
 			s.mu.Unlock()
 			l.enqueue(vc)
 		case *rtunpb.Frame_Data:
