@@ -42,7 +42,7 @@ func (d *Directory) Revoke(ctx context.Context, serverID string) error {
 	return nil
 }
 
-func (d *Directory) Resolve(ctx context.Context, serverID string) (addr string, err error) {
+func (d *Directory) Resolve(ctx context.Context, serverID string) (string, error) {
 	now := time.Now()
 	d.mu.Lock()
 	defer d.mu.Unlock()

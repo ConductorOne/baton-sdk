@@ -59,7 +59,7 @@ func TestGatewayE2E(t *testing.T) {
 	rtunpb.RegisterReverseTunnelServiceServer(gsrvA, handlerA)
 	rtunpb.RegisterReverseDialerServiceServer(gsrvA, gwA)
 
-	lA, err := net.Listen("tcp", "127.0.0.1:0")
+	lA, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	go func() { _ = gsrvA.Serve(lA) }()
 
@@ -67,7 +67,7 @@ func TestGatewayE2E(t *testing.T) {
 	clientCtx, clientCancel := context.WithCancel(ctx)
 	defer clientCancel()
 
-	ccA, err := grpc.Dial(lA.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	ccA, err := grpc.NewClient("passthrough:///"+lA.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 
 	rtunClient := rtunpb.NewReverseTunnelServiceClient(ccA)
@@ -98,7 +98,7 @@ func TestGatewayE2E(t *testing.T) {
 	defer gwConn.Close()
 
 	// Wrap gateway conn in grpc.Dial and perform health check
-	callerCC, err := grpc.DialContext(ctx, "ignored",
+	callerCC, err := grpc.NewClient("passthrough:///ignored",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return gwConn, nil }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)
@@ -132,7 +132,7 @@ func TestGatewayNotFound(t *testing.T) {
 	gsrvA := grpc.NewServer()
 	rtunpb.RegisterReverseDialerServiceServer(gsrvA, gwA)
 
-	lA, err := net.Listen("tcp", "127.0.0.1:0")
+	lA, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer lA.Close()
 	go func() { _ = gsrvA.Serve(lA) }()

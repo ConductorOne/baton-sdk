@@ -16,5 +16,5 @@ type Directory interface {
 	// Revoke removes a server's advertisement.
 	Revoke(ctx context.Context, serverID string) error
 	// Resolve returns the address for a server ID if present and not expired.
-	Resolve(ctx context.Context, serverID string) (addr string, err error)
+	Resolve(ctx context.Context, serverID string) (string, error)
 }

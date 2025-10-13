@@ -75,7 +75,7 @@ func (d *Dialer) DialContext(ctx context.Context, clientID string, port uint32) 
 	logger := ctxzap.Extract(ctx).With(zap.String("client_id", clientID), zap.Uint32("port", port))
 
 	// Dial gateway
-	cc, err := grpc.DialContext(ctx, d.gatewayAddr,
+	cc, err := grpc.NewClient("passthrough:///"+d.gatewayAddr,
 		grpc.WithTransportCredentials(d.creds),
 	)
 	if err != nil {

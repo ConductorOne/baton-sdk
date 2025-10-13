@@ -32,7 +32,7 @@ func (r *OwnerRouter) DialOwner(ctx context.Context, clientID string) (*grpc.Cli
 		return nil, "", fmt.Errorf("rtun: resolve owner address: %w", err)
 	}
 	opts := r.DialOpts
-	conn, err := grpc.DialContext(ctx, addr, opts...)
+	conn, err := grpc.NewClient("passthrough:///"+addr, opts...)
 	if err != nil {
 		return nil, "", fmt.Errorf("rtun: dial owner: %w", err)
 	}
@@ -51,7 +51,7 @@ func LocalReverseDial(ctx context.Context, reg *server.Registry, clientID string
 		),
 	}
 	addr := u.String()
-	conn, err := grpc.DialContext(ctx, addr,
+	conn, err := grpc.NewClient("passthrough:///"+addr,
 		grpc.WithContextDialer(reg.DialContext),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)

@@ -12,7 +12,7 @@ type Locator struct {
 
 // OwnerOf returns the server that currently owns the client's link along with the client's ports.
 // It uses Presence to list available servers and rendezvous hashing to choose among them.
-func (l *Locator) OwnerOf(ctx context.Context, clientID string) (serverID string, ports []uint32, err error) {
+func (l *Locator) OwnerOf(ctx context.Context, clientID string) (string, []uint32, error) {
 	if l == nil || l.Presence == nil {
 		return "", nil, ErrNotImplemented
 	}
@@ -24,11 +24,11 @@ func (l *Locator) OwnerOf(ctx context.Context, clientID string) (serverID string
 		return "", nil, ErrClientOffline
 	}
 	owner := rendezvousChoose(clientID, servers)
-	ports, err = l.Presence.Ports(ctx, clientID)
+	p, err := l.Presence.Ports(ctx, clientID)
 	if err != nil {
 		return "", nil, err
 	}
-	return owner, ports, nil
+	return owner, p, nil
 }
 
 func rendezvousChoose(clientID string, servers []string) string {

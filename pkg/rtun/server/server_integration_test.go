@@ -49,14 +49,14 @@ func TestReverseGrpcE2E(t *testing.T) {
 	h := NewHandler(reg, "server-1", testValidator{id: "client-123"})
 	gsrv := grpc.NewServer()
 	rtunpb.RegisterReverseTunnelServiceServer(gsrv, h)
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer l.Close()
 	go func() { _ = gsrv.Serve(l) }()
 	defer gsrv.GracefulStop()
 
 	// Client side: dial server and open Link stream
-	cc, err := grpc.Dial(l.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	cc, err := grpc.NewClient("passthrough:///"+l.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	defer cc.Close()
 	rtunClient := rtunpb.NewReverseTunnelServiceClient(cc)
@@ -87,7 +87,7 @@ func TestReverseGrpcE2E(t *testing.T) {
 	require.NoError(t, err)
 	defer rconn.Close()
 
-	ownerCC, err := grpc.DialContext(context.Background(), "ignored",
+	ownerCC, err := grpc.NewClient("passthrough:///ignored",
 		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) { return rconn, nil }),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	)

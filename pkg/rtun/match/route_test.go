@@ -37,7 +37,7 @@ func TestOwnerRouterTwoServers(t *testing.T) {
 	handlerA := server.NewHandler(regA, "server-a", testValidator{id: "client-123"})
 	gsrvA := grpc.NewServer()
 	rtunpb.RegisterReverseTunnelServiceServer(gsrvA, handlerA)
-	lA, err := net.Listen("tcp", "127.0.0.1:0")
+	lA, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	go func() { _ = gsrvA.Serve(lA) }()
 
@@ -48,7 +48,7 @@ func TestOwnerRouterTwoServers(t *testing.T) {
 	clientCtx, clientCancel := context.WithCancel(ctx)
 	defer clientCancel()
 
-	ccA, err := grpc.Dial(lA.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	ccA, err := grpc.NewClient("passthrough:///"+lA.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	rtunClientA := rtunpb.NewReverseTunnelServiceClient(ccA)
 	streamA, err := rtunClientA.Link(clientCtx)
