@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	rtunpb "github.com/conductorone/baton-sdk/pb/c1/connectorapi/rtun/v1"
@@ -18,8 +17,6 @@ type Handler struct {
 	reg      *Registry
 	serverID string
 	tv       TokenValidator
-
-	mu sync.Mutex
 
 	// metrics (optional)
 	m *serverMetrics

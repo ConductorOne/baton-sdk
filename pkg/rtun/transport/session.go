@@ -200,8 +200,6 @@ func (s *Session) startOnce() {
 	go s.recvLoop()
 }
 
-const maxPendingBufferSize = 64 * 1024
-
 func (s *Session) recvLoop() {
 	for {
 		fr, err := s.link.Recv()
