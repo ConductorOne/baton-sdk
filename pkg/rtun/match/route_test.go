@@ -36,7 +36,7 @@ func TestOwnerRouterTwoServers(t *testing.T) {
 	regA := server.NewRegistry()
 	handlerA := server.NewHandler(regA, "server-a", testValidator{id: "client-123"})
 	gsrvA := grpc.NewServer()
-	rtunpb.RegisterReverseTunnelServer(gsrvA, handlerA)
+	rtunpb.RegisterReverseTunnelServiceServer(gsrvA, handlerA)
 	lA, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	go func() { _ = gsrvA.Serve(lA) }()
@@ -50,7 +50,7 @@ func TestOwnerRouterTwoServers(t *testing.T) {
 
 	ccA, err := grpc.Dial(lA.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
-	rtunClientA := rtunpb.NewReverseTunnelClient(ccA)
+	rtunClientA := rtunpb.NewReverseTunnelServiceClient(ccA)
 	streamA, err := rtunClientA.Link(clientCtx)
 	require.NoError(t, err)
 
@@ -110,9 +110,19 @@ func TestOwnerRouterTwoServers(t *testing.T) {
 
 // clientLink adapts the client bidi stream to transport.Link.
 type clientLink struct {
-	cli rtunpb.ReverseTunnel_LinkClient
+	cli rtunpb.ReverseTunnelService_LinkClient
 }
 
-func (c *clientLink) Send(f *rtunpb.Frame) error   { return c.cli.Send(f) }
-func (c *clientLink) Recv() (*rtunpb.Frame, error) { return c.cli.Recv() }
-func (c *clientLink) Context() context.Context     { return c.cli.Context() }
+func (c *clientLink) Send(f *rtunpb.Frame) error {
+	return c.cli.Send(&rtunpb.ReverseTunnelServiceLinkRequest{Frame: f})
+}
+
+func (c *clientLink) Recv() (*rtunpb.Frame, error) {
+	fr, err := c.cli.Recv()
+	if err != nil {
+		return nil, err
+	}
+	return fr.GetFrame(), nil
+}
+
+func (c *clientLink) Context() context.Context { return c.cli.Context() }

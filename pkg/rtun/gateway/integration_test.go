@@ -24,12 +24,22 @@ func (t testValidator) ValidateHello(ctx context.Context, hello *rtunpb.Hello) e
 
 // clientLink adapts client bidi stream to transport.Link.
 type clientLink struct {
-	cli rtunpb.ReverseTunnel_LinkClient
+	cli rtunpb.ReverseTunnelService_LinkClient
 }
 
-func (c *clientLink) Send(f *rtunpb.Frame) error   { return c.cli.Send(f) }
-func (c *clientLink) Recv() (*rtunpb.Frame, error) { return c.cli.Recv() }
-func (c *clientLink) Context() context.Context     { return c.cli.Context() }
+func (c *clientLink) Send(f *rtunpb.Frame) error {
+	return c.cli.Send(&rtunpb.ReverseTunnelServiceLinkRequest{Frame: f})
+}
+
+func (c *clientLink) Recv() (*rtunpb.Frame, error) {
+	fr, err := c.cli.Recv()
+	if err != nil {
+		return nil, err
+	}
+	return fr.GetFrame(), nil
+}
+
+func (c *clientLink) Context() context.Context { return c.cli.Context() }
 
 // TestGatewayE2E validates the full gateway stack:
 // - Client connects to server A (handler+registry).
@@ -46,8 +56,8 @@ func TestGatewayE2E(t *testing.T) {
 	gwA := NewServer(regA, "server-a", nil)
 
 	gsrvA := grpc.NewServer()
-	rtunpb.RegisterReverseTunnelServer(gsrvA, handlerA)
-	rtunpb.RegisterReverseDialerServer(gsrvA, gwA)
+	rtunpb.RegisterReverseTunnelServiceServer(gsrvA, handlerA)
+	rtunpb.RegisterReverseDialerServiceServer(gsrvA, gwA)
 
 	lA, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
@@ -60,7 +70,7 @@ func TestGatewayE2E(t *testing.T) {
 	ccA, err := grpc.Dial(lA.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 
-	rtunClient := rtunpb.NewReverseTunnelClient(ccA)
+	rtunClient := rtunpb.NewReverseTunnelServiceClient(ccA)
 	stream, err := rtunClient.Link(clientCtx)
 	require.NoError(t, err)
 
@@ -120,7 +130,7 @@ func TestGatewayNotFound(t *testing.T) {
 	gwA := NewServer(regA, "server-a", nil)
 
 	gsrvA := grpc.NewServer()
-	rtunpb.RegisterReverseDialerServer(gsrvA, gwA)
+	rtunpb.RegisterReverseDialerServiceServer(gsrvA, gwA)
 
 	lA, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

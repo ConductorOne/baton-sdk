@@ -37,11 +37,11 @@ func TestVirtConnCloseIdempotentAndWriteAfterClose(t *testing.T) {
 
 	// Write after close should fail with ErrClosed
 	_, err = c.Write([]byte("x"))
-	require.ErrorIs(t, err, ErrClosed)
+	require.ErrorIs(t, err, net.ErrClosed)
 
 	// Read after close yields EOF or ErrClosed
 	_, err = c.Read(make([]byte, 1))
-	require.True(t, err == io.EOF || err == ErrClosed)
+	require.True(t, err == io.EOF || err == net.ErrClosed)
 }
 
 func TestVirtConnRemoteRstPropagatesToRead(t *testing.T) {

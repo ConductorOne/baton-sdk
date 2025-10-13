@@ -82,7 +82,7 @@ func (d *Dialer) DialContext(ctx context.Context, clientID string, port uint32) 
 		return nil, fmt.Errorf("gateway dial failed: %w", err)
 	}
 
-	client := rtunpb.NewReverseDialerClient(cc)
+	client := rtunpb.NewReverseDialerServiceClient(cc)
 	// Create a cancellable stream context so Close() can interrupt Recv/Send.
 	streamCtx, cancel := context.WithCancel(ctx)
 	stream, err := client.Open(streamCtx)
@@ -94,7 +94,7 @@ func (d *Dialer) DialContext(ctx context.Context, clientID string, port uint32) 
 
 	// Send OpenRequest with gSID=1 (simple case: one connection per stream)
 	gsid := uint32(1)
-	if err := stream.Send(&rtunpb.GatewayRequest{Kind: &rtunpb.GatewayRequest_OpenReq{
+	if err := stream.Send(&rtunpb.ReverseDialerServiceOpenRequest{Kind: &rtunpb.ReverseDialerServiceOpenRequest_OpenReq{
 		OpenReq: &rtunpb.OpenRequest{Gsid: gsid, ClientId: clientID, Port: port},
 	}}); err != nil {
 		stream.CloseSend()
@@ -158,7 +158,7 @@ var _ net.Conn = (*gatewayConn)(nil)
 
 // gatewayConn implements net.Conn over a gateway stream.
 type gatewayConn struct {
-	stream rtunpb.ReverseDialer_OpenClient
+	stream rtunpb.ReverseDialerService_OpenClient
 	cc     *grpc.ClientConn
 	gsid   uint32
 	cancel context.CancelFunc
@@ -183,7 +183,7 @@ type writeMsg struct {
 }
 
 type reader struct {
-	stream rtunpb.ReverseDialer_OpenClient
+	stream rtunpb.ReverseDialerService_OpenClient
 	gsid   uint32
 	bufCap int
 	ch     chan []byte
@@ -195,7 +195,7 @@ type reader struct {
 	once sync.Once
 }
 
-func newReader(stream rtunpb.ReverseDialer_OpenClient, gsid uint32, bufCap int, doneCh <-chan struct{}) *reader {
+func newReader(stream rtunpb.ReverseDialerService_OpenClient, gsid uint32, bufCap int, doneCh <-chan struct{}) *reader {
 	if bufCap <= 0 {
 		bufCap = defaultReadBufferCap
 	}
@@ -274,7 +274,7 @@ func (r *reader) next(ctx context.Context) ([]byte, error) {
 }
 
 type writer struct {
-	stream   rtunpb.ReverseDialer_OpenClient
+	stream   rtunpb.ReverseDialerService_OpenClient
 	gsid     uint32
 	queueCap int
 	ch       chan writeMsg
@@ -285,7 +285,7 @@ type writer struct {
 	once sync.Once
 }
 
-func newWriter(stream rtunpb.ReverseDialer_OpenClient, gsid uint32, queueCap int, doneCh <-chan struct{}) *writer {
+func newWriter(stream rtunpb.ReverseDialerService_OpenClient, gsid uint32, queueCap int, doneCh <-chan struct{}) *writer {
 	if queueCap <= 0 {
 		queueCap = defaultWriteQueueCap
 	}
@@ -323,12 +323,12 @@ func (w *writer) loop() {
 		select {
 		case msg := <-w.ch:
 			if msg.fin {
-				_ = w.stream.Send(&rtunpb.GatewayRequest{Kind: &rtunpb.GatewayRequest_Frame{
+				_ = w.stream.Send(&rtunpb.ReverseDialerServiceOpenRequest{Kind: &rtunpb.ReverseDialerServiceOpenRequest_Frame{
 					Frame: &rtunpb.Frame{Sid: w.gsid, Kind: &rtunpb.Frame_Fin{Fin: &rtunpb.Fin{}}},
 				}})
 				continue
 			}
-			if err := w.stream.Send(&rtunpb.GatewayRequest{Kind: &rtunpb.GatewayRequest_Frame{
+			if err := w.stream.Send(&rtunpb.ReverseDialerServiceOpenRequest{Kind: &rtunpb.ReverseDialerServiceOpenRequest_Frame{
 				Frame: &rtunpb.Frame{Sid: w.gsid, Kind: &rtunpb.Frame_Data{Data: &rtunpb.Data{Payload: msg.payload}}},
 			}}); err != nil {
 				w.setErr(err)
@@ -478,7 +478,7 @@ func (g *gatewayConn) Close() error {
 				default:
 				}
 			} else {
-				_ = g.stream.Send(&rtunpb.GatewayRequest{Kind: &rtunpb.GatewayRequest_Frame{
+				_ = g.stream.Send(&rtunpb.ReverseDialerServiceOpenRequest{Kind: &rtunpb.ReverseDialerServiceOpenRequest_Frame{
 					Frame: &rtunpb.Frame{Sid: g.gsid, Kind: &rtunpb.Frame_Fin{Fin: &rtunpb.Fin{}}},
 				}})
 			}

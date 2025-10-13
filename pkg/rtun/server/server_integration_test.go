@@ -24,12 +24,22 @@ func (t testValidator) ValidateHello(ctx context.Context, hello *rtunpb.Hello) e
 
 // clientLink adapts the client bidi stream to transport.Link on the client side.
 type clientLink struct {
-	cli rtunpb.ReverseTunnel_LinkClient
+	cli rtunpb.ReverseTunnelService_LinkClient
 }
 
-func (c clientLink) Send(f *rtunpb.Frame) error   { return c.cli.Send(f) }
-func (c clientLink) Recv() (*rtunpb.Frame, error) { return c.cli.Recv() }
-func (c clientLink) Context() context.Context     { return c.cli.Context() }
+func (c clientLink) Send(f *rtunpb.Frame) error {
+	return c.cli.Send(&rtunpb.ReverseTunnelServiceLinkRequest{Frame: f})
+}
+
+func (c clientLink) Recv() (*rtunpb.Frame, error) {
+	resp, err := c.cli.Recv()
+	if err != nil {
+		return nil, err
+	}
+	return resp.GetFrame(), nil
+}
+
+func (c clientLink) Context() context.Context { return c.cli.Context() }
 
 // TestReverseGrpcE2E spins up a real gRPC server with Handler, connects a real gRPC client stream for Link,
 // runs the standard gRPC health service over rtun on the client, and performs a health check from the owner via Registry.DialContext.
@@ -38,7 +48,7 @@ func TestReverseGrpcE2E(t *testing.T) {
 	reg := NewRegistry()
 	h := NewHandler(reg, "server-1", testValidator{id: "client-123"})
 	gsrv := grpc.NewServer()
-	rtunpb.RegisterReverseTunnelServer(gsrv, h)
+	rtunpb.RegisterReverseTunnelServiceServer(gsrv, h)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer l.Close()
@@ -49,7 +59,7 @@ func TestReverseGrpcE2E(t *testing.T) {
 	cc, err := grpc.Dial(l.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	defer cc.Close()
-	rtunClient := rtunpb.NewReverseTunnelClient(cc)
+	rtunClient := rtunpb.NewReverseTunnelServiceClient(cc)
 	stream, err := rtunClient.Link(context.Background())
 	require.NoError(t, err)
 

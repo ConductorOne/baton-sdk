@@ -35,22 +35,22 @@ var (
 	_ = sort.Sort
 )
 
-// Validate checks the field values on GatewayRequest with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *GatewayRequest) Validate() error {
+// Validate checks the field values on ReverseDialerServiceOpenRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ReverseDialerServiceOpenRequest) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on GatewayRequest with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in GatewayRequestMultiError,
-// or nil if none found.
-func (m *GatewayRequest) ValidateAll() error {
+// ValidateAll checks the field values on ReverseDialerServiceOpenRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// ReverseDialerServiceOpenRequestMultiError, or nil if none found.
+func (m *ReverseDialerServiceOpenRequest) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *GatewayRequest) validate(all bool) error {
+func (m *ReverseDialerServiceOpenRequest) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -58,9 +58,9 @@ func (m *GatewayRequest) validate(all bool) error {
 	var errors []error
 
 	switch v := m.Kind.(type) {
-	case *GatewayRequest_OpenReq:
+	case *ReverseDialerServiceOpenRequest_OpenReq:
 		if v == nil {
-			err := GatewayRequestValidationError{
+			err := ReverseDialerServiceOpenRequestValidationError{
 				field:  "Kind",
 				reason: "oneof value cannot be a typed-nil",
 			}
@@ -74,7 +74,7 @@ func (m *GatewayRequest) validate(all bool) error {
 			switch v := interface{}(m.GetOpenReq()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, GatewayRequestValidationError{
+					errors = append(errors, ReverseDialerServiceOpenRequestValidationError{
 						field:  "OpenReq",
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -82,7 +82,7 @@ func (m *GatewayRequest) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, GatewayRequestValidationError{
+					errors = append(errors, ReverseDialerServiceOpenRequestValidationError{
 						field:  "OpenReq",
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -91,7 +91,7 @@ func (m *GatewayRequest) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(m.GetOpenReq()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return GatewayRequestValidationError{
+				return ReverseDialerServiceOpenRequestValidationError{
 					field:  "OpenReq",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -99,9 +99,9 @@ func (m *GatewayRequest) validate(all bool) error {
 			}
 		}
 
-	case *GatewayRequest_Frame:
+	case *ReverseDialerServiceOpenRequest_Frame:
 		if v == nil {
-			err := GatewayRequestValidationError{
+			err := ReverseDialerServiceOpenRequestValidationError{
 				field:  "Kind",
 				reason: "oneof value cannot be a typed-nil",
 			}
@@ -115,7 +115,7 @@ func (m *GatewayRequest) validate(all bool) error {
 			switch v := interface{}(m.GetFrame()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, GatewayRequestValidationError{
+					errors = append(errors, ReverseDialerServiceOpenRequestValidationError{
 						field:  "Frame",
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -123,7 +123,7 @@ func (m *GatewayRequest) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, GatewayRequestValidationError{
+					errors = append(errors, ReverseDialerServiceOpenRequestValidationError{
 						field:  "Frame",
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -132,7 +132,7 @@ func (m *GatewayRequest) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(m.GetFrame()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return GatewayRequestValidationError{
+				return ReverseDialerServiceOpenRequestValidationError{
 					field:  "Frame",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -145,19 +145,19 @@ func (m *GatewayRequest) validate(all bool) error {
 	}
 
 	if len(errors) > 0 {
-		return GatewayRequestMultiError(errors)
+		return ReverseDialerServiceOpenRequestMultiError(errors)
 	}
 
 	return nil
 }
 
-// GatewayRequestMultiError is an error wrapping multiple validation errors
-// returned by GatewayRequest.ValidateAll() if the designated constraints
-// aren't met.
-type GatewayRequestMultiError []error
+// ReverseDialerServiceOpenRequestMultiError is an error wrapping multiple
+// validation errors returned by ReverseDialerServiceOpenRequest.ValidateAll()
+// if the designated constraints aren't met.
+type ReverseDialerServiceOpenRequestMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m GatewayRequestMultiError) Error() string {
+func (m ReverseDialerServiceOpenRequestMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -166,11 +166,12 @@ func (m GatewayRequestMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m GatewayRequestMultiError) AllErrors() []error { return m }
+func (m ReverseDialerServiceOpenRequestMultiError) AllErrors() []error { return m }
 
-// GatewayRequestValidationError is the validation error returned by
-// GatewayRequest.Validate if the designated constraints aren't met.
-type GatewayRequestValidationError struct {
+// ReverseDialerServiceOpenRequestValidationError is the validation error
+// returned by ReverseDialerServiceOpenRequest.Validate if the designated
+// constraints aren't met.
+type ReverseDialerServiceOpenRequestValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -178,22 +179,24 @@ type GatewayRequestValidationError struct {
 }
 
 // Field function returns field value.
-func (e GatewayRequestValidationError) Field() string { return e.field }
+func (e ReverseDialerServiceOpenRequestValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e GatewayRequestValidationError) Reason() string { return e.reason }
+func (e ReverseDialerServiceOpenRequestValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e GatewayRequestValidationError) Cause() error { return e.cause }
+func (e ReverseDialerServiceOpenRequestValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e GatewayRequestValidationError) Key() bool { return e.key }
+func (e ReverseDialerServiceOpenRequestValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e GatewayRequestValidationError) ErrorName() string { return "GatewayRequestValidationError" }
+func (e ReverseDialerServiceOpenRequestValidationError) ErrorName() string {
+	return "ReverseDialerServiceOpenRequestValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e GatewayRequestValidationError) Error() string {
+func (e ReverseDialerServiceOpenRequestValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -205,14 +208,14 @@ func (e GatewayRequestValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sGatewayRequest.%s: %s%s",
+		"invalid %sReverseDialerServiceOpenRequest.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = GatewayRequestValidationError{}
+var _ error = ReverseDialerServiceOpenRequestValidationError{}
 
 var _ interface {
 	Field() string
@@ -220,24 +223,25 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = GatewayRequestValidationError{}
+} = ReverseDialerServiceOpenRequestValidationError{}
 
-// Validate checks the field values on GatewayResponse with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// first error encountered is returned, or nil if there are no violations.
-func (m *GatewayResponse) Validate() error {
+// Validate checks the field values on ReverseDialerServiceOpenResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *ReverseDialerServiceOpenResponse) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on GatewayResponse with the rules
-// defined in the proto definition for this message. If any rules are
-// violated, the result is a list of violation errors wrapped in
-// GatewayResponseMultiError, or nil if none found.
-func (m *GatewayResponse) ValidateAll() error {
+// ValidateAll checks the field values on ReverseDialerServiceOpenResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// ReverseDialerServiceOpenResponseMultiError, or nil if none found.
+func (m *ReverseDialerServiceOpenResponse) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *GatewayResponse) validate(all bool) error {
+func (m *ReverseDialerServiceOpenResponse) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -245,9 +249,9 @@ func (m *GatewayResponse) validate(all bool) error {
 	var errors []error
 
 	switch v := m.Kind.(type) {
-	case *GatewayResponse_OpenResp:
+	case *ReverseDialerServiceOpenResponse_OpenResp:
 		if v == nil {
-			err := GatewayResponseValidationError{
+			err := ReverseDialerServiceOpenResponseValidationError{
 				field:  "Kind",
 				reason: "oneof value cannot be a typed-nil",
 			}
@@ -261,7 +265,7 @@ func (m *GatewayResponse) validate(all bool) error {
 			switch v := interface{}(m.GetOpenResp()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, GatewayResponseValidationError{
+					errors = append(errors, ReverseDialerServiceOpenResponseValidationError{
 						field:  "OpenResp",
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -269,7 +273,7 @@ func (m *GatewayResponse) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, GatewayResponseValidationError{
+					errors = append(errors, ReverseDialerServiceOpenResponseValidationError{
 						field:  "OpenResp",
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -278,7 +282,7 @@ func (m *GatewayResponse) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(m.GetOpenResp()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return GatewayResponseValidationError{
+				return ReverseDialerServiceOpenResponseValidationError{
 					field:  "OpenResp",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -286,9 +290,9 @@ func (m *GatewayResponse) validate(all bool) error {
 			}
 		}
 
-	case *GatewayResponse_Frame:
+	case *ReverseDialerServiceOpenResponse_Frame:
 		if v == nil {
-			err := GatewayResponseValidationError{
+			err := ReverseDialerServiceOpenResponseValidationError{
 				field:  "Kind",
 				reason: "oneof value cannot be a typed-nil",
 			}
@@ -302,7 +306,7 @@ func (m *GatewayResponse) validate(all bool) error {
 			switch v := interface{}(m.GetFrame()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, GatewayResponseValidationError{
+					errors = append(errors, ReverseDialerServiceOpenResponseValidationError{
 						field:  "Frame",
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -310,7 +314,7 @@ func (m *GatewayResponse) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, GatewayResponseValidationError{
+					errors = append(errors, ReverseDialerServiceOpenResponseValidationError{
 						field:  "Frame",
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -319,7 +323,7 @@ func (m *GatewayResponse) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(m.GetFrame()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return GatewayResponseValidationError{
+				return ReverseDialerServiceOpenResponseValidationError{
 					field:  "Frame",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -332,19 +336,20 @@ func (m *GatewayResponse) validate(all bool) error {
 	}
 
 	if len(errors) > 0 {
-		return GatewayResponseMultiError(errors)
+		return ReverseDialerServiceOpenResponseMultiError(errors)
 	}
 
 	return nil
 }
 
-// GatewayResponseMultiError is an error wrapping multiple validation errors
-// returned by GatewayResponse.ValidateAll() if the designated constraints
-// aren't met.
-type GatewayResponseMultiError []error
+// ReverseDialerServiceOpenResponseMultiError is an error wrapping multiple
+// validation errors returned by
+// ReverseDialerServiceOpenResponse.ValidateAll() if the designated
+// constraints aren't met.
+type ReverseDialerServiceOpenResponseMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m GatewayResponseMultiError) Error() string {
+func (m ReverseDialerServiceOpenResponseMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -353,11 +358,12 @@ func (m GatewayResponseMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m GatewayResponseMultiError) AllErrors() []error { return m }
+func (m ReverseDialerServiceOpenResponseMultiError) AllErrors() []error { return m }
 
-// GatewayResponseValidationError is the validation error returned by
-// GatewayResponse.Validate if the designated constraints aren't met.
-type GatewayResponseValidationError struct {
+// ReverseDialerServiceOpenResponseValidationError is the validation error
+// returned by ReverseDialerServiceOpenResponse.Validate if the designated
+// constraints aren't met.
+type ReverseDialerServiceOpenResponseValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -365,22 +371,24 @@ type GatewayResponseValidationError struct {
 }
 
 // Field function returns field value.
-func (e GatewayResponseValidationError) Field() string { return e.field }
+func (e ReverseDialerServiceOpenResponseValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e GatewayResponseValidationError) Reason() string { return e.reason }
+func (e ReverseDialerServiceOpenResponseValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e GatewayResponseValidationError) Cause() error { return e.cause }
+func (e ReverseDialerServiceOpenResponseValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e GatewayResponseValidationError) Key() bool { return e.key }
+func (e ReverseDialerServiceOpenResponseValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e GatewayResponseValidationError) ErrorName() string { return "GatewayResponseValidationError" }
+func (e ReverseDialerServiceOpenResponseValidationError) ErrorName() string {
+	return "ReverseDialerServiceOpenResponseValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e GatewayResponseValidationError) Error() string {
+func (e ReverseDialerServiceOpenResponseValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -392,14 +400,14 @@ func (e GatewayResponseValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sGatewayResponse.%s: %s%s",
+		"invalid %sReverseDialerServiceOpenResponse.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = GatewayResponseValidationError{}
+var _ error = ReverseDialerServiceOpenResponseValidationError{}
 
 var _ interface {
 	Field() string
@@ -407,7 +415,7 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = GatewayResponseValidationError{}
+} = ReverseDialerServiceOpenResponseValidationError{}
 
 // Validate checks the field values on OpenRequest with the rules defined in
 // the proto definition for this message. If any rules are violated, the first

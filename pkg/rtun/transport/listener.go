@@ -15,15 +15,21 @@ type rtunListener struct {
 }
 
 func (l *rtunListener) Accept() (net.Conn, error) {
-	if l.err != nil {
-		return nil, l.err
+	l.mu.Lock()
+	lerr := l.err
+	l.mu.Unlock()
+	if lerr != nil {
+		return nil, lerr
 	}
 	c, ok := <-l.accepts
 	if !ok {
-		if l.err != nil {
-			return nil, l.err
+		l.mu.Lock()
+		lerr := l.err
+		l.mu.Unlock()
+		if lerr != nil {
+			return nil, lerr
 		}
-		return nil, ErrClosed
+		return nil, net.ErrClosed
 	}
 	return c, nil
 }
@@ -48,7 +54,7 @@ func (l *rtunListener) enqueue(c *virtConn) {
 	case l.accepts <- c:
 	default:
 		// listener full, drop
-		c.handleRst(ErrClosed)
+		c.handleRst(net.ErrClosed)
 	}
 }
 

@@ -19,92 +19,92 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ReverseTunnel_Link_FullMethodName = "/c1.connectorapi.rtun.v1.ReverseTunnel/Link"
+	ReverseTunnelService_Link_FullMethodName = "/c1.connectorapi.rtun.v1.ReverseTunnelService/Link"
 )
 
-// ReverseTunnelClient is the client API for ReverseTunnel service.
+// ReverseTunnelServiceClient is the client API for ReverseTunnelService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type ReverseTunnelClient interface {
-	Link(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[Frame, Frame], error)
+type ReverseTunnelServiceClient interface {
+	Link(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ReverseTunnelServiceLinkRequest, ReverseTunnelServiceLinkResponse], error)
 }
 
-type reverseTunnelClient struct {
+type reverseTunnelServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewReverseTunnelClient(cc grpc.ClientConnInterface) ReverseTunnelClient {
-	return &reverseTunnelClient{cc}
+func NewReverseTunnelServiceClient(cc grpc.ClientConnInterface) ReverseTunnelServiceClient {
+	return &reverseTunnelServiceClient{cc}
 }
 
-func (c *reverseTunnelClient) Link(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[Frame, Frame], error) {
+func (c *reverseTunnelServiceClient) Link(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ReverseTunnelServiceLinkRequest, ReverseTunnelServiceLinkResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &ReverseTunnel_ServiceDesc.Streams[0], ReverseTunnel_Link_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &ReverseTunnelService_ServiceDesc.Streams[0], ReverseTunnelService_Link_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[Frame, Frame]{ClientStream: stream}
+	x := &grpc.GenericClientStream[ReverseTunnelServiceLinkRequest, ReverseTunnelServiceLinkResponse]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ReverseTunnel_LinkClient = grpc.BidiStreamingClient[Frame, Frame]
+type ReverseTunnelService_LinkClient = grpc.BidiStreamingClient[ReverseTunnelServiceLinkRequest, ReverseTunnelServiceLinkResponse]
 
-// ReverseTunnelServer is the server API for ReverseTunnel service.
-// All implementations should embed UnimplementedReverseTunnelServer
+// ReverseTunnelServiceServer is the server API for ReverseTunnelService service.
+// All implementations should embed UnimplementedReverseTunnelServiceServer
 // for forward compatibility.
-type ReverseTunnelServer interface {
-	Link(grpc.BidiStreamingServer[Frame, Frame]) error
+type ReverseTunnelServiceServer interface {
+	Link(grpc.BidiStreamingServer[ReverseTunnelServiceLinkRequest, ReverseTunnelServiceLinkResponse]) error
 }
 
-// UnimplementedReverseTunnelServer should be embedded to have
+// UnimplementedReverseTunnelServiceServer should be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedReverseTunnelServer struct{}
+type UnimplementedReverseTunnelServiceServer struct{}
 
-func (UnimplementedReverseTunnelServer) Link(grpc.BidiStreamingServer[Frame, Frame]) error {
+func (UnimplementedReverseTunnelServiceServer) Link(grpc.BidiStreamingServer[ReverseTunnelServiceLinkRequest, ReverseTunnelServiceLinkResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method Link not implemented")
 }
-func (UnimplementedReverseTunnelServer) testEmbeddedByValue() {}
+func (UnimplementedReverseTunnelServiceServer) testEmbeddedByValue() {}
 
-// UnsafeReverseTunnelServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to ReverseTunnelServer will
+// UnsafeReverseTunnelServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ReverseTunnelServiceServer will
 // result in compilation errors.
-type UnsafeReverseTunnelServer interface {
-	mustEmbedUnimplementedReverseTunnelServer()
+type UnsafeReverseTunnelServiceServer interface {
+	mustEmbedUnimplementedReverseTunnelServiceServer()
 }
 
-func RegisterReverseTunnelServer(s grpc.ServiceRegistrar, srv ReverseTunnelServer) {
-	// If the following call pancis, it indicates UnimplementedReverseTunnelServer was
+func RegisterReverseTunnelServiceServer(s grpc.ServiceRegistrar, srv ReverseTunnelServiceServer) {
+	// If the following call pancis, it indicates UnimplementedReverseTunnelServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&ReverseTunnel_ServiceDesc, srv)
+	s.RegisterService(&ReverseTunnelService_ServiceDesc, srv)
 }
 
-func _ReverseTunnel_Link_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ReverseTunnelServer).Link(&grpc.GenericServerStream[Frame, Frame]{ServerStream: stream})
+func _ReverseTunnelService_Link_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ReverseTunnelServiceServer).Link(&grpc.GenericServerStream[ReverseTunnelServiceLinkRequest, ReverseTunnelServiceLinkResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ReverseTunnel_LinkServer = grpc.BidiStreamingServer[Frame, Frame]
+type ReverseTunnelService_LinkServer = grpc.BidiStreamingServer[ReverseTunnelServiceLinkRequest, ReverseTunnelServiceLinkResponse]
 
-// ReverseTunnel_ServiceDesc is the grpc.ServiceDesc for ReverseTunnel service.
+// ReverseTunnelService_ServiceDesc is the grpc.ServiceDesc for ReverseTunnelService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var ReverseTunnel_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "c1.connectorapi.rtun.v1.ReverseTunnel",
-	HandlerType: (*ReverseTunnelServer)(nil),
+var ReverseTunnelService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.connectorapi.rtun.v1.ReverseTunnelService",
+	HandlerType: (*ReverseTunnelServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Link",
-			Handler:       _ReverseTunnel_Link_Handler,
+			Handler:       _ReverseTunnelService_Link_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

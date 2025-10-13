@@ -8,20 +8,20 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connectorapi/rtun/v
 
 // ReverseDialer allows callers to establish connections to clients via the gateway.
 // The gateway bridges caller streams to rtun sessions on the owner server.
-service ReverseDialer {
-  rpc Open(stream GatewayRequest) returns (stream GatewayResponse);
+service ReverseDialerService {
+  rpc Open(stream ReverseDialerServiceOpenRequest) returns (stream ReverseDialerServiceOpenResponse);
 }
 
-// GatewayRequest is sent from caller to gateway.
-message GatewayRequest {
+// ReverseDialerServiceOpenRequest is sent from caller to gateway for the Open RPC.
+message ReverseDialerServiceOpenRequest {
   oneof kind {
     OpenRequest open_req = 1; // initiate a connection (first message, or concurrent opens)
     Frame frame = 10; // data/control frames (reuses rtun Frame)
   }
 }
 
-// GatewayResponse is sent from gateway to caller.
-message GatewayResponse {
+// ReverseDialerServiceOpenResponse is sent from gateway to caller for the Open RPC.
+message ReverseDialerServiceOpenResponse {
   oneof kind {
     OpenResponse open_resp = 1; // handshake result
     Frame frame = 10; // data/control frames (reuses rtun Frame)

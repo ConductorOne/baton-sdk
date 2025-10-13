@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/url"
@@ -18,7 +19,7 @@ import (
 // Server implements the ReverseDialer gateway service.
 // It bridges caller streams to rtun sessions on the owner server process.
 type Server struct {
-	rtunpb.UnimplementedReverseDialerServer
+	rtunpb.UnimplementedReverseDialerServiceServer
 
 	reg      *server.Registry
 	serverID string
@@ -113,7 +114,7 @@ func (e *entry) close() {
 	})
 }
 
-func (s *Server) Open(stream rtunpb.ReverseDialer_OpenServer) error {
+func (s *Server) Open(stream rtunpb.ReverseDialerService_OpenServer) error {
 	ctx := stream.Context()
 	logger := ctxzap.Extract(ctx).With(zap.String("server_id", s.serverID))
 
@@ -135,14 +136,14 @@ func (s *Server) Open(stream rtunpb.ReverseDialer_OpenServer) error {
 	for {
 		req, err := stream.Recv()
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			return err
 		}
 
 		switch k := req.Kind.(type) {
-		case *rtunpb.GatewayRequest_OpenReq:
+		case *rtunpb.ReverseDialerServiceOpenRequest_OpenReq:
 			openReq := k.OpenReq
 			gsid := openReq.GetGsid()
 			clientID := openReq.GetClientId()
@@ -159,7 +160,7 @@ func (s *Server) Open(stream rtunpb.ReverseDialer_OpenServer) error {
 			if _, exists := entries[gsid]; exists {
 				mu.Unlock()
 				logger.Warn("duplicate gSID in OpenRequest")
-				_ = stream.Send(&rtunpb.GatewayResponse{Kind: &rtunpb.GatewayResponse_Frame{
+				_ = stream.Send(&rtunpb.ReverseDialerServiceOpenResponse{Kind: &rtunpb.ReverseDialerServiceOpenResponse_Frame{
 					Frame: &rtunpb.Frame{Sid: gsid, Kind: &rtunpb.Frame_Rst{Rst: &rtunpb.Rst{Code: rtunpb.RstCode_RST_CODE_INTERNAL}}},
 				}})
 				continue
@@ -171,7 +172,7 @@ func (s *Server) Open(stream rtunpb.ReverseDialer_OpenServer) error {
 			conn, err := s.reg.DialContext(ctx, addr)
 			if err != nil {
 				logger.Info("client not found or dial failed", zap.Error(err))
-				_ = stream.Send(&rtunpb.GatewayResponse{Kind: &rtunpb.GatewayResponse_OpenResp{
+				_ = stream.Send(&rtunpb.ReverseDialerServiceOpenResponse{Kind: &rtunpb.ReverseDialerServiceOpenResponse_OpenResp{
 					OpenResp: &rtunpb.OpenResponse{Gsid: gsid, Result: &rtunpb.OpenResponse_NotFound{NotFound: &rtunpb.NotFound{}}},
 				}})
 				if s.m != nil {
@@ -187,7 +188,7 @@ func (s *Server) Open(stream rtunpb.ReverseDialer_OpenServer) error {
 			mu.Unlock()
 
 			logger.Info("opened reverse connection")
-			if err := stream.Send(&rtunpb.GatewayResponse{Kind: &rtunpb.GatewayResponse_OpenResp{
+			if err := stream.Send(&rtunpb.ReverseDialerServiceOpenResponse{Kind: &rtunpb.ReverseDialerServiceOpenResponse_OpenResp{
 				OpenResp: &rtunpb.OpenResponse{Gsid: gsid, Result: &rtunpb.OpenResponse_Opened{Opened: &rtunpb.Opened{}}},
 			}}); err != nil {
 				conn.Close()
@@ -201,7 +202,7 @@ func (s *Server) Open(stream rtunpb.ReverseDialer_OpenServer) error {
 			wg.Add(1)
 			go s.bridgeRead(ctx, conn, gsid, stream, &wg, logger)
 
-		case *rtunpb.GatewayRequest_Frame:
+		case *rtunpb.ReverseDialerServiceOpenRequest_Frame:
 			fr := k.Frame
 			gsid := fr.GetSid()
 
@@ -211,7 +212,7 @@ func (s *Server) Open(stream rtunpb.ReverseDialer_OpenServer) error {
 
 			if ent == nil {
 				// Unknown gSID; send RST
-				_ = stream.Send(&rtunpb.GatewayResponse{Kind: &rtunpb.GatewayResponse_Frame{
+				_ = stream.Send(&rtunpb.ReverseDialerServiceOpenResponse{Kind: &rtunpb.ReverseDialerServiceOpenResponse_Frame{
 					Frame: &rtunpb.Frame{Sid: gsid, Kind: &rtunpb.Frame_Rst{Rst: &rtunpb.Rst{Code: rtunpb.RstCode_RST_CODE_INTERNAL}}},
 				}})
 				continue
@@ -253,13 +254,13 @@ func (s *Server) Open(stream rtunpb.ReverseDialer_OpenServer) error {
 }
 
 // bridgeRead reads from rtun conn and sends frames to the caller stream.
-func (s *Server) bridgeRead(ctx context.Context, conn net.Conn, gsid uint32, stream rtunpb.ReverseDialer_OpenServer, wg *sync.WaitGroup, logger *zap.Logger) {
+func (s *Server) bridgeRead(ctx context.Context, conn net.Conn, gsid uint32, stream rtunpb.ReverseDialerService_OpenServer, wg *sync.WaitGroup, logger *zap.Logger) {
 	defer wg.Done()
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := conn.Read(buf)
 		if n > 0 {
-			if err := stream.Send(&rtunpb.GatewayResponse{Kind: &rtunpb.GatewayResponse_Frame{
+			if err := stream.Send(&rtunpb.ReverseDialerServiceOpenResponse{Kind: &rtunpb.ReverseDialerServiceOpenResponse_Frame{
 				Frame: &rtunpb.Frame{Sid: gsid, Kind: &rtunpb.Frame_Data{Data: &rtunpb.Data{Payload: append([]byte(nil), buf[:n]...)}}},
 			}}); err != nil {
 				logger.Warn("failed to send data to caller", zap.Error(err))
@@ -270,15 +271,15 @@ func (s *Server) bridgeRead(ctx context.Context, conn net.Conn, gsid uint32, str
 			}
 		}
 		if err != nil {
-			if err == io.EOF {
-				_ = stream.Send(&rtunpb.GatewayResponse{Kind: &rtunpb.GatewayResponse_Frame{
+			if errors.Is(err, io.EOF) {
+				_ = stream.Send(&rtunpb.ReverseDialerServiceOpenResponse{Kind: &rtunpb.ReverseDialerServiceOpenResponse_Frame{
 					Frame: &rtunpb.Frame{Sid: gsid, Kind: &rtunpb.Frame_Fin{Fin: &rtunpb.Fin{}}},
 				}})
 				if s.m != nil {
 					s.m.addFrameTx(ctx, "FIN")
 				}
 			} else {
-				_ = stream.Send(&rtunpb.GatewayResponse{Kind: &rtunpb.GatewayResponse_Frame{
+				_ = stream.Send(&rtunpb.ReverseDialerServiceOpenResponse{Kind: &rtunpb.ReverseDialerServiceOpenResponse_Frame{
 					Frame: &rtunpb.Frame{Sid: gsid, Kind: &rtunpb.Frame_Rst{Rst: &rtunpb.Rst{Code: rtunpb.RstCode_RST_CODE_INTERNAL}}},
 				}})
 				if s.m != nil {

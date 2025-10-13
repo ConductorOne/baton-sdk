@@ -121,7 +121,7 @@ func (c *virtConn) Write(p []byte) (int, error) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	if c.writeClosed {
-		return 0, ErrClosed
+		return 0, net.ErrClosed
 	}
 	// Writes are allowed even after remote FIN (half-close), so we do not block based on remote state.
 	total := 0

@@ -164,7 +164,7 @@ func (s *Session) addListener(l *rtunListener) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closing {
-		return ErrClosed
+		return net.ErrClosed
 	}
 	if _, exists := s.listeners[l.port]; exists {
 		return errors.New("rtun: listener already exists for port")
@@ -348,7 +348,7 @@ func (s *Session) Open(ctx context.Context, port uint32) (net.Conn, error) {
 	s.mu.Lock()
 	if s.closing {
 		s.mu.Unlock()
-		return nil, ErrClosed
+		return nil, net.ErrClosed
 	}
 	sid := s.nextSID
 	if sid == 0 {

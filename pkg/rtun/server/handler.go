@@ -13,7 +13,7 @@ import (
 
 // Handler implements the ReverseTunnel gRPC service, binding Links to Sessions and the Registry.
 type Handler struct {
-	rtunpb.UnimplementedReverseTunnelServer
+	rtunpb.UnimplementedReverseTunnelServiceServer
 
 	reg      *Registry
 	serverID string
@@ -25,7 +25,7 @@ type Handler struct {
 	m *serverMetrics
 }
 
-func NewHandler(reg *Registry, serverID string, tv TokenValidator, opts ...Option) rtunpb.ReverseTunnelServer {
+func NewHandler(reg *Registry, serverID string, tv TokenValidator, opts ...Option) rtunpb.ReverseTunnelServiceServer {
 	var o options
 	for _, opt := range opts {
 		if opt == nil {
@@ -41,7 +41,7 @@ func NewHandler(reg *Registry, serverID string, tv TokenValidator, opts ...Optio
 }
 
 // Link accepts a bidi stream and binds it to a transport.Session after validating HELLO.
-func (h *Handler) Link(stream rtunpb.ReverseTunnel_LinkServer) error {
+func (h *Handler) Link(stream rtunpb.ReverseTunnelService_LinkServer) error {
 	// Wrap the gRPC stream as transport.Link
 	l := &grpcLink{srv: stream}
 
@@ -136,9 +136,19 @@ func (h *Handler) Link(stream rtunpb.ReverseTunnel_LinkServer) error {
 
 // grpcLink adapts the gRPC server stream to transport.Link
 type grpcLink struct {
-	srv rtunpb.ReverseTunnel_LinkServer
+	srv rtunpb.ReverseTunnelService_LinkServer
 }
 
-func (g *grpcLink) Send(f *rtunpb.Frame) error   { return g.srv.Send(f) }
-func (g *grpcLink) Recv() (*rtunpb.Frame, error) { return g.srv.Recv() }
-func (g *grpcLink) Context() context.Context     { return g.srv.Context() }
+func (g *grpcLink) Send(f *rtunpb.Frame) error {
+	return g.srv.Send(&rtunpb.ReverseTunnelServiceLinkResponse{Frame: f})
+}
+
+func (g *grpcLink) Recv() (*rtunpb.Frame, error) {
+	fr, err := g.srv.Recv()
+	if err != nil {
+		return nil, err
+	}
+	return fr.GetFrame(), nil
+}
+
+func (g *grpcLink) Context() context.Context { return g.srv.Context() }

@@ -4,8 +4,16 @@ package c1.connectorapi.rtun.v1;
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connectorapi/rtun/v1";
 
-service ReverseTunnel {
-  rpc Link(stream Frame) returns (stream Frame);
+service ReverseTunnelService {
+  rpc Link(stream ReverseTunnelServiceLinkRequest) returns (stream ReverseTunnelServiceLinkResponse);
+}
+
+message ReverseTunnelServiceLinkRequest {
+  Frame frame = 1;
+}
+
+message ReverseTunnelServiceLinkResponse {
+  Frame frame = 1;
 }
 
 message Frame {

@@ -33,8 +33,8 @@ func setupGateway(t *testing.T, silent bool) *gwEnv {
 	gw := NewServer(reg, "server-a", nil)
 
 	gsrv := grpc.NewServer()
-	rtunpb.RegisterReverseTunnelServer(gsrv, handler)
-	rtunpb.RegisterReverseDialerServer(gsrv, gw)
+	rtunpb.RegisterReverseTunnelServiceServer(gsrv, handler)
+	rtunpb.RegisterReverseDialerServiceServer(gsrv, gw)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	go func() { _ = gsrv.Serve(l) }()
@@ -42,7 +42,7 @@ func setupGateway(t *testing.T, silent bool) *gwEnv {
 	// Bring up a client link and listen on port 1
 	cc, err := grpc.Dial(l.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
-	rtunClient := rtunpb.NewReverseTunnelClient(cc)
+	rtunClient := rtunpb.NewReverseTunnelServiceClient(cc)
 	stream, err := rtunClient.Link(context.Background())
 	require.NoError(t, err)
 	cl := &clientLink{cli: stream}

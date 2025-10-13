@@ -19,98 +19,98 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ReverseDialer_Open_FullMethodName = "/c1.connectorapi.rtun.v1.ReverseDialer/Open"
+	ReverseDialerService_Open_FullMethodName = "/c1.connectorapi.rtun.v1.ReverseDialerService/Open"
 )
 
-// ReverseDialerClient is the client API for ReverseDialer service.
+// ReverseDialerServiceClient is the client API for ReverseDialerService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // ReverseDialer allows callers to establish connections to clients via the gateway.
 // The gateway bridges caller streams to rtun sessions on the owner server.
-type ReverseDialerClient interface {
-	Open(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[GatewayRequest, GatewayResponse], error)
+type ReverseDialerServiceClient interface {
+	Open(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ReverseDialerServiceOpenRequest, ReverseDialerServiceOpenResponse], error)
 }
 
-type reverseDialerClient struct {
+type reverseDialerServiceClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewReverseDialerClient(cc grpc.ClientConnInterface) ReverseDialerClient {
-	return &reverseDialerClient{cc}
+func NewReverseDialerServiceClient(cc grpc.ClientConnInterface) ReverseDialerServiceClient {
+	return &reverseDialerServiceClient{cc}
 }
 
-func (c *reverseDialerClient) Open(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[GatewayRequest, GatewayResponse], error) {
+func (c *reverseDialerServiceClient) Open(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ReverseDialerServiceOpenRequest, ReverseDialerServiceOpenResponse], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &ReverseDialer_ServiceDesc.Streams[0], ReverseDialer_Open_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &ReverseDialerService_ServiceDesc.Streams[0], ReverseDialerService_Open_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[GatewayRequest, GatewayResponse]{ClientStream: stream}
+	x := &grpc.GenericClientStream[ReverseDialerServiceOpenRequest, ReverseDialerServiceOpenResponse]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ReverseDialer_OpenClient = grpc.BidiStreamingClient[GatewayRequest, GatewayResponse]
+type ReverseDialerService_OpenClient = grpc.BidiStreamingClient[ReverseDialerServiceOpenRequest, ReverseDialerServiceOpenResponse]
 
-// ReverseDialerServer is the server API for ReverseDialer service.
-// All implementations should embed UnimplementedReverseDialerServer
+// ReverseDialerServiceServer is the server API for ReverseDialerService service.
+// All implementations should embed UnimplementedReverseDialerServiceServer
 // for forward compatibility.
 //
 // ReverseDialer allows callers to establish connections to clients via the gateway.
 // The gateway bridges caller streams to rtun sessions on the owner server.
-type ReverseDialerServer interface {
-	Open(grpc.BidiStreamingServer[GatewayRequest, GatewayResponse]) error
+type ReverseDialerServiceServer interface {
+	Open(grpc.BidiStreamingServer[ReverseDialerServiceOpenRequest, ReverseDialerServiceOpenResponse]) error
 }
 
-// UnimplementedReverseDialerServer should be embedded to have
+// UnimplementedReverseDialerServiceServer should be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedReverseDialerServer struct{}
+type UnimplementedReverseDialerServiceServer struct{}
 
-func (UnimplementedReverseDialerServer) Open(grpc.BidiStreamingServer[GatewayRequest, GatewayResponse]) error {
+func (UnimplementedReverseDialerServiceServer) Open(grpc.BidiStreamingServer[ReverseDialerServiceOpenRequest, ReverseDialerServiceOpenResponse]) error {
 	return status.Errorf(codes.Unimplemented, "method Open not implemented")
 }
-func (UnimplementedReverseDialerServer) testEmbeddedByValue() {}
+func (UnimplementedReverseDialerServiceServer) testEmbeddedByValue() {}
 
-// UnsafeReverseDialerServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to ReverseDialerServer will
+// UnsafeReverseDialerServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to ReverseDialerServiceServer will
 // result in compilation errors.
-type UnsafeReverseDialerServer interface {
-	mustEmbedUnimplementedReverseDialerServer()
+type UnsafeReverseDialerServiceServer interface {
+	mustEmbedUnimplementedReverseDialerServiceServer()
 }
 
-func RegisterReverseDialerServer(s grpc.ServiceRegistrar, srv ReverseDialerServer) {
-	// If the following call pancis, it indicates UnimplementedReverseDialerServer was
+func RegisterReverseDialerServiceServer(s grpc.ServiceRegistrar, srv ReverseDialerServiceServer) {
+	// If the following call pancis, it indicates UnimplementedReverseDialerServiceServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&ReverseDialer_ServiceDesc, srv)
+	s.RegisterService(&ReverseDialerService_ServiceDesc, srv)
 }
 
-func _ReverseDialer_Open_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ReverseDialerServer).Open(&grpc.GenericServerStream[GatewayRequest, GatewayResponse]{ServerStream: stream})
+func _ReverseDialerService_Open_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ReverseDialerServiceServer).Open(&grpc.GenericServerStream[ReverseDialerServiceOpenRequest, ReverseDialerServiceOpenResponse]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ReverseDialer_OpenServer = grpc.BidiStreamingServer[GatewayRequest, GatewayResponse]
+type ReverseDialerService_OpenServer = grpc.BidiStreamingServer[ReverseDialerServiceOpenRequest, ReverseDialerServiceOpenResponse]
 
-// ReverseDialer_ServiceDesc is the grpc.ServiceDesc for ReverseDialer service.
+// ReverseDialerService_ServiceDesc is the grpc.ServiceDesc for ReverseDialerService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var ReverseDialer_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "c1.connectorapi.rtun.v1.ReverseDialer",
-	HandlerType: (*ReverseDialerServer)(nil),
+var ReverseDialerService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "c1.connectorapi.rtun.v1.ReverseDialerService",
+	HandlerType: (*ReverseDialerServiceServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Open",
-			Handler:       _ReverseDialer_Open_Handler,
+			Handler:       _ReverseDialerService_Open_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

@@ -35,6 +35,272 @@ var (
 	_ = sort.Sort
 )
 
+// Validate checks the field values on ReverseTunnelServiceLinkRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ReverseTunnelServiceLinkRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ReverseTunnelServiceLinkRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// ReverseTunnelServiceLinkRequestMultiError, or nil if none found.
+func (m *ReverseTunnelServiceLinkRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ReverseTunnelServiceLinkRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetFrame()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ReverseTunnelServiceLinkRequestValidationError{
+					field:  "Frame",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ReverseTunnelServiceLinkRequestValidationError{
+					field:  "Frame",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetFrame()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ReverseTunnelServiceLinkRequestValidationError{
+				field:  "Frame",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return ReverseTunnelServiceLinkRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// ReverseTunnelServiceLinkRequestMultiError is an error wrapping multiple
+// validation errors returned by ReverseTunnelServiceLinkRequest.ValidateAll()
+// if the designated constraints aren't met.
+type ReverseTunnelServiceLinkRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ReverseTunnelServiceLinkRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ReverseTunnelServiceLinkRequestMultiError) AllErrors() []error { return m }
+
+// ReverseTunnelServiceLinkRequestValidationError is the validation error
+// returned by ReverseTunnelServiceLinkRequest.Validate if the designated
+// constraints aren't met.
+type ReverseTunnelServiceLinkRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ReverseTunnelServiceLinkRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ReverseTunnelServiceLinkRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ReverseTunnelServiceLinkRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ReverseTunnelServiceLinkRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ReverseTunnelServiceLinkRequestValidationError) ErrorName() string {
+	return "ReverseTunnelServiceLinkRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ReverseTunnelServiceLinkRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sReverseTunnelServiceLinkRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ReverseTunnelServiceLinkRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ReverseTunnelServiceLinkRequestValidationError{}
+
+// Validate checks the field values on ReverseTunnelServiceLinkResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *ReverseTunnelServiceLinkResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ReverseTunnelServiceLinkResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// ReverseTunnelServiceLinkResponseMultiError, or nil if none found.
+func (m *ReverseTunnelServiceLinkResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ReverseTunnelServiceLinkResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetFrame()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ReverseTunnelServiceLinkResponseValidationError{
+					field:  "Frame",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ReverseTunnelServiceLinkResponseValidationError{
+					field:  "Frame",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetFrame()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ReverseTunnelServiceLinkResponseValidationError{
+				field:  "Frame",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return ReverseTunnelServiceLinkResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// ReverseTunnelServiceLinkResponseMultiError is an error wrapping multiple
+// validation errors returned by
+// ReverseTunnelServiceLinkResponse.ValidateAll() if the designated
+// constraints aren't met.
+type ReverseTunnelServiceLinkResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ReverseTunnelServiceLinkResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ReverseTunnelServiceLinkResponseMultiError) AllErrors() []error { return m }
+
+// ReverseTunnelServiceLinkResponseValidationError is the validation error
+// returned by ReverseTunnelServiceLinkResponse.Validate if the designated
+// constraints aren't met.
+type ReverseTunnelServiceLinkResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ReverseTunnelServiceLinkResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ReverseTunnelServiceLinkResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ReverseTunnelServiceLinkResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ReverseTunnelServiceLinkResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ReverseTunnelServiceLinkResponseValidationError) ErrorName() string {
+	return "ReverseTunnelServiceLinkResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ReverseTunnelServiceLinkResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sReverseTunnelServiceLinkResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ReverseTunnelServiceLinkResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ReverseTunnelServiceLinkResponseValidationError{}
+
 // Validate checks the field values on Frame with the rules defined in the
 // proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
