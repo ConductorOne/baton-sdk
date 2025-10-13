@@ -11,12 +11,14 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/rtun/transport"
 )
 
+// Registry tracks active client Sessions by client ID and mediates reverse dials.
 type Registry struct {
 	mu       sync.RWMutex
 	sessions map[string]*transport.Session
 	m        *serverMetrics
 }
 
+// NewRegistry creates a new Registry. Metrics can be enabled via options.
 func NewRegistry(opts ...Option) *Registry {
 	var o options
 	for _, opt := range opts {

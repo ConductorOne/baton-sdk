@@ -14,6 +14,7 @@ type rtunListener struct {
 	err     error
 }
 
+// Accept implements net.Listener and returns the next inbound connection.
 func (l *rtunListener) Accept() (net.Conn, error) {
 	l.mu.Lock()
 	lerr := l.err
@@ -34,6 +35,7 @@ func (l *rtunListener) Accept() (net.Conn, error) {
 	return c, nil
 }
 
+// Close implements net.Listener and stops accepting new connections.
 func (l *rtunListener) Close() error {
 	l.mu.Lock()
 	if l.closed {
@@ -47,6 +49,7 @@ func (l *rtunListener) Close() error {
 	return nil
 }
 
+// Addr implements net.Listener.
 func (l *rtunListener) Addr() net.Addr { return rtunAddr{"rtun-listener"} }
 
 func (l *rtunListener) enqueue(c *virtConn) {

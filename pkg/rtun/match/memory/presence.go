@@ -15,6 +15,7 @@ type Presence struct {
 	ports  map[string][]uint32             // clientID -> ports
 }
 
+// NewPresence returns an in-memory Presence tracker.
 func NewPresence() *Presence {
 	return &Presence{
 		leases: make(map[string]map[string]time.Time),

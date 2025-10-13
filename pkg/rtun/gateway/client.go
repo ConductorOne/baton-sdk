@@ -97,7 +97,7 @@ func (d *Dialer) DialContext(ctx context.Context, clientID string, port uint32) 
 	if err := stream.Send(&rtunpb.ReverseDialerServiceOpenRequest{Kind: &rtunpb.ReverseDialerServiceOpenRequest_OpenReq{
 		OpenReq: &rtunpb.OpenRequest{Gsid: gsid, ClientId: clientID, Port: port},
 	}}); err != nil {
-		stream.CloseSend()
+		_ = stream.CloseSend()
 		cancel()
 		cc.Close()
 		return nil, fmt.Errorf("gateway send OpenRequest failed: %w", err)
@@ -106,7 +106,7 @@ func (d *Dialer) DialContext(ctx context.Context, clientID string, port uint32) 
 	// Recv OpenResponse
 	resp, err := stream.Recv()
 	if err != nil {
-		stream.CloseSend()
+		_ = stream.CloseSend()
 		cancel()
 		cc.Close()
 		return nil, fmt.Errorf("gateway recv OpenResponse failed: %w", err)
@@ -114,13 +114,13 @@ func (d *Dialer) DialContext(ctx context.Context, clientID string, port uint32) 
 
 	openResp := resp.GetOpenResp()
 	if openResp == nil {
-		stream.CloseSend()
+		_ = stream.CloseSend()
 		cancel()
 		cc.Close()
 		return nil, ErrProtocol
 	}
 	if openResp.GetGsid() != gsid {
-		stream.CloseSend()
+		_ = stream.CloseSend()
 		cancel()
 		cc.Close()
 		return nil, fmt.Errorf("gateway returned mismatched gSID: got %d, want %d", openResp.GetGsid(), gsid)
@@ -128,7 +128,7 @@ func (d *Dialer) DialContext(ctx context.Context, clientID string, port uint32) 
 
 	switch openResp.Result.(type) {
 	case *rtunpb.OpenResponse_NotFound:
-		stream.CloseSend()
+		_ = stream.CloseSend()
 		cancel()
 		cc.Close()
 		logger.Info("client not found on gateway")
@@ -147,7 +147,7 @@ func (d *Dialer) DialContext(ctx context.Context, clientID string, port uint32) 
 		gc.w = newWriter(stream, gsid, d.writeQueueCap, doneCh)
 		return gc, nil
 	default:
-		stream.CloseSend()
+		_ = stream.CloseSend()
 		cancel()
 		cc.Close()
 		return nil, ErrProtocol
@@ -167,6 +167,7 @@ type gatewayConn struct {
 	r *reader
 	w *writer
 
+	readMu      sync.Mutex
 	writeMu     sync.Mutex
 	writeClosed bool
 
@@ -388,14 +389,18 @@ func (g *gatewayConn) Read(p []byte) (int, error) {
 	}
 	g.r.mu.Unlock()
 
-	// Compute deadline context
+	// Compute deadline context (snapshot under lock)
+	g.readMu.Lock()
+	deadline := g.rdDeadline
+	g.readMu.Unlock()
+
 	var ctx context.Context
 	var cancel context.CancelFunc
-	if g.rdDeadline.IsZero() {
+	if deadline.IsZero() {
 		ctx = context.Background()
 		cancel = func() {}
 	} else {
-		until := time.Until(g.rdDeadline)
+		until := time.Until(deadline)
 		if until <= 0 {
 			return 0, context.DeadlineExceeded
 		}
@@ -439,7 +444,10 @@ func (g *gatewayConn) Write(p []byte) (int, error) {
 		g.writeMu.Unlock()
 		return 0, fmt.Errorf("rtun/gateway: write on closed connection: %w", net.ErrClosed)
 	}
-	g.writeMu.Unlock()
+	// snapshot write deadline while holding the write lock
+	deadline := g.wrDeadline
+	// keep writeMu locked for the duration to serialize writes and SetWriteDeadline
+	defer g.writeMu.Unlock()
 
 	if err := g.w.getErr(); err != nil {
 		return 0, err
@@ -452,7 +460,7 @@ func (g *gatewayConn) Write(p []byte) (int, error) {
 			chunk = p[:maxChunkSize]
 		}
 		cp := append([]byte(nil), chunk...)
-		if err := g.w.enqueue(writeMsg{payload: cp}, g.wrDeadline); err != nil {
+		if err := g.w.enqueue(writeMsg{payload: cp}, deadline); err != nil {
 			if total == 0 {
 				return 0, err
 			}
@@ -500,18 +508,26 @@ func (g *gatewayConn) LocalAddr() net.Addr  { return gatewayAddr{"gateway-local"
 func (g *gatewayConn) RemoteAddr() net.Addr { return gatewayAddr{"gateway-remote"} }
 
 func (g *gatewayConn) SetDeadline(t time.Time) error {
+	g.readMu.Lock()
 	g.rdDeadline = t
+	g.readMu.Unlock()
+	g.writeMu.Lock()
 	g.wrDeadline = t
+	g.writeMu.Unlock()
 	return nil
 }
 
 func (g *gatewayConn) SetReadDeadline(t time.Time) error {
+	g.readMu.Lock()
 	g.rdDeadline = t
+	g.readMu.Unlock()
 	return nil
 }
 
 func (g *gatewayConn) SetWriteDeadline(t time.Time) error {
+	g.writeMu.Lock()
 	g.wrDeadline = t
+	g.writeMu.Unlock()
 	return nil
 }
 

@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"testing"
@@ -41,7 +42,7 @@ func TestVirtConnCloseIdempotentAndWriteAfterClose(t *testing.T) {
 
 	// Read after close yields EOF or ErrClosed
 	_, err = c.Read(make([]byte, 1))
-	require.True(t, err == io.EOF || err == net.ErrClosed)
+	require.True(t, errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed))
 }
 
 func TestVirtConnRemoteRstPropagatesToRead(t *testing.T) {

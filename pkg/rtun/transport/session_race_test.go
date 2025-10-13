@@ -46,15 +46,15 @@ func TestConcurrentOperationsNoPanic(t *testing.T) {
 	}
 
 	// Feed random frames
-	for i := 0; i < 20; i++ {
+	for u := uint32(0); u < 20; u++ {
 		wg.Add(1)
-		go func(i int) {
+		go func(i uint32) {
 			defer wg.Done()
-			sid := uint32(100 + i)
+			sid := 100 + i
 			tl.push(&rtunpb.Frame{Sid: sid, Kind: &rtunpb.Frame_Syn{Syn: &rtunpb.Syn{Port: 1}}})
 			time.Sleep(2 * time.Millisecond)
 			tl.push(&rtunpb.Frame{Sid: sid, Kind: &rtunpb.Frame_Data{Data: &rtunpb.Data{Payload: []byte("x")}}})
-		}(i)
+		}(u)
 	}
 
 	wg.Wait()

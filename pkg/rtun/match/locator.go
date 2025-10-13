@@ -5,10 +5,13 @@ import (
 	"hash/fnv"
 )
 
+// Locator selects the owning server for a client based on presence and rendezvous hashing.
 type Locator struct {
 	Presence Presence
 }
 
+// OwnerOf returns the server that currently owns the client's link along with the client's ports.
+// It uses Presence to list available servers and rendezvous hashing to choose among them.
 func (l *Locator) OwnerOf(ctx context.Context, clientID string) (serverID string, ports []uint32, err error) {
 	if l == nil || l.Presence == nil {
 		return "", nil, ErrNotImplemented

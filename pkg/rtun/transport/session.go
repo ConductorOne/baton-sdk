@@ -154,10 +154,12 @@ func (s *Session) Listen(ctx context.Context, port uint32, opts ...Option) (net.
 	return l, nil
 }
 
-func (s *Session) removeConn(sid uint32) {
+func (s *Session) removeConn(sid uint32) int {
 	s.mu.Lock()
 	delete(s.conns, sid)
+	n := len(s.conns)
 	s.mu.Unlock()
+	return n
 }
 
 func (s *Session) addListener(l *rtunListener) error {
@@ -253,9 +255,8 @@ func (s *Session) recvLoop() {
 			}
 			s.conns[sid] = vc
 			vc.startIdleTimer()
-			if s.m != nil {
-				s.m.incSidsActive(s.link.Context(), 1)
-			}
+			// capture new connection count under lock for gauge update
+			newCount := len(s.conns)
 			// Drain any pending data queued before SYN
 			if q := s.pending[sid]; len(q) > 0 {
 				for _, p := range q {
@@ -264,6 +265,9 @@ func (s *Session) recvLoop() {
 				delete(s.pending, sid)
 			}
 			s.mu.Unlock()
+			if s.m != nil {
+				s.m.setSidsActive(s.link.Context(), int64(newCount))
+			}
 			l.enqueue(vc)
 		case *rtunpb.Frame_Data:
 			s.mu.Lock()
@@ -295,12 +299,12 @@ func (s *Session) recvLoop() {
 			s.mu.Unlock()
 			if c != nil {
 				c.handleFin(k.Fin.GetAck())
-				s.removeConn(sid)
+				n := s.removeConn(sid)
 				s.mu.Lock()
 				s.closed.Close(sid)
 				s.mu.Unlock()
 				if s.m != nil {
-					s.m.incSidsActive(s.link.Context(), -1)
+					s.m.setSidsActive(s.link.Context(), int64(n))
 				}
 			}
 		case *rtunpb.Frame_Rst:
@@ -312,12 +316,12 @@ func (s *Session) recvLoop() {
 					s.m.recordRstRecv(s.link.Context(), k.Rst.GetCode().String())
 				}
 				c.handleRst(ErrConnReset)
-				s.removeConn(sid)
+				n := s.removeConn(sid)
 				s.mu.Lock()
 				s.closed.Close(sid)
 				s.mu.Unlock()
 				if s.m != nil {
-					s.m.incSidsActive(s.link.Context(), -1)
+					s.m.setSidsActive(s.link.Context(), int64(n))
 				}
 			}
 		}
@@ -362,12 +366,19 @@ func (s *Session) Open(ctx context.Context, port uint32) (net.Conn, error) {
 	// Send SYN to remote
 	if err := s.link.Send(&rtunpb.Frame{Sid: sid, Kind: &rtunpb.Frame_Syn{Syn: &rtunpb.Syn{Port: port}}}); err != nil {
 		// Cleanup on failure
-		s.removeConn(sid)
+		n := s.removeConn(sid)
+		if s.m != nil {
+			s.m.setSidsActive(s.link.Context(), int64(n))
+		}
 		return nil, err
 	}
 	vc.startIdleTimer()
 	if s.m != nil {
-		s.m.incSidsActive(s.link.Context(), 1)
+		// set gauge to current number of conns after successful open
+		s.mu.Lock()
+		n := len(s.conns)
+		s.mu.Unlock()
+		s.m.setSidsActive(s.link.Context(), int64(n))
 		s.m.recordFrameTx(s.link.Context(), "SYN")
 	}
 	return vc, nil
@@ -399,7 +410,7 @@ func (s *Session) failLocked(err error) {
 	s.mu.Unlock()
 }
 
-// metrics helpers
+// metrics helpers.
 type transportMetrics struct {
 	framesRx  sdkmetrics.Int64Counter
 	framesTx  sdkmetrics.Int64Counter
@@ -408,8 +419,6 @@ type transportMetrics struct {
 	rstSent   sdkmetrics.Int64Counter
 	rstRecv   sdkmetrics.Int64Counter
 	sidsGauge sdkmetrics.Int64Gauge
-
-	sids int64
 }
 
 func newTransportMetrics(h sdkmetrics.Handler) *transportMetrics {
@@ -427,9 +436,8 @@ func newTransportMetrics(h sdkmetrics.Handler) *transportMetrics {
 	return m
 }
 
-func (m *transportMetrics) incSidsActive(ctx context.Context, delta int64) {
-	m.sids += delta
-	m.sidsGauge.Observe(ctx, m.sids, nil)
+func (m *transportMetrics) setSidsActive(ctx context.Context, value int64) {
+	m.sidsGauge.Observe(ctx, value, nil)
 }
 
 func (m *transportMetrics) recordFrameRx(ctx context.Context, kind string) {

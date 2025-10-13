@@ -43,10 +43,11 @@ func newVirtConn(m *Session, sid uint32) *virtConn {
 	return &virtConn{
 		mux:    m,
 		sid:    sid,
-		readCh: make(chan []byte, 16),
+		readCh: make(chan []byte, 256),
 	}
 }
 
+// Read implements net.Conn for virtConn by returning data delivered for this SID, honoring read deadlines.
 func (c *virtConn) Read(p []byte) (int, error) {
 	// Check terminal error or remainder under lock
 	c.readMu.Lock()
@@ -117,6 +118,7 @@ func (c *virtConn) Read(p []byte) (int, error) {
 	}
 }
 
+// Write implements net.Conn for virtConn by sending DATA frames for this SID, honoring write deadlines.
 func (c *virtConn) Write(p []byte) (int, error) {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
@@ -151,6 +153,7 @@ func (c *virtConn) Write(p []byte) (int, error) {
 	return total, nil
 }
 
+// Close implements net.Conn for virtConn by half-closing writes (sending FIN) and releasing resources.
 func (c *virtConn) Close() error {
 	c.writeMu.Lock()
 	if c.writeClosed {
@@ -175,9 +178,13 @@ func (c *virtConn) Close() error {
 	return nil
 }
 
-func (c *virtConn) LocalAddr() net.Addr  { return rtunAddr{"rtun-local"} }
+// LocalAddr implements net.Conn.
+func (c *virtConn) LocalAddr() net.Addr { return rtunAddr{"rtun-local"} }
+
+// RemoteAddr implements net.Conn.
 func (c *virtConn) RemoteAddr() net.Addr { return rtunAddr{"rtun-remote"} }
 
+// SetDeadline implements net.Conn.
 func (c *virtConn) SetDeadline(t time.Time) error {
 	c.readMu.Lock()
 	c.rdDeadline = t
@@ -188,6 +195,7 @@ func (c *virtConn) SetDeadline(t time.Time) error {
 	return nil
 }
 
+// SetReadDeadline implements net.Conn.
 func (c *virtConn) SetReadDeadline(t time.Time) error {
 	c.readMu.Lock()
 	c.rdDeadline = t
@@ -195,6 +203,7 @@ func (c *virtConn) SetReadDeadline(t time.Time) error {
 	return nil
 }
 
+// SetWriteDeadline implements net.Conn.
 func (c *virtConn) SetWriteDeadline(t time.Time) error {
 	c.writeMu.Lock()
 	c.wrDeadline = t
@@ -216,15 +225,10 @@ func (c *virtConn) feedData(b []byte) {
 		// delivered
 		c.onActivity()
 	default:
-		// backpressure: mark error, close channel, send RST, and detach from session to avoid further deliveries
-		c.readMu.Lock()
-		if c.readErr == nil {
-			c.readErr = errors.New("rtun: inbound buffer overflow")
-		}
-		c.readMu.Unlock()
-		c.closeReadOnce.Do(func() { close(c.readCh) })
+		// backpressure: send RST, perform full RST handling (including write-side close), and detach from session
+		err := errors.New("rtun: inbound buffer overflow")
 		_ = c.mux.link.Send(&rtunpb.Frame{Sid: c.sid, Kind: &rtunpb.Frame_Rst{Rst: &rtunpb.Rst{Code: rtunpb.RstCode_RST_CODE_INTERNAL}}})
-		c.stopIdleTimer()
+		c.handleRst(err)
 		c.mux.removeConn(c.sid)
 	}
 }

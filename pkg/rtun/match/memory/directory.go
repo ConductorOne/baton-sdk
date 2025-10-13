@@ -7,6 +7,7 @@ import (
 	"time"
 )
 
+// ErrServerNotFound indicates a server ID has no active advertisement.
 var ErrServerNotFound = errors.New("rtun/match: server not found")
 
 // Directory is an in-memory Directory for tests and single-node deployments.
@@ -20,6 +21,7 @@ type record struct {
 	expires time.Time
 }
 
+// NewDirectory returns an in-memory Directory.
 func NewDirectory() *Directory {
 	return &Directory{
 		servers: make(map[string]record),

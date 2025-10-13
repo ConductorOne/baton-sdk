@@ -25,6 +25,8 @@ type Handler struct {
 	m *serverMetrics
 }
 
+// NewHandler constructs a ReverseTunnel gRPC handler bound to a `Registry` and `TokenValidator`.
+// It optionally enables metrics if provided via options.
 func NewHandler(reg *Registry, serverID string, tv TokenValidator, opts ...Option) rtunpb.ReverseTunnelServiceServer {
 	var o options
 	for _, opt := range opts {
@@ -134,7 +136,7 @@ func (h *Handler) Link(stream rtunpb.ReverseTunnelService_LinkServer) error {
 	return stream.Context().Err()
 }
 
-// grpcLink adapts the gRPC server stream to transport.Link
+// grpcLink adapts the gRPC server stream to transport.Link.
 type grpcLink struct {
 	srv rtunpb.ReverseTunnelService_LinkServer
 }

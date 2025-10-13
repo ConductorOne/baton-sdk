@@ -271,8 +271,8 @@ func TestBackpressureInboundOverflow(t *testing.T) {
 		t.Fatal("accept timeout")
 	}
 
-	// Push more frames than the read buffer can hold (capacity 16) without reading.
-	for i := 0; i < 20; i++ {
+	// Push more frames than the read buffer can hold (capacity 256) without reading.
+	for i := 0; i < 300; i++ {
 		tl.push(&rtunpb.Frame{Sid: 23, Kind: &rtunpb.Frame_Data{Data: &rtunpb.Data{Payload: []byte{byte(i)}}}})
 	}
 	// Give the loop a moment to overflow and close.

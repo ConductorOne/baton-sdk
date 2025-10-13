@@ -69,8 +69,8 @@ func TestOwnerRouterTwoServers(t *testing.T) {
 	go func() { _ = cgsA.Serve(lnA) }()
 
 	// Mark client-123 online on server-a in presence
-	_ = presence.SetPorts(ctx, "client-123", []uint32{1})
-	_ = presence.Announce(ctx, "client-123", "server-a", 10*time.Second)
+	require.NoError(t, presence.SetPorts(ctx, "client-123", []uint32{1}))
+	require.NoError(t, presence.Announce(ctx, "client-123", "server-a", 10*time.Second))
 
 	// Server B (caller) uses OwnerRouter to find and dial server A
 	router := &OwnerRouter{
