@@ -23,7 +23,7 @@ func ComposeDecodeHookFunc(opts ...DecodeHookOption) mapstructure.DecodeHookFunc
 		hookFuncs: []mapstructure.DecodeHookFunc{
 			// default hook functions used by viper
 			mapstructure.StringToTimeDurationHookFunc(),
-			mapstructure.StringToSliceHookFunc(","),
+			StringToSliceHookFunc(","),
 		},
 	}
 	for _, opt := range opts {
@@ -139,4 +139,26 @@ func parseJSONBase64DataURL(dataURL string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to decode base64 data: %v", err)
 	}
 	return decoded, nil
+}
+
+// StringToSliceHookFunc returns a DecodeHookFunc that converts
+// string to []string by splitting on the given sep.
+// Note: this differs from mapstructure.StringToSliceHookFunc in that it ensures
+// the target type is a []string and not []any.
+func StringToSliceHookFunc(sep string) mapstructure.DecodeHookFunc {
+	return func(
+		f reflect.Type,
+		t reflect.Type,
+		data interface{}) (interface{}, error) {
+		if f.Kind() != reflect.String || t.Kind() != reflect.Slice || t.Elem().Kind() != reflect.String {
+			return data, nil
+		}
+
+		raw := data.(string)
+		if raw == "" {
+			return []string{}, nil
+		}
+
+		return strings.Split(raw, sep), nil
+	}
 }
