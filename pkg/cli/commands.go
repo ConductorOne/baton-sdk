@@ -307,6 +307,11 @@ func MakeMainCommand[T field.Configurable](
 					connectorrunner.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")),
 					connectorrunner.WithOnDemandSync(v.GetString("file")),
 				)
+			case len(v.GetStringSlice("sync-resource-types")) > 0:
+				opts = append(opts,
+					connectorrunner.WithSyncResourceTypeIDs(v.GetStringSlice("sync-resource-types")),
+					connectorrunner.WithOnDemandSync(v.GetString("file")),
+				)
 			case v.GetBool("diff-syncs"):
 				opts = append(opts,
 					connectorrunner.WithDiffSyncs(
@@ -561,6 +566,8 @@ func MakeGRPCServerCommand[T field.Configurable](
 			copts = append(copts, connector.WithTicketingEnabled())
 		case len(v.GetStringSlice("sync-resources")) > 0:
 			copts = append(copts, connector.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")))
+		case len(v.GetStringSlice("sync-resource-types")) > 0:
+			copts = append(copts, connector.WithSyncResourceTypeIDs(v.GetStringSlice("sync-resource-types")))
 		}
 
 		cw, err := connector.NewWrapper(runCtx, c, copts...)

@@ -23,6 +23,7 @@ type localSyncer struct {
 	externalResourceEntitlementIdFilter string
 	targetedSyncResourceIDs             []string
 	skipEntitlementsAndGrants           bool
+	syncResourceTypeIDs                 []string
 }
 
 type Option func(*localSyncer)
@@ -48,6 +49,12 @@ func WithExternalResourceEntitlementIdFilter(entitlementId string) Option {
 func WithTargetedSyncResourceIDs(resourceIDs []string) Option {
 	return func(m *localSyncer) {
 		m.targetedSyncResourceIDs = resourceIDs
+	}
+}
+
+func WithSyncResourceTypeIDs(resourceTypeIDs []string) Option {
+	return func(m *localSyncer) {
+		m.syncResourceTypeIDs = resourceTypeIDs
 	}
 }
 
@@ -91,6 +98,7 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithTargetedSyncResourceIDs(m.targetedSyncResourceIDs),
 		sdkSync.WithSkipEntitlementsAndGrants(m.skipEntitlementsAndGrants),
 		sdkSync.WithSessionStore(setSessionStore),
+		sdkSync.WithSyncResourceTypes(m.syncResourceTypeIDs),
 	)
 	if err != nil {
 		return err

@@ -203,6 +203,8 @@ func WithTicketingEnabled() Opt {
 	}
 }
 
+// TODO(lauren) do we want option here?
+
 func WithMetricsHandler(h metrics.Handler) Opt {
 	return func(b *builder) error {
 		b.m = metrics.New(h)

@@ -219,6 +219,7 @@ type syncer struct {
 	syncType                            connectorstore.SyncType
 	injectSyncIDAnnotation              bool
 	setSessionStore                     session.SetSessionStore
+	syncResourceTypes                   []string
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -685,13 +686,28 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 		return err
 	}
 
-	err = s.store.PutResourceTypes(ctx, resp.List...)
+	var resourceTypes []*v2.ResourceType
+	if len(s.syncResourceTypes) > 0 {
+		syncResourceTypeMap := make(map[string]bool)
+		for _, rt := range s.syncResourceTypes {
+			syncResourceTypeMap[rt] = true
+		}
+		for _, rt := range resp.List {
+			if shouldSync := syncResourceTypeMap[rt.Id]; shouldSync {
+				resourceTypes = append(resourceTypes, rt)
+			}
+		}
+	} else {
+		resourceTypes = resp.List
+	}
+
+	err = s.store.PutResourceTypes(ctx, resourceTypes...)
 	if err != nil {
 		return err
 	}
 
-	s.counts.ResourceTypes += len(resp.List)
-	s.handleProgress(ctx, s.state.Current(), len(resp.List))
+	s.counts.ResourceTypes += len(resourceTypes)
+	s.handleProgress(ctx, s.state.Current(), len(resourceTypes))
 
 	if resp.NextPageToken == "" {
 		s.counts.LogResourceTypesProgress(ctx)
@@ -2834,6 +2850,12 @@ func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
 func WithSessionStore(sessionStore session.SetSessionStore) SyncOpt {
 	return func(s *syncer) {
 		s.setSessionStore = sessionStore
+	}
+}
+
+func WithSyncResourceTypes(resourceTypeIds []string) SyncOpt {
+	return func(s *syncer) {
+		s.syncResourceTypes = resourceTypeIds
 	}
 }
 
