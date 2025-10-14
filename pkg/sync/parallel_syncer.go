@@ -324,36 +324,45 @@ func newTaskQueue(config *ParallelSyncConfig) *taskQueue {
 	}
 }
 
-// AddTask adds a task to the appropriate queue
-func (q *taskQueue) AddTask(ctx context.Context, t *task) error {
+func (q *taskQueue) getOrCreateBucketChannel(bucket string) (chan *task, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
 	if q.closed {
-		return errors.New("task queue is closed")
+		return nil, errors.New("task queue is closed")
 	}
 
-	// Determine the bucket for this task
-	bucket := q.getBucketForTask(t)
-
 	// Create the bucket queue if it doesn't exist
-	if _, exists := q.bucketQueues[bucket]; !exists {
-		queueSize := 5000 //q.config.WorkerCount * 10
-		q.bucketQueues[bucket] = make(chan *task, queueSize)
+	queue, exists := q.bucketQueues[bucket]
+	if !exists {
+		queueSize := q.config.WorkerCount * 10
+		queue = make(chan *task, queueSize)
+		q.bucketQueues[bucket] = queue
+	}
+
+	return queue, nil
+}
+
+// AddTask adds a task to the appropriate queue
+func (q *taskQueue) AddTask(ctx context.Context, t *task) error {
+	bucket := q.getBucketForTask(t)
+	queue, err := q.getOrCreateBucketChannel(bucket)
+	if err != nil {
+		return err
 	}
 
 	// Add the task to the appropriate bucket queue with timeout
 	// This prevents indefinite blocking while still allowing graceful handling of full queues
 	timeout := 30 * time.Second
 	select {
-	case q.bucketQueues[bucket] <- t:
+	case queue <- t:
 		// Log task addition for debugging
 		l := ctxzap.Extract(ctx)
 		l.Info("task added to queue",
 			zap.String("bucket", bucket),
 			zap.String("operation", t.Action.Op.String()),
 			zap.String("resource_type", t.Action.ResourceTypeID),
-			zap.Int("queue_length", len(q.bucketQueues[bucket])))
+			zap.Int("queue_length", len(queue)))
 		return nil
 	case <-time.After(timeout):
 		return errTaskQueueFull
@@ -364,25 +373,15 @@ func (q *taskQueue) AddTask(ctx context.Context, t *task) error {
 
 // AddTaskWithTimeout adds a task with a custom timeout and dynamic queue expansion
 func (q *taskQueue) AddTaskWithTimeout(ctx context.Context, t *task, timeout time.Duration) error {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	if q.closed {
-		return errors.New("task queue is closed")
-	}
-
-	// Determine the bucket for this task
 	bucket := q.getBucketForTask(t)
-
-	// Create the bucket queue if it doesn't exist
-	if _, exists := q.bucketQueues[bucket]; !exists {
-		queueSize := q.config.WorkerCount * 10
-		q.bucketQueues[bucket] = make(chan *task, queueSize)
+	queue, err := q.getOrCreateBucketChannel(bucket)
+	if err != nil {
+		return err
 	}
 
 	// Try to add the task
 	select {
-	case q.bucketQueues[bucket] <- t:
+	case queue <- t:
 		return nil
 	case <-time.After(timeout):
 		// Queue is full, try to expand it
