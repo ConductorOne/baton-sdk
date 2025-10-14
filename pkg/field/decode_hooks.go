@@ -92,14 +92,13 @@ func parseFileContent(data string) ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	// Check for data URL format first (most explicit)
+	// Check if it's a data URL first
 	if strings.HasPrefix(data, "data:") {
 		return parseJSONBase64DataURL(data)
 	}
 
-	// Check if it's a valid base64 string by trying to decode it
+	// Check if it's a base64 encoded string
 	if decoded, err := base64.StdEncoding.DecodeString(data); err == nil {
-		// If it decodes successfully, it's base64 content
 		return decoded, nil
 	}
 
@@ -144,14 +143,14 @@ func parseJSONBase64DataURL(dataURL string) ([]byte, error) {
 
 // StringToSliceHookFunc returns a DecodeHookFunc that converts
 // string to []string by splitting on the given sep.
-// Note: this differs from mapstructure.StringToSliceHookFunc in that it ensures
-// the target type is a []string and not []any.
+// Note: this differs from mapstructure.StringToSliceHookFunc only in that it
+// skips cases when the target type is []uint8 (ie []byte).
 func StringToSliceHookFunc(sep string) mapstructure.DecodeHookFunc {
 	return func(
 		f reflect.Type,
 		t reflect.Type,
 		data interface{}) (interface{}, error) {
-		if f.Kind() != reflect.String || t.Kind() != reflect.Slice || t.Elem().Kind() != reflect.String {
+		if f.Kind() != reflect.String || t.Kind() != reflect.Slice || t.Elem().Kind() == reflect.Uint8 {
 			return data, nil
 		}
 
