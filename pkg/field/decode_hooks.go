@@ -17,7 +17,8 @@ type decodeHookConfig struct {
 	hookFuncs []mapstructure.DecodeHookFunc
 }
 
-// ComposeDecodeHookFunc returns a mapstructure.DecodeHookFunc that composes the default hook functions with any additional hook functions provided.
+// ComposeDecodeHookFunc returns a mapstructure.DecodeHookFunc that composes
+// the default hook functions with any additional hook functions configured.
 func ComposeDecodeHookFunc(opts ...DecodeHookOption) mapstructure.DecodeHookFunc {
 	config := &decodeHookConfig{
 		hookFuncs: []mapstructure.DecodeHookFunc{
@@ -43,7 +44,7 @@ func WithAdditionalDecodeHooks(funcs ...mapstructure.DecodeHookFunc) DecodeHookO
 // 1. File paths (reads file content)
 // 2. Data URLs of JSON with base64 encoding (data:application/json;base64,<content>)
 // 3. Raw base64 content
-// 4. Raw unencoded content
+// 4. Raw unencoded content.
 func FileUploadDecodeHook(readFromPath bool) mapstructure.DecodeHookFunc {
 	return func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
 		// Only apply to string -> []byte conversions
@@ -73,13 +74,13 @@ func getFileContentFromPath(path string) ([]byte, error) {
 
 	// Check if the file exists
 	if _, err := os.Stat(path); err != nil {
-		return nil, fmt.Errorf("file does not exist: %v", err)
+		return nil, fmt.Errorf("file does not exist: %w", err)
 	}
 
 	// Read the file
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("error reading file: %v", err)
+		return nil, fmt.Errorf("error reading file: %w", err)
 	}
 	return content, nil
 }
@@ -111,7 +112,7 @@ func parseFileContent(data string) ([]byte, error) {
 func parseJSONBase64DataURL(dataURL string) ([]byte, error) {
 	parsedURL, err := url.Parse(dataURL)
 	if err != nil {
-		return nil, fmt.Errorf("invalid data URL: %v", err)
+		return nil, fmt.Errorf("invalid data URL: %w", err)
 	}
 
 	if parsedURL.Scheme != "data" {
@@ -136,7 +137,7 @@ func parseJSONBase64DataURL(dataURL string) ([]byte, error) {
 
 	decoded, err := base64.StdEncoding.DecodeString(data)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode base64 data: %v", err)
+		return nil, fmt.Errorf("failed to decode base64 data: %w", err)
 	}
 	return decoded, nil
 }
