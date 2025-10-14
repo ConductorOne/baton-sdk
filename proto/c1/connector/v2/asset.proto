@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
-import "validate/validate.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
@@ -11,31 +11,31 @@ service AssetService {
 }
 
 message AssetRef {
-  string id = 1 [(validate.rules).string = {
+  string id = 1 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
   }];
 }
 
 message AssetServiceGetAssetRequest {
-  AssetRef asset = 1 [(validate.rules).message = {required: true}];
+  AssetRef asset = 1 [(buf.validate.field) = {required: true}];
 }
 
 message AssetServiceGetAssetResponse {
   message Metadata {
-    string content_type = 1 [(validate.rules).string = {
+    string content_type = 1 [(buf.validate.field).string = {
       min_bytes: 1
       max_bytes: 256
     }];
   }
   message Data {
-    bytes data = 1 [(validate.rules).bytes = {
+    bytes data = 1 [(buf.validate.field).bytes = {
       min_len: 0
       max_len: 1048576
     }];
   }
   oneof msg {
-    option (validate.required) = true;
+    option (buf.validate.oneof).required = true;
     Metadata metadata = 1;
     Data data = 2;
   }

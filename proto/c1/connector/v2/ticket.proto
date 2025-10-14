@@ -6,7 +6,7 @@ import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/wrappers.proto";
-import "validate/validate.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
@@ -115,25 +115,22 @@ message TicketsServiceGetTicketSchemaResponse {
 }
 
 message TicketsServiceListTicketSchemasRequest {
-  uint32 page_size = 1 [(validate.rules).uint32 = {
-    ignore_empty: true
+  uint32 page_size = 1 [(buf.validate.field).uint32 = {
     lte: 250
-  }];
-  string page_token = 2 [(validate.rules).string = {
-    ignore_empty: true
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
+  string page_token = 2 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 4096
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated google.protobuf.Any annotations = 3;
 }
 
 message TicketsServiceListTicketSchemasResponse {
   repeated TicketSchema list = 1;
-  string next_page_token = 2 [(validate.rules).string = {
-    ignore_empty: true
+  string next_page_token = 2 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 4096
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated google.protobuf.Any annotations = 3;
 }
 

@@ -9,8 +9,8 @@
 package v1
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	status "google.golang.org/genproto/googleapis/rpc/status"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -4826,7 +4826,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xd9'\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x1bbuf/validate/validate.proto\"\xd9'\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -4932,46 +4932,46 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\x10STATUS_SCHEDULED\x10\x02\x12\x12\n" +
 	"\x0eSTATUS_RUNNING\x10\x03\x12\x13\n" +
 	"\x0fSTATUS_FINISHED\x10\x04B\v\n" +
-	"\ttask_type\"\xf3\a\n" +
+	"\ttask_type\"\xed\a\n" +
 	"\x18BatonServiceHelloRequest\x12#\n" +
 	"\ahost_id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x06hostId\x122\n" +
-	"\atask_id\x18\x02 \x01(\tB\x19\xfaB\x16r\x142\x12^[a-zA-Z0-9]{27}|$R\x06taskId\x12e\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x06hostId\x122\n" +
+	"\atask_id\x18\x02 \x01(\tB\x19\xbaH\x16r\x142\x12^[a-zA-Z0-9]{27}|$R\x06taskId\x12c\n" +
 	"\n" +
-	"build_info\x18\x03 \x01(\v2<.c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfoB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tbuildInfo\x12\\\n" +
-	"\aos_info\x18\x04 \x01(\v29.c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfoB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x06osInfo\x12[\n" +
-	"\x12connector_metadata\x18\x05 \x01(\v2\".c1.connector.v2.ConnectorMetadataB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x11connectorMetadata\x12@\n" +
-	"\vannotations\x18\x06 \x03(\v2\x14.google.protobuf.AnyB\b\xfaB\x05\x92\x01\x02\x10\x10R\vannotations\x1a\x95\x01\n" +
+	"build_info\x18\x03 \x01(\v2<.c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfoB\x06\xbaH\x03\xc8\x01\x01R\tbuildInfo\x12Z\n" +
+	"\aos_info\x18\x04 \x01(\v29.c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfoB\x06\xbaH\x03\xc8\x01\x01R\x06osInfo\x12Y\n" +
+	"\x12connector_metadata\x18\x05 \x01(\v2\".c1.connector.v2.ConnectorMetadataB\x06\xbaH\x03\xc8\x01\x01R\x11connectorMetadata\x12@\n" +
+	"\vannotations\x18\x06 \x03(\v2\x14.google.protobuf.AnyB\b\xbaH\x05\x92\x01\x02\x10\x10R\vannotations\x1a\x95\x01\n" +
 	"\tBuildInfo\x12-\n" +
 	"\flang_version\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\vlangVersion\x12$\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\vlangVersion\x12$\n" +
 	"\apackage\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\apackage\x123\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\apackage\x123\n" +
 	"\x0fpackage_version\x18\x03 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x0epackageVersion\x1a\x81\x03\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x0epackageVersion\x1a\x81\x03\n" +
 	"\x06OSInfo\x12&\n" +
 	"\bhostname\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\bhostname\x12\x1a\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\bhostname\x12\x1a\n" +
 	"\x02os\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x02os\x12&\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x02os\x12&\n" +
 	"\bplatform\x18\x03 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\bplatform\x125\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\bplatform\x125\n" +
 	"\x10platform_version\x18\x04 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x0fplatformVersion\x123\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x0fplatformVersion\x123\n" +
 	"\x0fplatform_family\x18\x05 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x0eplatformFamily\x121\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x0eplatformFamily\x121\n" +
 	"\x0ekernel_version\x18\x06 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\rkernelVersion\x12+\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\rkernelVersion\x12+\n" +
 	"\vkernel_arch\x18\a \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\n" +
 	"kernelArch\x12?\n" +
 	"\x15virtualization_system\x18\b \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x14virtualizationSystem\"S\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x14virtualizationSystem\"S\n" +
 	"\x19BatonServiceHelloResponse\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"A\n" +
 	"\x1aBatonServiceGetTaskRequest\x12#\n" +
 	"\ahost_id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x06hostId\"\x83\x02\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x06hostId\"\x83\x02\n" +
 	"\x1bBatonServiceGetTaskResponse\x122\n" +
 	"\x04task\x18\x01 \x01(\v2\x1e.c1.connectorapi.baton.v1.TaskR\x04task\x126\n" +
 	"\tnext_poll\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\bnextPoll\x12@\n" +
@@ -4979,47 +4979,46 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xb8\x01\n" +
 	"\x1cBatonServiceHeartbeatRequest\x12#\n" +
 	"\ahost_id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x06hostId\x121\n" +
-	"\atask_id\x18\x02 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06taskId\x12@\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyB\b\xfaB\x05\x92\x01\x02\x10\x10R\vannotations\"\xb7\x01\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x06hostId\x121\n" +
+	"\atask_id\x18\x02 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06taskId\x12@\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyB\b\xbaH\x05\x92\x01\x02\x10\x10R\vannotations\"\xb7\x01\n" +
 	"\x1dBatonServiceHeartbeatResponse\x12@\n" +
 	"\x0enext_heartbeat\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\rnextHeartbeat\x12\x1c\n" +
 	"\tcancelled\x18\x02 \x01(\bR\tcancelled\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xa3\x05\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xa5\x05\n" +
 	"\x1eBatonServiceUploadAssetRequest\x12e\n" +
 	"\bmetadata\x18d \x01(\v2G.c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadataH\x00R\bmetadata\x12Y\n" +
 	"\x04data\x18e \x01(\v2C.c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadDataH\x00R\x04data\x12V\n" +
 	"\x03eof\x18f \x01(\v2B.c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOFH\x00R\x03eof\x1a\xaa\x01\n" +
 	"\x0eUploadMetadata\x12#\n" +
 	"\ahost_id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x06hostId\x121\n" +
-	"\atask_id\x18\x02 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06taskId\x12@\n" +
-	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyB\b\xfaB\x05\x92\x01\x02\x10\x10R\vannotations\x1a-\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x06hostId\x121\n" +
+	"\atask_id\x18\x02 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06taskId\x12@\n" +
+	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyB\b\xbaH\x05\x92\x01\x02\x10\x10R\vannotations\x1a-\n" +
 	"\n" +
 	"UploadData\x12\x1f\n" +
-	"\x04data\x18\x01 \x01(\fB\v\xfaB\bz\x06\x10\x01\x18\x80\x80@R\x04data\x1a\x7f\n" +
+	"\x04data\x18\x01 \x01(\fB\v\xbaH\bz\x06\x10\x01\x18\x80\x80@R\x04data\x1a\x7f\n" +
 	"\tUploadEOF\x120\n" +
-	"\x0fsha256_checksum\x18\x01 \x01(\fB\a\xfaB\x04z\x02h R\x0esha256Checksum\x12@\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyB\b\xfaB\x05\x92\x01\x02\x10\x10R\vannotationsB\n" +
-	"\n" +
-	"\x03msg\x12\x03\xf8B\x01\"Y\n" +
+	"\x0fsha256_checksum\x18\x01 \x01(\fB\a\xbaH\x04z\x02h R\x0esha256Checksum\x12@\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyB\b\xbaH\x05\x92\x01\x02\x10\x10R\vannotationsB\f\n" +
+	"\x03msg\x12\x05\xbaH\x02\b\x01\"Y\n" +
 	"\x1fBatonServiceUploadAssetResponse\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x8d\x05\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x8f\x05\n" +
 	"\x1dBatonServiceFinishTaskRequest\x12#\n" +
 	"\ahost_id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x06hostId\x121\n" +
-	"\atask_id\x18\x02 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06taskId\x12*\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x06hostId\x121\n" +
+	"\atask_id\x18\x02 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06taskId\x12*\n" +
 	"\x06status\x18\x03 \x01(\v2\x12.google.rpc.StatusR\x06status\x12U\n" +
 	"\x05error\x18d \x01(\v2=.c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.ErrorH\x00R\x05error\x12[\n" +
 	"\asuccess\x18e \x01(\v2?.c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.SuccessH\x00R\asuccess\x1a\xa0\x01\n" +
 	"\x05Error\x12#\n" +
 	"\rnon_retryable\x18\x01 \x01(\bR\fnonRetryable\x12@\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyB\b\xfaB\x05\x92\x01\x02\x10\x10R\vannotations\x120\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyB\b\xbaH\x05\x92\x01\x02\x10\x10R\vannotations\x120\n" +
 	"\bresponse\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\bresponse\x1a}\n" +
 	"\aSuccess\x12@\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyB\b\xfaB\x05\x92\x01\x02\x10\x10R\vannotations\x120\n" +
-	"\bresponse\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\bresponseB\x12\n" +
-	"\vfinal_state\x12\x03\xf8B\x01\"X\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyB\b\xbaH\x05\x92\x01\x02\x10\x10R\vannotations\x120\n" +
+	"\bresponse\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\bresponseB\x14\n" +
+	"\vfinal_state\x12\x05\xbaH\x02\b\x01\"X\n" +
 	"\x1eBatonServiceFinishTaskResponse\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x17\n" +
 	"\x15StartDebuggingRequest\"0\n" +

@@ -9,7 +9,7 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -451,22 +451,21 @@ var File_c1_connector_v2_asset_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_asset_proto_rawDesc = "" +
 	"\n" +
-	"\x1bc1/connector/v2/asset.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"&\n" +
+	"\x1bc1/connector/v2/asset.proto\x12\x0fc1.connector.v2\x1a\x1bbuf/validate/validate.proto\"&\n" +
 	"\bAssetRef\x12\x1a\n" +
 	"\x02id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\x02id\"X\n" +
-	"\x1bAssetServiceGetAssetRequest\x129\n" +
-	"\x05asset\x18\x01 \x01(\v2\x19.c1.connector.v2.AssetRefB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x05asset\"\xae\x02\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\x02id\"V\n" +
+	"\x1bAssetServiceGetAssetRequest\x127\n" +
+	"\x05asset\x18\x01 \x01(\v2\x19.c1.connector.v2.AssetRefB\x06\xbaH\x03\xc8\x01\x01R\x05asset\"\xb0\x02\n" +
 	"\x1cAssetServiceGetAssetResponse\x12T\n" +
 	"\bmetadata\x18\x01 \x01(\v26.c1.connector.v2.AssetServiceGetAssetResponse.MetadataH\x00R\bmetadata\x12H\n" +
 	"\x04data\x18\x02 \x01(\v22.c1.connector.v2.AssetServiceGetAssetResponse.DataH\x00R\x04data\x1a9\n" +
 	"\bMetadata\x12-\n" +
 	"\fcontent_type\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\x02R\vcontentType\x1a'\n" +
+	"\xbaH\ar\x05 \x01(\x80\x02R\vcontentType\x1a'\n" +
 	"\x04Data\x12\x1f\n" +
-	"\x04data\x18\x01 \x01(\fB\v\xfaB\bz\x06\x10\x00\x18\x80\x80@R\x04dataB\n" +
-	"\n" +
-	"\x03msg\x12\x03\xf8B\x012y\n" +
+	"\x04data\x18\x01 \x01(\fB\v\xbaH\bz\x06\x10\x00\x18\x80\x80@R\x04dataB\f\n" +
+	"\x03msg\x12\x05\xbaH\x02\b\x012y\n" +
 	"\fAssetService\x12i\n" +
 	"\bGetAsset\x12,.c1.connector.v2.AssetServiceGetAssetRequest\x1a-.c1.connector.v2.AssetServiceGetAssetResponse0\x01B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 

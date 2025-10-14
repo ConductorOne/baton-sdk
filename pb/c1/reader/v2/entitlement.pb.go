@@ -9,8 +9,8 @@
 package v2
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -168,10 +168,10 @@ var File_c1_reader_v2_entitlement_proto protoreflect.FileDescriptor
 
 const file_c1_reader_v2_entitlement_proto_rawDesc = "" +
 	"\n" +
-	"\x1ec1/reader/v2/entitlement.proto\x12\fc1.reader.v2\x1a!c1/connector/v2/entitlement.proto\x1a\x19google/protobuf/any.proto\x1a\x17validate/validate.proto\"\x9b\x01\n" +
+	"\x1ec1/reader/v2/entitlement.proto\x12\fc1.reader.v2\x1a!c1/connector/v2/entitlement.proto\x1a\x19google/protobuf/any.proto\x1a\x1bbuf/validate/validate.proto\"\x9b\x01\n" +
 	".EntitlementsReaderServiceGetEntitlementRequest\x121\n" +
 	"\x0eentitlement_id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\rentitlementId\x126\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\rentitlementId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"q\n" +
 	"/EntitlementsReaderServiceGetEntitlementResponse\x12>\n" +
 	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementR\ventitlement2\xab\x01\n" +

@@ -6,7 +6,7 @@ import "c1/connector/v2/entitlement.proto";
 import "c1/connector/v2/grant.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
-import "validate/validate.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
 
@@ -17,7 +17,7 @@ service GrantsReaderService {
 }
 
 message GrantsReaderServiceGetGrantRequest {
-  string grant_id = 1 [(validate.rules).string = {
+  string grant_id = 1 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
   }];
@@ -29,52 +29,45 @@ message GrantsReaderServiceGetGrantResponse {
 }
 
 message GrantsReaderServiceListGrantsForEntitlementRequest {
-  c1.connector.v2.Entitlement entitlement = 1 [(validate.rules).message = {required: true}];
-  c1.connector.v2.ResourceId principal_id = 5 [(validate.rules).message = {required: false}];
-  uint32 page_size = 2 [(validate.rules).uint32 = {
-    ignore_empty: true
+  c1.connector.v2.Entitlement entitlement = 1 [(buf.validate.field) = {required: true}];
+  c1.connector.v2.ResourceId principal_id = 5 [(buf.validate.field) = {required: false}];
+  uint32 page_size = 2 [(buf.validate.field).uint32 = {
     lte: 250
-  }];
-  string page_token = 3 [(validate.rules).string = {
-    ignore_empty: true
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
+  string page_token = 3 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 2048
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated google.protobuf.Any annotations = 4;
 }
 
 message GrantsReaderServiceListGrantsForEntitlementResponse {
   repeated c1.connector.v2.Grant list = 1;
-  string next_page_token = 2 [(validate.rules).string = {
-    ignore_empty: true
+  string next_page_token = 2 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 2048
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
 }
 
 message GrantsReaderServiceListGrantsForResourceTypeRequest {
-  string resource_type_id = 1 [(validate.rules).string = {
-    ignore_empty: true
+  string resource_type_id = 1 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 2048
-  }];
-  uint32 page_size = 2 [(validate.rules).uint32 = {
-    ignore_empty: true
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
+  uint32 page_size = 2 [(buf.validate.field).uint32 = {
     lte: 250
-  }];
-  string page_token = 3 [(validate.rules).string = {
-    ignore_empty: true
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
+  string page_token = 3 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 2048
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated google.protobuf.Any annotations = 4;
 }
 
 message GrantsReaderServiceListGrantsForResourceTypeResponse {
   repeated c1.connector.v2.Grant list = 1;
-  string next_page_token = 2 [(validate.rules).string = {
-    ignore_empty: true
+  string next_page_token = 2 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 2048
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
 }

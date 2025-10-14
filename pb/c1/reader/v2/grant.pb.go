@@ -9,8 +9,8 @@
 package v2
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -544,39 +544,37 @@ var File_c1_reader_v2_grant_proto protoreflect.FileDescriptor
 
 const file_c1_reader_v2_grant_proto_rawDesc = "" +
 	"\n" +
-	"\x18c1/reader/v2/grant.proto\x12\fc1.reader.v2\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x17validate/validate.proto\"\x83\x01\n" +
+	"\x18c1/reader/v2/grant.proto\x12\fc1.reader.v2\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1bbuf/validate/validate.proto\"\x83\x01\n" +
 	"\"GrantsReaderServiceGetGrantRequest\x12%\n" +
 	"\bgrant_id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\agrantId\x126\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\agrantId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"S\n" +
 	"#GrantsReaderServiceGetGrantResponse\x12,\n" +
-	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\xd7\x02\n" +
-	"2GrantsReaderServiceListGrantsForEntitlementRequest\x12H\n" +
-	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12H\n" +
-	"\fprincipal_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x00R\vprincipalId\x12'\n" +
-	"\tpage_size\x18\x02 \x01(\rB\n" +
-	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12,\n" +
+	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\xd4\x02\n" +
+	"2GrantsReaderServiceListGrantsForEntitlementRequest\x12F\n" +
+	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\x06\xbaH\x03\xc8\x01\x01R\ventitlement\x12F\n" +
+	"\fprincipal_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\x06\xbaH\x03\xc8\x01\x00R\vprincipalId\x12(\n" +
+	"\tpage_size\x18\x02 \x01(\rB\v\xbaH\b\xd8\x01\x01*\x03\x18\xfa\x01R\bpageSize\x12,\n" +
 	"\n" +
-	"page_token\x18\x03 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\tpageToken\x126\n" +
+	"page_token\x18\x03 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\x10R\tpageToken\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x98\x01\n" +
 	"3GrantsReaderServiceListGrantsForEntitlementResponse\x12*\n" +
 	"\x04list\x18\x01 \x03(\v2\x16.c1.connector.v2.GrantR\x04list\x125\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\rnextPageToken\"\xfd\x01\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\x10R\rnextPageToken\"\xfe\x01\n" +
 	"3GrantsReaderServiceListGrantsForResourceTypeRequest\x127\n" +
-	"\x10resource_type_id\x18\x01 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\x0eresourceTypeId\x12'\n" +
-	"\tpage_size\x18\x02 \x01(\rB\n" +
-	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12,\n" +
+	"\x10resource_type_id\x18\x01 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\x10R\x0eresourceTypeId\x12(\n" +
+	"\tpage_size\x18\x02 \x01(\rB\v\xbaH\b\xd8\x01\x01*\x03\x18\xfa\x01R\bpageSize\x12,\n" +
 	"\n" +
-	"page_token\x18\x03 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\tpageToken\x126\n" +
+	"page_token\x18\x03 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\x10R\tpageToken\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x99\x01\n" +
 	"4GrantsReaderServiceListGrantsForResourceTypeResponse\x12*\n" +
 	"\x04list\x18\x01 \x03(\v2\x16.c1.connector.v2.GrantR\x04list\x125\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\rnextPageToken2\xcd\x03\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\x10R\rnextPageToken2\xcd\x03\n" +
 	"\x13GrantsReaderService\x12o\n" +
 	"\bGetGrant\x120.c1.reader.v2.GrantsReaderServiceGetGrantRequest\x1a1.c1.reader.v2.GrantsReaderServiceGetGrantResponse\x12\x9f\x01\n" +
 	"\x18ListGrantsForEntitlement\x12@.c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementRequest\x1aA.c1.reader.v2.GrantsReaderServiceListGrantsForEntitlementResponse\x12\xa2\x01\n" +

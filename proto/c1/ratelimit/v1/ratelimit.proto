@@ -4,7 +4,7 @@ package c1.ratelimit.v1;
 
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
-import "validate/validate.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1";
 
@@ -41,10 +41,10 @@ message ReportResponse {}
 
 message RateLimitDescriptors {
   message Entry {
-    string key = 1 [(validate.rules).string = {min_len: 1}];
-    string value = 2 [(validate.rules).string = {min_len: 1}];
+    string key = 1 [(buf.validate.field).string = {min_len: 1}];
+    string value = 2 [(buf.validate.field).string = {min_len: 1}];
   }
-  repeated Entry entries = 1 [(validate.rules).repeated = {min_items: 1}];
+  repeated Entry entries = 1 [(buf.validate.field).repeated = {min_items: 1}];
 }
 
 message DoRequest {

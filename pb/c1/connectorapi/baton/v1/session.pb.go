@@ -9,7 +9,7 @@
 package v1
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -1035,22 +1035,22 @@ var File_c1_connectorapi_baton_v1_session_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\n" +
-	"&c1/connectorapi/baton/v1/session.proto\x12\x18c1.connectorapi.baton.v1\x1a\x17validate/validate.proto\"]\n" +
+	"&c1/connectorapi/baton/v1/session.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1bbuf/validate/validate.proto\"]\n" +
 	"\n" +
 	"GetRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
 	"\x03key\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\"#\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x03key\"#\n" +
 	"\vGetResponse\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\fR\x05value\"o\n" +
 	"\x0eGetManyRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12*\n" +
-	"\x04keys\x18\x02 \x03(\tB\x16\xfaB\x13\x92\x01\x10\b\x01\x10\xc8\x01\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\"9\n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12*\n" +
+	"\x04keys\x18\x02 \x03(\tB\x16\xbaH\x13\x92\x01\x10\b\x01\x10\xc8\x01\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\"9\n" +
 	"\x0fGetManyResponse\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\"a\n" +
 	"\rGetAllRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1d\n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1d\n" +
 	"\n" +
 	"page_token\x18\x02 \x01(\tR\tpageToken\"`\n" +
 	"\x0eGetAllResponse\x12\x10\n" +
@@ -1059,29 +1059,29 @@ const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\x0fnext_page_token\x18\x03 \x01(\tR\rnextPageToken\"~\n" +
 	"\n" +
 	"SetRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
 	"\x03key\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\x12\x1f\n" +
-	"\x05value\x18\x03 \x01(\fB\t\xfaB\x06z\x04\x18\x80\x80@R\x05value\"\r\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x03key\x12\x1f\n" +
+	"\x05value\x18\x03 \x01(\fB\t\xbaH\x06z\x04\x18\x80\x80@R\x05value\"\r\n" +
 	"\vSetResponse\"\xe5\x01\n" +
 	"\x0eSetManyRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12e\n" +
-	"\x06values\x18\x02 \x03(\v24.c1.connectorapi.baton.v1.SetManyRequest.ValuesEntryB\x17\xfaB\x14\x9a\x01\x11\"\ar\x05\x10\x01\x18\x80\x02*\x06z\x04\x18\x80\x80@R\x06values\x1a9\n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12e\n" +
+	"\x06values\x18\x02 \x03(\v24.c1.connectorapi.baton.v1.SetManyRequest.ValuesEntryB\x17\xbaH\x14\x9a\x01\x11\"\ar\x05\x10\x01\x18\x80\x02*\x06z\x04\x18\x80\x80@R\x06values\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x11\n" +
 	"\x0fSetManyResponse\"`\n" +
 	"\rDeleteRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
 	"\x03key\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\"\x10\n" +
+	"\xbaH\ar\x05\x10\x01\x18\x80\x02R\x03key\"\x10\n" +
 	"\x0eDeleteResponse\"p\n" +
 	"\x11DeleteManyRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12(\n" +
-	"\x04keys\x18\x02 \x03(\tB\x14\xfaB\x11\x92\x01\x0e\b\x01\x10\xc8\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\"\x14\n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12(\n" +
+	"\x04keys\x18\x02 \x03(\tB\x14\xbaH\x11\x92\x01\x0e\b\x01\x10\xc8\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\"\x14\n" +
 	"\x12DeleteManyResponse\"A\n" +
 	"\fClearRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\"\x0f\n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xbaH\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\"\x0f\n" +
 	"\rClearResponse2\x8e\x06\n" +
 	"\x13BatonSessionService\x12T\n" +
 	"\x03Get\x12$.c1.connectorapi.baton.v1.GetRequest\x1a%.c1.connectorapi.baton.v1.GetResponse\"\x00\x12b\n" +

@@ -9,7 +9,7 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -3082,7 +3082,7 @@ var File_c1_connector_v2_ticket_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_ticket_proto_rawDesc = "" +
 	"\n" +
-	"\x1cc1/connector/v2/ticket.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x17validate/validate.proto\"\xa2\x03\n" +
+	"\x1cc1/connector/v2/ticket.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1bbuf/validate/validate.proto\"\xa2\x03\n" +
 	"\fTicketSchema\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x121\n" +
@@ -3150,18 +3150,17 @@ const file_c1_connector_v2_ticket_proto_rawDesc = "" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x96\x01\n" +
 	"%TicketsServiceGetTicketSchemaResponse\x125\n" +
 	"\x06schema\x18\x01 \x01(\v2\x1d.c1.connector.v2.TicketSchemaR\x06schema\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xb7\x01\n" +
-	"&TicketsServiceListTicketSchemasRequest\x12'\n" +
-	"\tpage_size\x18\x01 \x01(\rB\n" +
-	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12,\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xb8\x01\n" +
+	"&TicketsServiceListTicketSchemasRequest\x12(\n" +
+	"\tpage_size\x18\x01 \x01(\rB\v\xbaH\b\xd8\x01\x01*\x03\x18\xfa\x01R\bpageSize\x12,\n" +
 	"\n" +
-	"page_token\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80 \xd0\x01\x01R\tpageToken\x126\n" +
+	"page_token\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80 R\tpageToken\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xcb\x01\n" +
 	"'TicketsServiceListTicketSchemasResponse\x121\n" +
 	"\x04list\x18\x01 \x03(\v2\x1d.c1.connector.v2.TicketSchemaR\x04list\x125\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80 \xd0\x01\x01R\rnextPageToken\x126\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80 R\rnextPageToken\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x89\x06\n" +
 	"\x06Ticket\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +

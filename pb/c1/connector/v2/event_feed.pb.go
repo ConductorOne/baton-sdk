@@ -9,7 +9,7 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -1495,20 +1495,19 @@ var File_c1_connector_v2_event_feed_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
 	"\n" +
-	" c1/connector/v2/event_feed.proto\x12\x0fc1.connector.v2\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\x85\x02\n" +
+	" c1/connector/v2/event_feed.proto\x12\x0fc1.connector.v2\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bbuf/validate/validate.proto\"\x86\x02\n" +
 	"\x11ListEventsRequest\x12%\n" +
-	"\x06cursor\x18\x01 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80 \xd0\x01\x01R\x06cursor\x125\n" +
-	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x12'\n" +
-	"\tpage_size\x18\x03 \x01(\rB\n" +
-	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x126\n" +
+	"\x06cursor\x18\x01 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80 R\x06cursor\x125\n" +
+	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x12(\n" +
+	"\tpage_size\x18\x03 \x01(\rB\v\xbaH\b\xd8\x01\x01*\x03\x18\xfa\x01R\bpageSize\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x121\n" +
-	"\revent_feed_id\x18\x05 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\veventFeedId\"\xbe\x01\n" +
+	"\revent_feed_id\x18\x05 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\veventFeedId\"\xbe\x01\n" +
 	"\x12ListEventsResponse\x12.\n" +
 	"\x06events\x18\x01 \x03(\v2\x16.c1.connector.v2.EventR\x06events\x12%\n" +
-	"\x06cursor\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80 \xd0\x01\x01R\x06cursor\x12\x19\n" +
+	"\x06cursor\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80 R\x06cursor\x12\x19\n" +
 	"\bhas_more\x18\x03 \x01(\bR\ahasMore\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"O\n" +
 	"\x15ListEventFeedsRequest\x126\n" +
@@ -1536,26 +1535,26 @@ const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
 	"\x0eactor_resource\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceR\ractorResource\":\n" +
 	"\n" +
 	"GrantEvent\x12,\n" +
-	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\xd7\x01\n" +
-	"\x10CreateGrantEvent\x12H\n" +
-	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12A\n" +
-	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tprincipal\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xd8\x01\n" +
-	"\x11CreateRevokeEvent\x12H\n" +
-	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12A\n" +
-	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tprincipal\x126\n" +
+	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\xd3\x01\n" +
+	"\x10CreateGrantEvent\x12F\n" +
+	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\x06\xbaH\x03\xc8\x01\x01R\ventitlement\x12?\n" +
+	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceB\x06\xbaH\x03\xc8\x01\x01R\tprincipal\x126\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xd4\x01\n" +
+	"\x11CreateRevokeEvent\x12F\n" +
+	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\x06\xbaH\x03\xc8\x01\x01R\ventitlement\x12?\n" +
+	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceB\x06\xbaH\x03\xc8\x01\x01R\tprincipal\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x86\x01\n" +
 	"\vRevokeEvent\x12>\n" +
 	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementR\ventitlement\x127\n" +
-	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceR\tprincipal\"\xa8\x01\n" +
-	"\x13ResourceChangeEvent\x12F\n" +
-	"\vresource_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\n" +
+	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceR\tprincipal\"\xa6\x01\n" +
+	"\x13ResourceChangeEvent\x12D\n" +
+	"\vresource_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\x06\xbaH\x03\xc8\x01\x01R\n" +
 	"resourceId\x12I\n" +
 	"\x12parent_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x10parentResourceId\"\x90\x01\n" +
 	"\x11EventFeedMetadata\x12\x1a\n" +
 	"\x02id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x12_\n" +
-	"\x15supported_event_types\x18\x02 \x03(\x0e2\x1a.c1.connector.v2.EventTypeB\x0f\xfaB\f\x92\x01\t\x18\x01\"\x05\x82\x01\x02\x10\x01R\x13supportedEventTypes*\xa4\x01\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\x02id\x12_\n" +
+	"\x15supported_event_types\x18\x02 \x03(\x0e2\x1a.c1.connector.v2.EventTypeB\x0f\xbaH\f\x92\x01\t\x18\x01\"\x05\x82\x01\x02\x10\x01R\x13supportedEventTypes*\xa4\x01\n" +
 	"\tEventType\x12\x1a\n" +
 	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10EVENT_TYPE_USAGE\x10\x01\x12\x1e\n" +

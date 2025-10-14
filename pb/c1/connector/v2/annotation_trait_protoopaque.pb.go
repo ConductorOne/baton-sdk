@@ -9,7 +9,7 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
@@ -1363,13 +1363,13 @@ var File_c1_connector_v2_annotation_trait_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\n" +
-	"&c1/connector/v2/annotation_trait.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\x97\v\n" +
+	"&c1/connector/v2/annotation_trait.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bbuf/validate/validate.proto\"\x95\v\n" +
 	"\tUserTrait\x128\n" +
-	"\x06emails\x18\x01 \x03(\v2 .c1.connector.v2.UserTrait.EmailR\x06emails\x12C\n" +
-	"\x06status\x18\x02 \x01(\v2!.c1.connector.v2.UserTrait.StatusB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x06status\x121\n" +
+	"\x06emails\x18\x01 \x03(\v2 .c1.connector.v2.UserTrait.EmailR\x06emails\x12A\n" +
+	"\x06status\x18\x02 \x01(\v2!.c1.connector.v2.UserTrait.StatusB\x06\xbaH\x03\xc8\x01\x01R\x06status\x121\n" +
 	"\aprofile\x18\x03 \x01(\v2\x17.google.protobuf.StructR\aprofile\x12-\n" +
 	"\x04icon\x18\x04 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x12S\n" +
-	"\faccount_type\x18\x05 \x01(\x0e2&.c1.connector.v2.UserTrait.AccountTypeB\b\xfaB\x05\x82\x01\x02\x10\x01R\vaccountType\x12\x14\n" +
+	"\faccount_type\x18\x05 \x01(\x0e2&.c1.connector.v2.UserTrait.AccountTypeB\b\xbaH\x05\x82\x01\x02\x10\x01R\vaccountType\x12\x14\n" +
 	"\x05login\x18\x06 \x01(\tR\x05login\x12#\n" +
 	"\rlogin_aliases\x18\a \x03(\tR\floginAliases\x12!\n" +
 	"\femployee_ids\x18\r \x03(\tR\vemployeeIds\x129\n" +
@@ -1384,13 +1384,13 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"sso_status\x18\v \x01(\v2$.c1.connector.v2.UserTrait.SSOStatusR\tssoStatus\x12R\n" +
 	"\x0fstructured_name\x18\f \x01(\v2).c1.connector.v2.UserTrait.StructuredNameR\x0estructuredName\x1aI\n" +
 	"\x05Email\x12!\n" +
-	"\aaddress\x18\x01 \x01(\tB\a\xfaB\x04r\x02`\x01R\aaddress\x12\x1d\n" +
+	"\aaddress\x18\x01 \x01(\tB\a\xbaH\x04r\x02`\x01R\aaddress\x12\x1d\n" +
 	"\n" +
 	"is_primary\x18\x02 \x01(\bR\tisPrimary\x1a\xdc\x01\n" +
 	"\x06Status\x12J\n" +
-	"\x06status\x18\x01 \x01(\x0e2(.c1.connector.v2.UserTrait.Status.StatusB\b\xfaB\x05\x82\x01\x02\x10\x01R\x06status\x12'\n" +
-	"\adetails\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\adetails\"]\n" +
+	"\x06status\x18\x01 \x01(\x0e2(.c1.connector.v2.UserTrait.Status.StatusB\b\xbaH\x05\x82\x01\x02\x10\x01R\x06status\x12'\n" +
+	"\adetails\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\adetails\"]\n" +
 	"\x06Status\x12\x16\n" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSTATUS_ENABLED\x10\x01\x12\x13\n" +
@@ -1422,7 +1422,7 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\tRoleTrait\x121\n" +
 	"\aprofile\x18\x01 \x01(\v2\x17.google.protobuf.StructR\aprofile\"\x9a\x03\n" +
 	"\bAppTrait\x125\n" +
-	"\bhelp_url\x18\x01 \x01(\tB\x1a\xfaB\x17r\x15 \x01(\x80\b:\bhttps://\xd0\x01\x01\x88\x01\x01R\ahelpUrl\x12-\n" +
+	"\bhelp_url\x18\x01 \x01(\tB\x1a\xbaH\x17\xd8\x01\x01r\x12 \x01(\x80\b:\bhttps://\x88\x01\x01R\ahelpUrl\x12-\n" +
 	"\x04icon\x18\x02 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x12-\n" +
 	"\x04logo\x18\x03 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04logo\x121\n" +
 	"\aprofile\x18\x04 \x01(\v2\x17.google.protobuf.StructR\aprofile\x127\n" +

@@ -9,7 +9,7 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -1946,23 +1946,23 @@ var File_c1_connector_v2_connector_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\n" +
-	"\x1fc1/connector/v2/connector.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\x8d\x01\n" +
+	"\x1fc1/connector/v2/connector.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1bbuf/validate/validate.proto\"\x8d\x01\n" +
 	"\x1eConnectorServiceCleanupRequest\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
-	"\x0eactive_sync_id\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\"Y\n" +
+	"\x0eactive_sync_id\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\factiveSyncId\"Y\n" +
 	"\x1fConnectorServiceCleanupResponse\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xa8\x04\n" +
 	"\x11ConnectorMetadata\x12-\n" +
 	"\fdisplay_name\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\vdisplayName\x125\n" +
-	"\bhelp_url\x18\x02 \x01(\tB\x1a\xfaB\x17r\x15 \x01(\x80\b:\bhttps://\xd0\x01\x01\x88\x01\x01R\ahelpUrl\x12-\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\vdisplayName\x125\n" +
+	"\bhelp_url\x18\x02 \x01(\tB\x1a\xbaH\x17\xd8\x01\x01r\x12 \x01(\x80\b:\bhttps://\x88\x01\x01R\ahelpUrl\x12-\n" +
 	"\x04icon\x18\x03 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x12-\n" +
 	"\x04logo\x18\x04 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04logo\x121\n" +
 	"\aprofile\x18\x05 \x01(\v2\x17.google.protobuf.StructR\aprofile\x126\n" +
 	"\vannotations\x18\x06 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12/\n" +
-	"\vdescription\x18\a \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80 \xd0\x01\x01R\vdescription\x12J\n" +
+	"\vdescription\x18\a \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80 R\vdescription\x12J\n" +
 	"\fcapabilities\x18\b \x01(\v2&.c1.connector.v2.ConnectorCapabilitiesR\fcapabilities\x12g\n" +
 	"\x17account_creation_schema\x18\t \x01(\v2/.c1.connector.v2.ConnectorAccountCreationSchemaR\x15accountCreationSchema\"\x8e\x02\n" +
 	"\x11CredentialDetails\x12}\n" +

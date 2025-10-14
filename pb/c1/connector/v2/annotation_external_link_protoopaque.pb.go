@@ -9,7 +9,7 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -84,9 +84,9 @@ var File_c1_connector_v2_annotation_external_link_proto protoreflect.FileDescrip
 
 const file_c1_connector_v2_annotation_external_link_proto_rawDesc = "" +
 	"\n" +
-	".c1/connector/v2/annotation_external_link.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"<\n" +
+	".c1/connector/v2/annotation_external_link.proto\x12\x0fc1.connector.v2\x1a\x1bbuf/validate/validate.proto\"<\n" +
 	"\fExternalLink\x12,\n" +
-	"\x03url\x18\x01 \x01(\tB\x1a\xfaB\x17r\x15 \x01(\x80\b:\bhttps://\xd0\x01\x01\x88\x01\x01R\x03urlB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\x03url\x18\x01 \x01(\tB\x1a\xbaH\x17\xd8\x01\x01r\x12 \x01(\x80\b:\bhttps://\x88\x01\x01R\x03urlB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_external_link_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_c1_connector_v2_annotation_external_link_proto_goTypes = []any{

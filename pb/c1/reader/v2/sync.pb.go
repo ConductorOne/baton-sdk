@@ -9,7 +9,7 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -654,7 +654,7 @@ var File_c1_reader_v2_sync_proto protoreflect.FileDescriptor
 
 const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"\n" +
-	"\x17c1/reader/v2/sync.proto\x12\fc1.reader.v2\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xed\x01\n" +
+	"\x17c1/reader/v2/sync.proto\x12\fc1.reader.v2\x1a\x19google/protobuf/any.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bbuf/validate/validate.proto\"\xed\x01\n" +
 	"\aSyncRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x129\n" +
 	"\n" +
@@ -669,18 +669,17 @@ const file_c1_reader_v2_sync_proto_rawDesc = "" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x86\x01\n" +
 	"!SyncsReaderServiceGetSyncResponse\x12)\n" +
 	"\x04sync\x18\x01 \x01(\v2\x15.c1.reader.v2.SyncRunR\x04sync\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xb3\x01\n" +
-	"\"SyncsReaderServiceListSyncsRequest\x12'\n" +
-	"\tpage_size\x18\x01 \x01(\rB\n" +
-	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12,\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xb4\x01\n" +
+	"\"SyncsReaderServiceListSyncsRequest\x12(\n" +
+	"\tpage_size\x18\x01 \x01(\rB\v\xbaH\b\xd8\x01\x01*\x03\x18\xfa\x01R\bpageSize\x12,\n" +
 	"\n" +
-	"page_token\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\tpageToken\x126\n" +
+	"page_token\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\x10R\tpageToken\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xc1\x01\n" +
 	"#SyncsReaderServiceListSyncsResponse\x12+\n" +
 	"\x05syncs\x18\x01 \x03(\v2\x15.c1.reader.v2.SyncRunR\x05syncs\x125\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\rnextPageToken\x126\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\x10R\rnextPageToken\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x85\x01\n" +
 	".SyncsReaderServiceGetLatestFinishedSyncRequest\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12\x1b\n" +

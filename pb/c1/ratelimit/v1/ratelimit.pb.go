@@ -9,7 +9,7 @@
 package v1
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
@@ -1200,7 +1200,7 @@ var File_c1_ratelimit_v1_ratelimit_proto protoreflect.FileDescriptor
 
 const file_c1_ratelimit_v1_ratelimit_proto_rawDesc = "" +
 	"\n" +
-	"\x1fc1/ratelimit/v1/ratelimit.proto\x12\x0fc1.ratelimit.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xc8\x02\n" +
+	"\x1fc1/ratelimit/v1/ratelimit.proto\x12\x0fc1.ratelimit.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x1bbuf/validate/validate.proto\"\xc8\x02\n" +
 	"\x14RateLimitDescription\x12D\n" +
 	"\x06status\x18\x01 \x01(\x0e2,.c1.ratelimit.v1.RateLimitDescription.StatusR\x06status\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x03R\x05limit\x12\x1c\n" +
@@ -1220,10 +1220,10 @@ const file_c1_ratelimit_v1_ratelimit_proto_rawDesc = "" +
 	"\vdescriptors\x18\x04 \x01(\v2%.c1.ratelimit.v1.RateLimitDescriptorsR\vdescriptors\"\x10\n" +
 	"\x0eReportResponse\"\xaa\x01\n" +
 	"\x14RateLimitDescriptors\x12O\n" +
-	"\aentries\x18\x01 \x03(\v2+.c1.ratelimit.v1.RateLimitDescriptors.EntryB\b\xfaB\x05\x92\x01\x02\b\x01R\aentries\x1aA\n" +
+	"\aentries\x18\x01 \x03(\v2+.c1.ratelimit.v1.RateLimitDescriptors.EntryB\b\xbaH\x05\x92\x01\x02\b\x01R\aentries\x1aA\n" +
 	"\x05Entry\x12\x19\n" +
-	"\x03key\x18\x01 \x01(\tB\a\xfaB\x04r\x02\x10\x01R\x03key\x12\x1d\n" +
-	"\x05value\x18\x02 \x01(\tB\a\xfaB\x04r\x02\x10\x01R\x05value\"\x93\x01\n" +
+	"\x03key\x18\x01 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x03key\x12\x1d\n" +
+	"\x05value\x18\x02 \x01(\tB\a\xbaH\x04r\x02\x10\x01R\x05value\"\x93\x01\n" +
 	"\tDoRequest\x12#\n" +
 	"\rrequest_token\x18\x01 \x01(\tR\frequestToken\x12\x18\n" +
 	"\aservice\x18\x02 \x01(\tR\aservice\x12G\n" +

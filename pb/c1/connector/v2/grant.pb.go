@@ -9,7 +9,7 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -800,42 +800,41 @@ var File_c1_connector_v2_grant_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_grant_proto_rawDesc = "" +
 	"\n" +
-	"\x1bc1/connector/v2/grant.proto\x12\x0fc1.connector.v2\x1a!c1/connector/v2/entitlement.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x17validate/validate.proto\"\xca\x01\n" +
+	"\x1bc1/connector/v2/grant.proto\x12\x0fc1.connector.v2\x1a!c1/connector/v2/entitlement.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1bbuf/validate/validate.proto\"\xca\x01\n" +
 	"\fGrantSources\x12D\n" +
 	"\asources\x18\x01 \x03(\v2*.c1.connector.v2.GrantSources.SourcesEntryR\asources\x1a\r\n" +
 	"\vGrantSource\x1ae\n" +
 	"\fSourcesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12?\n" +
-	"\x05value\x18\x02 \x01(\v2).c1.connector.v2.GrantSources.GrantSourceR\x05value:\x028\x01\"\xab\x02\n" +
-	"\x05Grant\x12H\n" +
-	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12A\n" +
-	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tprincipal\x12\x1a\n" +
+	"\x05value\x18\x02 \x01(\v2).c1.connector.v2.GrantSources.GrantSourceR\x05value:\x028\x01\"\xa5\x02\n" +
+	"\x05Grant\x12F\n" +
+	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\x06\xbaH\x03\xc8\x01\x01R\ventitlement\x12?\n" +
+	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceB\x06\xbaH\x03\xc8\x01\x01R\tprincipal\x12\x1a\n" +
 	"\x02id\x18\x03 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x12A\n" +
-	"\asources\x18\x05 \x01(\v2\x1d.c1.connector.v2.GrantSourcesB\b\xfaB\x05\x8a\x01\x02\x10\x00R\asources\x126\n" +
-	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xa6\x02\n" +
-	"\x1eGrantsServiceListGrantsRequest\x12?\n" +
-	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\bresource\x12'\n" +
-	"\tpage_size\x18\x02 \x01(\rB\n" +
-	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12-\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\x02id\x12?\n" +
+	"\asources\x18\x05 \x01(\v2\x1d.c1.connector.v2.GrantSourcesB\x06\xbaH\x03\xc8\x01\x00R\asources\x126\n" +
+	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xa5\x02\n" +
+	"\x1eGrantsServiceListGrantsRequest\x12=\n" +
+	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceB\x06\xbaH\x03\xc8\x01\x01R\bresource\x12(\n" +
+	"\tpage_size\x18\x02 \x01(\rB\v\xbaH\b\xd8\x01\x01*\x03\x18\xfa\x01R\bpageSize\x12-\n" +
 	"\n" +
-	"page_token\x18\x03 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\tpageToken\x126\n" +
+	"page_token\x18\x03 \x01(\tB\x0e\xbaH\v\xd8\x01\x01r\x06 \x01(\x80\x80@R\tpageToken\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
-	"\x0eactive_sync_id\x18\x05 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\"\xbd\x01\n" +
+	"\x0eactive_sync_id\x18\x05 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\factiveSyncId\"\xbd\x01\n" +
 	"\x1fGrantsServiceListGrantsResponse\x12*\n" +
 	"\x04list\x18\x01 \x03(\v2\x16.c1.connector.v2.GrantR\x04list\x126\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\rnextPageToken\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xe6\x01\n" +
-	"\x1fGrantManagerServiceGrantRequest\x12H\n" +
-	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12A\n" +
-	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\tprincipal\x126\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xbaH\v\xd8\x01\x01r\x06 \x01(\x80\x80@R\rnextPageToken\x126\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xe2\x01\n" +
+	"\x1fGrantManagerServiceGrantRequest\x12F\n" +
+	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\x06\xbaH\x03\xc8\x01\x01R\ventitlement\x12?\n" +
+	"\tprincipal\x18\x02 \x01(\v2\x19.c1.connector.v2.ResourceB\x06\xbaH\x03\xc8\x01\x01R\tprincipal\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x8a\x01\n" +
 	" GrantManagerServiceGrantResponse\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12.\n" +
-	"\x06grants\x18\x02 \x03(\v2\x16.c1.connector.v2.GrantR\x06grants\"\x92\x01\n" +
-	" GrantManagerServiceRevokeRequest\x126\n" +
-	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x05grant\x126\n" +
+	"\x06grants\x18\x02 \x03(\v2\x16.c1.connector.v2.GrantR\x06grants\"\x90\x01\n" +
+	" GrantManagerServiceRevokeRequest\x124\n" +
+	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantB\x06\xbaH\x03\xc8\x01\x01R\x05grant\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"[\n" +
 	"!GrantManagerServiceRevokeResponse\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations2\x80\x01\n" +

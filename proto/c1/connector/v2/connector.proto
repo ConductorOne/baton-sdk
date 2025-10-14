@@ -6,17 +6,16 @@ import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
-import "validate/validate.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 message ConnectorServiceCleanupRequest {
   repeated google.protobuf.Any annotations = 1;
-  string active_sync_id = 2 [(validate.rules).string = {
-    ignore_empty: true
+  string active_sync_id = 2 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
 }
 message ConnectorServiceCleanupResponse {
   repeated google.protobuf.Any annotations = 1;
@@ -29,26 +28,24 @@ service ConnectorService {
 }
 
 message ConnectorMetadata {
-  string display_name = 1 [(validate.rules).string = {
+  string display_name = 1 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
   }];
-  string help_url = 2 [(validate.rules).string = {
+  string help_url = 2 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
     uri: true
     prefix: "https://"
-    ignore_empty: true
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   c1.connector.v2.AssetRef icon = 3;
   c1.connector.v2.AssetRef logo = 4;
   google.protobuf.Struct profile = 5;
   repeated google.protobuf.Any annotations = 6;
-  string description = 7 [(validate.rules).string = {
+  string description = 7 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 4096
-    ignore_empty: true
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   ConnectorCapabilities capabilities = 8;
   ConnectorAccountCreationSchema account_creation_schema = 9;
 }

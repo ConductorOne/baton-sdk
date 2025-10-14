@@ -12,7 +12,7 @@ import "google/protobuf/duration.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "google/rpc/status.proto";
-import "validate/validate.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
 
@@ -179,66 +179,66 @@ message Task {
 }
 
 message BatonServiceHelloRequest {
-  string host_id = 1 [(validate.rules).string = {
+  string host_id = 1 [(buf.validate.field).string = {
     min_len: 1
     max_len: 256
   }];
-  string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}|$"}]; // You may say Hello anytime, but if you are responding to a task, you must provide the task_id
+  string task_id = 2 [(buf.validate.field).string = {pattern: "^[a-zA-Z0-9]{27}|$"}]; // You may say Hello anytime, but if you are responding to a task, you must provide the task_id
 
   message BuildInfo {
-    string lang_version = 1 [(validate.rules).string = {
+    string lang_version = 1 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
-    string package = 2 [(validate.rules).string = {
+    string package = 2 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
-    string package_version = 3 [(validate.rules).string = {
+    string package_version = 3 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
   }
-  BuildInfo build_info = 3 [(validate.rules).message = {required: true}];
+  BuildInfo build_info = 3 [(buf.validate.field) = {required: true}];
 
   message OSInfo {
-    string hostname = 1 [(validate.rules).string = {
+    string hostname = 1 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
-    string os = 2 [(validate.rules).string = {
+    string os = 2 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
-    string platform = 3 [(validate.rules).string = {
+    string platform = 3 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
-    string platform_version = 4 [(validate.rules).string = {
+    string platform_version = 4 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
-    string platform_family = 5 [(validate.rules).string = {
+    string platform_family = 5 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
-    string kernel_version = 6 [(validate.rules).string = {
+    string kernel_version = 6 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
-    string kernel_arch = 7 [(validate.rules).string = {
+    string kernel_arch = 7 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
-    string virtualization_system = 8 [(validate.rules).string = {
+    string virtualization_system = 8 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
   }
-  OSInfo os_info = 4 [(validate.rules).message = {required: true}];
+  OSInfo os_info = 4 [(buf.validate.field) = {required: true}];
 
-  c1.connector.v2.ConnectorMetadata connector_metadata = 5 [(validate.rules).message = {required: true}];
-  repeated google.protobuf.Any annotations = 6 [(validate.rules).repeated = {max_items: 16}];
+  c1.connector.v2.ConnectorMetadata connector_metadata = 5 [(buf.validate.field) = {required: true}];
+  repeated google.protobuf.Any annotations = 6 [(buf.validate.field).repeated = {max_items: 16}];
 }
 
 message BatonServiceHelloResponse {
@@ -246,7 +246,7 @@ message BatonServiceHelloResponse {
 }
 
 message BatonServiceGetTaskRequest {
-  string host_id = 1 [(validate.rules).string = {
+  string host_id = 1 [(buf.validate.field).string = {
     min_len: 1
     max_len: 256
   }];
@@ -260,12 +260,12 @@ message BatonServiceGetTaskResponse {
 }
 
 message BatonServiceHeartbeatRequest {
-  string host_id = 1 [(validate.rules).string = {
+  string host_id = 1 [(buf.validate.field).string = {
     min_len: 1
     max_len: 256
   }];
-  string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
-  repeated google.protobuf.Any annotations = 3 [(validate.rules).repeated = {max_items: 16}]; // Useful for returning status updates on the task
+  string task_id = 2 [(buf.validate.field).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
+  repeated google.protobuf.Any annotations = 3 [(buf.validate.field).repeated = {max_items: 16}]; // Useful for returning status updates on the task
 }
 
 message BatonServiceHeartbeatResponse {
@@ -276,29 +276,29 @@ message BatonServiceHeartbeatResponse {
 
 message BatonServiceUploadAssetRequest {
   message UploadMetadata {
-    string host_id = 1 [(validate.rules).string = {
+    string host_id = 1 [(buf.validate.field).string = {
       min_len: 1
       max_len: 256
     }];
-    string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
-    repeated google.protobuf.Any annotations = 4 [(validate.rules).repeated = {max_items: 16}];
+    string task_id = 2 [(buf.validate.field).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
+    repeated google.protobuf.Any annotations = 4 [(buf.validate.field).repeated = {max_items: 16}];
   }
 
   message UploadData {
     // 1MB limit
-    bytes data = 1 [(validate.rules).bytes = {
+    bytes data = 1 [(buf.validate.field).bytes = {
       min_len: 1
       max_len: 1048576
     }];
   }
 
   message UploadEOF {
-    bytes sha256_checksum = 1 [(validate.rules).bytes = {len: 32}];
-    repeated google.protobuf.Any annotations = 2 [(validate.rules).repeated = {max_items: 16}];
+    bytes sha256_checksum = 1 [(buf.validate.field).bytes = {len: 32}];
+    repeated google.protobuf.Any annotations = 2 [(buf.validate.field).repeated = {max_items: 16}];
   }
 
   oneof msg {
-    option (validate.required) = true;
+    option (buf.validate.oneof).required = true;
     UploadMetadata metadata = 100;
     UploadData data = 101;
     UploadEOF eof = 102;
@@ -311,28 +311,28 @@ message BatonServiceUploadAssetResponse {
 
 // Connector submits a task has been finished. It should always be removed from the queue, and if it isn't a fatal error, we should re-add it to the queue to try again.
 message BatonServiceFinishTaskRequest {
-  string host_id = 1 [(validate.rules).string = {
+  string host_id = 1 [(buf.validate.field).string = {
     min_len: 1
     max_len: 256
   }];
-  string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
+  string task_id = 2 [(buf.validate.field).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
   google.rpc.Status status = 3;
 
   message Error {
     bool non_retryable = 1;
-    repeated google.protobuf.Any annotations = 2 [(validate.rules).repeated = {max_items: 16}];
+    repeated google.protobuf.Any annotations = 2 [(buf.validate.field).repeated = {max_items: 16}];
     // The response from the connector, if any.
     google.protobuf.Any response = 3;
   }
 
   message Success {
-    repeated google.protobuf.Any annotations = 1 [(validate.rules).repeated = {max_items: 16}];
+    repeated google.protobuf.Any annotations = 1 [(buf.validate.field).repeated = {max_items: 16}];
     // The response from the connector, if any.
     google.protobuf.Any response = 2;
   }
 
   oneof final_state {
-    option (validate.required) = true;
+    option (buf.validate.oneof).required = true;
     Error error = 100;
     Success success = 101;
   }

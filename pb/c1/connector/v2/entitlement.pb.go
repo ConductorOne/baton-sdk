@@ -9,7 +9,7 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -447,35 +447,34 @@ var File_c1_connector_v2_entitlement_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_entitlement_proto_rawDesc = "" +
 	"\n" +
-	"!c1/connector/v2/entitlement.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x17validate/validate.proto\"\x95\x04\n" +
-	"\vEntitlement\x12?\n" +
-	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\bresource\x12\x1a\n" +
+	"!c1/connector/v2/entitlement.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1bbuf/validate/validate.proto\"\x93\x04\n" +
+	"\vEntitlement\x12=\n" +
+	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceB\x06\xbaH\x03\xc8\x01\x01R\bresource\x12\x1a\n" +
 	"\x02id\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x120\n" +
-	"\fdisplay_name\x18\x03 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\vdisplayName\x12/\n" +
-	"\vdescription\x18\x04 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\vdescription\x12@\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\x02id\x120\n" +
+	"\fdisplay_name\x18\x03 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\vdisplayName\x12/\n" +
+	"\vdescription\x18\x04 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\x10R\vdescription\x12@\n" +
 	"\fgrantable_to\x18\x05 \x03(\v2\x1d.c1.connector.v2.ResourceTypeR\vgrantableTo\x126\n" +
 	"\vannotations\x18\x06 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12M\n" +
-	"\apurpose\x18\a \x01(\x0e2).c1.connector.v2.Entitlement.PurposeValueB\b\xfaB\x05\x82\x01\x02\x10\x01R\apurpose\x12\x12\n" +
+	"\apurpose\x18\a \x01(\x0e2).c1.connector.v2.Entitlement.PurposeValueB\b\xbaH\x05\x82\x01\x02\x10\x01R\apurpose\x12\x12\n" +
 	"\x04slug\x18\b \x01(\tR\x04slug\"i\n" +
 	"\fPurposeValue\x12\x1d\n" +
 	"\x19PURPOSE_VALUE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18PURPOSE_VALUE_ASSIGNMENT\x10\x01\x12\x1c\n" +
-	"\x18PURPOSE_VALUE_PERMISSION\x10\x02\"\xa8\x02\n" +
+	"\x18PURPOSE_VALUE_PERMISSION\x10\x02\"\xa9\x02\n" +
 	"*EntitlementsServiceListEntitlementsRequest\x125\n" +
-	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x12'\n" +
-	"\tpage_size\x18\x02 \x01(\rB\n" +
-	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12-\n" +
+	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x12(\n" +
+	"\tpage_size\x18\x02 \x01(\rB\v\xbaH\b\xd8\x01\x01*\x03\x18\xfa\x01R\bpageSize\x12-\n" +
 	"\n" +
-	"page_token\x18\x03 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\tpageToken\x126\n" +
+	"page_token\x18\x03 \x01(\tB\x0e\xbaH\v\xd8\x01\x01r\x06 \x01(\x80\x80@R\tpageToken\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
-	"\x0eactive_sync_id\x18\x05 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\"\xcf\x01\n" +
+	"\x0eactive_sync_id\x18\x05 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\factiveSyncId\"\xcf\x01\n" +
 	"+EntitlementsServiceListEntitlementsResponse\x120\n" +
 	"\x04list\x18\x01 \x03(\v2\x1c.c1.connector.v2.EntitlementR\x04list\x126\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\rnextPageToken\x126\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xbaH\v\xd8\x01\x01r\x06 \x01(\x80\x80@R\rnextPageToken\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations2\xa5\x01\n" +
 	"\x13EntitlementsService\x12\x8d\x01\n" +
 	"\x10ListEntitlements\x12;.c1.connector.v2.EntitlementsServiceListEntitlementsRequest\x1a<.c1.connector.v2.EntitlementsServiceListEntitlementsResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"

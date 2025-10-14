@@ -9,7 +9,7 @@
 package v2
 
 import (
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -4177,16 +4177,16 @@ var File_c1_connector_v2_resource_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\n" +
-	"\x1ec1/connector/v2/resource.proto\x12\x0fc1.connector.v2\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\xb4\x03\n" +
+	"\x1ec1/connector/v2/resource.proto\x12\x0fc1.connector.v2\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1bbuf/validate/validate.proto\"\xb4\x03\n" +
 	"\fResourceType\x12\x1a\n" +
 	"\x02id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x120\n" +
-	"\fdisplay_name\x18\x02 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\vdisplayName\x12L\n" +
-	"\x06traits\x18\x03 \x03(\x0e2#.c1.connector.v2.ResourceType.TraitB\x0f\xfaB\f\x92\x01\t\x18\x01\"\x05\x82\x01\x02\x10\x01R\x06traits\x126\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\x02id\x120\n" +
+	"\fdisplay_name\x18\x02 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\vdisplayName\x12L\n" +
+	"\x06traits\x18\x03 \x03(\x0e2#.c1.connector.v2.ResourceType.TraitB\x0f\xbaH\f\x92\x01\t\x18\x01\"\x05\x82\x01\x02\x10\x01R\x06traits\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12/\n" +
-	"\vdescription\x18\x05 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80 \xd0\x01\x01R\vdescription\x12-\n" +
+	"\vdescription\x18\x05 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80 R\vdescription\x12-\n" +
 	"\x12sourced_externally\x18\x06 \x01(\bR\x11sourcedExternally\"p\n" +
 	"\x05Trait\x12\x15\n" +
 	"\x11TRAIT_UNSPECIFIED\x10\x00\x12\x0e\n" +
@@ -4196,19 +4196,18 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\n" +
 	"TRAIT_ROLE\x10\x03\x12\r\n" +
 	"\tTRAIT_APP\x10\x04\x12\x10\n" +
-	"\fTRAIT_SECRET\x10\x05\"\xa6\x02\n" +
+	"\fTRAIT_SECRET\x10\x05\"\xa7\x02\n" +
 	",ResourceTypesServiceListResourceTypesRequest\x121\n" +
-	"\x06parent\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\x06parent\x12'\n" +
-	"\tpage_size\x18\x02 \x01(\rB\n" +
-	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12-\n" +
+	"\x06parent\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\x06parent\x12(\n" +
+	"\tpage_size\x18\x02 \x01(\rB\v\xbaH\b\xd8\x01\x01*\x03\x18\xfa\x01R\bpageSize\x12-\n" +
 	"\n" +
-	"page_token\x18\x03 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\tpageToken\x126\n" +
+	"page_token\x18\x03 \x01(\tB\x0e\xbaH\v\xd8\x01\x01r\x06 \x01(\x80\x80@R\tpageToken\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
-	"\x0eactive_sync_id\x18\x05 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\"\xd2\x01\n" +
+	"\x0eactive_sync_id\x18\x05 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\factiveSyncId\"\xd2\x01\n" +
 	"-ResourceTypesServiceListResourceTypesResponse\x121\n" +
 	"\x04list\x18\x01 \x03(\v2\x1d.c1.connector.v2.ResourceTypeR\x04list\x126\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\rnextPageToken\x126\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xbaH\v\xd8\x01\x01r\x06 \x01(\x80\x80@R\rnextPageToken\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"N\n" +
 	"\x15CreateResourceRequest\x125\n" +
 	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\"\x85\x01\n" +
@@ -4243,7 +4242,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\rlogin_aliases\x18\x03 \x03(\tR\floginAliases\x121\n" +
 	"\aprofile\x18\x04 \x01(\v2\x17.google.protobuf.StructR\aprofile\x1aI\n" +
 	"\x05Email\x12!\n" +
-	"\aaddress\x18\x01 \x01(\tB\a\xfaB\x04r\x02`\x01R\aaddress\x12\x1d\n" +
+	"\aaddress\x18\x01 \x01(\tB\a\xbaH\x04r\x02`\x01R\aaddress\x12\x1d\n" +
 	"\n" +
 	"is_primary\x18\x02 \x01(\bR\tisPrimary\"\xd1\x05\n" +
 	"\x11CredentialOptions\x12\\\n" +
@@ -4254,14 +4253,14 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x12encrypted_password\x18g \x01(\v24.c1.connector.v2.CredentialOptions.EncryptedPasswordH\x00R\x11encryptedPassword\x12:\n" +
 	"\x1aforce_change_at_next_login\x18\x01 \x01(\bR\x16forceChangeAtNextLogin\x1az\n" +
 	"\x0eRandomPassword\x12!\n" +
-	"\x06length\x18\x01 \x01(\x03B\t\xfaB\x06\"\x04\x18@(\bR\x06length\x12E\n" +
+	"\x06length\x18\x01 \x01(\x03B\t\xbaH\x06\"\x04\x18@(\bR\x06length\x12E\n" +
 	"\vconstraints\x18\x02 \x03(\v2#.c1.connector.v2.PasswordConstraintR\vconstraints\x1a\f\n" +
 	"\n" +
 	"NoPassword\x1a(\n" +
 	"\x03SSO\x12!\n" +
 	"\fsso_provider\x18\x01 \x01(\tR\vssoProvider\x1an\n" +
 	"\x11EncryptedPassword\x12Y\n" +
-	"\x13encrypted_passwords\x18\x01 \x03(\v2\x1e.c1.connector.v2.EncryptedDataB\b\xfaB\x05\x92\x01\x02\b\x01R\x12encryptedPasswordsB\t\n" +
+	"\x13encrypted_passwords\x18\x01 \x03(\v2\x1e.c1.connector.v2.EncryptedDataB\b\xbaH\x05\x92\x01\x02\b\x01R\x12encryptedPasswordsB\t\n" +
 	"\aoptions\"\xbe\x05\n" +
 	"\x16LocalCredentialOptions\x12a\n" +
 	"\x0frandom_password\x18d \x01(\v26.c1.connector.v2.LocalCredentialOptions.RandomPasswordH\x00R\x0erandomPassword\x12U\n" +
@@ -4271,7 +4270,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x12plaintext_password\x18g \x01(\v29.c1.connector.v2.LocalCredentialOptions.PlaintextPasswordH\x00R\x11plaintextPassword\x12:\n" +
 	"\x1aforce_change_at_next_login\x18\x01 \x01(\bR\x16forceChangeAtNextLogin\x1az\n" +
 	"\x0eRandomPassword\x12!\n" +
-	"\x06length\x18\x01 \x01(\x03B\t\xfaB\x06\"\x04\x18@(\bR\x06length\x12E\n" +
+	"\x06length\x18\x01 \x01(\x03B\t\xbaH\x06\"\x04\x18@(\bR\x06length\x12E\n" +
 	"\vconstraints\x18\x02 \x03(\v2#.c1.connector.v2.PasswordConstraintR\vconstraints\x1a\f\n" +
 	"\n" +
 	"NoPassword\x1a(\n" +
@@ -4324,18 +4323,18 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\n" +
 	"ResourceId\x12/\n" +
 	"\rresource_type\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\fresourceType\x12&\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\fresourceType\x12&\n" +
 	"\bresource\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\bresource\x12%\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\bresource\x12%\n" +
 	"\x0ebaton_resource\x18\x03 \x01(\bR\rbatonResource\"\xf0\x04\n" +
 	"\bResource\x12+\n" +
 	"\x02id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x02id\x12I\n" +
 	"\x12parent_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x10parentResourceId\x120\n" +
-	"\fdisplay_name\x18\x03 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\vdisplayName\x126\n" +
+	"\fdisplay_name\x18\x03 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\vdisplayName\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12/\n" +
-	"\vdescription\x18\x05 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\x10\xd0\x01\x01R\vdescription\x12%\n" +
+	"\vdescription\x18\x05 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\x10R\vdescription\x12%\n" +
 	"\x0ebaton_resource\x18\x06 \x01(\bR\rbatonResource\x12<\n" +
 	"\vexternal_id\x18\a \x01(\v2\x1b.c1.connector.v2.ExternalIdR\n" +
 	"externalId\x12Q\n" +
@@ -4343,29 +4342,28 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x0eCreationSource\x12\x1f\n" +
 	"\x1bCREATION_SOURCE_UNSPECIFIED\x10\x00\x12,\n" +
 	"(CREATION_SOURCE_CONNECTOR_LIST_RESOURCES\x10\x01\x127\n" +
-	"3CREATION_SOURCE_CONNECTOR_LIST_GRANTS_PRINCIPAL_JIT\x10\x02\"\xf6\x02\n" +
+	"3CREATION_SOURCE_CONNECTOR_LIST_GRANTS_PRINCIPAL_JIT\x10\x02\"\xf5\x02\n" +
 	"$ResourcesServiceListResourcesRequest\x124\n" +
 	"\x10resource_type_id\x18\x01 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\x0eresourceTypeId\x12S\n" +
-	"\x12parent_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x00R\x10parentResourceId\x12'\n" +
-	"\tpage_size\x18\x03 \x01(\rB\n" +
-	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12-\n" +
+	"\xbaH\ar\x05 \x01(\x80\bR\x0eresourceTypeId\x12Q\n" +
+	"\x12parent_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\x06\xbaH\x03\xc8\x01\x00R\x10parentResourceId\x12(\n" +
+	"\tpage_size\x18\x03 \x01(\rB\v\xbaH\b\xd8\x01\x01*\x03\x18\xfa\x01R\bpageSize\x12-\n" +
 	"\n" +
-	"page_token\x18\x04 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\tpageToken\x126\n" +
+	"page_token\x18\x04 \x01(\tB\x0e\xbaH\v\xd8\x01\x01r\x06 \x01(\x80\x80@R\tpageToken\x126\n" +
 	"\vannotations\x18\x05 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
-	"\x0eactive_sync_id\x18\x06 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\"\xc6\x01\n" +
+	"\x0eactive_sync_id\x18\x06 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\factiveSyncId\"\xc6\x01\n" +
 	"%ResourcesServiceListResourcesResponse\x12-\n" +
 	"\x04list\x18\x01 \x03(\v2\x19.c1.connector.v2.ResourceR\x04list\x126\n" +
-	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\rnextPageToken\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xa9\x02\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xbaH\v\xd8\x01\x01r\x06 \x01(\x80\x80@R\rnextPageToken\x126\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xa7\x02\n" +
 	"'ResourceGetterServiceGetResourceRequest\x12<\n" +
 	"\vresource_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
-	"resourceId\x12S\n" +
-	"\x12parent_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x00R\x10parentResourceId\x126\n" +
+	"resourceId\x12Q\n" +
+	"\x12parent_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\x06\xbaH\x03\xc8\x01\x00R\x10parentResourceId\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
-	"\x0eactive_sync_id\x18\x04 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\"\x99\x01\n" +
+	"\x0eactive_sync_id\x18\x04 \x01(\tB\r\xbaH\n" +
+	"\xd8\x01\x01r\x05 \x01(\x80\bR\factiveSyncId\"\x99\x01\n" +
 	"(ResourceGetterServiceGetResourceResponse\x125\n" +
 	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"R\n" +

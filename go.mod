@@ -3,6 +3,7 @@ module github.com/conductorone/baton-sdk
 go 1.25.2
 
 require (
+	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.10-20250912141014-52f32327d4b0.1
 	filippo.io/age v1.2.1
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/aws/aws-lambda-go v1.47.0
@@ -19,7 +20,6 @@ require (
 	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.3
 	github.com/deckarep/golang-set/v2 v2.7.0
 	github.com/doug-martin/goqu/v9 v9.19.0
-	github.com/envoyproxy/protoc-gen-validate v1.2.1
 	github.com/glebarez/go-sqlite v1.22.0
 	github.com/go-jose/go-jose/v4 v4.0.5
 	github.com/google/go-cmp v0.7.0
@@ -58,7 +58,7 @@ require (
 	golang.org/x/text v0.22.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250219182151-9fdb1cabc7b2
 	google.golang.org/grpc v1.71.0
-	google.golang.org/protobuf v1.36.5
+	google.golang.org/protobuf v1.36.10
 	gopkg.in/yaml.v2 v2.4.0
 )
 

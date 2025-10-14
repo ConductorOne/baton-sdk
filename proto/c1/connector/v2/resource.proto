@@ -4,7 +4,7 @@ package c1.connector.v2;
 
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
-import "validate/validate.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
@@ -13,15 +13,14 @@ service ResourceTypesService {
 }
 
 message ResourceType {
-  string id = 1 [(validate.rules).string = {
+  string id = 1 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
   }];
-  string display_name = 2 [(validate.rules).string = {
+  string display_name = 2 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
-    ignore_empty: true
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
 
   enum Trait {
     TRAIT_UNSPECIFIED = 0;
@@ -31,47 +30,42 @@ message ResourceType {
     TRAIT_APP = 4;
     TRAIT_SECRET = 5;
   }
-  repeated Trait traits = 3 [(validate.rules).repeated = {
+  repeated Trait traits = 3 [(buf.validate.field).repeated = {
     unique: true
     items: {
       enum: {defined_only: true}
     }
   }];
   repeated google.protobuf.Any annotations = 4;
-  string description = 5 [(validate.rules).string = {
+  string description = 5 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 4096
-    ignore_empty: true
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   bool sourced_externally = 6;
 }
 
 message ResourceTypesServiceListResourceTypesRequest {
   Resource parent = 1;
-  uint32 page_size = 2 [(validate.rules).uint32 = {
-    ignore_empty: true
+  uint32 page_size = 2 [(buf.validate.field).uint32 = {
     lte: 250
-  }];
-  string page_token = 3 [(validate.rules).string = {
-    ignore_empty: true
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
+  string page_token = 3 [(buf.validate.field).string = {
     min_bytes: 1
-    max_bytes: 1048576 // 1MB
-  }];
+    max_bytes: 1048576
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated google.protobuf.Any annotations = 4;
-  string active_sync_id = 5 [(validate.rules).string = {
-    ignore_empty: true
+  string active_sync_id = 5 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
 }
 
 message ResourceTypesServiceListResourceTypesResponse {
   repeated ResourceType list = 1;
-  string next_page_token = 2 [(validate.rules).string = {
-    ignore_empty: true
+  string next_page_token = 2 [(buf.validate.field).string = {
     min_bytes: 1
-    max_bytes: 1048576 // 1MB
-  }];
+    max_bytes: 1048576
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated google.protobuf.Any annotations = 3;
 }
 
@@ -141,7 +135,7 @@ message RotateCredentialResponse {
 
 message AccountInfo {
   message Email {
-    string address = 1 [(validate.rules).string = {email: true}];
+    string address = 1 [(buf.validate.field).string = {email: true}];
     // Indicates if this is the user's primary email. Only one entry can be marked as primary.
     bool is_primary = 2;
   }
@@ -156,7 +150,7 @@ message AccountInfo {
 
 message CredentialOptions {
   message RandomPassword {
-    int64 length = 1 [(validate.rules).int64 = {
+    int64 length = 1 [(buf.validate.field).int64 = {
       gte: 8
       lte: 64
     }];
@@ -167,7 +161,7 @@ message CredentialOptions {
     string sso_provider = 1;
   }
   message EncryptedPassword {
-    repeated EncryptedData encrypted_passwords = 1 [(validate.rules).repeated = {min_items: 1}];
+    repeated EncryptedData encrypted_passwords = 1 [(buf.validate.field).repeated = {min_items: 1}];
   }
   oneof options {
     RandomPassword random_password = 100;
@@ -181,7 +175,7 @@ message CredentialOptions {
 // Do not use this in any RPC or any message that is in an RPC.
 message LocalCredentialOptions {
   message RandomPassword {
-    int64 length = 1 [(validate.rules).int64 = {
+    int64 length = 1 [(buf.validate.field).int64 = {
       gte: 8
       lte: 64
     }];
@@ -264,11 +258,11 @@ message EncryptionConfig {
 }
 
 message ResourceId {
-  string resource_type = 1 [(validate.rules).string = {
+  string resource_type = 1 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
   }];
-  string resource = 2 [(validate.rules).string = {
+  string resource = 2 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
   }];
@@ -278,17 +272,15 @@ message ResourceId {
 message Resource {
   ResourceId id = 1;
   ResourceId parent_resource_id = 2;
-  string display_name = 3 [(validate.rules).string = {
+  string display_name = 3 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
-    ignore_empty: true
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated google.protobuf.Any annotations = 4;
-  string description = 5 [(validate.rules).string = {
+  string description = 5 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 2048
-    ignore_empty: true
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   bool baton_resource = 6;
   ExternalId external_id = 7;
   CreationSource creation_source = 8;
@@ -302,47 +294,42 @@ message Resource {
 }
 
 message ResourcesServiceListResourcesRequest {
-  string resource_type_id = 1 [(validate.rules).string = {
+  string resource_type_id = 1 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
   }];
-  ResourceId parent_resource_id = 2 [(validate.rules).message = {required: false}];
-  uint32 page_size = 3 [(validate.rules).uint32 = {
-    ignore_empty: true
+  ResourceId parent_resource_id = 2 [(buf.validate.field) = {required: false}];
+  uint32 page_size = 3 [(buf.validate.field).uint32 = {
     lte: 250
-  }];
-  string page_token = 4 [(validate.rules).string = {
-    ignore_empty: true
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
+  string page_token = 4 [(buf.validate.field).string = {
     min_bytes: 1
-    max_bytes: 1048576 // 1MB
-  }];
+    max_bytes: 1048576
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated google.protobuf.Any annotations = 5;
-  string active_sync_id = 6 [(validate.rules).string = {
-    ignore_empty: true
+  string active_sync_id = 6 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
 }
 
 message ResourcesServiceListResourcesResponse {
   repeated Resource list = 1;
-  string next_page_token = 2 [(validate.rules).string = {
-    ignore_empty: true
+  string next_page_token = 2 [(buf.validate.field).string = {
     min_bytes: 1
-    max_bytes: 1048576 // 1MB
-  }];
+    max_bytes: 1048576
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated google.protobuf.Any annotations = 3;
 }
 
 message ResourceGetterServiceGetResourceRequest {
   ResourceId resource_id = 1;
-  ResourceId parent_resource_id = 2 [(validate.rules).message = {required: false}];
+  ResourceId parent_resource_id = 2 [(buf.validate.field) = {required: false}];
   repeated google.protobuf.Any annotations = 3;
-  string active_sync_id = 4 [(validate.rules).string = {
-    ignore_empty: true
+  string active_sync_id = 4 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
 }
 
 message ResourceGetterServiceGetResourceResponse {

@@ -7,7 +7,7 @@ import "c1/connector/v2/grant.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/timestamp.proto";
-import "validate/validate.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
@@ -18,33 +18,29 @@ service EventService {
 
 message ListEventsRequest {
   // Can function like a page token but also can be arbitrary to resume a feed at any point
-  string cursor = 1 [(validate.rules).string = {
-    ignore_empty: true
+  string cursor = 1 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 4096
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   google.protobuf.Timestamp start_at = 2;
-  uint32 page_size = 3 [(validate.rules).uint32 = {
-    ignore_empty: true
+  uint32 page_size = 3 [(buf.validate.field).uint32 = {
     lte: 250
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   repeated google.protobuf.Any annotations = 4;
   // Used to specify a specific event feed to list events from.
   // If not provided, the connector will use the old event feed.
-  string event_feed_id = 5 [(validate.rules).string = {
+  string event_feed_id = 5 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
-    ignore_empty: true
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
 }
 
 message ListEventsResponse {
   repeated Event events = 1;
-  string cursor = 2 [(validate.rules).string = {
-    ignore_empty: true
+  string cursor = 2 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 4096
-  }];
+  }, (buf.validate.field).ignore = IGNORE_IF_ZERO_VALUE];
   bool has_more = 3;
   repeated google.protobuf.Any annotations = 4;
 }
@@ -88,14 +84,14 @@ message GrantEvent {
 }
 
 message CreateGrantEvent {
-  c1.connector.v2.Entitlement entitlement = 1 [(validate.rules).message = {required: true}];
-  c1.connector.v2.Resource principal = 2 [(validate.rules).message = {required: true}];
+  c1.connector.v2.Entitlement entitlement = 1 [(buf.validate.field) = {required: true}];
+  c1.connector.v2.Resource principal = 2 [(buf.validate.field) = {required: true}];
   repeated google.protobuf.Any annotations = 3;
 }
 
 message CreateRevokeEvent {
-  c1.connector.v2.Entitlement entitlement = 1 [(validate.rules).message = {required: true}];
-  c1.connector.v2.Resource principal = 2 [(validate.rules).message = {required: true}];
+  c1.connector.v2.Entitlement entitlement = 1 [(buf.validate.field) = {required: true}];
+  c1.connector.v2.Resource principal = 2 [(buf.validate.field) = {required: true}];
   repeated google.protobuf.Any annotations = 3;
 }
 
@@ -106,7 +102,7 @@ message RevokeEvent {
 
 // generic light weight event indicating a resource was changed
 message ResourceChangeEvent {
-  ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
+  ResourceId resource_id = 1 [(buf.validate.field) = {required: true}];
   ResourceId parent_resource_id = 2;
 }
 
@@ -121,11 +117,11 @@ enum EventType {
 
 message EventFeedMetadata {
   // unique identifier for the event feed
-  string id = 1 [(validate.rules).string = {
+  string id = 1 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
   }];
-  repeated EventType supported_event_types = 2 [(validate.rules).repeated = {
+  repeated EventType supported_event_types = 2 [(buf.validate.field).repeated = {
     unique: true
     items: {
       enum: {defined_only: true}

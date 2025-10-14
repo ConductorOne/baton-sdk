@@ -4,7 +4,7 @@ package c1.reader.v2;
 
 import "c1/connector/v2/entitlement.proto";
 import "google/protobuf/any.proto";
-import "validate/validate.proto";
+import "buf/validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/reader/v2";
 
@@ -13,7 +13,7 @@ service EntitlementsReaderService {
 }
 
 message EntitlementsReaderServiceGetEntitlementRequest {
-  string entitlement_id = 1 [(validate.rules).string = {
+  string entitlement_id = 1 [(buf.validate.field).string = {
     min_bytes: 1
     max_bytes: 1024
   }];

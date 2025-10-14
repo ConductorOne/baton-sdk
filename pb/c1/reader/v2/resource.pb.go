@@ -9,8 +9,8 @@
 package v2
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	anypb "google.golang.org/protobuf/types/known/anypb"
@@ -318,14 +318,14 @@ var File_c1_reader_v2_resource_proto protoreflect.FileDescriptor
 
 const file_c1_reader_v2_resource_proto_rawDesc = "" +
 	"\n" +
-	"\x1bc1/reader/v2/resource.proto\x12\fc1.reader.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x17validate/validate.proto\"\x94\x01\n" +
+	"\x1bc1/reader/v2/resource.proto\x12\fc1.reader.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1bbuf/validate/validate.proto\"\x94\x01\n" +
 	"0ResourceTypesReaderServiceGetResourceTypeRequest\x12(\n" +
 	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"w\n" +
 	"1ResourceTypesReaderServiceGetResourceTypeResponse\x12B\n" +
-	"\rresource_type\x18\x01 \x01(\v2\x1d.c1.connector.v2.ResourceTypeR\fresourceType\"\xaa\x01\n" +
-	"(ResourcesReaderServiceGetResourceRequest\x12F\n" +
-	"\vresource_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\n" +
+	"\rresource_type\x18\x01 \x01(\v2\x1d.c1.connector.v2.ResourceTypeR\fresourceType\"\xa8\x01\n" +
+	"(ResourcesReaderServiceGetResourceRequest\x12D\n" +
+	"\vresource_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\x06\xbaH\x03\xc8\x01\x01R\n" +
 	"resourceId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"b\n" +
 	")ResourcesReaderServiceGetResourceResponse\x125\n" +
