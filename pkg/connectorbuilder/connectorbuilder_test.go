@@ -187,6 +187,21 @@ func newTestResourceProvisionerV2(resourceType string) ResourceProvisionerV2 {
 	return &testResourceProvisionerV2{newTestResourceSyncer(resourceType)}
 }
 
+type testResourceTargetedSyncer struct {
+	ResourceSyncer
+}
+
+func newTestResourceTargetedSyncer(resourceType string) ResourceTargetedSyncer {
+	return &testResourceTargetedSyncer{newTestResourceSyncer(resourceType)}
+}
+
+func (t *testResourceTargetedSyncer) Get(ctx context.Context, resourceId *v2.ResourceId, parentResourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error) {
+	return &v2.Resource{
+		Id:          resourceId,
+		DisplayName: "Targeted Resource " + resourceId.Resource,
+	}, annotations.Annotations{}, nil
+}
+
 func (t *testResourceProvisionerV2) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
 	return []*v2.Grant{
 		{
@@ -234,7 +249,7 @@ func (t *testAccountManager) CreateAccount(
 }
 
 func (t *testAccountManager) CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
-	return &v2.CredentialDetailsAccountProvisioning{}, annotations.Annotations{}, nil
+	return nil, annotations.Annotations{}, nil
 }
 
 type testCredentialManager struct {
@@ -258,7 +273,7 @@ func (t *testCredentialManager) Rotate(ctx context.Context, resourceId *v2.Resou
 }
 
 func (t *testCredentialManager) RotateCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsCredentialRotation, annotations.Annotations, error) {
-	return &v2.CredentialDetailsCredentialRotation{}, annotations.Annotations{}, nil
+	return nil, annotations.Annotations{}, nil
 }
 
 type testEventProvider struct {
@@ -1021,4 +1036,232 @@ func TestDeleteResourceV2(t *testing.T) {
 		ResourceId: rsID,
 	})
 	require.NoError(t, err)
+}
+
+func TestGetCapabilities(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("BasicResourceSyncer", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{
+			newTestResourceSyncer("test-resource"),
+		}))
+		require.NoError(t, err)
+
+		// Get the builder to call getCapabilities
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+		require.NotNil(t, caps)
+
+		// Should have SYNC capability
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Len(t, caps.ResourceTypeCapabilities, 1)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
+	})
+
+	t.Run("ResourceTargetedSyncer", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{
+			newTestResourceTargetedSyncer("test-resource"),
+		}))
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have SYNC and TARGETED_SYNC capabilities
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
+	})
+
+	t.Run("ResourceProvisioner", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{
+			newTestResourceProvisioner("test-resource"),
+		}))
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have SYNC and PROVISION capabilities
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_PROVISION)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_PROVISION)
+	})
+
+	t.Run("AccountManager", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{
+			newTestAccountManager("test-resource"),
+		}))
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have SYNC and ACCOUNT_PROVISIONING capabilities
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
+	})
+
+	t.Run("CredentialManager", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{
+			newTestCredentialManager("test-resource"),
+		}))
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have SYNC and CREDENTIAL_ROTATION capabilities
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
+	})
+
+	t.Run("ResourceManager", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{
+			newTestResourceManager("test-resource"),
+		}))
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have SYNC, RESOURCE_CREATE, and RESOURCE_DELETE capabilities
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
+	})
+
+	t.Run("ResourceDeleter", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{
+			newTestResourceDeleter("test-resource"),
+		}))
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have SYNC and RESOURCE_DELETE capabilities (but not RESOURCE_CREATE)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
+		require.NotContains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
+		require.NotContains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE)
+	})
+
+	t.Run("EventFeeds", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestEventProvider())
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have EVENT_FEED_V2 capability (but not SYNC since no resource syncers)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_EVENT_FEED_V2)
+		require.NotContains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+	})
+
+	t.Run("TicketManager", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestTicketManager())
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have TICKETING capability (but not SYNC since no resource syncers)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_TICKETING)
+		require.NotContains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+	})
+
+	t.Run("ActionManager", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestRegisterActionManager())
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have ACTIONS capability (but not SYNC since no resource syncers)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_ACTIONS)
+		require.NotContains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+	})
+
+	t.Run("MultipleResourceTypes", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{
+			newTestResourceSyncer("resource-1"),
+			newTestResourceTargetedSyncer("resource-2"),
+			newTestResourceProvisioner("resource-3"),
+		}))
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have capabilities from all resource types
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
+		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_PROVISION)
+		require.Len(t, caps.ResourceTypeCapabilities, 3)
+
+		// Verify resource types are sorted by ID
+		require.Equal(t, "resource-1", caps.ResourceTypeCapabilities[0].ResourceType.Id)
+		require.Equal(t, "resource-2", caps.ResourceTypeCapabilities[1].ResourceType.Id)
+		require.Equal(t, "resource-3", caps.ResourceTypeCapabilities[2].ResourceType.Id)
+	})
+
+	t.Run("EmptyResourceBuilders", func(t *testing.T) {
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{}))
+		require.NoError(t, err)
+
+		builder, ok := connector.(*builder)
+		require.True(t, ok)
+
+		caps, err := getCapabilities(ctx, builder)
+		require.NoError(t, err)
+
+		// Should have no capabilities
+		require.Empty(t, caps.ConnectorCapabilities)
+		require.Empty(t, caps.ResourceTypeCapabilities)
+	})
 }

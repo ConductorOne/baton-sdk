@@ -254,53 +254,47 @@ func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceClean
 func getCapabilities(ctx context.Context, b *builder) (*v2.ConnectorCapabilities, error) {
 	connectorCaps := make(map[v2.Capability]struct{})
 	resourceTypeCapabilities := []*v2.ResourceTypeCapability{}
-	for _, rb := range b.resourceBuilders {
-		resourceTypeCapability := &v2.ResourceTypeCapability{
-			ResourceType: rb.ResourceType(ctx),
-			// Currently by default all resource types support sync.
-			Capabilities: []v2.Capability{v2.Capability_CAPABILITY_SYNC},
-		}
+
+	for resourceTypeID, rb := range b.resourceBuilders {
 		connectorCaps[v2.Capability_CAPABILITY_SYNC] = struct{}{}
-		if _, ok := rb.(ResourceTargetedSyncer); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
-			connectorCaps[v2.Capability_CAPABILITY_TARGETED_SYNC] = struct{}{}
+		caps := []v2.Capability{v2.Capability_CAPABILITY_SYNC}
+
+		if _, exists := b.resourceTargetedSyncers[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_TARGETED_SYNC)
 		}
-		if _, ok := rb.(ResourceProvisioner); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_PROVISION)
-			connectorCaps[v2.Capability_CAPABILITY_PROVISION] = struct{}{}
-		} else if _, ok = rb.(ResourceProvisionerV2); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_PROVISION)
-			connectorCaps[v2.Capability_CAPABILITY_PROVISION] = struct{}{}
+
+		if _, exists := b.resourceProvisioners[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_PROVISION)
 		}
+
 		if _, ok := rb.(AccountManager); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
-			connectorCaps[v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING] = struct{}{}
+			caps = append(caps, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
 		}
 
-		if _, ok := rb.(CredentialManager); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
-			connectorCaps[v2.Capability_CAPABILITY_CREDENTIAL_ROTATION] = struct{}{}
+		if _, exists := b.resourceManagers[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_RESOURCE_DELETE, v2.Capability_CAPABILITY_RESOURCE_CREATE)
+		} else if _, exists := b.resourceDeleters[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_RESOURCE_DELETE)
 		}
 
-		if _, ok := rb.(ResourceManager); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_CREATE] = struct{}{}
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
-		} else if _, ok := rb.(ResourceDeleter); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
+		if _, exists := b.credentialManagers[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
 		}
 
-		if _, ok := rb.(ResourceManagerV2); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_CREATE] = struct{}{}
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
-		} else if _, ok := rb.(ResourceDeleterV2); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
+		// Extend the capabilities with the resource type specificcapabilities
+		for _, cap := range caps {
+			connectorCaps[cap] = struct{}{}
 		}
 
-		resourceTypeCapabilities = append(resourceTypeCapabilities, resourceTypeCapability)
+		resourceTypeCapabilities = append(resourceTypeCapabilities, &v2.ResourceTypeCapability{
+			ResourceType: rb.ResourceType(ctx),
+			Capabilities: caps,
+		})
+	}
+
+	// Check for account provisioning capability (global, not per resource type)
+	if b.accountManager != nil {
+		connectorCaps[v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING] = struct{}{}
 	}
 	sort.Slice(resourceTypeCapabilities, func(i, j int) bool {
 		return resourceTypeCapabilities[i].ResourceType.GetId() < resourceTypeCapabilities[j].ResourceType.GetId()
