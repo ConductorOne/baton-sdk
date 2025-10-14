@@ -18,6 +18,10 @@ import (
 // ticketing system, allowing Baton to create and track tickets in that system.
 type TicketManager interface {
 	ConnectorBuilder
+	TicketManagerLimited
+}
+
+type TicketManagerLimited interface {
 	GetTicket(ctx context.Context, ticketId string) (*v2.Ticket, annotations.Annotations, error)
 	CreateTicket(ctx context.Context, ticket *v2.Ticket, schema *v2.TicketSchema) (*v2.Ticket, annotations.Annotations, error)
 	GetTicketSchema(ctx context.Context, schemaID string) (*v2.TicketSchema, annotations.Annotations, error)
@@ -227,8 +231,8 @@ func (b *builder) GetTicketSchema(ctx context.Context, request *v2.TicketsServic
 	}, nil
 }
 
-func (b *builder) addTicketManager(_ context.Context, c ConnectorBuilder) error {
-	if ticketManager, ok := c.(TicketManager); ok {
+func (b *builder) addTicketManager(_ context.Context, in interface{}) error {
+	if ticketManager, ok := in.(TicketManagerLimited); ok {
 		if b.ticketManager != nil {
 			return fmt.Errorf("error: cannot set multiple ticket managers")
 		}

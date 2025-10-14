@@ -7,6 +7,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -25,11 +26,33 @@ import (
 // - AccountManager: For account provisioning operations
 // - CredentialManager: For credential rotation operations.
 // - ResourceTargetedSyncer: For directly getting a resource supporting targeted sync.
-type ResourceSyncer interface {
+
+type ResourceType interface {
 	ResourceType(ctx context.Context) *v2.ResourceType
+}
+
+type ResourceSyncer interface {
+	ResourceType
 	List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error)
 	Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error)
 	Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error)
+}
+
+type ResourceSyncerLimited interface {
+	List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error)
+	Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error)
+	Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error)
+}
+
+type ResourceSyncerV2 interface {
+	ResourceType
+	ResourceSyncerV2Limited
+}
+
+type ResourceSyncerV2Limited interface {
+	List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token, opts resource.Options) ([]*v2.Resource, string, annotations.Annotations, error)
+	Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token, opts resource.Options) ([]*v2.Entitlement, string, annotations.Annotations, error)
+	Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token, opts resource.Options) ([]*v2.Grant, string, annotations.Annotations, error)
 }
 
 // ResourceTargetedSyncer extends ResourceSyncer to add capabilities for directly syncing an individual resource
@@ -38,6 +61,10 @@ type ResourceSyncer interface {
 // of the associated resource type.
 type ResourceTargetedSyncer interface {
 	ResourceSyncer
+	ResourceTargetedSyncerLimited
+}
+
+type ResourceTargetedSyncerLimited interface {
 	Get(ctx context.Context, resourceId *v2.ResourceId, parentResourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error)
 }
 
@@ -53,12 +80,12 @@ func (b *builder) ListResourceTypes(
 	tt := tasks.ListResourceTypesType
 	var out []*v2.ResourceType
 
-	if len(b.resourceBuilders) == 0 {
+	if len(b.resourceSyncers) == 0 {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: no resource builders found")
 	}
 
-	for _, rb := range b.resourceBuilders {
+	for _, rb := range b.resourceSyncers {
 		out = append(out, rb.ResourceType(ctx))
 	}
 
@@ -78,7 +105,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 
 	start := b.nowFunc()
 	tt := tasks.ListResourcesType
-	rb, ok := b.resourceBuilders[request.ResourceTypeId]
+	rb, ok := b.resourceSyncers[request.ResourceTypeId]
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list resources with unknown resource type %s", request.ResourceTypeId)
@@ -86,7 +113,8 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 	out, nextPageToken, annos, err := rb.List(ctx, request.ParentResourceId, &pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
-	})
+	}, resource.Options{})
+
 	resp := &v2.ResourcesServiceListResourcesResponse{
 		List:          out,
 		NextPageToken: nextPageToken,
@@ -117,7 +145,6 @@ func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterSer
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, status.Errorf(codes.Unimplemented, "error: get resource with unknown resource type %s", resourceType)
 	}
-
 	resource, annos, err := rb.Get(ctx, request.GetResourceId(), request.GetParentResourceId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
@@ -142,7 +169,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 
 	start := b.nowFunc()
 	tt := tasks.ListEntitlementsType
-	rb, ok := b.resourceBuilders[request.Resource.Id.ResourceType]
+	rb, ok := b.resourceSyncers[request.Resource.Id.ResourceType]
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list entitlements with unknown resource type %s", request.Resource.Id.ResourceType)
@@ -151,7 +178,8 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 	out, nextPageToken, annos, err := rb.Entitlements(ctx, request.Resource, &pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
-	})
+	}, resource.Options{})
+
 	resp := &v2.EntitlementsServiceListEntitlementsResponse{
 		List:          out,
 		NextPageToken: nextPageToken,
@@ -178,7 +206,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	start := b.nowFunc()
 	tt := tasks.ListGrantsType
 	rid := request.Resource.Id
-	rb, ok := b.resourceBuilders[rid.ResourceType]
+	rb, ok := b.resourceSyncers[rid.ResourceType]
 	if !ok {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list grants with unknown resource type %s", rid.ResourceType)
@@ -187,7 +215,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	out, nextPageToken, annos, err := rb.Grants(ctx, request.Resource, &pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
-	})
+	}, resource.Options{})
 
 	resp := &v2.GrantsServiceListGrantsResponse{
 		List:          out,
@@ -209,8 +237,32 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	return resp, nil
 }
 
-func (b *builder) addTargetedSyncer(_ context.Context, typeId string, rb ResourceSyncer) error {
-	if targetedSyncer, ok := rb.(ResourceTargetedSyncer); ok {
+func newResourceSyncerV1toV2(rb ResourceSyncer) ResourceSyncerV2 {
+	return &resourceSyncerV1toV2{rb: rb}
+}
+
+type resourceSyncerV1toV2 struct {
+	rb ResourceSyncer
+}
+
+func (rw *resourceSyncerV1toV2) ResourceType(ctx context.Context) *v2.ResourceType {
+	return rw.rb.ResourceType(ctx)
+}
+
+func (rw *resourceSyncerV1toV2) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token, opts resource.Options) ([]*v2.Resource, string, annotations.Annotations, error) {
+	return rw.rb.List(ctx, parentResourceID, pToken)
+}
+
+func (rw *resourceSyncerV1toV2) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token, opts resource.Options) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	return rw.rb.Entitlements(ctx, resource, pToken)
+}
+
+func (rw *resourceSyncerV1toV2) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token, opts resource.Options) ([]*v2.Grant, string, annotations.Annotations, error) {
+	return rw.rb.Grants(ctx, resource, pToken)
+}
+
+func (b *builder) addTargetedSyncer(_ context.Context, typeId string, in interface{}) error {
+	if targetedSyncer, ok := in.(ResourceTargetedSyncerLimited); ok {
 		if _, ok := b.resourceTargetedSyncers[typeId]; ok {
 			return fmt.Errorf("error: duplicate resource type found for resource targeted syncer %s", typeId)
 		}
@@ -219,10 +271,24 @@ func (b *builder) addTargetedSyncer(_ context.Context, typeId string, rb Resourc
 	return nil
 }
 
-func (b *builder) addResourceBuilders(_ context.Context, typeId string, rb ResourceSyncer) error {
-	if _, ok := b.resourceBuilders[typeId]; ok {
+func (b *builder) addResourceSyncers(_ context.Context, typeId string, in interface{}) error {
+	// no duplicates
+	if _, ok := b.resourceSyncers[typeId]; ok {
 		return fmt.Errorf("error: duplicate resource type found for resource builder %s", typeId)
 	}
-	b.resourceBuilders[typeId] = rb
+
+	if rb, ok := in.(ResourceSyncer); ok {
+		b.resourceSyncers[typeId] = newResourceSyncerV1toV2(rb)
+	}
+
+	if rb, ok := in.(ResourceSyncerV2); ok {
+		b.resourceSyncers[typeId] = rb
+	}
+
+	// A resource syncer is required
+	if _, ok := b.resourceSyncers[typeId]; !ok {
+		return fmt.Errorf("error: the resource syncer interface must be implemented for all types (%s)", typeId)
+	}
+
 	return nil
 }

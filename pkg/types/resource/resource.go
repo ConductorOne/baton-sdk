@@ -337,3 +337,8 @@ func NewSecretResource(
 
 	return ret, nil
 }
+
+type Options struct {
+	// Session sessions.SessionStore
+	// SyncID  string
+}

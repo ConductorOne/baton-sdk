@@ -651,7 +651,7 @@ func TestMemorySessionCache_Close(t *testing.T) {
 		assert.Len(t, values, 2)
 
 		// Close the cache
-		err = cache.Close(ctx)
+		err = cache.CloseStore(ctx)
 		require.NoError(t, err)
 
 		// Verify cache is cleared after close
@@ -664,7 +664,7 @@ func TestMemorySessionCache_Close(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
 
-		err = cache.Close(ctx)
+		err = cache.CloseStore(ctx)
 		require.NoError(t, err)
 	})
 
@@ -673,11 +673,11 @@ func TestMemorySessionCache_Close(t *testing.T) {
 		require.NoError(t, err)
 
 		// First close
-		err = cache.Close(ctx)
+		err = cache.CloseStore(ctx)
 		require.NoError(t, err)
 
 		// Second close should not error
-		err = cache.Close(ctx)
+		err = cache.CloseStore(ctx)
 		require.NoError(t, err)
 	})
 }
@@ -937,11 +937,17 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		// Create two separate cache instances
 		cache1, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer cache1.Close(ctx)
+		defer func() {
+			err := cache1.CloseStore(ctx)
+			require.NoError(t, err)
+		}()
 
 		cache2, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer cache2.Close(ctx)
+		defer func() {
+			err := cache2.CloseStore(ctx)
+			require.NoError(t, err)
+		}()
 
 		memCache1 := cache1.(*MemorySessionCache)
 		memCache2 := cache2.(*MemorySessionCache)
@@ -967,7 +973,10 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 	t.Run("propagation_with_syncid_isolation", func(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer cache.Close(ctx)
+		defer func() {
+			err := cache.CloseStore(ctx)
+			require.NoError(t, err)
+		}()
 
 		memCache := cache.(*MemorySessionCache)
 
@@ -996,7 +1005,10 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 	t.Run("propagation_with_syncid_isolation", func(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer cache.Close(ctx)
+		defer func() {
+			err := cache.CloseStore(ctx)
+			require.NoError(t, err)
+		}()
 
 		memCache := cache.(*MemorySessionCache)
 
@@ -1025,7 +1037,10 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 	t.Run("propagation_with_mixed_operations", func(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer cache.Close(ctx)
+		defer func() {
+			err := cache.CloseStore(ctx)
+			require.NoError(t, err)
+		}()
 
 		memCache := cache.(*MemorySessionCache)
 
@@ -1077,7 +1092,10 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 	t.Run("propagation_with_delete_operations", func(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer cache.Close(ctx)
+		defer func() {
+			err := cache.CloseStore(ctx)
+			require.NoError(t, err)
+		}()
 
 		memCache := cache.(*MemorySessionCache)
 
@@ -1114,7 +1132,10 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 	t.Run("propagation_with_clear_operations", func(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer cache.Close(ctx)
+		defer func() {
+			err := cache.CloseStore(ctx)
+			require.NoError(t, err)
+		}()
 
 		memCache := cache.(*MemorySessionCache)
 
@@ -1156,7 +1177,10 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 	t.Run("propagation_with_concurrent_access", func(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer cache.Close(ctx)
+		defer func() {
+			err := cache.CloseStore(ctx)
+			require.NoError(t, err)
+		}()
 
 		memCache := cache.(*MemorySessionCache)
 
@@ -1209,7 +1233,10 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		// Create a cache
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
-		defer cache.Close(ctx)
+		defer func() {
+			err := cache.CloseStore(ctx)
+			require.NoError(t, err)
+		}()
 
 		memCache := cache.(*MemorySessionCache)
 
