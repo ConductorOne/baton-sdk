@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -73,14 +72,8 @@ func getFileContentFromPath(path string) ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	// Validate path to prevent directory traversal
-	cleanPath := filepath.Clean(path)
-	if strings.Contains(cleanPath, "..") {
-		return nil, fmt.Errorf("invalid file path: path traversal detected")
-	}
-
 	// Check if the file exists
-	fileInfo, err := os.Stat(cleanPath)
+	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("cannot access file: %w", err)
 	}
