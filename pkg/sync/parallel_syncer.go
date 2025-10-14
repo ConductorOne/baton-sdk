@@ -1938,7 +1938,7 @@ func (ps *parallelSyncer) syncGrantsForResourceLogic(ctx context.Context, resour
 	}
 
 	// Update progress counts
-	ps.syncer.counts.AddGrantsProgress(resourceID.ResourceType, len(grants))
+	ps.syncer.counts.AddGrantsProgress(resourceID.ResourceType, 1)
 	ps.syncer.counts.LogGrantsProgress(ctx, resourceID.ResourceType)
 
 	// We may want to update the etag on the resource. If we matched a previous etag, then we should use that.
@@ -2023,7 +2023,7 @@ func (ps *parallelSyncer) syncEntitlementsForResourceLogic(ctx context.Context, 
 	}
 
 	// Update progress counts
-	ps.syncer.counts.AddEntitlementsProgress(resourceID.ResourceType, len(resp.List))
+	ps.syncer.counts.AddEntitlementsProgress(resourceID.ResourceType, 1)
 	ps.syncer.counts.LogEntitlementsProgress(ctx, resourceID.ResourceType)
 
 	// Check if we need to continue with pagination
