@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -72,9 +73,22 @@ func getFileContentFromPath(path string) ([]byte, error) {
 		return []byte{}, nil
 	}
 
+	// Validate path to prevent directory traversal
+	cleanPath := filepath.Clean(path)
+	if strings.Contains(cleanPath, "..") {
+		return nil, fmt.Errorf("invalid file path: path traversal detected")
+	}
+
 	// Check if the file exists
-	if _, err := os.Stat(path); err != nil {
-		return nil, fmt.Errorf("file does not exist: %w", err)
+	fileInfo, err := os.Stat(cleanPath)
+	if err != nil {
+		return nil, fmt.Errorf("cannot access file: %w", err)
+	}
+
+	// Check file size limit (2MB)
+	maxFileSize := 2 * 1024 * 1024
+	if fileInfo.Size() > int64(maxFileSize) {
+		return nil, fmt.Errorf("file too large: %d bytes exceeds limit of %d bytes", fileInfo.Size(), maxFileSize)
 	}
 
 	// Read the file
