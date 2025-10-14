@@ -243,7 +243,7 @@ type ParallelSyncConfig struct {
 // DefaultParallelSyncConfig returns a default configuration
 func DefaultParallelSyncConfig() *ParallelSyncConfig {
 	return &ParallelSyncConfig{
-		WorkerCount:   1,
+		WorkerCount:   2,
 		DefaultBucket: "", // Empty string means each resource type gets its own bucket
 	}
 }
