@@ -98,8 +98,14 @@ func MakeMainCommand[T field.Configurable](
 			}
 		}
 
+		readFromPath := true
+		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+		t, err := MakeGenericConfiguration[T](v, decodeOpts)
+		if err != nil {
+			return fmt.Errorf("failed to make configuration: %w", err)
+		}
 		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, v); err != nil {
+		if err := field.Validate(confschema, t); err != nil {
 			return err
 		}
 
@@ -299,11 +305,6 @@ func MakeMainCommand[T field.Configurable](
 
 		opts = append(opts, connectorrunner.WithSkipEntitlementsAndGrants(v.GetBool("skip-entitlements-and-grants")))
 
-		t, err := MakeGenericConfiguration[T](v)
-		if err != nil {
-			return fmt.Errorf("failed to make configuration: %w", err)
-		}
-
 		// Create session cache and add to context
 		runCtx, err = WithSessionCache(runCtx, defaultSessionCacheConstructor)
 		if err != nil {
@@ -412,13 +413,15 @@ func MakeGRPCServerCommand[T field.Configurable](
 		l := ctxzap.Extract(runCtx)
 		l.Debug("starting grpc server")
 
-		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, v); err != nil {
-			return err
-		}
-		t, err := MakeGenericConfiguration[T](v)
+		readFromPath := true
+		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+		t, err := MakeGenericConfiguration[T](v, decodeOpts)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
+		}
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, t); err != nil {
+			return err
 		}
 
 		// Create session cache and add to context
@@ -553,13 +556,15 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 
-		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, v); err != nil {
-			return err
-		}
-		t, err := MakeGenericConfiguration[T](v)
+		readFromPath := true
+		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+		t, err := MakeGenericConfiguration[T](v, decodeOpts)
 		if err != nil {
 			return fmt.Errorf("failed to make configuration: %w", err)
+		}
+		// validate required fields and relationship constraints
+		if err := field.Validate(confschema, t); err != nil {
+			return err
 		}
 
 		// Create session cache and add to context

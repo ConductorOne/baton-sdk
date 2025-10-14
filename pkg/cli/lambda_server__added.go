@@ -145,7 +145,10 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
 		}
 
-		t, err := MakeGenericConfiguration[T](v)
+		// parse content directly for lambdas, don't read from file
+		readFromPath := false
+		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+		t, err := MakeGenericConfiguration[T](v, decodeOpts)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
 		}
@@ -155,7 +158,15 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				cfg.Set(k, v)
 			}
 		default:
-			err = mapstructure.Decode(configStruct.AsMap(), cfg)
+			// Use mapstructure with decode hook for file upload fields
+			decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+				DecodeHook: field.ComposeDecodeHookFunc(decodeOpts),
+				Result:     cfg,
+			})
+			if err != nil {
+				return fmt.Errorf("lambda-run: failed to create decoder: %w", err)
+			}
+			err = decoder.Decode(configStruct.AsMap())
 			if err != nil {
 				return fmt.Errorf("lambda-run: failed to decode config: %w", err)
 			}

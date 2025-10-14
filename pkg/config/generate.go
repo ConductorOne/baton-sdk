@@ -68,7 +68,11 @@ func Generate(name string, schema field.Configuration) {
 		}
 		switch f.Variant {
 		case field.StringVariant:
-			nf.FieldType = "string"
+			if f.ConnectorConfig.FieldType == field.FileUpload {
+				nf.FieldType = "[]byte"
+			} else {
+				nf.FieldType = "string"
+			}
 		case field.BoolVariant:
 			nf.FieldType = "bool"
 		case field.IntVariant:
@@ -108,7 +112,7 @@ type {{ .StructName }} struct {
 	{{- end }}
 }
 
-func (c* {{ .StructName }}) findFieldByTag(tagValue string) (any, bool) {
+func (c *{{ .StructName }}) findFieldByTag(tagValue string) (any, bool) {
 	v := reflect.ValueOf(c).Elem() // Dereference pointer to struct
 	t := v.Type()
 
@@ -140,11 +144,13 @@ func (c *{{ .StructName }}) GetString(fieldName string) string {
 	if !ok {
 		return ""
 	}
-	t, ok := v.(string)
-	if !ok {
-		panic("wrong type")
+	if t, ok := v.(string); ok {
+		return t
 	}
-	return t
+	if t, ok := v.([]byte); ok {
+		return string(t)
+	}
+	panic("wrong type")
 }
 
 func (c *{{ .StructName }}) GetInt(fieldName string) int {

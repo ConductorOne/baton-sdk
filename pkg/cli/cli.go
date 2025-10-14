@@ -26,7 +26,7 @@ func WithSessionCache(ctx context.Context, constructor sessions.SessionStoreCons
 	return context.WithValue(ctx, sessions.SessionStoreKey{}, sessionCache), nil
 }
 
-func MakeGenericConfiguration[T field.Configurable](v *viper.Viper) (T, error) {
+func MakeGenericConfiguration[T field.Configurable](v *viper.Viper, opts ...field.DecodeHookOption) (T, error) {
 	// Create an instance of the struct type T using reflection
 	var config T // Create a zero-value instance of T
 
@@ -38,8 +38,8 @@ func MakeGenericConfiguration[T field.Configurable](v *viper.Viper) (T, error) {
 		return config, fmt.Errorf("cannot convert *viper.Viper to %T", config)
 	}
 
-	// Unmarshal into the config struct
-	err := v.Unmarshal(&config)
+	// Unmarshal into the config struct with any decode hook options provided
+	err := v.Unmarshal(&config, viper.DecodeHook(field.ComposeDecodeHookFunc(opts...)))
 	if err != nil {
 		return config, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
