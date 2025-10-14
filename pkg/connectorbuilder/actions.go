@@ -29,6 +29,10 @@ type CustomActionManager interface {
 // It provides a mechanism to register a CustomActionManager with the connector.
 type RegisterActionManager interface {
 	ConnectorBuilder
+	RegisterActionManagerLimited
+}
+
+type RegisterActionManagerLimited interface {
 	RegisterActionManager(ctx context.Context) (CustomActionManager, error)
 }
 
@@ -142,15 +146,15 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 	return resp, nil
 }
 
-func (b *builder) addActionManager(ctx context.Context, c ConnectorBuilder) error {
-	if actionManager, ok := c.(CustomActionManager); ok {
+func (b *builder) addActionManager(ctx context.Context, in interface{}) error {
+	if actionManager, ok := in.(CustomActionManager); ok {
 		if b.actionManager != nil {
 			return fmt.Errorf("error: cannot set multiple action managers")
 		}
 		b.actionManager = actionManager
 	}
 
-	if registerActionManager, ok := c.(RegisterActionManager); ok {
+	if registerActionManager, ok := in.(RegisterActionManagerLimited); ok {
 		if b.actionManager != nil {
 			return fmt.Errorf("error: cannot register multiple action managers")
 		}

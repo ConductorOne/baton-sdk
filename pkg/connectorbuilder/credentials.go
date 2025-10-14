@@ -20,6 +20,10 @@ import (
 // or service accounts that have rotatable credentials.
 type CredentialManager interface {
 	ResourceSyncer
+	CredentialManagerLimited
+}
+
+type CredentialManagerLimited interface {
 	Rotate(ctx context.Context,
 		resourceId *v2.ResourceId,
 		credentialOptions *v2.LocalCredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
@@ -86,12 +90,12 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 	}, nil
 }
 
-func (b *builder) addCredentialManager(_ context.Context, typeId string, rb ResourceSyncer) error {
-	if _, ok := rb.(OldCredentialManager); ok {
+func (b *builder) addCredentialManager(_ context.Context, typeId string, in interface{}) error {
+	if _, ok := in.(OldCredentialManager); ok {
 		return fmt.Errorf("error: old credential manager interface implemented for %s", typeId)
 	}
 
-	if credentialManagers, ok := rb.(CredentialManager); ok {
+	if credentialManagers, ok := in.(CredentialManagerLimited); ok {
 		if _, ok := b.credentialManagers[typeId]; ok {
 			return fmt.Errorf("error: duplicate resource type found for credential manager %s", typeId)
 		}
