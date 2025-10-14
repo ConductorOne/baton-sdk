@@ -1,8 +1,10 @@
 version: v2
 plugins:
-  - remote: buf.build/protocolbuffers/go:v1.36.4
+  - remote: buf.build/protocolbuffers/go:v1.36.10
     out: pb
-    opt: paths=source_relative
+    opt:
+      - paths=source_relative
+      - default_api_level=API_HYBRID
   - remote: buf.build/grpc/go:v1.5.1
     out: pb
     opt:
