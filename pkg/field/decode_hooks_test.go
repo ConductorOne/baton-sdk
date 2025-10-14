@@ -18,7 +18,7 @@ func TestFileUploadDecodeHook(t *testing.T) {
 	tempFileContent := []byte("test file content")
 	invalidTempFilePath := filepath.Join(tempDir, "invalid.txt")
 
-	err := os.WriteFile(tempFilePath, tempFileContent, 0644)
+	err := os.WriteFile(tempFilePath, tempFileContent, 0600)
 	require.NoError(t, err)
 
 	tests := []struct {
