@@ -393,6 +393,13 @@ func (q *taskQueue) AddTaskWithTimeout(ctx context.Context, t *task, timeout tim
 
 // expandQueueAndRetry attempts to expand the queue and retry adding the task
 func (q *taskQueue) expandQueueAndRetry(bucket string, t *task, timeout time.Duration) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if q.closed {
+		return errors.New("task queue is closed")
+	}
+
 	l := ctxzap.Extract(context.Background())
 
 	// Get current queue
