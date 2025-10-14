@@ -1261,7 +1261,13 @@ func (s *SequentialSyncer) syncEntitlementsForResource(ctx context.Context, reso
 			return err
 		}
 	} else {
-		s.counts.EntitlementsProgress[resourceID.ResourceType] += 1
+		if s.counts.sequentialMode {
+			s.counts.EntitlementsProgress[resourceID.ResourceType] += 1
+		} else {
+			s.counts.mu.Lock()
+			s.counts.EntitlementsProgress[resourceID.ResourceType] += 1
+			s.counts.mu.Unlock()
+		}
 		s.counts.LogEntitlementsProgress(ctx, resourceID.ResourceType)
 
 		s.state.FinishAction(ctx)
