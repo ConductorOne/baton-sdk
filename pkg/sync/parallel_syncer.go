@@ -53,8 +53,8 @@ func (ps *parallelSyncer) addTaskWithRetry(ctx context.Context, task *task, maxR
 			return fmt.Errorf("failed to add task after %d retries: %w", maxRetries, err)
 		}
 
-		// Wait before retrying, with exponential backoff
-		backoffDuration := time.Duration(attempt+1) * 100 * time.Millisecond
+		// Wait before retrying, with true exponential backoff
+		backoffDuration := time.Duration(1<<attempt) * 100 * time.Millisecond // exponential backoff: 100ms, 200ms, 400ms, 800ms, ...
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
