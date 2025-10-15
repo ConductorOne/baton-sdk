@@ -10,6 +10,7 @@ type Configuration struct {
 	IsDirectory               bool
 	SupportsExternalResources bool
 	RequiresExternalConnector bool
+	FieldGroups               []SchemaFieldGroup
 }
 
 type configOption func(Configuration) Configuration

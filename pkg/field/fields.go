@@ -74,6 +74,9 @@ type SchemaField struct {
 	ConnectorConfig connectorConfig
 
 	WasReExported bool
+
+	// Groups
+	FieldGroups []SchemaFieldGroup
 }
 
 type SchemaTypes interface {
