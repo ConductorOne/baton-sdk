@@ -2834,9 +2834,9 @@ func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
 	}
 }
 
-func WithSessionCache(sessionCache session.SetSessionStore) SyncOpt {
+func WithSessionStore(sessionStore session.SetSessionStore) SyncOpt {
 	return func(s *syncer) {
-		s.setSessionStore = sessionCache
+		s.setSessionStore = sessionStore
 	}
 }
 

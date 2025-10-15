@@ -90,7 +90,7 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithExternalResourceEntitlementIdFilter(m.externalResourceEntitlementIdFilter),
 		sdkSync.WithTargetedSyncResourceIDs(m.targetedSyncResourceIDs),
 		sdkSync.WithSkipEntitlementsAndGrants(m.skipEntitlementsAndGrants),
-		sdkSync.WithSessionCache(setSessionStore),
+		sdkSync.WithSessionStore(setSessionStore),
 	)
 	if err != nil {
 		return err
