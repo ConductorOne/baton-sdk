@@ -57,11 +57,7 @@ type connectorClient struct {
 }
 
 var _ session.SetSessionStore = (*connectorClient)(nil)
-var _ SetSessionStoreSetter = (*connectorClient)(nil)
-
-type SetSessionStoreSetter interface {
-	SetSessionStoreSetter(setsessionStoreSetter session.SetSessionStore)
-}
+var _ types.SetSessionStoreSetter = (*connectorClient)(nil)
 
 func (c *connectorClient) SetSessionStoreSetter(sessionStoreSetter session.SetSessionStore) {
 	c.sessionStoreSetter = sessionStoreSetter
@@ -82,7 +78,7 @@ type wrapper struct {
 	mtx sync.RWMutex
 
 	server                  types.ConnectorServer
-	client                  types.ConnectorClient
+	client                  types.ConnectorClientWithSessionStore
 	serverStdin             io.WriteCloser
 	conn                    *grpc.ClientConn
 	provisioningEnabled     bool
@@ -320,7 +316,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 }
 
 // C returns a ConnectorClient that the caller can use to interact with a locally running connector.
-func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
+func (cw *wrapper) C(ctx context.Context) (types.ConnectorClientWithSessionStore, error) {
 	// Check to see if we have a client already
 	cw.mtx.RLock()
 	if cw.client != nil {
@@ -390,14 +386,11 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	}
 
 	cw.conn = conn
-	cw.client = NewConnectorClient(ctx, cw.conn)
-	if setsessionStore, ok := cw.client.(SetSessionStoreSetter); ok {
-		setsessionStore.SetSessionStoreSetter(cw.SessionServer)
-	} else {
-		ctxzap.Extract(ctx).Warn("client is not a SetSessionStoreSetter")
-	}
+	client := NewConnectorClient(ctx, cw.conn)
+	client.SetSessionStoreSetter(cw.SessionServer)
+	cw.client = client
 
-	return cw.client, nil
+	return client, nil
 }
 
 // Close shuts down the grpc server and closes the connection.
@@ -479,7 +472,7 @@ func Register(ctx context.Context, s grpc.ServiceRegistrar, srv types.ConnectorS
 
 // NewConnectorClient takes a grpc.ClientConnInterface and returns an implementation of the ConnectorClient interface.
 // It does not check that the connection actually supports the services.
-func NewConnectorClient(_ context.Context, cc grpc.ClientConnInterface) types.ConnectorClient {
+func NewConnectorClient(_ context.Context, cc grpc.ClientConnInterface) types.ConnectorClientWithSessionStore {
 	return &connectorClient{
 		ResourceTypesServiceClient:     connectorV2.NewResourceTypesServiceClient(cc),
 		ResourcesServiceClient:         connectorV2.NewResourcesServiceClient(cc),

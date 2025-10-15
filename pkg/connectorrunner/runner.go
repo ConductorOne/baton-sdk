@@ -35,7 +35,7 @@ const (
 )
 
 type connectorRunner struct {
-	cw        types.ClientWrapper
+	cw        types.ClientWrapperWithSessionStore
 	oneShot   bool
 	tasks     tasks.Manager
 	debugFile *os.File

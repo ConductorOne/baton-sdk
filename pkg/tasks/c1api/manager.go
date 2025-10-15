@@ -240,7 +240,16 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		taskFinisher:  c.finishTask,
 		tempDir:       c.tempDir,
 	}
-
+	tHelpersWithStore := &taskHelpersWithSessionStore{
+		taskHelpers: taskHelpers{
+			task:          task,
+			cc:            cc,
+			serviceClient: c.serviceClient,
+			taskFinisher:  c.finishTask,
+			tempDir:       c.tempDir,
+		},
+		cc: cc,
+	}
 	// Based on the task type, call a handler to process the task.
 	// It is the responsibility of each handler to finish the task when it is complete.
 	// Handlers may do their work in a goroutine allowing processing to move onto the next task
@@ -249,7 +258,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	case taskTypes.FullSyncType:
 		handler = newFullSyncTaskHandler(
 			task,
-			tHelpers,
+			tHelpersWithStore,
 			c.skipFullSync,
 			c.externalResourceC1Z,
 			c.externalResourceEntitlementIdFilter,

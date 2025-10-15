@@ -5,6 +5,7 @@ import (
 
 	connectorV2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
+	"github.com/conductorone/baton-sdk/pkg/session"
 )
 
 // ConnectorServer is an interface for a single type that implements all ConnectorV2 services.
@@ -48,6 +49,22 @@ type ConnectorClient interface {
 // ClientWrapper is an interface that returns a connector client.
 type ClientWrapper interface {
 	C(ctx context.Context) (ConnectorClient, error)
+	Run(ctx context.Context, cfg *connectorwrapperV1.ServerConfig) error
+	Close() error
+}
+
+type SetSessionStoreSetter interface {
+	SetSessionStoreSetter(setsessionStoreSetter session.SetSessionStore)
+}
+
+type ConnectorClientWithSessionStore interface {
+	ConnectorClient
+	SetSessionStoreSetter
+	session.SetSessionStore
+}
+
+type ClientWrapperWithSessionStore interface {
+	C(ctx context.Context) (ConnectorClientWithSessionStore, error)
 	Run(ctx context.Context, cfg *connectorwrapperV1.ServerConfig) error
 	Close() error
 }

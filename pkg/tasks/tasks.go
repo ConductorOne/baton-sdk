@@ -22,6 +22,13 @@ type Manager interface {
 	GetTempDir() string
 }
 
+type ManagerWithSessionStore interface {
+	Next(ctx context.Context) (*v1.Task, time.Duration, error)
+	ShouldDebug() bool
+	GetTempDir() string
+	Process(ctx context.Context, task *v1.Task, cc types.ConnectorClientWithSessionStore) error
+}
+
 type TaskHandler interface {
 	HandleTask(ctx context.Context) error
 }

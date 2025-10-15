@@ -30,6 +30,15 @@ func (t *taskHelpers) ConnectorClient() types.ConnectorClient {
 	return t.cc
 }
 
+type taskHelpersWithSessionStore struct {
+	taskHelpers
+	cc types.ConnectorClientWithSessionStore
+}
+
+func (t *taskHelpersWithSessionStore) ConnectorClient() types.ConnectorClientWithSessionStore {
+	return t.cc
+}
+
 func (t *taskHelpers) Upload(ctx context.Context, r io.ReadSeeker) error {
 	ctx, span := tracer.Start(ctx, "taskHelpers.Upload")
 	defer span.End()

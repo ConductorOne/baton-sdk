@@ -13,14 +13,13 @@ import (
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/session"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
 type fullSyncHelpers interface {
-	ConnectorClient() types.ConnectorClient
+	ConnectorClient() types.ConnectorClientWithSessionStore
 	Upload(ctx context.Context, r io.ReadSeeker) error
 	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
 	HeartbeatTask(ctx context.Context, annos annotations.Annotations) (context.Context, error)
@@ -77,13 +76,7 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithTargetedSyncResourceIDs(c.targetedSyncResourceIDs))
 	}
 	cc := c.helpers.ConnectorClient()
-	var setSessionStore session.SetSessionStore
-	if ssetSessionStore, ok := cc.(session.SetSessionStore); ok {
-		setSessionStore = ssetSessionStore
-		if setSessionStore == nil {
-			syncOpts = append(syncOpts, sdkSync.WithSessionStore(setSessionStore))
-		}
-	}
+	syncOpts = append(syncOpts, sdkSync.WithSessionStoreSetter(cc))
 	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)
 	if err != nil {
 		l.Error("failed to create syncer", zap.Error(err))
