@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"buf.build/go/protovalidate"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
@@ -133,7 +134,8 @@ func (b *builder) addEventFeed(ctx context.Context, c ConnectorBuilder) error {
 			if feedData == nil {
 				return fmt.Errorf("error: event feed metadata is nil")
 			}
-			if err := feedData.Validate(); err != nil {
+			// Validate using protovalidate
+			if err := protovalidate.Validate(feedData); err != nil {
 				return fmt.Errorf("error: event feed metadata for %s is invalid: %w", feedData.Id, err)
 			}
 			if _, ok := b.eventFeeds[feedData.Id]; ok {

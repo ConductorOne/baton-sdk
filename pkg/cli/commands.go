@@ -19,6 +19,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
 
+	"buf.build/go/protovalidate"
 	"github.com/conductorone/baton-sdk/internal/connector"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
@@ -517,9 +518,9 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return err
 		}
 
-		err = serverCfg.ValidateAll()
-		if err != nil {
-			return err
+		// Validate using protovalidate
+		if err := protovalidate.Validate(serverCfg); err != nil {
+			return fmt.Errorf("server config validation failed: %w", err)
 		}
 
 		return cw.Run(runCtx, serverCfg)
