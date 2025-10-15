@@ -89,6 +89,7 @@ type wrapper struct {
 	ticketingEnabled        bool
 	fullSyncDisabled        bool
 	targetedSyncResourceIDs []string
+	sessionStoreEnabled     bool
 
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
@@ -100,6 +101,13 @@ type wrapper struct {
 }
 
 type Option func(ctx context.Context, w *wrapper) error
+
+func WithSessionStoreEnabled() Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.sessionStoreEnabled = true
+		return nil
+	}
+}
 
 func WithRateLimiterConfig(cfg *ratelimitV1.RateLimiterConfig) Option {
 	return func(ctx context.Context, w *wrapper) error {
@@ -248,16 +256,20 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		_ = sessionListenerFile.Close()
 		return 0, fmt.Errorf("failed to create session listener config: %w", err)
 	}
-	server := session.NewGRPCSessionServer()
-	cw.SessionServer = server
-	go func() {
-		defer sessionListenerFile.Close()
-		serverErr := session.StartGRPCSessionServerWithOptions(ctx, sessionListener, server, grpc.Creds(credentials.NewTLS(tlsConfig)))
-		if serverErr != nil {
-			l.Error("failed to create session store server", zap.Error(serverErr))
-			return
-		}
-	}()
+	if cw.sessionStoreEnabled {
+		// TODO(kans): block until we send a request or something/error handling in general.
+		l.Info("starting session store server")
+		server := session.NewGRPCSessionServer()
+		cw.SessionServer = server
+		go func() {
+			defer sessionListenerFile.Close()
+			serverErr := session.StartGRPCSessionServerWithOptions(ctx, sessionListener, server, grpc.Creds(credentials.NewTLS(tlsConfig)))
+			if serverErr != nil {
+				l.Error("failed to create session store server", zap.Error(serverErr))
+				return
+			}
+		}()
+	}
 
 	serverCfg, err := proto.Marshal(&connectorwrapperV1.ServerConfig{
 		Credential:             serverCred,
