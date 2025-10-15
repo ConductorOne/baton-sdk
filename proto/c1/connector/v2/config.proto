@@ -3,7 +3,7 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "c1/connector/v2/asset.proto";
-import "buf/validate/validate.proto";
+import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
@@ -46,7 +46,7 @@ message StringField {
   // If secret, value is write-only in UI and a password-type form is used.
   bool secret = 1;
   // validator rules for value. may be empty.
-  buf.validate.StringRules value_validator = 2;
+  validate.StringRules value_validator = 2;
 }
 
 message SelectField {
@@ -64,7 +64,7 @@ message RandomStringField {
 
 message FileField {
   bool secret = 1;
-  buf.validate.StringRules value_validator = 2;
+  validate.StringRules value_validator = 2;
   repeated string allowed_extensions = 3;
 }
 
@@ -76,3 +76,4 @@ message FileField {
 // Customer provided OAuth2 ->
 // same flow component, but client_id, client_secret, are provided as input
 // and issuer / token URL /etc
+

@@ -20,6 +20,7 @@ require (
 	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.3
 	github.com/deckarep/golang-set/v2 v2.7.0
 	github.com/doug-martin/goqu/v9 v9.19.0
+	github.com/envoyproxy/protoc-gen-validate v1.2.1
 	github.com/glebarez/go-sqlite v1.22.0
 	github.com/go-jose/go-jose/v4 v4.0.5
 	github.com/google/go-cmp v0.7.0

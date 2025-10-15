@@ -3,6 +3,7 @@ modules:
   - path: proto
 deps:
   - buf.build/bufbuild/protovalidate
+  - buf.build/envoyproxy/protoc-gen-validate
   - buf.build/googleapis/googleapis
 lint:
   use:

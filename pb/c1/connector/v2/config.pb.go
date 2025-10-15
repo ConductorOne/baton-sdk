@@ -9,7 +9,7 @@
 package v2
 
 import (
-	validate "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
+	validate "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -990,7 +990,7 @@ var File_c1_connector_v2_config_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_config_proto_rawDesc = "" +
 	"\n" +
-	"\x1cc1/connector/v2/config.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1bbuf/validate/validate.proto\"\x1f\n" +
+	"\x1cc1/connector/v2/config.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x17validate/validate.proto\"\x1f\n" +
 	"\x1dSchemaServiceGetSchemaRequest\"q\n" +
 	"\x1eSchemaServiceGetSchemaResponse\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\tR\aversion\x125\n" +
@@ -1010,20 +1010,20 @@ const file_c1_connector_v2_config_proto_rawDesc = "" +
 	"\x06select\x18e \x01(\v2\x1c.c1.connector.v2.SelectFieldH\x00R\x06select\x12<\n" +
 	"\x06random\x18f \x01(\v2\".c1.connector.v2.RandomStringFieldH\x00R\x06random\x120\n" +
 	"\x04file\x18g \x01(\v2\x1a.c1.connector.v2.FileFieldH\x00R\x04fileB\a\n" +
-	"\x05field\"i\n" +
+	"\x05field\"e\n" +
 	"\vStringField\x12\x16\n" +
-	"\x06secret\x18\x01 \x01(\bR\x06secret\x12B\n" +
-	"\x0fvalue_validator\x18\x02 \x01(\v2\x19.buf.validate.StringRulesR\x0evalueValidator\"\x87\x01\n" +
+	"\x06secret\x18\x01 \x01(\bR\x06secret\x12>\n" +
+	"\x0fvalue_validator\x18\x02 \x01(\v2\x15.validate.StringRulesR\x0evalueValidator\"\x87\x01\n" +
 	"\vSelectField\x127\n" +
 	"\x05items\x18\x05 \x03(\v2!.c1.connector.v2.SelectField.ItemR\x05items\x1a?\n" +
 	"\x04Item\x12!\n" +
 	"\fdisplay_name\x18\x01 \x01(\tR\vdisplayName\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value\"+\n" +
 	"\x11RandomStringField\x12\x16\n" +
-	"\x06length\x18\x01 \x01(\x05R\x06length\"\x96\x01\n" +
+	"\x06length\x18\x01 \x01(\x05R\x06length\"\x92\x01\n" +
 	"\tFileField\x12\x16\n" +
-	"\x06secret\x18\x01 \x01(\bR\x06secret\x12B\n" +
-	"\x0fvalue_validator\x18\x02 \x01(\v2\x19.buf.validate.StringRulesR\x0evalueValidator\x12-\n" +
+	"\x06secret\x18\x01 \x01(\bR\x06secret\x12>\n" +
+	"\x0fvalue_validator\x18\x02 \x01(\v2\x15.validate.StringRulesR\x0evalueValidator\x12-\n" +
 	"\x12allowed_extensions\x18\x03 \x03(\tR\x11allowedExtensions2}\n" +
 	"\rSchemaService\x12l\n" +
 	"\tGetSchema\x12..c1.connector.v2.SchemaServiceGetSchemaRequest\x1a/.c1.connector.v2.SchemaServiceGetSchemaResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
@@ -1040,7 +1040,7 @@ var file_c1_connector_v2_config_proto_goTypes = []any{
 	(*FileField)(nil),                      // 7: c1.connector.v2.FileField
 	(*SelectField_Item)(nil),               // 8: c1.connector.v2.SelectField.Item
 	(*AssetRef)(nil),                       // 9: c1.connector.v2.AssetRef
-	(*validate.StringRules)(nil),           // 10: buf.validate.StringRules
+	(*validate.StringRules)(nil),           // 10: validate.StringRules
 }
 var file_c1_connector_v2_config_proto_depIdxs = []int32{
 	2,  // 0: c1.connector.v2.SchemaServiceGetSchemaResponse.schema:type_name -> c1.connector.v2.ConfigSchema
@@ -1051,9 +1051,9 @@ var file_c1_connector_v2_config_proto_depIdxs = []int32{
 	5,  // 5: c1.connector.v2.Field.select:type_name -> c1.connector.v2.SelectField
 	6,  // 6: c1.connector.v2.Field.random:type_name -> c1.connector.v2.RandomStringField
 	7,  // 7: c1.connector.v2.Field.file:type_name -> c1.connector.v2.FileField
-	10, // 8: c1.connector.v2.StringField.value_validator:type_name -> buf.validate.StringRules
+	10, // 8: c1.connector.v2.StringField.value_validator:type_name -> validate.StringRules
 	8,  // 9: c1.connector.v2.SelectField.items:type_name -> c1.connector.v2.SelectField.Item
-	10, // 10: c1.connector.v2.FileField.value_validator:type_name -> buf.validate.StringRules
+	10, // 10: c1.connector.v2.FileField.value_validator:type_name -> validate.StringRules
 	0,  // 11: c1.connector.v2.SchemaService.GetSchema:input_type -> c1.connector.v2.SchemaServiceGetSchemaRequest
 	1,  // 12: c1.connector.v2.SchemaService.GetSchema:output_type -> c1.connector.v2.SchemaServiceGetSchemaResponse
 	12, // [12:13] is the sub-list for method output_type
