@@ -26,57 +26,57 @@ func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interfa
 		return nil, fmt.Errorf("error: id(%s) not found in schema", id)
 	}
 
-	switch field.GetValue().(type) {
-	case *v2.TicketCustomField_StringValue:
+	switch field.WhichValue() {
+	case v2.TicketCustomField_StringValue_case:
 		v, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type for custom field: %s %T", id, v)
 		}
 		return StringField(id, v), nil
 
-	case *v2.TicketCustomField_StringValues:
+	case v2.TicketCustomField_StringValues_case:
 		v, ok := value.([]string)
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type for custom field: %s %T", id, v)
 		}
 		return StringsField(id, v), nil
 
-	case *v2.TicketCustomField_BoolValue:
+	case v2.TicketCustomField_BoolValue_case:
 		v, ok := value.(bool)
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type for custom field: %s %T", id, v)
 		}
 		return BoolField(id, v), nil
 
-	case *v2.TicketCustomField_NumberValue:
+	case v2.TicketCustomField_NumberValue_case:
 		v, ok := value.(float32)
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type for custom field: %s %T", id, v)
 		}
 		return NumberField(id, v), nil
 
-	case *v2.TicketCustomField_TimestampValue:
+	case v2.TicketCustomField_TimestampValue_case:
 		v, ok := value.(*timestamppb.Timestamp)
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type for custom field: %s %T", id, v)
 		}
 		return TimestampField(id, v.AsTime()), nil
 
-	case *v2.TicketCustomField_PickStringValue:
+	case v2.TicketCustomField_PickStringValue_case:
 		v, ok := value.(string)
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type for custom field: %s %T", id, v)
 		}
 		return PickStringField(id, v), nil
 
-	case *v2.TicketCustomField_PickMultipleStringValues:
+	case v2.TicketCustomField_PickMultipleStringValues_case:
 		v, ok := value.([]string)
 		if !ok {
 			return nil, fmt.Errorf("unexpected value type for custom field: %s %T", id, v)
 		}
 		return PickMultipleStringsField(id, v), nil
 
-	case *v2.TicketCustomField_PickObjectValue:
+	case v2.TicketCustomField_PickObjectValue_case:
 		rawBytes, err := json.Marshal(value)
 		if err != nil {
 			return nil, err
@@ -90,7 +90,7 @@ func CustomFieldForSchemaField(id string, schema *v2.TicketSchema, value interfa
 
 		return PickObjectValueField(id, ov), nil
 
-	case *v2.TicketCustomField_PickMultipleObjectValues:
+	case v2.TicketCustomField_PickMultipleObjectValues_case:
 		rawValue, err := json.Marshal(value)
 		if err != nil {
 			return nil, err
@@ -129,99 +129,90 @@ func GetStringValue(field *v2.TicketCustomField) (string, error) {
 	if field == nil {
 		return "", ErrFieldNil
 	}
-	v, ok := field.GetValue().(*v2.TicketCustomField_StringValue)
-	if !ok {
+	if field.WhichValue() != v2.TicketCustomField_StringValue_case {
 		return "", errors.New("error: expected string value")
 	}
-	return v.StringValue.Value, nil
+	return field.GetStringValue().GetValue(), nil
 }
 
 func GetStringsValue(field *v2.TicketCustomField) ([]string, error) {
 	if field == nil {
 		return nil, ErrFieldNil
 	}
-	v, ok := field.GetValue().(*v2.TicketCustomField_StringValues)
-	if !ok {
+	if field.WhichValue() != v2.TicketCustomField_StringValues_case {
 		return nil, errors.New("error: expected string values")
 	}
-	return v.StringValues.Values, nil
+	return field.GetStringValues().GetValues(), nil
 }
 
 func GetBoolValue(field *v2.TicketCustomField) (bool, error) {
 	if field == nil {
 		return false, ErrFieldNil
 	}
-	v, ok := field.GetValue().(*v2.TicketCustomField_BoolValue)
-	if !ok {
+	if field.WhichValue() != v2.TicketCustomField_BoolValue_case {
 		return false, errors.New("error: expected bool value")
 	}
-	return v.BoolValue.Value, nil
+	return field.GetBoolValue().GetValue(), nil
 }
 
 func GetNumberValue(field *v2.TicketCustomField) (float32, error) {
 	if field == nil {
 		return 0, ErrFieldNil
 	}
-	v, ok := field.GetValue().(*v2.TicketCustomField_NumberValue)
-	if !ok {
+	if field.WhichValue() != v2.TicketCustomField_NumberValue_case {
 		return 0, errors.New("error: expected number value")
 	}
-	return v.NumberValue.GetValue().GetValue(), nil
+	return field.GetNumberValue().GetValue().GetValue(), nil
 }
 
 func GetTimestampValue(field *v2.TicketCustomField) (time.Time, error) {
 	if field == nil {
 		return time.Time{}, ErrFieldNil
 	}
-	v, ok := field.GetValue().(*v2.TicketCustomField_TimestampValue)
-	if !ok {
+	if field.WhichValue() != v2.TicketCustomField_TimestampValue_case {
 		return time.Time{}, errors.New("error: expected timestamp value")
 	}
-	return v.TimestampValue.Value.AsTime(), nil
+	return field.GetTimestampValue().GetValue().AsTime(), nil
 }
 
 func GetPickStringValue(field *v2.TicketCustomField) (string, error) {
 	if field == nil {
 		return "", ErrFieldNil
 	}
-	v, ok := field.GetValue().(*v2.TicketCustomField_PickStringValue)
-	if !ok {
+	if field.WhichValue() != v2.TicketCustomField_PickStringValue_case {
 		return "", errors.New("error: expected pick string value")
 	}
-	return v.PickStringValue.Value, nil
+	return field.GetPickStringValue().GetValue(), nil
 }
 
 func GetPickMultipleStringValues(field *v2.TicketCustomField) ([]string, error) {
 	if field == nil {
 		return nil, ErrFieldNil
 	}
-	v, ok := field.GetValue().(*v2.TicketCustomField_PickMultipleStringValues)
-	if !ok {
+	if field.WhichValue() != v2.TicketCustomField_PickMultipleStringValues_case {
 		return nil, errors.New("error: expected pick multiple string values")
 	}
-	return v.PickMultipleStringValues.Values, nil
+	return field.GetPickMultipleStringValues().GetValues(), nil
 }
 
 func GetPickObjectValue(field *v2.TicketCustomField) (*v2.TicketCustomFieldObjectValue, error) {
 	if field == nil {
 		return nil, ErrFieldNil
 	}
-	v, ok := field.GetValue().(*v2.TicketCustomField_PickObjectValue)
-	if !ok {
+	if field.WhichValue() != v2.TicketCustomField_PickObjectValue_case {
 		return nil, errors.New("error: expected pick object value")
 	}
-	return v.PickObjectValue.Value, nil
+	return field.GetPickObjectValue().GetValue(), nil
 }
 
 func GetPickMultipleObjectValues(field *v2.TicketCustomField) ([]*v2.TicketCustomFieldObjectValue, error) {
 	if field == nil {
 		return nil, ErrFieldNil
 	}
-	v, ok := field.GetValue().(*v2.TicketCustomField_PickMultipleObjectValues)
-	if !ok {
+	if field.WhichValue() != v2.TicketCustomField_PickMultipleObjectValues_case {
 		return nil, errors.New("error: expected pick multiple object values")
 	}
-	return v.PickMultipleObjectValues.Values, nil
+	return field.GetPickMultipleObjectValues().GetValues(), nil
 }
 
 // GetCustomFieldValue returns the interface{} of the value set on a given custom field.
@@ -229,52 +220,52 @@ func GetCustomFieldValue(field *v2.TicketCustomField) (interface{}, error) {
 	if field == nil {
 		return nil, nil
 	}
-	switch v := field.GetValue().(type) {
-	case *v2.TicketCustomField_StringValue:
-		strVal := v.StringValue.GetValue()
-		if strVal == "" {
-			return nil, nil
-		}
-		return v.StringValue.GetValue(), nil
-
-	case *v2.TicketCustomField_StringValues:
-		strVals := v.StringValues.GetValues()
-		if len(strVals) == 0 {
-			return nil, nil
-		}
-		return strVals, nil
-
-	case *v2.TicketCustomField_BoolValue:
-		return v.BoolValue.GetValue(), nil
-
-	case *v2.TicketCustomField_NumberValue:
-		wrapperVal := v.NumberValue.GetValue()
-		if wrapperVal == nil {
-			return nil, nil
-		}
-		return wrapperVal.GetValue(), nil
-	case *v2.TicketCustomField_TimestampValue:
-		return v.TimestampValue.GetValue(), nil
-
-	case *v2.TicketCustomField_PickStringValue:
-		strVal := v.PickStringValue.GetValue()
+	switch field.WhichValue() {
+	case v2.TicketCustomField_StringValue_case:
+		strVal := field.GetStringValue().GetValue()
 		if strVal == "" {
 			return nil, nil
 		}
 		return strVal, nil
 
-	case *v2.TicketCustomField_PickMultipleStringValues:
-		strVals := v.PickMultipleStringValues.GetValues()
+	case v2.TicketCustomField_StringValues_case:
+		strVals := field.GetStringValues().GetValues()
 		if len(strVals) == 0 {
 			return nil, nil
 		}
 		return strVals, nil
 
-	case *v2.TicketCustomField_PickObjectValue:
-		return v.PickObjectValue.GetValue(), nil
+	case v2.TicketCustomField_BoolValue_case:
+		return field.GetBoolValue().GetValue(), nil
 
-	case *v2.TicketCustomField_PickMultipleObjectValues:
-		objVals := v.PickMultipleObjectValues.GetValues()
+	case v2.TicketCustomField_NumberValue_case:
+		wrapperVal := field.GetNumberValue().GetValue()
+		if wrapperVal == nil {
+			return nil, nil
+		}
+		return wrapperVal.GetValue(), nil
+	case v2.TicketCustomField_TimestampValue_case:
+		return field.GetTimestampValue().GetValue(), nil
+
+	case v2.TicketCustomField_PickStringValue_case:
+		strVal := field.GetPickStringValue().GetValue()
+		if strVal == "" {
+			return nil, nil
+		}
+		return strVal, nil
+
+	case v2.TicketCustomField_PickMultipleStringValues_case:
+		strVals := field.GetPickMultipleStringValues().GetValues()
+		if len(strVals) == 0 {
+			return nil, nil
+		}
+		return strVals, nil
+
+	case v2.TicketCustomField_PickObjectValue_case:
+		return field.GetPickObjectValue().GetValue(), nil
+
+	case v2.TicketCustomField_PickMultipleObjectValues_case:
+		objVals := field.GetPickMultipleObjectValues().GetValues()
 		if len(objVals) == 0 {
 			return nil, nil
 		}
@@ -289,53 +280,53 @@ func GetDefaultCustomFieldValue(field *v2.TicketCustomField) (interface{}, error
 	if field == nil {
 		return nil, nil
 	}
-	switch v := field.GetValue().(type) {
-	case *v2.TicketCustomField_StringValue:
-		strVal := v.StringValue.GetDefaultValue()
+	switch field.WhichValue() {
+	case v2.TicketCustomField_StringValue_case:
+		strVal := field.GetStringValue().GetDefaultValue()
 		if strVal == "" {
 			return nil, nil
 		}
 		return strVal, nil
 
-	case *v2.TicketCustomField_StringValues:
-		strVals := v.StringValues.GetDefaultValues()
+	case v2.TicketCustomField_StringValues_case:
+		strVals := field.GetStringValues().GetDefaultValues()
 		if len(strVals) == 0 {
 			return nil, nil
 		}
 		return strVals, nil
 
-	case *v2.TicketCustomField_BoolValue:
-		return v.BoolValue.GetValue(), nil
+	case v2.TicketCustomField_BoolValue_case:
+		return field.GetBoolValue().GetValue(), nil
 
-	case *v2.TicketCustomField_NumberValue:
-		defaultWrapper := v.NumberValue.GetDefaultValue()
+	case v2.TicketCustomField_NumberValue_case:
+		defaultWrapper := field.GetNumberValue().GetDefaultValue()
 		if defaultWrapper == nil {
 			return nil, nil
 		}
 		return defaultWrapper.GetValue(), nil
 
-	case *v2.TicketCustomField_TimestampValue:
-		return v.TimestampValue.GetDefaultValue(), nil
+	case v2.TicketCustomField_TimestampValue_case:
+		return field.GetTimestampValue().GetDefaultValue(), nil
 
-	case *v2.TicketCustomField_PickStringValue:
-		strVal := v.PickStringValue.GetDefaultValue()
+	case v2.TicketCustomField_PickStringValue_case:
+		strVal := field.GetPickStringValue().GetDefaultValue()
 		if strVal == "" {
 			return nil, nil
 		}
 		return strVal, nil
 
-	case *v2.TicketCustomField_PickMultipleStringValues:
-		strVals := v.PickMultipleStringValues.GetDefaultValues()
+	case v2.TicketCustomField_PickMultipleStringValues_case:
+		strVals := field.GetPickMultipleStringValues().GetDefaultValues()
 		if len(strVals) == 0 {
 			return nil, nil
 		}
 		return strVals, nil
 
-	case *v2.TicketCustomField_PickObjectValue:
-		return v.PickObjectValue.GetDefaultValue(), nil
+	case v2.TicketCustomField_PickObjectValue_case:
+		return field.GetPickObjectValue().GetDefaultValue(), nil
 
-	case *v2.TicketCustomField_PickMultipleObjectValues:
-		objVals := v.PickMultipleObjectValues.GetDefaultValues()
+	case v2.TicketCustomField_PickMultipleObjectValues_case:
+		objVals := field.GetPickMultipleObjectValues().GetDefaultValues()
 		if len(objVals) == 0 {
 			return nil, nil
 		}
@@ -365,17 +356,17 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 	// Validate the ticket status is one defined in the schema
 	// Ticket status is not required so if a ticket doesn't have a status
 	// we don't need to validate, skip the loop in this case
-	validTicketStatus := ticket.Status == nil
+	validTicketStatus := ticket.GetStatus() == nil
 	if !validTicketStatus {
 		for _, status := range schema.GetStatuses() {
-			if ticket.Status.GetId() == status.GetId() {
+			if ticket.GetStatus().GetId() == status.GetId() {
 				validTicketStatus = true
 				break
 			}
 		}
 	}
 	if !validTicketStatus {
-		l.Debug("error: invalid ticket: could not find status", zap.String("status_id", ticket.Status.GetId()))
+		l.Debug("error: invalid ticket: could not find status", zap.String("status_id", ticket.GetStatus().GetId()))
 		return false, nil
 	}
 
@@ -385,8 +376,8 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 	for id, cf := range schemaCustomFields {
 		ticketCf, ok := ticketCustomFields[id]
 		if !ok {
-			if cf.Required {
-				l.Debug("error: invalid ticket: missing custom field", zap.String("custom_field_id", cf.Id))
+			if cf.GetRequired() {
+				l.Debug("error: invalid ticket: missing custom field", zap.String("custom_field_id", cf.GetId()))
 				return false, nil
 			} else {
 				// field not present but not required, so skip it
@@ -394,25 +385,24 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			}
 		}
 
-		switch v := cf.GetValue().(type) {
-		case *v2.TicketCustomField_StringValue:
-			tv, tok := ticketCf.GetValue().(*v2.TicketCustomField_StringValue)
-			if !tok {
-				l.Debug("error: invalid ticket: expected string value for field", zap.String("custom_field_id", cf.Id), zap.Any("value", tv))
+		switch cf.WhichValue() {
+		case v2.TicketCustomField_StringValue_case:
+			if ticketCf.WhichValue() != v2.TicketCustomField_StringValue_case {
+				l.Debug("error: invalid ticket: expected string value for field", zap.String("custom_field_id", cf.GetId()), zap.Any("value", ticketCf))
 				return false, nil
 			}
 
-			stringValue := tv.StringValue.GetValue()
+			stringValue := ticketCf.GetStringValue().GetValue()
 			if stringValue == "" {
-				stringValue = tv.StringValue.GetDefaultValue()
+				stringValue = ticketCf.GetStringValue().GetDefaultValue()
 			}
 
-			if cf.Required && stringValue == "" {
-				l.Debug("error: invalid ticket: string value is required but was empty", zap.String("custom_field_id", cf.Id))
+			if cf.GetRequired() && stringValue == "" {
+				l.Debug("error: invalid ticket: string value is required but was empty", zap.String("custom_field_id", cf.GetId()))
 				return false, nil
 			}
 
-		case *v2.TicketCustomField_StringValues:
+		case v2.TicketCustomField_StringValues_case:
 			tv, tok := ticketCf.GetValue().(*v2.TicketCustomField_StringValues)
 			if !tok {
 				l.Debug("error: invalid ticket: expected string values for field", zap.String("custom_field_id", cf.Id), zap.Any("values", tv))
@@ -429,20 +419,20 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
-		case *v2.TicketCustomField_BoolValue:
+		case v2.TicketCustomField_BoolValue_case:
 			tv, tok := ticketCf.GetValue().(*v2.TicketCustomField_BoolValue)
 			if !tok {
 				l.Debug("error: invalid ticket: expected bool value for field", zap.String("custom_field_id", cf.Id), zap.Any("value", tv))
 				return false, nil
 			}
-		case *v2.TicketCustomField_NumberValue:
+		case v2.TicketCustomField_NumberValue_case:
 			tv, tok := ticketCf.GetValue().(*v2.TicketCustomField_NumberValue)
 			if !tok {
 				l.Debug("error: invalid ticket: expected number value for field", zap.String("custom_field_id", cf.Id), zap.Any("value", tv))
 				return false, nil
 			}
 
-		case *v2.TicketCustomField_TimestampValue:
+		case v2.TicketCustomField_TimestampValue_case:
 			tv, tok := ticketCf.GetValue().(*v2.TicketCustomField_TimestampValue)
 			if !tok {
 				l.Debug("error: invalid ticket: expected timestamp value for field", zap.String("custom_field_id", cf.Id), zap.Any("value", tv))
@@ -459,7 +449,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
-		case *v2.TicketCustomField_PickStringValue:
+		case v2.TicketCustomField_PickStringValue_case:
 			tv, tok := ticketCf.GetValue().(*v2.TicketCustomField_PickStringValue)
 			if !tok {
 				l.Debug("error: invalid ticket: expected string value for field", zap.String("custom_field_id", cf.Id), zap.Any("value", tv))
@@ -467,7 +457,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			}
 
 			ticketValue := tv.PickStringValue.GetValue()
-			allowedValues := v.PickStringValue.GetAllowedValues()
+			allowedValues := tv.PickStringValue.GetAllowedValues()
 			defaultTicketValue := tv.PickStringValue.GetDefaultValue()
 
 			if ticketValue == "" {
@@ -507,7 +497,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
-		case *v2.TicketCustomField_PickMultipleStringValues:
+		case v2.TicketCustomField_PickMultipleStringValues_case:
 			tv, tok := ticketCf.GetValue().(*v2.TicketCustomField_PickMultipleStringValues)
 			if !tok {
 				l.Debug("error: invalid ticket: expected string values for field", zap.String("custom_field_id", cf.Id), zap.Any("values", tv))
@@ -515,7 +505,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			}
 
 			ticketValues := tv.PickMultipleStringValues.GetValues()
-			allowedValues := v.PickMultipleStringValues.GetAllowedValues()
+			allowedValues := tv.PickMultipleStringValues.GetAllowedValues()
 
 			if len(ticketValues) == 0 {
 				ticketValues = tv.PickMultipleStringValues.GetDefaultValues()
@@ -555,7 +545,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
-		case *v2.TicketCustomField_PickObjectValue:
+		case v2.TicketCustomField_PickObjectValue_case:
 			tv, tok := ticketCf.GetValue().(*v2.TicketCustomField_PickObjectValue)
 			if !tok {
 				l.Debug("error: invalid ticket: expected object value for field", zap.String("custom_field_id", cf.Id), zap.Any("value", tv))
@@ -563,7 +553,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			}
 
 			ticketValue := tv.PickObjectValue.GetValue()
-			allowedValues := v.PickObjectValue.GetAllowedValues()
+			allowedValues := tv.PickObjectValue.GetAllowedValues()
 
 			if ticketValue == nil || ticketValue.GetId() == "" {
 				ticketValue = tv.PickObjectValue.GetDefaultValue()
@@ -602,7 +592,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 				return false, nil
 			}
 
-		case *v2.TicketCustomField_PickMultipleObjectValues:
+		case v2.TicketCustomField_PickMultipleObjectValues_case:
 			tv, tok := ticketCf.GetValue().(*v2.TicketCustomField_PickMultipleObjectValues)
 			if !tok {
 				l.Debug("error: invalid ticket: expected object values for field", zap.String("custom_field_id", cf.Id), zap.Any("values", tv))
@@ -611,10 +601,10 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 
 			ticketValues := tv.PickMultipleObjectValues.GetValues()
 			if len(ticketValues) == 0 {
-				ticketValues = v.PickMultipleObjectValues.GetDefaultValues()
+				ticketValues = tv.PickMultipleObjectValues.GetDefaultValues()
 			}
 
-			allowedValues := v.PickMultipleObjectValues.GetAllowedValues()
+			allowedValues := tv.PickMultipleObjectValues.GetAllowedValues()
 
 			// Object values are empty but custom field is not required, skip further validation
 			if !cf.Required && len(ticketValues) == 0 {
@@ -651,7 +641,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			}
 
 		default:
-			l.Debug("error: invalid schema: unknown custom field type", zap.Any("custom_field_type", v))
+			l.Debug("error: invalid schema: unknown custom field type", zap.Any("custom_field_type", cf.WhichValue()))
 			return false, errors.New("error: invalid schema: unknown custom field type")
 		}
 	}

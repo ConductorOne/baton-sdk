@@ -62,13 +62,14 @@ func (r *TransportStream) Response() (*Response, error) {
 		return nil, status.Errorf(codes.Internal, "error marshalling status: %v", err)
 	}
 
+	msgBuilder := &pbtransport.Response_builder{
+		Resp:     anyResp,
+		Status:   anyStatus,
+		Headers:  headers,
+		Trailers: trailers,
+	}
 	return &Response{
-		msg: &pbtransport.Response{
-			Resp:     anyResp,
-			Status:   anyStatus,
-			Headers:  headers,
-			Trailers: trailers,
-		},
+		msg: msgBuilder.Build(),
 	}, nil
 }
 

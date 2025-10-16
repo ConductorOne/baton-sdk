@@ -38,9 +38,10 @@ func (c *getTicketTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed get ticket task"), ErrTaskNonRetryable))
 	}
 
-	ticket, err := cc.GetTicket(ctx, &v2.TicketsServiceGetTicketRequest{
+	requestBuilder := &v2.TicketsServiceGetTicketRequest_builder{
 		Id: t.GetTicketId(),
-	})
+	}
+	ticket, err := cc.GetTicket(ctx, requestBuilder.Build())
 	if err != nil {
 		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), err)
 	}
@@ -49,14 +50,15 @@ func (c *getTicketTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, t.GetAnnotations(), errors.Join(errors.New("connector returned empty ticket"), ErrTaskNonRetryable))
 	}
 
-	resp := &v2.TicketsServiceGetTicketResponse{
+	respBuilder := &v2.TicketsServiceGetTicketResponse_builder{
 		Ticket: ticket.GetTicket(),
 	}
+	resp := respBuilder.Build()
 
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	respAnnos.Merge(t.GetAnnotations()...)
 
-	resp.Annotations = respAnnos
+	resp.SetAnnotations(respAnnos)
 
 	l.Debug("GetTicket response", zap.Any("resp", resp))
 

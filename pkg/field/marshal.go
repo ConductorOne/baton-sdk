@@ -38,7 +38,7 @@ func (c *Configuration) Marshal() ([]byte, error) {
 func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 	var err error
 
-	conf := &v1_conf.Configuration{
+	confBuilder := v1_conf.Configuration_builder{
 		DisplayName:               c.DisplayName,
 		HelpUrl:                   c.HelpUrl,
 		IconUrl:                   c.IconUrl,
@@ -49,7 +49,7 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 	}
 
 	// Fields
-	conf.Fields, conf.Constraints, err = mapFieldsAndConstraints(c.Fields, c.Constraints)
+	confBuilder.Fields, confBuilder.Constraints, err = mapFieldsAndConstraints(c.Fields, c.Constraints)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert fields and constraints to v1: %w", err)
 	}
@@ -58,9 +58,9 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 	for _, group := range c.FieldGroups {
 		fieldGroups = append(fieldGroups, fieldGroupToV1(group))
 	}
-	conf.FieldGroups = fieldGroups
+	confBuilder.FieldGroups = fieldGroups
 
-	return conf, nil
+	return confBuilder.Build(), nil
 }
 
 func fieldGroupToV1(fg SchemaFieldGroup) *v1_conf.FieldGroup {
@@ -114,7 +114,7 @@ func mapFieldsAndConstraints(fields []SchemaField, constraints []SchemaFieldRela
 }
 
 func constraintToV1(rel SchemaFieldRelationship, ignore map[string]struct{}) (*v1_conf.Constraint, error) {
-	constraint := v1_conf.Constraint{}
+	constraintBuilder := v1_conf.Constraint_builder{}
 
 	constraintForIgnoredField := false
 	for _, f := range rel.Fields {
@@ -122,7 +122,7 @@ func constraintToV1(rel SchemaFieldRelationship, ignore map[string]struct{}) (*v
 			constraintForIgnoredField = true
 			break
 		}
-		constraint.FieldNames = append(constraint.FieldNames, f.FieldName)
+		constraintBuilder.FieldNames = append(constraintBuilder.FieldNames, f.FieldName)
 	}
 	if constraintForIgnoredField {
 		return nil, nil
@@ -133,7 +133,7 @@ func constraintToV1(rel SchemaFieldRelationship, ignore map[string]struct{}) (*v
 			constraintForIgnoredField = true
 			break
 		}
-		constraint.SecondaryFieldNames = append(constraint.SecondaryFieldNames, f.FieldName)
+		constraintBuilder.SecondaryFieldNames = append(constraintBuilder.SecondaryFieldNames, f.FieldName)
 	}
 
 	if constraintForIgnoredField {
@@ -144,13 +144,13 @@ func constraintToV1(rel SchemaFieldRelationship, ignore map[string]struct{}) (*v
 	if !ok {
 		return nil, fmt.Errorf("invalid constraint kind: %d", rel.Kind)
 	}
-	constraint.Kind = kind
+	constraintBuilder.Kind = kind
 
-	return &constraint, nil
+	return constraintBuilder.Build(), nil
 }
 
 func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
-	field := v1_conf.Field{
+	fieldBuilder := v1_conf.Field_builder{
 		Name:        f.FieldName,
 		DisplayName: f.ConnectorConfig.DisplayName,
 		Description: f.Description,
@@ -162,39 +162,39 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 
 	switch f.Variant {
 	case IntVariant:
-		intField := &v1_conf.IntField{Rules: f.Rules.i}
+		intFieldBuilder := v1_conf.IntField_builder{Rules: f.Rules.i}
 		d, err := GetDefaultValue[int](f)
 		if err != nil {
 			return nil, err
 		}
 		if d != nil {
-			intField.DefaultValue = int64(*d)
+			intFieldBuilder.DefaultValue = int64(*d)
 		}
 
-		field.Field = &v1_conf.Field_IntField{IntField: intField}
+		fieldBuilder.IntField = intFieldBuilder.Build()
 
 	case BoolVariant:
-		boolField := &v1_conf.BoolField{Rules: f.Rules.b}
+		boolFieldBuilder := v1_conf.BoolField_builder{Rules: f.Rules.b}
 		d, err := GetDefaultValue[bool](f)
 		if err != nil {
 			return nil, err
 		}
 		if d != nil {
-			boolField.DefaultValue = *d
+			boolFieldBuilder.DefaultValue = *d
 		}
-		field.Field = &v1_conf.Field_BoolField{BoolField: boolField}
+		fieldBuilder.BoolField = boolFieldBuilder.Build()
 	case StringSliceVariant:
-		stringSliceField := &v1_conf.StringSliceField{Rules: f.Rules.ss}
+		stringSliceFieldBuilder := v1_conf.StringSliceField_builder{Rules: f.Rules.ss}
 		d, err := GetDefaultValue[[]string](f)
 		if err != nil {
 			return nil, err
 		}
 		if d != nil {
-			stringSliceField.DefaultValue = *d
+			stringSliceFieldBuilder.DefaultValue = *d
 		}
-		field.Field = &v1_conf.Field_StringSliceField{StringSliceField: stringSliceField}
+		fieldBuilder.StringSliceField = stringSliceFieldBuilder.Build()
 	case StringMapVariant:
-		stringMapField := &v1_conf.StringMapField{Rules: f.Rules.sm}
+		stringMapFieldBuilder := v1_conf.StringMapField_builder{Rules: f.Rules.sm}
 		d, err := GetDefaultValue[map[string]any](f)
 		if err != nil {
 			return nil, err
@@ -214,39 +214,39 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 				}
 				anyMap[k] = anyValue
 			}
-			stringMapField.DefaultValue = anyMap
+			stringMapFieldBuilder.DefaultValue = anyMap
 		}
-		field.Field = &v1_conf.Field_StringMapField{StringMapField: stringMapField}
+		fieldBuilder.StringMapField = stringMapFieldBuilder.Build()
 	case StringVariant:
-		stringField := &v1_conf.StringField{Rules: f.Rules.s}
+		stringFieldBuilder := v1_conf.StringField_builder{Rules: f.Rules.s}
 		d, err := GetDefaultValue[string](f)
 		if err != nil {
 			return nil, err
 		}
 		if d != nil {
-			stringField.DefaultValue = *d
+			stringFieldBuilder.DefaultValue = *d
 		}
 
 		switch f.ConnectorConfig.FieldType {
 		case Text:
-			stringField.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED
+			stringFieldBuilder.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED
 		case Randomize:
-			stringField.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_RANDOM
+			stringFieldBuilder.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_RANDOM
 		case OAuth2:
-			stringField.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_OAUTH2
+			stringFieldBuilder.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_OAUTH2
 		case ConnectorDerivedOptions:
-			stringField.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS
+			stringFieldBuilder.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS
 		case FileUpload:
-			stringField.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_FILE_UPLOAD
-			stringField.AllowedExtensions = f.ConnectorConfig.BonusStrings
+			stringFieldBuilder.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_FILE_UPLOAD
+			stringFieldBuilder.AllowedExtensions = f.ConnectorConfig.BonusStrings
 		default:
 			return nil, fmt.Errorf("invalid field type: '%s'", f.ConnectorConfig.FieldType)
 		}
 
-		field.Field = &v1_conf.Field_StringField{StringField: stringField}
+		fieldBuilder.StringField = stringFieldBuilder.Build()
 	default:
 		return nil, fmt.Errorf("invalid variant: '%s'", f.Variant)
 	}
 
-	return &field, nil
+	return fieldBuilder.Build(), nil
 }

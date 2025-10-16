@@ -520,6 +520,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return err
 		}
 
+		// TODO: replace with opaque API compliant validation
 		err = serverCfg.ValidateAll()
 		if err != nil {
 			return err
