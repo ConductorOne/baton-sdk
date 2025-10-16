@@ -21,16 +21,15 @@ import (
 )
 
 func RunConnector[T field.Configurable](
+	ctx context.Context,
 	connectorName string,
 	version string,
 	schema field.Configuration,
 	cf cli.NewConnector[T],
 	options ...connectorrunner.Option,
 ) {
-	ctx := context.Background()
-
-	l := ctxzap.Extract(ctx)
 	f := func(ctx context.Context, cfg T, runTimeOpts cli.RunTimeOpts) (types.ConnectorServer, error) {
+		l := ctxzap.Extract(ctx)
 		connector, builderOpts, err := cf(ctx, cfg, &cli.ConnectorOpts{})
 		if err != nil {
 			return nil, err
