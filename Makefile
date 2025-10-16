@@ -21,13 +21,9 @@ protogen:
 protofmt:
 	buf format -w
 
-.PHONY: build
-build:
-	go build -tags=protoopaque ./...
-
 .PHONY: test
 test:
-	go test -v -tags=protoopaque ./...
+	go test -v ./...
 
 .PHONY: pkg/sdk/version.go
 pkg/sdk/version.go:
