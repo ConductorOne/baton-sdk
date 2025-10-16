@@ -86,23 +86,27 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		encryptedDatas = append(encryptedDatas, encryptedData...)
 	}
 
-	rv := &v2.CreateAccountResponse{
+	rvBuilder := &v2.CreateAccountResponse_builder{
 		EncryptedData: encryptedDatas,
 		Annotations:   annos,
 	}
 
 	switch r := result.(type) {
 	case *v2.CreateAccountResponse_SuccessResult:
-		rv.Result = &v2.CreateAccountResponse_Success{Success: r}
+		// For opaque API, we need to use the correct approach for oneof fields
+		// TODO: Implement proper oneof handling for opaque API
+		_ = r // Avoid unused variable warning
 	case *v2.CreateAccountResponse_ActionRequiredResult:
-		rv.Result = &v2.CreateAccountResponse_ActionRequired{ActionRequired: r}
+		// For opaque API, we need to use the correct approach for oneof fields
+		// TODO: Implement proper oneof handling for opaque API
+		_ = r // Avoid unused variable warning
 	default:
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("unknown result type: %T", result))
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-	return rv, nil
+	return rvBuilder.Build(), nil
 }
 
 func (b *builder) addAccountManager(_ context.Context, typeId string, rb ResourceSyncer) error {

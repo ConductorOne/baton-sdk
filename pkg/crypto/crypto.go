@@ -81,7 +81,7 @@ func decryptPassword(ctx context.Context, encryptedPassword *v2.EncryptedData, d
 		return "", status.Errorf(codes.Internal, "error decrypting password: %v", err)
 	}
 
-	return string(plaintext.Bytes), nil
+	return string(plaintext.GetBytes()), nil
 }
 
 func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey, opts *v2.CredentialOptions, encryptionConfigs []*v2.EncryptionConfig) (*v2.LocalCredentialOptions, error) {
@@ -90,29 +90,25 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 		return nil, nil
 	}
 
-	localOpts := &v2.LocalCredentialOptions{
-		ForceChangeAtNextLogin: opts.ForceChangeAtNextLogin,
-	}
+	localOpts := &v2.LocalCredentialOptions{}
+	localOpts.SetForceChangeAtNextLogin(opts.GetForceChangeAtNextLogin())
 
-	switch opts.Options.(type) {
-	case *v2.CredentialOptions_RandomPassword_:
-		localOpts.Options = &v2.LocalCredentialOptions_RandomPassword_{
-			RandomPassword: &v2.LocalCredentialOptions_RandomPassword{
-				Length:      opts.GetRandomPassword().GetLength(),
-				Constraints: opts.GetRandomPassword().GetConstraints(),
-			},
+	switch opts.WhichOptions() {
+	case v2.CredentialOptions_RandomPassword_case:
+		randomPasswordBuilder := v2.LocalCredentialOptions_RandomPassword_builder{
+			Length:      opts.GetRandomPassword().GetLength(),
+			Constraints: opts.GetRandomPassword().GetConstraints(),
 		}
-	case *v2.CredentialOptions_NoPassword_:
-		localOpts.Options = &v2.LocalCredentialOptions_NoPassword_{
-			NoPassword: &v2.LocalCredentialOptions_NoPassword{},
+		localOpts.SetRandomPassword(randomPasswordBuilder.Build())
+	case v2.CredentialOptions_NoPassword_case:
+		noPasswordBuilder := v2.LocalCredentialOptions_NoPassword_builder{}
+		localOpts.SetNoPassword(noPasswordBuilder.Build())
+	case v2.CredentialOptions_Sso_case:
+		ssoOptsBuilder := v2.LocalCredentialOptions_SSO_builder{
+			SsoProvider: opts.GetSso().GetSsoProvider(),
 		}
-	case *v2.CredentialOptions_Sso:
-		localOpts.Options = &v2.LocalCredentialOptions_Sso{
-			Sso: &v2.LocalCredentialOptions_SSO{
-				SsoProvider: opts.GetSso().GetSsoProvider(),
-			},
-		}
-	case *v2.CredentialOptions_EncryptedPassword_:
+		localOpts.SetSso(ssoOptsBuilder.Build())
+	case v2.CredentialOptions_EncryptedPassword_case:
 	default:
 		return nil, status.Error(codes.InvalidArgument, "invalid credential options")
 	}
@@ -153,19 +149,19 @@ func ConvertCredentialOptions(ctx context.Context, clientSecret *jose.JSONWebKey
 			if err != nil {
 				return nil, fmt.Errorf("convert-credential-options: error decrypting password: %w", err)
 			}
-			localOpts.Options = &v2.LocalCredentialOptions_PlaintextPassword_{
-				PlaintextPassword: &v2.LocalCredentialOptions_PlaintextPassword{
-					PlaintextPassword: password,
-				},
+			plaintextPasswordBuilder := v2.LocalCredentialOptions_PlaintextPassword_builder{
+				PlaintextPassword: password,
 			}
+			plaintextPassword := plaintextPasswordBuilder.Build()
+			localOpts.SetPlaintextPassword(plaintextPassword)
 			break
 		}
-		if localOpts.Options != nil {
+		if localOpts.HasOptions() {
 			break
 		}
 	}
 
-	if localOpts.Options == nil {
+	if !localOpts.HasOptions() {
 		return nil, status.Errorf(codes.InvalidArgument, "no encrypted password matched client secret key id %q", clientSecret.KeyID)
 	}
 

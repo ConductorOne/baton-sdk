@@ -36,7 +36,7 @@ func (c *Configuration) Marshal() ([]byte, error) {
 }
 
 func (c Configuration) marshal() (*v1_conf.Configuration, error) {
-	conf := &v1_conf.Configuration{
+	confBuilder := v1_conf.Configuration_builder{
 		DisplayName:               c.DisplayName,
 		HelpUrl:                   c.HelpUrl,
 		IconUrl:                   c.IconUrl,
@@ -52,7 +52,7 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 			ignore[f.FieldName] = struct{}{}
 			continue
 		}
-		field := v1_conf.Field{
+		fieldBuilder := v1_conf.Field_builder{
 			Name:        f.FieldName,
 			DisplayName: f.ConnectorConfig.DisplayName,
 			Description: f.Description,
@@ -64,39 +64,44 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 
 		switch f.Variant {
 		case IntVariant:
-			intField := &v1_conf.IntField{Rules: f.Rules.i}
+			intFieldBuilder := v1_conf.IntField_builder{
+				Rules: f.Rules.i,
+			}
 			d, err := GetDefaultValue[int](f)
 			if err != nil {
 				return nil, err
 			}
 			if d != nil {
-				intField.DefaultValue = int64(*d)
+				intFieldBuilder.DefaultValue = int64(*d)
 			}
-
-			field.Field = &v1_conf.Field_IntField{IntField: intField}
+			fieldBuilder.IntField = intFieldBuilder.Build()
 
 		case BoolVariant:
-			boolField := &v1_conf.BoolField{Rules: f.Rules.b}
+			boolFieldBuilder := v1_conf.BoolField_builder{
+				Rules: f.Rules.b,
+			}
 			d, err := GetDefaultValue[bool](f)
 			if err != nil {
 				return nil, err
 			}
 			if d != nil {
-				boolField.DefaultValue = *d
+				boolFieldBuilder.DefaultValue = *d
 			}
-			field.Field = &v1_conf.Field_BoolField{BoolField: boolField}
+			fieldBuilder.BoolField = boolFieldBuilder.Build()
 		case StringSliceVariant:
-			stringSliceField := &v1_conf.StringSliceField{Rules: f.Rules.ss}
+			stringSliceFieldBuilder := v1_conf.StringSliceField_builder{
+				Rules: f.Rules.ss,
+			}
 			d, err := GetDefaultValue[[]string](f)
 			if err != nil {
 				return nil, err
 			}
 			if d != nil {
-				stringSliceField.DefaultValue = *d
+				stringSliceFieldBuilder.DefaultValue = *d
 			}
-			field.Field = &v1_conf.Field_StringSliceField{StringSliceField: stringSliceField}
+			fieldBuilder.StringSliceField = stringSliceFieldBuilder.Build()
 		case StringMapVariant:
-			stringMapField := &v1_conf.StringMapField{Rules: f.Rules.sm}
+			stringMapField := v1_conf.StringMapField_builder{Rules: f.Rules.sm}
 			d, err := GetDefaultValue[map[string]any](f)
 			if err != nil {
 				return nil, err
@@ -118,9 +123,9 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 				}
 				stringMapField.DefaultValue = anyMap
 			}
-			field.Field = &v1_conf.Field_StringMapField{StringMapField: stringMapField}
+			fieldBuilder.StringMapField = stringMapField.Build()
 		case StringVariant:
-			stringField := &v1_conf.StringField{Rules: f.Rules.s}
+			stringField := v1_conf.StringField_builder{Rules: f.Rules.s}
 			d, err := GetDefaultValue[string](f)
 			if err != nil {
 				return nil, err
@@ -145,13 +150,14 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 				return nil, fmt.Errorf("invalid field type: '%s'", f.ConnectorConfig.FieldType)
 			}
 
-			field.Field = &v1_conf.Field_StringField{StringField: stringField}
+			fieldBuilder.StringField = stringField.Build()
 		}
-		conf.Fields = append(conf.Fields, &field)
+		field := fieldBuilder.Build()
+		confBuilder.Fields = append(confBuilder.Fields, field)
 	}
 
 	for _, rel := range c.Constraints {
-		constraint := v1_conf.Constraint{}
+		constraintBuilder := v1_conf.Constraint_builder{}
 
 		contraintForIgnoredField := false
 		for _, f := range rel.Fields {
@@ -159,7 +165,7 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 				contraintForIgnoredField = true
 				break
 			}
-			constraint.FieldNames = append(constraint.FieldNames, f.FieldName)
+			constraintBuilder.FieldNames = append(constraintBuilder.FieldNames, f.FieldName)
 		}
 		if contraintForIgnoredField {
 			continue
@@ -170,7 +176,7 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 				contraintForIgnoredField = true
 				break
 			}
-			constraint.SecondaryFieldNames = append(constraint.SecondaryFieldNames, f.FieldName)
+			constraintBuilder.SecondaryFieldNames = append(constraintBuilder.SecondaryFieldNames, f.FieldName)
 		}
 
 		if contraintForIgnoredField {
@@ -181,10 +187,11 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 		if !ok {
 			return nil, fmt.Errorf("invalid constraint kind: %d", rel.Kind)
 		}
-		constraint.Kind = kind
+		constraintBuilder.Kind = kind
 
-		conf.Constraints = append(conf.Constraints, &constraint)
+		constraint := constraintBuilder.Build()
+		confBuilder.Constraints = append(confBuilder.Constraints, constraint)
 	}
 
-	return conf, nil
+	return confBuilder.Build(), nil
 }

@@ -9,12 +9,12 @@ import (
 type NoOpRateLimiter struct{}
 
 func (r *NoOpRateLimiter) Do(ctx context.Context, req *v1.DoRequest) (*v1.DoResponse, error) {
-	return &v1.DoResponse{
-		RequestToken: req.RequestToken,
-		Description: &v1.RateLimitDescription{
-			Status: v1.RateLimitDescription_STATUS_EMPTY,
-		},
-	}, nil
+	response := &v1.DoResponse{}
+	response.SetRequestToken(req.GetRequestToken())
+	desc := &v1.RateLimitDescription{}
+	desc.SetStatus(v1.RateLimitDescription_STATUS_EMPTY)
+	response.SetDescription(desc)
+	return response, nil
 }
 
 func (r *NoOpRateLimiter) Report(ctx context.Context, req *v1.ReportRequest) (*v1.ReportResponse, error) {

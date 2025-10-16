@@ -108,27 +108,27 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		for _, rb := range c.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)
 
-			if err := b.addResourceBuilders(ctx, rType.Id, rb); err != nil {
+			if err := b.addResourceBuilders(ctx, rType.GetId(), rb); err != nil {
 				return nil, err
 			}
 
-			if err := b.addProvisioner(ctx, rType.Id, rb); err != nil {
+			if err := b.addProvisioner(ctx, rType.GetId(), rb); err != nil {
 				return nil, err
 			}
 
-			if err := b.addTargetedSyncer(ctx, rType.Id, rb); err != nil {
+			if err := b.addTargetedSyncer(ctx, rType.GetId(), rb); err != nil {
 				return nil, err
 			}
 
-			if err := b.addResourceManager(ctx, rType.Id, rb); err != nil {
+			if err := b.addResourceManager(ctx, rType.GetId(), rb); err != nil {
 				return nil, err
 			}
 
-			if err := b.addAccountManager(ctx, rType.Id, rb); err != nil {
+			if err := b.addAccountManager(ctx, rType.GetId(), rb); err != nil {
 				return nil, err
 			}
 
-			if err := b.addCredentialManager(ctx, rType.Id, rb); err != nil {
+			if err := b.addCredentialManager(ctx, rType.GetId(), rb); err != nil {
 				return nil, err
 			}
 		}
@@ -184,20 +184,27 @@ func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceG
 		return nil, err
 	}
 
-	md.Capabilities, err = getCapabilities(ctx, b)
+	capabilities, err := getCapabilities(ctx, b)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, err
 	}
+	md.SetCapabilities(capabilities)
 
-	annos := annotations.Annotations(md.Annotations)
+	annos := annotations.Annotations(md.GetAnnotations())
 	if b.ticketManager != nil {
-		annos.Append(&v2.ExternalTicketSettings{Enabled: b.ticketingEnabled})
+		settingsBuilder := &v2.ExternalTicketSettings_builder{
+			Enabled: b.ticketingEnabled,
+		}
+		annos.Append(settingsBuilder.Build())
 	}
-	md.Annotations = annos
+	md.SetAnnotations(annos)
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-	return &v2.ConnectorServiceGetMetadataResponse{Metadata: md}, nil
+	responseBuilder := &v2.ConnectorServiceGetMetadataResponse_builder{
+		Metadata: md,
+	}
+	return responseBuilder.Build(), nil
 }
 
 // Validate validates the connector.
@@ -214,10 +221,11 @@ func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceVali
 	for {
 		annos, err := b.cb.Validate(ctx)
 		if err == nil {
-			return &v2.ConnectorServiceValidateResponse{
+			responseBuilder := &v2.ConnectorServiceValidateResponse_builder{
 				Annotations: annos,
 				SdkVersion:  sdk.Version,
-			}, nil
+			}
+			return responseBuilder.Build(), nil
 		}
 
 		if retryer.ShouldWaitAndRetry(ctx, err) {
@@ -255,55 +263,55 @@ func getCapabilities(ctx context.Context, b *builder) (*v2.ConnectorCapabilities
 	connectorCaps := make(map[v2.Capability]struct{})
 	resourceTypeCapabilities := []*v2.ResourceTypeCapability{}
 	for _, rb := range b.resourceBuilders {
-		resourceTypeCapability := &v2.ResourceTypeCapability{
+		resourceTypeCapabilityBuilder := &v2.ResourceTypeCapability_builder{
 			ResourceType: rb.ResourceType(ctx),
 			// Currently by default all resource types support sync.
 			Capabilities: []v2.Capability{v2.Capability_CAPABILITY_SYNC},
 		}
 		connectorCaps[v2.Capability_CAPABILITY_SYNC] = struct{}{}
 		if _, ok := rb.(ResourceTargetedSyncer); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
+			resourceTypeCapabilityBuilder.Capabilities = append(resourceTypeCapabilityBuilder.Capabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
 			connectorCaps[v2.Capability_CAPABILITY_TARGETED_SYNC] = struct{}{}
 		}
 		if _, ok := rb.(ResourceProvisioner); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_PROVISION)
+			resourceTypeCapabilityBuilder.Capabilities = append(resourceTypeCapabilityBuilder.Capabilities, v2.Capability_CAPABILITY_PROVISION)
 			connectorCaps[v2.Capability_CAPABILITY_PROVISION] = struct{}{}
 		} else if _, ok = rb.(ResourceProvisionerV2); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_PROVISION)
+			resourceTypeCapabilityBuilder.Capabilities = append(resourceTypeCapabilityBuilder.Capabilities, v2.Capability_CAPABILITY_PROVISION)
 			connectorCaps[v2.Capability_CAPABILITY_PROVISION] = struct{}{}
 		}
 		if _, ok := rb.(AccountManager); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
+			resourceTypeCapabilityBuilder.Capabilities = append(resourceTypeCapabilityBuilder.Capabilities, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
 			connectorCaps[v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING] = struct{}{}
 		}
 
 		if _, ok := rb.(CredentialManager); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
+			resourceTypeCapabilityBuilder.Capabilities = append(resourceTypeCapabilityBuilder.Capabilities, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
 			connectorCaps[v2.Capability_CAPABILITY_CREDENTIAL_ROTATION] = struct{}{}
 		}
 
 		if _, ok := rb.(ResourceManager); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE, v2.Capability_CAPABILITY_RESOURCE_DELETE)
+			resourceTypeCapabilityBuilder.Capabilities = append(resourceTypeCapabilityBuilder.Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE, v2.Capability_CAPABILITY_RESOURCE_DELETE)
 			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_CREATE] = struct{}{}
 			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
 		} else if _, ok := rb.(ResourceDeleter); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
+			resourceTypeCapabilityBuilder.Capabilities = append(resourceTypeCapabilityBuilder.Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
 			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
 		}
 
 		if _, ok := rb.(ResourceManagerV2); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE, v2.Capability_CAPABILITY_RESOURCE_DELETE)
+			resourceTypeCapabilityBuilder.Capabilities = append(resourceTypeCapabilityBuilder.Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE, v2.Capability_CAPABILITY_RESOURCE_DELETE)
 			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_CREATE] = struct{}{}
 			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
 		} else if _, ok := rb.(ResourceDeleterV2); ok {
-			resourceTypeCapability.Capabilities = append(resourceTypeCapability.Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
+			resourceTypeCapabilityBuilder.Capabilities = append(resourceTypeCapabilityBuilder.Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
 			connectorCaps[v2.Capability_CAPABILITY_RESOURCE_DELETE] = struct{}{}
 		}
 
-		resourceTypeCapabilities = append(resourceTypeCapabilities, resourceTypeCapability)
+		resourceTypeCapabilities = append(resourceTypeCapabilities, resourceTypeCapabilityBuilder.Build())
 	}
 	sort.Slice(resourceTypeCapabilities, func(i, j int) bool {
-		return resourceTypeCapabilities[i].ResourceType.GetId() < resourceTypeCapabilities[j].ResourceType.GetId()
+		return resourceTypeCapabilities[i].GetResourceType().GetId() < resourceTypeCapabilities[j].GetResourceType().GetId()
 	})
 
 	if len(b.eventFeeds) > 0 {
@@ -329,30 +337,31 @@ func getCapabilities(ctx context.Context, b *builder) (*v2.ConnectorCapabilities
 		return nil, err
 	}
 
-	return &v2.ConnectorCapabilities{
+	capabilitiesBuilder := &v2.ConnectorCapabilities_builder{
 		ResourceTypeCapabilities: resourceTypeCapabilities,
 		ConnectorCapabilities:    caps,
 		CredentialDetails:        credDetails,
-	}, nil
+	}
+	return capabilitiesBuilder.Build(), nil
 }
 
 func validateCapabilityDetails(_ context.Context, credDetails *v2.CredentialDetails) error {
-	if credDetails.CapabilityAccountProvisioning != nil {
+	if credDetails.GetCapabilityAccountProvisioning() != nil {
 		// Ensure that the preferred option is included and is part of the supported options
-		if credDetails.CapabilityAccountProvisioning.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+		if credDetails.GetCapabilityAccountProvisioning().GetPreferredCredentialOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
 			return status.Error(codes.InvalidArgument, "error: preferred credential creation option is not set")
 		}
-		if !slices.Contains(credDetails.CapabilityAccountProvisioning.SupportedCredentialOptions, credDetails.CapabilityAccountProvisioning.PreferredCredentialOption) {
+		if !slices.Contains(credDetails.GetCapabilityAccountProvisioning().GetSupportedCredentialOptions(), credDetails.GetCapabilityAccountProvisioning().GetPreferredCredentialOption()) {
 			return status.Error(codes.InvalidArgument, "error: preferred credential creation option is not part of the supported options")
 		}
 	}
 
-	if credDetails.CapabilityCredentialRotation != nil {
+	if credDetails.GetCapabilityCredentialRotation() != nil {
 		// Ensure that the preferred option is included and is part of the supported options
-		if credDetails.CapabilityCredentialRotation.PreferredCredentialOption == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
+		if credDetails.GetCapabilityCredentialRotation().GetPreferredCredentialOption() == v2.CapabilityDetailCredentialOption_CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED {
 			return status.Error(codes.InvalidArgument, "error: preferred credential rotation option is not set")
 		}
-		if !slices.Contains(credDetails.CapabilityCredentialRotation.SupportedCredentialOptions, credDetails.CapabilityCredentialRotation.PreferredCredentialOption) {
+		if !slices.Contains(credDetails.GetCapabilityCredentialRotation().GetSupportedCredentialOptions(), credDetails.GetCapabilityCredentialRotation().GetPreferredCredentialOption()) {
 			return status.Error(codes.InvalidArgument, "error: preferred credential rotation option is not part of the supported options")
 		}
 	}
@@ -371,7 +380,7 @@ func getCredentialDetails(ctx context.Context, b *builder) (*v2.CredentialDetail
 				l.Error("error: getting account provisioning details", zap.Error(err))
 				return nil, fmt.Errorf("error: getting account provisioning details: %w", err)
 			}
-			rv.CapabilityAccountProvisioning = accountProvisioningCapabilityDetails
+			rv.SetCapabilityAccountProvisioning(accountProvisioningCapabilityDetails)
 		}
 
 		if cm, ok := rb.(CredentialManager); ok {
@@ -380,7 +389,7 @@ func getCredentialDetails(ctx context.Context, b *builder) (*v2.CredentialDetail
 				l.Error("error: getting credential management details", zap.Error(err))
 				return nil, fmt.Errorf("error: getting credential management details: %w", err)
 			}
-			rv.CapabilityCredentialRotation = credentialRotationCapabilityDetails
+			rv.SetCapabilityCredentialRotation(credentialRotationCapabilityDetails)
 		}
 	}
 

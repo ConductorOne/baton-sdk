@@ -34,25 +34,26 @@ func GrantsIntegrationTest(
 	principal *v2.Resource,
 	entitlement *v2.Entitlement,
 ) {
-	grant := v2.Grant{
+	grantBuilder := &v2.Grant_builder{
 		Entitlement: entitlement,
 		Principal:   principal,
 	}
+	grant := grantBuilder.Build()
 
-	grantsBefore := assertGrants(ctx, t, c, entitlement.Resource)
+	grantsBefore := assertGrants(ctx, t, c, entitlement.GetResource())
 	grantCount := len(grantsBefore)
 
 	annotations, err := c.Grant(ctx, principal, entitlement)
 	require.Nil(t, err)
 	AssertNoRatelimitAnnotations(t, annotations)
 
-	grantsDuring := assertGrants(ctx, t, c, entitlement.Resource)
+	grantsDuring := assertGrants(ctx, t, c, entitlement.GetResource())
 	require.Len(t, grantsDuring, grantCount+1)
 
-	annotations, err = c.Revoke(ctx, &grant)
+	annotations, err = c.Revoke(ctx, grant)
 	require.Nil(t, err)
 	AssertNoRatelimitAnnotations(t, annotations)
 
-	grantsAfter := assertGrants(ctx, t, c, entitlement.Resource)
+	grantsAfter := assertGrants(ctx, t, c, entitlement.GetResource())
 	require.Len(t, grantsAfter, grantCount)
 }

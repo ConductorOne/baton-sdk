@@ -79,11 +79,12 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-	return &v2.RotateCredentialResponse{
+	responseBuilder := &v2.RotateCredentialResponse_builder{
 		Annotations:   annos,
 		ResourceId:    request.GetResourceId(),
 		EncryptedData: encryptedDatas,
-	}, nil
+	}
+	return responseBuilder.Build(), nil
 }
 
 func (b *builder) addCredentialManager(_ context.Context, typeId string, rb ResourceSyncer) error {

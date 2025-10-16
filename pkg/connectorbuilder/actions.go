@@ -49,10 +49,11 @@ func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionS
 		return nil, fmt.Errorf("error: listing action schemas failed: %w", err)
 	}
 
-	rv := &v2.ListActionSchemasResponse{
+	rvBuilder := &v2.ListActionSchemasResponse_builder{
 		Schemas:     actionSchemas,
 		Annotations: annos,
 	}
+	rv := rvBuilder.Build()
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return rv, nil
@@ -75,10 +76,11 @@ func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSche
 		return nil, fmt.Errorf("error: getting action schema failed: %w", err)
 	}
 
-	rv := &v2.GetActionSchemaResponse{
+	rvBuilder := &v2.GetActionSchemaResponse_builder{
 		Schema:      actionSchema,
 		Annotations: annos,
 	}
+	rv := rvBuilder.Build()
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return rv, nil
@@ -101,13 +103,14 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 		return nil, fmt.Errorf("error: invoking action failed: %w", err)
 	}
 
-	rv := &v2.InvokeActionResponse{
+	rvBuilder := &v2.InvokeActionResponse_builder{
 		Id:          id,
 		Name:        request.GetName(),
 		Status:      status,
 		Annotations: annos,
 		Response:    resp,
 	}
+	rv := rvBuilder.Build()
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return rv, nil
@@ -130,13 +133,14 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 		return nil, fmt.Errorf("error: getting action status failed: %w", err)
 	}
 
-	resp := &v2.GetActionStatusResponse{
+	respBuilder := &v2.GetActionStatusResponse_builder{
 		Id:          request.GetId(),
 		Name:        name,
 		Status:      status,
 		Annotations: annos,
 		Response:    rv,
 	}
+	resp := respBuilder.Build()
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
