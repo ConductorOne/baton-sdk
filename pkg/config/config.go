@@ -46,7 +46,7 @@ func RunConnector[T field.Configurable](
 		return c, nil
 	}
 
-	_, cmd, err := DefineConfiguration2(ctx, connectorName, f, schema, options...)
+	_, cmd, err := DefineConfigurationV2(ctx, connectorName, f, schema, options...)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
@@ -79,11 +79,11 @@ func DefineConfiguration[T field.Configurable](
 		}
 		return connector, nil
 	}
-	return DefineConfiguration2(ctx, connectorName, f, schema, options...)
+	return DefineConfigurationV2(ctx, connectorName, f, schema, options...)
 }
 
 // deprecated - prefer RunConnector.
-func DefineConfiguration2[T field.Configurable](
+func DefineConfigurationV2[T field.Configurable](
 	ctx context.Context,
 	connectorName string,
 	connector cli.GetConnectorFunc2[T],

@@ -14,7 +14,7 @@ import (
 )
 
 func entrypoint(ctx context.Context, cfg field.Configuration, args ...string) (*viper.Viper, error) {
-	v, cmd, err := config.DefineConfiguration2(ctx, "baton-dummy", getConnector, cfg)
+	v, cmd, err := config.DefineConfigurationV2(ctx, "baton-dummy", getConnector, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("DefineConfiguration failed: %w", err)
 	}
