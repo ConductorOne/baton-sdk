@@ -1244,6 +1244,10 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, resourceID *v2.Resou
 					_ = resp.CloseSend()
 					return err
 				}
+
+			case v2.AssetServiceGetAssetResponse_Msg_not_set_case:
+				l.Debug("Received unset asset message")
+				continue
 			}
 		}
 
