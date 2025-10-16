@@ -28,9 +28,7 @@ func TestIs(t *testing.T) {
 		{
 			name: "nil task type",
 			args: args{
-				task: v1.Task_builder{
-					TaskType: nil,
-				}.Build(),
+				task:   v1.Task_builder{}.Build(),
 				target: taskTypes.FullSyncType,
 			},
 			want: false,
@@ -114,9 +112,7 @@ func TestGetType(t *testing.T) {
 		{
 			name: "nil task type",
 			args: args{
-				task: v1.Task_builder{
-					TaskType: nil,
-				}.Build(),
+				task: v1.Task_builder{}.Build(),
 			},
 			want: taskTypes.UnknownType,
 		},

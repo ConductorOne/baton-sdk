@@ -651,7 +651,7 @@ func ValidateTicket(ctx context.Context, schema *v2.TicketSchema, ticket *v2.Tic
 			}
 
 		default:
-			l.Debug("error: invalid schema: unknown custom field type", zap.Any("custom_field_type", v))
+			l.Debug("error: invalid schema: unknown custom field type", zap.Any("custom_field_type", cf.WhichValue()))
 			return false, errors.New("error: invalid schema: unknown custom field type")
 		}
 	}
