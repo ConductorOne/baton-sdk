@@ -28,9 +28,9 @@ func TestIs(t *testing.T) {
 		{
 			name: "nil task type",
 			args: args{
-				task: &v1.Task{
+				task: v1.Task_builder{
 					TaskType: nil,
-				},
+				}.Build(),
 				target: taskTypes.FullSyncType,
 			},
 			want: false,
@@ -38,11 +38,9 @@ func TestIs(t *testing.T) {
 		{
 			name: "full sync",
 			args: args{
-				task: &v1.Task{
-					TaskType: &v1.Task_SyncFull{
-						SyncFull: &v1.Task_SyncFullTask{},
-					},
-				},
+				task: v1.Task_builder{
+					SyncFull: &v1.Task_SyncFullTask{},
+				}.Build(),
 				target: taskTypes.FullSyncType,
 			},
 			want: true,
@@ -50,11 +48,9 @@ func TestIs(t *testing.T) {
 		{
 			name: "grant",
 			args: args{
-				task: &v1.Task{
-					TaskType: &v1.Task_Grant{
-						Grant: &v1.Task_GrantTask{},
-					},
-				},
+				task: v1.Task_builder{
+					Grant: &v1.Task_GrantTask{},
+				}.Build(),
 				target: taskTypes.GrantType,
 			},
 			want: true,
@@ -62,11 +58,9 @@ func TestIs(t *testing.T) {
 		{
 			name: "revoke",
 			args: args{
-				task: &v1.Task{
-					TaskType: &v1.Task_Revoke{
-						Revoke: &v1.Task_RevokeTask{},
-					},
-				},
+				task: v1.Task_builder{
+					Revoke: &v1.Task_RevokeTask{},
+				}.Build(),
 				target: taskTypes.RevokeType,
 			},
 			want: true,
@@ -74,11 +68,9 @@ func TestIs(t *testing.T) {
 		{
 			name: "hello",
 			args: args{
-				task: &v1.Task{
-					TaskType: &v1.Task_Hello{
-						Hello: &v1.Task_HelloTask{},
-					},
-				},
+				task: v1.Task_builder{
+					Hello: &v1.Task_HelloTask{},
+				}.Build(),
 				target: taskTypes.HelloType,
 			},
 			want: true,
@@ -86,11 +78,9 @@ func TestIs(t *testing.T) {
 		{
 			name: "none",
 			args: args{
-				task: &v1.Task{
-					TaskType: &v1.Task_None{
-						None: &v1.Task_NoneTask{},
-					},
-				},
+				task: v1.Task_builder{
+					None: &v1.Task_NoneTask{},
+				}.Build(),
 				target: taskTypes.NoneType,
 			},
 			want: true,
@@ -124,64 +114,54 @@ func TestGetType(t *testing.T) {
 		{
 			name: "nil task type",
 			args: args{
-				task: &v1.Task{
+				task: v1.Task_builder{
 					TaskType: nil,
-				},
+				}.Build(),
 			},
 			want: taskTypes.UnknownType,
 		},
 		{
 			name: "full sync",
 			args: args{
-				task: &v1.Task{
-					TaskType: &v1.Task_SyncFull{
-						SyncFull: &v1.Task_SyncFullTask{},
-					},
-				},
+				task: v1.Task_builder{
+					SyncFull: &v1.Task_SyncFullTask{},
+				}.Build(),
 			},
 			want: taskTypes.FullSyncType,
 		},
 		{
 			name: "grant",
 			args: args{
-				task: &v1.Task{
-					TaskType: &v1.Task_Grant{
-						Grant: &v1.Task_GrantTask{},
-					},
-				},
+				task: v1.Task_builder{
+					Grant: &v1.Task_GrantTask{},
+				}.Build(),
 			},
 			want: taskTypes.GrantType,
 		},
 		{
 			name: "revoke",
 			args: args{
-				task: &v1.Task{
-					TaskType: &v1.Task_Revoke{
-						Revoke: &v1.Task_RevokeTask{},
-					},
-				},
+				task: v1.Task_builder{
+					Revoke: &v1.Task_RevokeTask{},
+				}.Build(),
 			},
 			want: taskTypes.RevokeType,
 		},
 		{
 			name: "hello",
 			args: args{
-				task: &v1.Task{
-					TaskType: &v1.Task_Hello{
-						Hello: &v1.Task_HelloTask{},
-					},
-				},
+				task: v1.Task_builder{
+					Hello: &v1.Task_HelloTask{},
+				}.Build(),
 			},
 			want: taskTypes.HelloType,
 		},
 		{
 			name: "none",
 			args: args{
-				task: &v1.Task{
-					TaskType: &v1.Task_None{
-						None: &v1.Task_NoneTask{},
-					},
-				},
+				task: v1.Task_builder{
+					None: &v1.Task_NoneTask{},
+				}.Build(),
 			},
 			want: taskTypes.NoneType,
 		},

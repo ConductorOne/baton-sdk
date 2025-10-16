@@ -38,7 +38,7 @@ func (c *Configuration) Marshal() ([]byte, error) {
 func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 	var err error
 
-	conf := &v1_conf.Configuration{
+	conf := v1_conf.Configuration_builder{
 		DisplayName:               c.DisplayName,
 		HelpUrl:                   c.HelpUrl,
 		IconUrl:                   c.IconUrl,
@@ -46,7 +46,7 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 		IsDirectory:               c.IsDirectory,
 		SupportsExternalResources: c.SupportsExternalResources,
 		RequiresExternalConnector: c.RequiresExternalConnector,
-	}
+	}.Build()
 
 	// Fields
 	conf.Fields, conf.Constraints, err = mapFieldsAndConstraints(c.Fields, c.Constraints)
@@ -58,21 +58,21 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 	for _, group := range c.FieldGroups {
 		fieldGroups = append(fieldGroups, fieldGroupToV1(group))
 	}
-	conf.FieldGroups = fieldGroups
+	conf.SetFieldGroups(fieldGroups)
 
 	return conf, nil
 }
 
 func fieldGroupToV1(fg SchemaFieldGroup) *v1_conf.FieldGroup {
-	fieldGroupV1 := &v1_conf.FieldGroup{
+	fieldGroupV1 := v1_conf.FieldGroup_builder{
 		Name:        fg.Name,
 		DisplayName: fg.DisplayName,
 		HelpText:    fg.HelpText,
-	}
+	}.Build()
 
-	fieldGroupV1.Fields = make([]string, 0, len(fg.Fields))
+	fieldGroupV1.SetFields(make([]string, 0, len(fg.Fields)))
 	for _, f := range fg.Fields {
-		fieldGroupV1.Fields = append(fieldGroupV1.Fields, f.FieldName)
+		fieldGroupV1.SetFields(append(fieldGroupV1.GetFields(), f.FieldName))
 	}
 
 	return fieldGroupV1
@@ -114,7 +114,7 @@ func mapFieldsAndConstraints(fields []SchemaField, constraints []SchemaFieldRela
 }
 
 func constraintToV1(rel SchemaFieldRelationship, ignore map[string]struct{}) (*v1_conf.Constraint, error) {
-	constraint := v1_conf.Constraint{}
+	constraint := &v1_conf.Constraint{}
 
 	constraintForIgnoredField := false
 	for _, f := range rel.Fields {
@@ -122,7 +122,7 @@ func constraintToV1(rel SchemaFieldRelationship, ignore map[string]struct{}) (*v
 			constraintForIgnoredField = true
 			break
 		}
-		constraint.FieldNames = append(constraint.FieldNames, f.FieldName)
+		constraint.SetFieldNames(append(constraint.GetFieldNames(), f.FieldName))
 	}
 	if constraintForIgnoredField {
 		return nil, nil
@@ -133,7 +133,7 @@ func constraintToV1(rel SchemaFieldRelationship, ignore map[string]struct{}) (*v
 			constraintForIgnoredField = true
 			break
 		}
-		constraint.SecondaryFieldNames = append(constraint.SecondaryFieldNames, f.FieldName)
+		constraint.SetSecondaryFieldNames(append(constraint.GetSecondaryFieldNames(), f.FieldName))
 	}
 
 	if constraintForIgnoredField {
@@ -144,13 +144,13 @@ func constraintToV1(rel SchemaFieldRelationship, ignore map[string]struct{}) (*v
 	if !ok {
 		return nil, fmt.Errorf("invalid constraint kind: %d", rel.Kind)
 	}
-	constraint.Kind = kind
+	constraint.SetKind(kind)
 
-	return &constraint, nil
+	return constraint, nil
 }
 
 func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
-	field := v1_conf.Field{
+	field := v1_conf.Field_builder{
 		Name:        f.FieldName,
 		DisplayName: f.ConnectorConfig.DisplayName,
 		Description: f.Description,
@@ -158,43 +158,43 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 		IsRequired:  f.Required,
 		IsOps:       f.ExportTarget == ExportTargetOps,
 		IsSecret:    f.Secret,
-	}
+	}.Build()
 
 	switch f.Variant {
 	case IntVariant:
-		intField := &v1_conf.IntField{Rules: f.Rules.i}
+		intField := v1_conf.IntField_builder{Rules: f.Rules.i}.Build()
 		d, err := GetDefaultValue[int](f)
 		if err != nil {
 			return nil, err
 		}
 		if d != nil {
-			intField.DefaultValue = int64(*d)
+			intField.SetDefaultValue(int64(*d))
 		}
 
-		field.Field = &v1_conf.Field_IntField{IntField: intField}
+		field.SetIntField(proto.ValueOrDefault(intField))
 
 	case BoolVariant:
-		boolField := &v1_conf.BoolField{Rules: f.Rules.b}
+		boolField := v1_conf.BoolField_builder{Rules: f.Rules.b}.Build()
 		d, err := GetDefaultValue[bool](f)
 		if err != nil {
 			return nil, err
 		}
 		if d != nil {
-			boolField.DefaultValue = *d
+			boolField.SetDefaultValue(*d)
 		}
-		field.Field = &v1_conf.Field_BoolField{BoolField: boolField}
+		field.SetBoolField(proto.ValueOrDefault(boolField))
 	case StringSliceVariant:
-		stringSliceField := &v1_conf.StringSliceField{Rules: f.Rules.ss}
+		stringSliceField := v1_conf.StringSliceField_builder{Rules: f.Rules.ss}.Build()
 		d, err := GetDefaultValue[[]string](f)
 		if err != nil {
 			return nil, err
 		}
 		if d != nil {
-			stringSliceField.DefaultValue = *d
+			stringSliceField.SetDefaultValue(*d)
 		}
-		field.Field = &v1_conf.Field_StringSliceField{StringSliceField: stringSliceField}
+		field.SetStringSliceField(proto.ValueOrDefault(stringSliceField))
 	case StringMapVariant:
-		stringMapField := &v1_conf.StringMapField{Rules: f.Rules.sm}
+		stringMapField := v1_conf.StringMapField_builder{Rules: f.Rules.sm}.Build()
 		d, err := GetDefaultValue[map[string]any](f)
 		if err != nil {
 			return nil, err
@@ -214,39 +214,39 @@ func schemaFieldToV1(f SchemaField) (*v1_conf.Field, error) {
 				}
 				anyMap[k] = anyValue
 			}
-			stringMapField.DefaultValue = anyMap
+			stringMapField.SetDefaultValue(anyMap)
 		}
-		field.Field = &v1_conf.Field_StringMapField{StringMapField: stringMapField}
+		field.SetStringMapField(proto.ValueOrDefault(stringMapField))
 	case StringVariant:
-		stringField := &v1_conf.StringField{Rules: f.Rules.s}
+		stringField := v1_conf.StringField_builder{Rules: f.Rules.s}.Build()
 		d, err := GetDefaultValue[string](f)
 		if err != nil {
 			return nil, err
 		}
 		if d != nil {
-			stringField.DefaultValue = *d
+			stringField.SetDefaultValue(*d)
 		}
 
 		switch f.ConnectorConfig.FieldType {
 		case Text:
-			stringField.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED
+			stringField.SetType(v1_conf.StringFieldType_STRING_FIELD_TYPE_TEXT_UNSPECIFIED)
 		case Randomize:
-			stringField.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_RANDOM
+			stringField.SetType(v1_conf.StringFieldType_STRING_FIELD_TYPE_RANDOM)
 		case OAuth2:
-			stringField.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_OAUTH2
+			stringField.SetType(v1_conf.StringFieldType_STRING_FIELD_TYPE_OAUTH2)
 		case ConnectorDerivedOptions:
-			stringField.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS
+			stringField.SetType(v1_conf.StringFieldType_STRING_FIELD_TYPE_CONNECTOR_DERIVED_OPTIONS)
 		case FileUpload:
-			stringField.Type = v1_conf.StringFieldType_STRING_FIELD_TYPE_FILE_UPLOAD
-			stringField.AllowedExtensions = f.ConnectorConfig.BonusStrings
+			stringField.SetType(v1_conf.StringFieldType_STRING_FIELD_TYPE_FILE_UPLOAD)
+			stringField.SetAllowedExtensions(f.ConnectorConfig.BonusStrings)
 		default:
 			return nil, fmt.Errorf("invalid field type: '%s'", f.ConnectorConfig.FieldType)
 		}
 
-		field.Field = &v1_conf.Field_StringField{StringField: stringField}
+		field.SetStringField(proto.ValueOrDefault(stringField))
 	default:
 		return nil, fmt.Errorf("invalid variant: '%s'", f.Variant)
 	}
 
-	return &field, nil
+	return field, nil
 }

@@ -21,20 +21,20 @@ func TestNewAppResource(t *testing.T) {
 			WithAppHelpURL("https://example.com"),
 			WithAppProfile(profile),
 		},
-		WithAnnotation(&v2.V1Identifier{Id: "v1"}),
+		WithAnnotation(v2.V1Identifier_builder{Id: "v1"}.Build()),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ar)
-	require.Equal(t, rt.Id, ar.Id.ResourceType)
-	require.Equal(t, "1234", ar.Id.Resource)
+	require.Equal(t, rt.GetId(), ar.GetId().GetResourceType())
+	require.Equal(t, "1234", ar.GetId().GetResource())
 
-	require.Len(t, ar.Annotations, 2)
+	require.Len(t, ar.GetAnnotations(), 2)
 	v1ID := &v2.V1Identifier{}
-	annos := annotations.Annotations(ar.Annotations)
+	annos := annotations.Annotations(ar.GetAnnotations())
 	ok, err := annos.Pick(v1ID)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, "v1", v1ID.Id)
+	require.Equal(t, "v1", v1ID.GetId())
 
 	roleTrait, err := GetRoleTrait(ar)
 	require.Error(t, err)
@@ -42,12 +42,12 @@ func TestNewAppResource(t *testing.T) {
 	appTrait, err := GetAppTrait(ar)
 	require.NoError(t, err)
 	require.NotNil(t, appTrait)
-	require.Equal(t, "https://example.com", appTrait.HelpUrl)
-	require.NotNil(t, appTrait.Profile)
-	fName, foundProfileData := GetProfileStringValue(appTrait.Profile, "app_name")
+	require.Equal(t, "https://example.com", appTrait.GetHelpUrl())
+	require.NotNil(t, appTrait.GetProfile())
+	fName, foundProfileData := GetProfileStringValue(appTrait.GetProfile(), "app_name")
 	require.True(t, foundProfileData)
 	require.Equal(t, "Test", fName)
-	mName, foundProfileData := GetProfileStringValue(appTrait.Profile, "first_name")
+	mName, foundProfileData := GetProfileStringValue(appTrait.GetProfile(), "first_name")
 	require.False(t, foundProfileData)
 	require.Equal(t, "", mName)
 }
@@ -64,20 +64,20 @@ func TestNewGroupResource(t *testing.T) {
 		[]GroupTraitOption{
 			WithGroupProfile(profile),
 		},
-		WithAnnotation(&v2.V1Identifier{Id: "v1"}),
+		WithAnnotation(v2.V1Identifier_builder{Id: "v1"}.Build()),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, gr)
-	require.Equal(t, rt.Id, gr.Id.ResourceType)
-	require.Equal(t, "1234", gr.Id.Resource)
+	require.Equal(t, rt.GetId(), gr.GetId().GetResourceType())
+	require.Equal(t, "1234", gr.GetId().GetResource())
 
-	require.Len(t, gr.Annotations, 2)
+	require.Len(t, gr.GetAnnotations(), 2)
 	v1ID := &v2.V1Identifier{}
-	annos := annotations.Annotations(gr.Annotations)
+	annos := annotations.Annotations(gr.GetAnnotations())
 	ok, err := annos.Pick(v1ID)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, "v1", v1ID.Id)
+	require.Equal(t, "v1", v1ID.GetId())
 
 	roleTrait, err := GetRoleTrait(gr)
 	require.Error(t, err)
@@ -85,35 +85,35 @@ func TestNewGroupResource(t *testing.T) {
 	groupTrait, err := GetGroupTrait(gr)
 	require.NoError(t, err)
 	require.NotNil(t, groupTrait)
-	require.NotNil(t, groupTrait.Profile)
-	fName, foundProfileData := GetProfileStringValue(groupTrait.Profile, "group_name")
+	require.NotNil(t, groupTrait.GetProfile())
+	fName, foundProfileData := GetProfileStringValue(groupTrait.GetProfile(), "group_name")
 	require.True(t, foundProfileData)
 	require.Equal(t, "Test", fName)
-	mName, foundProfileData := GetProfileStringValue(groupTrait.Profile, "first_name")
+	mName, foundProfileData := GetProfileStringValue(groupTrait.GetProfile(), "first_name")
 	require.False(t, foundProfileData)
 	require.Equal(t, "", mName)
 }
 
 func TestNewResource(t *testing.T) {
-	parentID := &v2.ResourceId{
+	parentID := v2.ResourceId_builder{
 		ResourceType: "foo",
 		Resource:     "567",
-	}
+	}.Build()
 	rt := NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
-	rr, err := NewResource("test resource", rt, "1234", WithParentResourceID(parentID), WithAnnotation(&v2.V1Identifier{Id: "v1"}))
+	rr, err := NewResource("test resource", rt, "1234", WithParentResourceID(parentID), WithAnnotation(v2.V1Identifier_builder{Id: "v1"}.Build()))
 	require.NoError(t, err)
 	require.NotNil(t, rr)
-	require.Equal(t, rt.Id, rr.Id.ResourceType)
-	require.Equal(t, "1234", rr.Id.Resource)
-	require.Equal(t, parentID, rr.ParentResourceId)
+	require.Equal(t, rt.GetId(), rr.GetId().GetResourceType())
+	require.Equal(t, "1234", rr.GetId().GetResource())
+	require.Equal(t, parentID, rr.GetParentResourceId())
 
-	require.Len(t, rr.Annotations, 1)
+	require.Len(t, rr.GetAnnotations(), 1)
 	v1ID := &v2.V1Identifier{}
-	annos := annotations.Annotations(rr.Annotations)
+	annos := annotations.Annotations(rr.GetAnnotations())
 	ok, err := annos.Pick(v1ID)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, "v1", v1ID.Id)
+	require.Equal(t, "v1", v1ID.GetId())
 
 	groupTrait, err := GetGroupTrait(rr)
 	require.Error(t, err)
@@ -136,8 +136,8 @@ func TestNewResourceID(t *testing.T) {
 	rt := NewResourceType("Foo", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
 	id, err := NewResourceID(rt, 1234)
 	require.NoError(t, err)
-	require.Equal(t, "foo", id.ResourceType)
-	require.Equal(t, "1234", id.Resource)
+	require.Equal(t, "foo", id.GetResourceType())
+	require.Equal(t, "1234", id.GetResource())
 }
 
 func TestNewRoleResource(t *testing.T) {
@@ -152,20 +152,20 @@ func TestNewRoleResource(t *testing.T) {
 		[]RoleTraitOption{
 			WithRoleProfile(profile),
 		},
-		WithAnnotation(&v2.V1Identifier{Id: "v1"}),
+		WithAnnotation(v2.V1Identifier_builder{Id: "v1"}.Build()),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, rr)
-	require.Equal(t, rt.Id, rr.Id.ResourceType)
-	require.Equal(t, "1234", rr.Id.Resource)
+	require.Equal(t, rt.GetId(), rr.GetId().GetResourceType())
+	require.Equal(t, "1234", rr.GetId().GetResource())
 
-	require.Len(t, rr.Annotations, 2)
+	require.Len(t, rr.GetAnnotations(), 2)
 	v1ID := &v2.V1Identifier{}
-	annos := annotations.Annotations(rr.Annotations)
+	annos := annotations.Annotations(rr.GetAnnotations())
 	ok, err := annos.Pick(v1ID)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, "v1", v1ID.Id)
+	require.Equal(t, "v1", v1ID.GetId())
 
 	groupTrait, err := GetGroupTrait(rr)
 	require.Error(t, err)
@@ -174,11 +174,11 @@ func TestNewRoleResource(t *testing.T) {
 	roleTrait, err := GetRoleTrait(rr)
 	require.NoError(t, err)
 	require.NotNil(t, roleTrait)
-	require.NotNil(t, roleTrait.Profile)
-	fName, foundProfileData := GetProfileStringValue(roleTrait.Profile, "role_name")
+	require.NotNil(t, roleTrait.GetProfile())
+	fName, foundProfileData := GetProfileStringValue(roleTrait.GetProfile(), "role_name")
 	require.True(t, foundProfileData)
 	require.Equal(t, "Test", fName)
-	mName, foundProfileData := GetProfileStringValue(roleTrait.Profile, "first_name")
+	mName, foundProfileData := GetProfileStringValue(roleTrait.GetProfile(), "first_name")
 	require.False(t, foundProfileData)
 	require.Equal(t, "", mName)
 }
@@ -198,20 +198,20 @@ func TestNewUserResource(t *testing.T) {
 			WithEmail(userEmail, true),
 			WithUserProfile(profile),
 		},
-		WithAnnotation(&v2.V1Identifier{Id: "v1"}),
+		WithAnnotation(v2.V1Identifier_builder{Id: "v1"}.Build()),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ur)
-	require.Equal(t, rt.Id, ur.Id.ResourceType)
-	require.Equal(t, "1234", ur.Id.Resource)
+	require.Equal(t, rt.GetId(), ur.GetId().GetResourceType())
+	require.Equal(t, "1234", ur.GetId().GetResource())
 
-	require.Len(t, ur.Annotations, 2)
+	require.Len(t, ur.GetAnnotations(), 2)
 	v1ID := &v2.V1Identifier{}
-	annos := annotations.Annotations(ur.Annotations)
+	annos := annotations.Annotations(ur.GetAnnotations())
 	ok, err := annos.Pick(v1ID)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.Equal(t, "v1", v1ID.Id)
+	require.Equal(t, "v1", v1ID.GetId())
 
 	roleTrait, err := GetRoleTrait(ur)
 	require.Error(t, err)
@@ -220,13 +220,13 @@ func TestNewUserResource(t *testing.T) {
 	ut, err := GetUserTrait(ur)
 	require.NoError(t, err)
 	require.NotNil(t, ut)
-	require.Len(t, ut.Emails, 1)
-	require.Equal(t, userEmail, ut.Emails[0].Address)
-	require.NotNil(t, ut.Profile)
-	fName, foundProfileData := GetProfileStringValue(ut.Profile, "first_name")
+	require.Len(t, ut.GetEmails(), 1)
+	require.Equal(t, userEmail, ut.GetEmails()[0].GetAddress())
+	require.NotNil(t, ut.GetProfile())
+	fName, foundProfileData := GetProfileStringValue(ut.GetProfile(), "first_name")
 	require.True(t, foundProfileData)
 	require.Equal(t, "Test", fName)
-	mName, foundProfileData := GetProfileStringValue(ut.Profile, "middle_name")
+	mName, foundProfileData := GetProfileStringValue(ut.GetProfile(), "middle_name")
 	require.False(t, foundProfileData)
 	require.Equal(t, "", mName)
 }

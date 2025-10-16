@@ -12,35 +12,35 @@ type SecretTraitOption func(t *v2.SecretTrait) error
 
 func WithSecretCreatedAt(createdAt time.Time) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.CreatedAt = timestamppb.New(createdAt)
+		t.SetCreatedAt(timestamppb.New(createdAt))
 		return nil
 	}
 }
 
 func WithSecretLastUsedAt(lastUsed time.Time) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.LastUsedAt = timestamppb.New(lastUsed)
+		t.SetLastUsedAt(timestamppb.New(lastUsed))
 		return nil
 	}
 }
 
 func WithSecretExpiresAt(expiresAt time.Time) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.ExpiresAt = timestamppb.New(expiresAt)
+		t.SetExpiresAt(timestamppb.New(expiresAt))
 		return nil
 	}
 }
 
 func WithSecretCreatedByID(createdById *v2.ResourceId) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.CreatedById = createdById
+		t.SetCreatedById(createdById)
 		return nil
 	}
 }
 
 func WithSecretIdentityID(identityId *v2.ResourceId) SecretTraitOption {
 	return func(t *v2.SecretTrait) error {
-		t.IdentityId = identityId
+		t.SetIdentityId(identityId)
 		return nil
 	}
 }

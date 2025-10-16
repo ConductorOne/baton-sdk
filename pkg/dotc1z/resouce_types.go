@@ -68,10 +68,10 @@ func (c *C1File) ListResourceTypes(ctx context.Context, request *v2.ResourceType
 		ret = append(ret, rt)
 	}
 
-	return &v2.ResourceTypesServiceListResourceTypesResponse{
+	return v2.ResourceTypesServiceListResourceTypesResponse_builder{
 		List:          ret,
 		NextPageToken: nextPageToken,
-	}, nil
+	}.Build(), nil
 }
 
 func (c *C1File) GetResourceType(ctx context.Context, request *reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest) (*reader_v2.ResourceTypesReaderServiceGetResourceTypeResponse, error) {
@@ -81,16 +81,16 @@ func (c *C1File) GetResourceType(ctx context.Context, request *reader_v2.Resourc
 	ret := &v2.ResourceType{}
 	syncId, err := annotations.GetSyncIdFromAnnotations(request.GetAnnotations())
 	if err != nil {
-		return nil, fmt.Errorf("error getting sync id from annotations for resource type '%s': %w", request.ResourceTypeId, err)
+		return nil, fmt.Errorf("error getting sync id from annotations for resource type '%s': %w", request.GetResourceTypeId(), err)
 	}
-	err = c.getConnectorObject(ctx, resourceTypes.Name(), request.ResourceTypeId, syncId, ret)
+	err = c.getConnectorObject(ctx, resourceTypes.Name(), request.GetResourceTypeId(), syncId, ret)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching resource type '%s': %w", request.ResourceTypeId, err)
+		return nil, fmt.Errorf("error fetching resource type '%s': %w", request.GetResourceTypeId(), err)
 	}
 
-	return &reader_v2.ResourceTypesReaderServiceGetResourceTypeResponse{
+	return reader_v2.ResourceTypesReaderServiceGetResourceTypeResponse_builder{
 		ResourceType: ret,
-	}, nil
+	}.Build(), nil
 }
 
 func (c *C1File) PutResourceTypes(ctx context.Context, resourceTypesObjs ...*v2.ResourceType) error {

@@ -16,7 +16,7 @@ func buildRing(b *testing.B, n int) *EntitlementGraph {
 	ids := make([]string, n)
 	for i := 0; i < n; i++ {
 		ids[i] = strconv.Itoa(i + 1)
-		g.AddEntitlement(&v2.Entitlement{Id: ids[i]})
+		g.AddEntitlement(v2.Entitlement_builder{Id: ids[i]}.Build())
 	}
 	for i := 0; i < n; i++ {
 		next := (i + 1) % n
@@ -37,7 +37,7 @@ func buildChain(b *testing.B, n int) *EntitlementGraph {
 	ids := make([]string, n)
 	for i := 0; i < n; i++ {
 		ids[i] = strconv.Itoa(i + 1)
-		g.AddEntitlement(&v2.Entitlement{Id: ids[i]})
+		g.AddEntitlement(v2.Entitlement_builder{Id: ids[i]}.Build())
 	}
 	for i := 0; i+1 < n; i++ {
 		if err := g.AddEdge(ctx, ids[i], ids[i+1], false, nil); err != nil {
@@ -57,7 +57,7 @@ func buildClique(b *testing.B, n int) *EntitlementGraph {
 	ids := make([]string, n)
 	for i := 0; i < n; i++ {
 		ids[i] = strconv.Itoa(i + 1)
-		g.AddEntitlement(&v2.Entitlement{Id: ids[i]})
+		g.AddEntitlement(v2.Entitlement_builder{Id: ids[i]}.Build())
 	}
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
@@ -83,7 +83,7 @@ func buildTailIntoRing(b *testing.B, tail, ring int) *EntitlementGraph {
 	ids := make([]string, total)
 	for i := 0; i < total; i++ {
 		ids[i] = strconv.Itoa(i + 1)
-		g.AddEntitlement(&v2.Entitlement{Id: ids[i]})
+		g.AddEntitlement(v2.Entitlement_builder{Id: ids[i]}.Build())
 	}
 
 	// Tail 1 -> 2 -> ... -> tail -> (tail+1)

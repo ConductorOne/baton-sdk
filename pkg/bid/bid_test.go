@@ -10,33 +10,33 @@ import (
 	"google.golang.org/protobuf/testing/protocmp"
 )
 
-var group0 = &v2.Resource{
-	Id: &v2.ResourceId{
+var group0 = v2.Resource_builder{
+	Id: v2.ResourceId_builder{
 		Resource:     "sales",
 		ResourceType: "group",
-	},
-}
-var group1 = &v2.Resource{
-	Id: &v2.ResourceId{
+	}.Build(),
+}.Build()
+var group1 = v2.Resource_builder{
+	Id: v2.ResourceId_builder{
 		Resource:     "s:al/es",
 		ResourceType: "gr:=o\\up",
-	},
-}
+	}.Build(),
+}.Build()
 
-var user0 = &v2.Resource{
-	Id: &v2.ResourceId{
+var user0 = v2.Resource_builder{
+	Id: v2.ResourceId_builder{
 		Resource:     "george",
 		ResourceType: "user",
-	},
-	ParentResourceId: group0.Id,
-}
-var user1 = &v2.Resource{
-	Id: &v2.ResourceId{
+	}.Build(),
+	ParentResourceId: group0.GetId(),
+}.Build()
+var user1 = v2.Resource_builder{
+	Id: v2.ResourceId_builder{
 		Resource:     "geo/r\\ge",
 		ResourceType: "us/er",
-	},
-	ParentResourceId: group1.Id,
-}
+	}.Build(),
+	ParentResourceId: group1.GetId(),
+}.Build()
 
 var bidsToResources = map[string]*v2.Resource{
 	"bid:r:group/sales/user/george":                         user0,
@@ -44,37 +44,37 @@ var bidsToResources = map[string]*v2.Resource{
 }
 
 var bidsToEntitlements = map[string]*v2.Entitlement{
-	"bid:e:group/sales:member": {
+	"bid:e:group/sales:member": v2.Entitlement_builder{
 		Resource: group0,
 		Slug:     "member",
-	},
+	}.Build(),
 }
 
 var bidsToGrants = map[string]*v2.Grant{
-	"bid:g:group/sales:member:group/sales/user/george": {
-		Entitlement: &v2.Entitlement{
+	"bid:g:group/sales:member:group/sales/user/george": v2.Grant_builder{
+		Entitlement: v2.Entitlement_builder{
 			Resource: group0,
 			Slug:     "member",
-		},
+		}.Build(),
 		Principal: user0,
-	},
-	"bid:g:team/5678:member:user/1234": {
-		Entitlement: &v2.Entitlement{
-			Resource: &v2.Resource{
-				Id: &v2.ResourceId{
+	}.Build(),
+	"bid:g:team/5678:member:user/1234": v2.Grant_builder{
+		Entitlement: v2.Entitlement_builder{
+			Resource: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					Resource:     "5678",
 					ResourceType: "team",
-				},
-			},
+				}.Build(),
+			}.Build(),
 			Slug: "member",
-		},
-		Principal: &v2.Resource{
-			Id: &v2.ResourceId{
+		}.Build(),
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				Resource:     "1234",
 				ResourceType: "user",
-			},
-		},
-	},
+			}.Build(),
+		}.Build(),
+	}.Build(),
 }
 
 func TestToBid(t *testing.T) {
@@ -89,11 +89,11 @@ func TestToBid(t *testing.T) {
 	}
 	_, err := MakeBid(&v2.Resource{})
 	require.Error(t, err)
-	_, err = MakeBid(&v2.Resource{
-		Id: &v2.ResourceId{
+	_, err = MakeBid(v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: "user",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.Error(t, err)
 }
 

@@ -583,7 +583,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 
-		if md.Metadata.Capabilities == nil {
+		if !md.GetMetadata().HasCapabilities() {
 			return fmt.Errorf("connector does not support capabilities")
 		}
 
@@ -593,7 +593,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		}
 
 		a := &anypb.Any{}
-		err = anypb.MarshalFrom(a, md.Metadata.Capabilities, proto.MarshalOptions{Deterministic: true})
+		err = anypb.MarshalFrom(a, md.GetMetadata().GetCapabilities(), proto.MarshalOptions{Deterministic: true})
 		if err != nil {
 			return err
 		}

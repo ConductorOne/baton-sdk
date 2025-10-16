@@ -13,38 +13,32 @@ import (
 func TestGeneratePassword(t *testing.T) {
 	ctx := t.Context()
 	t.Run("should generate password with specified length", func(t *testing.T) {
-		opts := &v2.LocalCredentialOptions{
-			Options: &v2.LocalCredentialOptions_RandomPassword_{
-				RandomPassword: &v2.LocalCredentialOptions_RandomPassword{
-					Length: 12,
-				},
-			},
-		}
+		opts := v2.LocalCredentialOptions_builder{
+			RandomPassword: v2.LocalCredentialOptions_RandomPassword_builder{
+				Length: 12,
+			}.Build(),
+		}.Build()
 		p, err := GeneratePassword(ctx, opts)
 		require.NoError(t, err)
 		require.Len(t, p, 12)
 	})
 	t.Run("should error if specified length is lower than 8", func(t *testing.T) {
-		opts := &v2.LocalCredentialOptions{
-			Options: &v2.LocalCredentialOptions_RandomPassword_{
-				RandomPassword: &v2.LocalCredentialOptions_RandomPassword{
-					Length: 7,
-				},
-			},
-		}
+		opts := v2.LocalCredentialOptions_builder{
+			RandomPassword: v2.LocalCredentialOptions_RandomPassword_builder{
+				Length: 7,
+			}.Build(),
+		}.Build()
 		p, err := GeneratePassword(ctx, opts)
 		require.Error(t, err)
 		require.Empty(t, p)
 		require.Equal(t, ErrInvalidPasswordLength, err)
 	})
 	t.Run("should comply with minimum characters validation", func(t *testing.T) {
-		opts := &v2.LocalCredentialOptions{
-			Options: &v2.LocalCredentialOptions_RandomPassword_{
-				RandomPassword: &v2.LocalCredentialOptions_RandomPassword{
-					Length: 8,
-				},
-			},
-		}
+		opts := v2.LocalCredentialOptions_builder{
+			RandomPassword: v2.LocalCredentialOptions_RandomPassword_builder{
+				Length: 8,
+			}.Build(),
+		}.Build()
 		p, err := GeneratePassword(ctx, opts)
 		require.NoError(t, err)
 		isValid := isPasswordValid(p)
@@ -53,21 +47,17 @@ func TestGeneratePassword(t *testing.T) {
 
 	t.Run("should comply with minimum characters from password constraints", func(t *testing.T) {
 		minCount := 4
-		constraintDigit := v2.PasswordConstraint{
+		constraintDigit := v2.PasswordConstraint_builder{
 			CharSet:  digits,
 			MinCount: uint32(minCount),
-		}
-		constraints := []*v2.PasswordConstraint{
-			&constraintDigit,
-		}
-		opts := &v2.LocalCredentialOptions{
-			Options: &v2.LocalCredentialOptions_RandomPassword_{
-				RandomPassword: &v2.LocalCredentialOptions_RandomPassword{
-					Length:      8,
-					Constraints: constraints,
-				},
-			},
-		}
+		}.Build()
+		constraints := []*v2.PasswordConstraint{constraintDigit}
+		opts := v2.LocalCredentialOptions_builder{
+			RandomPassword: v2.LocalCredentialOptions_RandomPassword_builder{
+				Length:      8,
+				Constraints: constraints,
+			}.Build(),
+		}.Build()
 		p, err := GeneratePassword(ctx, opts)
 		require.NoError(t, err)
 		occurences := countOccurences(p, digits)
@@ -76,21 +66,17 @@ func TestGeneratePassword(t *testing.T) {
 	})
 
 	t.Run("error when sum of min counts exceeds length", func(t *testing.T) {
-		constraintDigit := v2.PasswordConstraint{
+		constraintDigit := v2.PasswordConstraint_builder{
 			CharSet:  digits,
 			MinCount: 9,
-		}
-		constraints := []*v2.PasswordConstraint{
-			&constraintDigit,
-		}
-		opts := &v2.LocalCredentialOptions{
-			Options: &v2.LocalCredentialOptions_RandomPassword_{
-				RandomPassword: &v2.LocalCredentialOptions_RandomPassword{
-					Length:      8,
-					Constraints: constraints,
-				},
-			},
-		}
+		}.Build()
+		constraints := []*v2.PasswordConstraint{constraintDigit}
+		opts := v2.LocalCredentialOptions_builder{
+			RandomPassword: v2.LocalCredentialOptions_RandomPassword_builder{
+				Length:      8,
+				Constraints: constraints,
+			}.Build(),
+		}.Build()
 		_, err := GeneratePassword(ctx, opts)
 		require.Error(t, err)
 	})

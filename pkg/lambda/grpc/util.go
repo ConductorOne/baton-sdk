@@ -145,11 +145,11 @@ func ErrorResponse(err error) *Response {
 		panic(fmt.Errorf("server: unable to serialize status: %w", err))
 	}
 	return &Response{
-		msg: &pbtransport.Response{
+		msg: pbtransport.Response_builder{
 			Resp:     nil,
 			Status:   anyst,
 			Headers:  nil,
 			Trailers: nil,
-		},
+		}.Build(),
 	}
 }
