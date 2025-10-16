@@ -209,12 +209,3 @@ func (m *MemorySessionCache) SetMany(ctx context.Context, values map[string][]by
 
 	return nil
 }
-
-// Close performs any necessary cleanup when the cache is no longer needed.
-func (m *MemorySessionCache) CloseStore(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	// Clear all data
-	m.cache = make(map[string]map[string][]byte)
-	return nil
-}

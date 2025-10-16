@@ -305,9 +305,9 @@ func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceClean
 	if b.sessionStore != nil {
 		// Limit c1z size before we upload, because the uploads time out...
 		//  TODO(kans): we could hold onto the session store if we are in debug mode.
-		err := b.sessionStore.CloseStore(ctx)
+		err := b.sessionStore.Clear(ctx, sessions.WithSyncID(request.ActiveSyncId))
 		if err != nil {
-			l.Warn("error closing session store", zap.Error(err))
+			l.Warn("error clearing session store", zap.Error(err))
 		}
 	}
 

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -651,7 +652,7 @@ func TestMemorySessionCache_Close(t *testing.T) {
 		assert.Len(t, values, 2)
 
 		// Close the cache
-		err = cache.CloseStore(ctx)
+		err = memCache.ClearWithSyncID(ctx, "test-sync")
 		require.NoError(t, err)
 
 		// Verify cache is cleared after close
@@ -660,24 +661,13 @@ func TestMemorySessionCache_Close(t *testing.T) {
 		assert.Empty(t, values)
 	})
 
-	t.Run("close empty cache", func(t *testing.T) {
-		cache, err := NewMemorySessionCache(ctx)
-		require.NoError(t, err)
-
-		err = cache.CloseStore(ctx)
-		require.NoError(t, err)
-	})
-
-	t.Run("multiple close calls", func(t *testing.T) {
-		cache, err := NewMemorySessionCache(ctx)
-		require.NoError(t, err)
-
+	t.Run("multiple clear calls", func(t *testing.T) {
 		// First close
-		err = cache.CloseStore(ctx)
+		err = memCache.ClearWithSyncID(ctx, "test-sync")
 		require.NoError(t, err)
 
 		// Second close should not error
-		err = cache.CloseStore(ctx)
+		err = memCache.ClearWithSyncID(ctx, "test-sync")
 		require.NoError(t, err)
 	})
 }
@@ -938,14 +928,14 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		cache1, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
 		defer func() {
-			err := cache1.CloseStore(ctx)
+			err := cache1.Clear(ctx, sessions.WithSyncID("test-sync"))
 			require.NoError(t, err)
 		}()
 
 		cache2, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
 		defer func() {
-			err := cache2.CloseStore(ctx)
+			err := cache2.Clear(ctx, sessions.WithSyncID("test-sync"))
 			require.NoError(t, err)
 		}()
 
@@ -974,7 +964,9 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
 		defer func() {
-			err := cache.CloseStore(ctx)
+			err := cache.Clear(ctx, sessions.WithSyncID("sync1"))
+			require.NoError(t, err)
+			err = cache.Clear(ctx, sessions.WithSyncID("sync2"))
 			require.NoError(t, err)
 		}()
 
@@ -1006,7 +998,9 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
 		defer func() {
-			err := cache.CloseStore(ctx)
+			err := cache.Clear(ctx, sessions.WithSyncID("sync1"))
+			require.NoError(t, err)
+			err = cache.Clear(ctx, sessions.WithSyncID("sync2"))
 			require.NoError(t, err)
 		}()
 
@@ -1038,7 +1032,7 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
 		defer func() {
-			err := cache.CloseStore(ctx)
+			err := cache.Clear(ctx, sessions.WithSyncID("test-sync"))
 			require.NoError(t, err)
 		}()
 
@@ -1093,7 +1087,7 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
 		defer func() {
-			err := cache.CloseStore(ctx)
+			err := cache.Clear(ctx, sessions.WithSyncID("test-sync"))
 			require.NoError(t, err)
 		}()
 
@@ -1133,7 +1127,9 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
 		defer func() {
-			err := cache.CloseStore(ctx)
+			err := cache.Clear(ctx, sessions.WithSyncID("sync1"))
+			require.NoError(t, err)
+			err = cache.Clear(ctx, sessions.WithSyncID("sync2"))
 			require.NoError(t, err)
 		}()
 
@@ -1175,16 +1171,19 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 	})
 
 	t.Run("propagation_with_concurrent_access", func(t *testing.T) {
+		const numGoroutines = 10
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
 		defer func() {
-			err := cache.CloseStore(ctx)
-			require.NoError(t, err)
+			for i := 0; i < numGoroutines; i++ {
+				syncID := fmt.Sprintf("sync-%d", i)
+				err := cache.Clear(ctx, sessions.WithSyncID(syncID))
+				require.NoError(t, err)
+			}
 		}()
 
 		memCache := cache.(*MemorySessionCache)
 
-		const numGoroutines = 10
 		const operationsPerGoroutine = 50
 		var wg sync.WaitGroup
 
@@ -1234,7 +1233,13 @@ func TestMemorySessionCache_Propagation(t *testing.T) {
 		cache, err := NewMemorySessionCache(ctx)
 		require.NoError(t, err)
 		defer func() {
-			err := cache.CloseStore(ctx)
+			err := cache.Clear(ctx, sessions.WithSyncID("sync1"))
+			require.NoError(t, err)
+			err = cache.Clear(ctx, sessions.WithSyncID("sync2"))
+			require.NoError(t, err)
+			err = cache.Clear(ctx, sessions.WithSyncID("sync3"))
+			require.NoError(t, err)
+			err = cache.Clear(ctx, sessions.WithSyncID("sync4"))
 			require.NoError(t, err)
 		}()
 

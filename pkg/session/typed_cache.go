@@ -109,10 +109,6 @@ func (t *TypedSessionCache[T]) GetAll(ctx context.Context, opt ...sessions.Sessi
 	return result, nil
 }
 
-func (t *TypedSessionCache[T]) CloseStore(ctx context.Context) error {
-	return t.cache.CloseStore(ctx)
-}
-
 type JSONCodec[T any] struct{}
 
 func (j *JSONCodec[T]) Encode(value T) ([]byte, error) {

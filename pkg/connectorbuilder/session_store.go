@@ -56,7 +56,3 @@ func (w *SessionStoreWithSyncID) GetAll(ctx context.Context, opt ...sessions.Ses
 	opts := append([]sessions.SessionStoreOption{sessions.WithSyncID(w.syncID)}, opt...)
 	return w.ss.GetAll(ctx, opts...)
 }
-
-func (w *SessionStoreWithSyncID) CloseStore(ctx context.Context) error {
-	return w.ss.CloseStore(ctx)
-}

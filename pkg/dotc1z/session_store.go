@@ -303,7 +303,3 @@ func (c *C1File) GetAll(ctx context.Context, opt ...sessions.SessionStoreOption)
 
 	return result, nil
 }
-
-func (c *C1File) CloseStore(ctx context.Context) error {
-	return c.Clear(ctx)
-}

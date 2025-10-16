@@ -81,11 +81,3 @@ func (l *lazySessionStore) GetAll(ctx context.Context, opt ...sessions.SessionSt
 	}
 	return l.session.GetAll(ctx, opt...)
 }
-
-// CloseStore implements types.SessionStore.
-func (l *lazySessionStore) CloseStore(ctx context.Context) error {
-	if err := l.ensureSession(ctx); err != nil {
-		return err
-	}
-	return l.session.CloseStore(ctx)
-}
