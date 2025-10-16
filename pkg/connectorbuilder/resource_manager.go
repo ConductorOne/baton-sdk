@@ -93,7 +93,7 @@ func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResource
 	}
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	responseBuilder := &v2.CreateResourceResponse_builder{
-		Created: resource,
+		Created:     resource,
 		Annotations: annos,
 	}
 	return responseBuilder.Build(), nil

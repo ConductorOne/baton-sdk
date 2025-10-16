@@ -87,7 +87,7 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 			responseBuilder := &v2.GrantManagerServiceGrantResponse_builder{
 				Annotations: annos,
-				Grants: grants,
+				Grants:      grants,
 			}
 			return responseBuilder.Build(), nil
 		}
@@ -108,7 +108,7 @@ func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRev
 
 	l := ctxzap.Extract(ctx)
 
-		rt := request.GetGrant().GetEntitlement().GetResource().GetId().GetResourceType()
+	rt := request.GetGrant().GetEntitlement().GetResource().GetId().GetResourceType()
 
 	var revokeProvisioner RevokeProvisioner
 	provisioner, ok := b.resourceProvisioners[rt]
