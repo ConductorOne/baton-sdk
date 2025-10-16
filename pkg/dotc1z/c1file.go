@@ -55,6 +55,7 @@ type C1File struct {
 	checkpointStop   chan struct{}
 	checkpointDone   chan struct{}
 	checkpointOnce   sync.Once
+	checkpointMu     sync.RWMutex // Protects database access during checkpointing
 }
 
 var _ connectorstore.Writer = (*C1File)(nil)
@@ -462,12 +463,26 @@ func (c *C1File) startWALCheckpointing() {
 	}()
 }
 
+// acquireCheckpointLock acquires a read lock for database operations
+func (c *C1File) acquireCheckpointLock() {
+	c.checkpointMu.RLock()
+}
+
+// releaseCheckpointLock releases the read lock for database operations
+func (c *C1File) releaseCheckpointLock() {
+	c.checkpointMu.RUnlock()
+}
+
 // performWALCheckpoint performs a WAL checkpoint using SQLITE_CHECKPOINT_RESTART or SQLITE_CHECKPOINT_TRUNCATE
 func (c *C1File) performWALCheckpoint() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// First try SQLITE_CHECKPOINT_RESTART
+	// Acquire write lock to pause all database operations during checkpoint
+	c.checkpointMu.Lock()
+	defer c.checkpointMu.Unlock()
+
+	// First try SQLITE_CHECKPOINT_TRUNCATE
 	_, err := c.rawDb.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
 	if err != nil {
 		// If TRUNCATE fails, try RESTART

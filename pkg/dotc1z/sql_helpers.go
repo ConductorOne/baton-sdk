@@ -224,6 +224,10 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 	// Start timing the query execution
 	queryStartTime := time.Now()
 
+	// Acquire checkpoint lock to coordinate with WAL checkpointing
+	c.acquireCheckpointLock()
+	defer c.releaseCheckpointLock()
+
 	// Execute the query
 	rows, err := c.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -351,8 +355,12 @@ func executeChunkWithRetry(
 	baseDelay := 10 * time.Millisecond
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
+		// Acquire checkpoint lock to coordinate with WAL checkpointing
+		c.acquireCheckpointLock()
+
 		tx, err := c.db.BeginTx(ctx, nil)
 		if err != nil {
+			c.releaseCheckpointLock()
 			if isSQLiteBusy(err) && attempt < maxRetries-1 {
 				select {
 				case <-ctx.Done():
@@ -368,6 +376,7 @@ func executeChunkWithRetry(
 
 		insertDs, err = buildQueryFn(insertDs, chunkedRows)
 		if err != nil {
+			c.releaseCheckpointLock()
 			tx.Rollback()
 			return err
 		}
@@ -375,12 +384,14 @@ func executeChunkWithRetry(
 		// Generate the SQL
 		query, args, err := insertDs.ToSQL()
 		if err != nil {
+			c.releaseCheckpointLock()
 			tx.Rollback()
 			return err
 		}
 
 		_, err = tx.ExecContext(ctx, query, args...)
 		if err != nil {
+			c.releaseCheckpointLock()
 			tx.Rollback()
 			if isSQLiteBusy(err) && attempt < maxRetries-1 {
 				select {
@@ -395,6 +406,7 @@ func executeChunkWithRetry(
 
 		err = tx.Commit()
 		if err != nil {
+			c.releaseCheckpointLock()
 			if isSQLiteBusy(err) && attempt < maxRetries-1 {
 				select {
 				case <-ctx.Done():
@@ -406,6 +418,7 @@ func executeChunkWithRetry(
 			return err
 		}
 
+		c.releaseCheckpointLock()
 		return nil
 	}
 
