@@ -22,7 +22,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
-	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
@@ -352,12 +351,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if s.setSessionStore != nil {
-		ss, ok := s.store.(sessions.SessionStore)
-		if ok {
-			s.setSessionStore.SetSessionStore(ctx, ss)
-		}
-	}
+
 	resp, err := s.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
 		return err
@@ -2716,6 +2710,9 @@ func (s *syncer) loadStore(ctx context.Context) error {
 		return err
 	}
 
+	if s.setSessionStore != nil {
+		s.setSessionStore.SetSessionStore(ctx, store)
+	}
 	s.store = store
 
 	return nil

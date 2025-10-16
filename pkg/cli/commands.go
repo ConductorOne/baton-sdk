@@ -358,7 +358,7 @@ func MakeMainCommand[T field.Configurable](
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
 
-		c, err := getconnector(runCtx, t, &RunTimeOpts{})
+		c, err := getconnector(runCtx, t, RunTimeOpts{})
 		if err != nil {
 			return err
 		}
@@ -517,7 +517,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 		sessionConstructor := getGRPCSessionStoreClient(runCtx, serverCfg)
-		c, err := getconnector(runCtx, t, &RunTimeOpts{
+		c, err := getconnector(runCtx, t, RunTimeOpts{
 			SessionStore: &lazySessionStore{constructor: sessionConstructor},
 		})
 		if err != nil {
@@ -610,7 +610,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 
-		c, err := getconnector(runCtx, t, &RunTimeOpts{})
+		c, err := getconnector(runCtx, t, RunTimeOpts{})
 		if err != nil {
 			return err
 		}

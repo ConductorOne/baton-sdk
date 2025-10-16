@@ -9,12 +9,6 @@ import (
 	taskTypes "github.com/conductorone/baton-sdk/pkg/types/tasks"
 )
 
-// func WithConnectorStore(f func(store connectorstore.Writer, reader connectorstore.Reader) error) Option {
-// 	return func(ctx context.Context, m *Manager) error {
-// 		return f(store, reader)
-// 	}
-// }
-
 type Manager interface {
 	Next(ctx context.Context) (*v1.Task, time.Duration, error)
 	Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error

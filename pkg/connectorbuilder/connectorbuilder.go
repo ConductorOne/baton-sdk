@@ -302,7 +302,15 @@ func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceVali
 
 func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
 	l := ctxzap.Extract(ctx)
-	// TODO(kans): clear the session store here.
+	if b.sessionStore != nil {
+		// Limit c1z size before we upload, because the uploads time out...
+		//  TODO(kans): we could hold onto the session store if we are in debug mode.
+		err := b.sessionStore.CloseStore(ctx)
+		if err != nil {
+			l.Warn("error closing session store", zap.Error(err))
+		}
+	}
+
 	// Clear all http caches at the end of a sync. This must be run in the child process, which is why it's in this function and not in syncer.go
 	err := uhttp.ClearCaches(ctx)
 	if err != nil {

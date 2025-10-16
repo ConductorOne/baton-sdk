@@ -185,7 +185,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
-		c, err := getconnector(runCtx, t, &RunTimeOpts{
+		c, err := getconnector(runCtx, t, RunTimeOpts{
 			SessionStore: &lazySessionStore{constructor: createSessionCacheConstructor(grpcClient)},
 		})
 		if err != nil {

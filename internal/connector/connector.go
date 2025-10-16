@@ -235,28 +235,30 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 	if err != nil {
 		return 0, fmt.Errorf("failed to setup listener: %w", err)
 	}
-
-	sessionListenerPort, sessionListenerFile, err := cw.setupListener(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("failed to setup session listener: %w", err)
-	}
-
-	if sessionListenerFile == nil {
-		return 0, fmt.Errorf("session listener file is nil")
-	}
-
-	// Start the session cache server on the cache listener
-	sessionListener, err := net.FileListener(sessionListenerFile)
-	if err != nil {
-		_ = sessionListenerFile.Close()
-		return 0, fmt.Errorf("failed to create session listener: %w", err)
-	}
-	tlsConfig, err := utls2.ListenerConfig(ctx, serverCred)
-	if err != nil {
-		_ = sessionListenerFile.Close()
-		return 0, fmt.Errorf("failed to create session listener config: %w", err)
-	}
+	var sessionListenerPort uint32
 	if cw.sessionStoreEnabled {
+		var sessionListenerFile *os.File
+		sessionListenerPort, sessionListenerFile, err = cw.setupListener(ctx)
+		if err != nil {
+			return 0, fmt.Errorf("failed to setup session listener: %w", err)
+		}
+
+		if sessionListenerFile == nil {
+			return 0, fmt.Errorf("session listener file is nil")
+		}
+
+		// Start the session cache server on the cache listener
+		sessionListener, err := net.FileListener(sessionListenerFile)
+		if err != nil {
+			_ = sessionListenerFile.Close()
+			return 0, fmt.Errorf("failed to create session listener: %w", err)
+		}
+		tlsConfig, err := utls2.ListenerConfig(ctx, serverCred)
+		if err != nil {
+			_ = sessionListenerFile.Close()
+			return 0, fmt.Errorf("failed to create session listener config: %w", err)
+		}
+
 		// TODO(kans): block until we send a request or something/error handling in general.
 		l.Info("starting session store server")
 		server := session.NewGRPCSessionServer()
@@ -402,14 +404,11 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	}
 
 	cw.conn = conn
-	cw.client = NewConnectorClient(ctx, cw.conn)
-	if setsessionStore, ok := cw.client.(SetSessionStoreSetter); ok {
-		setsessionStore.SetSessionStoreSetter(cw.SessionServer)
-	} else {
-		ctxzap.Extract(ctx).Warn("client is not a SetSessionStoreSetter")
-	}
+	client := NewConnectorClient(ctx, cw.conn)
+	client.SetSessionStoreSetter(cw.SessionServer)
+	cw.client = client
 
-	return cw.client, nil
+	return client, nil
 }
 
 // Close shuts down the grpc server and closes the connection.
@@ -491,7 +490,7 @@ func Register(ctx context.Context, s grpc.ServiceRegistrar, srv types.ConnectorS
 
 // NewConnectorClient takes a grpc.ClientConnInterface and returns an implementation of the ConnectorClient interface.
 // It does not check that the connection actually supports the services.
-func NewConnectorClient(_ context.Context, cc grpc.ClientConnInterface) types.ConnectorClient {
+func NewConnectorClient(_ context.Context, cc grpc.ClientConnInterface) *connectorClient {
 	return &connectorClient{
 		ResourceTypesServiceClient:     connectorV2.NewResourceTypesServiceClient(cc),
 		ResourcesServiceClient:         connectorV2.NewResourcesServiceClient(cc),

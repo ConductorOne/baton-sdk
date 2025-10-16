@@ -77,13 +77,11 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithTargetedSyncResourceIDs(c.targetedSyncResourceIDs))
 	}
 	cc := c.helpers.ConnectorClient()
-	var setSessionStore session.SetSessionStore
-	if ssetSessionStore, ok := cc.(session.SetSessionStore); ok {
-		setSessionStore = ssetSessionStore
-		if setSessionStore == nil {
-			syncOpts = append(syncOpts, sdkSync.WithSessionStore(setSessionStore))
-		}
+
+	if setSessionStore, ok := cc.(session.SetSessionStore); ok {
+		syncOpts = append(syncOpts, sdkSync.WithSessionStore(setSessionStore))
 	}
+
 	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)
 	if err != nil {
 		l.Error("failed to create syncer", zap.Error(err))

@@ -30,7 +30,7 @@ func RunConnector[T field.Configurable](
 	ctx := context.Background()
 
 	l := ctxzap.Extract(ctx)
-	f := func(ctx context.Context, cfg T, runTimeOpts *cli.RunTimeOpts) (types.ConnectorServer, error) {
+	f := func(ctx context.Context, cfg T, runTimeOpts cli.RunTimeOpts) (types.ConnectorServer, error) {
 		connector, builderOpts, err := cf(ctx, cfg, &cli.ConnectorOpts{})
 		if err != nil {
 			return nil, err
@@ -72,7 +72,7 @@ func DefineConfiguration[T field.Configurable](
 	schema field.Configuration,
 	options ...connectorrunner.Option,
 ) (*viper.Viper, *cobra.Command, error) {
-	f := func(ctx context.Context, cfg T, runTimeOpts *cli.RunTimeOpts) (types.ConnectorServer, error) {
+	f := func(ctx context.Context, cfg T, runTimeOpts cli.RunTimeOpts) (types.ConnectorServer, error) {
 		connector, err := connector(ctx, cfg)
 		if err != nil {
 			return nil, err

@@ -21,7 +21,7 @@ type RunTimeOpts struct {
 // GetConnectorFunc is a function type that creates a connector instance.
 // It takes a context and configuration. The session cache constructor is retrieved from the context.
 type GetConnectorFunc[T field.Configurable] func(ctx context.Context, cfg T) (types.ConnectorServer, error)
-type GetConnectorFunc2[T field.Configurable] func(ctx context.Context, cfg T, runTimeOpts *RunTimeOpts) (types.ConnectorServer, error)
+type GetConnectorFunc2[T field.Configurable] func(ctx context.Context, cfg T, runTimeOpts RunTimeOpts) (types.ConnectorServer, error)
 
 // WithSessionCache creates a session cache using the provided constructor and adds it to the context.
 func WithSessionCache(ctx context.Context, constructor sessions.SessionStoreConstructor) (context.Context, error) {

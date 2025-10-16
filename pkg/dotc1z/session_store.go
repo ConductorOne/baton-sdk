@@ -98,6 +98,10 @@ func (c *C1File) Get(ctx context.Context, key string, opt ...sessions.SessionSto
 		found = true
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("error getting data from session: %w", err)
+	}
+
 	return ret, found, nil
 }
 
@@ -253,6 +257,10 @@ func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.Ses
 		result[key] = value
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error getting data from session: %w", err)
+	}
+
 	return result, nil
 }
 
@@ -289,9 +297,13 @@ func (c *C1File) GetAll(ctx context.Context, opt ...sessions.SessionStoreOption)
 		result[key] = value
 	}
 
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error getting data from session: %w", err)
+	}
+
 	return result, nil
 }
 
 func (c *C1File) CloseStore(ctx context.Context) error {
-	return nil
+	return c.Clear(ctx)
 }
