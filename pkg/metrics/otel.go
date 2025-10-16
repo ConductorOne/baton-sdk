@@ -22,6 +22,11 @@ type otelHandler struct {
 	provider     otelmetric.MeterProvider
 	defaultAttrs *[]attribute.KeyValue
 
+	// protects access to defaultAttrs and registeredGauges
+	defaultAttrsMtx     sync.RWMutex
+	registeredGaugesMtx sync.Mutex
+	registeredGauges    map[string]struct{}
+
 	int64CountersMtx sync.Mutex
 	int64Counters    map[string]*otelInt64Counter
 	int64HistosMtx   sync.Mutex
@@ -154,10 +159,49 @@ func (h *otelHandler) Int64Gauge(name string, description string, unit Unit) Int
 	return c
 }
 
+func (h *otelHandler) RegisterInt64ObservableGauge(name string, description string, unit Unit, callback func(ctx context.Context) (int64, map[string]string)) {
+	name = strings.ToLower(name)
+
+	// prevent duplicate registrations for the same gauge name
+	h.registeredGaugesMtx.Lock()
+	if h.registeredGauges == nil {
+		h.registeredGauges = make(map[string]struct{})
+	}
+	if _, exists := h.registeredGauges[name]; exists {
+		h.registeredGaugesMtx.Unlock()
+		return
+	}
+	h.registeredGauges[name] = struct{}{}
+	h.registeredGaugesMtx.Unlock()
+
+	gauge, err := h.meter.Int64ObservableGauge(name, otelmetric.WithDescription(description), otelmetric.WithUnit(string(unit)))
+	if err != nil {
+		panic(err)
+	}
+	// capture default attrs pointer for this handler under read lock
+	_, err = h.meter.RegisterCallback(func(ctx context.Context, observer otelmetric.Observer) error {
+		val, tags := callback(ctx)
+		attrs := makeAttrs(tags)
+		h.defaultAttrsMtx.RLock()
+		defaultAttrs := h.defaultAttrs
+		h.defaultAttrsMtx.RUnlock()
+		if defaultAttrs != nil {
+			attrs = append(attrs, *defaultAttrs...)
+		}
+		observer.ObserveInt64(gauge, val, otelmetric.WithAttributes(attrs...))
+		return nil
+	}, gauge)
+	if err != nil {
+		panic(err)
+	}
+}
+
 func (h *otelHandler) WithTags(tags map[string]string) Handler {
 	attrs := makeAttrs(tags)
 
+	h.defaultAttrsMtx.Lock()
 	h.defaultAttrs = &attrs
+	h.defaultAttrsMtx.Unlock()
 
 	return h
 }
@@ -173,11 +217,12 @@ func makeAttrs(tags map[string]string) []attribute.KeyValue {
 
 func NewOtelHandler(_ context.Context, provider otelmetric.MeterProvider, name string) Handler {
 	return &otelHandler{
-		name:          name,
-		meter:         provider.Meter(name),
-		provider:      provider,
-		int64Counters: make(map[string]*otelInt64Counter),
-		int64Histos:   make(map[string]*otelInt64Histogram),
-		int64Gauges:   make(map[string]*otelInt64Gauge),
+		name:             name,
+		meter:            provider.Meter(name),
+		provider:         provider,
+		int64Counters:    make(map[string]*otelInt64Counter),
+		int64Histos:      make(map[string]*otelInt64Histogram),
+		int64Gauges:      make(map[string]*otelInt64Gauge),
+		registeredGauges: make(map[string]struct{}),
 	}
 }
