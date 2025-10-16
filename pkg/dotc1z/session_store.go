@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS %s (
     id integer primary key,
 	sync_id text NOT NULL,
 	key TEXT NOT NULL,
-	value BYTEA NOT NULL
+	value BLOB NOT NULL
 );
 create unique index if not exists %s on %s (sync_id, key);`
 

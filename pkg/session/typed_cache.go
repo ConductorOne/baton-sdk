@@ -143,19 +143,6 @@ func (i *IntCodec) Decode(data []byte) (int, error) {
 	return value, err
 }
 
-type BoolCodec struct{}
-
-func (b *BoolCodec) Encode(value bool) ([]byte, error) {
-	if value {
-		return []byte("true"), nil
-	}
-	return []byte("false"), nil
-}
-
-func (b *BoolCodec) Decode(data []byte) (bool, error) {
-	return string(data) == "true", nil
-}
-
 func NewJSONSessionCache[T any](cache sessions.SessionStore) *TypedSessionCache[T] {
 	return NewTypedSessionCache(cache, &JSONCodec[T]{})
 }
@@ -166,8 +153,4 @@ func NewStringSessionCache(cache sessions.SessionStore) *TypedSessionCache[strin
 
 func NewIntSessionCache(cache sessions.SessionStore) *TypedSessionCache[int] {
 	return NewTypedSessionCache(cache, &IntCodec{})
-}
-
-func NewBoolSessionCache(cache sessions.SessionStore) *TypedSessionCache[bool] {
-	return NewTypedSessionCache(cache, &BoolCodec{})
 }
