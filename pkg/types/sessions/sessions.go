@@ -14,7 +14,6 @@ type SessionStore interface {
 	Delete(ctx context.Context, key string, opt ...SessionStoreOption) error
 	Clear(ctx context.Context, opt ...SessionStoreOption) error
 	GetAll(ctx context.Context, opt ...SessionStoreOption) (map[string][]byte, error)
-	CloseStore(ctx context.Context) error
 }
 
 type SessionStoreOption func(ctx context.Context, bag *SessionStoreBag) error

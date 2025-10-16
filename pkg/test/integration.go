@@ -10,8 +10,8 @@ import (
 )
 
 type builder interface {
-	connectorbuilder.ResourceProvisioner
-	connectorbuilder.ResourceSyncer
+	connectorbuilder.ResourceProvisionerLimited
+	connectorbuilder.ResourceSyncerLimited
 }
 
 func assertGrants(ctx context.Context,

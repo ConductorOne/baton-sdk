@@ -10,12 +10,60 @@ import (
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/cli"
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
+	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
 )
 
+func RunConnector[T field.Configurable](
+	ctx context.Context,
+	connectorName string,
+	version string,
+	schema field.Configuration,
+	cf cli.NewConnector[T],
+	options ...connectorrunner.Option,
+) {
+	f := func(ctx context.Context, cfg T, runTimeOpts cli.RunTimeOpts) (types.ConnectorServer, error) {
+		l := ctxzap.Extract(ctx)
+		connector, builderOpts, err := cf(ctx, cfg, &cli.ConnectorOpts{})
+		if err != nil {
+			return nil, err
+		}
+
+		builderOpts = append(builderOpts, connectorbuilder.WithSessionStore(runTimeOpts.SessionStore))
+
+		c, err := connectorbuilder.NewConnector(ctx, connector, builderOpts...)
+		if err != nil {
+			l.Error("error creating connector", zap.Error(err))
+			return nil, err
+		}
+		return c, nil
+	}
+
+	_, cmd, err := DefineConfigurationV2(ctx, connectorName, f, schema, options...)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+		return
+	}
+
+	cmd.Version = version
+
+	err = cmd.Execute()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+}
+
+// GetConnectorFunc is a function type that creates a connector instance.
+// It takes a context and configuration. The session cache constructor is retrieved from the context.
+// deprecated - prefer RunConnector.
 func DefineConfiguration[T field.Configurable](
 	ctx context.Context,
 	connectorName string,
@@ -23,10 +71,27 @@ func DefineConfiguration[T field.Configurable](
 	schema field.Configuration,
 	options ...connectorrunner.Option,
 ) (*viper.Viper, *cobra.Command, error) {
+	f := func(ctx context.Context, cfg T, runTimeOpts cli.RunTimeOpts) (types.ConnectorServer, error) {
+		connector, err := connector(ctx, cfg)
+		if err != nil {
+			return nil, err
+		}
+		return connector, nil
+	}
+	return DefineConfigurationV2(ctx, connectorName, f, schema, options...)
+}
+
+// deprecated - prefer RunConnector.
+func DefineConfigurationV2[T field.Configurable](
+	ctx context.Context,
+	connectorName string,
+	connector cli.GetConnectorFunc2[T],
+	schema field.Configuration,
+	options ...connectorrunner.Option,
+) (*viper.Viper, *cobra.Command, error) {
 	if err := verifyStructFields[T](schema); err != nil {
 		return nil, nil, fmt.Errorf("VerifyStructFields failed: %w", err)
 	}
-
 	v := viper.New()
 	v.SetConfigType("yaml")
 

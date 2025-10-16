@@ -25,12 +25,13 @@ const (
 )
 
 type ServerConfig struct {
-	state                        protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Credential        *v1.Credential         `protobuf:"bytes,1,opt,name=credential,proto3"`
-	xxx_hidden_RateLimiterConfig *v11.RateLimiterConfig `protobuf:"bytes,2,opt,name=rate_limiter_config,json=rateLimiterConfig,proto3"`
-	xxx_hidden_ListenPort        uint32                 `protobuf:"varint,3,opt,name=listen_port,json=listenPort,proto3"`
-	unknownFields                protoimpl.UnknownFields
-	sizeCache                    protoimpl.SizeCache
+	state                             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Credential             *v1.Credential         `protobuf:"bytes,1,opt,name=credential,proto3"`
+	xxx_hidden_RateLimiterConfig      *v11.RateLimiterConfig `protobuf:"bytes,2,opt,name=rate_limiter_config,json=rateLimiterConfig,proto3"`
+	xxx_hidden_ListenPort             uint32                 `protobuf:"varint,3,opt,name=listen_port,json=listenPort,proto3"`
+	xxx_hidden_SessionStoreListenPort uint32                 `protobuf:"varint,4,opt,name=session_store_listen_port,json=sessionStoreListenPort,proto3"`
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
 }
 
 func (x *ServerConfig) Reset() {
@@ -79,6 +80,13 @@ func (x *ServerConfig) GetListenPort() uint32 {
 	return 0
 }
 
+func (x *ServerConfig) GetSessionStoreListenPort() uint32 {
+	if x != nil {
+		return x.xxx_hidden_SessionStoreListenPort
+	}
+	return 0
+}
+
 func (x *ServerConfig) SetCredential(v *v1.Credential) {
 	x.xxx_hidden_Credential = v
 }
@@ -89,6 +97,10 @@ func (x *ServerConfig) SetRateLimiterConfig(v *v11.RateLimiterConfig) {
 
 func (x *ServerConfig) SetListenPort(v uint32) {
 	x.xxx_hidden_ListenPort = v
+}
+
+func (x *ServerConfig) SetSessionStoreListenPort(v uint32) {
+	x.xxx_hidden_SessionStoreListenPort = v
 }
 
 func (x *ServerConfig) HasCredential() bool {
@@ -116,9 +128,10 @@ func (x *ServerConfig) ClearRateLimiterConfig() {
 type ServerConfig_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Credential        *v1.Credential
-	RateLimiterConfig *v11.RateLimiterConfig
-	ListenPort        uint32
+	Credential             *v1.Credential
+	RateLimiterConfig      *v11.RateLimiterConfig
+	ListenPort             uint32
+	SessionStoreListenPort uint32
 }
 
 func (b0 ServerConfig_builder) Build() *ServerConfig {
@@ -128,6 +141,7 @@ func (b0 ServerConfig_builder) Build() *ServerConfig {
 	x.xxx_hidden_Credential = b.Credential
 	x.xxx_hidden_RateLimiterConfig = b.RateLimiterConfig
 	x.xxx_hidden_ListenPort = b.ListenPort
+	x.xxx_hidden_SessionStoreListenPort = b.SessionStoreListenPort
 	return m0
 }
 
@@ -135,14 +149,15 @@ var File_c1_connector_wrapper_v1_connector_wrapper_proto protoreflect.FileDescri
 
 const file_c1_connector_wrapper_v1_connector_wrapper_proto_rawDesc = "" +
 	"\n" +
-	"/c1/connector_wrapper/v1/connector_wrapper.proto\x12\x17c1.connector_wrapper.v1\x1a\x1fc1/ratelimit/v1/ratelimit.proto\x1a\x14c1/utls/v1/tls.proto\"\xbb\x01\n" +
+	"/c1/connector_wrapper/v1/connector_wrapper.proto\x12\x17c1.connector_wrapper.v1\x1a\x1fc1/ratelimit/v1/ratelimit.proto\x1a\x14c1/utls/v1/tls.proto\"\xf6\x01\n" +
 	"\fServerConfig\x126\n" +
 	"\n" +
 	"credential\x18\x01 \x01(\v2\x16.c1.utls.v1.CredentialR\n" +
 	"credential\x12R\n" +
 	"\x13rate_limiter_config\x18\x02 \x01(\v2\".c1.ratelimit.v1.RateLimiterConfigR\x11rateLimiterConfig\x12\x1f\n" +
 	"\vlisten_port\x18\x03 \x01(\rR\n" +
-	"listenPortB>Z<github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1b\x06proto3"
+	"listenPort\x129\n" +
+	"\x19session_store_listen_port\x18\x04 \x01(\rR\x16sessionStoreListenPortB>Z<github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1b\x06proto3"
 
 var file_c1_connector_wrapper_v1_connector_wrapper_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_c1_connector_wrapper_v1_connector_wrapper_proto_goTypes = []any{

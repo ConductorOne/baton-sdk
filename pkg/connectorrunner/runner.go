@@ -133,7 +133,7 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 	return nil
 }
 
-func (c *connectorRunner) backoff(ctx context.Context, errCount int) time.Duration {
+func (c *connectorRunner) backoff(_ context.Context, errCount int) time.Duration {
 	waitDuration := time.Duration(errCount*errCount) * time.Second
 	if waitDuration > time.Minute {
 		waitDuration = time.Minute
@@ -344,6 +344,14 @@ type runnerConfig struct {
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
 	skipEntitlementsAndGrants           bool
+	sessionStoreEnabled                 bool
+}
+
+func WithSessionStoreEnabled() Option {
+	return func(ctx context.Context, w *runnerConfig) error {
+		w.sessionStoreEnabled = true
+		return nil
+	}
 }
 
 // WithRateLimiterConfig sets the RateLimiterConfig for a runner.
@@ -682,6 +690,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 
 	if len(cfg.targetedSyncResourceIDs) > 0 {
 		wrapperOpts = append(wrapperOpts, connector.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs))
+	}
+
+	if cfg.sessionStoreEnabled {
+		wrapperOpts = append(wrapperOpts, connector.WithSessionStoreEnabled())
 	}
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)

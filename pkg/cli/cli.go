@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
@@ -13,9 +14,14 @@ import (
 	"github.com/spf13/viper"
 )
 
+type RunTimeOpts struct {
+	SessionStore sessions.SessionStore
+}
+
 // GetConnectorFunc is a function type that creates a connector instance.
 // It takes a context and configuration. The session cache constructor is retrieved from the context.
 type GetConnectorFunc[T field.Configurable] func(ctx context.Context, cfg T) (types.ConnectorServer, error)
+type GetConnectorFunc2[T field.Configurable] func(ctx context.Context, cfg T, runTimeOpts RunTimeOpts) (types.ConnectorServer, error)
 
 // WithSessionCache creates a session cache using the provided constructor and adds it to the context.
 func WithSessionCache(ctx context.Context, constructor sessions.SessionStoreConstructor) (context.Context, error) {
@@ -25,6 +31,9 @@ func WithSessionCache(ctx context.Context, constructor sessions.SessionStoreCons
 	}
 	return context.WithValue(ctx, sessions.SessionStoreKey{}, sessionCache), nil
 }
+
+type ConnectorOpts struct{}
+type NewConnector[T field.Configurable] func(ctx context.Context, cfg T, opts *ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error)
 
 func MakeGenericConfiguration[T field.Configurable](v *viper.Viper, opts ...field.DecodeHookOption) (T, error) {
 	// Create an instance of the struct type T using reflection

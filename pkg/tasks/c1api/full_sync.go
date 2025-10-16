@@ -13,6 +13,7 @@ import (
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
@@ -75,8 +76,13 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	if len(c.targetedSyncResourceIDs) > 0 {
 		syncOpts = append(syncOpts, sdkSync.WithTargetedSyncResourceIDs(c.targetedSyncResourceIDs))
 	}
+	cc := c.helpers.ConnectorClient()
 
-	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), syncOpts...)
+	if setSessionStore, ok := cc.(session.SetSessionStore); ok {
+		syncOpts = append(syncOpts, sdkSync.WithSessionStore(setSessionStore))
+	}
+
+	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)
 	if err != nil {
 		l.Error("failed to create syncer", zap.Error(err))
 		return err
