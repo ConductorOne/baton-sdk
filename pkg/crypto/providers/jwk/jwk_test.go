@@ -33,12 +33,12 @@ func TestEncryptDecrypt(t *testing.T) {
 	require.NotNil(t, config)
 	require.NotNil(t, privKey)
 
-	plainText := &v2.PlaintextData{
+	plainText := v2.PlaintextData_builder{
 		Name:        "test",
 		Description: "test description",
 		Schema:      "test schema",
 		Bytes:       []byte("test data"),
-	}
+	}.Build()
 
 	encryptedData, err := provider.Encrypt(ctx, config, plainText)
 	require.NoError(t, err)
@@ -47,7 +47,7 @@ func TestEncryptDecrypt(t *testing.T) {
 	decryptedData, err := provider.Decrypt(ctx, encryptedData, privKey)
 	require.NoError(t, err)
 	require.NotNil(t, decryptedData)
-	require.Equal(t, plainText.Bytes, decryptedData.Bytes)
+	require.Equal(t, plainText.GetBytes(), decryptedData.GetBytes())
 }
 
 func TestInvalidKeyType(t *testing.T) {
@@ -62,20 +62,18 @@ func TestInvalidKeyType(t *testing.T) {
 	privKeyBytes, err := privKey.MarshalJSON()
 	require.NoError(t, err)
 
-	plainText := &v2.PlaintextData{
+	plainText := v2.PlaintextData_builder{
 		Name:        "test",
 		Description: "test description",
 		Schema:      "test schema",
 		Bytes:       []byte("test data"),
-	}
+	}.Build()
 
-	_, err = provider.Encrypt(ctx, &v2.EncryptionConfig{
-		Config: &v2.EncryptionConfig_JwkPublicKeyConfig{
-			JwkPublicKeyConfig: &v2.EncryptionConfig_JWKPublicKeyConfig{
-				PubKey: privKeyBytes,
-			},
-		},
-	}, plainText)
+	_, err = provider.Encrypt(ctx, v2.EncryptionConfig_builder{
+		JwkPublicKeyConfig: v2.EncryptionConfig_JWKPublicKeyConfig_builder{
+			PubKey: privKeyBytes,
+		}.Build(),
+	}.Build(), plainText)
 	require.Error(t, err)
 	require.Equal(t, ErrJWKUnsupportedKeyType, err)
 }
@@ -93,12 +91,12 @@ func TestEncryptDecryptECDSAKey(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, privKeyBytes)
 
-	plainText := &v2.PlaintextData{
+	plainText := v2.PlaintextData_builder{
 		Name:        "test",
 		Description: "test description",
 		Schema:      "test schema",
 		Bytes:       []byte("test data"),
-	}
+	}.Build()
 	encryptedData, err := provider.Encrypt(ctx, pubConfig, plainText)
 	require.NoError(t, err)
 	require.NotNil(t, encryptedData)
@@ -106,7 +104,7 @@ func TestEncryptDecryptECDSAKey(t *testing.T) {
 	decryptedData, err := provider.Decrypt(ctx, encryptedData, privKeyBytes)
 	require.NoError(t, err)
 	require.NotNil(t, decryptedData)
-	require.Equal(t, plainText.Bytes, decryptedData.Bytes)
+	require.Equal(t, plainText.GetBytes(), decryptedData.GetBytes())
 }
 
 func TestEncryptDecryptRSA1024Key(t *testing.T) {
@@ -122,12 +120,12 @@ func TestEncryptDecryptRSA1024Key(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, privKeyBytes)
 
-	plainText := &v2.PlaintextData{
+	plainText := v2.PlaintextData_builder{
 		Name:        "test",
 		Description: "test description",
 		Schema:      "test schema",
 		Bytes:       []byte("test data"),
-	}
+	}.Build()
 
 	encryptedData, err := provider.Encrypt(ctx, pubConfig, plainText)
 	require.NoError(t, err)
@@ -136,5 +134,5 @@ func TestEncryptDecryptRSA1024Key(t *testing.T) {
 	decryptedData, err := provider.Decrypt(ctx, encryptedData, privKeyBytes)
 	require.NoError(t, err)
 	require.NotNil(t, decryptedData)
-	require.Equal(t, plainText.Bytes, decryptedData.Bytes)
+	require.Equal(t, plainText.GetBytes(), decryptedData.GetBytes())
 }

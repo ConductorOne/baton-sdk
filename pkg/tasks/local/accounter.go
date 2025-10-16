@@ -34,9 +34,9 @@ func (m *localAccountManager) ShouldDebug() bool {
 func (m *localAccountManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
-		task = &v1.Task{
-			TaskType: &v1.Task_CreateAccount{},
-		}
+		task = v1.Task_builder{
+			CreateAccount: &v1.Task_CreateAccountTask{},
+		}.Build()
 	})
 	return task, 0, nil
 }

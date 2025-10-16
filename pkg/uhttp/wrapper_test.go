@@ -360,9 +360,9 @@ func TestWrapper_WithRateLimitData(t *testing.T) {
 	err := option(resp)
 
 	require.Nil(t, err)
-	require.Equal(t, int64(100), rldata.Limit)
-	require.Equal(t, int64(50), rldata.Remaining)
-	require.Equal(t, n.Add(time.Second*60).Unix(), rldata.ResetAt.AsTime().Unix())
+	require.Equal(t, int64(100), rldata.GetLimit())
+	require.Equal(t, int64(50), rldata.GetRemaining())
+	require.Equal(t, n.Add(time.Second*60).Unix(), rldata.GetResetAt().AsTime().Unix())
 }
 
 func TestWrapper_NewRequest(t *testing.T) {

@@ -23,10 +23,10 @@ func newTestConnector(resourceSyncers []ResourceSyncer) ConnectorBuilder {
 }
 
 func (t *testConnector) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
-	return &v2.ConnectorMetadata{
+	return v2.ConnectorMetadata_builder{
 		DisplayName: "test-connector",
 		Description: "A test connector",
-	}, nil
+	}.Build(), nil
 }
 
 func (t *testConnector) Validate(ctx context.Context) (annotations.Annotations, error) {
@@ -43,10 +43,10 @@ type testResourceSyncer struct {
 
 func newTestResourceSyncer(resourceType string) ResourceSyncer {
 	return &testResourceSyncer{
-		resourceType: &v2.ResourceType{
+		resourceType: v2.ResourceType_builder{
 			Id:          resourceType,
 			DisplayName: "Test " + resourceType,
-		},
+		}.Build(),
 	}
 }
 
@@ -56,43 +56,43 @@ func (t *testResourceSyncer) ResourceType(ctx context.Context) *v2.ResourceType 
 
 func (t *testResourceSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	return []*v2.Resource{
-		{
-			Id: &v2.ResourceId{
-				ResourceType: t.resourceType.Id,
+		v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: t.resourceType.GetId(),
 				Resource:     "test-resource-1",
-			},
+			}.Build(),
 			DisplayName: "Test Resource 1",
-		},
+		}.Build(),
 	}, "", annotations.Annotations{}, nil
 }
 
 func (t *testResourceSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	return []*v2.Entitlement{
-		{
+		v2.Entitlement_builder{
 			Resource:    resource,
 			Id:          "test-entitlement",
 			DisplayName: "Test Entitlement",
-		},
+		}.Build(),
 	}, "", annotations.Annotations{}, nil
 }
 
 func (t *testResourceSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	return []*v2.Grant{
-		{
-			Entitlement: &v2.Entitlement{
+		v2.Grant_builder{
+			Entitlement: v2.Entitlement_builder{
 				Resource:    resource,
 				Id:          "test-entitlement",
 				DisplayName: "Test Entitlement",
-			},
-			Principal: &v2.Resource{
-				Id: &v2.ResourceId{
+			}.Build(),
+			Principal: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					ResourceType: "user",
 					Resource:     "test-user",
-				},
+				}.Build(),
 				DisplayName: "Test User",
-			},
+			}.Build(),
 			Id: "test-grant-1",
-		},
+		}.Build(),
 	}, "", annotations.Annotations{}, nil
 }
 
@@ -102,10 +102,10 @@ type testResourceSyncerV2WithTargetedSync struct {
 
 func newTestResourceSyncerV2WithTargetedSync(resourceType string) ResourceSyncerV2 {
 	return &testResourceSyncerV2WithTargetedSync{
-		resourceType: &v2.ResourceType{
+		resourceType: v2.ResourceType_builder{
 			Id:          resourceType,
 			DisplayName: "Test " + resourceType,
-		},
+		}.Build(),
 	}
 }
 
@@ -120,13 +120,13 @@ func (t *testResourceSyncerV2WithTargetedSync) List(
 	opts resource.Options,
 ) ([]*v2.Resource, string, annotations.Annotations, error) {
 	return []*v2.Resource{
-		{
-			Id: &v2.ResourceId{
-				ResourceType: t.resourceType.Id,
+		v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: t.resourceType.GetId(),
 				Resource:     "test-resource-1",
-			},
+			}.Build(),
 			DisplayName: "Test Resource 1",
-		},
+		}.Build(),
 	}, "", annotations.Annotations{}, nil
 }
 
@@ -137,11 +137,11 @@ func (t *testResourceSyncerV2WithTargetedSync) Entitlements(
 	opts resource.Options,
 ) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	return []*v2.Entitlement{
-		{
+		v2.Entitlement_builder{
 			Resource:    resource,
 			Id:          "test-entitlement",
 			DisplayName: "Test Entitlement",
-		},
+		}.Build(),
 	}, "", annotations.Annotations{}, nil
 }
 
@@ -152,21 +152,21 @@ func (t *testResourceSyncerV2WithTargetedSync) Grants(
 	opts resource.Options,
 ) ([]*v2.Grant, string, annotations.Annotations, error) {
 	return []*v2.Grant{
-		{
-			Entitlement: &v2.Entitlement{
+		v2.Grant_builder{
+			Entitlement: v2.Entitlement_builder{
 				Resource:    resource,
 				Id:          "test-entitlement",
 				DisplayName: "Test Entitlement",
-			},
-			Principal: &v2.Resource{
-				Id: &v2.ResourceId{
+			}.Build(),
+			Principal: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					ResourceType: "user",
 					Resource:     "test-user",
-				},
+				}.Build(),
 				DisplayName: "Test User",
-			},
+			}.Build(),
 			Id: "test-grant-1",
-		},
+		}.Build(),
 	}, "", annotations.Annotations{}, nil
 }
 
@@ -175,10 +175,10 @@ func (t *testResourceSyncerV2WithTargetedSync) Get(
 	resourceId *v2.ResourceId,
 	parentResourceId *v2.ResourceId,
 ) (*v2.Resource, annotations.Annotations, error) {
-	return &v2.Resource{
+	return v2.Resource_builder{
 		Id:          resourceId,
-		DisplayName: "V2 Targeted Resource " + resourceId.Resource,
-	}, annotations.Annotations{}, nil
+		DisplayName: "V2 Targeted Resource " + resourceId.GetResource(),
+	}.Build(), annotations.Annotations{}, nil
 }
 
 type testResourceManager struct {
@@ -190,13 +190,13 @@ func newTestResourceManager(resourceType string) ResourceManager {
 }
 
 func (t *testResourceManager) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
-	return &v2.Resource{
-		Id: &v2.ResourceId{
-			ResourceType: t.ResourceType(ctx).Id,
-			Resource:     "created-" + resource.DisplayName,
-		},
-		DisplayName: resource.DisplayName,
-	}, annotations.Annotations{}, nil
+	return v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: t.ResourceType(ctx).GetId(),
+			Resource:     "created-" + resource.GetDisplayName(),
+		}.Build(),
+		DisplayName: resource.GetDisplayName(),
+	}.Build(), annotations.Annotations{}, nil
 }
 
 func (t *testResourceManager) Delete(ctx context.Context, resourceId *v2.ResourceId) (annotations.Annotations, error) {
@@ -212,13 +212,13 @@ func newTestResourceManagerV2(resourceType string) ResourceManagerV2 {
 }
 
 func (t *testResourceManagerV2) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
-	return &v2.Resource{
-		Id: &v2.ResourceId{
-			ResourceType: t.ResourceType(ctx).Id,
-			Resource:     "created-v2-" + resource.DisplayName,
-		},
-		DisplayName: resource.DisplayName,
-	}, annotations.Annotations{}, nil
+	return v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: t.ResourceType(ctx).GetId(),
+			Resource:     "created-v2-" + resource.GetDisplayName(),
+		}.Build(),
+		DisplayName: resource.GetDisplayName(),
+	}.Build(), annotations.Annotations{}, nil
 }
 
 func (t *testResourceManagerV2) Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error) {
@@ -282,25 +282,25 @@ func newTestResourceTargetedSyncer(resourceType string) ResourceTargetedSyncer {
 }
 
 func (t *testResourceTargetedSyncer) Get(ctx context.Context, resourceId *v2.ResourceId, parentResourceId *v2.ResourceId) (*v2.Resource, annotations.Annotations, error) {
-	return &v2.Resource{
+	return v2.Resource_builder{
 		Id:          resourceId,
-		DisplayName: "Targeted Resource " + resourceId.Resource,
-	}, annotations.Annotations{}, nil
+		DisplayName: "Targeted Resource " + resourceId.GetResource(),
+	}.Build(), annotations.Annotations{}, nil
 }
 
 func (t *testResourceProvisionerV2) Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error) {
 	return []*v2.Grant{
-		{
+		v2.Grant_builder{
 			Entitlement: entitlement,
-			Principal: &v2.Resource{
-				Id: &v2.ResourceId{
+			Principal: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					ResourceType: "user",
 					Resource:     "test-user",
-				},
+				}.Build(),
 				DisplayName: "Test User",
-			},
+			}.Build(),
 			Id: "granted-grant-1",
-		},
+		}.Build(),
 	}, annotations.Annotations{}, nil
 }
 
@@ -321,16 +321,16 @@ func (t *testAccountManager) CreateAccount(
 	accountInfo *v2.AccountInfo,
 	credentialOptions *v2.LocalCredentialOptions,
 ) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error) {
-	r := &v2.CreateAccountResponse_SuccessResult{
+	r := v2.CreateAccountResponse_SuccessResult_builder{
 		IsCreateAccountResult: true,
-		Resource: &v2.Resource{
-			Id: &v2.ResourceId{
-				ResourceType: t.ResourceType(ctx).Id,
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: t.ResourceType(ctx).GetId(),
 				Resource:     "created-account",
-			},
+			}.Build(),
 			DisplayName: "Test User",
-		},
-	}
+		}.Build(),
+	}.Build()
 	return r, []*v2.PlaintextData{}, annotations.Annotations{}, nil
 }
 
@@ -350,11 +350,11 @@ func newTestCredentialManager(resourceType string) CredentialManager {
 
 func (t *testCredentialManager) Rotate(ctx context.Context, resourceId *v2.ResourceId, credentialOptions *v2.LocalCredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error) {
 	return []*v2.PlaintextData{
-		{
+		v2.PlaintextData_builder{
 			Name:        "password",
 			Description: "User password",
 			Bytes:       []byte("new-password"),
-		},
+		}.Build(),
 	}, annotations.Annotations{}, nil
 }
 
@@ -376,10 +376,10 @@ func (t *testEventProvider) ListEvents(
 	pToken *pagination.StreamToken,
 ) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error) {
 	return []*v2.Event{
-		{
+		v2.Event_builder{
 			Id:         "test-event-1",
 			OccurredAt: timestamppb.New(time.Now()),
-		},
+		}.Build(),
 	}, &pagination.StreamState{}, annotations.Annotations{}, nil
 }
 
@@ -400,17 +400,17 @@ func (t *testEventProviderV2) EventFeeds(ctx context.Context) []EventFeed {
 type testEventFeed struct{}
 
 func (t *testEventFeed) EventFeedMetadata(ctx context.Context) *v2.EventFeedMetadata {
-	return &v2.EventFeedMetadata{
+	return v2.EventFeedMetadata_builder{
 		Id: "test-feed",
-	}
+	}.Build()
 }
 
 func (t *testEventFeed) ListEvents(ctx context.Context, earliestEvent *timestamppb.Timestamp, pToken *pagination.StreamToken) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error) {
 	return []*v2.Event{
-		{
+		v2.Event_builder{
 			Id:         "test-event-v2-1",
 			OccurredAt: timestamppb.New(time.Now()),
-		},
+		}.Build(),
 	}, &pagination.StreamState{}, annotations.Annotations{}, nil
 }
 
@@ -423,59 +423,59 @@ func newTestTicketManager() TicketManager {
 }
 
 func (t *testTicketManager) GetTicket(ctx context.Context, ticketId string) (*v2.Ticket, annotations.Annotations, error) {
-	return &v2.Ticket{
+	return v2.Ticket_builder{
 		Id:          ticketId,
 		DisplayName: "Test Ticket",
-	}, annotations.Annotations{}, nil
+	}.Build(), annotations.Annotations{}, nil
 }
 
 func (t *testTicketManager) CreateTicket(ctx context.Context, ticket *v2.Ticket, schema *v2.TicketSchema) (*v2.Ticket, annotations.Annotations, error) {
-	return &v2.Ticket{
-		Id:          "created-" + ticket.DisplayName,
-		DisplayName: ticket.DisplayName,
-	}, annotations.Annotations{}, nil
+	return v2.Ticket_builder{
+		Id:          "created-" + ticket.GetDisplayName(),
+		DisplayName: ticket.GetDisplayName(),
+	}.Build(), annotations.Annotations{}, nil
 }
 
 func (t *testTicketManager) GetTicketSchema(ctx context.Context, schemaID string) (*v2.TicketSchema, annotations.Annotations, error) {
-	return &v2.TicketSchema{
+	return v2.TicketSchema_builder{
 		Id:          schemaID,
 		DisplayName: "Test Schema",
-	}, annotations.Annotations{}, nil
+	}.Build(), annotations.Annotations{}, nil
 }
 
 func (t *testTicketManager) ListTicketSchemas(ctx context.Context, pToken *pagination.Token) ([]*v2.TicketSchema, string, annotations.Annotations, error) {
 	return []*v2.TicketSchema{
-		{
+		v2.TicketSchema_builder{
 			Id:          "schema-1",
 			DisplayName: "Test Schema 1",
-		},
+		}.Build(),
 	}, "", annotations.Annotations{}, nil
 }
 
 func (t *testTicketManager) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketsRequest) (*v2.TicketsServiceBulkCreateTicketsResponse, error) {
-	return &v2.TicketsServiceBulkCreateTicketsResponse{
+	return v2.TicketsServiceBulkCreateTicketsResponse_builder{
 		Tickets: []*v2.TicketsServiceCreateTicketResponse{
-			{
-				Ticket: &v2.Ticket{
+			v2.TicketsServiceCreateTicketResponse_builder{
+				Ticket: v2.Ticket_builder{
 					Id:          "bulk-ticket-1",
 					DisplayName: "Bulk Ticket 1",
-				},
-			},
+				}.Build(),
+			}.Build(),
 		},
-	}, nil
+	}.Build(), nil
 }
 
 func (t *testTicketManager) BulkGetTickets(ctx context.Context, request *v2.TicketsServiceBulkGetTicketsRequest) (*v2.TicketsServiceBulkGetTicketsResponse, error) {
-	return &v2.TicketsServiceBulkGetTicketsResponse{
+	return v2.TicketsServiceBulkGetTicketsResponse_builder{
 		Tickets: []*v2.TicketsServiceGetTicketResponse{
-			{
-				Ticket: &v2.Ticket{
+			v2.TicketsServiceGetTicketResponse_builder{
+				Ticket: v2.Ticket_builder{
 					Id:          "bulk-ticket-1",
 					DisplayName: "Bulk Ticket 1",
-				},
-			},
+				}.Build(),
+			}.Build(),
 		},
-	}, nil
+	}.Build(), nil
 }
 
 type testCustomActionManager struct{}
@@ -486,18 +486,18 @@ func newTestCustomActionManager() CustomActionManager {
 
 func (t *testCustomActionManager) ListActionSchemas(ctx context.Context) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
 	return []*v2.BatonActionSchema{
-		{
+		v2.BatonActionSchema_builder{
 			Name:        "test-action",
 			DisplayName: "Test Action",
-		},
+		}.Build(),
 	}, annotations.Annotations{}, nil
 }
 
 func (t *testCustomActionManager) GetActionSchema(ctx context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error) {
-	return &v2.BatonActionSchema{
+	return v2.BatonActionSchema_builder{
 		Name:        name,
 		DisplayName: "Test Action Schema",
-	}, annotations.Annotations{}, nil
+	}.Build(), annotations.Annotations{}, nil
 }
 
 func (t *testCustomActionManager) InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
@@ -530,7 +530,7 @@ func TestConnectorBuilder(t *testing.T) {
 	// Test Metadata
 	metadata, err := server.GetMetadata(ctx, &v2.ConnectorServiceGetMetadataRequest{})
 	require.NoError(t, err)
-	require.Equal(t, "test-connector", metadata.Metadata.DisplayName)
+	require.Equal(t, "test-connector", metadata.GetMetadata().GetDisplayName())
 
 	// Test Validate
 	validateResp, err := server.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
@@ -546,54 +546,54 @@ func TestResourceSyncer(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test List
-	listResp, err := connector.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+	listResp, err := connector.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: "test-resource",
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Len(t, listResp.List, 1)
-	require.Equal(t, "test-resource-1", listResp.List[0].Id.Resource)
+	require.Len(t, listResp.GetList(), 1)
+	require.Equal(t, "test-resource-1", listResp.GetList()[0].GetId().GetResource())
 
 	// Test Entitlements
-	entitlementsResp, err := connector.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
-		Resource: &v2.Resource{
-			Id: &v2.ResourceId{
+	entitlementsResp, err := connector.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "test-resource",
 				Resource:     "test-resource-1",
-			},
-		},
-	})
+			}.Build(),
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
-	require.Len(t, entitlementsResp.List, 1)
-	require.Equal(t, "test-entitlement", entitlementsResp.List[0].Id)
+	require.Len(t, entitlementsResp.GetList(), 1)
+	require.Equal(t, "test-entitlement", entitlementsResp.GetList()[0].GetId())
 
 	// Test Grants
-	grantsResp, err := connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
-		Resource: &v2.Resource{
-			Id: &v2.ResourceId{
+	grantsResp, err := connector.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "test-resource",
 				Resource:     "test-resource-1",
-			},
-		},
-	})
+			}.Build(),
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
-	require.Len(t, grantsResp.List, 1)
-	require.Equal(t, "test-user", grantsResp.List[0].Principal.Id.Resource)
+	require.Len(t, grantsResp.GetList(), 1)
+	require.Equal(t, "test-user", grantsResp.GetList()[0].GetPrincipal().GetId().GetResource())
 }
 
 func TestResourceTargetedSyncer(t *testing.T) {
 	ctx := context.Background()
 
 	// Test error case - ResourceSyncer without ResourceTargetedSyncer
-	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "test-resource"}}
+	rsSyncer := &testResourceSyncer{v2.ResourceType_builder{Id: "test-resource"}.Build()}
 	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
 	require.NoError(t, err)
 
-	_, err = connector.GetResource(ctx, &v2.ResourceGetterServiceGetResourceRequest{
-		ResourceId: &v2.ResourceId{
+	_, err = connector.GetResource(ctx, v2.ResourceGetterServiceGetResourceRequest_builder{
+		ResourceId: v2.ResourceId_builder{
 			ResourceType: "test-resource",
 			Resource:     "test-resource-1",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.ErrorContains(t, err, "get resource with unknown resource type")
 
 	// Test success case - ResourceTargetedSyncer implemented
@@ -601,16 +601,16 @@ func TestResourceTargetedSyncer(t *testing.T) {
 	connector, err = NewConnector(ctx, newTestConnector([]ResourceSyncer{targetedSyncer}))
 	require.NoError(t, err)
 
-	resp, err := connector.GetResource(ctx, &v2.ResourceGetterServiceGetResourceRequest{
-		ResourceId: &v2.ResourceId{
+	resp, err := connector.GetResource(ctx, v2.ResourceGetterServiceGetResourceRequest_builder{
+		ResourceId: v2.ResourceId_builder{
 			ResourceType: "test-resource",
 			Resource:     "test-resource-1",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
-	require.NotNil(t, resp.Resource)
-	require.Equal(t, "test-resource-1", resp.Resource.Id.Resource)
-	require.Equal(t, "Targeted Resource test-resource-1", resp.Resource.DisplayName)
+	require.NotNil(t, resp.GetResource())
+	require.Equal(t, "test-resource-1", resp.GetResource().GetId().GetResource())
+	require.Equal(t, "Targeted Resource test-resource-1", resp.GetResource().GetDisplayName())
 }
 
 func TestResourceSyncerV2WithTargetedSync(t *testing.T) {
@@ -626,12 +626,12 @@ func TestResourceSyncerV2WithTargetedSync(t *testing.T) {
 	connector, err := NewConnector(ctx, connector2)
 	require.NoError(t, err)
 
-	_, err = connector.GetResource(ctx, &v2.ResourceGetterServiceGetResourceRequest{
-		ResourceId: &v2.ResourceId{
+	_, err = connector.GetResource(ctx, v2.ResourceGetterServiceGetResourceRequest_builder{
+		ResourceId: v2.ResourceId_builder{
 			ResourceType: "test-resource",
 			Resource:     "test-resource-1",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 }
 
@@ -640,10 +640,10 @@ type testConnector2 struct {
 }
 
 func (t *testConnector2) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
-	return &v2.ConnectorMetadata{
+	return v2.ConnectorMetadata_builder{
 		DisplayName: "test-connector-v2",
 		Description: "A test connector v2",
-	}, nil
+	}.Build(), nil
 }
 
 func (t *testConnector2) Validate(ctx context.Context) (annotations.Annotations, error) {
@@ -658,20 +658,20 @@ func TestResourceManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Test error case - ResourceSyncer without ResourceManager
-	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "test-resource"}}
+	rsSyncer := &testResourceSyncer{v2.ResourceType_builder{Id: "test-resource"}.Build()}
 
 	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
 	require.NoError(t, err)
 
-	_, err = connector.CreateResource(ctx, &v2.CreateResourceRequest{
-		Resource: &v2.Resource{
+	_, err = connector.CreateResource(ctx, v2.CreateResourceRequest_builder{
+		Resource: v2.Resource_builder{
 			DisplayName: "New Resource",
-			Id: &v2.ResourceId{
+			Id: v2.ResourceId_builder{
 				ResourceType: "test-resource",
 				Resource:     "test-resource-1",
-			},
-		},
-	})
+			}.Build(),
+		}.Build(),
+	}.Build())
 	require.ErrorContains(t, err, "resource type test-resource does not have resource Create() configured")
 
 	// Test success case - ResourceManager implemented
@@ -680,38 +680,38 @@ func TestResourceManager(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Create
-	createResp, err := connector.CreateResource(ctx, &v2.CreateResourceRequest{
-		Resource: &v2.Resource{
+	createResp, err := connector.CreateResource(ctx, v2.CreateResourceRequest_builder{
+		Resource: v2.Resource_builder{
 			DisplayName: "New Resource",
-			Id: &v2.ResourceId{
+			Id: v2.ResourceId_builder{
 				ResourceType: "test-resource",
 				Resource:     "test-resource-1",
-			},
-		},
-	})
+			}.Build(),
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
-	require.NotNil(t, createResp.Created)
-	require.Equal(t, "created-New Resource", createResp.Created.Id.Resource)
+	require.NotNil(t, createResp.GetCreated())
+	require.Equal(t, "created-New Resource", createResp.GetCreated().GetId().GetResource())
 
 	// Test Delete
-	deleteResp, err := connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
-		ResourceId: &v2.ResourceId{
+	deleteResp, err := connector.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
+		ResourceId: v2.ResourceId_builder{
 			ResourceType: "test-resource",
 			Resource:     "test-resource-1",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, deleteResp)
 
-	_, err = connector.CreateResource(ctx, &v2.CreateResourceRequest{
-		Resource: &v2.Resource{
+	_, err = connector.CreateResource(ctx, v2.CreateResourceRequest_builder{
+		Resource: v2.Resource_builder{
 			DisplayName: "New Resource",
-			Id: &v2.ResourceId{
+			Id: v2.ResourceId_builder{
 				ResourceType: "test-resource-2",
 				Resource:     "test-resource-1",
-			},
-		},
-	})
+			}.Build(),
+		}.Build(),
+	}.Build())
 	require.ErrorContains(t, err, "resource type test-resource-2 does not have resource Create() configured")
 }
 
@@ -723,30 +723,30 @@ func TestResourceManagerV2(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Create
-	createResp, err := connector.CreateResource(ctx, &v2.CreateResourceRequest{
-		Resource: &v2.Resource{
+	createResp, err := connector.CreateResource(ctx, v2.CreateResourceRequest_builder{
+		Resource: v2.Resource_builder{
 			DisplayName: "New Resource V2",
-			Id: &v2.ResourceId{
+			Id: v2.ResourceId_builder{
 				ResourceType: "test-resource",
 				Resource:     "test-resource-1",
-			},
-		},
-	})
+			}.Build(),
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
-	require.NotNil(t, createResp.Created)
-	require.Equal(t, "created-v2-New Resource V2", createResp.Created.Id.Resource)
+	require.NotNil(t, createResp.GetCreated())
+	require.Equal(t, "created-v2-New Resource V2", createResp.GetCreated().GetId().GetResource())
 
 	// Test Delete V2
-	deleteResp, err := connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
-		ResourceId: &v2.ResourceId{
+	deleteResp, err := connector.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
+		ResourceId: v2.ResourceId_builder{
 			ResourceType: "test-resource",
 			Resource:     "test-resource-1",
-		},
-		ParentResourceId: &v2.ResourceId{
+		}.Build(),
+		ParentResourceId: v2.ResourceId_builder{
 			ResourceType: "parent-resource",
 			Resource:     "parent-1",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, deleteResp)
 }
@@ -759,12 +759,12 @@ func TestResourceDeleter(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Delete
-	deleteResp, err := connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
-		ResourceId: &v2.ResourceId{
+	deleteResp, err := connector.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
+		ResourceId: v2.ResourceId_builder{
 			ResourceType: "test-resource",
 			Resource:     "test-resource-1",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, deleteResp)
 }
@@ -777,16 +777,16 @@ func TestResourceDeleterV2(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Delete V2
-	deleteResp, err := connector.DeleteResourceV2(ctx, &v2.DeleteResourceV2Request{
-		ResourceId: &v2.ResourceId{
+	deleteResp, err := connector.DeleteResourceV2(ctx, v2.DeleteResourceV2Request_builder{
+		ResourceId: v2.ResourceId_builder{
 			ResourceType: "test-resource",
 			Resource:     "test-resource-1",
-		},
-		ParentResourceId: &v2.ResourceId{
+		}.Build(),
+		ParentResourceId: v2.ResourceId_builder{
 			ResourceType: "parent-resource",
 			Resource:     "parent-1",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, deleteResp)
 }
@@ -795,28 +795,28 @@ func TestResourceProvisioner(t *testing.T) {
 	ctx := context.Background()
 
 	// Test error case - ResourceSyncer without ResourceProvisioner
-	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "test-resource"}}
+	rsSyncer := &testResourceSyncer{v2.ResourceType_builder{Id: "test-resource"}.Build()}
 
 	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
 	require.NoError(t, err)
 
-	_, err = connector.Grant(ctx, &v2.GrantManagerServiceGrantRequest{
-		Principal: &v2.Resource{
-			Id: &v2.ResourceId{
+	_, err = connector.Grant(ctx, v2.GrantManagerServiceGrantRequest_builder{
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "user",
 				Resource:     "test-user",
-			},
-		},
-		Entitlement: &v2.Entitlement{
-			Resource: &v2.Resource{
-				Id: &v2.ResourceId{
+			}.Build(),
+		}.Build(),
+		Entitlement: v2.Entitlement_builder{
+			Resource: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					ResourceType: "test-resource",
 					Resource:     "test-resource-1",
-				},
-			},
+				}.Build(),
+			}.Build(),
 			Id: "test-entitlement",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.ErrorContains(t, err, "resource type does not have provisioner configured")
 
 	// Test success case - ResourceProvisioner implemented
@@ -825,46 +825,46 @@ func TestResourceProvisioner(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Grant
-	grantResp, err := connector.Grant(ctx, &v2.GrantManagerServiceGrantRequest{
-		Principal: &v2.Resource{
-			Id: &v2.ResourceId{
+	grantResp, err := connector.Grant(ctx, v2.GrantManagerServiceGrantRequest_builder{
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "user",
 				Resource:     "test-user",
-			},
-		},
-		Entitlement: &v2.Entitlement{
-			Resource: &v2.Resource{
-				Id: &v2.ResourceId{
+			}.Build(),
+		}.Build(),
+		Entitlement: v2.Entitlement_builder{
+			Resource: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					ResourceType: "test-resource",
 					Resource:     "test-resource-1",
-				},
-			},
+				}.Build(),
+			}.Build(),
 			Id: "test-entitlement",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, grantResp)
 
 	// Test Revoke
-	revokeResp, err := connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
-		Grant: &v2.Grant{
-			Entitlement: &v2.Entitlement{
-				Resource: &v2.Resource{
-					Id: &v2.ResourceId{
+	revokeResp, err := connector.Revoke(ctx, v2.GrantManagerServiceRevokeRequest_builder{
+		Grant: v2.Grant_builder{
+			Entitlement: v2.Entitlement_builder{
+				Resource: v2.Resource_builder{
+					Id: v2.ResourceId_builder{
 						ResourceType: "test-resource",
 						Resource:     "test-resource-1",
-					},
-				},
+					}.Build(),
+				}.Build(),
 				Id: "test-entitlement",
-			},
-			Principal: &v2.Resource{
-				Id: &v2.ResourceId{
+			}.Build(),
+			Principal: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					ResourceType: "user",
 					Resource:     "test-user",
-				},
-			},
-		},
-	})
+				}.Build(),
+			}.Build(),
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, revokeResp)
 }
@@ -877,48 +877,48 @@ func TestResourceProvisionerV2(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Grant V2
-	grantResp, err := connector.Grant(ctx, &v2.GrantManagerServiceGrantRequest{
-		Principal: &v2.Resource{
-			Id: &v2.ResourceId{
+	grantResp, err := connector.Grant(ctx, v2.GrantManagerServiceGrantRequest_builder{
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "user",
 				Resource:     "test-user",
-			},
-		},
-		Entitlement: &v2.Entitlement{
-			Resource: &v2.Resource{
-				Id: &v2.ResourceId{
+			}.Build(),
+		}.Build(),
+		Entitlement: v2.Entitlement_builder{
+			Resource: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					ResourceType: "test-resource",
 					Resource:     "test-resource-1",
-				},
-			},
+				}.Build(),
+			}.Build(),
 			Id: "test-entitlement",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, grantResp)
-	require.Len(t, grantResp.Grants, 1)
-	require.Equal(t, "test-user", grantResp.Grants[0].Principal.Id.Resource)
+	require.Len(t, grantResp.GetGrants(), 1)
+	require.Equal(t, "test-user", grantResp.GetGrants()[0].GetPrincipal().GetId().GetResource())
 
 	// Test Revoke V2
-	revokeResp, err := connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
-		Grant: &v2.Grant{
-			Entitlement: &v2.Entitlement{
-				Resource: &v2.Resource{
-					Id: &v2.ResourceId{
+	revokeResp, err := connector.Revoke(ctx, v2.GrantManagerServiceRevokeRequest_builder{
+		Grant: v2.Grant_builder{
+			Entitlement: v2.Entitlement_builder{
+				Resource: v2.Resource_builder{
+					Id: v2.ResourceId_builder{
 						ResourceType: "test-resource",
 						Resource:     "test-resource-1",
-					},
-				},
+					}.Build(),
+				}.Build(),
 				Id: "test-entitlement",
-			},
-			Principal: &v2.Resource{
-				Id: &v2.ResourceId{
+			}.Build(),
+			Principal: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					ResourceType: "user",
 					Resource:     "test-user",
-				},
-			},
-		},
-	})
+				}.Build(),
+			}.Build(),
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, revokeResp)
 }
@@ -927,13 +927,13 @@ func TestAccountManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Test error case - ResourceSyncer without AccountManager
-	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "user"}}
+	rsSyncer := &testResourceSyncer{v2.ResourceType_builder{Id: "user"}.Build()}
 
 	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
 	require.NoError(t, err)
 
-	_, err = connector.CreateAccount(ctx, &v2.CreateAccountRequest{
-		AccountInfo: &v2.AccountInfo{
+	_, err = connector.CreateAccount(ctx, v2.CreateAccountRequest_builder{
+		AccountInfo: v2.AccountInfo_builder{
 			Profile: &structpb.Struct{
 				Fields: map[string]*structpb.Value{
 					"display_name": {
@@ -943,13 +943,11 @@ func TestAccountManager(t *testing.T) {
 					},
 				},
 			},
-		},
-		CredentialOptions: &v2.CredentialOptions{
-			Options: &v2.CredentialOptions_NoPassword_{
-				NoPassword: &v2.CredentialOptions_NoPassword{},
-			},
-		},
-	})
+		}.Build(),
+		CredentialOptions: v2.CredentialOptions_builder{
+			NoPassword: &v2.CredentialOptions_NoPassword{},
+		}.Build(),
+	}.Build())
 	require.ErrorContains(t, err, "connector does not have account manager configured")
 
 	// Test success case - AccountManager implemented
@@ -958,8 +956,8 @@ func TestAccountManager(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test CreateAccount
-	createAccountResp, err := connector.CreateAccount(ctx, &v2.CreateAccountRequest{
-		AccountInfo: &v2.AccountInfo{
+	createAccountResp, err := connector.CreateAccount(ctx, v2.CreateAccountRequest_builder{
+		AccountInfo: v2.AccountInfo_builder{
 			Profile: &structpb.Struct{
 				Fields: map[string]*structpb.Value{
 					"display_name": {
@@ -969,13 +967,11 @@ func TestAccountManager(t *testing.T) {
 					},
 				},
 			},
-		},
-		CredentialOptions: &v2.CredentialOptions{
-			Options: &v2.CredentialOptions_NoPassword_{
-				NoPassword: &v2.CredentialOptions_NoPassword{},
-			},
-		},
-	})
+		}.Build(),
+		CredentialOptions: v2.CredentialOptions_builder{
+			NoPassword: &v2.CredentialOptions_NoPassword{},
+		}.Build(),
+	}.Build())
 
 	require.NoError(t, err)
 	require.NotNil(t, createAccountResp)
@@ -987,22 +983,20 @@ func TestCredentialManager(t *testing.T) {
 	ctx := context.Background()
 
 	// Test error case - ResourceSyncer without CredentialManager
-	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "user"}}
+	rsSyncer := &testResourceSyncer{v2.ResourceType_builder{Id: "user"}.Build()}
 
 	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
 	require.NoError(t, err)
 
-	_, err = connector.RotateCredential(ctx, &v2.RotateCredentialRequest{
-		ResourceId: &v2.ResourceId{
+	_, err = connector.RotateCredential(ctx, v2.RotateCredentialRequest_builder{
+		ResourceId: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "test-user",
-		},
-		CredentialOptions: &v2.CredentialOptions{
-			Options: &v2.CredentialOptions_NoPassword_{
-				NoPassword: &v2.CredentialOptions_NoPassword{},
-			},
-		},
-	})
+		}.Build(),
+		CredentialOptions: v2.CredentialOptions_builder{
+			NoPassword: &v2.CredentialOptions_NoPassword{},
+		}.Build(),
+	}.Build())
 	require.ErrorContains(t, err, "resource type does not have credential manager configured")
 
 	// Test success case - CredentialManager implemented
@@ -1011,17 +1005,15 @@ func TestCredentialManager(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test RotateCredential
-	rotateResp, err := connector.RotateCredential(ctx, &v2.RotateCredentialRequest{
-		ResourceId: &v2.ResourceId{
+	rotateResp, err := connector.RotateCredential(ctx, v2.RotateCredentialRequest_builder{
+		ResourceId: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "test-user",
-		},
-		CredentialOptions: &v2.CredentialOptions{
-			Options: &v2.CredentialOptions_NoPassword_{
-				NoPassword: &v2.CredentialOptions_NoPassword{},
-			},
-		},
-	})
+		}.Build(),
+		CredentialOptions: v2.CredentialOptions_builder{
+			NoPassword: &v2.CredentialOptions_NoPassword{},
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, rotateResp)
 }
@@ -1034,12 +1026,12 @@ func TestEventProvider(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test ListEvents
-	listEventsResp, err := connector.ListEvents(ctx, &v2.ListEventsRequest{
+	listEventsResp, err := connector.ListEvents(ctx, v2.ListEventsRequest_builder{
 		EventFeedId: LegacyBatonFeedId,
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Len(t, listEventsResp.Events, 1)
-	require.Equal(t, "test-event-1", listEventsResp.Events[0].Id)
+	require.Len(t, listEventsResp.GetEvents(), 1)
+	require.Equal(t, "test-event-1", listEventsResp.GetEvents()[0].GetId())
 }
 
 func TestEventProviderV2(t *testing.T) {
@@ -1052,15 +1044,15 @@ func TestEventProviderV2(t *testing.T) {
 	listEventFeedsResp, err := connector.ListEventFeeds(ctx, &v2.ListEventFeedsRequest{})
 	require.NoError(t, err)
 	require.NotNil(t, listEventFeedsResp)
-	require.Len(t, listEventFeedsResp.List, 1)
-	require.Equal(t, "test-feed", listEventFeedsResp.List[0].Id)
+	require.Len(t, listEventFeedsResp.GetList(), 1)
+	require.Equal(t, "test-feed", listEventFeedsResp.GetList()[0].GetId())
 
-	listEventsResp, err := connector.ListEvents(ctx, &v2.ListEventsRequest{
+	listEventsResp, err := connector.ListEvents(ctx, v2.ListEventsRequest_builder{
 		EventFeedId: "test-feed",
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Len(t, listEventsResp.Events, 1)
-	require.Equal(t, "test-event-v2-1", listEventsResp.Events[0].Id)
+	require.Len(t, listEventsResp.GetEvents(), 1)
+	require.Equal(t, "test-event-v2-1", listEventsResp.GetEvents()[0].GetId())
 }
 
 func TestTicketManager(t *testing.T) {
@@ -1071,15 +1063,15 @@ func TestTicketManager(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test GetTicket
-	getTicketResp, err := connector.GetTicket(ctx, &v2.TicketsServiceGetTicketRequest{
+	getTicketResp, err := connector.GetTicket(ctx, v2.TicketsServiceGetTicketRequest_builder{
 		Id: "test-ticket-1",
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, "test-ticket-1", getTicketResp.Ticket.Id)
+	require.Equal(t, "test-ticket-1", getTicketResp.GetTicket().GetId())
 
 	// Test CreateTicket
-	createTicketResp, err := connector.CreateTicket(ctx, &v2.TicketsServiceCreateTicketRequest{
-		Request: &v2.TicketRequest{
+	createTicketResp, err := connector.CreateTicket(ctx, v2.TicketsServiceCreateTicketRequest_builder{
+		Request: v2.TicketRequest_builder{
 			DisplayName:  "New Ticket",
 			Description:  "New Ticket",
 			Status:       &v2.TicketStatus{},
@@ -1087,52 +1079,52 @@ func TestTicketManager(t *testing.T) {
 			Labels:       []string{},
 			CustomFields: map[string]*v2.TicketCustomField{},
 			RequestedFor: &v2.Resource{},
-		},
-		Schema: &v2.TicketSchema{
+		}.Build(),
+		Schema: v2.TicketSchema_builder{
 			Id: "test-schema",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, "created-New Ticket", createTicketResp.Ticket.Id)
+	require.Equal(t, "created-New Ticket", createTicketResp.GetTicket().GetId())
 
 	// Test GetTicketSchema
-	getSchemaResp, err := connector.GetTicketSchema(ctx, &v2.TicketsServiceGetTicketSchemaRequest{
+	getSchemaResp, err := connector.GetTicketSchema(ctx, v2.TicketsServiceGetTicketSchemaRequest_builder{
 		Id: "test-schema",
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, "test-schema", getSchemaResp.Schema.Id)
+	require.Equal(t, "test-schema", getSchemaResp.GetSchema().GetId())
 
 	// Test ListTicketSchemas
 	listSchemasResp, err := connector.ListTicketSchemas(ctx, &v2.TicketsServiceListTicketSchemasRequest{})
 	require.NoError(t, err)
-	require.Len(t, listSchemasResp.List, 1)
-	require.Equal(t, "schema-1", listSchemasResp.List[0].Id)
+	require.Len(t, listSchemasResp.GetList(), 1)
+	require.Equal(t, "schema-1", listSchemasResp.GetList()[0].GetId())
 
 	// Test BulkCreateTickets
-	bulkCreateResp, err := connector.BulkCreateTickets(ctx, &v2.TicketsServiceBulkCreateTicketsRequest{
+	bulkCreateResp, err := connector.BulkCreateTickets(ctx, v2.TicketsServiceBulkCreateTicketsRequest_builder{
 		TicketRequests: []*v2.TicketsServiceCreateTicketRequest{
-			{
-				Request: &v2.TicketRequest{
+			v2.TicketsServiceCreateTicketRequest_builder{
+				Request: v2.TicketRequest_builder{
 					DisplayName: "Bulk Ticket 1",
-				},
-			},
+				}.Build(),
+			}.Build(),
 		},
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Len(t, bulkCreateResp.Tickets, 1)
-	require.Equal(t, "bulk-ticket-1", bulkCreateResp.Tickets[0].Ticket.Id)
+	require.Len(t, bulkCreateResp.GetTickets(), 1)
+	require.Equal(t, "bulk-ticket-1", bulkCreateResp.GetTickets()[0].GetTicket().GetId())
 
 	// Test BulkGetTickets
-	bulkGetResp, err := connector.BulkGetTickets(ctx, &v2.TicketsServiceBulkGetTicketsRequest{
+	bulkGetResp, err := connector.BulkGetTickets(ctx, v2.TicketsServiceBulkGetTicketsRequest_builder{
 		TicketRequests: []*v2.TicketsServiceGetTicketRequest{
-			{
+			v2.TicketsServiceGetTicketRequest_builder{
 				Id: "bulk-ticket-1",
-			},
+			}.Build(),
 		},
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Len(t, bulkGetResp.Tickets, 1)
-	require.Equal(t, "bulk-ticket-1", bulkGetResp.Tickets[0].Ticket.Id)
+	require.Len(t, bulkGetResp.GetTickets(), 1)
+	require.Equal(t, "bulk-ticket-1", bulkGetResp.GetTickets()[0].GetTicket().GetId())
 }
 
 func TestCustomActionManager(t *testing.T) {
@@ -1145,61 +1137,61 @@ func TestCustomActionManager(t *testing.T) {
 	// Test ListActionSchemas
 	listSchemasResp, err := connector.ListActionSchemas(ctx, &v2.ListActionSchemasRequest{})
 	require.NoError(t, err)
-	require.Len(t, listSchemasResp.Schemas, 1)
-	require.Equal(t, "test-action", listSchemasResp.Schemas[0].Name)
+	require.Len(t, listSchemasResp.GetSchemas(), 1)
+	require.Equal(t, "test-action", listSchemasResp.GetSchemas()[0].GetName())
 
 	// Test GetActionSchema
-	getSchemaResp, err := connector.GetActionSchema(ctx, &v2.GetActionSchemaRequest{
+	getSchemaResp, err := connector.GetActionSchema(ctx, v2.GetActionSchemaRequest_builder{
 		Name: "test-action",
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, "test-action", getSchemaResp.Schema.Name)
+	require.Equal(t, "test-action", getSchemaResp.GetSchema().GetName())
 
 	// Test InvokeAction
-	invokeResp, err := connector.InvokeAction(ctx, &v2.InvokeActionRequest{
+	invokeResp, err := connector.InvokeAction(ctx, v2.InvokeActionRequest_builder{
 		Name: "test-action",
 		Args: &structpb.Struct{},
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, "action-id-123", invokeResp.Id)
-	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, invokeResp.Status)
+	require.Equal(t, "action-id-123", invokeResp.GetId())
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, invokeResp.GetStatus())
 
 	// Test GetActionStatus
-	statusResp, err := connector.GetActionStatus(ctx, &v2.GetActionStatusRequest{
+	statusResp, err := connector.GetActionStatus(ctx, v2.GetActionStatusRequest_builder{
 		Id: "action-id-123",
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, statusResp.Status)
-	require.Equal(t, "Action completed successfully", statusResp.Name)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, statusResp.GetStatus())
+	require.Equal(t, "Action completed successfully", statusResp.GetName())
 }
 
 func TestDeleteResourceV2(t *testing.T) {
 	ctx := context.Background()
 
-	rsSyncer := &testResourceSyncer{&v2.ResourceType{Id: "test-resource"}}
-	rsID := &v2.ResourceId{
-		ResourceType: rsSyncer.ResourceType(ctx).Id,
-	}
+	rsSyncer := &testResourceSyncer{v2.ResourceType_builder{Id: "test-resource"}.Build()}
+	rsID := v2.ResourceId_builder{
+		ResourceType: rsSyncer.ResourceType(ctx).GetId(),
+	}.Build()
 
 	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
 	require.NoError(t, err)
 
-	_, err = connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
+	_, err = connector.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
 		ResourceId: rsID,
-	})
+	}.Build())
 	require.ErrorContains(t, err, "resource type test-resource does not have resource Delete() configured")
 
 	rsManager := newTestResourceManager("test-resource")
 	connector, err = NewConnector(ctx, newTestConnector([]ResourceSyncer{rsManager}))
 	require.NoError(t, err)
 
-	_, err = connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
+	_, err = connector.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
 		ResourceId: rsID,
-	})
+	}.Build())
 	require.NoError(t, err)
-	_, err = connector.DeleteResourceV2(ctx, &v2.DeleteResourceV2Request{
+	_, err = connector.DeleteResourceV2(ctx, v2.DeleteResourceV2Request_builder{
 		ResourceId: rsID,
-	})
+	}.Build())
 	require.NoError(t, err)
 }
 
@@ -1221,9 +1213,9 @@ func TestGetCapabilities(t *testing.T) {
 		require.NotNil(t, caps)
 
 		// Should have SYNC capability
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Len(t, caps.ResourceTypeCapabilities, 1)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Len(t, caps.GetResourceTypeCapabilities(), 1)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_SYNC)
 	})
 
 	t.Run("ResourceTargetedSyncer", func(t *testing.T) {
@@ -1239,10 +1231,10 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have SYNC and TARGETED_SYNC capabilities
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_TARGETED_SYNC)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_TARGETED_SYNC)
 	})
 
 	t.Run("ResourceProvisioner", func(t *testing.T) {
@@ -1258,10 +1250,10 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have SYNC and PROVISION capabilities
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_PROVISION)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_PROVISION)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_PROVISION)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_PROVISION)
 	})
 
 	t.Run("AccountManager", func(t *testing.T) {
@@ -1277,10 +1269,10 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have SYNC and ACCOUNT_PROVISIONING capabilities
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_ACCOUNT_PROVISIONING)
 	})
 
 	t.Run("CredentialManager", func(t *testing.T) {
@@ -1296,10 +1288,10 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have SYNC and CREDENTIAL_ROTATION capabilities
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
 	})
 
 	t.Run("ResourceManager", func(t *testing.T) {
@@ -1315,12 +1307,12 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have SYNC, RESOURCE_CREATE, and RESOURCE_DELETE capabilities
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_RESOURCE_CREATE)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_RESOURCE_DELETE)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_RESOURCE_CREATE)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_RESOURCE_DELETE)
 	})
 
 	t.Run("ResourceDeleter", func(t *testing.T) {
@@ -1336,12 +1328,12 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have SYNC and RESOURCE_DELETE capabilities (but not RESOURCE_CREATE)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-		require.NotContains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_RESOURCE_DELETE)
-		require.NotContains(t, caps.ResourceTypeCapabilities[0].Capabilities, v2.Capability_CAPABILITY_RESOURCE_CREATE)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_RESOURCE_DELETE)
+		require.NotContains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_RESOURCE_CREATE)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_RESOURCE_DELETE)
+		require.NotContains(t, caps.GetResourceTypeCapabilities()[0].GetCapabilities(), v2.Capability_CAPABILITY_RESOURCE_CREATE)
 	})
 
 	t.Run("EventFeeds", func(t *testing.T) {
@@ -1355,8 +1347,8 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have EVENT_FEED_V2 capability (but not SYNC since no resource syncers)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_EVENT_FEED_V2)
-		require.NotContains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_EVENT_FEED_V2)
+		require.NotContains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
 	})
 
 	t.Run("TicketManager", func(t *testing.T) {
@@ -1370,8 +1362,8 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have TICKETING capability (but not SYNC since no resource syncers)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_TICKETING)
-		require.NotContains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_TICKETING)
+		require.NotContains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
 	})
 
 	t.Run("ActionManager", func(t *testing.T) {
@@ -1385,8 +1377,8 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have ACTIONS capability (but not SYNC since no resource syncers)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_ACTIONS)
-		require.NotContains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_ACTIONS)
+		require.NotContains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
 	})
 
 	t.Run("MultipleResourceTypes", func(t *testing.T) {
@@ -1404,15 +1396,15 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have capabilities from all resource types
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_SYNC)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_TARGETED_SYNC)
-		require.Contains(t, caps.ConnectorCapabilities, v2.Capability_CAPABILITY_PROVISION)
-		require.Len(t, caps.ResourceTypeCapabilities, 3)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_TARGETED_SYNC)
+		require.Contains(t, caps.GetConnectorCapabilities(), v2.Capability_CAPABILITY_PROVISION)
+		require.Len(t, caps.GetResourceTypeCapabilities(), 3)
 
 		// Verify resource types are sorted by ID
-		require.Equal(t, "resource-1", caps.ResourceTypeCapabilities[0].ResourceType.Id)
-		require.Equal(t, "resource-2", caps.ResourceTypeCapabilities[1].ResourceType.Id)
-		require.Equal(t, "resource-3", caps.ResourceTypeCapabilities[2].ResourceType.Id)
+		require.Equal(t, "resource-1", caps.GetResourceTypeCapabilities()[0].GetResourceType().GetId())
+		require.Equal(t, "resource-2", caps.GetResourceTypeCapabilities()[1].GetResourceType().GetId())
+		require.Equal(t, "resource-3", caps.GetResourceTypeCapabilities()[2].GetResourceType().GetId())
 	})
 
 	t.Run("EmptyResourceBuilders", func(t *testing.T) {
@@ -1426,7 +1418,7 @@ func TestGetCapabilities(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should have no capabilities
-		require.Empty(t, caps.ConnectorCapabilities)
-		require.Empty(t, caps.ResourceTypeCapabilities)
+		require.Empty(t, caps.GetConnectorCapabilities())
+		require.Empty(t, caps.GetResourceTypeCapabilities())
 	})
 }

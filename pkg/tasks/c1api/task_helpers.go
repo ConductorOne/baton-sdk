@@ -71,17 +71,17 @@ func (t *taskHelpers) HeartbeatTask(ctx context.Context, annos annotations.Annot
 	rCtx, rCancel := context.WithCancelCause(ctx)
 
 	l.Debug("heartbeat: sending initial heartbeat")
-	resp, err := t.serviceClient.Heartbeat(ctx, &v1.BatonServiceHeartbeatRequest{
+	resp, err := t.serviceClient.Heartbeat(ctx, v1.BatonServiceHeartbeatRequest_builder{
 		TaskId:      t.task.GetId(),
 		Annotations: annos,
-	})
+	}.Build())
 	if err != nil {
 		err = errors.Join(ErrTaskHeartbeatFailed, err)
 		l.Error("heartbeat: failed sending initial heartbeat", zap.Error(err))
 		rCancel(err)
 		return nil, err
 	}
-	if resp.Cancelled {
+	if resp.GetCancelled() {
 		err = ErrTaskCancelled
 		l.Debug("heartbeat: task was cancelled by server")
 		rCancel(err)
@@ -111,10 +111,10 @@ func (t *taskHelpers) HeartbeatTask(ctx context.Context, annos annotations.Annot
 				return
 
 			case <-time.After(heartbeatInterval):
-				resp, err := t.serviceClient.Heartbeat(ctx, &v1.BatonServiceHeartbeatRequest{
+				resp, err := t.serviceClient.Heartbeat(ctx, v1.BatonServiceHeartbeatRequest_builder{
 					TaskId:      t.task.GetId(),
 					Annotations: annos,
-				})
+				}.Build())
 				if err != nil {
 					// If our parent context gets cancelled we can just leave.
 					if ctxErr := ctx.Err(); ctxErr != nil {
@@ -136,7 +136,7 @@ func (t *taskHelpers) HeartbeatTask(ctx context.Context, annos annotations.Annot
 
 				heartbeatInterval = getHeartbeatInterval(resp.GetNextHeartbeat().AsDuration())
 				l.Debug("heartbeat: success", zap.Duration("next_heartbeat", heartbeatInterval))
-				if resp.Cancelled {
+				if resp.GetCancelled() {
 					l.Debug("heartbeat: task was cancelled by server")
 					rCancel(ErrTaskCancelled)
 					return

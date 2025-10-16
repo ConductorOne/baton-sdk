@@ -136,19 +136,19 @@ func parseResourcePart(rs *bidScanner) (*v2.Resource, error) {
 	}
 
 	if len(tokens) == 4 {
-		parentResourceId.ResourceType = tokens[0]
-		parentResourceId.Resource = tokens[1]
-		resourceId.ResourceType = tokens[2]
-		resourceId.Resource = tokens[3]
-		return &v2.Resource{
+		parentResourceId.SetResourceType(tokens[0])
+		parentResourceId.SetResource(tokens[1])
+		resourceId.SetResourceType(tokens[2])
+		resourceId.SetResource(tokens[3])
+		return v2.Resource_builder{
 			Id:               resourceId,
 			ParentResourceId: parentResourceId,
-		}, nil
+		}.Build(), nil
 	}
 	if len(tokens) == 2 {
-		resourceId.ResourceType = tokens[0]
-		resourceId.Resource = tokens[1]
-		return &v2.Resource{Id: resourceId}, nil
+		resourceId.SetResourceType(tokens[0])
+		resourceId.SetResource(tokens[1])
+		return v2.Resource_builder{Id: resourceId}.Build(), nil
 	}
 
 	return nil, NewBidParseError(rs, "invalid resource part")
@@ -189,10 +189,10 @@ func parseEntitlementPart(rs *bidScanner) (*v2.Entitlement, error) {
 		return nil, NewBidParseError(rs, "invalid baton id entitlement part: %s", val)
 	}
 
-	return &v2.Entitlement{
+	return v2.Entitlement_builder{
 		Slug:     val,
 		Resource: resource,
-	}, nil
+	}.Build(), nil
 }
 
 func ParseEntitlementBid(bidStr string) (*v2.Entitlement, error) {
@@ -225,10 +225,10 @@ func parseGrantPart(rs *bidScanner) (*v2.Grant, error) {
 		return nil, err
 	}
 
-	return &v2.Grant{
+	return v2.Grant_builder{
 		Entitlement: entitlement,
 		Principal:   principal,
-	}, nil
+	}.Build(), nil
 }
 
 func ParseGrantBid(bidStr string) (*v2.Grant, error) {

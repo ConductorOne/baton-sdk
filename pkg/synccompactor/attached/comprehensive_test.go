@@ -43,78 +43,78 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create resource types
-	userRT := &v2.ResourceType{
+	userRT := v2.ResourceType_builder{
 		Id:          "user",
 		DisplayName: "User",
-	}
-	groupRT := &v2.ResourceType{
+	}.Build()
+	groupRT := v2.ResourceType_builder{
 		Id:          "group",
 		DisplayName: "Group",
-	}
+	}.Build()
 	err = baseDB.PutResourceTypes(ctx, userRT, groupRT)
 	require.NoError(t, err)
 
 	// Create resources in base
 	// Scenario 1: Resource only in base
-	baseOnlyUser := &v2.Resource{
-		Id: &v2.ResourceId{
+	baseOnlyUser := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "user-base-only",
-		},
+		}.Build(),
 		DisplayName: "User Base Only",
-	}
+	}.Build()
 
 	// Scenario 3: Resource in both, base is newer (we'll manipulate timestamp later)
-	baseNewerUser := &v2.Resource{
-		Id: &v2.ResourceId{
+	baseNewerUser := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "user-base-newer",
-		},
+		}.Build(),
 		DisplayName: "User Base Newer Version",
-	}
+	}.Build()
 
 	// Scenario 4: Resource in both, applied will be newer
-	baseOlderUser := &v2.Resource{
-		Id: &v2.ResourceId{
+	baseOlderUser := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "user-applied-newer",
-		},
+		}.Build(),
 		DisplayName: "User Base Older Version",
-	}
+	}.Build()
 
 	err = baseDB.PutResources(ctx, baseOnlyUser, baseNewerUser, baseOlderUser)
 	require.NoError(t, err)
 
 	// Create entitlements in base
-	baseOnlyEntitlement := &v2.Entitlement{
+	baseOnlyEntitlement := v2.Entitlement_builder{
 		Id:          "base-entitlement",
 		DisplayName: "Base Entitlement",
 		Resource:    baseOnlyUser,
 		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
-	}
+	}.Build()
 
-	baseNewerEntitlement := &v2.Entitlement{
+	baseNewerEntitlement := v2.Entitlement_builder{
 		Id:          "base-newer-entitlement",
 		DisplayName: "Base Newer Entitlement",
 		Resource:    baseNewerUser,
 		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
-	}
+	}.Build()
 
 	err = baseDB.PutEntitlements(ctx, baseOnlyEntitlement, baseNewerEntitlement)
 	require.NoError(t, err)
 
 	// Create grants in base
-	baseOnlyGrant := &v2.Grant{
+	baseOnlyGrant := v2.Grant_builder{
 		Id:          "base-grant",
 		Principal:   baseOnlyUser,
 		Entitlement: baseOnlyEntitlement,
-	}
+	}.Build()
 
-	baseNewerGrant := &v2.Grant{
+	baseNewerGrant := v2.Grant_builder{
 		Id:          "base-newer-grant",
 		Principal:   baseNewerUser,
 		Entitlement: baseNewerEntitlement,
-	}
+	}.Build()
 
 	err = baseDB.PutGrants(ctx, baseOnlyGrant, baseNewerGrant)
 	require.NoError(t, err)
@@ -136,65 +136,65 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 
 	// Create resources in applied
 	// Scenario 2: Resource only in applied
-	appliedOnlyUser := &v2.Resource{
-		Id: &v2.ResourceId{
+	appliedOnlyUser := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "user-applied-only",
-		},
+		}.Build(),
 		DisplayName: "User Applied Only",
-	}
+	}.Build()
 
 	// Scenario 3: Resource in both, applied is older (will lose to base)
-	appliedOlderUser := &v2.Resource{
-		Id: &v2.ResourceId{
+	appliedOlderUser := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "user-base-newer",
-		},
+		}.Build(),
 		DisplayName: "User Applied Older Version",
-	}
+	}.Build()
 
 	// Scenario 4: Resource in both, applied is newer (will win over base)
-	appliedNewerUser := &v2.Resource{
-		Id: &v2.ResourceId{
+	appliedNewerUser := v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: "user",
 			Resource:     "user-applied-newer",
-		},
+		}.Build(),
 		DisplayName: "User Applied Newer Version",
-	}
+	}.Build()
 
 	err = appliedDB.PutResources(ctx, appliedOnlyUser, appliedOlderUser, appliedNewerUser)
 	require.NoError(t, err)
 
 	// Create entitlements in applied
-	appliedOnlyEntitlement := &v2.Entitlement{
+	appliedOnlyEntitlement := v2.Entitlement_builder{
 		Id:          "applied-entitlement",
 		DisplayName: "Applied Entitlement",
 		Resource:    appliedOnlyUser,
 		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
-	}
+	}.Build()
 
-	appliedNewerEntitlement := &v2.Entitlement{
+	appliedNewerEntitlement := v2.Entitlement_builder{
 		Id:          "applied-newer-entitlement",
 		DisplayName: "Applied Newer Entitlement",
 		Resource:    appliedNewerUser,
 		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
-	}
+	}.Build()
 
 	err = appliedDB.PutEntitlements(ctx, appliedOnlyEntitlement, appliedNewerEntitlement)
 	require.NoError(t, err)
 
 	// Create grants in applied
-	appliedOnlyGrant := &v2.Grant{
+	appliedOnlyGrant := v2.Grant_builder{
 		Id:          "applied-grant",
 		Principal:   appliedOnlyUser,
 		Entitlement: appliedOnlyEntitlement,
-	}
+	}.Build()
 
-	appliedNewerGrant := &v2.Grant{
+	appliedNewerGrant := v2.Grant_builder{
 		Id:          "applied-newer-grant",
 		Principal:   appliedNewerUser,
 		Entitlement: appliedNewerEntitlement,
-	}
+	}.Build()
 
 	err = appliedDB.PutGrants(ctx, appliedOnlyGrant, appliedNewerGrant)
 	require.NoError(t, err)
@@ -229,63 +229,63 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Scenario 1: Data only in base - should exist with dest sync ID
 	t.Run("Scenario1_BaseOnly", func(t *testing.T) {
 		// Resource
-		resp, err := destDB.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
-			ResourceId: baseOnlyUser.Id,
-		})
+		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: baseOnlyUser.GetId(),
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "User Base Only", resp.Resource.DisplayName)
+		require.Equal(t, "User Base Only", resp.GetResource().GetDisplayName())
 
 		// Note: Sync ID verification is handled in the AllDataHasSameDestSyncID test
 
 		// Entitlement
-		entResp, err := destDB.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
+		entResp, err := destDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: "base-entitlement",
-		})
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "Base Entitlement", entResp.Entitlement.DisplayName)
+		require.Equal(t, "Base Entitlement", entResp.GetEntitlement().GetDisplayName())
 
 		// Grant
-		grantResp, err := destDB.GetGrant(ctx, &reader_v2.GrantsReaderServiceGetGrantRequest{
+		grantResp, err := destDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 			GrantId: "base-grant",
-		})
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "base-grant", grantResp.Grant.Id)
+		require.Equal(t, "base-grant", grantResp.GetGrant().GetId())
 	})
 
 	// Scenario 2: Data only in applied - should exist with dest sync ID
 	t.Run("Scenario2_AppliedOnly", func(t *testing.T) {
 		// Resource
-		resp, err := destDB.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
-			ResourceId: appliedOnlyUser.Id,
-		})
+		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: appliedOnlyUser.GetId(),
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "User Applied Only", resp.Resource.DisplayName)
+		require.Equal(t, "User Applied Only", resp.GetResource().GetDisplayName())
 
 		// Note: Sync ID verification is handled in the AllDataHasSameDestSyncID test
 
 		// Entitlement
-		entResp, err := destDB.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
+		entResp, err := destDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: "applied-entitlement",
-		})
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "Applied Entitlement", entResp.Entitlement.DisplayName)
+		require.Equal(t, "Applied Entitlement", entResp.GetEntitlement().GetDisplayName())
 
 		// Grant
-		grantResp, err := destDB.GetGrant(ctx, &reader_v2.GrantsReaderServiceGetGrantRequest{
+		grantResp, err := destDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 			GrantId: "applied-grant",
-		})
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "applied-grant", grantResp.Grant.Id)
+		require.Equal(t, "applied-grant", grantResp.GetGrant().GetId())
 	})
 
 	// Scenario 3: Data in both, but since applied is naturally newer, applied should win
 	t.Run("Scenario3_OverlappingAppliedWins", func(t *testing.T) {
 		// Resource (applied should win due to newer timestamp)
-		resp, err := destDB.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
-			ResourceId: baseNewerUser.Id,
-		})
+		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: baseNewerUser.GetId(),
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "User Applied Older Version", resp.Resource.DisplayName)
+		require.Equal(t, "User Applied Older Version", resp.GetResource().GetDisplayName())
 
 		// Note: Sync ID verification is handled in the AllDataHasSameDestSyncID test
 
@@ -296,27 +296,27 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Scenario 4: Data in both, applied is newer - should have applied version with dest sync ID
 	t.Run("Scenario4_AppliedNewer", func(t *testing.T) {
 		// Resource
-		resp, err := destDB.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
-			ResourceId: appliedNewerUser.Id,
-		})
+		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: appliedNewerUser.GetId(),
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "User Applied Newer Version", resp.Resource.DisplayName)
+		require.Equal(t, "User Applied Newer Version", resp.GetResource().GetDisplayName())
 
 		// Note: Sync ID verification is handled in the AllDataHasSameDestSyncID test
 
 		// Entitlement
-		entResp, err := destDB.GetEntitlement(ctx, &reader_v2.EntitlementsReaderServiceGetEntitlementRequest{
+		entResp, err := destDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: "applied-newer-entitlement",
-		})
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "Applied Newer Entitlement", entResp.Entitlement.DisplayName)
+		require.Equal(t, "Applied Newer Entitlement", entResp.GetEntitlement().GetDisplayName())
 
 		// Grant
-		grantResp, err := destDB.GetGrant(ctx, &reader_v2.GrantsReaderServiceGetGrantRequest{
+		grantResp, err := destDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 			GrantId: "applied-newer-grant",
-		})
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "applied-newer-grant", grantResp.Grant.Id)
+		require.Equal(t, "applied-newer-grant", grantResp.GetGrant().GetId())
 	})
 
 	// Note: The fact that all APIs work correctly implies that the sync IDs are correct

@@ -17,7 +17,7 @@ func WithRoleProfile(profile map[string]interface{}) RoleTraitOption {
 			return err
 		}
 
-		rt.Profile = p
+		rt.SetProfile(p)
 
 		return nil
 	}
@@ -40,7 +40,7 @@ func NewRoleTrait(opts ...RoleTraitOption) (*v2.RoleTrait, error) {
 // GetRoleTrait attempts to return the RoleTrait instance on a resource.
 func GetRoleTrait(resource *v2.Resource) (*v2.RoleTrait, error) {
 	ret := &v2.RoleTrait{}
-	annos := annotations.Annotations(resource.Annotations)
+	annos := annotations.Annotations(resource.GetAnnotations())
 	ok, err := annos.Pick(ret)
 	if err != nil {
 		return nil, err

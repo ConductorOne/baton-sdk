@@ -56,10 +56,10 @@ func generateCredential(ctx context.Context, name string, caCert *x509.Certifica
 		return nil, err
 	}
 
-	return &v1.Credential{
+	return v1.Credential_builder{
 		Key:  privateKey,
 		Cert: signedCert,
-	}, nil
+	}.Build(), nil
 }
 
 // GenerateClientServerCredentials generates a new CA and two sets of credentials for use in a client/server configuration.
@@ -105,13 +105,13 @@ func GenerateClientServerCredentials(ctx context.Context) (*v1.Credential, *v1.C
 	if err != nil {
 		return nil, nil, err
 	}
-	clientCreds.CaCert = caCert
+	clientCreds.SetCaCert(caCert)
 
 	serverCreds, err := generateCredential(ctx, "c1-connector-server", ca, caKey)
 	if err != nil {
 		return nil, nil, err
 	}
-	serverCreds.CaCert = caCert
+	serverCreds.SetCaCert(caCert)
 
 	return clientCreds, serverCreds, nil
 }

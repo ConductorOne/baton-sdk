@@ -16,24 +16,24 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-var testActionSchema = &v2.BatonActionSchema{
+var testActionSchema = v2.BatonActionSchema_builder{
 	Name: "lock_account",
 	Arguments: []*config.Field{
-		{
+		config.Field_builder{
 			Name:        "dn",
 			DisplayName: "DN",
-			Field:       &config.Field_StringField{},
+			StringField: &config.StringField{},
 			IsRequired:  true,
-		},
+		}.Build(),
 	},
 	ReturnTypes: []*config.Field{
-		{
+		config.Field_builder{
 			Name:        "success",
 			DisplayName: "Success",
-			Field:       &config.Field_BoolField{},
-		},
+			BoolField:   &config.BoolField{},
+		}.Build(),
 	},
-}
+}.Build()
 
 func testActionHandler(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 	_, ok := args.Fields["dn"].GetKind().(*structpb.Value_StringValue)

@@ -48,14 +48,14 @@ func TestAnnotations_Contains(t *testing.T) {
 func TestAnnotations_Pick(t *testing.T) {
 	var annos Annotations
 
-	annos.Append(&v2.GroupTrait{Profile: &structpb.Struct{}})
+	annos.Append(v2.GroupTrait_builder{Profile: &structpb.Struct{}}.Build())
 
 	trait := &v2.GroupTrait{}
-	require.Nil(t, trait.Profile)
+	require.Nil(t, trait.GetProfile())
 	ok, err := annos.Pick(trait)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NotNil(t, trait.Profile)
+	require.NotNil(t, trait.GetProfile())
 
 	roleTrait := &v2.RoleTrait{}
 	ok, err = annos.Pick(roleTrait)
@@ -71,7 +71,7 @@ func TestAnnotations_Update(t *testing.T) {
 	require.Len(t, annos, 1)
 	annos.Append(&v2.RoleTrait{})
 	require.Len(t, annos, 2)
-	annos.Update(&v2.GroupTrait{Profile: &structpb.Struct{}})
+	annos.Update(v2.GroupTrait_builder{Profile: &structpb.Struct{}}.Build())
 	require.Len(t, annos, 2)
 	annos.Update(&v2.UserTrait{})
 	require.Len(t, annos, 3)
@@ -80,7 +80,7 @@ func TestAnnotations_Update(t *testing.T) {
 	ok, err := annos.Pick(gt)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NotNil(t, gt.Profile)
+	require.NotNil(t, gt.GetProfile())
 }
 
 func TestAnnotations_WithRateLimiting(t *testing.T) {

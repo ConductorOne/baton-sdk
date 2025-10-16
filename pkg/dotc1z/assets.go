@@ -76,7 +76,7 @@ func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTyp
 	}
 
 	fields := goqu.Record{
-		"external_id":   assetRef.Id,
+		"external_id":   assetRef.GetId(),
 		"content_type":  contentType,
 		"data":          data,
 		"sync_id":       c.currentSyncID,
@@ -113,13 +113,13 @@ func (c *C1File) GetAsset(ctx context.Context, request *v2.AssetServiceGetAssetR
 		return "", nil, err
 	}
 
-	if request.Asset == nil {
+	if !request.HasAsset() {
 		return "", nil, fmt.Errorf("asset is required")
 	}
 
 	q := c.db.From(assets.Name()).Prepared(true)
 	q = q.Select("content_type", "data")
-	q = q.Where(goqu.C("external_id").Eq(request.Asset.Id))
+	q = q.Where(goqu.C("external_id").Eq(request.GetAsset().GetId()))
 
 	if c.currentSyncID != "" {
 		q = q.Where(goqu.C("sync_id").Eq(c.currentSyncID))

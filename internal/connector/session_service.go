@@ -23,20 +23,20 @@ func (s *SessionService) Get(ctx context.Context, req *v1.GetRequest) (*v1.GetRe
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	value, found, err := s.sessionCache.Get(ctx, req.Key, sessions.WithSyncID(req.SyncId))
+	value, found, err := s.sessionCache.Get(ctx, req.GetKey(), sessions.WithSyncID(req.GetSyncId()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get value from cache: %w", err)
 	}
 
 	if !found {
-		return &v1.GetResponse{
+		return v1.GetResponse_builder{
 			Value: nil,
-		}, nil
+		}.Build(), nil
 	}
 
-	return &v1.GetResponse{
+	return v1.GetResponse_builder{
 		Value: value,
-	}, nil
+	}.Build(), nil
 }
 
 func (s *SessionService) GetMany(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error) {
@@ -44,28 +44,28 @@ func (s *SessionService) GetMany(ctx context.Context, req *v1.GetManyRequest) (*
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	if len(req.Keys) == 0 {
-		return &v1.GetManyResponse{
+	if len(req.GetKeys()) == 0 {
+		return v1.GetManyResponse_builder{
 			Items: []*v1.GetManyItem{},
-		}, nil
+		}.Build(), nil
 	}
 
-	values, err := s.sessionCache.GetMany(ctx, req.Keys, sessions.WithSyncID(req.SyncId))
+	values, err := s.sessionCache.GetMany(ctx, req.GetKeys(), sessions.WithSyncID(req.GetSyncId()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get many values from cache: %w", err)
 	}
 
 	items := make([]*v1.GetManyItem, 0, len(values))
 	for key, value := range values {
-		items = append(items, &v1.GetManyItem{
+		items = append(items, v1.GetManyItem_builder{
 			Key:   key,
 			Value: value,
-		})
+		}.Build())
 	}
 
-	return &v1.GetManyResponse{
+	return v1.GetManyResponse_builder{
 		Items: items,
-	}, nil
+	}.Build(), nil
 }
 
 func (s *SessionService) GetAll(ctx context.Context, req *v1.GetAllRequest) (*v1.GetAllResponse, error) {
@@ -73,22 +73,22 @@ func (s *SessionService) GetAll(ctx context.Context, req *v1.GetAllRequest) (*v1
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	values, err := s.sessionCache.GetAll(ctx, sessions.WithSyncID(req.SyncId))
+	values, err := s.sessionCache.GetAll(ctx, sessions.WithSyncID(req.GetSyncId()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all values from cache: %w", err)
 	}
 
 	items := make([]*v1.GetAllItem, 0, len(values))
 	for key, value := range values {
-		items = append(items, &v1.GetAllItem{
+		items = append(items, v1.GetAllItem_builder{
 			Key:   key,
 			Value: value,
-		})
+		}.Build())
 	}
 
-	return &v1.GetAllResponse{
+	return v1.GetAllResponse_builder{
 		Items: items,
-	}, nil
+	}.Build(), nil
 }
 
 func (s *SessionService) Set(ctx context.Context, req *v1.SetRequest) (*v1.SetResponse, error) {
@@ -96,7 +96,7 @@ func (s *SessionService) Set(ctx context.Context, req *v1.SetRequest) (*v1.SetRe
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	err := s.sessionCache.Set(ctx, req.Key, req.Value, sessions.WithSyncID(req.SyncId))
+	err := s.sessionCache.Set(ctx, req.GetKey(), req.GetValue(), sessions.WithSyncID(req.GetSyncId()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to set value in cache: %w", err)
 	}
@@ -109,7 +109,7 @@ func (s *SessionService) SetMany(ctx context.Context, req *v1.SetManyRequest) (*
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	err := s.sessionCache.SetMany(ctx, req.Values, sessions.WithSyncID(req.SyncId))
+	err := s.sessionCache.SetMany(ctx, req.GetValues(), sessions.WithSyncID(req.GetSyncId()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to set many values in cache: %w", err)
 	}
@@ -122,7 +122,7 @@ func (s *SessionService) Delete(ctx context.Context, req *v1.DeleteRequest) (*v1
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	err := s.sessionCache.Delete(ctx, req.Key, sessions.WithSyncID(req.SyncId))
+	err := s.sessionCache.Delete(ctx, req.GetKey(), sessions.WithSyncID(req.GetSyncId()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete value from cache: %w", err)
 	}
@@ -135,8 +135,8 @@ func (s *SessionService) DeleteMany(ctx context.Context, req *v1.DeleteManyReque
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	for _, key := range req.Keys {
-		err := s.sessionCache.Delete(ctx, key, sessions.WithSyncID(req.SyncId))
+	for _, key := range req.GetKeys() {
+		err := s.sessionCache.Delete(ctx, key, sessions.WithSyncID(req.GetSyncId()))
 		if err != nil {
 			return nil, fmt.Errorf("failed to delete value for key %s: %w", key, err)
 		}
@@ -150,7 +150,7 @@ func (s *SessionService) Clear(ctx context.Context, req *v1.ClearRequest) (*v1.C
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	err := s.sessionCache.Clear(ctx, sessions.WithSyncID(req.SyncId))
+	err := s.sessionCache.Clear(ctx, sessions.WithSyncID(req.GetSyncId()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to clear cache: %w", err)
 	}

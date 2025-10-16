@@ -21,7 +21,7 @@ func isRatelimitingAnnotation(annotation *anypb.Any) bool {
 			v2.RateLimitDescription_STATUS_ERROR,
 			v2.RateLimitDescription_STATUS_OVERLIMIT,
 		},
-		ratelimitDescription.Status,
+		ratelimitDescription.GetStatus(),
 	)
 }
 
