@@ -32,9 +32,9 @@ func (m *localCompactor) ShouldDebug() bool {
 func (m *localCompactor) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
-		task = &v1.Task{
-			TaskType: &v1.Task_CompactSyncs_{},
-		}
+		task = v1.Task_builder{
+			CompactSyncs: &v1.Task_CompactSyncs{},
+		}.Build()
 	})
 	return task, 0, nil
 }

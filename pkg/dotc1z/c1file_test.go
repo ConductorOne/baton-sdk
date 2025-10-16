@@ -119,15 +119,15 @@ func TestC1Z(t *testing.T) {
 	require.Equal(t, syncID, syncID2)
 
 	resourceTypeID := testResourceType
-	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
+	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
 	require.NoError(t, err)
 
 	// Fetch the resource type we just saved
-	rtResp, err := f.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
+	rtResp, err := f.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
 		ResourceTypeId: resourceTypeID,
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, resourceTypeID, rtResp.ResourceType.Id)
+	require.Equal(t, resourceTypeID, rtResp.GetResourceType().GetId())
 
 	err = f.Close()
 	require.NoError(t, err)
@@ -142,11 +142,11 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 
 	// Fetch the resource type we just saved
-	rtResp2, err := f.GetResourceType(ctx, &reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest{
+	rtResp2, err := f.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
 		ResourceTypeId: resourceTypeID,
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, resourceTypeID, rtResp2.ResourceType.Id)
+	require.Equal(t, resourceTypeID, rtResp2.GetResourceType().GetId())
 
 	err = f.Close()
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestC1ZDecoder(t *testing.T) {
 	require.NoError(t, err)
 
 	resourceTypeID := testResourceType
-	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
+	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
 	require.NoError(t, err)
 
 	// Close the raw DB so the write ahead log is checkpointed.
@@ -290,15 +290,15 @@ func TestC1ZStats(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, syncID)
 
-	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: testResourceType})
+	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: testResourceType}.Build())
 	require.NoError(t, err)
 
-	err = f.PutResources(ctx, &v2.Resource{
-		Id: &v2.ResourceId{
+	err = f.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: testResourceType,
 			Resource:     "test-resource",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 
 	err = f.EndSync(ctx)
@@ -341,15 +341,15 @@ func TestC1ZStatsPartialSync(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, syncID)
 
-	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: testResourceType})
+	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: testResourceType}.Build())
 	require.NoError(t, err)
 
-	err = f.PutResources(ctx, &v2.Resource{
-		Id: &v2.ResourceId{
+	err = f.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: testResourceType,
 			Resource:     "test-resource",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 
 	err = f.EndSync(ctx)
@@ -381,15 +381,15 @@ func TestC1ZStatsResourcesOnlySync(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, syncID)
 
-	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: testResourceType})
+	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: testResourceType}.Build())
 	require.NoError(t, err)
 
-	err = f.PutResources(ctx, &v2.Resource{
-		Id: &v2.ResourceId{
+	err = f.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: testResourceType,
 			Resource:     "test-resource",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 
 	err = f.EndSync(ctx)
@@ -437,35 +437,35 @@ func TestC1ZGrantStatsSync(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, syncID)
 
-	err = f.PutResourceTypes(ctx, &v2.ResourceType{Id: testResourceType})
+	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: testResourceType}.Build())
 	require.NoError(t, err)
 
-	err = f.PutGrants(ctx, &v2.Grant{
+	err = f.PutGrants(ctx, v2.Grant_builder{
 		Id: "grant-id",
-		Principal: &v2.Resource{
-			Id: &v2.ResourceId{
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: testResourceType,
 				Resource:     "principal-id",
-			},
-		},
-		Entitlement: &v2.Entitlement{
+			}.Build(),
+		}.Build(),
+		Entitlement: v2.Entitlement_builder{
 			Id: "entitlement-id",
-			Resource: &v2.Resource{
-				Id: &v2.ResourceId{
+			Resource: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					ResourceType: testResourceType,
 					Resource:     "resource-id2",
-				},
-			},
-		},
-	})
+				}.Build(),
+			}.Build(),
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 
-	err = f.PutResources(ctx, &v2.Resource{
-		Id: &v2.ResourceId{
+	err = f.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: testResourceType,
 			Resource:     "test-resource",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 
 	err = f.EndSync(ctx)

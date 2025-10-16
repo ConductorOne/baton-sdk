@@ -9,7 +9,7 @@ import (
 func TestRoleTrait(t *testing.T) {
 	rt, err := NewRoleTrait()
 	require.NoError(t, err)
-	require.Nil(t, rt.Profile)
+	require.Nil(t, rt.GetProfile())
 
 	roleProfile := make(map[string]interface{})
 	roleProfile["test"] = "role-profile-field"
@@ -17,8 +17,8 @@ func TestRoleTrait(t *testing.T) {
 	rt, err = NewRoleTrait(WithRoleProfile(roleProfile))
 	require.NoError(t, err)
 
-	require.NotNil(t, rt.Profile)
-	val, ok := GetProfileStringValue(rt.Profile, "test")
+	require.NotNil(t, rt.GetProfile())
+	val, ok := GetProfileStringValue(rt.GetProfile(), "test")
 	require.True(t, ok)
 	require.Equal(t, "role-profile-field", val)
 }

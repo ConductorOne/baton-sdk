@@ -12,7 +12,7 @@ type AppTraitOption func(gt *v2.AppTrait) error
 
 func WithAppIcon(assetRef *v2.AssetRef) AppTraitOption {
 	return func(at *v2.AppTrait) error {
-		at.Icon = assetRef
+		at.SetIcon(assetRef)
 
 		return nil
 	}
@@ -20,7 +20,7 @@ func WithAppIcon(assetRef *v2.AssetRef) AppTraitOption {
 
 func WithAppLogo(assetRef *v2.AssetRef) AppTraitOption {
 	return func(at *v2.AppTrait) error {
-		at.Logo = assetRef
+		at.SetLogo(assetRef)
 
 		return nil
 	}
@@ -28,7 +28,7 @@ func WithAppLogo(assetRef *v2.AssetRef) AppTraitOption {
 
 func WithAppFlags(flags ...v2.AppTrait_AppFlag) AppTraitOption {
 	return func(at *v2.AppTrait) error {
-		at.Flags = flags
+		at.SetFlags(flags)
 		return nil
 	}
 }
@@ -40,7 +40,7 @@ func WithAppProfile(profile map[string]interface{}) AppTraitOption {
 			return err
 		}
 
-		at.Profile = p
+		at.SetProfile(p)
 
 		return nil
 	}
@@ -48,7 +48,7 @@ func WithAppProfile(profile map[string]interface{}) AppTraitOption {
 
 func WithAppHelpURL(helpURL string) AppTraitOption {
 	return func(at *v2.AppTrait) error {
-		at.HelpUrl = helpURL
+		at.SetHelpUrl(helpURL)
 		return nil
 	}
 }
@@ -70,7 +70,7 @@ func NewAppTrait(opts ...AppTraitOption) (*v2.AppTrait, error) {
 // GetAppTrait attempts to return the AppTrait instance on a resource.
 func GetAppTrait(resource *v2.Resource) (*v2.AppTrait, error) {
 	ret := &v2.AppTrait{}
-	annos := annotations.Annotations(resource.Annotations)
+	annos := annotations.Annotations(resource.GetAnnotations())
 	ok, err := annos.Pick(ret)
 	if err != nil {
 		return nil, err

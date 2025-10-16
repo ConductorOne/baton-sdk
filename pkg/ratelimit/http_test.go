@@ -22,9 +22,9 @@ func TestHelpers_ExtractRateLimitData(t *testing.T) {
 
 	rl, err := ExtractRateLimitData(resp.StatusCode, &resp.Header)
 	require.NoError(t, err)
-	require.Equal(t, int64(100), rl.Limit)
-	require.Equal(t, int64(50), rl.Remaining)
-	require.Equal(t, n.Add(time.Second*30).Unix(), rl.ResetAt.AsTime().Unix())
+	require.Equal(t, int64(100), rl.GetLimit())
+	require.Equal(t, int64(50), rl.GetRemaining())
+	require.Equal(t, n.Add(time.Second*30).Unix(), rl.GetResetAt().AsTime().Unix())
 
 	resp = &http.Response{
 		StatusCode: http.StatusTooManyRequests,
@@ -33,7 +33,7 @@ func TestHelpers_ExtractRateLimitData(t *testing.T) {
 
 	rl, err = ExtractRateLimitData(resp.StatusCode, &resp.Header)
 	require.NoError(t, err)
-	require.Equal(t, int64(1), rl.Limit)
-	require.Equal(t, int64(0), rl.Remaining)
-	require.Equal(t, n.Add(time.Second*60).Unix(), rl.ResetAt.AsTime().Unix())
+	require.Equal(t, int64(1), rl.GetLimit())
+	require.Equal(t, int64(0), rl.GetRemaining())
+	require.Equal(t, n.Add(time.Second*60).Unix(), rl.GetResetAt().AsTime().Unix())
 }

@@ -36,14 +36,12 @@ func (m *localActionInvoker) ShouldDebug() bool {
 func (m *localActionInvoker) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
-		task = &v1.Task{
-			TaskType: &v1.Task_ActionInvoke{
-				ActionInvoke: &v1.Task_ActionInvokeTask{
-					Name: m.action,
-					Args: m.args,
-				},
-			},
-		}
+		task = v1.Task_builder{
+			ActionInvoke: v1.Task_ActionInvokeTask_builder{
+				Name: m.action,
+				Args: m.args,
+			}.Build(),
+		}.Build()
 	})
 	return task, 0, nil
 }
@@ -54,11 +52,11 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 	defer span.End()
 
 	t := task.GetActionInvoke()
-	resp, err := cc.InvokeAction(ctx, &v2.InvokeActionRequest{
+	resp, err := cc.InvokeAction(ctx, v2.InvokeActionRequest_builder{
 		Name:        t.GetName(),
 		Args:        t.GetArgs(),
 		Annotations: t.GetAnnotations(),
-	})
+	}.Build())
 	if err != nil {
 		return err
 	}

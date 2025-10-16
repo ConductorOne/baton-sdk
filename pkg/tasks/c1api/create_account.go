@@ -29,7 +29,7 @@ func (g *createAccountTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "createAccountTaskHandler.HandleTask")
 	defer span.End()
 
-	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.Id), zap.Stringer("task_type", tasks.GetType(g.task)))
+	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
 
 	t := g.task.GetCreateAccount()
 	if t == nil || t.GetAccountInfo() == nil {
@@ -41,11 +41,11 @@ func (g *createAccountTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	cc := g.helpers.ConnectorClient()
-	resp, err := cc.CreateAccount(ctx, &v2.CreateAccountRequest{
+	resp, err := cc.CreateAccount(ctx, v2.CreateAccountRequest_builder{
 		AccountInfo:       t.GetAccountInfo(),
 		CredentialOptions: t.GetCredentialOptions(),
 		EncryptionConfigs: t.GetEncryptionConfigs(),
-	})
+	}.Build())
 	if err != nil {
 		l.Error("failed creating account", zap.Error(err))
 		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))

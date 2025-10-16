@@ -258,54 +258,54 @@ func TestIntRules_Validate(t *testing.T) {
 	}
 
 	t.Run("valid value", func(t *testing.T) {
-		err := run(40, &v1_conf.Int64Rules{
+		err := run(40, v1_conf.Int64Rules_builder{
 			Gt:    intP(30),
 			Gte:   intP(40),
 			Lt:    intP(50),
 			Lte:   intP(60),
 			In:    []int64{10, 20, 30, 40, 50},
 			NotIn: []int64{60, 70, 80, 90, 100},
-		})
+		}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("required field with zero-value", func(t *testing.T) {
-		err := run(0, &v1_conf.Int64Rules{IsRequired: true})
+		err := run(0, v1_conf.Int64Rules_builder{IsRequired: true}.Build())
 		require.EqualError(t, err, "field TestField of type int is marked as required but it has a zero-value")
 	})
 
 	t.Run("value not equal to expected", func(t *testing.T) {
-		err := run(42, &v1_conf.Int64Rules{Eq: intP(50)})
+		err := run(42, v1_conf.Int64Rules_builder{Eq: intP(50)}.Build())
 		require.EqualError(t, err, "field TestField: expected 50 but got 42")
 	})
 
 	t.Run("value not greater than expected", func(t *testing.T) {
-		err := run(20, &v1_conf.Int64Rules{Gt: intP(30)})
+		err := run(20, v1_conf.Int64Rules_builder{Gt: intP(30)}.Build())
 		require.EqualError(t, err, "field TestField: value must be greater than 30 but got 20")
 	})
 
 	t.Run("value not greater than or equal to expected", func(t *testing.T) {
-		err := run(30, &v1_conf.Int64Rules{Gte: intP(40)})
+		err := run(30, v1_conf.Int64Rules_builder{Gte: intP(40)}.Build())
 		require.EqualError(t, err, "field TestField: value must be greater than or equal to 40 but got 30")
 	})
 
 	t.Run("value not less than expected", func(t *testing.T) {
-		err := run(60, &v1_conf.Int64Rules{Lt: intP(50)})
+		err := run(60, v1_conf.Int64Rules_builder{Lt: intP(50)}.Build())
 		require.EqualError(t, err, "field TestField: value must be less than 50 but got 60")
 	})
 
 	t.Run("value not less than or equal to expected", func(t *testing.T) {
-		err := run(60, &v1_conf.Int64Rules{Lte: intP(50)})
+		err := run(60, v1_conf.Int64Rules_builder{Lte: intP(50)}.Build())
 		require.EqualError(t, err, "field TestField: value must be less than or equal to 50 but got 60")
 	})
 
 	t.Run("value is not one of the expected values", func(t *testing.T) {
-		err := run(42, &v1_conf.Int64Rules{In: []int64{10, 20, 30, 40, 50}})
+		err := run(42, v1_conf.Int64Rules_builder{In: []int64{10, 20, 30, 40, 50}}.Build())
 		require.EqualError(t, err, "field TestField: value must be one of [10 20 30 40 50] but got 42")
 	})
 
 	t.Run("value is one of the not expected values", func(t *testing.T) {
-		err := run(60, &v1_conf.Int64Rules{NotIn: []int64{60, 70, 80, 90, 100}})
+		err := run(60, v1_conf.Int64Rules_builder{NotIn: []int64{60, 70, 80, 90, 100}}.Build())
 		require.EqualError(t, err, "field TestField: value must not be one of [60 70 80 90 100] but got 60")
 	})
 }
@@ -316,144 +316,144 @@ func TestStringRules_Validate(t *testing.T) {
 	}
 
 	t.Run("valid value", func(t *testing.T) {
-		err := run("test", &v1_conf.StringRules{
+		err := run("test", v1_conf.StringRules_builder{
 			Pattern:  sP("^[a-z]+$"),
 			Prefix:   sP("t"),
 			Suffix:   sP("st"),
 			Contains: sP("es"),
 			In:       []string{"foo", "bar", "test"},
 			NotIn:    []string{"foo", "bar"},
-		})
+		}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("value contains only digits", func(t *testing.T) {
-		err := run("12345", &v1_conf.StringRules{Pattern: sP("^[0-9]+$")})
+		err := run("12345", v1_conf.StringRules_builder{Pattern: sP("^[0-9]+$")}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("value starts with 'abc'", func(t *testing.T) {
-		err := run("abcdef", &v1_conf.StringRules{Pattern: sP("^abc.*")})
+		err := run("abcdef", v1_conf.StringRules_builder{Pattern: sP("^abc.*")}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("value ends with 'xyz'", func(t *testing.T) {
-		err := run("pqrxyz", &v1_conf.StringRules{Pattern: sP(".*xyz$")})
+		err := run("pqrxyz", v1_conf.StringRules_builder{Pattern: sP(".*xyz$")}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("value matches a specific format", func(t *testing.T) {
-		err := run("2022-01-01", &v1_conf.StringRules{Pattern: sP("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")})
+		err := run("2022-01-01", v1_conf.StringRules_builder{Pattern: sP("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("value does not match pattern", func(t *testing.T) {
-		err := run("123", &v1_conf.StringRules{Pattern: sP("^[a-z]+$")})
+		err := run("123", v1_conf.StringRules_builder{Pattern: sP("^[a-z]+$")}.Build())
 		require.EqualError(t, err, "field TestField: value must match pattern ^[a-z]+$ but got '123'")
 	})
 
 	t.Run("value does not match pattern with special characters", func(t *testing.T) {
-		err := run("123@", &v1_conf.StringRules{Pattern: sP("^[a-z]+$")})
+		err := run("123@", v1_conf.StringRules_builder{Pattern: sP("^[a-z]+$")}.Build())
 		require.EqualError(t, err, "field TestField: value must match pattern ^[a-z]+$ but got '123@'")
 	})
 
 	t.Run("value does not match pattern with multiple conditions", func(t *testing.T) {
-		err := run("123", &v1_conf.StringRules{Pattern: sP("^[a-z]+$")})
+		err := run("123", v1_conf.StringRules_builder{Pattern: sP("^[a-z]+$")}.Build())
 		require.EqualError(t, err, "field TestField: value must match pattern ^[a-z]+$ but got '123'")
 	})
 
 	t.Run("required field with zero-value", func(t *testing.T) {
-		err := run("", &v1_conf.StringRules{IsRequired: true})
+		err := run("", v1_conf.StringRules_builder{IsRequired: true}.Build())
 		require.EqualError(t, err, "field TestField of type string is marked as required but it has a zero-value")
 	})
 
 	t.Run("value not equal to expected", func(t *testing.T) {
-		err := run("1", &v1_conf.StringRules{Eq: sP("12")})
+		err := run("1", v1_conf.StringRules_builder{Eq: sP("12")}.Build())
 		require.EqualError(t, err, "field TestField: expected '12' but got '1'")
 	})
 
 	t.Run("value length not equal to expected", func(t *testing.T) {
-		err := run("123456", &v1_conf.StringRules{Len: uintP(5)})
+		err := run("123456", v1_conf.StringRules_builder{Len: uintP(5)}.Build())
 		require.EqualError(t, err, "field TestField: value must be exactly 5 characters long but got 6")
 	})
 
 	t.Run("value length less than minimum", func(t *testing.T) {
-		err := run("te", &v1_conf.StringRules{MinLen: uintP(10)})
+		err := run("te", v1_conf.StringRules_builder{MinLen: uintP(10)}.Build())
 		require.EqualError(t, err, "field TestField: value must be at least 10 characters long but got 2")
 	})
 
 	t.Run("value length greater than maximum", func(t *testing.T) {
-		err := run("123", &v1_conf.StringRules{MaxLen: uintP(2)})
+		err := run("123", v1_conf.StringRules_builder{MaxLen: uintP(2)}.Build())
 		require.EqualError(t, err, "field TestField: value must be at most 2 characters long but got 3")
 	})
 
 	t.Run("value does not match pattern", func(t *testing.T) {
-		err := run("123", &v1_conf.StringRules{Pattern: sP("^[a-z]+$")})
+		err := run("123", v1_conf.StringRules_builder{Pattern: sP("^[a-z]+$")}.Build())
 		require.EqualError(t, err, "field TestField: value must match pattern ^[a-z]+$ but got '123'")
 	})
 
 	t.Run("value does not have expected prefix", func(t *testing.T) {
-		err := run("123", &v1_conf.StringRules{Prefix: sP("pre")})
+		err := run("123", v1_conf.StringRules_builder{Prefix: sP("pre")}.Build())
 		require.EqualError(t, err, "field TestField: value must have prefix 'pre' but got '123'")
 	})
 
 	t.Run("value does not have expected suffix", func(t *testing.T) {
-		err := run("123", &v1_conf.StringRules{Suffix: sP("suf")})
+		err := run("123", v1_conf.StringRules_builder{Suffix: sP("suf")}.Build())
 		require.EqualError(t, err, "field TestField: value must have suffix 'suf' but got '123'")
 	})
 
 	t.Run("value does not contain expected substring", func(t *testing.T) {
-		err := run("123", &v1_conf.StringRules{Contains: sP("abc")})
+		err := run("123", v1_conf.StringRules_builder{Contains: sP("abc")}.Build())
 		require.EqualError(t, err, "field TestField: value must contain 'abc' but got '123'")
 	})
 
 	t.Run("value is not one of the expected values", func(t *testing.T) {
-		err := run("123", &v1_conf.StringRules{In: []string{"foo", "bar", "baz"}})
+		err := run("123", v1_conf.StringRules_builder{In: []string{"foo", "bar", "baz"}}.Build())
 		require.EqualError(t, err, "field TestField: value must be one of [foo bar baz] but got '123'")
 	})
 
 	t.Run("ignore empty value", func(t *testing.T) {
-		err := run("", &v1_conf.StringRules{Eq: sP("test")})
+		err := run("", v1_conf.StringRules_builder{Eq: sP("test")}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("value is a well-known URL", func(t *testing.T) {
-		err := run("https://example.com", &v1_conf.StringRules{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_URI})
+		err := run("https://example.com", v1_conf.StringRules_builder{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_URI}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("value is not a well-known URL", func(t *testing.T) {
-		err := run("example", &v1_conf.StringRules{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_URI})
+		err := run("example", v1_conf.StringRules_builder{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_URI}.Build())
 		require.EqualError(t, err, "field TestField: value must be a valid URL but got 'example'")
 	})
 
 	t.Run("value is a well-known IP address", func(t *testing.T) {
-		err := run("192.168.0.1", &v1_conf.StringRules{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_IP})
+		err := run("192.168.0.1", v1_conf.StringRules_builder{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_IP}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("value is not a well-known IP address", func(t *testing.T) {
-		err := run("example", &v1_conf.StringRules{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_IP})
+		err := run("example", v1_conf.StringRules_builder{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_IP}.Build())
 		require.EqualError(t, err, "field TestField: value must be a valid IP address but got 'example'")
 	})
 
 	t.Run("value is a well-known UUID", func(t *testing.T) {
-		err := run("6ba7b810-9dad-11d1-80b4-00c04fd430c8", &v1_conf.StringRules{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_UUID})
+		err := run("6ba7b810-9dad-11d1-80b4-00c04fd430c8", v1_conf.StringRules_builder{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_UUID}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("value is not a well-known UUID", func(t *testing.T) {
-		err := run("example", &v1_conf.StringRules{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_UUID})
+		err := run("example", v1_conf.StringRules_builder{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_UUID}.Build())
 		require.EqualError(t, err, "field TestField: value must be a valid UUID but got 'example'")
 	})
 
 	t.Run("value is a well-known email address", func(t *testing.T) {
-		err := run("test@example.com", &v1_conf.StringRules{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_EMAIL})
+		err := run("test@example.com", v1_conf.StringRules_builder{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_EMAIL}.Build())
 		require.NoError(t, err)
 	})
 
 	t.Run("value is not a well-known email address", func(t *testing.T) {
-		err := run("test", &v1_conf.StringRules{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_EMAIL})
+		err := run("test", v1_conf.StringRules_builder{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_EMAIL}.Build())
 		require.EqualError(t, err, "field TestField: value must be a valid email address but got 'test'")
 	})
 
@@ -475,12 +475,12 @@ func TestStringRules_Validate(t *testing.T) {
 		}
 
 		for _, v := range valid {
-			err := run(v, &v1_conf.StringRules{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_HOSTNAME})
+			err := run(v, v1_conf.StringRules_builder{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_HOSTNAME}.Build())
 			require.NoError(t, err)
 		}
 
 		for _, v := range invalid {
-			err := run(v, &v1_conf.StringRules{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_HOSTNAME})
+			err := run(v, v1_conf.StringRules_builder{WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_HOSTNAME}.Build())
 			require.EqualError(t, err, "field TestField: value must be a valid hostname but got '"+v+"'")
 		}
 	})
@@ -492,41 +492,41 @@ func TestRepeatedRulesStringRules_Validate(t *testing.T) {
 	}
 
 	t.Run("not unique", func(t *testing.T) {
-		err := run([]string{"a", "a"}, &v1_conf.RepeatedStringRules{Unique: true})
+		err := run([]string{"a", "a"}, v1_conf.RepeatedStringRules_builder{Unique: true}.Build())
 		require.EqualError(t, err, "field TestField: value must not contain duplicate items but got multiple \"a\"")
 	})
 
 	t.Run("empty input", func(t *testing.T) {
-		err := run([]string{}, &v1_conf.RepeatedStringRules{IsRequired: true})
+		err := run([]string{}, v1_conf.RepeatedStringRules_builder{IsRequired: true}.Build())
 		require.EqualError(t, err, "field TestField of type []string is marked as required but it has a zero-value")
 	})
 
 	t.Run("fewer items than MinItems", func(t *testing.T) {
-		err := run([]string{"a"}, &v1_conf.RepeatedStringRules{MinItems: uintP(2)})
+		err := run([]string{"a"}, v1_conf.RepeatedStringRules_builder{MinItems: uintP(2)}.Build())
 		require.EqualError(t, err, "field TestField: value must have at least 2 items but got 1")
 	})
 
 	t.Run("more items than MaxItems", func(t *testing.T) {
-		err := run([]string{"a", "b", "c", "d", "e", "f"}, &v1_conf.RepeatedStringRules{MaxItems: uintP(5)})
+		err := run([]string{"a", "b", "c", "d", "e", "f"}, v1_conf.RepeatedStringRules_builder{MaxItems: uintP(5)}.Build())
 		require.EqualError(t, err, "field TestField: value must have at most 5 items but got 6")
 	})
 
 	t.Run("items not matching innner constraints", func(t *testing.T) {
-		err := run([]string{"example", "invalid"}, &v1_conf.RepeatedStringRules{
-			ItemRules: &v1_conf.StringRules{
+		err := run([]string{"example", "invalid"}, v1_conf.RepeatedStringRules_builder{
+			ItemRules: v1_conf.StringRules_builder{
 				IsRequired: true,
 				Eq:         sP("example"),
-			},
-		})
+			}.Build(),
+		}.Build())
 		require.EqualError(t, err, "field TestField invalid item at field 1: expected 'example' but got 'invalid'")
 	})
 
 	t.Run("items matching innner constraints", func(t *testing.T) {
-		err := run([]string{"a@b.com", "a@b"}, &v1_conf.RepeatedStringRules{
-			ItemRules: &v1_conf.StringRules{
+		err := run([]string{"a@b.com", "a@b"}, v1_conf.RepeatedStringRules_builder{
+			ItemRules: v1_conf.StringRules_builder{
 				WellKnown: v1_conf.WellKnownString_WELL_KNOWN_STRING_EMAIL,
-			},
-		})
+			}.Build(),
+		}.Build())
 		require.NoError(t, err)
 	})
 }
@@ -561,13 +561,13 @@ func TestStringMapRules_Validate(t *testing.T) {
 	})
 
 	t.Run("required string map", func(t *testing.T) {
-		err := run(map[string]any{}, &v1_conf.StringMapRules{
+		err := run(map[string]any{}, v1_conf.StringMapRules_builder{
 			IsRequired: true,
-		})
+		}.Build())
 		require.EqualError(t, err, "field TestField of type map[string]any is marked as required but it has a zero-value")
-		err = run(map[string]any{"key1": "value1"}, &v1_conf.StringMapRules{
+		err = run(map[string]any{"key1": "value1"}, v1_conf.StringMapRules_builder{
 			IsRequired: true,
-		})
+		}.Build())
 		require.NoError(t, err)
 	})
 }
@@ -594,10 +594,10 @@ func TestFieldGroupMapping(t *testing.T) {
 		marshal, err := carrier.marshal()
 		require.NoError(t, err)
 
-		require.Len(t, marshal.FieldGroups, 1)
-		require.Equal(t, "group1", marshal.FieldGroups[0].Name)
-		require.Equal(t, "Group 1", marshal.FieldGroups[0].DisplayName)
-		require.Equal(t, "This is group 1", marshal.FieldGroups[0].HelpText)
-		require.Len(t, marshal.FieldGroups[0].Fields, 2)
+		require.Len(t, marshal.GetFieldGroups(), 1)
+		require.Equal(t, "group1", marshal.GetFieldGroups()[0].GetName())
+		require.Equal(t, "Group 1", marshal.GetFieldGroups()[0].GetDisplayName())
+		require.Equal(t, "This is group 1", marshal.GetFieldGroups()[0].GetHelpText())
+		require.Len(t, marshal.GetFieldGroups()[0].GetFields(), 2)
 	})
 }
