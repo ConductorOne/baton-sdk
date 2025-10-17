@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	cacheTTLMaximum  uint64 = 31536000 // 31536000 seconds = one year
-	cacheTTLDefault  uint64 = 3600     // 3600 seconds = one hour
-	defaultCacheSize uint   = 5        // MB
+	cacheTTLMaximum    time.Duration = 31536000 * time.Second // 31536000 seconds = one year
+	cacheTTLDefault    time.Duration = 3600 * time.Second     // 3600 seconds = one hour
+	defaultCacheSizeMb uint64        = 5                      // MB
 )
 
 type CacheBackend string
@@ -32,15 +32,15 @@ const (
 )
 
 type CacheConfig struct {
-	LogDebug bool
-	TTL      uint64       // If 0, cache is disabled
-	MaxSize  uint         // MB
-	Backend  CacheBackend // If noop, cache is disabled
+	LogDebug  bool
+	TTL       time.Duration // If 0, cache is disabled
+	MaxSizeMb uint64        // MB
+	Backend   CacheBackend  // If noop, cache is disabled
 }
 
 type CacheStats struct {
-	Hits   int64
-	Misses int64
+	Hits   uint64
+	Misses uint64
 }
 
 type ContextKey struct{}
@@ -50,7 +50,7 @@ type GoCache struct {
 }
 
 type NoopCache struct {
-	counter int64
+	counter uint64
 }
 
 func NewNoopCache(ctx context.Context) *NoopCache {
@@ -79,15 +79,15 @@ func (n *NoopCache) Stats(ctx context.Context) CacheStats {
 }
 
 func (cc *CacheConfig) ToString() string {
-	return fmt.Sprintf("Backend: %v, TTL: %d, MaxSize: %dMB, LogDebug: %t", cc.Backend, cc.TTL, cc.MaxSize, cc.LogDebug)
+	return fmt.Sprintf("Backend: %v, TTL: %d, MaxSize: %dMB, LogDebug: %t", cc.Backend, cc.TTL, cc.MaxSizeMb, cc.LogDebug)
 }
 
 func DefaultCacheConfig() CacheConfig {
 	return CacheConfig{
-		TTL:      cacheTTLDefault,
-		MaxSize:  defaultCacheSize,
-		LogDebug: false,
-		Backend:  CacheBackendMemory,
+		TTL:       cacheTTLDefault,
+		MaxSizeMb: defaultCacheSizeMb,
+		LogDebug:  false,
+		Backend:   CacheBackendMemory,
 	}
 }
 
@@ -96,12 +96,12 @@ func NewCacheConfigFromEnv() *CacheConfig {
 
 	cacheMaxSize, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_MAX_SIZE"), 10, 64)
 	if err == nil && cacheMaxSize >= 0 {
-		config.MaxSize = uint(cacheMaxSize)
+		config.MaxSizeMb = uint64(cacheMaxSize)
 	}
 
-	cacheTTL, err := strconv.ParseUint(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
+	cacheTTL, err := strconv.ParseInt(os.Getenv("BATON_HTTP_CACHE_TTL"), 10, 64)
 	if err == nil {
-		config.TTL = min(cacheTTLMaximum, max(0, cacheTTL))
+		config.TTL = min(cacheTTLMaximum, max(0, time.Duration(cacheTTL)*time.Second))
 	}
 
 	cacheBackend := os.Getenv("BATON_HTTP_CACHE_BACKEND")
@@ -147,7 +147,7 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 	l.Info("http cache config", zap.String("config", config.ToString()))
 
 	if config.TTL == 0 {
-		l.Debug("CacheTTL is 0, disabling cache.", zap.Uint64("CacheTTL", config.TTL))
+		l.Debug("NewHttpCache: Cache TTL is 0, disabling cache.", zap.Duration("cache_ttl", config.TTL))
 		return NewNoopCache(ctx), nil
 	}
 
@@ -179,7 +179,7 @@ func NewHttpCache(ctx context.Context, config *CacheConfig) (icache, error) {
 func NewGoCache(ctx context.Context, cfg CacheConfig) (*GoCache, error) {
 	l := ctxzap.Extract(ctx)
 	gc := GoCache{}
-	maxSize := cfg.MaxSize * 1024 * 1024
+	maxSize := cfg.MaxSizeMb * 1024 * 1024
 	if maxSize > math.MaxInt {
 		return nil, fmt.Errorf("error converting max size to bytes")
 	}
@@ -189,7 +189,7 @@ func NewGoCache(ctx context.Context, cfg CacheConfig) (*GoCache, error) {
 		Cost(func(key string, value []byte) uint32 {
 			return uint32(len(key) + len(value))
 		}).
-		WithTTL(time.Duration(cfg.TTL) * time.Second).
+		WithTTL(cfg.TTL).
 		Build()
 
 	if err != nil {
@@ -208,9 +208,17 @@ func (g *GoCache) Stats(ctx context.Context) CacheStats {
 		return CacheStats{}
 	}
 	stats := g.rootLibrary.Stats()
+	hits := stats.Hits()
+	misses := stats.Misses()
+	if hits < 0 {
+		hits = 0
+	}
+	if misses < 0 {
+		misses = 0
+	}
 	return CacheStats{
-		Hits:   stats.Hits(),
-		Misses: stats.Misses(),
+		Hits:   uint64(hits),   //nolint:gosec // disable G115: we check the min size
+		Misses: uint64(misses), //nolint:gosec // disable G115: we check the min size
 	}
 }
 

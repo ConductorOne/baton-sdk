@@ -3,6 +3,7 @@ package uhttp
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	_ "github.com/glebarez/go-sqlite"
@@ -66,7 +67,7 @@ func TestDBCache(t *testing.T) {
 
 func getDBCacheForTesting() (*DBCache, error) {
 	fc, err := NewDBCache(ctx, CacheConfig{
-		TTL: 3600,
+		TTL: 3600 * time.Second,
 	})
 	if err != nil {
 		return nil, err
