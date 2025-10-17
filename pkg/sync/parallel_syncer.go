@@ -811,6 +811,9 @@ func NewParallelSyncer(baseSyncer *SequentialSyncer, config *ParallelSyncConfig)
 		config = DefaultParallelSyncConfig()
 	}
 
+	// Enable WAL checkpointing for parallel sync to prevent checkpoint failures under high concurrency
+	baseSyncer.enableWALCheckpoint = true
+
 	return &parallelSyncer{
 		syncer: baseSyncer,
 		config: config,
