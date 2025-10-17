@@ -102,6 +102,7 @@ func (l *localManager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 		"successfully loaded c1z locally",
 		zap.String("file_path", l.filePath),
 		zap.String("temp_path", l.tmpPath),
+		zap.String("tmp_dir", l.tmpDir),
 	)
 
 	opts := []dotc1z.C1ZOption{
@@ -150,6 +151,7 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 		"successfully saved c1z locally",
 		zap.String("file_path", l.filePath),
 		zap.String("temp_path", l.tmpPath),
+		zap.String("tmp_dir", l.tmpDir),
 		zap.Int64("bytes", size),
 	)
 
