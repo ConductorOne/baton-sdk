@@ -55,7 +55,7 @@ type C1File struct {
 	checkpointStop    chan struct{}
 	checkpointDone    chan struct{}
 	checkpointOnce    sync.Once
-	checkpointMu      sync.RWMutex // Protects database access during checkpointing
+	checkpointMu      sync.RWMutex // Prevents DB activity during WAL checkpoint to avoid WAL file growth under heavy load
 	checkpointEnabled bool         // Whether WAL checkpointing is enabled
 }
 
