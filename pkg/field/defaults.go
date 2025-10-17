@@ -93,7 +93,7 @@ var (
 	syncResourceTypeIDs = StringSliceField("sync-resource-types",
 		WithDescription("The resource type IDs to sync"),
 		WithPersistent(true),
-		WithExportTarget(ExportTargetNone)) // TODO(lauren) should this be none? how does this work for lambda
+		WithExportTarget(ExportTargetNone))
 	diffSyncsField = BoolField(
 		"diff-syncs",
 		WithDescription("Create a new partial SyncID from a base and applied sync."),
