@@ -387,10 +387,13 @@ func WithExternalLimiter(address string, opts map[string]string) Option {
 // `usePercent` is value between 0 and 100.
 func WithSlidingMemoryLimiter(usePercent int64) Option {
 	return func(ctx context.Context, w *runnerConfig) error {
+		if usePercent < 0 || usePercent > 100 {
+			return fmt.Errorf("usePercent must be between 0 and 100")
+		}
 		w.rlCfg = &ratelimitV1.RateLimiterConfig{
 			Type: &ratelimitV1.RateLimiterConfig_SlidingMem{
 				SlidingMem: &ratelimitV1.SlidingMemoryLimiter{
-					UsePercent: float64(usePercent / 100),
+					UsePercent: float64(usePercent) / 100.0,
 				},
 			},
 		}
