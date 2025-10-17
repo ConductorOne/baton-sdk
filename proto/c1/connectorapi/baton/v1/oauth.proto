@@ -1,0 +1,15 @@
+syntax = "proto3";
+
+package c1.connectorapi.baton.v1;
+
+option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
+
+service ConnectorOauthTokenService {
+    rpc GetConnectorOauthToken(GetConnectorOauthTokenRequest) returns (GetConnectorOauthTokenResponse);
+}
+
+message GetConnectorOauthTokenRequest {}
+
+message GetConnectorOauthTokenResponse {
+    bytes token = 1;
+}
