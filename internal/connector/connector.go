@@ -90,6 +90,7 @@ type wrapper struct {
 	fullSyncDisabled        bool
 	targetedSyncResourceIDs []string
 	sessionStoreEnabled     bool
+	syncResourceTypeIDs     []string
 
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
@@ -155,6 +156,13 @@ func WithTicketingEnabled() Option {
 func WithTargetedSyncResourceIDs(resourceIDs []string) Option {
 	return func(ctx context.Context, w *wrapper) error {
 		w.targetedSyncResourceIDs = resourceIDs
+		return nil
+	}
+}
+
+func WithSyncResourceTypeIDs(resourceTypeIDs []string) Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.syncResourceTypeIDs = resourceTypeIDs
 		return nil
 	}
 }
