@@ -782,7 +782,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs),
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
 				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
-
 			)
 			if err != nil {
 				return nil, err

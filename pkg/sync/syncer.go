@@ -2853,9 +2853,9 @@ func WithSessionStore(sessionStore session.SetSessionStore) SyncOpt {
 	}
 }
 
-func WithSyncResourceTypes(resourceTypeIds []string) SyncOpt {
+func WithSyncResourceTypes(resourceTypeIDs []string) SyncOpt {
 	return func(s *syncer) {
-		s.syncResourceTypes = resourceTypeIds
+		s.syncResourceTypes = resourceTypeIDs
 	}
 }
 
