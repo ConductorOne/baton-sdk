@@ -122,8 +122,7 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 	}
 
 	if m.parallelSync {
-		config := sdkSync.DefaultParallelSyncConfig()
-		config.WithWorkerCount(10)
+		config := sdkSync.DefaultParallelSyncConfig().WithWorkerCount(10)
 		syncer = sdkSync.NewParallelSyncer(baseSyncer, config)
 	} else {
 		syncer = baseSyncer

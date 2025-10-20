@@ -28,15 +28,20 @@ var taskRetryLimit = 5
 var errTaskQueueFull = errors.New("task queue is full")
 var parallelTracer = otel.Tracer("baton-sdk/parallel-sync")
 
-// min returns the smaller of two integers
-func min(a, b int) int {
+const (
+	nextPageAction = "next_page"
+	finishAction   = "finish"
+)
+
+// min returns the smaller of two integers.
+func minInt(a, b int) int {
 	if a < b {
 		return a
 	}
 	return b
 }
 
-// addTaskWithRetry adds a task to the queue with retry logic for queue full errors
+// addTaskWithRetry adds a task to the queue with retry logic for queue full errors.
 func (ps *parallelSyncer) addTaskWithRetry(ctx context.Context, task *task, maxRetries int) error {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		err := ps.taskQueue.AddTask(ctx, task)
@@ -66,8 +71,8 @@ func (ps *parallelSyncer) addTaskWithRetry(ctx context.Context, task *task, maxR
 	return nil // This should never be reached
 }
 
-// addTasksAfterCompletion safely adds tasks after a worker has completed its current task
-func (w *worker) addTasksAfterCompletion(tasks []*task) {
+// addTasksAfterCompletion safely adds tasks after a worker has completed its current task.
+func (w *worker) addTasksAfterCompletion(tasks []*task) error {
 	l := ctxzap.Extract(w.ctx)
 	l.Debug("adding tasks after completion", zap.Int("task_count", len(tasks)))
 
@@ -77,13 +82,14 @@ func (w *worker) addTasksAfterCompletion(tasks []*task) {
 			l.Error("CRITICAL: failed to add task after completion - this should never happen",
 				zap.String("operation", task.Action.Op.String()),
 				zap.Error(err))
-			// This is a critical error - we should panic or handle it differently
-			panic(fmt.Sprintf("failed to add task after completion: %v", err))
+			return fmt.Errorf("failed to add task after completion: %w", err)
 		}
 	}
+
+	return nil
 }
 
-// addTaskWithGuarantee ensures a task is never lost by trying multiple strategies
+// addTaskWithGuarantee ensures a task is never lost by trying multiple strategies.
 func (w *worker) addTaskWithGuarantee(task *task) error {
 	l := ctxzap.Extract(w.ctx)
 
@@ -108,7 +114,7 @@ func (w *worker) addTaskWithGuarantee(task *task) error {
 	return w.processTaskImmediately(task)
 }
 
-// processTaskImmediately processes a task directly without going through the queue
+// processTaskImmediately processes a task directly without going through the queue.
 func (w *worker) processTaskImmediately(task *task) error {
 	l := ctxzap.Extract(w.ctx)
 	l.Debug("processing task immediately",
@@ -162,9 +168,9 @@ func (w *worker) processTaskImmediately(task *task) error {
 	}
 }
 
-// StateInterface defines the minimal interface needed by helper methods
+// StateInterface defines the minimal interface needed by helper methods.
 // This allows helper methods to work with either the sequential syncer's state machine
-// or the parallel syncer's local state context
+// or the parallel syncer's local state context.
 type StateInterface interface {
 	PageToken(ctx context.Context) string
 	NextPage(ctx context.Context, pageToken string) error
@@ -173,8 +179,8 @@ type StateInterface interface {
 	ShouldFetchRelatedResources() bool
 }
 
-// ActionDecision represents the decision made by a helper method
-// This allows the caller to decide how to handle the result
+// ActionDecision represents the decision made by a helper method.
+// This allows the caller to decide how to handle the result.
 type ActionDecision struct {
 	ShouldContinue       bool   // Whether to continue processing (e.g., more pages)
 	NextPageToken        string // Page token for next page, if applicable
@@ -184,8 +190,8 @@ type ActionDecision struct {
 	ShouldFetchRelated   bool   // Whether related resources should be fetched
 }
 
-// LocalStateContext provides local state management for parallel syncer
-// This implements StateInterface without sharing the global state machine
+// LocalStateContext provides local state management for parallel syncer.
+// This implements StateInterface without sharing the global state machine.
 type LocalStateContext struct {
 	resourceID           *v2.ResourceId
 	pageToken            string
@@ -194,7 +200,7 @@ type LocalStateContext struct {
 	shouldFetchRelated   bool
 }
 
-// NewLocalStateContext creates a new local state context for a resource
+// NewLocalStateContext creates a new local state context for a resource.
 func NewLocalStateContext(resourceID *v2.ResourceId) *LocalStateContext {
 	return &LocalStateContext{
 		resourceID:           resourceID,
@@ -205,33 +211,33 @@ func NewLocalStateContext(resourceID *v2.ResourceId) *LocalStateContext {
 	}
 }
 
-// PageToken returns the current page token for this resource
+// PageToken returns the current page token for this resource.
 func (lsc *LocalStateContext) PageToken(ctx context.Context) string {
 	return lsc.pageToken
 }
 
-// NextPage updates the page token for the next page
+// NextPage updates the page token for the next page.
 func (lsc *LocalStateContext) NextPage(ctx context.Context, pageToken string) error {
 	lsc.pageToken = pageToken
 	return nil
 }
 
-// SetNeedsExpansion marks that grant expansion is needed
+// SetNeedsExpansion marks that grant expansion is needed.
 func (lsc *LocalStateContext) SetNeedsExpansion() {
 	lsc.needsExpansion = true
 }
 
-// SetHasExternalResourcesGrants marks that external resources were found
+// SetHasExternalResourcesGrants marks that external resources were found.
 func (lsc *LocalStateContext) SetHasExternalResourcesGrants() {
 	lsc.hasExternalResources = true
 }
 
-// ShouldFetchRelatedResources returns whether related resources should be fetched
+// ShouldFetchRelatedResources returns whether related resources should be fetched.
 func (lsc *LocalStateContext) ShouldFetchRelatedResources() bool {
 	return lsc.shouldFetchRelated
 }
 
-// ParallelSyncConfig holds configuration for parallel sync operations
+// ParallelSyncConfig holds configuration for parallel sync operations.
 type ParallelSyncConfig struct {
 	// Number of worker goroutines to use for parallel processing
 	WorkerCount int
@@ -240,7 +246,7 @@ type ParallelSyncConfig struct {
 	DefaultBucket string
 }
 
-// DefaultParallelSyncConfig returns a default configuration
+// DefaultParallelSyncConfig returns a default configuration.
 func DefaultParallelSyncConfig() *ParallelSyncConfig {
 	return &ParallelSyncConfig{
 		WorkerCount:   2,
@@ -248,7 +254,7 @@ func DefaultParallelSyncConfig() *ParallelSyncConfig {
 	}
 }
 
-// WithWorkerCount sets the number of worker goroutines
+// WithWorkerCount sets the number of worker goroutines.
 func (c *ParallelSyncConfig) WithWorkerCount(count int) *ParallelSyncConfig {
 	if count > 0 {
 		c.WorkerCount = count
@@ -256,27 +262,26 @@ func (c *ParallelSyncConfig) WithWorkerCount(count int) *ParallelSyncConfig {
 	return c
 }
 
-// WithDefaultBucket sets the default bucket for resource types that don't specify a sync_bucket
+// WithDefaultBucket sets the default bucket for resource types that don't specify a sync_bucket.
 func (c *ParallelSyncConfig) WithDefaultBucket(bucket string) *ParallelSyncConfig {
 	c.DefaultBucket = bucket
 	return c
 }
 
-// task represents a unit of work for the parallel syncer
+// task represents a unit of work for the parallel syncer.
 type task struct {
 	Action       Action
 	ResourceID   string
-	Priority     int              // Higher priority tasks are processed first
 	ResourceType *v2.ResourceType // The resource type for this task
 }
 
-// TaskResult contains tasks that should be created after completing a task
+// TaskResult contains tasks that should be created after completing a task.
 type TaskResult struct {
 	Tasks []*task
 	Error error
 }
 
-// DeferredTaskAdder collects tasks during processing and adds them after completion
+// DeferredTaskAdder collects tasks during processing and adds them after completion.
 type DeferredTaskAdder struct {
 	pendingTasks []*task
 	sync.RWMutex
@@ -306,21 +311,21 @@ func (dta *DeferredTaskAdder) Clear() {
 	dta.pendingTasks = dta.pendingTasks[:0] // Reuse slice
 }
 
-// taskQueue manages the distribution of tasks to workers using dynamic bucketing
+// taskQueue manages the distribution of tasks to workers using dynamic bucketing.
 type taskQueue struct {
-	bucketQueues map[string]chan *task // Map of bucket name to task channel
-	config       *ParallelSyncConfig
-	mu           sync.RWMutex
-	closed       bool
+	bucketQueues   map[string]chan *task // Map of bucket name to task channel
+	parallelSyncer *parallelSyncer
+	mu             sync.RWMutex
+	closed         bool
 }
 
-// newTaskQueue creates a new task queue
-func newTaskQueue(config *ParallelSyncConfig) *taskQueue {
+// newTaskQueue creates a new task queue.
+func newTaskQueue(parallelSyncer *parallelSyncer) *taskQueue {
 	// Initialize with an empty map of bucket queues
 	// Buckets will be created dynamically as tasks are added
 	return &taskQueue{
-		bucketQueues: make(map[string]chan *task),
-		config:       config,
+		bucketQueues:   make(map[string]chan *task),
+		parallelSyncer: parallelSyncer,
 	}
 }
 
@@ -335,7 +340,7 @@ func (q *taskQueue) getOrCreateBucketChannel(bucket string) (chan *task, error) 
 	// Create the bucket queue if it doesn't exist
 	queue, exists := q.bucketQueues[bucket]
 	if !exists {
-		queueSize := q.config.WorkerCount * 10
+		queueSize := q.parallelSyncer.config.WorkerCount * 10
 		queue = make(chan *task, queueSize)
 		q.bucketQueues[bucket] = queue
 	}
@@ -343,7 +348,7 @@ func (q *taskQueue) getOrCreateBucketChannel(bucket string) (chan *task, error) 
 	return queue, nil
 }
 
-// AddTask adds a task to the appropriate queue
+// AddTask adds a task to the appropriate queue.
 func (q *taskQueue) AddTask(ctx context.Context, t *task) error {
 	bucket := q.getBucketForTask(t)
 	queue, err := q.getOrCreateBucketChannel(bucket)
@@ -371,7 +376,7 @@ func (q *taskQueue) AddTask(ctx context.Context, t *task) error {
 	}
 }
 
-// AddTaskWithTimeout adds a task with a custom timeout and dynamic queue expansion
+// AddTaskWithTimeout adds a task with a custom timeout and dynamic queue expansion.
 func (q *taskQueue) AddTaskWithTimeout(ctx context.Context, t *task, timeout time.Duration) error {
 	bucket := q.getBucketForTask(t)
 	queue, err := q.getOrCreateBucketChannel(bucket)
@@ -391,7 +396,7 @@ func (q *taskQueue) AddTaskWithTimeout(ctx context.Context, t *task, timeout tim
 	}
 }
 
-// expandQueueAndRetry attempts to expand the queue and retry adding the task
+// expandQueueAndRetry attempts to expand the queue and retry adding the task.
 func (q *taskQueue) expandQueueAndRetry(bucket string, t *task, timeout time.Duration) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -413,7 +418,7 @@ func (q *taskQueue) expandQueueAndRetry(bucket string, t *task, timeout time.Dur
 	}
 
 	// Calculate new size (double it, but cap at reasonable limit)
-	newSize := min(currentSize*2, 50000) // Cap at 50k tasks per bucket
+	newSize := minInt(currentSize*2, 50000) // Cap at 50k tasks per bucket
 
 	if newSize <= currentSize {
 		l.Warn("queue expansion blocked - already at maximum size",
@@ -457,7 +462,7 @@ func (q *taskQueue) expandQueueAndRetry(bucket string, t *task, timeout time.Dur
 	}
 }
 
-// getBucketForTask determines the bucket for a task based on the resource type's sync_bucket
+// getBucketForTask determines the bucket for a task based on the resource type's sync_bucket.
 func (q *taskQueue) getBucketForTask(t *task) string {
 	// If the resource type has an explicit sync_bucket, use it
 	if t.ResourceType != nil && t.ResourceType.SyncBucket != "" {
@@ -465,15 +470,15 @@ func (q *taskQueue) getBucketForTask(t *task) string {
 	}
 
 	// If no explicit bucket and default is empty, create a unique bucket per resource type
-	if q.config.DefaultBucket == "" {
+	if q.parallelSyncer.config.DefaultBucket == "" {
 		return fmt.Sprintf("resource-type-%s", t.Action.ResourceTypeID)
 	}
 
 	// Otherwise use the configured default bucket
-	return q.config.DefaultBucket
+	return q.parallelSyncer.config.DefaultBucket
 }
 
-// GetTask retrieves the next task with intelligent bucket selection
+// GetTask retrieves the next task with intelligent bucket selection.
 func (q *taskQueue) GetTask(ctx context.Context) (*task, error) {
 	q.mu.Lock() // Use write lock to make the operation atomic
 	defer q.mu.Unlock()
@@ -531,7 +536,7 @@ func (q *taskQueue) GetTask(ctx context.Context) (*task, error) {
 	return nil, errors.New("no tasks available")
 }
 
-// getMapKeys returns the keys of a map as a slice
+// getMapKeys returns the keys of a map as a slice.
 func getMapKeys(m map[string]chan *task) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {
@@ -540,7 +545,7 @@ func getMapKeys(m map[string]chan *task) []string {
 	return keys
 }
 
-// GetTaskFromBucket retrieves a task from a specific bucket
+// GetTaskFromBucket retrieves a task from a specific bucket.
 func (q *taskQueue) GetTaskFromBucket(bucketName string) (*task, error) {
 	q.mu.Lock() // Use write lock to make the operation atomic
 	defer q.mu.Unlock()
@@ -558,7 +563,7 @@ func (q *taskQueue) GetTaskFromBucket(bucketName string) (*task, error) {
 	}
 }
 
-// GetBucketStats returns statistics about each bucket
+// GetBucketStats returns statistics about each bucket.
 func (q *taskQueue) GetBucketStats() map[string]int {
 	q.mu.RLock()
 	defer q.mu.RUnlock()
@@ -570,21 +575,18 @@ func (q *taskQueue) GetBucketStats() map[string]int {
 	return stats
 }
 
-// Close closes the task queue
+// Close closes the task queue.
 func (q *taskQueue) Close() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	if !q.closed {
-		// Close all bucket queues
-		for _, queue := range q.bucketQueues {
-			close(queue)
-		}
-		q.closed = true
+	for _, w := range q.parallelSyncer.workers {
+		w.cancel()
 	}
+	q.closed = true
 }
 
-// worker represents a worker goroutine that processes tasks
+// worker represents a worker goroutine that processes tasks.
 type worker struct {
 	id           int
 	taskQueue    *taskQueue
@@ -596,7 +598,7 @@ type worker struct {
 	isProcessing atomic.Bool
 }
 
-// newWorker creates a new worker
+// newWorker creates a new worker.
 func newWorker(id int, taskQueue *taskQueue, syncer *parallelSyncer, ctx context.Context, wg *sync.WaitGroup) *worker {
 	workerCtx, cancel := context.WithCancel(ctx)
 	return &worker{
@@ -609,7 +611,7 @@ func newWorker(id int, taskQueue *taskQueue, syncer *parallelSyncer, ctx context
 	}
 }
 
-// Start starts the worker with bucket-aware task processing and work-stealing
+// Start starts the worker with bucket-aware task processing and work-stealing.
 func (w *worker) Start() {
 	defer w.wg.Done()
 
@@ -627,13 +629,17 @@ func (w *worker) Start() {
 			l.Debug("worker stopped", zap.Int("worker_id", w.id))
 			return
 		default:
-
 			// Try to get a task, with preference for the current bucket if we're making progress
 			task, err := w.taskQueue.GetTask(w.ctx)
 			if err != nil {
 				// No tasks available, wait a bit
 				l.Debug("no tasks available, waiting", zap.Int("worker_id", w.id), zap.Error(err))
-				time.Sleep(100 * time.Millisecond)
+				select {
+				case <-w.ctx.Done():
+					l.Debug("worker context cancelled, stopping", zap.Int("worker_id", w.id))
+					return
+				case <-time.After(100 * time.Millisecond):
+				}
 				continue
 			}
 			l.Debug("worker got task", zap.Int("worker_id", w.id), zap.String("task_op", task.Action.Op.String()))
@@ -663,10 +669,17 @@ func (w *worker) Start() {
 			// Process the task
 			taskResult, err := w.processTask(task)
 			if err != nil {
-
 				// Add pending tasks after task completion (even if failed, they might be valid)
 				if taskResult != nil && len(taskResult.Tasks) > 0 {
-					w.addTasksAfterCompletion(taskResult.Tasks)
+					err = w.addTasksAfterCompletion(taskResult.Tasks)
+					if err != nil {
+						l.Error("failed to add tasks after completion",
+							zap.Int("worker_id", w.id),
+							zap.String("bucket", taskBucket),
+							zap.Error(err))
+						w.taskQueue.Close()
+						return
+					}
 				}
 				l.Error("failed to process task",
 					zap.Int("worker_id", w.id),
@@ -695,7 +708,11 @@ func (w *worker) Start() {
 
 					// Wait before retrying with bucket-specific delay
 					delay := w.getBucketRateLimitDelay(taskBucket)
-					time.Sleep(delay)
+					select {
+					case <-w.ctx.Done():
+						return
+					case <-time.After(delay):
+					}
 				} else {
 					// Non-rate-limit error, reset rate limit flag
 					w.rateLimited.Store(false)
@@ -703,7 +720,15 @@ func (w *worker) Start() {
 			} else {
 				// Task succeeded, add any pending tasks after completion
 				if taskResult != nil && len(taskResult.Tasks) > 0 {
-					w.addTasksAfterCompletion(taskResult.Tasks)
+					err = w.addTasksAfterCompletion(taskResult.Tasks)
+					if err != nil {
+						l.Error("failed to add tasks after completion",
+							zap.Int("worker_id", w.id),
+							zap.String("bucket", taskBucket),
+							zap.Error(err))
+						w.taskQueue.Close()
+						return
+					}
 				}
 
 				// Reset failure counters
@@ -717,7 +742,7 @@ func (w *worker) Start() {
 	}
 }
 
-// processTask processes a single task and returns any tasks that should be created after completion
+// processTask processes a single task and returns any tasks that should be created after completion.
 func (w *worker) processTask(t *task) (*TaskResult, error) {
 	ctx, span := parallelTracer.Start(w.ctx, "worker.processTask")
 	defer span.End()
@@ -762,7 +787,7 @@ func (w *worker) processTask(t *task) (*TaskResult, error) {
 	}
 }
 
-// isRateLimitError checks if an error is a rate limit error
+// isRateLimitError checks if an error is a rate limit error.
 func (w *worker) isRateLimitError(err error) bool {
 	// Check for rate limit annotations in the error
 	if err == nil {
@@ -771,11 +796,10 @@ func (w *worker) isRateLimitError(err error) bool {
 
 	// This is a simplified check - in practice, you'd want to check the actual
 	// error type returned by the connector for rate limiting
-	return status.Code(err) == codes.ResourceExhausted ||
-		errors.Is(err, sql.ErrConnDone) // Placeholder for rate limit detection
+	return status.Code(err) == codes.ResourceExhausted
 }
 
-// getBucketRateLimitDelay returns the appropriate delay for a bucket based on rate limiting
+// getBucketRateLimitDelay returns the appropriate delay for a bucket based on rate limiting.
 func (w *worker) getBucketRateLimitDelay(bucket string) time.Duration {
 	// Different buckets can have different rate limit delays
 	// This allows for bucket-specific rate limiting strategies
@@ -790,12 +814,12 @@ func (w *worker) getBucketRateLimitDelay(bucket string) time.Duration {
 	}
 }
 
-// Stop stops the worker
+// Stop stops the worker.
 func (w *worker) Stop() {
 	w.cancel()
 }
 
-// parallelSyncer extends the base syncer with parallel processing capabilities
+// parallelSyncer extends the base syncer with parallel processing capabilities.
 type parallelSyncer struct {
 	syncer    *SequentialSyncer
 	config    *ParallelSyncConfig
@@ -805,7 +829,7 @@ type parallelSyncer struct {
 	mu        sync.RWMutex
 }
 
-// NewParallelSyncer creates a new parallel syncer
+// NewParallelSyncer creates a new parallel syncer.
 func NewParallelSyncer(baseSyncer *SequentialSyncer, config *ParallelSyncConfig) *parallelSyncer {
 	if config == nil {
 		config = DefaultParallelSyncConfig()
@@ -820,7 +844,7 @@ func NewParallelSyncer(baseSyncer *SequentialSyncer, config *ParallelSyncConfig)
 	}
 }
 
-// Sync implements the Syncer interface using parallel processing
+// Sync implements the Syncer interface using parallel processing.
 func (ps *parallelSyncer) Sync(ctx context.Context) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.Sync")
 	defer span.End()
@@ -833,7 +857,7 @@ func (ps *parallelSyncer) Sync(ctx context.Context) error {
 	}
 
 	// Create task queue
-	ps.taskQueue = newTaskQueue(ps.config)
+	ps.taskQueue = newTaskQueue(ps)
 	defer ps.taskQueue.Close()
 
 	// Start workers
@@ -874,7 +898,7 @@ func (ps *parallelSyncer) Sync(ctx context.Context) error {
 	return nil
 }
 
-// initializeSync performs the initial sync setup
+// initializeSync performs the initial sync setup.
 func (ps *parallelSyncer) initializeSync(ctx context.Context) error {
 	// Load store and validate connector (reuse existing logic)
 	if err := ps.syncer.loadStore(ctx); err != nil {
@@ -912,7 +936,7 @@ func (ps *parallelSyncer) initializeSync(ctx context.Context) error {
 	return nil
 }
 
-// startWorkers starts all worker goroutines
+// startWorkers starts all worker goroutines.
 func (ps *parallelSyncer) startWorkers(ctx context.Context) error {
 	ps.workers = make([]*worker, ps.config.WorkerCount)
 
@@ -926,7 +950,7 @@ func (ps *parallelSyncer) startWorkers(ctx context.Context) error {
 	return nil
 }
 
-// stopWorkers stops all workers
+// stopWorkers stops all workers.
 func (ps *parallelSyncer) stopWorkers() {
 	for _, worker := range ps.workers {
 		worker.Stop()
@@ -934,7 +958,7 @@ func (ps *parallelSyncer) stopWorkers() {
 	ps.workerWg.Wait()
 }
 
-// areWorkersIdle checks if all workers are currently idle (not processing tasks)
+// areWorkersIdle checks if all workers are currently idle (not processing tasks).
 func (ps *parallelSyncer) areWorkersIdle() bool {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
@@ -947,7 +971,7 @@ func (ps *parallelSyncer) areWorkersIdle() bool {
 	return true
 }
 
-// generateInitialTasks creates the initial set of tasks following the original sync workflow
+// generateInitialTasks creates the initial set of tasks following the original sync workflow.
 func (ps *parallelSyncer) generateInitialTasks(ctx context.Context) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.generateInitialTasks")
 	defer span.End()
@@ -993,7 +1017,6 @@ func (ps *parallelSyncer) generateInitialTasks(ctx context.Context) error {
 					Op:             SyncResourcesOp,
 					ResourceTypeID: rt.Id,
 				},
-				Priority:     1,
 				ResourceType: rt, // Include the resource type for bucket determination
 			}
 
@@ -1011,7 +1034,7 @@ func (ps *parallelSyncer) generateInitialTasks(ctx context.Context) error {
 	return nil
 }
 
-// getBucketForResourceType determines the bucket for a resource type
+// getBucketForResourceType determines the bucket for a resource type.
 func (ps *parallelSyncer) getBucketForResourceType(rt *v2.ResourceType) string {
 	// If the resource type has an explicit sync_bucket, use it
 	if rt.SyncBucket != "" {
@@ -1027,7 +1050,7 @@ func (ps *parallelSyncer) getBucketForResourceType(rt *v2.ResourceType) string {
 	return ps.config.DefaultBucket
 }
 
-// waitForCompletion waits for all tasks to complete with bucket-aware monitoring
+// waitForCompletion waits for all tasks to complete with bucket-aware monitoring.
 func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.waitForCompletion")
 	defer span.End()
@@ -1059,10 +1082,11 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 				// Debug: Log which buckets still have active tasks
 				activeBuckets := make([]string, 0)
 				for bucketName, taskCount := range bucketStats {
-					if taskCount > 0 && bucketName != "resource-type-" {
+					if taskCount > 0 {
 						activeBuckets = append(activeBuckets, fmt.Sprintf("%s:%d", bucketName, taskCount))
 					}
 				}
+				l.Debug("active buckets", zap.Strings("active_buckets", activeBuckets))
 			}
 
 			// Check if we're making progress
@@ -1085,11 +1109,7 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 				// Double-check that we're truly done with resource processing
 				// Look for any active resource processing in the bucket stats
 				allResourceProcessingComplete := true
-				for bucketName, taskCount := range bucketStats {
-					// Skip the default bucket (used for final tasks)
-					if bucketName == "resource-type-" {
-						continue
-					}
+				for _, taskCount := range bucketStats {
 					if taskCount > 0 {
 						allResourceProcessingComplete = false
 						break
@@ -1098,7 +1118,11 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 
 				if allResourceProcessingComplete {
 					// Additional safety check: wait a bit more to ensure workers are truly idle
-					time.Sleep(2 * time.Second)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(2 * time.Second):
+					}
 
 					// Check one more time to ensure no new tasks appeared
 					finalBucketStats := ps.taskQueue.GetBucketStats()
@@ -1127,7 +1151,7 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 	}
 }
 
-// syncGrantExpansion handles grant expansion by delegating to the base syncer
+// syncGrantExpansion handles grant expansion by delegating to the base syncer.
 func (ps *parallelSyncer) syncGrantExpansion(ctx context.Context) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncGrantExpansion")
 	defer span.End()
@@ -1161,7 +1185,7 @@ func (ps *parallelSyncer) syncGrantExpansion(ctx context.Context) error {
 	return nil
 }
 
-// syncExternalResources handles external resources by delegating to the base syncer
+// syncExternalResources handles external resources by delegating to the base syncer.
 func (ps *parallelSyncer) syncExternalResources(ctx context.Context) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncExternalResources")
 	defer span.End()
@@ -1182,7 +1206,7 @@ func (ps *parallelSyncer) syncExternalResources(ctx context.Context) error {
 	return err
 }
 
-// finalizeSync performs final sync cleanup
+// finalizeSync performs final sync cleanup.
 func (ps *parallelSyncer) finalizeSync(ctx context.Context) error {
 	// End sync
 	if err := ps.syncer.store.EndSync(ctx); err != nil {
@@ -1202,7 +1226,7 @@ func (ps *parallelSyncer) finalizeSync(ctx context.Context) error {
 	return nil
 }
 
-// syncResourceTypes syncs resource types (equivalent to SyncResourceTypes)
+// syncResourceTypes syncs resource types (equivalent to SyncResourceTypes).
 func (ps *parallelSyncer) syncResourceTypes(ctx context.Context) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncResourceTypes")
 	defer span.End()
@@ -1223,152 +1247,7 @@ func (ps *parallelSyncer) syncResourceTypes(ctx context.Context) error {
 	return nil
 }
 
-// syncResources processes resources for a specific resource type (equivalent to SyncResources)
-func (ps *parallelSyncer) syncResources(ctx context.Context, action Action) error {
-	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncResources")
-	defer span.End()
-
-	l := ctxzap.Extract(ctx)
-
-	// Add panic recovery to catch any unexpected errors
-	defer func() {
-		if r := recover(); r != nil {
-			l.Error("panic in syncResources",
-				zap.String("resource_type", action.ResourceTypeID),
-				zap.Any("panic", r))
-		}
-	}()
-
-	// This replicates the exact logic from the original SyncResources
-	req := &v2.ResourcesServiceListResourcesRequest{
-		ResourceTypeId: action.ResourceTypeID,
-		PageToken:      action.PageToken,
-	}
-
-	// If this is a child resource task, set the parent resource ID
-	if action.ParentResourceID != "" {
-		req.ParentResourceId = &v2.ResourceId{
-			ResourceType: action.ParentResourceTypeID,
-			Resource:     action.ParentResourceID,
-		}
-	}
-
-	resp, err := ps.syncer.connector.ListResources(ctx, req)
-	if err != nil {
-		l.Error("failed to list resources", zap.Error(err))
-		return err
-	}
-
-	// Store resources
-	if len(resp.List) > 0 {
-		err = ps.syncer.store.PutResources(ctx, resp.List...)
-		if err != nil {
-			l.Error("failed to store resources", zap.Error(err))
-			return err
-		}
-	}
-
-	// Update progress counts
-	resourceTypeId := action.ResourceTypeID
-	ps.syncer.counts.AddResources(resourceTypeId, len(resp.List))
-
-	// Log progress
-	if len(resp.List) > 0 {
-		ps.syncer.counts.LogResourcesProgress(ctx, resourceTypeId)
-	} else {
-		// Even with no resources, we should log progress
-		ps.syncer.counts.LogResourcesProgress(ctx, resourceTypeId)
-	}
-
-	// Process each resource (handle sub-resources)
-	for _, r := range resp.List {
-		// Use the base syncer's getSubResources method
-		if err := ps.syncer.getSubResources(ctx, r); err != nil {
-			l.Error("failed to process sub-resources", zap.Error(err))
-			return err
-		}
-	}
-
-	// Handle pagination - if there are more pages, create a task for the next page
-	if resp.NextPageToken != "" {
-		nextPageTask := &task{
-			Action: Action{
-				Op:             SyncResourcesOp,
-				ResourceTypeID: action.ResourceTypeID,
-				PageToken:      resp.NextPageToken,
-			},
-			Priority: 1,
-		}
-
-		if err := ps.addTaskWithRetry(ctx, nextPageTask, taskRetryLimit); err != nil {
-			return fmt.Errorf("failed to add next page task for resource type %s: %w", action.ResourceTypeID, err)
-		}
-
-		return nil // Don't create entitlement/grant tasks yet, wait for all pages
-	}
-
-	// Get all resources for this resource type to create individual tasks
-	allResourcesResp, err := ps.syncer.store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
-		ResourceTypeId: action.ResourceTypeID,
-		PageToken:      "",
-	})
-	if err != nil {
-		l.Error("failed to list resources for task creation", zap.Error(err))
-		return err
-	}
-	// Check if this resource type has child resource types that need to be processed
-	// We need to process child resources before entitlements and grants
-	if err := ps.processChildResourceTypes(ctx, action.ResourceTypeID); err != nil {
-		l.Error("failed to process child resource types", zap.Error(err))
-		return err
-	}
-
-	// Create individual tasks for each resource's entitlements and grants
-	for _, resource := range allResourcesResp.List {
-		// Check if we should skip entitlements and grants for this resource
-		shouldSkip, err := ps.shouldSkipEntitlementsAndGrants(ctx, resource)
-		if err != nil {
-			l.Error("failed to check if resource should be skipped", zap.Error(err))
-			return err
-		}
-		if shouldSkip {
-			continue
-		}
-
-		// Create task to sync entitlements for this specific resource
-		entitlementsTask := &task{
-			Action: Action{
-				Op:             SyncEntitlementsOp,
-				ResourceTypeID: action.ResourceTypeID,
-				ResourceID:     resource.Id.Resource,
-			},
-			Priority: 2,
-		}
-
-		if err := ps.addTaskWithRetry(ctx, entitlementsTask, taskRetryLimit); err != nil {
-			return fmt.Errorf("failed to add entitlements task for resource %s: %w", resource.Id.Resource, err)
-		}
-
-		// Create task to sync grants for this specific resource
-		grantsTask := &task{
-			Action: Action{
-				Op:             SyncGrantsOp,
-				ResourceTypeID: action.ResourceTypeID,
-				ResourceID:     resource.Id.Resource,
-			},
-			Priority: 3,
-		}
-
-		if err := ps.addTaskWithRetry(ctx, grantsTask, taskRetryLimit); err != nil {
-			l.Error("failed to add grants task", zap.Error(err))
-			return fmt.Errorf("failed to add grants task for resource %s: %w", resource.Id.Resource, err)
-		}
-	}
-
-	return nil
-}
-
-// syncResourcesCollectTasks does the same work as syncResources but collects tasks instead of adding them immediately
+// syncResourcesCollectTasks does the same work as syncResources but collects tasks instead of adding them immediately.
 func (ps *parallelSyncer) syncResourcesCollectTasks(ctx context.Context, action Action) ([]*task, error) {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncResourcesCollectTasks")
 	defer span.End()
@@ -1419,11 +1298,7 @@ func (ps *parallelSyncer) syncResourcesCollectTasks(ctx context.Context, action 
 	ps.syncer.counts.AddResources(resourceTypeId, len(resp.List))
 
 	// Log progress
-	if len(resp.List) > 0 {
-		ps.syncer.counts.LogResourcesProgress(ctx, resourceTypeId)
-	} else {
-		ps.syncer.counts.LogResourcesProgress(ctx, resourceTypeId)
-	}
+	ps.syncer.counts.LogResourcesProgress(ctx, resourceTypeId)
 
 	// Process each resource (handle sub-resources)
 	for _, r := range resp.List {
@@ -1441,7 +1316,6 @@ func (ps *parallelSyncer) syncResourcesCollectTasks(ctx context.Context, action 
 				ResourceTypeID: action.ResourceTypeID,
 				PageToken:      resp.NextPageToken,
 			},
-			Priority: 1,
 		}
 		collectedTasks = append(collectedTasks, nextPageTask)
 		return collectedTasks, nil // Don't create entitlement/grant tasks yet, wait for all pages
@@ -1469,7 +1343,7 @@ func (ps *parallelSyncer) syncResourcesCollectTasks(ctx context.Context, action 
 	return collectedTasks, nil
 }
 
-// syncResourcesCollectTasks does the same work as syncResources but collects tasks instead of adding them immediately
+// syncResourcesCollectTasks does the same work as syncResources but collects tasks instead of adding them immediately.
 func (ps *parallelSyncer) collectEntitlementsAndGrantsTasks(ctx context.Context, action Action) ([]*task, error) {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.collectEntitlementsAndGrantsTasks")
 	defer span.End()
@@ -1514,7 +1388,6 @@ func (ps *parallelSyncer) collectEntitlementsAndGrantsTasks(ctx context.Context,
 				ResourceTypeID: action.ResourceTypeID,
 				ResourceID:     resource.Id.Resource,
 			},
-			Priority: 2,
 		}
 		collectedTasks = append(collectedTasks, entitlementsTask)
 
@@ -1525,7 +1398,6 @@ func (ps *parallelSyncer) collectEntitlementsAndGrantsTasks(ctx context.Context,
 				ResourceTypeID: action.ResourceTypeID,
 				ResourceID:     resource.Id.Resource,
 			},
-			Priority: 3,
 		}
 		collectedTasks = append(collectedTasks, grantsTask)
 	}
@@ -1536,14 +1408,13 @@ func (ps *parallelSyncer) collectEntitlementsAndGrantsTasks(ctx context.Context,
 				ResourceTypeID: action.ResourceTypeID,
 				PageToken:      allResourcesResp.NextPageToken,
 			},
-			Priority: 3,
 		})
 	}
 
 	return collectedTasks, nil
 }
 
-// processChildResourceTypes processes child resource types for a given parent resource type
+// processChildResourceTypes processes child resource types for a given parent resource type.
 func (ps *parallelSyncer) processChildResourceTypes(ctx context.Context, parentResourceTypeID string) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.processChildResourceTypes")
 	defer span.End()
@@ -1574,7 +1445,7 @@ func (ps *parallelSyncer) processChildResourceTypes(ctx context.Context, parentR
 	return nil
 }
 
-// processChildResourcesForParent processes child resources for a specific parent resource
+// processChildResourcesForParent processes child resources for a specific parent resource.
 func (ps *parallelSyncer) processChildResourcesForParent(ctx context.Context, parentResource *v2.Resource) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.processChildResourcesForParent")
 	defer span.End()
@@ -1597,7 +1468,6 @@ func (ps *parallelSyncer) processChildResourcesForParent(ctx context.Context, pa
 				ParentResourceTypeID: parentResource.Id.ResourceType,
 				ParentResourceID:     parentResource.Id.Resource,
 			},
-			Priority: 1, // Lower priority than parent resources
 		}
 
 		if err := ps.addTaskWithRetry(ctx, childResourcesTask, taskRetryLimit); err != nil {
@@ -1609,7 +1479,7 @@ func (ps *parallelSyncer) processChildResourcesForParent(ctx context.Context, pa
 	return nil
 }
 
-// syncEntitlementsForResourceType processes entitlements for all resources of a resource type
+// syncEntitlementsForResourceType processes entitlements for all resources of a resource type.
 func (ps *parallelSyncer) syncEntitlementsForResourceType(ctx context.Context, action Action) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncEntitlementsForResourceType")
 	defer span.End()
@@ -1651,8 +1521,7 @@ func (ps *parallelSyncer) syncEntitlementsForResourceType(ctx context.Context, a
 		}
 
 		// Handle pagination if needed
-		for decision.ShouldContinue && decision.Action == "next_page" {
-
+		for decision.ShouldContinue && decision.Action == nextPageAction {
 			// Update the local state with the new page token before continuing
 			if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
 				l.Error("failed to update local state with next page token",
@@ -1677,7 +1546,7 @@ func (ps *parallelSyncer) syncEntitlementsForResourceType(ctx context.Context, a
 	return nil
 }
 
-// syncEntitlementsForResource processes entitlements for a specific resource
+// syncEntitlementsForResource processes entitlements for a specific resource.
 func (ps *parallelSyncer) syncEntitlementsForResource(ctx context.Context, action Action) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncEntitlementsForResource")
 	defer span.End()
@@ -1703,7 +1572,7 @@ func (ps *parallelSyncer) syncEntitlementsForResource(ctx context.Context, actio
 	}
 
 	// Handle pagination if needed
-	for decision.ShouldContinue && decision.Action == "next_page" {
+	for decision.ShouldContinue && decision.Action == nextPageAction {
 		// Update the local state with the new page token before continuing
 		if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
 			l.Error("failed to update local state with next page token",
@@ -1728,7 +1597,7 @@ func (ps *parallelSyncer) syncEntitlementsForResource(ctx context.Context, actio
 	return nil
 }
 
-// syncGrantsForResource processes grants for a specific resource
+// syncGrantsForResource processes grants for a specific resource.
 func (ps *parallelSyncer) syncGrantsForResource(ctx context.Context, action Action) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncGrantsForResource")
 	defer span.End()
@@ -1754,7 +1623,7 @@ func (ps *parallelSyncer) syncGrantsForResource(ctx context.Context, action Acti
 	}
 
 	// Handle pagination if needed
-	for decision.ShouldContinue && decision.Action == "next_page" {
+	for decision.ShouldContinue && decision.Action == nextPageAction {
 		// Update the local state with the new page token before continuing
 		if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
 			l.Error("failed to update local state with next page token",
@@ -1779,7 +1648,7 @@ func (ps *parallelSyncer) syncGrantsForResource(ctx context.Context, action Acti
 	return nil
 }
 
-// syncGrantsForResourceType processes grants for all resources of a resource type
+// syncGrantsForResourceType processes grants for all resources of a resource type.
 func (ps *parallelSyncer) syncGrantsForResourceType(ctx context.Context, action Action) error {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncGrantsForResourceType")
 	defer span.End()
@@ -1821,7 +1690,7 @@ func (ps *parallelSyncer) syncGrantsForResourceType(ctx context.Context, action 
 		}
 
 		// Handle pagination if needed
-		for decision.ShouldContinue && decision.Action == "next_page" {
+		for decision.ShouldContinue && decision.Action == nextPageAction {
 			// Update the local state with the new page token before continuing
 			if err := localState.NextPage(ctx, decision.NextPageToken); err != nil {
 				l.Error("failed to update local state with next page token",
@@ -1847,8 +1716,8 @@ func (ps *parallelSyncer) syncGrantsForResourceType(ctx context.Context, action 
 	return nil
 }
 
-// syncGrantsForResourceLogic contains the core logic for syncing grants for a resource
-// This method is state-agnostic and returns an ActionDecision for the caller to handle
+// syncGrantsForResourceLogic contains the core logic for syncing grants for a resource.
+// This method is state-agnostic and returns an ActionDecision for the caller to handle.
 func (ps *parallelSyncer) syncGrantsForResourceLogic(ctx context.Context, resourceID *v2.ResourceId, state StateInterface) (*ActionDecision, error) {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncGrantsForResourceLogic")
 	defer span.End()
@@ -1983,7 +1852,7 @@ func (ps *parallelSyncer) syncGrantsForResourceLogic(ctx context.Context, resour
 		return &ActionDecision{
 			ShouldContinue:       true,
 			NextPageToken:        resp.NextPageToken,
-			Action:               "next_page",
+			Action:               nextPageAction,
 			NeedsExpansion:       needsExpansion,
 			HasExternalResources: hasExternalResources,
 			ShouldFetchRelated:   shouldFetchRelated,
@@ -1993,15 +1862,15 @@ func (ps *parallelSyncer) syncGrantsForResourceLogic(ctx context.Context, resour
 	// No more pages, action is complete
 	return &ActionDecision{
 		ShouldContinue:       false,
-		Action:               "finish",
+		Action:               finishAction,
 		NeedsExpansion:       needsExpansion,
 		HasExternalResources: hasExternalResources,
 		ShouldFetchRelated:   shouldFetchRelated,
 	}, nil
 }
 
-// syncEntitlementsForResourceLogic contains the core logic for syncing entitlements for a resource
-// This method is state-agnostic and returns an ActionDecision for the caller to handle
+// syncEntitlementsForResourceLogic contains the core logic for syncing entitlements for a resource.
+// This method is state-agnostic and returns an ActionDecision for the caller to handle.
 func (ps *parallelSyncer) syncEntitlementsForResourceLogic(ctx context.Context, resourceID *v2.ResourceId, state StateInterface) (*ActionDecision, error) {
 	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.syncEntitlementsForResourceLogic")
 	defer span.End()
@@ -2041,51 +1910,18 @@ func (ps *parallelSyncer) syncEntitlementsForResourceLogic(ctx context.Context, 
 		return &ActionDecision{
 			ShouldContinue: true,
 			NextPageToken:  resp.NextPageToken,
-			Action:         "next_page",
+			Action:         nextPageAction,
 		}, nil
 	}
 
 	// No more pages, action is complete
 	return &ActionDecision{
 		ShouldContinue: false,
-		Action:         "finish",
+		Action:         finishAction,
 	}, nil
 }
 
-// getSubResources fetches the sub resource types from a resources' annotations (replicating original logic)
-func (ps *parallelSyncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
-	ctx, span := parallelTracer.Start(ctx, "parallelSyncer.getSubResources")
-	defer span.End()
-
-	for _, a := range parent.Annotations {
-		if a.MessageIs((*v2.ChildResourceType)(nil)) {
-			crt := &v2.ChildResourceType{}
-			err := a.UnmarshalTo(crt)
-			if err != nil {
-				return err
-			}
-
-			// Create task for child resource type
-			childTask := &task{
-				Action: Action{
-					Op:                   SyncResourcesOp,
-					ResourceTypeID:       crt.ResourceTypeId,
-					ParentResourceID:     parent.Id.Resource,
-					ParentResourceTypeID: parent.Id.ResourceType,
-				},
-				Priority: 1,
-			}
-
-			if err := ps.addTaskWithRetry(ctx, childTask, taskRetryLimit); err != nil {
-				return fmt.Errorf("failed to add child resource task: %w", err)
-			}
-		}
-	}
-
-	return nil
-}
-
-// shouldSkipEntitlementsAndGrants checks if entitlements and grants should be skipped for a resource
+// shouldSkipEntitlementsAndGrants checks if entitlements and grants should be skipped for a resource.
 func (ps *parallelSyncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Resource) (bool, error) {
 	// This replicates the logic from the original shouldSkipEntitlementsAndGrants method
 	// Check if the resource has the SkipEntitlementsAndGrants annotation
@@ -2099,7 +1935,7 @@ func (ps *parallelSyncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r
 	return false, nil
 }
 
-// Close implements the Syncer interface
+// Close implements the Syncer interface.
 func (ps *parallelSyncer) Close(ctx context.Context) error {
 	// Stop all workers
 	ps.stopWorkers()
@@ -2113,7 +1949,7 @@ func (ps *parallelSyncer) Close(ctx context.Context) error {
 	return ps.syncer.Close(ctx)
 }
 
-// GetBucketStats returns statistics about all buckets
+// GetBucketStats returns statistics about all buckets.
 func (ps *parallelSyncer) GetBucketStats() map[string]int {
 	if ps.taskQueue == nil {
 		return make(map[string]int)
@@ -2121,7 +1957,7 @@ func (ps *parallelSyncer) GetBucketStats() map[string]int {
 	return ps.taskQueue.GetBucketStats()
 }
 
-// GetWorkerStatus returns the status of all workers
+// GetWorkerStatus returns the status of all workers.
 func (ps *parallelSyncer) GetWorkerStatus() []map[string]interface{} {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
@@ -2136,7 +1972,7 @@ func (ps *parallelSyncer) GetWorkerStatus() []map[string]interface{} {
 	return status
 }
 
-// NewParallelSyncerFromSyncer creates a parallel syncer from an existing syncer
+// NewParallelSyncerFromSyncer creates a parallel syncer from an existing syncer.
 func NewParallelSyncerFromSyncer(s Syncer, config *ParallelSyncConfig) (*parallelSyncer, error) {
 	// Try to cast to the concrete syncer type
 	if baseSyncer, ok := s.(*SequentialSyncer); ok {
@@ -2144,46 +1980,4 @@ func NewParallelSyncerFromSyncer(s Syncer, config *ParallelSyncConfig) (*paralle
 	}
 
 	return nil, fmt.Errorf("cannot create parallel syncer from syncer type: %T", s)
-}
-
-// syncGrantsForResourceSequential is the refactored version that returns ActionDecision
-// This can be called by the sequential syncer to get the same behavior but with explicit control
-func (ps *parallelSyncer) syncGrantsForResourceSequential(ctx context.Context, resourceID *v2.ResourceId) (*ActionDecision, error) {
-	// Create a state interface that delegates to the base syncer's state
-	stateWrapper := &sequentialStateWrapper{syncer: ps.syncer}
-	return ps.syncGrantsForResourceLogic(ctx, resourceID, stateWrapper)
-}
-
-// syncEntitlementsForResourceSequential is the refactored version that returns ActionDecision
-// This can be called by the sequential syncer to get the same behavior but with explicit control
-func (ps *parallelSyncer) syncEntitlementsForResourceSequential(ctx context.Context, resourceID *v2.ResourceId) (*ActionDecision, error) {
-	// Create a state interface that delegates to the base syncer's state
-	stateWrapper := &sequentialStateWrapper{syncer: ps.syncer}
-	return ps.syncEntitlementsForResourceLogic(ctx, resourceID, stateWrapper)
-}
-
-// sequentialStateWrapper implements StateInterface by delegating to the base syncer's state
-// This allows the sequential syncer to use the refactored methods while maintaining its state machine
-type sequentialStateWrapper struct {
-	syncer *SequentialSyncer
-}
-
-func (sw *sequentialStateWrapper) PageToken(ctx context.Context) string {
-	return sw.syncer.state.PageToken(ctx)
-}
-
-func (sw *sequentialStateWrapper) NextPage(ctx context.Context, pageToken string) error {
-	return sw.syncer.state.NextPage(ctx, pageToken)
-}
-
-func (sw *sequentialStateWrapper) SetNeedsExpansion() {
-	sw.syncer.state.SetNeedsExpansion()
-}
-
-func (sw *sequentialStateWrapper) SetHasExternalResourcesGrants() {
-	sw.syncer.state.SetHasExternalResourcesGrants()
-}
-
-func (sw *sequentialStateWrapper) ShouldFetchRelatedResources() bool {
-	return sw.syncer.state.ShouldFetchRelatedResources()
 }

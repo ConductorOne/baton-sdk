@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -453,17 +456,23 @@ func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 	return stats, nil
 }
 
-// isWALMode checks if the database is using WAL mode
+// isWALMode checks if the database is using WAL mode.
 func (c *C1File) isWALMode() bool {
 	for _, pragma := range c.pragmas {
-		if pragma.name == "journal_mode" && pragma.value == "WAL" {
+		if pragma.name == "journal_mode" && strings.EqualFold(pragma.value, "wall") {
 			return true
 		}
 	}
+
+	var mode string
+	if err := c.rawDb.QueryRow("PRAGMA journal_mode").Scan(&mode); err == nil {
+		return strings.EqualFold(mode, "wal")
+	}
+
 	return false
 }
 
-// startWALCheckpointing starts a background goroutine to perform WAL checkpoints every 5 minutes
+// startWALCheckpointing starts a background goroutine to perform WAL checkpoints every 5 minutes.
 func (c *C1File) startWALCheckpointing() {
 	c.checkpointTicker = time.NewTicker(5 * time.Minute)
 
@@ -480,21 +489,21 @@ func (c *C1File) startWALCheckpointing() {
 	}()
 }
 
-// acquireCheckpointLock acquires a read lock for database operations
+// acquireCheckpointLock acquires a read lock for database operations.
 func (c *C1File) acquireCheckpointLock() {
 	if c.checkpointEnabled {
 		c.checkpointMu.RLock()
 	}
 }
 
-// releaseCheckpointLock releases the read lock for database operations
+// releaseCheckpointLock releases the read lock for database operations.
 func (c *C1File) releaseCheckpointLock() {
 	if c.checkpointEnabled {
 		c.checkpointMu.RUnlock()
 	}
 }
 
-// performWALCheckpoint performs a WAL checkpoint using SQLITE_CHECKPOINT_RESTART or SQLITE_CHECKPOINT_TRUNCATE
+// performWALCheckpoint performs a WAL checkpoint using SQLITE_CHECKPOINT_RESTART or SQLITE_CHECKPOINT_TRUNCATE.
 func (c *C1File) performWALCheckpoint() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -509,9 +518,7 @@ func (c *C1File) performWALCheckpoint() {
 		// If TRUNCATE fails, try RESTART
 		_, err = c.rawDb.ExecContext(ctx, "PRAGMA wal_checkpoint(RESTART)")
 		if err != nil {
-			// Log error but don't fail the operation
-			// In a real implementation, you might want to use a logger here
-			fmt.Printf("WAL checkpoint failed: %v\n", err)
+			ctxzap.Extract(ctx).Error("failed to perform WAL checkpoint", zap.Error(err))
 		}
 	}
 }
