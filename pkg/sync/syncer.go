@@ -278,35 +278,35 @@ func (p *ProgressCounts) LogExpandProgress(ctx context.Context, actions []*expan
 
 // Thread-safe methods for parallel syncer
 
-// AddResourceTypes safely adds to the resource types count
+// AddResourceTypes safely adds to the resource types count.
 func (p *ProgressCounts) AddResourceTypes(count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.ResourceTypes += count
 }
 
-// AddResources safely adds to the resources count for a specific resource type
+// AddResources safely adds to the resources count for a specific resource type.
 func (p *ProgressCounts) AddResources(resourceType string, count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.Resources[resourceType] += count
 }
 
-// AddEntitlementsProgress safely adds to the entitlements progress count for a specific resource type
+// AddEntitlementsProgress safely adds to the entitlements progress count for a specific resource type.
 func (p *ProgressCounts) AddEntitlementsProgress(resourceType string, count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.EntitlementsProgress[resourceType] += count
 }
 
-// AddGrantsProgress safely adds to the grants progress count for a specific resource type
+// AddGrantsProgress safely adds to the grants progress count for a specific resource type.
 func (p *ProgressCounts) AddGrantsProgress(resourceType string, count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.GrantsProgress[resourceType] += count
 }
 
-// SetSequentialMode enables/disables mutex protection for sequential sync
+// SetSequentialMode enables/disables mutex protection for sequential sync.
 func (p *ProgressCounts) SetSequentialMode(sequential bool) {
 	p.sequentialMode = sequential
 }
