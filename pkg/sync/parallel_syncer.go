@@ -1059,7 +1059,7 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 				// Debug: Log which buckets still have active tasks
 				activeBuckets := make([]string, 0)
 				for bucketName, taskCount := range bucketStats {
-					if taskCount > 0 && bucketName != "resource-type-" {
+					if taskCount > 0 {
 						activeBuckets = append(activeBuckets, fmt.Sprintf("%s:%d", bucketName, taskCount))
 					}
 				}
@@ -1098,7 +1098,11 @@ func (ps *parallelSyncer) waitForCompletion(ctx context.Context) error {
 
 				if allResourceProcessingComplete {
 					// Additional safety check: wait a bit more to ensure workers are truly idle
-					time.Sleep(2 * time.Second)
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					case <-time.After(2 * time.Second):
+					}
 
 					// Check one more time to ensure no new tasks appeared
 					finalBucketStats := ps.taskQueue.GetBucketStats()
