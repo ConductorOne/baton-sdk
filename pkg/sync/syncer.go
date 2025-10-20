@@ -688,10 +688,6 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 
 	var resourceTypes []*v2.ResourceType
 	if len(s.syncResourceTypes) > 0 {
-		err = validateSyncResourceTypesFilter(s.syncResourceTypes, resp.List)
-		if err != nil {
-			return err
-		}
 		syncResourceTypeMap := make(map[string]bool)
 		for _, rt := range s.syncResourceTypes {
 			syncResourceTypeMap[rt] = true
@@ -715,6 +711,18 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 
 	if resp.NextPageToken == "" {
 		s.counts.LogResourceTypesProgress(ctx)
+
+		if len(s.syncResourceTypes) > 0 {
+			validResourceTypesResp, err := s.store.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{PageToken: pageToken})
+			if err != nil {
+				return err
+			}
+			err = validateSyncResourceTypesFilter(s.syncResourceTypes, validResourceTypesResp.List)
+			if err != nil {
+				return err
+			}
+		}
+
 		s.state.FinishAction(ctx)
 		return nil
 	}
