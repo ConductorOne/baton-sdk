@@ -688,6 +688,10 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 
 	var resourceTypes []*v2.ResourceType
 	if len(s.syncResourceTypes) > 0 {
+		err = validateSyncResourceTypesFilter(s.syncResourceTypes, resp.List)
+		if err != nil {
+			return err
+		}
 		syncResourceTypeMap := make(map[string]bool)
 		for _, rt := range s.syncResourceTypes {
 			syncResourceTypeMap[rt] = true
@@ -720,6 +724,19 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 		return err
 	}
 
+	return nil
+}
+
+func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResourceTypes []*v2.ResourceType) error {
+	validResourceTypesMap := make(map[string]bool)
+	for _, rt := range validResourceTypes {
+		validResourceTypesMap[rt.Id] = true
+	}
+	for _, rt := range resourceTypesFilter {
+		if _, ok := validResourceTypesMap[rt]; !ok {
+			return fmt.Errorf("invalid resource type '%s' in filter", rt)
+		}
+	}
 	return nil
 }
 
