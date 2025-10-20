@@ -7,9 +7,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 )
 
-// KeyPrefixDelimiter is the delimiter used to separate prefixes from keys in the session cache.
-const KeyPrefixDelimiter = "::"
-
 func WithSyncID(syncID string) sessions.SessionStoreOption {
 	return func(ctx context.Context, bag *sessions.SessionStoreBag) error {
 		bag.SyncID = syncID

@@ -373,33 +373,6 @@ func TestGRPCSessionCache_GetAll_Pagination(t *testing.T) {
 	}
 }
 
-func TestGRPCSessionCache_WithPrefix(t *testing.T) {
-	expectedValue := []byte("test-value")
-	mockClient := &SimpleMockBatonSessionServiceClient{
-		getFunc: func(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error) {
-			if req.Key == "prefix"+KeyPrefixDelimiter+"test-key" && req.SyncId == "test-sync-id" {
-				return &v1.GetResponse{Value: expectedValue}, nil
-			}
-			return &v1.GetResponse{Value: []byte{}}, nil
-		},
-	}
-
-	cache := &GRPCSessionCache{client: mockClient}
-	ctx := context.Background()
-
-	// Test with prefix
-	value, found, err := cache.Get(ctx, "test-key", WithPrefix("prefix"), sessions.WithSyncID("test-sync-id"))
-	if err != nil {
-		t.Fatalf("Expected no error, got %v", err)
-	}
-	if !found {
-		t.Fatal("Expected key to be found")
-	}
-	if string(value) != "test-value" {
-		t.Fatalf("Expected value 'test-value', got '%s'", string(value))
-	}
-}
-
 func TestNewGRPCSessionCache(t *testing.T) {
 	mockClient := &SimpleMockBatonSessionServiceClient{}
 

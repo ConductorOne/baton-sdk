@@ -8,7 +8,6 @@ import (
 	"iter"
 	"net"
 	"os"
-	"strings"
 	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -31,10 +30,7 @@ const maxKeysPerRequest = 200
 func Chunk[T any](items []T, chunkSize int) iter.Seq[[]T] {
 	return func(yield func([]T) bool) {
 		for i := 0; i < len(items); i += chunkSize {
-			end := i + chunkSize
-			if end > len(items) {
-				end = len(items)
-			}
+			end := min(i+chunkSize, len(items))
 			if !yield(items[i:end]) {
 				return
 			}
@@ -154,13 +150,10 @@ func (g *GRPCSessionCache) Get(ctx context.Context, key string, opt ...sessions.
 		return nil, false, err
 	}
 
-	if bag.Prefix != "" {
-		key = bag.Prefix + KeyPrefixDelimiter + key
-	}
-
 	req := &v1.GetRequest{
 		SyncId: bag.SyncID,
 		Key:    key,
+		Prefix: bag.Prefix,
 	}
 
 	resp, err := g.client.Get(ctx, req)
@@ -182,35 +175,21 @@ func (g *GRPCSessionCache) GetMany(ctx context.Context, keys []string, opt ...se
 		return nil, err
 	}
 
-	// Apply prefix to keys if specified
-	prefixedKeys := make([]string, len(keys))
-	for i, key := range keys {
-		if bag.Prefix != "" {
-			prefixedKeys[i] = bag.Prefix + KeyPrefixDelimiter + key
-		} else {
-			prefixedKeys[i] = key
-		}
-	}
-
 	results := make(map[string][]byte)
 	// TODO(kans): we may need to chunk if the values are too large for a single gRPC request.
 	// The GetMany interface may be backed by gPRC, memory, etc, so we need to handle pagination at the client level.
-	for keys := range Chunk(prefixedKeys, maxKeysPerRequest) {
+	for keys := range Chunk(keys, maxKeysPerRequest) {
 		resp, err := g.client.GetMany(ctx, &v1.GetManyRequest{
 			SyncId: bag.SyncID,
 			Keys:   keys,
+			Prefix: bag.Prefix,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
 		}
 
-		// Process response items and remove prefix if needed
 		for _, item := range resp.Items {
-			key := item.Key
-			if bag.Prefix != "" {
-				key = strings.TrimPrefix(item.Key, bag.Prefix+KeyPrefixDelimiter)
-			}
-			results[key] = item.Value
+			results[item.Key] = item.Value
 		}
 	}
 
@@ -224,14 +203,11 @@ func (g *GRPCSessionCache) Set(ctx context.Context, key string, value []byte, op
 		return err
 	}
 
-	if bag.Prefix != "" {
-		key = bag.Prefix + KeyPrefixDelimiter + key
-	}
-
 	req := &v1.SetRequest{
 		SyncId: bag.SyncID,
 		Key:    key,
 		Value:  value,
+		Prefix: bag.Prefix,
 	}
 
 	_, err = g.client.Set(ctx, req)
@@ -249,31 +225,22 @@ func (g *GRPCSessionCache) SetMany(ctx context.Context, values map[string][]byte
 		return err
 	}
 
-	// Apply prefix to keys if specified
-	prefixedValues := make(map[string][]byte)
-	for key, value := range values {
-		if bag.Prefix != "" {
-			prefixedValues[bag.Prefix+KeyPrefixDelimiter+key] = value
-		} else {
-			prefixedValues[key] = value
-		}
-	}
 	// TODO(kans): we may need to chunk if the values are too large for a single gRPC request.
-	allKeys := make([]string, 0, len(prefixedValues))
-	for key := range prefixedValues {
+	allKeys := make([]string, 0, len(values))
+	for key := range values {
 		allKeys = append(allKeys, key)
 	}
 
 	for keys := range Chunk(allKeys, maxKeysPerRequest) {
-		// Create chunk of values
 		chunkValues := make(map[string][]byte)
 		for _, key := range keys {
-			chunkValues[key] = prefixedValues[key]
+			chunkValues[key] = values[key]
 		}
 
 		_, err = g.client.SetMany(ctx, &v1.SetManyRequest{
 			SyncId: bag.SyncID,
 			Values: chunkValues,
+			Prefix: bag.Prefix,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to set many values in gRPC session cache: %w", err)
@@ -290,13 +257,10 @@ func (g *GRPCSessionCache) Delete(ctx context.Context, key string, opt ...sessio
 		return err
 	}
 
-	if bag.Prefix != "" {
-		key = bag.Prefix + KeyPrefixDelimiter + key
-	}
-
 	req := &v1.DeleteRequest{
 		SyncId: bag.SyncID,
 		Key:    key,
+		Prefix: bag.Prefix,
 	}
 
 	_, err = g.client.Delete(ctx, req)
@@ -316,6 +280,7 @@ func (g *GRPCSessionCache) Clear(ctx context.Context, opt ...sessions.SessionSto
 
 	req := &v1.ClearRequest{
 		SyncId: bag.SyncID,
+		Prefix: bag.Prefix,
 	}
 
 	_, err = g.client.Clear(ctx, req)
@@ -336,10 +301,6 @@ func (g *GRPCSessionCache) GetAll(ctx context.Context, opt ...sessions.SessionSt
 		return nil, err
 	}
 
-	if bag.Prefix != "" {
-		return nil, fmt.Errorf("prefix is not supported for GetAll in gRPC session cache")
-	}
-
 	result := make(map[string][]byte)
 
 	pageToken := ""
@@ -347,6 +308,7 @@ func (g *GRPCSessionCache) GetAll(ctx context.Context, opt ...sessions.SessionSt
 		req := &v1.GetAllRequest{
 			SyncId:    bag.SyncID,
 			PageToken: pageToken,
+			Prefix:    bag.Prefix,
 		}
 
 		resp, err := g.client.GetAll(ctx, req)

@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/doug-martin/goqu/v9"
 
@@ -29,6 +30,13 @@ create unique index if not exists %s on %s (sync_id, key);`
 var sessionStore = (*sessionStoreTable)(nil)
 
 type sessionStoreTable struct{}
+
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
 
 func (r *sessionStoreTable) Name() string {
 	return fmt.Sprintf("v%s_%s", r.Version(), sessionStoreTableName)
@@ -74,7 +82,7 @@ func (c *C1File) Get(ctx context.Context, key string, opt ...sessions.SessionSto
 	q := c.db.From(sessionStore.Name()).Prepared(true)
 	q = q.Select("value")
 	q = q.Where(goqu.C("sync_id").Eq(bag.SyncID))
-	q = q.Where(goqu.C("key").Eq(key))
+	q = q.Where(goqu.C("key").Eq(bag.Prefix + key))
 
 	sql, params, err := q.ToSQL()
 	if err != nil {
@@ -116,7 +124,7 @@ func (c *C1File) Set(ctx context.Context, key string, value []byte, opt ...sessi
 	q := c.db.Insert(sessionStore.Name()).Prepared(true)
 	q = q.Rows(goqu.Record{
 		"sync_id": bag.SyncID,
-		"key":     key,
+		"key":     bag.Prefix + key,
 		"value":   value,
 	})
 	q = q.OnConflict(goqu.DoUpdate("sync_id, key", goqu.C("value").Set(value)))
@@ -150,7 +158,7 @@ func (c *C1File) SetMany(ctx context.Context, values map[string][]byte, opt ...s
 	for key, value := range values {
 		rows = append(rows, goqu.Record{
 			"sync_id": bag.SyncID,
-			"key":     key,
+			"key":     bag.Prefix + key,
 			"value":   value,
 		})
 	}
@@ -181,7 +189,7 @@ func (c *C1File) Delete(ctx context.Context, key string, opt ...sessions.Session
 
 	q := c.db.Delete(sessionStore.Name()).Prepared(true)
 	q = q.Where(goqu.C("sync_id").Eq(bag.SyncID))
-	q = q.Where(goqu.C("key").Eq(key))
+	q = q.Where(goqu.C("key").Eq(bag.Prefix + key))
 
 	sql, params, err := q.ToSQL()
 	if err != nil {
@@ -206,6 +214,10 @@ func (c *C1File) Clear(ctx context.Context, opt ...sessions.SessionStoreOption) 
 	q := c.db.Delete(sessionStore.Name()).Prepared(true)
 	q = q.Where(goqu.C("sync_id").Eq(bag.SyncID))
 
+	if bag.Prefix != "" {
+		q = q.Where(goqu.C("key").Like(escapeLike(bag.Prefix) + "%"))
+	}
+
 	sql, params, err := q.ToSQL()
 	if err != nil {
 		return fmt.Errorf("error clearing sessions: %w", err)
@@ -229,11 +241,19 @@ func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.Ses
 	if len(keys) == 0 {
 		return make(map[string][]byte), nil
 	}
+	prefixedKeys := make([]string, len(keys))
+	if bag.Prefix == "" {
+		prefixedKeys = keys
+	} else {
+		for i, key := range keys {
+			prefixedKeys[i] = bag.Prefix + key
+		}
+	}
 
 	q := c.db.From(sessionStore.Name()).Prepared(true)
 	q = q.Select("key", "value")
 	q = q.Where(goqu.C("sync_id").Eq(bag.SyncID))
-	q = q.Where(goqu.C("key").In(keys))
+	q = q.Where(goqu.C("key").In(prefixedKeys))
 
 	sql, params, err := q.ToSQL()
 	if err != nil {
@@ -253,6 +273,10 @@ func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.Ses
 		err = rows.Scan(&key, &value)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning session: %w", err)
+		}
+		// Remove prefix from key to return original key
+		if bag.Prefix != "" && len(key) >= len(bag.Prefix) && key[:len(bag.Prefix)] == bag.Prefix {
+			key = key[len(bag.Prefix):]
 		}
 		result[key] = value
 	}
@@ -275,7 +299,12 @@ func (c *C1File) GetAll(ctx context.Context, opt ...sessions.SessionStoreOption)
 	q = q.Select("key", "value")
 	q = q.Where(goqu.C("sync_id").Eq(bag.SyncID))
 
+	if bag.Prefix != "" {
+		q = q.Where(goqu.C("key").Like(escapeLike(bag.Prefix) + "%"))
+	}
+
 	sql, params, err := q.ToSQL()
+
 	if err != nil {
 		return nil, fmt.Errorf("error getting all sessions: %w", err)
 	}
@@ -293,6 +322,10 @@ func (c *C1File) GetAll(ctx context.Context, opt ...sessions.SessionStoreOption)
 		err = rows.Scan(&key, &value)
 		if err != nil {
 			return nil, fmt.Errorf("error scanning session: %w", err)
+		}
+		// Remove prefix from key to return original key
+		if bag.Prefix != "" && len(key) >= len(bag.Prefix) && key[:len(bag.Prefix)] == bag.Prefix {
+			key = key[len(bag.Prefix):]
 		}
 		result[key] = value
 	}
