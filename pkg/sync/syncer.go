@@ -2962,7 +2962,7 @@ func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
 }
 
 func WithSessionStore(sessionStore session.SetSessionStore) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.setSessionStore = sessionStore
 	}
 }
