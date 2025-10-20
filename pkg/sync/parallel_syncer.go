@@ -633,7 +633,12 @@ func (w *worker) Start() {
 			if err != nil {
 				// No tasks available, wait a bit
 				l.Debug("no tasks available, waiting", zap.Int("worker_id", w.id), zap.Error(err))
-				time.Sleep(100 * time.Millisecond)
+				select {
+				case <-w.ctx.Done():
+					l.Debug("worker context cancelled, stopping", zap.Int("worker_id", w.id))
+					return
+				case <-time.After(100 * time.Millisecond):
+				}
 				continue
 			}
 			l.Debug("worker got task", zap.Int("worker_id", w.id), zap.String("task_op", task.Action.Op.String()))
@@ -695,7 +700,11 @@ func (w *worker) Start() {
 
 					// Wait before retrying with bucket-specific delay
 					delay := w.getBucketRateLimitDelay(taskBucket)
-					time.Sleep(delay)
+					select {
+					case <-w.ctx.Done():
+						return
+					case <-time.After(delay):
+					}
 				} else {
 					// Non-rate-limit error, reset rate limit flag
 					w.rateLimited.Store(false)
