@@ -16,7 +16,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
-	"github.com/go-git/go-git/v5/plumbing/format/config"
+	"github.com/go-jose/go-jose/v4"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -195,8 +195,9 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		}
 
 		oauthClient := v1.NewConnectorOauthTokenServiceClient(grpcClient)
-		oauthTokenSource := lambdaOauth2TokenSource{
+		oauthTokenSource := &lambdaTokenSource{
 			ctx:    runCtx,
+			webKey: webKey,
 			client: oauthClient,
 		}
 		c.SetTokenSource(oauthTokenSource)
@@ -252,7 +253,8 @@ func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) sessions
 
 type lambdaTokenSource struct {
 	ctx    context.Context
-	client *v1.ConnectorOauthTokenServiceClient
+	webKey *jose.JSONWebKey
+	client v1.ConnectorOauthTokenServiceClient
 }
 
 func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
@@ -261,12 +263,12 @@ func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 
-	ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
+	ed25519PrivateKey, ok := s.webKey.Key.(ed25519.PrivateKey)
 	if !ok {
 		return nil, fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
 	}
 
-	decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, config.Config)
+	decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, resp.Token)
 	if err != nil {
 		return nil, fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
 	}
@@ -276,5 +278,5 @@ func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
 	}
-	return t, nil
+	return &t, nil
 }
