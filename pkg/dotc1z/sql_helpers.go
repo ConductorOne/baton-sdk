@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"runtime"
 	"strconv"
@@ -467,7 +468,7 @@ func executeChunkedInsert(
 	return nil
 }
 
-// executeChunkWithRetry executes a single chunk with retry logic for SQLITE_BUSY errors
+// executeChunkWithRetry executes a single chunk with retry logic for SQLITE_BUSY errors.
 func executeChunkWithRetry(
 	ctx context.Context,
 	c *C1File,
@@ -501,7 +502,10 @@ func executeChunkWithRetry(
 		insertDs, err = buildQueryFn(insertDs, chunkedRows)
 		if err != nil {
 			c.releaseCheckpointLock()
-			tx.Rollback()
+			rollbackErr := tx.Rollback()
+			if rollbackErr != nil {
+				return errors.Join(err, rollbackErr)
+			}
 			return err
 		}
 
@@ -509,14 +513,20 @@ func executeChunkWithRetry(
 		query, args, err := insertDs.ToSQL()
 		if err != nil {
 			c.releaseCheckpointLock()
-			tx.Rollback()
+			rollbackErr := tx.Rollback()
+			if rollbackErr != nil {
+				return errors.Join(err, rollbackErr)
+			}
 			return err
 		}
 
 		_, err = tx.ExecContext(ctx, query, args...)
 		if err != nil {
 			c.releaseCheckpointLock()
-			tx.Rollback()
+			rollbackErr := tx.Rollback()
+			if rollbackErr != nil {
+				return errors.Join(err, rollbackErr)
+			}
 			if isSQLiteBusy(err) && attempt < maxRetries-1 {
 				select {
 				case <-ctx.Done():
