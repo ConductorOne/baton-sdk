@@ -16,10 +16,12 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
+	"github.com/go-git/go-git/v5/plumbing/format/config"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"golang.org/x/oauth2"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
@@ -192,6 +194,13 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
 		}
 
+		oauthClient := v1.NewConnectorOauthTokenServiceClient(grpcClient)
+		oauthTokenSource := lambdaOauth2TokenSource{
+			ctx:    runCtx,
+			client: oauthClient,
+		}
+		c.SetTokenSource(oauthTokenSource)
+
 		// Ensure only one auth method is provided
 		jwk := v.GetString(field.LambdaServerAuthJWTSigner.GetName())
 		jwksUrl := v.GetString(field.LambdaServerAuthJWTJWKSUrl.GetName())
@@ -239,4 +248,33 @@ func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) sessions
 		// Create and return the session cache
 		return session.NewGRPCSessionStore(ctx, client, opt...)
 	}
+}
+
+type lambdaTokenSource struct {
+	ctx    context.Context
+	client *v1.ConnectorOauthTokenServiceClient
+}
+
+func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
+	resp, err := s.client.GetConnectorOauthToken(s.ctx, &v1.GetConnectorOauthTokenRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
+	}
+
+	decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, config.Config)
+	if err != nil {
+		return nil, fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
+	}
+
+	t := oauth2.Token{}
+	err = json.Unmarshal(decrypted, &t)
+	if err != nil {
+		return nil, fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
+	}
+	return t, nil
 }
