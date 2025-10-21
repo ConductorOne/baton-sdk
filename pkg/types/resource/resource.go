@@ -345,3 +345,8 @@ type Options struct {
 	SyncID    string
 	PageToken *pagination.Token
 }
+
+type OptionsRet struct {
+	NextPageToken string
+	Annotations   annotations.Annotations
+}
