@@ -340,13 +340,13 @@ func NewSecretResource(
 	return ret, nil
 }
 
-type Options struct {
+type SyncOpAttrs struct {
 	Session   sessions.SessionStore
 	SyncID    string
-	PageToken *pagination.Token
+	PageToken pagination.Token
 }
 
-type OptionsRet struct {
+type SyncOpResults struct {
 	NextPageToken string
 	Annotations   annotations.Annotations
 }

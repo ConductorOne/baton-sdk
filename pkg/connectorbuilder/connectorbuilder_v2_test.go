@@ -181,8 +181,8 @@ func (t *testResourceSyncerV2Simple) ResourceType(ctx context.Context) *v2.Resou
 func (t *testResourceSyncerV2Simple) List(
 	ctx context.Context,
 	parentResourceID *v2.ResourceId,
-	opts resource.Options,
-) ([]*v2.Resource, *resource.OptionsRet, error) {
+	opts resource.SyncOpAttrs,
+) ([]*v2.Resource, *resource.SyncOpResults, error) {
 	return []*v2.Resource{
 		{
 			Id: &v2.ResourceId{
@@ -197,8 +197,8 @@ func (t *testResourceSyncerV2Simple) List(
 func (t *testResourceSyncerV2Simple) Entitlements(
 	ctx context.Context,
 	resource *v2.Resource,
-	opts resource.Options,
-) ([]*v2.Entitlement, *resource.OptionsRet, error) {
+	opts resource.SyncOpAttrs,
+) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
 	return []*v2.Entitlement{
 		{
 			Id:          "entitlement-1",
@@ -211,8 +211,8 @@ func (t *testResourceSyncerV2Simple) Entitlements(
 func (t *testResourceSyncerV2Simple) Grants(
 	ctx context.Context,
 	resource *v2.Resource,
-	opts resource.Options,
-) ([]*v2.Grant, *resource.OptionsRet, error) {
+	opts resource.SyncOpAttrs,
+) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	return []*v2.Grant{
 		{
 			Id: "grant-1",

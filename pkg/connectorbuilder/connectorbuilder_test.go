@@ -116,8 +116,8 @@ func (t *testResourceSyncerV2WithTargetedSync) ResourceType(ctx context.Context)
 func (t *testResourceSyncerV2WithTargetedSync) List(
 	ctx context.Context,
 	parentResourceID *v2.ResourceId,
-	opts resource.Options,
-) ([]*v2.Resource, *resource.OptionsRet, error) {
+	opts resource.SyncOpAttrs,
+) ([]*v2.Resource, *resource.SyncOpResults, error) {
 	return []*v2.Resource{
 		{
 			Id: &v2.ResourceId{
@@ -126,28 +126,28 @@ func (t *testResourceSyncerV2WithTargetedSync) List(
 			},
 			DisplayName: "Test Resource 1",
 		},
-	}, &resource.OptionsRet{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
+	}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
 func (t *testResourceSyncerV2WithTargetedSync) Entitlements(
 	ctx context.Context,
 	r *v2.Resource,
-	opts resource.Options,
-) ([]*v2.Entitlement, *resource.OptionsRet, error) {
+	opts resource.SyncOpAttrs,
+) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
 	return []*v2.Entitlement{
 		{
 			Resource:    r,
 			Id:          "test-entitlement",
 			DisplayName: "Test Entitlement",
 		},
-	}, &resource.OptionsRet{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
+	}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
 func (t *testResourceSyncerV2WithTargetedSync) Grants(
 	ctx context.Context,
 	r *v2.Resource,
-	opts resource.Options,
-) ([]*v2.Grant, *resource.OptionsRet, error) {
+	opts resource.SyncOpAttrs,
+) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	return []*v2.Grant{
 		{
 			Entitlement: &v2.Entitlement{
@@ -164,7 +164,7 @@ func (t *testResourceSyncerV2WithTargetedSync) Grants(
 			},
 			Id: "test-grant-1",
 		},
-	}, &resource.OptionsRet{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
+	}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
 func (t *testResourceSyncerV2WithTargetedSync) Get(

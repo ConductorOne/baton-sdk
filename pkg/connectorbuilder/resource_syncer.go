@@ -50,9 +50,9 @@ type ResourceSyncerV2 interface {
 }
 
 type ResourceSyncerV2Limited interface {
-	List(ctx context.Context, parentResourceID *v2.ResourceId, opts resource.Options) ([]*v2.Resource, *resource.OptionsRet, error)
-	Entitlements(ctx context.Context, resource *v2.Resource, opts resource.Options) ([]*v2.Entitlement, *resource.OptionsRet, error)
-	Grants(ctx context.Context, resource *v2.Resource, opts resource.Options) ([]*v2.Grant, *resource.OptionsRet, error)
+	List(ctx context.Context, parentResourceID *v2.ResourceId, opts resource.SyncOpAttrs) ([]*v2.Resource, *resource.SyncOpResults, error)
+	Entitlements(ctx context.Context, resource *v2.Resource, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error)
+	Grants(ctx context.Context, resource *v2.Resource, opts resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error)
 }
 
 // ResourceTargetedSyncer extends ResourceSyncer to add capabilities for directly syncing an individual resource
@@ -111,14 +111,14 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 		return nil, fmt.Errorf("error: list resources with unknown resource type %s", request.ResourceTypeId)
 	}
 
-	token := &pagination.Token{
+	token := pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
 	}
-	opts := resource.Options{SyncID: request.ActiveSyncId, PageToken: token, Session: WithSyncId(b.sessionStore, request.ActiveSyncId)}
+	opts := resource.SyncOpAttrs{SyncID: request.ActiveSyncId, PageToken: token, Session: WithSyncId(b.sessionStore, request.ActiveSyncId)}
 	out, retOptions, err := rb.List(ctx, request.ParentResourceId, opts)
 	if retOptions == nil {
-		retOptions = &resource.OptionsRet{}
+		retOptions = &resource.SyncOpResults{}
 	}
 
 	resp := &v2.ResourcesServiceListResourcesResponse{
@@ -180,14 +180,14 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: list entitlements with unknown resource type %s", request.Resource.Id.ResourceType)
 	}
-	token := &pagination.Token{
+	token := pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
 	}
-	opts := resource.Options{SyncID: request.ActiveSyncId, PageToken: token, Session: WithSyncId(b.sessionStore, request.ActiveSyncId)}
+	opts := resource.SyncOpAttrs{SyncID: request.ActiveSyncId, PageToken: token, Session: WithSyncId(b.sessionStore, request.ActiveSyncId)}
 	out, retOptions, err := rb.Entitlements(ctx, request.Resource, opts)
 	if retOptions == nil {
-		retOptions = &resource.OptionsRet{}
+		retOptions = &resource.SyncOpResults{}
 	}
 
 	resp := &v2.EntitlementsServiceListEntitlementsResponse{
@@ -222,14 +222,14 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 		return nil, fmt.Errorf("error: list grants with unknown resource type %s", rid.ResourceType)
 	}
 
-	token := &pagination.Token{
+	token := pagination.Token{
 		Size:  int(request.PageSize),
 		Token: request.PageToken,
 	}
-	opts := resource.Options{SyncID: request.ActiveSyncId, PageToken: token, Session: WithSyncId(b.sessionStore, request.ActiveSyncId)}
+	opts := resource.SyncOpAttrs{SyncID: request.ActiveSyncId, PageToken: token, Session: WithSyncId(b.sessionStore, request.ActiveSyncId)}
 	out, retOptions, err := rb.Grants(ctx, request.Resource, opts)
 	if retOptions == nil {
-		retOptions = &resource.OptionsRet{}
+		retOptions = &resource.SyncOpResults{}
 	}
 
 	resp := &v2.GrantsServiceListGrantsResponse{
@@ -265,21 +265,21 @@ func (rw *resourceSyncerV1toV2) ResourceType(ctx context.Context) *v2.ResourceTy
 	return rw.rb.ResourceType(ctx)
 }
 
-func (rw *resourceSyncerV1toV2) List(ctx context.Context, parentResourceID *v2.ResourceId, opts resource.Options) ([]*v2.Resource, *resource.OptionsRet, error) {
-	resources, pageToken, annos, err := rw.rb.List(ctx, parentResourceID, opts.PageToken)
-	ret := &resource.OptionsRet{NextPageToken: pageToken, Annotations: annos}
+func (rw *resourceSyncerV1toV2) List(ctx context.Context, parentResourceID *v2.ResourceId, opts resource.SyncOpAttrs) ([]*v2.Resource, *resource.SyncOpResults, error) {
+	resources, pageToken, annos, err := rw.rb.List(ctx, parentResourceID, &opts.PageToken)
+	ret := &resource.SyncOpResults{NextPageToken: pageToken, Annotations: annos}
 	return resources, ret, err
 }
 
-func (rw *resourceSyncerV1toV2) Entitlements(ctx context.Context, r *v2.Resource, opts resource.Options) ([]*v2.Entitlement, *resource.OptionsRet, error) {
-	ents, pageToken, annos, err := rw.rb.Entitlements(ctx, r, opts.PageToken)
-	ret := &resource.OptionsRet{NextPageToken: pageToken, Annotations: annos}
+func (rw *resourceSyncerV1toV2) Entitlements(ctx context.Context, r *v2.Resource, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
+	ents, pageToken, annos, err := rw.rb.Entitlements(ctx, r, &opts.PageToken)
+	ret := &resource.SyncOpResults{NextPageToken: pageToken, Annotations: annos}
 	return ents, ret, err
 }
 
-func (rw *resourceSyncerV1toV2) Grants(ctx context.Context, r *v2.Resource, opts resource.Options) ([]*v2.Grant, *resource.OptionsRet, error) {
-	grants, pageToken, annos, err := rw.rb.Grants(ctx, r, opts.PageToken)
-	ret := &resource.OptionsRet{NextPageToken: pageToken, Annotations: annos}
+func (rw *resourceSyncerV1toV2) Grants(ctx context.Context, r *v2.Resource, opts resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
+	grants, pageToken, annos, err := rw.rb.Grants(ctx, r, &opts.PageToken)
+	ret := &resource.SyncOpResults{NextPageToken: pageToken, Annotations: annos}
 	return grants, ret, err
 }
 
