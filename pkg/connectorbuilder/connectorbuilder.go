@@ -175,6 +175,10 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		return nil
 	}
 
+	if oauthbuilder, ok := in.(ConnectorOauthBuilder); ok {
+		b.oauthTokenSourceManager = oauthbuilder
+	}
+
 	if cb, ok := in.(ConnectorBuilder); ok {
 		for _, rb := range cb.ResourceSyncers(ctx) {
 			rType := rb.ResourceType(ctx)
@@ -195,9 +199,6 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		return b, nil
 	}
 
-	if oauthbuilder, ok := in.(ConnectorOauthBuilder); ok {
-		b.oauthTokenSourceManager = oauthbuilder
-	}
 	return nil, fmt.Errorf("input is not a ConnectorBuilder or a ConnectorBuilderV2")
 }
 
