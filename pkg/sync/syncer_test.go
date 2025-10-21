@@ -86,6 +86,62 @@ func TestExpandGrants(t *testing.T) {
 	_ = os.Remove(c1zpath)
 }
 
+func TestInvalidResourceTypeFilter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tempDir, err := os.MkdirTemp("", "baton-invalid-resource-type-filter-sync-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "invalid-resource-type-filter-sync.c1z")
+
+	mc := newMockConnector()
+
+	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+
+	syncer, err := NewSyncer(ctx, mc,
+		WithC1ZPath(c1zPath),
+		WithTmpDir(tempDir),
+		WithSyncResourceTypes([]string{"fake", "user"}),
+	)
+	require.NoError(t, err)
+
+	err = syncer.Sync(ctx)
+	require.Error(t, err)
+
+	err = syncer.Close(ctx)
+	require.NoError(t, err)
+}
+
+func TestResourceTypeFilter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tempDir, err := os.MkdirTemp("", "baton-resource-type-filter-sync-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "resource-type-filter-sync.c1z")
+
+	mc := newMockConnector()
+
+	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+
+	syncer, err := NewSyncer(ctx, mc,
+		WithC1ZPath(c1zPath),
+		WithTmpDir(tempDir),
+		WithSyncResourceTypes([]string{"group"}),
+	)
+	require.NoError(t, err)
+
+	err = syncer.Sync(ctx)
+	require.NoError(t, err)
+
+	err = syncer.Close(ctx)
+	require.NoError(t, err)
+}
+
 func TestExpandGrantBadEntitlement(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

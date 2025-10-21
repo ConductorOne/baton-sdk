@@ -53,6 +53,7 @@ type c1ApiTaskManager struct {
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
 	targetedSyncResourceIDs             []string
+	syncResourceTypeIDs                 []string
 }
 
 // getHeartbeatInterval returns an appropriate heartbeat interval. If the interval is 0, it will return the default heartbeat interval.
@@ -254,6 +255,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 			c.externalResourceC1Z,
 			c.externalResourceEntitlementIdFilter,
 			c.targetedSyncResourceIDs,
+			c.syncResourceTypeIDs,
 		)
 	case taskTypes.HelloType:
 		handler = newHelloTaskHandler(task, tHelpers)
@@ -305,6 +307,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 func NewC1TaskManager(
 	ctx context.Context, clientID string, clientSecret string, tempDir string, skipFullSync bool,
 	externalC1Z string, externalResourceEntitlementIdFilter string, targetedSyncResourceIDs []string,
+	syncResourceTypeIDs []string,
 ) (tasks.Manager, error) {
 	serviceClient, err := newServiceClient(ctx, clientID, clientSecret)
 	if err != nil {
@@ -318,5 +321,6 @@ func NewC1TaskManager(
 		externalResourceC1Z:                 externalC1Z,
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
 		targetedSyncResourceIDs:             targetedSyncResourceIDs,
+		syncResourceTypeIDs:                 syncResourceTypeIDs,
 	}, nil
 }

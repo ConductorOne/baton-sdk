@@ -345,6 +345,7 @@ type runnerConfig struct {
 	externalResourceEntitlementIdFilter string
 	skipEntitlementsAndGrants           bool
 	sessionStoreEnabled                 bool
+	syncResourceTypeIDs                 []string
 }
 
 func WithSessionStoreEnabled() Option {
@@ -561,6 +562,13 @@ func WithTargetedSyncResourceIDs(resourceIDs []string) Option {
 	}
 }
 
+func WithSyncResourceTypeIDs(resourceTypeIDs []string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.syncResourceTypeIDs = resourceTypeIDs
+		return nil
+	}
+}
+
 func WithTicketingEnabled() Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.ticketingEnabled = true
@@ -699,6 +707,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		wrapperOpts = append(wrapperOpts, connector.WithSessionStoreEnabled())
 	}
 
+	if len(cfg.syncResourceTypeIDs) > 0 {
+		wrapperOpts = append(wrapperOpts, connector.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs))
+	}
+
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {
 		return nil, err
@@ -769,6 +781,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
 				local.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs),
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
+				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
 			)
 			if err != nil {
 				return nil, err
@@ -789,6 +802,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.externalResourceC1Z,
 		cfg.externalResourceEntitlementIdFilter,
 		cfg.targetedSyncResourceIDs,
+		cfg.syncResourceTypeIDs,
 	)
 	if err != nil {
 		return nil, err
