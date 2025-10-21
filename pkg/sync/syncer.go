@@ -371,6 +371,13 @@ func (s *syncer) Sync(ctx context.Context) error {
 		}
 	}
 
+	syncResourceTypeMap := make(map[string]bool)
+	if len(s.syncResourceTypes) > 0 {
+		for _, rt := range s.syncResourceTypes {
+			syncResourceTypeMap[rt] = true
+		}
+	}
+
 	// Validate any targeted resource IDs before starting a sync.
 	targetedResources := []*v2.Resource{}
 	for _, resourceID := range s.targetedSyncResourceIDs {
@@ -378,6 +385,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("error parsing resource id %s: %w", resourceID, err)
 		}
+		if len(s.syncResourceTypes) > 0 {
+			if _, ok := syncResourceTypeMap[r.Id.ResourceType]; !ok {
+				continue
+			}
+		}
+
 		targetedResources = append(targetedResources, r)
 	}
 

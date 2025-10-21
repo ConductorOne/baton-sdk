@@ -143,3 +143,94 @@ jobs:
           else
             echo "Resource set matches expected"
           fi
+      - name: Test sync by resource type
+        run: |
+          set -euo pipefail
+          cd baton-demo
+
+          # Clean previous sync file if present
+          rm -f sync.c1z
+
+          # Run targeted sync for resource type "group"
+          ./baton-demo --sync-resource-types group
+
+          # Dump resources as JSON
+          baton resources --output-format=json > resources.json
+          cat resources.json
+
+          # Validate resource count (should be 4)
+          jq -e '(.resources | length) == 4' resources.json > /dev/null
+
+          # Validate all resources are type "group"
+          jq -e '(.resources | map(select(.resourceType.id == "group")) | length) == (.resources | length)' resources.json > /dev/null
+
+          # Build actual and expected sorted arrays
+          actual_sorted="$(jq -r '
+            [ .resources[]
+              | "bid:r:\(.resourceType.id)/\(.resource.id.resource)"
+            ] | sort | @json
+          ' resources.json)"
+
+          expected_sorted="$(jq -r -n '
+            ["bid:r:group/group-0000000",
+             "bid:r:group/group-0000001",
+             "bid:r:group/group-0000002",
+             "bid:r:group/group-everyone"]
+            | sort | @json
+          ')"
+
+          # Compare
+          if [[ "$actual_sorted" != "$expected_sorted" ]]; then
+            echo "Resource set mismatch"
+            echo "Expected: $expected_sorted"
+            echo "Actual:   $actual_sorted"
+            echo "Diff:"
+            diff <(echo "$actual_sorted" | jq -r '.[]') <(echo "$expected_sorted" | jq -r '.[]') || true
+            exit 1
+          else
+            echo "Resource set matches expected"
+          fi
+      - name: Test with both --sync-resource-types and --sync-resources
+        run: |
+          set -euo pipefail
+          cd baton-demo
+
+          rm -f sync.c1z
+
+          # Run with BOTH filters: type=group AND a mixed list (groups + role + user)
+          ./baton-demo \
+            --sync-resource-types group \
+            --sync-resources='"bid:r:group/group-0000000","bid:r:group/group-0000002","bid:r:role/role-0000001","bid:r:user/user-0000003"'
+
+          # Dump resources to JSON
+          baton resources --output-format=json > resources.json
+          cat resources.json
+
+          # Validate the result is exactly the intersection: 2 groups (0000000, 0000002)
+          jq -e '(.resources | length) == 2' resources.json > /dev/null
+          jq -e '(.resources | map(select(.resourceType.id == "group")) | length) == (.resources | length)' resources.json > /dev/null
+
+          # Build actual and expected sets (order-independent)
+          actual_sorted="$(jq -r '
+            [ .resources[]
+              | "bid:r:\(.resourceType.id)/\(.resource.id.resource)"
+            ] | sort | @json
+          ' resources.json)"
+
+          expected_sorted="$(jq -r -n '
+            ["bid:r:group/group-0000000",
+             "bid:r:group/group-0000002"]
+            | sort | @json
+          ')"
+
+          # Compare
+          if [[ "$actual_sorted" != "$expected_sorted" ]]; then
+            echo "Resource set mismatch"
+            echo "Expected: $expected_sorted"
+            echo "Actual:   $actual_sorted"
+            echo "Diff:"
+            diff <(echo "$actual_sorted" | jq -r '.[]') <(echo "$expected_sorted" | jq -r '.[]') || true
+            exit 1
+          else
+            echo "Resource set matches expected (intersection)"
+          fi
