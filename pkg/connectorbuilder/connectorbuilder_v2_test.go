@@ -181,7 +181,6 @@ func (t *testResourceSyncerV2Simple) ResourceType(ctx context.Context) *v2.Resou
 func (t *testResourceSyncerV2Simple) List(
 	ctx context.Context,
 	parentResourceID *v2.ResourceId,
-	pToken *pagination.Token,
 	opts resource.Options,
 ) ([]*v2.Resource, string, annotations.Annotations, error) {
 	return []*v2.Resource{
@@ -198,7 +197,6 @@ func (t *testResourceSyncerV2Simple) List(
 func (t *testResourceSyncerV2Simple) Entitlements(
 	ctx context.Context,
 	resource *v2.Resource,
-	pToken *pagination.Token,
 	opts resource.Options,
 ) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	return []*v2.Entitlement{
@@ -213,7 +211,6 @@ func (t *testResourceSyncerV2Simple) Entitlements(
 func (t *testResourceSyncerV2Simple) Grants(
 	ctx context.Context,
 	resource *v2.Resource,
-	pToken *pagination.Token,
 	opts resource.Options,
 ) ([]*v2.Grant, string, annotations.Annotations, error) {
 	return []*v2.Grant{

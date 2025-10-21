@@ -116,7 +116,6 @@ func (t *testResourceSyncerV2WithTargetedSync) ResourceType(ctx context.Context)
 func (t *testResourceSyncerV2WithTargetedSync) List(
 	ctx context.Context,
 	parentResourceID *v2.ResourceId,
-	pToken *pagination.Token,
 	opts resource.Options,
 ) ([]*v2.Resource, string, annotations.Annotations, error) {
 	return []*v2.Resource{
@@ -133,7 +132,6 @@ func (t *testResourceSyncerV2WithTargetedSync) List(
 func (t *testResourceSyncerV2WithTargetedSync) Entitlements(
 	ctx context.Context,
 	resource *v2.Resource,
-	pToken *pagination.Token,
 	opts resource.Options,
 ) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	return []*v2.Entitlement{
@@ -148,7 +146,6 @@ func (t *testResourceSyncerV2WithTargetedSync) Entitlements(
 func (t *testResourceSyncerV2WithTargetedSync) Grants(
 	ctx context.Context,
 	resource *v2.Resource,
-	pToken *pagination.Token,
 	opts resource.Options,
 ) ([]*v2.Grant, string, annotations.Annotations, error) {
 	return []*v2.Grant{

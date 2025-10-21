@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/stretchr/testify/require"
 )
@@ -44,12 +43,12 @@ func TestC1FileSessionStore_Get(t *testing.T) {
 	t.Run("Get with prefix", func(t *testing.T) {
 		// Set a value with prefix
 		err := c1zFile.Set(ctx, "prefixed-key", []byte("prefixed-value"),
-			sessions.WithSyncID(syncID), session.WithPrefix("test-prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("test-prefix:"))
 		require.NoError(t, err)
 
 		// Get the value with prefix
 		value, found, err := c1zFile.Get(ctx, "prefixed-key",
-			sessions.WithSyncID(syncID), session.WithPrefix("test-prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("test-prefix:"))
 		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, []byte("prefixed-value"), value)
@@ -109,12 +108,12 @@ func TestC1FileSessionStore_Set(t *testing.T) {
 
 	t.Run("Set with prefix", func(t *testing.T) {
 		err := c1zFile.Set(ctx, "prefixed-key", []byte("prefixed-value"),
-			sessions.WithSyncID(syncID), session.WithPrefix("prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("prefix:"))
 		require.NoError(t, err)
 
 		// Verify it was set with prefix
 		value, found, err := c1zFile.Get(ctx, "prefixed-key",
-			sessions.WithSyncID(syncID), session.WithPrefix("prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("prefix:"))
 		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, []byte("prefixed-value"), value)
@@ -189,15 +188,15 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 	t.Run("GetMany with prefix", func(t *testing.T) {
 		// Set values with prefix
 		err := c1zFile.Set(ctx, "prefixed-key1", []byte("prefixed-value1"),
-			sessions.WithSyncID(syncID), session.WithPrefix("test-prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("test-prefix:"))
 		require.NoError(t, err)
 		err = c1zFile.Set(ctx, "prefixed-key2", []byte("prefixed-value2"),
-			sessions.WithSyncID(syncID), session.WithPrefix("test-prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("test-prefix:"))
 		require.NoError(t, err)
 
 		// Get multiple keys with prefix
 		result, err := c1zFile.GetMany(ctx, []string{"prefixed-key1", "prefixed-key2"},
-			sessions.WithSyncID(syncID), session.WithPrefix("test-prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("test-prefix:"))
 		require.NoError(t, err)
 		require.Len(t, result, 2)
 		require.Equal(t, []byte("prefixed-value1"), result["prefixed-key1"])
@@ -253,13 +252,13 @@ func TestC1FileSessionStore_SetMany(t *testing.T) {
 		}
 
 		err := c1zFile.SetMany(ctx, values,
-			sessions.WithSyncID(syncID), session.WithPrefix("batch-prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("batch-prefix:"))
 		require.NoError(t, err)
 
 		// Verify all values were set with prefix
 		for key, expectedValue := range values {
 			value, found, err := c1zFile.Get(ctx, key,
-				sessions.WithSyncID(syncID), session.WithPrefix("batch-prefix:"))
+				sessions.WithSyncID(syncID), sessions.WithPrefix("batch-prefix:"))
 			require.NoError(t, err)
 			require.True(t, found)
 			require.Equal(t, expectedValue, value)
@@ -333,24 +332,24 @@ func TestC1FileSessionStore_Delete(t *testing.T) {
 	t.Run("Delete with prefix", func(t *testing.T) {
 		// Set a value with prefix
 		err := c1zFile.Set(ctx, "prefixed-to-delete", []byte("will-be-deleted"),
-			sessions.WithSyncID(syncID), session.WithPrefix("delete-prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("delete-prefix:"))
 		require.NoError(t, err)
 
 		// Verify it exists
 		value, found, err := c1zFile.Get(ctx, "prefixed-to-delete",
-			sessions.WithSyncID(syncID), session.WithPrefix("delete-prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("delete-prefix:"))
 		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, []byte("will-be-deleted"), value)
 
 		// Delete it with prefix
 		err = c1zFile.Delete(ctx, "prefixed-to-delete",
-			sessions.WithSyncID(syncID), session.WithPrefix("delete-prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("delete-prefix:"))
 		require.NoError(t, err)
 
 		// Verify it's gone
 		value, found, err = c1zFile.Get(ctx, "prefixed-to-delete",
-			sessions.WithSyncID(syncID), session.WithPrefix("delete-prefix:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("delete-prefix:"))
 		require.NoError(t, err)
 		require.False(t, found)
 		require.Nil(t, value)
@@ -406,30 +405,30 @@ func TestC1FileSessionStore_Clear(t *testing.T) {
 	t.Run("Clear with prefix", func(t *testing.T) {
 		// Set values with different prefixes
 		err := c1zFile.Set(ctx, "prefix1-key1", []byte("prefix1-value1"),
-			sessions.WithSyncID(syncID), session.WithPrefix("prefix1:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("prefix1:"))
 		require.NoError(t, err)
 		err = c1zFile.Set(ctx, "prefix1-key2", []byte("prefix1-value2"),
-			sessions.WithSyncID(syncID), session.WithPrefix("prefix1:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("prefix1:"))
 		require.NoError(t, err)
 		err = c1zFile.Set(ctx, "prefix2-key1", []byte("prefix2-value1"),
-			sessions.WithSyncID(syncID), session.WithPrefix("prefix2:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("prefix2:"))
 		require.NoError(t, err)
 
 		// Clear only prefix1
-		err = c1zFile.Clear(ctx, sessions.WithSyncID(syncID), session.WithPrefix("prefix1:"))
+		err = c1zFile.Clear(ctx, sessions.WithSyncID(syncID), sessions.WithPrefix("prefix1:"))
 		require.NoError(t, err)
 
 		// Verify prefix1 keys are gone but prefix2 remains
 		_, found, err := c1zFile.Get(ctx, "prefix1-key1",
-			sessions.WithSyncID(syncID), session.WithPrefix("prefix1:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("prefix1:"))
 		require.NoError(t, err)
 		require.False(t, found)
 
-		err = c1zFile.Clear(ctx, sessions.WithSyncID(syncID), session.WithPrefix("a%"))
+		err = c1zFile.Clear(ctx, sessions.WithSyncID(syncID), sessions.WithPrefix("a%"))
 		require.NoError(t, err)
 
 		value, found, err := c1zFile.Get(ctx, "prefix2-key1",
-			sessions.WithSyncID(syncID), session.WithPrefix("prefix2:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("prefix2:"))
 		require.NoError(t, err)
 		require.True(t, found)
 		require.Equal(t, []byte("prefix2-value1"), value)
@@ -480,17 +479,17 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 	t.Run("GetAll with prefix", func(t *testing.T) {
 		// Set values with different prefixes
 		err := c1zFile.Set(ctx, "getall-prefix1-key1", []byte("getall-prefix1-value1"),
-			sessions.WithSyncID(syncID), session.WithPrefix("getall-prefix1:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("getall-prefix1:"))
 		require.NoError(t, err)
 		err = c1zFile.Set(ctx, "getall-prefix1-key2", []byte("getall-prefix1-value2"),
-			sessions.WithSyncID(syncID), session.WithPrefix("getall-prefix1:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("getall-prefix1:"))
 		require.NoError(t, err)
 		err = c1zFile.Set(ctx, "getall-prefix2-key1", []byte("getall-prefix2-value1"),
-			sessions.WithSyncID(syncID), session.WithPrefix("getall-prefix2:"))
+			sessions.WithSyncID(syncID), sessions.WithPrefix("getall-prefix2:"))
 		require.NoError(t, err)
 
 		// Get all with prefix1
-		result, err := c1zFile.GetAll(ctx, sessions.WithSyncID(syncID), session.WithPrefix("getall-prefix1:"))
+		result, err := c1zFile.GetAll(ctx, sessions.WithSyncID(syncID), sessions.WithPrefix("getall-prefix1:"))
 		require.NoError(t, err)
 		require.Len(t, result, 2)
 		require.Equal(t, []byte("getall-prefix1-value1"), result["getall-prefix1-key1"])
@@ -547,21 +546,21 @@ func TestC1FileSessionStore_Isolation(t *testing.T) {
 	t.Run("Prefix isolation", func(t *testing.T) {
 		// Set values with different prefixes in same sync
 		err := c1zFile.Set(ctx, "prefix-key", []byte("prefix1-value"),
-			sessions.WithSyncID(syncID1), session.WithPrefix("prefix1:"))
+			sessions.WithSyncID(syncID1), sessions.WithPrefix("prefix1:"))
 		require.NoError(t, err)
 		err = c1zFile.Set(ctx, "prefix-key", []byte("prefix2-value"),
-			sessions.WithSyncID(syncID1), session.WithPrefix("prefix2:"))
+			sessions.WithSyncID(syncID1), sessions.WithPrefix("prefix2:"))
 		require.NoError(t, err)
 
 		// Verify prefix isolation
 		value1, found1, err := c1zFile.Get(ctx, "prefix-key",
-			sessions.WithSyncID(syncID1), session.WithPrefix("prefix1:"))
+			sessions.WithSyncID(syncID1), sessions.WithPrefix("prefix1:"))
 		require.NoError(t, err)
 		require.True(t, found1)
 		require.Equal(t, []byte("prefix1-value"), value1)
 
 		value2, found2, err := c1zFile.Get(ctx, "prefix-key",
-			sessions.WithSyncID(syncID1), session.WithPrefix("prefix2:"))
+			sessions.WithSyncID(syncID1), sessions.WithPrefix("prefix2:"))
 		require.NoError(t, err)
 		require.True(t, found2)
 		require.Equal(t, []byte("prefix2-value"), value2)

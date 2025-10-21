@@ -38,6 +38,13 @@ func WithSyncID(syncID string) SessionStoreOption {
 	}
 }
 
+func WithPrefix(prefix string) SessionStoreOption {
+	return func(ctx context.Context, bag *SessionStoreBag) error {
+		bag.Prefix = prefix
+		return nil
+	}
+}
+
 // GetSyncID retrieves the sync ID from the context, returning empty string if not found.
 func GetSyncID(ctx context.Context) string {
 	if syncID, ok := ctx.Value(SyncIDKey{}).(string); ok {
