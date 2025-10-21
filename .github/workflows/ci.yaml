@@ -99,3 +99,47 @@ jobs:
           account-profile: '{"username": "testuser1", "email": "testuser1@example.com", "firstName": "test", "lastName": "user1"}'
       - name: Test rotate credentials
         run: ./baton-demo/baton-demo --rotate-credentials=user-0000000 --rotate-credentials-type=user
+      - name: Test targeted resources
+        run: |
+          set -euo pipefail
+          cd baton-demo
+          
+          # Clean previous sync file if present
+          rm -f sync.c1z
+          
+          # Run the targeted sync
+          ./baton-demo \
+            --sync-resources='"bid:r:group/group-0000000","bid:r:group/group-0000001","bid:r:role/role-0000000"'
+          
+          # Dump resources as JSON
+          baton resources --output-format=json > resources.json
+          cat resources.json
+          
+          # Validate resource count
+          jq -e '(.resources | length) == 3' resources.json > /dev/null
+          
+          # Build actual + expected sorted arrays
+          actual_sorted="$(jq -r '
+            [ .resources[]
+              | "bid:r:\(.resourceType.id)/\(.resource.id.resource)"
+            ] | sort | @json
+          ' resources.json)"
+          
+          expected_sorted="$(jq -r -n '
+            ["bid:r:group/group-0000000",
+             "bid:r:group/group-0000001",
+             "bid:r:role/role-0000000"]
+            | sort | @json
+          ')"
+          
+          # Compare
+          if [[ "$actual_sorted" != "$expected_sorted" ]]; then
+            echo "Resource set mismatch"
+            echo "Expected: $expected_sorted"
+            echo "Actual:   $actual_sorted"
+            echo "Diff:"
+            diff <(echo "$actual_sorted" | jq -r '.[]') <(echo "$expected_sorted" | jq -r '.[]') || true
+            exit 1
+          else
+            echo "Resource set matches expected"
+          fi
