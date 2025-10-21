@@ -2,6 +2,7 @@ package connectorbuilder
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -116,9 +117,8 @@ func (t *testResourceSyncerV2WithTargetedSync) ResourceType(ctx context.Context)
 func (t *testResourceSyncerV2WithTargetedSync) List(
 	ctx context.Context,
 	parentResourceID *v2.ResourceId,
-	pToken *pagination.Token,
-	opts resource.Options,
-) ([]*v2.Resource, string, annotations.Annotations, error) {
+	opts resource.SyncOpAttrs,
+) ([]*v2.Resource, *resource.SyncOpResults, error) {
 	return []*v2.Resource{
 		{
 			Id: &v2.ResourceId{
@@ -127,34 +127,32 @@ func (t *testResourceSyncerV2WithTargetedSync) List(
 			},
 			DisplayName: "Test Resource 1",
 		},
-	}, "", annotations.Annotations{}, nil
+	}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
 func (t *testResourceSyncerV2WithTargetedSync) Entitlements(
 	ctx context.Context,
-	resource *v2.Resource,
-	pToken *pagination.Token,
-	opts resource.Options,
-) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	r *v2.Resource,
+	opts resource.SyncOpAttrs,
+) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
 	return []*v2.Entitlement{
 		{
-			Resource:    resource,
+			Resource:    r,
 			Id:          "test-entitlement",
 			DisplayName: "Test Entitlement",
 		},
-	}, "", annotations.Annotations{}, nil
+	}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
 func (t *testResourceSyncerV2WithTargetedSync) Grants(
 	ctx context.Context,
-	resource *v2.Resource,
-	pToken *pagination.Token,
-	opts resource.Options,
-) ([]*v2.Grant, string, annotations.Annotations, error) {
+	r *v2.Resource,
+	opts resource.SyncOpAttrs,
+) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	return []*v2.Grant{
 		{
 			Entitlement: &v2.Entitlement{
-				Resource:    resource,
+				Resource:    r,
 				Id:          "test-entitlement",
 				DisplayName: "Test Entitlement",
 			},
@@ -167,7 +165,7 @@ func (t *testResourceSyncerV2WithTargetedSync) Grants(
 			},
 			Id: "test-grant-1",
 		},
-	}, "", annotations.Annotations{}, nil
+	}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
 func (t *testResourceSyncerV2WithTargetedSync) Get(
@@ -1429,4 +1427,428 @@ func TestGetCapabilities(t *testing.T) {
 		require.Empty(t, caps.ConnectorCapabilities)
 		require.Empty(t, caps.ResourceTypeCapabilities)
 	})
+}
+
+func TestResourceSyncerPagination(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("ListResources pagination", func(t *testing.T) {
+		// Create a mock resource syncer that supports pagination
+		paginatedSyncer := &testPaginatedResourceSyncer{
+			resourceType: &v2.ResourceType{
+				Id:          "test-resource",
+				DisplayName: "Test Resource",
+			},
+			totalResources: 5, // Simulate 5 total resources
+		}
+
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{paginatedSyncer}))
+		require.NoError(t, err)
+
+		// Test first page (no page token)
+		firstPageResp, err := connector.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+			ResourceTypeId: "test-resource",
+		})
+		require.NoError(t, err)
+		require.Len(t, firstPageResp.List, 2)                   // First page has 2 items
+		require.Equal(t, "page-2", firstPageResp.NextPageToken) // Should return next page token
+
+		// Test second page (with page token)
+		secondPageResp, err := connector.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+			ResourceTypeId: "test-resource",
+			PageToken:      "page-2",
+		})
+		require.NoError(t, err)
+		require.Len(t, secondPageResp.List, 2)                   // Second page has 2 items
+		require.Equal(t, "page-4", secondPageResp.NextPageToken) // Should return next page token
+
+		// Test third page (with page token)
+		thirdPageResp, err := connector.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+			ResourceTypeId: "test-resource",
+			PageToken:      "page-4",
+		})
+		require.NoError(t, err)
+		require.Len(t, thirdPageResp.List, 1)         // Last page has 1 item
+		require.Empty(t, thirdPageResp.NextPageToken) // Should return empty token (last page)
+
+		// Test invalid page token
+		invalidPageResp, err := connector.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+			ResourceTypeId: "test-resource",
+			PageToken:      "invalid-token",
+		})
+		require.NoError(t, err)
+		require.Empty(t, invalidPageResp.List)          // Should return empty list
+		require.Empty(t, invalidPageResp.NextPageToken) // Should return empty token
+	})
+
+	t.Run("ListEntitlements pagination", func(t *testing.T) {
+		paginatedSyncer := &testPaginatedResourceSyncer{
+			resourceType: &v2.ResourceType{
+				Id:          "test-resource",
+				DisplayName: "Test Resource",
+			},
+			totalEntitlements: 3, // Simulate 3 total entitlements
+		}
+
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{paginatedSyncer}))
+		require.NoError(t, err)
+
+		testResource := &v2.Resource{
+			Id: &v2.ResourceId{
+				ResourceType: "test-resource",
+				Resource:     "test-resource-1",
+			},
+		}
+
+		// Test first page (no page token)
+		firstPageResp, err := connector.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+			Resource: testResource,
+		})
+		require.NoError(t, err)
+		require.Len(t, firstPageResp.List, 2) // First page has 2 items
+		require.Equal(t, "entitlement-page-2", firstPageResp.NextPageToken)
+
+		// Test second page (with page token)
+		secondPageResp, err := connector.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+			Resource:  testResource,
+			PageToken: "entitlement-page-2",
+		})
+		require.NoError(t, err)
+		require.Len(t, secondPageResp.List, 1)         // Last page has 1 item
+		require.Empty(t, secondPageResp.NextPageToken) // Should return empty token (last page)
+	})
+
+	t.Run("ListGrants pagination", func(t *testing.T) {
+		paginatedSyncer := &testPaginatedResourceSyncer{
+			resourceType: &v2.ResourceType{
+				Id:          "test-resource",
+				DisplayName: "Test Resource",
+			},
+			totalGrants: 4, // Simulate 4 total grants
+		}
+
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{paginatedSyncer}))
+		require.NoError(t, err)
+
+		testResource := &v2.Resource{
+			Id: &v2.ResourceId{
+				ResourceType: "test-resource",
+				Resource:     "test-resource-1",
+			},
+		}
+
+		// Test first page (no page token)
+		firstPageResp, err := connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
+			Resource: testResource,
+		})
+		require.NoError(t, err)
+		require.Len(t, firstPageResp.List, 2) // First page has 2 items
+		require.Equal(t, "grant-page-2", firstPageResp.NextPageToken)
+
+		// Test second page (with page token)
+		secondPageResp, err := connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
+			Resource:  testResource,
+			PageToken: "grant-page-2",
+		})
+		require.NoError(t, err)
+		require.Len(t, secondPageResp.List, 2)         // Second page has 2 items
+		require.Empty(t, secondPageResp.NextPageToken) // Should return empty token (last page)
+	})
+
+	t.Run("Single page results", func(t *testing.T) {
+		// Test syncer that returns all results in one page
+		singlePageSyncer := &testSinglePageResourceSyncer{
+			resourceType: &v2.ResourceType{
+				Id:          "single-resource",
+				DisplayName: "Single Resource",
+			},
+		}
+
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{singlePageSyncer}))
+		require.NoError(t, err)
+
+		// Test that single page returns empty next page token
+		resp, err := connector.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+			ResourceTypeId: "single-resource",
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.List, 1)         // Single item
+		require.Empty(t, resp.NextPageToken) // Should return empty token
+	})
+
+	t.Run("Empty results", func(t *testing.T) {
+		// Test syncer that returns no results
+		emptySyncer := &testEmptyResourceSyncer{
+			resourceType: &v2.ResourceType{
+				Id:          "empty-resource",
+				DisplayName: "Empty Resource",
+			},
+		}
+
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{emptySyncer}))
+		require.NoError(t, err)
+
+		// Test that empty results return empty next page token
+		resp, err := connector.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+			ResourceTypeId: "empty-resource",
+		})
+		require.NoError(t, err)
+		require.Empty(t, resp.List)          // No items
+		require.Empty(t, resp.NextPageToken) // Should return empty token
+	})
+
+	t.Run("Same page token returned", func(t *testing.T) {
+		// Test syncer that returns the same page token (edge case)
+		sameTokenSyncer := &testSameTokenResourceSyncer{
+			resourceType: &v2.ResourceType{
+				Id:          "same-token-resource",
+				DisplayName: "Same Token Resource",
+			},
+		}
+
+		connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{sameTokenSyncer}))
+		require.NoError(t, err)
+
+		// Test that same token scenario is handled correctly - should return an error
+		resp, err := connector.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+			ResourceTypeId: "same-token-resource",
+			PageToken:      "same-token",
+		})
+		require.Error(t, err) // Should return an error for same page token
+		require.ErrorContains(t, err, "next page token is the same as the current page token")
+		// Response should contain the data returned before the error was detected
+		require.NotNil(t, resp)
+		require.Empty(t, resp.List)                        // Should return empty list
+		require.Equal(t, "same-token", resp.NextPageToken) // Should return the same token
+	})
+}
+
+type testPaginatedResourceSyncer struct {
+	resourceType      *v2.ResourceType
+	totalResources    int
+	totalEntitlements int
+	totalGrants       int
+}
+
+func (t *testPaginatedResourceSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
+	return t.resourceType
+}
+
+func (t *testPaginatedResourceSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+	var resources []*v2.Resource
+	var nextPageToken string
+
+	if pToken == nil || pToken.Token == "" {
+		// First page - return first 2 resources
+		for i := 1; i <= 2 && i <= t.totalResources; i++ {
+			resources = append(resources, &v2.Resource{
+				Id: &v2.ResourceId{
+					ResourceType: t.resourceType.Id,
+					Resource:     fmt.Sprintf("resource-%d", i),
+				},
+				DisplayName: fmt.Sprintf("Resource %d", i),
+			})
+		}
+		if t.totalResources > 2 {
+			nextPageToken = "page-2"
+		}
+		return resources, nextPageToken, annotations.Annotations{}, nil
+	}
+
+	if pToken.Token == "page-2" {
+		// Second page - return next 2 resources
+		for i := 3; i <= 4 && i <= t.totalResources; i++ {
+			resources = append(resources, &v2.Resource{
+				Id: &v2.ResourceId{
+					ResourceType: t.resourceType.Id,
+					Resource:     fmt.Sprintf("resource-%d", i),
+				},
+				DisplayName: fmt.Sprintf("Resource %d", i),
+			})
+		}
+		if t.totalResources > 4 {
+			nextPageToken = "page-4"
+		}
+		return resources, nextPageToken, annotations.Annotations{}, nil
+	}
+
+	if pToken.Token == "page-4" {
+		// Third page - return remaining resources
+		for i := 5; i <= t.totalResources; i++ {
+			resources = append(resources, &v2.Resource{
+				Id: &v2.ResourceId{
+					ResourceType: t.resourceType.Id,
+					Resource:     fmt.Sprintf("resource-%d", i),
+				},
+				DisplayName: fmt.Sprintf("Resource %d", i),
+			})
+		}
+		// No more pages
+	}
+
+	return resources, nextPageToken, annotations.Annotations{}, nil
+}
+
+func (t *testPaginatedResourceSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	var entitlements []*v2.Entitlement
+	var nextPageToken string
+
+	if pToken == nil || pToken.Token == "" {
+		// First page - return first 2 entitlements
+		for i := 1; i <= 2 && i <= t.totalEntitlements; i++ {
+			entitlements = append(entitlements, &v2.Entitlement{
+				Resource: resource,
+				Id:       fmt.Sprintf("entitlement-%d", i),
+			})
+		}
+		if t.totalEntitlements > 2 {
+			nextPageToken = "entitlement-page-2"
+		}
+	} else if pToken.Token == "entitlement-page-2" {
+		// Second page - return remaining entitlements
+		for i := 3; i <= t.totalEntitlements; i++ {
+			entitlements = append(entitlements, &v2.Entitlement{
+				Resource: resource,
+				Id:       fmt.Sprintf("entitlement-%d", i),
+			})
+		}
+		// No more pages
+	}
+
+	return entitlements, nextPageToken, annotations.Annotations{}, nil
+}
+
+func (t *testPaginatedResourceSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+	var grants []*v2.Grant
+	var nextPageToken string
+
+	if pToken == nil || pToken.Token == "" {
+		// First page - return first 2 grants
+		for i := 1; i <= 2 && i <= t.totalGrants; i++ {
+			grants = append(grants, &v2.Grant{
+				Principal: &v2.Resource{
+					Id: &v2.ResourceId{
+						ResourceType: "user",
+						Resource:     fmt.Sprintf("user-%d", i),
+					},
+				},
+				Entitlement: &v2.Entitlement{
+					Resource: resource,
+					Id:       fmt.Sprintf("entitlement-%d", i),
+				},
+			})
+		}
+		if t.totalGrants > 2 {
+			nextPageToken = "grant-page-2"
+		}
+	} else if pToken.Token == "grant-page-2" {
+		// Second page - return remaining grants
+		for i := 3; i <= t.totalGrants; i++ {
+			grants = append(grants, &v2.Grant{
+				Principal: &v2.Resource{
+					Id: &v2.ResourceId{
+						ResourceType: "user",
+						Resource:     fmt.Sprintf("user-%d", i),
+					},
+				},
+				Entitlement: &v2.Entitlement{
+					Resource: resource,
+					Id:       fmt.Sprintf("entitlement-%d", i),
+				},
+			})
+		}
+		// No more pages
+	}
+
+	return grants, nextPageToken, annotations.Annotations{}, nil
+}
+
+type testSinglePageResourceSyncer struct {
+	resourceType *v2.ResourceType
+}
+
+func (t *testSinglePageResourceSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
+	return t.resourceType
+}
+
+func (t *testSinglePageResourceSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+	return []*v2.Resource{
+		{
+			Id: &v2.ResourceId{
+				ResourceType: t.resourceType.Id,
+				Resource:     "single-resource-1",
+			},
+			DisplayName: "Single Resource 1",
+		},
+	}, "", annotations.Annotations{}, nil
+}
+
+func (t *testSinglePageResourceSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	return []*v2.Entitlement{
+		{
+			Resource: resource,
+			Id:       "single-entitlement",
+		},
+	}, "", annotations.Annotations{}, nil
+}
+
+func (t *testSinglePageResourceSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+	return []*v2.Grant{
+		{
+			Principal: &v2.Resource{
+				Id: &v2.ResourceId{
+					ResourceType: "user",
+					Resource:     "single-user",
+				},
+			},
+			Entitlement: &v2.Entitlement{
+				Resource: resource,
+				Id:       "single-entitlement",
+			},
+		},
+	}, "", annotations.Annotations{}, nil
+}
+
+type testEmptyResourceSyncer struct {
+	resourceType *v2.ResourceType
+}
+
+func (t *testEmptyResourceSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
+	return t.resourceType
+}
+
+func (t *testEmptyResourceSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+	return []*v2.Resource{}, "", annotations.Annotations{}, nil
+}
+
+func (t *testEmptyResourceSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	return []*v2.Entitlement{}, "", annotations.Annotations{}, nil
+}
+
+func (t *testEmptyResourceSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+	return []*v2.Grant{}, "", annotations.Annotations{}, nil
+}
+
+type testSameTokenResourceSyncer struct {
+	resourceType *v2.ResourceType
+}
+
+func (t *testSameTokenResourceSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
+	return t.resourceType
+}
+
+func (t *testSameTokenResourceSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+	if pToken != nil && pToken.Token == "same-token" {
+		// Return same token - this should trigger the edge case handling
+		return []*v2.Resource{}, "same-token", annotations.Annotations{}, nil
+	}
+	return []*v2.Resource{}, "", annotations.Annotations{}, nil
+}
+
+func (t *testSameTokenResourceSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	return []*v2.Entitlement{}, "", annotations.Annotations{}, nil
+}
+
+func (t *testSameTokenResourceSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+	return []*v2.Grant{}, "", annotations.Annotations{}, nil
 }

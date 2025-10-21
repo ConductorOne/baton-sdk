@@ -7,6 +7,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"google.golang.org/protobuf/proto"
 )
@@ -339,7 +340,13 @@ func NewSecretResource(
 	return ret, nil
 }
 
-type Options struct {
-	Session sessions.SessionStore
-	SyncID  string
+type SyncOpAttrs struct {
+	Session   sessions.SessionStore
+	SyncID    string
+	PageToken pagination.Token
+}
+
+type SyncOpResults struct {
+	NextPageToken string
+	Annotations   annotations.Annotations
 }

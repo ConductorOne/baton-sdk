@@ -181,9 +181,8 @@ func (t *testResourceSyncerV2Simple) ResourceType(ctx context.Context) *v2.Resou
 func (t *testResourceSyncerV2Simple) List(
 	ctx context.Context,
 	parentResourceID *v2.ResourceId,
-	pToken *pagination.Token,
-	opts resource.Options,
-) ([]*v2.Resource, string, annotations.Annotations, error) {
+	opts resource.SyncOpAttrs,
+) ([]*v2.Resource, *resource.SyncOpResults, error) {
 	return []*v2.Resource{
 		{
 			Id: &v2.ResourceId{
@@ -192,35 +191,33 @@ func (t *testResourceSyncerV2Simple) List(
 			},
 			DisplayName: "Test Resource",
 		},
-	}, "", annotations.Annotations{}, nil
+	}, nil, nil
 }
 
 func (t *testResourceSyncerV2Simple) Entitlements(
 	ctx context.Context,
 	resource *v2.Resource,
-	pToken *pagination.Token,
-	opts resource.Options,
-) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	opts resource.SyncOpAttrs,
+) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
 	return []*v2.Entitlement{
 		{
 			Id:          "entitlement-1",
 			DisplayName: "Test Entitlement",
 			Resource:    resource,
 		},
-	}, "", annotations.Annotations{}, nil
+	}, nil, nil
 }
 
 func (t *testResourceSyncerV2Simple) Grants(
 	ctx context.Context,
 	resource *v2.Resource,
-	pToken *pagination.Token,
-	opts resource.Options,
-) ([]*v2.Grant, string, annotations.Annotations, error) {
+	opts resource.SyncOpAttrs,
+) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	return []*v2.Grant{
 		{
 			Id: "grant-1",
 		},
-	}, "", annotations.Annotations{}, nil
+	}, nil, nil
 }
 
 type testResourceSyncerV2WithProvisioner struct {

@@ -831,7 +831,7 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
-		err := cache.SetMany(ctx, values, WithPrefix("test-prefix"), sessions.WithSyncID("test-sync-id"))
+		err := cache.SetMany(ctx, values, sessions.WithPrefix("test-prefix"), sessions.WithSyncID("test-sync-id"))
 		if err != nil {
 			t.Fatalf("SetMany failed: %v", err)
 		}
