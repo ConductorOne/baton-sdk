@@ -59,6 +59,10 @@ type ConnectorBuilderV2 interface {
 	ResourceSyncers(ctx context.Context) []ResourceSyncerV2
 }
 
+type ConnectorOauthBuilder interface {
+	SetTokenSource(oauth2.TokenSource)
+}
+
 type builder struct {
 	ticketingEnabled        bool
 	m                       *metrics.M
@@ -78,6 +82,7 @@ type builder struct {
 	credentialManagers      map[string]CredentialManagerLimited
 	eventFeeds              map[string]EventFeed
 	accountManagers         map[string]AccountManagerLimited // NOTE(kans): currently unused
+	oauthTokenSourceManager ConnectorOauthBuilder
 }
 
 // NewConnector creates a new ConnectorServer for a new resource.
@@ -189,6 +194,10 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		}
 		return b, nil
 	}
+
+	if oauthbuilder, ok := in.(ConnectorOauthBuilder); ok {
+		b.oauthTokenSourceManager = oauthbuilder
+	}
 	return nil, fmt.Errorf("input is not a ConnectorBuilder or a ConnectorBuilderV2")
 }
 
@@ -244,7 +253,12 @@ func (b *builder) addConnectorBuilderProviders(_ context.Context, in interface{}
 	return nil
 }
 
-func (b *builder) SetTokenSource(_ oauth2.TokenSource) {}
+func (b *builder) SetTokenSource(ts oauth2.TokenSource) {
+	if b.oauthTokenSourceManager == nil {
+		return
+	}
+	b.oauthTokenSourceManager.SetTokenSource(ts)
+}
 
 // GetMetadata gets all metadata for a connector.
 func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceGetMetadataRequest) (*v2.ConnectorServiceGetMetadataResponse, error) {
