@@ -79,6 +79,17 @@ func (m *GetRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
+	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+		err := GetRequestValidationError{
+			field:  "Prefix",
+			reason: "value length must be at most 256 runes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if len(errors) > 0 {
 		return GetRequestMultiError(errors)
 	}
@@ -332,6 +343,17 @@ func (m *GetManyRequest) validate(all bool) error {
 			errors = append(errors, err)
 		}
 
+	}
+
+	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+		err := GetManyRequestValidationError{
+			field:  "Prefix",
+			reason: "value length must be at most 256 runes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
 	}
 
 	if len(errors) > 0 {
@@ -687,6 +709,17 @@ func (m *GetAllRequest) validate(all bool) error {
 	}
 
 	// no validation rules for PageToken
+
+	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+		err := GetAllRequestValidationError{
+			field:  "Prefix",
+			reason: "value length must be at most 256 runes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
 
 	if len(errors) > 0 {
 		return GetAllRequestMultiError(errors)
@@ -1062,6 +1095,17 @@ func (m *SetRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
+	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+		err := SetRequestValidationError{
+			field:  "Prefix",
+			reason: "value length must be at most 256 runes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if len(errors) > 0 {
 		return SetRequestMultiError(errors)
 	}
@@ -1310,6 +1354,17 @@ func (m *SetManyRequest) validate(all bool) error {
 		}
 	}
 
+	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+		err := SetManyRequestValidationError{
+			field:  "Prefix",
+			reason: "value length must be at most 256 runes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if len(errors) > 0 {
 		return SetManyRequestMultiError(errors)
 	}
@@ -1527,6 +1582,17 @@ func (m *DeleteRequest) validate(all bool) error {
 		err := DeleteRequestValidationError{
 			field:  "Key",
 			reason: "value length must be between 1 and 256 runes, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+		err := DeleteRequestValidationError{
+			field:  "Prefix",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -1774,6 +1840,17 @@ func (m *DeleteManyRequest) validate(all bool) error {
 
 	}
 
+	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+		err := DeleteManyRequestValidationError{
+			field:  "Prefix",
+			reason: "value length must be at most 256 runes",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if len(errors) > 0 {
 		return DeleteManyRequestMultiError(errors)
 	}
@@ -1984,6 +2061,17 @@ func (m *ClearRequest) validate(all bool) error {
 		err := ClearRequestValidationError{
 			field:  "SyncId",
 			reason: "value does not match regex pattern \"^[a-zA-Z0-9]{27}$\"",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+		err := ClearRequestValidationError{
+			field:  "Prefix",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err

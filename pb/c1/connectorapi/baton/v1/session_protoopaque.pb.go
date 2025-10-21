@@ -27,6 +27,7 @@ type GetRequest struct {
 	state             protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_SyncId string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_Key    string                 `protobuf:"bytes,2,opt,name=key,proto3"`
+	xxx_hidden_Prefix string                 `protobuf:"bytes,3,opt,name=prefix,proto3"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -70,6 +71,13 @@ func (x *GetRequest) GetKey() string {
 	return ""
 }
 
+func (x *GetRequest) GetPrefix() string {
+	if x != nil {
+		return x.xxx_hidden_Prefix
+	}
+	return ""
+}
+
 func (x *GetRequest) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
 }
@@ -78,11 +86,16 @@ func (x *GetRequest) SetKey(v string) {
 	x.xxx_hidden_Key = v
 }
 
+func (x *GetRequest) SetPrefix(v string) {
+	x.xxx_hidden_Prefix = v
+}
+
 type GetRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	SyncId string
 	Key    string
+	Prefix string
 }
 
 func (b0 GetRequest_builder) Build() *GetRequest {
@@ -91,6 +104,7 @@ func (b0 GetRequest_builder) Build() *GetRequest {
 	_, _ = b, x
 	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_Key = b.Key
+	x.xxx_hidden_Prefix = b.Prefix
 	return m0
 }
 
@@ -158,6 +172,7 @@ type GetManyRequest struct {
 	state             protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_SyncId string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_Keys   []string               `protobuf:"bytes,2,rep,name=keys,proto3"`
+	xxx_hidden_Prefix string                 `protobuf:"bytes,3,opt,name=prefix,proto3"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -201,6 +216,13 @@ func (x *GetManyRequest) GetKeys() []string {
 	return nil
 }
 
+func (x *GetManyRequest) GetPrefix() string {
+	if x != nil {
+		return x.xxx_hidden_Prefix
+	}
+	return ""
+}
+
 func (x *GetManyRequest) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
 }
@@ -209,11 +231,16 @@ func (x *GetManyRequest) SetKeys(v []string) {
 	x.xxx_hidden_Keys = v
 }
 
+func (x *GetManyRequest) SetPrefix(v string) {
+	x.xxx_hidden_Prefix = v
+}
+
 type GetManyRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	SyncId string
 	Keys   []string
+	Prefix string
 }
 
 func (b0 GetManyRequest_builder) Build() *GetManyRequest {
@@ -222,6 +249,7 @@ func (b0 GetManyRequest_builder) Build() *GetManyRequest {
 	_, _ = b, x
 	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_Keys = b.Keys
+	x.xxx_hidden_Prefix = b.Prefix
 	return m0
 }
 
@@ -376,6 +404,7 @@ type GetAllRequest struct {
 	state                protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_SyncId    string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_PageToken string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3"`
+	xxx_hidden_Prefix    string                 `protobuf:"bytes,3,opt,name=prefix,proto3"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -419,6 +448,13 @@ func (x *GetAllRequest) GetPageToken() string {
 	return ""
 }
 
+func (x *GetAllRequest) GetPrefix() string {
+	if x != nil {
+		return x.xxx_hidden_Prefix
+	}
+	return ""
+}
+
 func (x *GetAllRequest) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
 }
@@ -427,11 +463,16 @@ func (x *GetAllRequest) SetPageToken(v string) {
 	x.xxx_hidden_PageToken = v
 }
 
+func (x *GetAllRequest) SetPrefix(v string) {
+	x.xxx_hidden_Prefix = v
+}
+
 type GetAllRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	SyncId    string
 	PageToken string
+	Prefix    string
 }
 
 func (b0 GetAllRequest_builder) Build() *GetAllRequest {
@@ -440,6 +481,7 @@ func (b0 GetAllRequest_builder) Build() *GetAllRequest {
 	_, _ = b, x
 	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_PageToken = b.PageToken
+	x.xxx_hidden_Prefix = b.Prefix
 	return m0
 }
 
@@ -595,6 +637,7 @@ type SetRequest struct {
 	xxx_hidden_SyncId string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_Key    string                 `protobuf:"bytes,2,opt,name=key,proto3"`
 	xxx_hidden_Value  []byte                 `protobuf:"bytes,3,opt,name=value,proto3"`
+	xxx_hidden_Prefix string                 `protobuf:"bytes,4,opt,name=prefix,proto3"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -645,6 +688,13 @@ func (x *SetRequest) GetValue() []byte {
 	return nil
 }
 
+func (x *SetRequest) GetPrefix() string {
+	if x != nil {
+		return x.xxx_hidden_Prefix
+	}
+	return ""
+}
+
 func (x *SetRequest) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
 }
@@ -660,12 +710,17 @@ func (x *SetRequest) SetValue(v []byte) {
 	x.xxx_hidden_Value = v
 }
 
+func (x *SetRequest) SetPrefix(v string) {
+	x.xxx_hidden_Prefix = v
+}
+
 type SetRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	SyncId string
 	Key    string
 	Value  []byte
+	Prefix string
 }
 
 func (b0 SetRequest_builder) Build() *SetRequest {
@@ -675,6 +730,7 @@ func (b0 SetRequest_builder) Build() *SetRequest {
 	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_Key = b.Key
 	x.xxx_hidden_Value = b.Value
+	x.xxx_hidden_Prefix = b.Prefix
 	return m0
 }
 
@@ -725,6 +781,7 @@ type SetManyRequest struct {
 	state             protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_SyncId string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_Values map[string][]byte      `protobuf:"bytes,2,rep,name=values,proto3" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	xxx_hidden_Prefix string                 `protobuf:"bytes,3,opt,name=prefix,proto3"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -768,6 +825,13 @@ func (x *SetManyRequest) GetValues() map[string][]byte {
 	return nil
 }
 
+func (x *SetManyRequest) GetPrefix() string {
+	if x != nil {
+		return x.xxx_hidden_Prefix
+	}
+	return ""
+}
+
 func (x *SetManyRequest) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
 }
@@ -776,11 +840,16 @@ func (x *SetManyRequest) SetValues(v map[string][]byte) {
 	x.xxx_hidden_Values = v
 }
 
+func (x *SetManyRequest) SetPrefix(v string) {
+	x.xxx_hidden_Prefix = v
+}
+
 type SetManyRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	SyncId string
 	Values map[string][]byte
+	Prefix string
 }
 
 func (b0 SetManyRequest_builder) Build() *SetManyRequest {
@@ -789,6 +858,7 @@ func (b0 SetManyRequest_builder) Build() *SetManyRequest {
 	_, _ = b, x
 	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_Values = b.Values
+	x.xxx_hidden_Prefix = b.Prefix
 	return m0
 }
 
@@ -839,6 +909,7 @@ type DeleteRequest struct {
 	state             protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_SyncId string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_Key    string                 `protobuf:"bytes,2,opt,name=key,proto3"`
+	xxx_hidden_Prefix string                 `protobuf:"bytes,3,opt,name=prefix,proto3"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -882,6 +953,13 @@ func (x *DeleteRequest) GetKey() string {
 	return ""
 }
 
+func (x *DeleteRequest) GetPrefix() string {
+	if x != nil {
+		return x.xxx_hidden_Prefix
+	}
+	return ""
+}
+
 func (x *DeleteRequest) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
 }
@@ -890,11 +968,16 @@ func (x *DeleteRequest) SetKey(v string) {
 	x.xxx_hidden_Key = v
 }
 
+func (x *DeleteRequest) SetPrefix(v string) {
+	x.xxx_hidden_Prefix = v
+}
+
 type DeleteRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	SyncId string
 	Key    string
+	Prefix string
 }
 
 func (b0 DeleteRequest_builder) Build() *DeleteRequest {
@@ -903,6 +986,7 @@ func (b0 DeleteRequest_builder) Build() *DeleteRequest {
 	_, _ = b, x
 	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_Key = b.Key
+	x.xxx_hidden_Prefix = b.Prefix
 	return m0
 }
 
@@ -953,6 +1037,7 @@ type DeleteManyRequest struct {
 	state             protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_SyncId string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
 	xxx_hidden_Keys   []string               `protobuf:"bytes,2,rep,name=keys,proto3"`
+	xxx_hidden_Prefix string                 `protobuf:"bytes,3,opt,name=prefix,proto3"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -996,6 +1081,13 @@ func (x *DeleteManyRequest) GetKeys() []string {
 	return nil
 }
 
+func (x *DeleteManyRequest) GetPrefix() string {
+	if x != nil {
+		return x.xxx_hidden_Prefix
+	}
+	return ""
+}
+
 func (x *DeleteManyRequest) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
 }
@@ -1004,11 +1096,16 @@ func (x *DeleteManyRequest) SetKeys(v []string) {
 	x.xxx_hidden_Keys = v
 }
 
+func (x *DeleteManyRequest) SetPrefix(v string) {
+	x.xxx_hidden_Prefix = v
+}
+
 type DeleteManyRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	SyncId string
 	Keys   []string
+	Prefix string
 }
 
 func (b0 DeleteManyRequest_builder) Build() *DeleteManyRequest {
@@ -1017,6 +1114,7 @@ func (b0 DeleteManyRequest_builder) Build() *DeleteManyRequest {
 	_, _ = b, x
 	x.xxx_hidden_SyncId = b.SyncId
 	x.xxx_hidden_Keys = b.Keys
+	x.xxx_hidden_Prefix = b.Prefix
 	return m0
 }
 
@@ -1066,6 +1164,7 @@ func (b0 DeleteManyResponse_builder) Build() *DeleteManyResponse {
 type ClearRequest struct {
 	state             protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_SyncId string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3"`
+	xxx_hidden_Prefix string                 `protobuf:"bytes,2,opt,name=prefix,proto3"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -1102,14 +1201,26 @@ func (x *ClearRequest) GetSyncId() string {
 	return ""
 }
 
+func (x *ClearRequest) GetPrefix() string {
+	if x != nil {
+		return x.xxx_hidden_Prefix
+	}
+	return ""
+}
+
 func (x *ClearRequest) SetSyncId(v string) {
 	x.xxx_hidden_SyncId = v
+}
+
+func (x *ClearRequest) SetPrefix(v string) {
+	x.xxx_hidden_Prefix = v
 }
 
 type ClearRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	SyncId string
+	Prefix string
 }
 
 func (b0 ClearRequest_builder) Build() *ClearRequest {
@@ -1117,6 +1228,7 @@ func (b0 ClearRequest_builder) Build() *ClearRequest {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_SyncId = b.SyncId
+	x.xxx_hidden_Prefix = b.Prefix
 	return m0
 }
 
@@ -1167,28 +1279,31 @@ var File_c1_connectorapi_baton_v1_session_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\n" +
-	"&c1/connectorapi/baton/v1/session.proto\x12\x18c1.connectorapi.baton.v1\x1a\x17validate/validate.proto\"]\n" +
+	"&c1/connectorapi/baton/v1/session.proto\x12\x18c1.connectorapi.baton.v1\x1a\x17validate/validate.proto\"\x7f\n" +
 	"\n" +
 	"GetRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
 	"\x03key\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\"#\n" +
+	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\x12 \n" +
+	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"#\n" +
 	"\vGetResponse\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\fR\x05value\"o\n" +
+	"\x05value\x18\x01 \x01(\fR\x05value\"\x91\x01\n" +
 	"\x0eGetManyRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12*\n" +
-	"\x04keys\x18\x02 \x03(\tB\x16\xfaB\x13\x92\x01\x10\b\x01\x10\xc8\x01\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\"m\n" +
+	"\x04keys\x18\x02 \x03(\tB\x16\xfaB\x13\x92\x01\x10\b\x01\x10\xc8\x01\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\x12 \n" +
+	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"m\n" +
 	"\x0fGetManyResponse\x12;\n" +
 	"\x05items\x18\x01 \x03(\v2%.c1.connectorapi.baton.v1.GetManyItemR\x05items\x12\x1d\n" +
 	"\n" +
 	"page_token\x18\x02 \x01(\tR\tpageToken\"5\n" +
 	"\vGetManyItem\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value\"a\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\"\x83\x01\n" +
 	"\rGetAllRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1d\n" +
 	"\n" +
-	"page_token\x18\x02 \x01(\tR\tpageToken\"k\n" +
+	"page_token\x18\x02 \x01(\tR\tpageToken\x12 \n" +
+	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"k\n" +
 	"\x0eGetAllResponse\x12:\n" +
 	"\x05items\x18\x01 \x03(\v2$.c1.connectorapi.baton.v1.GetAllItemR\x05items\x12\x1d\n" +
 	"\n" +
@@ -1196,32 +1311,37 @@ const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\n" +
 	"GetAllItem\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value\"~\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\"\xa0\x01\n" +
 	"\n" +
 	"SetRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
 	"\x03key\x18\x02 \x01(\tB\n" +
 	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\x12\x1f\n" +
-	"\x05value\x18\x03 \x01(\fB\t\xfaB\x06z\x04\x18\x80\xf8?R\x05value\"\r\n" +
-	"\vSetResponse\"\xe5\x01\n" +
+	"\x05value\x18\x03 \x01(\fB\t\xfaB\x06z\x04\x18\x80\xf8?R\x05value\x12 \n" +
+	"\x06prefix\x18\x04 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"\r\n" +
+	"\vSetResponse\"\x87\x02\n" +
 	"\x0eSetManyRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12e\n" +
-	"\x06values\x18\x02 \x03(\v24.c1.connectorapi.baton.v1.SetManyRequest.ValuesEntryB\x17\xfaB\x14\x9a\x01\x11\"\ar\x05\x10\x01\x18\x80\x02*\x06z\x04\x18\x80\xf8?R\x06values\x1a9\n" +
+	"\x06values\x18\x02 \x03(\v24.c1.connectorapi.baton.v1.SetManyRequest.ValuesEntryB\x17\xfaB\x14\x9a\x01\x11\"\ar\x05\x10\x01\x18\x80\x02*\x06z\x04\x18\x80\xf8?R\x06values\x12 \n" +
+	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x11\n" +
-	"\x0fSetManyResponse\"`\n" +
+	"\x0fSetManyResponse\"\x82\x01\n" +
 	"\rDeleteRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
 	"\x03key\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\"\x10\n" +
-	"\x0eDeleteResponse\"p\n" +
+	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\x12 \n" +
+	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"\x10\n" +
+	"\x0eDeleteResponse\"\x92\x01\n" +
 	"\x11DeleteManyRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12(\n" +
-	"\x04keys\x18\x02 \x03(\tB\x14\xfaB\x11\x92\x01\x0e\b\x01\x10\xc8\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\"\x14\n" +
-	"\x12DeleteManyResponse\"A\n" +
+	"\x04keys\x18\x02 \x03(\tB\x14\xfaB\x11\x92\x01\x0e\b\x01\x10\xc8\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\x12 \n" +
+	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"\x14\n" +
+	"\x12DeleteManyResponse\"c\n" +
 	"\fClearRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\"\x0f\n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12 \n" +
+	"\x06prefix\x18\x02 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"\x0f\n" +
 	"\rClearResponse2\x8a\x06\n" +
 	"\x13BatonSessionService\x12T\n" +
 	"\x03Get\x12$.c1.connectorapi.baton.v1.GetRequest\x1a%.c1.connectorapi.baton.v1.GetResponse\"\x00\x12`\n" +
