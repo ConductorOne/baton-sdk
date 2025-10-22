@@ -492,7 +492,7 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 
 		// Create exactly maxKeysPerRequest keys
 		keys := make([]string, maxKeysPerRequest)
-		for i := 0; i < maxKeysPerRequest; i++ {
+		for i := range maxKeysPerRequest {
 			keys[i] = fmt.Sprintf("key-%d", i)
 		}
 
@@ -528,7 +528,7 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 
 		// Create more than maxKeysPerRequest keys
 		keys := make([]string, maxKeysPerRequest+50)
-		for i := 0; i < maxKeysPerRequest+50; i++ {
+		for i := range maxKeysPerRequest + 50 {
 			keys[i] = fmt.Sprintf("key-%d", i)
 		}
 
@@ -565,7 +565,7 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 
 		// Create 1000 keys (should require 5 chunks of 200 each)
 		keys := make([]string, 1000)
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			keys[i] = fmt.Sprintf("key-%d", i)
 		}
 
@@ -607,7 +607,7 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 
 		// Create 300 keys
 		keys := make([]string, 300)
-		for i := 0; i < 300; i++ {
+		for i := range 300 {
 			keys[i] = fmt.Sprintf("key-%d", i)
 		}
 
@@ -663,7 +663,7 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 
 		// Create exactly maxKeysPerRequest values
 		values := make(map[string][]byte, maxKeysPerRequest)
-		for i := 0; i < maxKeysPerRequest; i++ {
+		for i := range maxKeysPerRequest {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
@@ -697,7 +697,7 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 
 		// Create more than maxKeysPerRequest values
 		values := make(map[string][]byte, maxKeysPerRequest+50)
-		for i := 0; i < maxKeysPerRequest+50; i++ {
+		for i := range maxKeysPerRequest + 50 {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
@@ -732,7 +732,7 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 
 		// Create 1000 values (should require 5 chunks of 200 each)
 		values := make(map[string][]byte, 1000)
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
@@ -763,7 +763,7 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 
 		// Create 300 values
 		values := make(map[string][]byte, 300)
-		for i := 0; i < 300; i++ {
+		for i := range 300 {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
@@ -833,7 +833,7 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 
 		// Create 300 values
 		values := make(map[string][]byte, 300)
-		for i := 0; i < 300; i++ {
+		for i := range 300 {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
