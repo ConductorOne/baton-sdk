@@ -5,7 +5,6 @@ import (
 
 	connectorV2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	connectorwrapperV1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
-	"golang.org/x/oauth2"
 )
 
 // ConnectorServer is an interface for a single type that implements all ConnectorV2 services.
@@ -25,7 +24,6 @@ type ConnectorServer interface {
 	connectorV2.TicketsServiceServer
 	connectorV2.ActionServiceServer
 	connectorV2.ResourceGetterServiceServer
-	SetTokenSource(oauth2.TokenSource)
 }
 
 // ConnectorClient is an interface for a type that implements all ConnectorV2 services.
