@@ -671,7 +671,7 @@ func WithSkipEntitlementsAndGrants(skip bool) Option {
 
 func WithSkipGrants(skip bool) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		if len(cfg.targetedSyncResourceIDs) == 0 {
+		if skip && len(cfg.targetedSyncResourceIDs) == 0 {
 			return fmt.Errorf("skip-grants can only be set within a targeted sync")
 		}
 		cfg.skipGrants = skip
