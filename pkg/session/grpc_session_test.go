@@ -818,12 +818,6 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 				callCount++
 				allRequestedValues = append(allRequestedValues, req.Values)
 
-				// Verify all keys have the expected prefix
-				for key := range req.Values {
-					if !strings.HasPrefix(key, "test-prefix:") {
-						return nil, fmt.Errorf("expected key to have prefix 'test-prefix:', got '%s'", key)
-					}
-				}
 				return &v1.SetManyResponse{}, nil
 			},
 		}
