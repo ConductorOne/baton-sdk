@@ -49,6 +49,7 @@ message Task {
     repeated google.protobuf.Any annotations = 1;
     bool skip_expand_grants = 2;
     bool skip_entitlements_and_grants = 3;
+    bool skip_grants = 4;
   }
 
   message EventFeedTask {

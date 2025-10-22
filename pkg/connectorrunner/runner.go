@@ -344,6 +344,7 @@ type runnerConfig struct {
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
 	skipEntitlementsAndGrants           bool
+	skipGrants                          bool
 	sessionStoreEnabled                 bool
 	syncResourceTypeIDs                 []string
 }
@@ -668,6 +669,13 @@ func WithSkipEntitlementsAndGrants(skip bool) Option {
 	}
 }
 
+func WithSkipGrants(skip bool) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.skipGrants = skip
+		return nil
+	}
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}
@@ -781,6 +789,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
 				local.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs),
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
+				local.WithSkipGrants(cfg.skipGrants),
 				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
 			)
 			if err != nil {

@@ -215,6 +215,7 @@ type syncer struct {
 	syncID                              string
 	skipEGForResourceType               map[string]bool
 	skipEntitlementsAndGrants           bool
+	skipGrants                          bool
 	resourceTypeTraits                  map[string][]v2.ResourceType_Trait
 	syncType                            connectorstore.SyncType
 	injectSyncIDAnnotation              bool
@@ -466,6 +467,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 			if s.skipEntitlementsAndGrants {
 				s.state.SetShouldSkipEntitlementsAndGrants()
+			}
+			if s.skipGrants {
+				s.state.SetShouldSkipGrants()
 			}
 			if len(targetedResources) > 0 {
 				for _, r := range targetedResources {
@@ -1098,6 +1102,10 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 func (s *syncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, error) {
 	annos := annotations.Annotations(r.GetAnnotations())
 	if annos.Contains(&v2.SkipGrants{}) {
+		return true, nil
+	}
+
+	if s.state.ShouldSkipGrants() {
 		return true, nil
 	}
 
@@ -2926,6 +2934,12 @@ func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 		} else {
 			s.syncType = connectorstore.SyncTypeFull
 		}
+	}
+}
+
+func WithSkipGrants(skip bool) SyncOpt {
+	return func(s *syncer) {
+		s.skipGrants = skip
 	}
 }
 
