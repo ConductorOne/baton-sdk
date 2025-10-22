@@ -187,20 +187,21 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
-		c, err := getconnector(runCtx, t, RunTimeOpts{
+		ops := RunTimeOpts{
 			SessionStore: &lazySessionStore{constructor: createSessionCacheConstructor(grpcClient)},
-		})
+		}
+
+		if hasOauthField(connectorSchema.fields) {
+			ops.TokenSource = &lambdaTokenSource{
+				ctx:    runCtx,
+				webKey: webKey,
+				client: v1.NewConnectorOauthTokenServiceClient(grpcClient),
+			}
+		}
+		c, err := getconnector(runCtx, t, ops)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
 		}
-
-		oauthClient := v1.NewConnectorOauthTokenServiceClient(grpcClient)
-		oauthTokenSource := &lambdaTokenSource{
-			ctx:    runCtx,
-			webKey: webKey,
-			client: oauthClient,
-		}
-		c.SetTokenSource(oauthTokenSource)
 
 		// Ensure only one auth method is provided
 		jwk := v.GetString(field.LambdaServerAuthJWTSigner.GetName())
@@ -251,6 +252,15 @@ func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) sessions
 	}
 }
 
+func createSessionOauthConstructor(grpcClient grpc.ClientConnInterface) sessions.SessionStoreConstructor {
+	return func(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
+		// Create the gRPC session client using the same gRPC connection
+		client := v1.NewConnectorOauthTokenServiceClient(grpcClient)
+		// Create and return the session cache
+		return session.NewGRPCSessionCache(ctx, client, opt...)
+	}
+}
+
 type lambdaTokenSource struct {
 	ctx    context.Context
 	webKey *jose.JSONWebKey
@@ -279,4 +289,13 @@ func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
 		return nil, fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
 	}
 	return &t, nil
+}
+
+func hasOauthField(fields []field.SchemaField) bool {
+	for _, field := range fields {
+		if fields.ConnectorConfig.FieldType == field.OAuth2 {
+			return true
+		}
+	}
+	return false
 }

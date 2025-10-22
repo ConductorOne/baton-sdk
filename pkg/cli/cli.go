@@ -12,10 +12,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"golang.org/x/oauth2"
 )
 
 type RunTimeOpts struct {
 	SessionStore sessions.SessionStore
+	TokenSource  oauth2.TokenSource
 }
 
 // GetConnectorFunc is a function type that creates a connector instance.
