@@ -49,7 +49,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
       - name: go tests
-        run: go test -v -covermode=count -json ./... > test.json
+        run: go test -tags=baton_lambda_support -v -covermode=count -json ./... > test.json
       - name: Print go test results
         if: always()
         run: cat test.json

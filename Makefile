@@ -23,7 +23,7 @@ protofmt:
 
 .PHONY: test
 test:
-	go test -v ./...
+	go test -tags=baton_lambda_support -v ./...
 
 .PHONY: pkg/sdk/version.go
 pkg/sdk/version.go:
