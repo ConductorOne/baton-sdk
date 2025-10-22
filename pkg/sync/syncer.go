@@ -508,7 +508,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 				continue
 			}
 			if !s.state.ShouldSkipEntitlementsAndGrants() {
-				s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
+				if !s.state.ShouldSkipGrants() {
+					s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
+				}
 				s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
 			}
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
