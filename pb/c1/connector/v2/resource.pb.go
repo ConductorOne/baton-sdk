@@ -131,8 +131,13 @@ type ResourceType struct {
 	Annotations       []*anypb.Any           `protobuf:"bytes,4,rep,name=annotations,proto3" json:"annotations,omitempty"`
 	Description       string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
 	SourcedExternally bool                   `protobuf:"varint,6,opt,name=sourced_externally,json=sourcedExternally,proto3" json:"sourced_externally,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Sync bucketing configuration for parallel processing
+	// Resource types with the same bucket name will be processed sequentially within that bucket
+	// Resource types with different bucket names can be processed in parallel
+	// If not specified, the default bucket from ParallelSyncConfig will be used
+	SyncBucket    string `protobuf:"bytes,7,opt,name=sync_bucket,json=syncBucket,proto3" json:"sync_bucket,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ResourceType) Reset() {
@@ -202,6 +207,13 @@ func (x *ResourceType) GetSourcedExternally() bool {
 	return false
 }
 
+func (x *ResourceType) GetSyncBucket() string {
+	if x != nil {
+		return x.SyncBucket
+	}
+	return ""
+}
+
 func (x *ResourceType) SetId(v string) {
 	x.Id = v
 }
@@ -226,6 +238,10 @@ func (x *ResourceType) SetSourcedExternally(v bool) {
 	x.SourcedExternally = v
 }
 
+func (x *ResourceType) SetSyncBucket(v string) {
+	x.SyncBucket = v
+}
+
 type ResourceType_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -235,6 +251,11 @@ type ResourceType_builder struct {
 	Annotations       []*anypb.Any
 	Description       string
 	SourcedExternally bool
+	// Sync bucketing configuration for parallel processing
+	// Resource types with the same bucket name will be processed sequentially within that bucket
+	// Resource types with different bucket names can be processed in parallel
+	// If not specified, the default bucket from ParallelSyncConfig will be used
+	SyncBucket string
 }
 
 func (b0 ResourceType_builder) Build() *ResourceType {
@@ -247,6 +268,7 @@ func (b0 ResourceType_builder) Build() *ResourceType {
 	x.Annotations = b.Annotations
 	x.Description = b.Description
 	x.SourcedExternally = b.SourcedExternally
+	x.SyncBucket = b.SyncBucket
 	return m0
 }
 
@@ -4182,7 +4204,7 @@ var File_c1_connector_v2_resource_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\n" +
-	"\x1ec1/connector/v2/resource.proto\x12\x0fc1.connector.v2\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\xb4\x03\n" +
+	"\x1ec1/connector/v2/resource.proto\x12\x0fc1.connector.v2\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\xd5\x03\n" +
 	"\fResourceType\x12\x1a\n" +
 	"\x02id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x120\n" +
@@ -4192,7 +4214,9 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12/\n" +
 	"\vdescription\x18\x05 \x01(\tB\r\xfaB\n" +
 	"r\b \x01(\x80 \xd0\x01\x01R\vdescription\x12-\n" +
-	"\x12sourced_externally\x18\x06 \x01(\bR\x11sourcedExternally\"p\n" +
+	"\x12sourced_externally\x18\x06 \x01(\bR\x11sourcedExternally\x12\x1f\n" +
+	"\vsync_bucket\x18\a \x01(\tR\n" +
+	"syncBucket\"p\n" +
 	"\x05Trait\x12\x15\n" +
 	"\x11TRAIT_UNSPECIFIED\x10\x00\x12\x0e\n" +
 	"\n" +
