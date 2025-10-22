@@ -35,6 +35,10 @@ var DefaultRelationships = []SchemaFieldRelationship{
 		[]SchemaField{externalResourceEntitlementIdFilter},
 		[]SchemaField{externalResourceC1ZField},
 	),
+	FieldsDependentOn(
+		[]SchemaField{skipGrants},
+		[]SchemaField{targetedSyncResourceIDs},
+	),
 }
 
 func EnsureDefaultRelationships(original []SchemaFieldRelationship) []SchemaFieldRelationship {
