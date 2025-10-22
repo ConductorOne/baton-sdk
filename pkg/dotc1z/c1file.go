@@ -262,7 +262,7 @@ func (c *C1File) init(ctx context.Context) error {
 	}
 
 	// Start WAL checkpointing if enabled, journal mode is WAL, and checkpointing is enabled
-	if c.checkpointEnabled && c.isWALMode() {
+	if c.checkpointEnabled && c.isWALMode(ctx) {
 		c.startWALCheckpointing()
 	}
 
@@ -457,15 +457,15 @@ func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 }
 
 // isWALMode checks if the database is using WAL mode.
-func (c *C1File) isWALMode() bool {
+func (c *C1File) isWALMode(ctx context.Context) bool {
 	for _, pragma := range c.pragmas {
-		if pragma.name == "journal_mode" && strings.EqualFold(pragma.value, "wall") {
+		if pragma.name == "journal_mode" && strings.EqualFold(pragma.value, "wal") {
 			return true
 		}
 	}
 
 	var mode string
-	if err := c.rawDb.QueryRow("PRAGMA journal_mode").Scan(&mode); err == nil {
+	if err := c.rawDb.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err == nil {
 		return strings.EqualFold(mode, "wal")
 	}
 
