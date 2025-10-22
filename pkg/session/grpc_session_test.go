@@ -3,6 +3,7 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"fmt"
@@ -16,7 +17,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-// SimpleMockBatonSessionServiceClient is a simple mock implementation for testing
+// SimpleMockBatonSessionServiceClient is a simple mock implementation for testing.
 type SimpleMockBatonSessionServiceClient struct {
 	getFunc     func(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error)
 	getManyFunc func(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error)
@@ -81,10 +82,11 @@ func (m *SimpleMockBatonSessionServiceClient) Clear(ctx context.Context, in *v1.
 }
 
 func TestGRPCSessionCache_Get(t *testing.T) {
+	syncID := "test-sync-id-get"
 	expectedValue := []byte("test-value")
 	mockClient := &SimpleMockBatonSessionServiceClient{
 		getFunc: func(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error) {
-			if req.Key == "test-key" && req.SyncId == "test-sync-id" {
+			if req.Key == "test-key" && req.SyncId == syncID {
 				return &v1.GetResponse{Value: expectedValue}, nil
 			}
 			// Return nil for non-existent keys to indicate "not found"
@@ -96,19 +98,19 @@ func TestGRPCSessionCache_Get(t *testing.T) {
 	ctx := context.Background()
 
 	// Test successful get
-	value, found, err := cache.Get(ctx, "test-key", sessions.WithSyncID("test-sync-id"))
+	value, found, err := cache.Get(ctx, "test-key", sessions.WithSyncID(syncID))
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
 	if !found {
 		t.Fatal("Expected to find value")
 	}
-	if string(value) != "test-value" {
-		t.Fatalf("Expected value 'test-value', got '%s'", string(value))
+	if !bytes.Equal(value, expectedValue) {
+		t.Fatalf("Expected value '%s', got '%s'", string(expectedValue), string(value))
 	}
 
 	// Test get with non-existent key
-	value, found, err = cache.Get(ctx, "non-existent-key", sessions.WithSyncID("test-sync-id"))
+	value, found, err = cache.Get(ctx, "non-existent-key", sessions.WithSyncID(syncID))
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
@@ -123,7 +125,7 @@ func TestGRPCSessionCache_Get(t *testing.T) {
 func TestGRPCSessionCache_Set(t *testing.T) {
 	mockClient := &SimpleMockBatonSessionServiceClient{
 		setFunc: func(ctx context.Context, req *v1.SetRequest) (*v1.SetResponse, error) {
-			if req.Key == "test-key" && req.SyncId == "test-sync-id" && string(req.Value) == "test-value" {
+			if req.Key == "test-key-set" && req.SyncId == "test-sync-id-set" && string(req.Value) == "test-value-set" {
 				return &v1.SetResponse{}, nil
 			}
 			return nil, fmt.Errorf("unexpected request")
@@ -133,7 +135,7 @@ func TestGRPCSessionCache_Set(t *testing.T) {
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
 
-	err := cache.Set(ctx, "test-key", []byte("test-value"), sessions.WithSyncID("test-sync-id"))
+	err := cache.Set(ctx, "test-key-set", []byte("test-value-set"), sessions.WithSyncID("test-sync-id-set"))
 	if err != nil {
 		t.Fatalf("Set failed: %v", err)
 	}
@@ -141,12 +143,12 @@ func TestGRPCSessionCache_Set(t *testing.T) {
 
 func TestGRPCSessionCache_GetMany(t *testing.T) {
 	expectedValues := map[string][]byte{
-		"key1": []byte("value1"),
-		"key2": []byte("value2"),
+		"key1": []byte("value1-get-many"),
+		"key2": []byte("value2-get-many"),
 	}
 	mockClient := &SimpleMockBatonSessionServiceClient{
 		getManyFunc: func(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error) {
-			if req.SyncId == "test-sync-id" {
+			if req.SyncId == "test-sync-id-get-many" {
 				// Convert map to items array
 				items := make([]*v1.GetManyItem, 0, len(expectedValues))
 				for key, value := range expectedValues {
@@ -168,35 +170,36 @@ func TestGRPCSessionCache_GetMany(t *testing.T) {
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
 
-	values, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("test-sync-id"))
+	values, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("test-sync-id-get-many"))
 	if err != nil {
 		t.Fatalf("GetMany failed: %v", err)
 	}
 	if len(values) != 2 {
 		t.Fatalf("Expected 2 values, got %d", len(values))
 	}
-	if string(values["key1"]) != "value1" {
-		t.Fatalf("Expected value 'value1' for key1, got '%s'", string(values["key1"]))
+	if string(values["key1"]) != "value1-get-many" {
+		t.Fatalf("Expected value 'value1-get-many' for key1, got '%s'", string(values["key1"]))
 	}
-	if string(values["key2"]) != "value2" {
-		t.Fatalf("Expected value 'value2' for key2, got '%s'", string(values["key2"]))
+	if string(values["key2"]) != "value2-get-many" {
+		t.Fatalf("Expected value 'value2-get-many' for key2, got '%s'", string(values["key2"]))
 	}
 }
 
 func TestGRPCSessionCache_GetMany_Pagination(t *testing.T) {
+	syncID := "test-sync-id-get-many-pagination"
 	callCount := 0
 	mockClient := &SimpleMockBatonSessionServiceClient{
 		getManyFunc: func(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error) {
 			callCount++
-			if req.SyncId != "test-sync-id" {
+			if req.SyncId != syncID {
 				return nil, fmt.Errorf("unexpected sync id: %s", req.SyncId)
 			}
 			// Since we're only requesting 2 keys, they fit in a single chunk
 			// Return both values in a single response
 			return &v1.GetManyResponse{
 				Items: []*v1.GetManyItem{
-					{Key: "key1", Value: []byte("value1")},
-					{Key: "key2", Value: []byte("value2")},
+					{Key: "key1", Value: []byte("value1-get-many-pagination")},
+					{Key: "key2", Value: []byte("value2-get-many-pagination")},
 				},
 			}, nil
 		},
@@ -205,7 +208,7 @@ func TestGRPCSessionCache_GetMany_Pagination(t *testing.T) {
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
 
-	values, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("test-sync-id"))
+	values, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID(syncID))
 	if err != nil {
 		t.Fatalf("GetMany failed: %v", err)
 	}
@@ -216,20 +219,20 @@ func TestGRPCSessionCache_GetMany_Pagination(t *testing.T) {
 	if len(values) != 2 {
 		t.Fatalf("expected 2 values, got %d", len(values))
 	}
-	if string(values["key1"]) != "value1" || string(values["key2"]) != "value2" {
+	if string(values["key1"]) != "value1-get-many-pagination" || string(values["key2"]) != "value2-get-many-pagination" {
 		t.Fatalf("unexpected values: %+v", values)
 	}
 }
 
 func TestGRPCSessionCache_SetMany(t *testing.T) {
 	values := map[string][]byte{
-		"key1": []byte("value1"),
-		"key2": []byte("value2"),
+		"key1": []byte("value1-set-many"),
+		"key2": []byte("value2-set-many"),
 	}
 
 	mockClient := &SimpleMockBatonSessionServiceClient{
 		setManyFunc: func(ctx context.Context, req *v1.SetManyRequest) (*v1.SetManyResponse, error) {
-			if req.SyncId == "test-sync-id" && len(req.Values) == 2 {
+			if req.SyncId == "test-sync-id-set-many" && len(req.Values) == 2 {
 				return &v1.SetManyResponse{}, nil
 			}
 			return nil, fmt.Errorf("unexpected request")
@@ -239,7 +242,7 @@ func TestGRPCSessionCache_SetMany(t *testing.T) {
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
 
-	err := cache.SetMany(ctx, values, sessions.WithSyncID("test-sync-id"))
+	err := cache.SetMany(ctx, values, sessions.WithSyncID("test-sync-id-set-many"))
 	if err != nil {
 		t.Fatalf("SetMany failed: %v", err)
 	}
@@ -248,7 +251,7 @@ func TestGRPCSessionCache_SetMany(t *testing.T) {
 func TestGRPCSessionCache_Delete(t *testing.T) {
 	mockClient := &SimpleMockBatonSessionServiceClient{
 		deleteFunc: func(ctx context.Context, req *v1.DeleteRequest) (*v1.DeleteResponse, error) {
-			if req.Key == "test-key" && req.SyncId == "test-sync-id" {
+			if req.Key == "test-key-delete" && req.SyncId == "test-sync-id-delete" {
 				return &v1.DeleteResponse{}, nil
 			}
 			return nil, fmt.Errorf("unexpected request")
@@ -258,7 +261,7 @@ func TestGRPCSessionCache_Delete(t *testing.T) {
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
 
-	err := cache.Delete(ctx, "test-key", sessions.WithSyncID("test-sync-id"))
+	err := cache.Delete(ctx, "test-key-delete", sessions.WithSyncID("test-sync-id-delete"))
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
@@ -267,7 +270,7 @@ func TestGRPCSessionCache_Delete(t *testing.T) {
 func TestGRPCSessionCache_Clear(t *testing.T) {
 	mockClient := &SimpleMockBatonSessionServiceClient{
 		clearFunc: func(ctx context.Context, req *v1.ClearRequest) (*v1.ClearResponse, error) {
-			if req.SyncId == "test-sync-id" {
+			if req.SyncId == "test-sync-id-clear" {
 				return &v1.ClearResponse{}, nil
 			}
 			return nil, fmt.Errorf("unexpected request")
@@ -277,7 +280,7 @@ func TestGRPCSessionCache_Clear(t *testing.T) {
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
 
-	err := cache.Clear(ctx, sessions.WithSyncID("test-sync-id"))
+	err := cache.Clear(ctx, sessions.WithSyncID("test-sync-id-clear"))
 	if err != nil {
 		t.Fatalf("Clear failed: %v", err)
 	}
@@ -285,12 +288,12 @@ func TestGRPCSessionCache_Clear(t *testing.T) {
 
 func TestGRPCSessionCache_GetAll(t *testing.T) {
 	expectedValues := map[string][]byte{
-		"key1": []byte("value1"),
-		"key2": []byte("value2"),
+		"key1": []byte("value1-get-all"),
+		"key2": []byte("value2-get-all"),
 	}
 	mockClient := &SimpleMockBatonSessionServiceClient{
 		getAllFunc: func(ctx context.Context, req *v1.GetAllRequest) (*v1.GetAllResponse, error) {
-			if req.SyncId == "test-sync-id" {
+			if req.SyncId == "test-sync-id-get-all" {
 				// Convert map to items array
 				items := make([]*v1.GetAllItem, 0, len(expectedValues))
 				for key, value := range expectedValues {
@@ -312,27 +315,28 @@ func TestGRPCSessionCache_GetAll(t *testing.T) {
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
 
-	values, err := cache.GetAll(ctx, sessions.WithSyncID("test-sync-id"))
+	values, err := cache.GetAll(ctx, sessions.WithSyncID("test-sync-id-get-all"))
 	if err != nil {
 		t.Fatalf("GetAll failed: %v", err)
 	}
 	if len(values) != 2 {
 		t.Fatalf("Expected 2 values, got %d", len(values))
 	}
-	if string(values["key1"]) != "value1" {
-		t.Fatalf("Expected value 'value1' for key1, got '%s'", string(values["key1"]))
+	if string(values["key1"]) != "value1-get-all" {
+		t.Fatalf("Expected value 'value1-get-all' for key1, got '%s'", string(values["key1"]))
 	}
-	if string(values["key2"]) != "value2" {
-		t.Fatalf("Expected value 'value2' for key2, got '%s'", string(values["key2"]))
+	if string(values["key2"]) != "value2-get-all" {
+		t.Fatalf("Expected value 'value2-get-all' for key2, got '%s'", string(values["key2"]))
 	}
 }
 
 func TestGRPCSessionCache_GetAll_Pagination(t *testing.T) {
+	syncID := "test-sync-id-get-all-pagination"
 	callCount := 0
 	mockClient := &SimpleMockBatonSessionServiceClient{
 		getAllFunc: func(ctx context.Context, req *v1.GetAllRequest) (*v1.GetAllResponse, error) {
 			callCount++
-			if req.SyncId != "test-sync-id" {
+			if req.SyncId != syncID {
 				return nil, fmt.Errorf("unexpected sync id: %s", req.SyncId)
 			}
 			if req.PageToken == "" {
@@ -358,7 +362,7 @@ func TestGRPCSessionCache_GetAll_Pagination(t *testing.T) {
 	cache := &GRPCSessionCache{client: mockClient}
 	ctx := context.Background()
 
-	values, err := cache.GetAll(ctx, sessions.WithSyncID("test-sync-id"))
+	values, err := cache.GetAll(ctx, sessions.WithSyncID(syncID))
 	if err != nil {
 		t.Fatalf("GetAll failed: %v", err)
 	}
@@ -465,12 +469,13 @@ func TestNewGRPCSessionClient_WithInvalidDPoPKey(t *testing.T) {
 }
 
 func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
+	syncID := "test-sync-id-get-many-chunking"
 	t.Run("exactly maxKeysPerRequest keys", func(t *testing.T) {
 		callCount := 0
 		mockClient := &SimpleMockBatonSessionServiceClient{
 			getManyFunc: func(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error) {
 				callCount++
-				if req.SyncId != "test-sync-id" {
+				if req.SyncId != syncID {
 					return nil, fmt.Errorf("unexpected sync id: %s", req.SyncId)
 				}
 				if len(req.Keys) != maxKeysPerRequest {
@@ -487,11 +492,11 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 
 		// Create exactly maxKeysPerRequest keys
 		keys := make([]string, maxKeysPerRequest)
-		for i := 0; i < maxKeysPerRequest; i++ {
+		for i := range maxKeysPerRequest {
 			keys[i] = fmt.Sprintf("key-%d", i)
 		}
 
-		_, err := cache.GetMany(ctx, keys, sessions.WithSyncID("test-sync-id"))
+		_, err := cache.GetMany(ctx, keys, sessions.WithSyncID(syncID))
 		if err != nil {
 			t.Fatalf("GetMany failed: %v", err)
 		}
@@ -506,7 +511,7 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 		mockClient := &SimpleMockBatonSessionServiceClient{
 			getManyFunc: func(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error) {
 				callCount++
-				if req.SyncId != "test-sync-id" {
+				if req.SyncId != syncID {
 					return nil, fmt.Errorf("unexpected sync id: %s", req.SyncId)
 				}
 				if len(req.Keys) > maxKeysPerRequest {
@@ -523,11 +528,11 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 
 		// Create more than maxKeysPerRequest keys
 		keys := make([]string, maxKeysPerRequest+50)
-		for i := 0; i < maxKeysPerRequest+50; i++ {
+		for i := range maxKeysPerRequest + 50 {
 			keys[i] = fmt.Sprintf("key-%d", i)
 		}
 
-		_, err := cache.GetMany(ctx, keys, sessions.WithSyncID("test-sync-id"))
+		_, err := cache.GetMany(ctx, keys, sessions.WithSyncID(syncID))
 		if err != nil {
 			t.Fatalf("GetMany failed: %v", err)
 		}
@@ -543,7 +548,7 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 		mockClient := &SimpleMockBatonSessionServiceClient{
 			getManyFunc: func(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error) {
 				callCount++
-				if req.SyncId != "test-sync-id" {
+				if req.SyncId != syncID {
 					return nil, fmt.Errorf("unexpected sync id: %s", req.SyncId)
 				}
 				if len(req.Keys) > maxKeysPerRequest {
@@ -560,11 +565,11 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 
 		// Create 1000 keys (should require 5 chunks of 200 each)
 		keys := make([]string, 1000)
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			keys[i] = fmt.Sprintf("key-%d", i)
 		}
 
-		_, err := cache.GetMany(ctx, keys, sessions.WithSyncID("test-sync-id"))
+		_, err := cache.GetMany(ctx, keys, sessions.WithSyncID(syncID))
 		if err != nil {
 			t.Fatalf("GetMany failed: %v", err)
 		}
@@ -602,11 +607,11 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 
 		// Create 300 keys
 		keys := make([]string, 300)
-		for i := 0; i < 300; i++ {
+		for i := range 300 {
 			keys[i] = fmt.Sprintf("key-%d", i)
 		}
 
-		results, err := cache.GetMany(ctx, keys, sessions.WithSyncID("test-sync-id"))
+		results, err := cache.GetMany(ctx, keys, sessions.WithSyncID(syncID))
 		if err != nil {
 			t.Fatalf("GetMany failed: %v", err)
 		}
@@ -637,12 +642,13 @@ func TestGRPCSessionCache_GetMany_Chunking(t *testing.T) {
 }
 
 func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
+	syncID := "test-sync-id-set-many-chunking"
 	t.Run("exactly maxKeysPerRequest values", func(t *testing.T) {
 		callCount := 0
 		mockClient := &SimpleMockBatonSessionServiceClient{
 			setManyFunc: func(ctx context.Context, req *v1.SetManyRequest) (*v1.SetManyResponse, error) {
 				callCount++
-				if req.SyncId != "test-sync-id" {
+				if req.SyncId != syncID {
 					return nil, fmt.Errorf("unexpected sync id: %s", req.SyncId)
 				}
 				if len(req.Values) != maxKeysPerRequest {
@@ -657,11 +663,11 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 
 		// Create exactly maxKeysPerRequest values
 		values := make(map[string][]byte, maxKeysPerRequest)
-		for i := 0; i < maxKeysPerRequest; i++ {
+		for i := range maxKeysPerRequest {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
-		err := cache.SetMany(ctx, values, sessions.WithSyncID("test-sync-id"))
+		err := cache.SetMany(ctx, values, sessions.WithSyncID(syncID))
 		if err != nil {
 			t.Fatalf("SetMany failed: %v", err)
 		}
@@ -676,7 +682,7 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 		mockClient := &SimpleMockBatonSessionServiceClient{
 			setManyFunc: func(ctx context.Context, req *v1.SetManyRequest) (*v1.SetManyResponse, error) {
 				callCount++
-				if req.SyncId != "test-sync-id" {
+				if req.SyncId != syncID {
 					return nil, fmt.Errorf("unexpected sync id: %s", req.SyncId)
 				}
 				if len(req.Values) > maxKeysPerRequest {
@@ -691,11 +697,11 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 
 		// Create more than maxKeysPerRequest values
 		values := make(map[string][]byte, maxKeysPerRequest+50)
-		for i := 0; i < maxKeysPerRequest+50; i++ {
+		for i := range maxKeysPerRequest + 50 {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
-		err := cache.SetMany(ctx, values, sessions.WithSyncID("test-sync-id"))
+		err := cache.SetMany(ctx, values, sessions.WithSyncID(syncID))
 		if err != nil {
 			t.Fatalf("SetMany failed: %v", err)
 		}
@@ -711,7 +717,7 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 		mockClient := &SimpleMockBatonSessionServiceClient{
 			setManyFunc: func(ctx context.Context, req *v1.SetManyRequest) (*v1.SetManyResponse, error) {
 				callCount++
-				if req.SyncId != "test-sync-id" {
+				if req.SyncId != syncID {
 					return nil, fmt.Errorf("unexpected sync id: %s", req.SyncId)
 				}
 				if len(req.Values) > maxKeysPerRequest {
@@ -726,11 +732,11 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 
 		// Create 1000 values (should require 5 chunks of 200 each)
 		values := make(map[string][]byte, 1000)
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
-		err := cache.SetMany(ctx, values, sessions.WithSyncID("test-sync-id"))
+		err := cache.SetMany(ctx, values, sessions.WithSyncID(syncID))
 		if err != nil {
 			t.Fatalf("SetMany failed: %v", err)
 		}
@@ -757,11 +763,11 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 
 		// Create 300 values
 		values := make(map[string][]byte, 300)
-		for i := 0; i < 300; i++ {
+		for i := range 300 {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
-		err := cache.SetMany(ctx, values, sessions.WithSyncID("test-sync-id"))
+		err := cache.SetMany(ctx, values, sessions.WithSyncID(syncID))
 		if err != nil {
 			t.Fatalf("SetMany failed: %v", err)
 		}
@@ -812,12 +818,6 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 				callCount++
 				allRequestedValues = append(allRequestedValues, req.Values)
 
-				// Verify all keys have the expected prefix
-				for key := range req.Values {
-					if !strings.HasPrefix(key, "test-prefix:") {
-						return nil, fmt.Errorf("expected key to have prefix 'test-prefix:', got '%s'", key)
-					}
-				}
 				return &v1.SetManyResponse{}, nil
 			},
 		}
@@ -827,11 +827,11 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 
 		// Create 300 values
 		values := make(map[string][]byte, 300)
-		for i := 0; i < 300; i++ {
+		for i := range 300 {
 			values[fmt.Sprintf("key-%d", i)] = []byte(fmt.Sprintf("value-%d", i))
 		}
 
-		err := cache.SetMany(ctx, values, sessions.WithPrefix("test-prefix"), sessions.WithSyncID("test-sync-id"))
+		err := cache.SetMany(ctx, values, sessions.WithPrefix("test-prefix"), sessions.WithSyncID(syncID))
 		if err != nil {
 			t.Fatalf("SetMany failed: %v", err)
 		}

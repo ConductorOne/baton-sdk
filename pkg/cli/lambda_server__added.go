@@ -231,7 +231,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 	return nil
 }
 
-// createSessionCacheConstructor creates a session cache constructor function that uses the provided gRPC client
+// createSessionCacheConstructor creates a session cache constructor function that uses the provided gRPC client.
 func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) sessions.SessionStoreConstructor {
 	return func(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
 		// Create the gRPC session client using the same gRPC connection

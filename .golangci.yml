@@ -1,4 +1,7 @@
 version: "2"
+run:
+  build-tags:
+    - baton_lambda_support
 linters:
   default: none
   enable:
