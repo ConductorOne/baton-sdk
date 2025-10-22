@@ -3418,8 +3418,6 @@ func (m *Task_SyncFullTask) validate(all bool) error {
 
 	// no validation rules for SkipEntitlementsAndGrants
 
-	// no validation rules for SkipGrants
-
 	if len(errors) > 0 {
 		return Task_SyncFullTaskMultiError(errors)
 	}

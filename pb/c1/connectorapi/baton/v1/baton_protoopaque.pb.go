@@ -2506,7 +2506,6 @@ type Task_SyncFullTask struct {
 	xxx_hidden_Annotations               *[]*anypb.Any          `protobuf:"bytes,1,rep,name=annotations,proto3"`
 	xxx_hidden_SkipExpandGrants          bool                   `protobuf:"varint,2,opt,name=skip_expand_grants,json=skipExpandGrants,proto3"`
 	xxx_hidden_SkipEntitlementsAndGrants bool                   `protobuf:"varint,3,opt,name=skip_entitlements_and_grants,json=skipEntitlementsAndGrants,proto3"`
-	xxx_hidden_SkipGrants                bool                   `protobuf:"varint,4,opt,name=skip_grants,json=skipGrants,proto3"`
 	unknownFields                        protoimpl.UnknownFields
 	sizeCache                            protoimpl.SizeCache
 }
@@ -2559,13 +2558,6 @@ func (x *Task_SyncFullTask) GetSkipEntitlementsAndGrants() bool {
 	return false
 }
 
-func (x *Task_SyncFullTask) GetSkipGrants() bool {
-	if x != nil {
-		return x.xxx_hidden_SkipGrants
-	}
-	return false
-}
-
 func (x *Task_SyncFullTask) SetAnnotations(v []*anypb.Any) {
 	x.xxx_hidden_Annotations = &v
 }
@@ -2578,17 +2570,12 @@ func (x *Task_SyncFullTask) SetSkipEntitlementsAndGrants(v bool) {
 	x.xxx_hidden_SkipEntitlementsAndGrants = v
 }
 
-func (x *Task_SyncFullTask) SetSkipGrants(v bool) {
-	x.xxx_hidden_SkipGrants = v
-}
-
 type Task_SyncFullTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Annotations               []*anypb.Any
 	SkipExpandGrants          bool
 	SkipEntitlementsAndGrants bool
-	SkipGrants                bool
 }
 
 func (b0 Task_SyncFullTask_builder) Build() *Task_SyncFullTask {
@@ -2598,7 +2585,6 @@ func (b0 Task_SyncFullTask_builder) Build() *Task_SyncFullTask {
 	x.xxx_hidden_Annotations = &b.Annotations
 	x.xxx_hidden_SkipExpandGrants = b.SkipExpandGrants
 	x.xxx_hidden_SkipEntitlementsAndGrants = b.SkipEntitlementsAndGrants
-	x.xxx_hidden_SkipGrants = b.SkipGrants
 	return m0
 }
 
@@ -4845,7 +4831,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xfa'\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xd9'\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -4876,13 +4862,11 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\bNoneTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1aC\n" +
 	"\tHelloTask\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\xd6\x01\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\xb5\x01\n" +
 	"\fSyncFullTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12,\n" +
 	"\x12skip_expand_grants\x18\x02 \x01(\bR\x10skipExpandGrants\x12?\n" +
-	"\x1cskip_entitlements_and_grants\x18\x03 \x01(\bR\x19skipEntitlementsAndGrants\x12\x1f\n" +
-	"\vskip_grants\x18\x04 \x01(\bR\n" +
-	"skipGrants\x1a~\n" +
+	"\x1cskip_entitlements_and_grants\x18\x03 \x01(\bR\x19skipEntitlementsAndGrants\x1a~\n" +
 	"\rEventFeedTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x125\n" +
 	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x1a\xf3\x01\n" +
