@@ -191,7 +191,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			SessionStore: &lazySessionStore{constructor: createSessionCacheConstructor(grpcClient)},
 		}
 
-		if hasOauthField(connectorSchema.fields) {
+		if hasOauthField(connectorSchema.Fields) {
 			ops.TokenSource = &lambdaTokenSource{
 				ctx:    runCtx,
 				webKey: webKey,
@@ -252,15 +252,6 @@ func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) sessions
 	}
 }
 
-func createSessionOauthConstructor(grpcClient grpc.ClientConnInterface) sessions.SessionStoreConstructor {
-	return func(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
-		// Create the gRPC session client using the same gRPC connection
-		client := v1.NewConnectorOauthTokenServiceClient(grpcClient)
-		// Create and return the session cache
-		return session.NewGRPCSessionCache(ctx, client, opt...)
-	}
-}
-
 type lambdaTokenSource struct {
 	ctx    context.Context
 	webKey *jose.JSONWebKey
@@ -292,8 +283,8 @@ func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
 }
 
 func hasOauthField(fields []field.SchemaField) bool {
-	for _, field := range fields {
-		if fields.ConnectorConfig.FieldType == field.OAuth2 {
+	for _, f := range fields {
+		if f.ConnectorConfig.FieldType == field.OAuth2 {
 			return true
 		}
 	}
