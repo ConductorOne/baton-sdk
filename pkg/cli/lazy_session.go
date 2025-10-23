@@ -75,9 +75,9 @@ func (l *lazySessionStore) Clear(ctx context.Context, opt ...sessions.SessionSto
 }
 
 // GetAll implements types.SessionStore.
-func (l *lazySessionStore) GetAll(ctx context.Context, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+func (l *lazySessionStore) GetAll(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
 	if err := l.ensureSession(ctx); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return l.session.GetAll(ctx, opt...)
+	return l.session.GetAll(ctx, pageToken, opt...)
 }

@@ -17,11 +17,11 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/retry"
-	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
@@ -219,7 +219,7 @@ type syncer struct {
 	resourceTypeTraits                  map[string][]v2.ResourceType_Trait
 	syncType                            connectorstore.SyncType
 	injectSyncIDAnnotation              bool
-	setSessionStore                     session.SetSessionStore
+	setSessionStore                     sessions.SetSessionStore
 	syncResourceTypes                   []string
 }
 
@@ -2897,7 +2897,7 @@ func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
 	}
 }
 
-func WithSessionStore(sessionStore session.SetSessionStore) SyncOpt {
+func WithSessionStore(sessionStore sessions.SetSessionStore) SyncOpt {
 	return func(s *syncer) {
 		s.setSessionStore = sessionStore
 	}

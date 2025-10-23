@@ -388,18 +388,20 @@ func TestC1FileSessionStore_Clear(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify they exist
-		all, err := c1zFile.GetAll(ctx, sessions.WithSyncID(syncID))
+		all, pageToken, err := c1zFile.GetAll(ctx, "", sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 		require.Len(t, all, 3)
+		require.Equal(t, "", pageToken)
 
 		// Clear all
 		err = c1zFile.Clear(ctx, sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 
 		// Verify they're all gone
-		all, err = c1zFile.GetAll(ctx, sessions.WithSyncID(syncID))
+		all, pageToken, err = c1zFile.GetAll(ctx, "", sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 		require.Empty(t, all)
+		require.Equal(t, "", pageToken)
 	})
 
 	t.Run("Clear with prefix", func(t *testing.T) {
@@ -453,9 +455,10 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("GetAll empty store", func(t *testing.T) {
-		result, err := c1zFile.GetAll(ctx, sessions.WithSyncID(syncID))
+		result, pageToken, err := c1zFile.GetAll(ctx, "", sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 		require.Empty(t, result)
+		require.Equal(t, "", pageToken)
 	})
 
 	t.Run("GetAll with multiple keys", func(t *testing.T) {
@@ -468,12 +471,13 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 		require.NoError(t, err)
 
 		// Get all
-		result, err := c1zFile.GetAll(ctx, sessions.WithSyncID(syncID))
+		result, pageToken, err := c1zFile.GetAll(ctx, "", sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 		require.Len(t, result, 3)
 		require.Equal(t, []byte("getall-value1"), result["getall-key1"])
 		require.Equal(t, []byte("getall-value2"), result["getall-key2"])
 		require.Equal(t, []byte("getall-value3"), result["getall-key3"])
+		require.Equal(t, "", pageToken)
 	})
 
 	t.Run("GetAll with prefix", func(t *testing.T) {
@@ -489,15 +493,16 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 		require.NoError(t, err)
 
 		// Get all with prefix1
-		result, err := c1zFile.GetAll(ctx, sessions.WithSyncID(syncID), sessions.WithPrefix("getall-prefix1:"))
+		result, pageToken, err := c1zFile.GetAll(ctx, "", sessions.WithSyncID(syncID), sessions.WithPrefix("getall-prefix1:"))
 		require.NoError(t, err)
 		require.Len(t, result, 2)
 		require.Equal(t, []byte("getall-prefix1-value1"), result["getall-prefix1-key1"])
 		require.Equal(t, []byte("getall-prefix1-value2"), result["getall-prefix1-key2"])
+		require.Equal(t, "", pageToken)
 	})
 
 	t.Run("GetAll without sync ID", func(t *testing.T) {
-		_, err := c1zFile.GetAll(ctx)
+		_, _, err := c1zFile.GetAll(ctx, "")
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "sync id is required")
 	})
@@ -616,9 +621,10 @@ func TestC1FileSessionStore_ConcurrentAccess(t *testing.T) {
 		}
 
 		// Verify final state
-		all, err := c1zFile.GetAll(ctx, sessions.WithSyncID(syncID))
+		all, pageToken, err := c1zFile.GetAll(ctx, "", sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 		require.Len(t, all, 5) // Should have 5 keys
+		require.Equal(t, "", pageToken)
 	})
 }
 
@@ -678,9 +684,24 @@ func TestC1FileSessionStore_Performance(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify all values were set
-		all, err := c1zFile.GetAll(ctx, sessions.WithSyncID(syncID))
-		require.NoError(t, err)
+		all := make(map[string][]byte)
+		pageToken := ""
+		for {
+			items, nextPageToken, err := c1zFile.GetAll(ctx, pageToken, sessions.WithSyncID(syncID))
+			require.NoError(t, err)
+			require.Len(t, items, 100, "expected 100 items, got %d for page token %s", len(items), pageToken)
+			for k, v := range items {
+				all[k] = v
+			}
+
+			require.NotEqual(t, nextPageToken, pageToken)
+			pageToken = nextPageToken
+			if nextPageToken == "" {
+				break
+			}
+		}
 		require.Len(t, all, 1000)
+		require.Equal(t, "", pageToken)
 
 		// Test GetMany with large number of keys
 		keys := make([]string, 0, 1000)

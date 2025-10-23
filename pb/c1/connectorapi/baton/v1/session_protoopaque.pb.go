@@ -254,11 +254,10 @@ func (b0 GetManyRequest_builder) Build() *GetManyRequest {
 }
 
 type GetManyResponse struct {
-	state                protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Items     *[]*GetManyItem        `protobuf:"bytes,1,rep,name=items,proto3"`
-	xxx_hidden_PageToken string                 `protobuf:"bytes,2,opt,name=page_token,json=pageToken,proto3"`
-	unknownFields        protoimpl.UnknownFields
-	sizeCache            protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Items *[]*GetManyItem        `protobuf:"bytes,1,rep,name=items,proto3"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *GetManyResponse) Reset() {
@@ -295,26 +294,14 @@ func (x *GetManyResponse) GetItems() []*GetManyItem {
 	return nil
 }
 
-func (x *GetManyResponse) GetPageToken() string {
-	if x != nil {
-		return x.xxx_hidden_PageToken
-	}
-	return ""
-}
-
 func (x *GetManyResponse) SetItems(v []*GetManyItem) {
 	x.xxx_hidden_Items = &v
-}
-
-func (x *GetManyResponse) SetPageToken(v string) {
-	x.xxx_hidden_PageToken = v
 }
 
 type GetManyResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Items     []*GetManyItem
-	PageToken string
+	Items []*GetManyItem
 }
 
 func (b0 GetManyResponse_builder) Build() *GetManyResponse {
@@ -322,7 +309,6 @@ func (b0 GetManyResponse_builder) Build() *GetManyResponse {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Items = &b.Items
-	x.xxx_hidden_PageToken = b.PageToken
 	return m0
 }
 
@@ -1287,15 +1273,13 @@ const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\x12 \n" +
 	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"#\n" +
 	"\vGetResponse\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\fR\x05value\"\x91\x01\n" +
+	"\x05value\x18\x01 \x01(\fR\x05value\"\x90\x01\n" +
 	"\x0eGetManyRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12*\n" +
-	"\x04keys\x18\x02 \x03(\tB\x16\xfaB\x13\x92\x01\x10\b\x01\x10\xc8\x01\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\x12 \n" +
-	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"m\n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12)\n" +
+	"\x04keys\x18\x02 \x03(\tB\x15\xfaB\x12\x92\x01\x0f\b\x01\x10d\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\x12 \n" +
+	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"N\n" +
 	"\x0fGetManyResponse\x12;\n" +
-	"\x05items\x18\x01 \x03(\v2%.c1.connectorapi.baton.v1.GetManyItemR\x05items\x12\x1d\n" +
-	"\n" +
-	"page_token\x18\x02 \x01(\tR\tpageToken\"5\n" +
+	"\x05items\x18\x01 \x03(\v2%.c1.connectorapi.baton.v1.GetManyItemR\x05items\"5\n" +
 	"\vGetManyItem\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\"\x83\x01\n" +
@@ -1317,12 +1301,12 @@ const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
 	"\x03key\x18\x02 \x01(\tB\n" +
 	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\x12\x1f\n" +
-	"\x05value\x18\x03 \x01(\fB\t\xfaB\x06z\x04\x18\x80\xf8?R\x05value\x12 \n" +
+	"\x05value\x18\x03 \x01(\fB\t\xfaB\x06z\x04\x18\x80\x98\x02R\x05value\x12 \n" +
 	"\x06prefix\x18\x04 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"\r\n" +
-	"\vSetResponse\"\x87\x02\n" +
+	"\vSetResponse\"\x8b\x02\n" +
 	"\x0eSetManyRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12e\n" +
-	"\x06values\x18\x02 \x03(\v24.c1.connectorapi.baton.v1.SetManyRequest.ValuesEntryB\x17\xfaB\x14\x9a\x01\x11\"\ar\x05\x10\x01\x18\x80\x02*\x06z\x04\x18\x80\xf8?R\x06values\x12 \n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12i\n" +
+	"\x06values\x18\x02 \x03(\v24.c1.connectorapi.baton.v1.SetManyRequest.ValuesEntryB\x1b\xfaB\x18\x9a\x01\x15\b\x01\x10d\"\ar\x05\x10\x01\x18\x80\x02*\x06z\x04\x18\x80\x98\x02R\x06values\x12 \n" +
 	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +

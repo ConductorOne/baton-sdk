@@ -53,17 +53,17 @@ type connectorClient struct {
 	connectorV2.TicketsServiceClient
 	connectorV2.ActionServiceClient
 
-	sessionStoreSetter session.SetSessionStore // this is the session store server
+	sessionStoreSetter sessions.SetSessionStore // this is the session store server
 }
 
-var _ session.SetSessionStore = (*connectorClient)(nil)
+var _ sessions.SetSessionStore = (*connectorClient)(nil)
 var _ SetSessionStoreSetter = (*connectorClient)(nil)
 
 type SetSessionStoreSetter interface {
-	SetSessionStoreSetter(setsessionStoreSetter session.SetSessionStore)
+	SetSessionStoreSetter(setsessionStoreSetter sessions.SetSessionStore)
 }
 
-func (c *connectorClient) SetSessionStoreSetter(sessionStoreSetter session.SetSessionStore) {
+func (c *connectorClient) SetSessionStoreSetter(sessionStoreSetter sessions.SetSessionStore) {
 	c.sessionStoreSetter = sessionStoreSetter
 }
 
@@ -98,7 +98,7 @@ type wrapper struct {
 
 	now func() time.Time
 
-	SessionServer session.SetSessionStore
+	SessionServer sessions.SetSessionStore
 }
 
 type Option func(ctx context.Context, w *wrapper) error

@@ -91,22 +91,22 @@ func (t *TypedSessionCache[T]) Clear(ctx context.Context, opt ...sessions.Sessio
 	return t.cache.Clear(ctx, opt...)
 }
 
-func (t *TypedSessionCache[T]) GetAll(ctx context.Context, opt ...sessions.SessionStoreOption) (map[string]T, error) {
-	dataMap, err := t.cache.GetAll(ctx, opt...)
+func (t *TypedSessionCache[T]) GetAll(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string]T, string, error) {
+	dataMap, pageToken, err := t.cache.GetAll(ctx, pageToken, opt...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	result := make(map[string]T)
 	for key, data := range dataMap {
 		value, err := t.codec.Decode(data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode value for key %s: %w", key, err)
+			return nil, "", fmt.Errorf("failed to decode value for key %s: %w", key, err)
 		}
 		result[key] = value
 	}
 
-	return result, nil
+	return result, pageToken, nil
 }
 
 type JSONCodec[T any] struct{}
