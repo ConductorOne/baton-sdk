@@ -358,11 +358,6 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithSkipGrants(v.GetBool("skip-grants")))
 		}
 
-		t, err = MakeGenericConfiguration[T](v)
-		if err != nil {
-			return fmt.Errorf("failed to make configuration: %w", err)
-		}
-
 		c, err := getconnector(runCtx, t, RunTimeOpts{})
 		if err != nil {
 			return err
