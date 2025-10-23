@@ -23,8 +23,9 @@ type SessionStoreConstructor func(ctx context.Context, opt ...SessionStoreConstr
 type SessionStoreConstructorOption func(ctx context.Context) (context.Context, error)
 
 type SessionStoreBag struct {
-	SyncID string
-	Prefix string
+	SyncID    string
+	Prefix    string
+	PageToken string
 }
 
 // SyncIDKey is the context key for storing the current sync ID.
@@ -51,6 +52,13 @@ func GetSyncID(ctx context.Context) string {
 		return syncID
 	}
 	return ""
+}
+
+func WithPageToken(pageToken string) SessionStoreOption {
+	return func(ctx context.Context, bag *SessionStoreBag) error {
+		bag.PageToken = pageToken
+		return nil
+	}
 }
 
 func SetSyncIDInContext(ctx context.Context, syncID string) context.Context {
