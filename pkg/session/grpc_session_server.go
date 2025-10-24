@@ -65,7 +65,12 @@ func (s *GRPCSessionServer) GetMany(ctx context.Context, req *v1.GetManyRequest)
 		return nil, err
 	}
 
-	values, err := s.store.GetMany(ctx, req.Keys, sessions.WithSyncID(req.SyncId), sessions.WithPrefix(req.Prefix))
+	values, err := s.store.GetMany(
+		ctx,
+		req.Keys,
+		sessions.WithSyncID(req.SyncId),
+		sessions.WithPrefix(req.Prefix),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get many values from cache: %w", err)
 	}
@@ -129,7 +134,12 @@ func (s *GRPCSessionServer) DeleteMany(ctx context.Context, req *v1.DeleteManyRe
 	}
 
 	for _, key := range req.Keys {
-		err := s.store.Delete(ctx, key, sessions.WithSyncID(req.SyncId), sessions.WithPrefix(req.Prefix))
+		err := s.store.Delete(
+			ctx,
+			key,
+			sessions.WithSyncID(req.SyncId),
+			sessions.WithPrefix(req.Prefix),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to delete value for key %s: %w", key, err)
 		}
@@ -158,7 +168,12 @@ func (s *GRPCSessionServer) GetAll(ctx context.Context, req *v1.GetAllRequest) (
 		return nil, err
 	}
 
-	values, err := s.store.GetAll(ctx, sessions.WithSyncID(req.SyncId), sessions.WithPrefix(req.Prefix))
+	values, err := s.store.GetAll(
+		ctx,
+		sessions.WithSyncID(req.SyncId),
+		sessions.WithPrefix(req.Prefix),
+		sessions.WithPageToken(req.PageToken),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all values from cache: %w", err)
 	}
