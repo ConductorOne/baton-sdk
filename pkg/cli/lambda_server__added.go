@@ -14,6 +14,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/crypto/providers/jwk"
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
@@ -28,7 +29,6 @@ import (
 	c1_lambda_grpc "github.com/conductorone/baton-sdk/pkg/lambda/grpc"
 	c1_lambda_config "github.com/conductorone/baton-sdk/pkg/lambda/grpc/config"
 	"github.com/conductorone/baton-sdk/pkg/lambda/grpc/middleware"
-	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"google.golang.org/grpc"
 )
@@ -237,6 +237,6 @@ func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) sessions
 		// Create the gRPC session client using the same gRPC connection
 		client := v1.NewBatonSessionServiceClient(grpcClient)
 		// Create and return the session cache
-		return session.NewGRPCSessionCache(ctx, client, opt...)
+		return session.NewGRPCSessionStore(ctx, client, opt...)
 	}
 }

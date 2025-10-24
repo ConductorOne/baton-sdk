@@ -78,7 +78,7 @@ func getGRPCSessionStoreClient(ctx context.Context, serverCfg *v1.ServerConfig) 
 		}
 
 		client := baton_v1.NewBatonSessionServiceClient(conn)
-		ss, err := session.NewGRPCSessionCache(ctx, client, opt...)
+		ss, err := session.NewGRPCSessionStore(ctx, client, opt...)
 		if err != nil {
 			err2 := conn.Close()
 			if err2 != nil {

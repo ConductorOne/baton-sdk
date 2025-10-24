@@ -289,39 +289,52 @@ func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.Ses
 }
 
 // GetAll implements types.SessionStore.
-func (c *C1File) GetAll(ctx context.Context, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+func (c *C1File) GetAll(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
 	bag, err := applyBag(ctx, opt...)
 	if err != nil {
-		return nil, fmt.Errorf("error applying session option: %w", err)
+		return nil, "", fmt.Errorf("error applying session option: %w", err)
 	}
 
-	q := c.db.From(sessionStore.Name()).Prepared(true)
-	q = q.Select("key", "value")
-	q = q.Where(goqu.C("sync_id").Eq(bag.SyncID))
+	q := c.db.From(sessionStore.Name()).Prepared(true).
+		Select("key", "value").
+		Where(goqu.C("sync_id").Eq(bag.SyncID)).
+		Order(goqu.C("key").Asc()).
+		Limit(101)
 
 	if bag.Prefix != "" {
 		q = q.Where(goqu.C("key").Like(escapeLike(bag.Prefix) + "%"))
 	}
 
+	if pageToken != "" {
+		q = q.Where(goqu.C("key").Gte(pageToken))
+	}
+
 	sql, params, err := q.ToSQL()
 
 	if err != nil {
-		return nil, fmt.Errorf("error getting all sessions: %w", err)
+		return nil, "", fmt.Errorf("error getting all sessions: %w", err)
 	}
 
 	rows, err := c.db.QueryContext(ctx, sql, params...)
 	if err != nil {
-		return nil, fmt.Errorf("error getting all sessions: %w", err)
+		return nil, "", fmt.Errorf("error getting all sessions: %w", err)
 	}
 	defer rows.Close()
 
 	result := make(map[string][]byte)
+	nextPageToken := ""
+	i := 0
 	for rows.Next() {
 		var key string
 		var value []byte
 		err = rows.Scan(&key, &value)
 		if err != nil {
-			return nil, fmt.Errorf("error scanning session: %w", err)
+			return nil, "", fmt.Errorf("error scanning session: %w", err)
+		}
+		i++
+		if i > 100 {
+			nextPageToken = key
+			break
 		}
 		// Remove prefix from key to return original key
 		if bag.Prefix != "" && len(key) >= len(bag.Prefix) && key[:len(bag.Prefix)] == bag.Prefix {
@@ -331,8 +344,8 @@ func (c *C1File) GetAll(ctx context.Context, opt ...sessions.SessionStoreOption)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error getting data from session: %w", err)
+		return nil, "", fmt.Errorf("error getting data from session: %w", err)
 	}
 
-	return result, nil
+	return result, nextPageToken, nil
 }

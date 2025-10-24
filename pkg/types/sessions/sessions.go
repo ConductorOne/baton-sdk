@@ -13,7 +13,7 @@ type SessionStore interface {
 	SetMany(ctx context.Context, values map[string][]byte, opt ...SessionStoreOption) error
 	Delete(ctx context.Context, key string, opt ...SessionStoreOption) error
 	Clear(ctx context.Context, opt ...SessionStoreOption) error
-	GetAll(ctx context.Context, opt ...SessionStoreOption) (map[string][]byte, error)
+	GetAll(ctx context.Context, pageToken string, opt ...SessionStoreOption) (map[string][]byte, string, error)
 }
 
 type SessionStoreOption func(ctx context.Context, bag *SessionStoreBag) error
@@ -63,4 +63,8 @@ func WithPageToken(pageToken string) SessionStoreOption {
 
 func SetSyncIDInContext(ctx context.Context, syncID string) context.Context {
 	return context.WithValue(ctx, SyncIDKey{}, syncID)
+}
+
+type SetSessionStore interface {
+	SetSessionStore(ctx context.Context, store SessionStore)
 }

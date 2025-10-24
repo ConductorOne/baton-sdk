@@ -168,11 +168,11 @@ func (s *GRPCSessionServer) GetAll(ctx context.Context, req *v1.GetAllRequest) (
 		return nil, err
 	}
 
-	values, err := s.store.GetAll(
+	values, nextPageToken, err := s.store.GetAll(
 		ctx,
+		req.PageToken,
 		sessions.WithSyncID(req.GetSyncId()),
 		sessions.WithPrefix(req.GetPrefix()),
-		sessions.WithPageToken(req.GetPageToken()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all values from cache: %w", err)
@@ -188,7 +188,8 @@ func (s *GRPCSessionServer) GetAll(ctx context.Context, req *v1.GetAllRequest) (
 	}
 
 	return v1.GetAllResponse_builder{
-		Items: items,
+		Items:     items,
+		PageToken: nextPageToken,
 	}.Build(), nil
 }
 
