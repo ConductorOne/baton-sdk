@@ -69,10 +69,10 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	for i := 0; i < dataset.ResourceTypes; i++ {
 		rtId := fmt.Sprintf("resource-type-%d", i)
 		resourceTypeIDs[i] = rtId
-		err = baseSync.PutResourceTypes(ctx, &v2.ResourceType{
+		err = baseSync.PutResourceTypes(ctx, v2.ResourceType_builder{
 			Id:          rtId,
 			DisplayName: fmt.Sprintf("Resource Type %d", i),
-		})
+		}.Build())
 		require.NoError(t, err)
 	}
 
@@ -80,13 +80,13 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	baseResourceCount := int(float64(dataset.Resources) * 0.6)
 	baseResources := make([]*v2.Resource, baseResourceCount)
 	for i := range baseResourceCount {
-		resource := &v2.Resource{
-			Id: &v2.ResourceId{
+		resource := v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
 				Resource:     fmt.Sprintf("base-resource-%d", i),
-			},
+			}.Build(),
 			DisplayName: fmt.Sprintf("Base Resource %d", i),
-		}
+		}.Build()
 		baseResources[i] = resource
 		err = baseSync.PutResources(ctx, resource)
 		require.NoError(t, err)
@@ -96,12 +96,12 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	baseEntitlementCount := int(float64(dataset.Entitlements) * 0.6)
 	baseEntitlements := make([]*v2.Entitlement, baseEntitlementCount)
 	for i := range baseEntitlementCount {
-		entitlement := &v2.Entitlement{
+		entitlement := v2.Entitlement_builder{
 			Id:          fmt.Sprintf("base-entitlement-%d", i),
 			DisplayName: fmt.Sprintf("Base Entitlement %d", i),
 			Resource:    baseResources[i%len(baseResources)],
 			Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
-		}
+		}.Build()
 		baseEntitlements[i] = entitlement
 		err = baseSync.PutEntitlements(ctx, entitlement)
 		require.NoError(t, err)
@@ -110,11 +110,11 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	// Generate grants for base sync
 	baseGrantCount := int(float64(dataset.Grants) * 0.6)
 	for i := range baseGrantCount {
-		grant := &v2.Grant{
+		grant := v2.Grant_builder{
 			Id:          fmt.Sprintf("base-grant-%d", i),
 			Principal:   baseResources[i%len(baseResources)],
 			Entitlement: baseEntitlements[i%len(baseEntitlements)],
-		}
+		}.Build()
 		err = baseSync.PutGrants(ctx, grant)
 		require.NoError(t, err)
 	}
@@ -133,10 +133,10 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 
 	// Reuse same resource types
 	for _, rtId := range resourceTypeIDs {
-		err = appliedSync.PutResourceTypes(ctx, &v2.ResourceType{
+		err = appliedSync.PutResourceTypes(ctx, v2.ResourceType_builder{
 			Id:          rtId,
 			DisplayName: fmt.Sprintf("Resource Type %s", rtId),
-		})
+		}.Build())
 		require.NoError(t, err)
 	}
 
@@ -147,13 +147,13 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	// Add some overlapping resources from base
 	overlapCount := int(float64(baseResourceCount) * 0.2)
 	for i := range overlapCount {
-		resource := &v2.Resource{
-			Id: &v2.ResourceId{
+		resource := v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
 				Resource:     fmt.Sprintf("base-resource-%d", i), // Same ID as base
-			},
+			}.Build(),
 			DisplayName: fmt.Sprintf("Updated Base Resource %d", i), // Different display name
-		}
+		}.Build()
 		appliedResources = append(appliedResources, resource)
 		err = appliedSync.PutResources(ctx, resource)
 		require.NoError(t, err)
@@ -162,13 +162,13 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	// Add new resources only in applied
 	newResourceCount := appliedResourceCount - overlapCount
 	for i := range newResourceCount {
-		resource := &v2.Resource{
-			Id: &v2.ResourceId{
+		resource := v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
 				Resource:     fmt.Sprintf("applied-resource-%d", i),
-			},
+			}.Build(),
 			DisplayName: fmt.Sprintf("Applied Resource %d", i),
-		}
+		}.Build()
 		appliedResources = append(appliedResources, resource)
 		err = appliedSync.PutResources(ctx, resource)
 		require.NoError(t, err)
@@ -178,12 +178,12 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	appliedEntitlementCount := dataset.Entitlements - baseEntitlementCount
 	appliedEntitlements := make([]*v2.Entitlement, appliedEntitlementCount)
 	for i := range appliedEntitlementCount {
-		entitlement := &v2.Entitlement{
+		entitlement := v2.Entitlement_builder{
 			Id:          fmt.Sprintf("applied-entitlement-%d", i),
 			DisplayName: fmt.Sprintf("Applied Entitlement %d", i),
 			Resource:    appliedResources[i%len(appliedResources)],
 			Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
-		}
+		}.Build()
 		appliedEntitlements[i] = entitlement
 		err = appliedSync.PutEntitlements(ctx, entitlement)
 		require.NoError(t, err)
@@ -192,11 +192,11 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	// Generate grants for applied sync
 	appliedGrantCount := dataset.Grants - baseGrantCount
 	for i := range appliedGrantCount {
-		grant := &v2.Grant{
+		grant := v2.Grant_builder{
 			Id:          fmt.Sprintf("applied-grant-%d", i),
 			Principal:   appliedResources[i%len(appliedResources)],
 			Entitlement: appliedEntitlements[i%len(appliedEntitlements)],
-		}
+		}.Build()
 		err = appliedSync.PutGrants(ctx, grant)
 		require.NoError(t, err)
 	}

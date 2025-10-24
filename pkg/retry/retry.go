@@ -77,11 +77,11 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 		details := st.Details()
 		for _, detail := range details {
 			if rlData, ok := detail.(*v2.RateLimitDescription); ok {
-				waitResetAt := time.Until(rlData.ResetAt.AsTime())
+				waitResetAt := time.Until(rlData.GetResetAt().AsTime())
 				if waitResetAt <= 0 {
 					continue
 				}
-				duration := time.Duration(rlData.Limit)
+				duration := time.Duration(rlData.GetLimit())
 				if duration <= 0 {
 					continue
 				}

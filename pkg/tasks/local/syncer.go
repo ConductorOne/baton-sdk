@@ -82,9 +82,9 @@ func (m *localSyncer) ShouldDebug() bool {
 func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
-		task = &v1.Task{
-			TaskType: &v1.Task_SyncFull{},
-		}
+		task = v1.Task_builder{
+			SyncFull: &v1.Task_SyncFullTask{},
+		}.Build()
 	})
 	return task, 0, nil
 }

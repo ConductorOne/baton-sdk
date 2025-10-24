@@ -33,9 +33,9 @@ func (m *localGranter) ShouldDebug() bool {
 func (m *localGranter) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	var task *v1.Task
 	m.o.Do(func() {
-		task = &v1.Task{
-			TaskType: &v1.Task_Grant{},
-		}
+		task = v1.Task_builder{
+			Grant: &v1.Task_GrantTask{},
+		}.Build()
 	})
 	return task, 0, nil
 }

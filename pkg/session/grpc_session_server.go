@@ -44,20 +44,20 @@ func (s *GRPCSessionServer) Get(ctx context.Context, req *v1.GetRequest) (*v1.Ge
 		return nil, err
 	}
 
-	value, found, err := s.store.Get(ctx, req.Key, sessions.WithSyncID(req.SyncId), sessions.WithPrefix(req.Prefix))
+	value, found, err := s.store.Get(ctx, req.GetKey(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get value from cache: %w", err)
 	}
 
 	if !found {
-		return &v1.GetResponse{
+		return v1.GetResponse_builder{
 			Value: nil,
-		}, nil
+		}.Build(), nil
 	}
 
-	return &v1.GetResponse{
+	return v1.GetResponse_builder{
 		Value: value,
-	}, nil
+	}.Build(), nil
 }
 
 func (s *GRPCSessionServer) GetMany(ctx context.Context, req *v1.GetManyRequest) (*v1.GetManyResponse, error) {
@@ -67,9 +67,9 @@ func (s *GRPCSessionServer) GetMany(ctx context.Context, req *v1.GetManyRequest)
 
 	values, err := s.store.GetMany(
 		ctx,
-		req.Keys,
-		sessions.WithSyncID(req.SyncId),
-		sessions.WithPrefix(req.Prefix),
+		req.GetKeys(),
+		sessions.WithSyncID(req.GetSyncId()),
+		sessions.WithPrefix(req.GetPrefix()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get many values from cache: %w", err)
@@ -78,15 +78,15 @@ func (s *GRPCSessionServer) GetMany(ctx context.Context, req *v1.GetManyRequest)
 	// Convert the map to items array
 	items := make([]*v1.GetManyItem, 0, len(values))
 	for key, value := range values {
-		items = append(items, &v1.GetManyItem{
+		items = append(items, v1.GetManyItem_builder{
 			Key:   key,
 			Value: value,
-		})
+		}.Build())
 	}
 
-	return &v1.GetManyResponse{
+	return v1.GetManyResponse_builder{
 		Items: items,
-	}, nil
+	}.Build(), nil
 }
 
 func (s *GRPCSessionServer) Set(ctx context.Context, req *v1.SetRequest) (*v1.SetResponse, error) {
@@ -94,7 +94,7 @@ func (s *GRPCSessionServer) Set(ctx context.Context, req *v1.SetRequest) (*v1.Se
 		return nil, err
 	}
 
-	err := s.store.Set(ctx, req.Key, req.Value, sessions.WithSyncID(req.SyncId), sessions.WithPrefix(req.Prefix))
+	err := s.store.Set(ctx, req.GetKey(), req.GetValue(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to set value in cache: %w", err)
 	}
@@ -107,7 +107,7 @@ func (s *GRPCSessionServer) SetMany(ctx context.Context, req *v1.SetManyRequest)
 		return nil, err
 	}
 
-	err := s.store.SetMany(ctx, req.Values, sessions.WithSyncID(req.SyncId), sessions.WithPrefix(req.Prefix))
+	err := s.store.SetMany(ctx, req.GetValues(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to set many values in cache: %w", err)
 	}
@@ -120,7 +120,7 @@ func (s *GRPCSessionServer) Delete(ctx context.Context, req *v1.DeleteRequest) (
 		return nil, err
 	}
 
-	err := s.store.Delete(ctx, req.Key, sessions.WithSyncID(req.SyncId), sessions.WithPrefix(req.Prefix))
+	err := s.store.Delete(ctx, req.GetKey(), sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to delete value from cache: %w", err)
 	}
@@ -133,12 +133,12 @@ func (s *GRPCSessionServer) DeleteMany(ctx context.Context, req *v1.DeleteManyRe
 		return nil, err
 	}
 
-	for _, key := range req.Keys {
+	for _, key := range req.GetKeys() {
 		err := s.store.Delete(
 			ctx,
 			key,
-			sessions.WithSyncID(req.SyncId),
-			sessions.WithPrefix(req.Prefix),
+			sessions.WithSyncID(req.GetSyncId()),
+			sessions.WithPrefix(req.GetPrefix()),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to delete value for key %s: %w", key, err)
@@ -155,7 +155,7 @@ func (s *GRPCSessionServer) Clear(ctx context.Context, req *v1.ClearRequest) (*v
 		return &v1.ClearResponse{}, nil
 	}
 
-	err := s.store.Clear(ctx, sessions.WithSyncID(req.SyncId), sessions.WithPrefix(req.Prefix))
+	err := s.store.Clear(ctx, sessions.WithSyncID(req.GetSyncId()), sessions.WithPrefix(req.GetPrefix()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to clear cache: %w", err)
 	}
@@ -170,9 +170,9 @@ func (s *GRPCSessionServer) GetAll(ctx context.Context, req *v1.GetAllRequest) (
 
 	values, err := s.store.GetAll(
 		ctx,
-		sessions.WithSyncID(req.SyncId),
-		sessions.WithPrefix(req.Prefix),
-		sessions.WithPageToken(req.PageToken),
+		sessions.WithSyncID(req.GetSyncId()),
+		sessions.WithPrefix(req.GetPrefix()),
+		sessions.WithPageToken(req.GetPageToken()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all values from cache: %w", err)
@@ -181,15 +181,15 @@ func (s *GRPCSessionServer) GetAll(ctx context.Context, req *v1.GetAllRequest) (
 	// Convert the map to items array
 	items := make([]*v1.GetAllItem, 0, len(values))
 	for key, value := range values {
-		items = append(items, &v1.GetAllItem{
+		items = append(items, v1.GetAllItem_builder{
 			Key:   key,
 			Value: value,
-		})
+		}.Build())
 	}
 
-	return &v1.GetAllResponse{
+	return v1.GetAllResponse_builder{
 		Items: items,
-	}, nil
+	}.Build(), nil
 }
 
 func StartGRPCSessionServerWithOptions(ctx context.Context, listener net.Listener, sessionServer v1.BatonSessionServiceServer, opts ...grpc.ServerOption) error {

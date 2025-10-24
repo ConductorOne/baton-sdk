@@ -146,32 +146,32 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 
 	if resourceIdReq, ok := req.(hasResourceIdListRequest); ok {
 		r := resourceIdReq.GetResourceId()
-		if r != nil && r.Resource != "" {
-			q = q.Where(goqu.C("resource_id").Eq(r.Resource))
-			q = q.Where(goqu.C("resource_type_id").Eq(r.ResourceType))
+		if r != nil && r.GetResource() != "" {
+			q = q.Where(goqu.C("resource_id").Eq(r.GetResource()))
+			q = q.Where(goqu.C("resource_type_id").Eq(r.GetResourceType()))
 		}
 	}
 
 	if resourceReq, ok := req.(hasResourceListRequest); ok {
 		r := resourceReq.GetResource()
 		if r != nil {
-			q = q.Where(goqu.C("resource_id").Eq(r.Id.Resource))
-			q = q.Where(goqu.C("resource_type_id").Eq(r.Id.ResourceType))
+			q = q.Where(goqu.C("resource_id").Eq(r.GetId().GetResource()))
+			q = q.Where(goqu.C("resource_type_id").Eq(r.GetId().GetResourceType()))
 		}
 	}
 
 	if entitlementReq, ok := req.(hasEntitlementListRequest); ok {
 		e := entitlementReq.GetEntitlement()
 		if e != nil {
-			q = q.Where(goqu.C("entitlement_id").Eq(e.Id))
+			q = q.Where(goqu.C("entitlement_id").Eq(e.GetId()))
 		}
 	}
 
 	if principalIdReq, ok := req.(hasPrincipalIdListRequest); ok {
 		p := principalIdReq.GetPrincipalId()
 		if p != nil {
-			q = q.Where(goqu.C("principal_resource_id").Eq(p.Resource))
-			q = q.Where(goqu.C("principal_resource_type_id").Eq(p.ResourceType))
+			q = q.Where(goqu.C("principal_resource_id").Eq(p.GetResource()))
+			q = q.Where(goqu.C("principal_resource_type_id").Eq(p.GetResourceType()))
 		}
 	}
 
@@ -458,8 +458,8 @@ func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceI
 
 	q := c.db.From(resources.Name()).Prepared(true)
 	q = q.Select("data")
-	q = q.Where(goqu.C("resource_type_id").Eq(resourceID.ResourceType))
-	q = q.Where(goqu.C("external_id").Eq(fmt.Sprintf("%s:%s", resourceID.ResourceType, resourceID.Resource)))
+	q = q.Where(goqu.C("resource_type_id").Eq(resourceID.GetResourceType()))
+	q = q.Where(goqu.C("external_id").Eq(fmt.Sprintf("%s:%s", resourceID.GetResourceType(), resourceID.GetResource())))
 
 	switch {
 	case syncID != "":

@@ -298,7 +298,7 @@ func SelectField(name string, options []string, optional ...fieldOption) SchemaF
 		DefaultValue: "",
 		ExportTarget: ExportTargetGUI,
 		Rules: FieldRule{
-			s: &v1_conf.StringRules{In: options},
+			s: v1_conf.StringRules_builder{In: options}.Build(),
 		},
 		SyncerConfig:    syncerConfig{},
 		ConnectorConfig: connectorConfig{FieldType: Text},

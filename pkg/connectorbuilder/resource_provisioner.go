@@ -65,7 +65,7 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 	tt := tasks.GrantType
 	l := ctxzap.Extract(ctx)
 
-	rt := request.Entitlement.Resource.Id.ResourceType
+	rt := request.GetEntitlement().GetResource().GetId().GetResourceType()
 
 	provisioner, ok := b.resourceProvisioners[rt]
 
@@ -82,10 +82,10 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 	})
 
 	for {
-		grants, annos, err := provisioner.Grant(ctx, request.Principal, request.Entitlement)
+		grants, annos, err := provisioner.Grant(ctx, request.GetPrincipal(), request.GetEntitlement())
 		if err == nil {
 			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-			return &v2.GrantManagerServiceGrantResponse{Annotations: annos, Grants: grants}, nil
+			return v2.GrantManagerServiceGrantResponse_builder{Annotations: annos, Grants: grants}.Build(), nil
 		}
 		if retryer.ShouldWaitAndRetry(ctx, err) {
 			continue
@@ -104,7 +104,7 @@ func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRev
 
 	l := ctxzap.Extract(ctx)
 
-	rt := request.Grant.Entitlement.Resource.Id.ResourceType
+	rt := request.GetGrant().GetEntitlement().GetResource().GetId().GetResourceType()
 
 	var revokeProvisioner RevokeProvisioner
 	provisioner, ok := b.resourceProvisioners[rt]
@@ -125,10 +125,10 @@ func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRev
 	})
 
 	for {
-		annos, err := revokeProvisioner.Revoke(ctx, request.Grant)
+		annos, err := revokeProvisioner.Revoke(ctx, request.GetGrant())
 		if err == nil {
 			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-			return &v2.GrantManagerServiceRevokeResponse{Annotations: annos}, nil
+			return v2.GrantManagerServiceRevokeResponse_builder{Annotations: annos}.Build(), nil
 		}
 		if retryer.ShouldWaitAndRetry(ctx, err) {
 			continue

@@ -29,7 +29,7 @@ func (g *rotateCredentialsTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "rotateCredentialsTaskHandler.HandleTask")
 	defer span.End()
 
-	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.Id), zap.Stringer("task_type", tasks.GetType(g.task)))
+	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
 
 	t := g.task.GetRotateCredentials()
 	if t == nil || t.GetResourceId() == nil {
@@ -41,11 +41,11 @@ func (g *rotateCredentialsTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	cc := g.helpers.ConnectorClient()
-	resp, err := cc.RotateCredential(ctx, &v2.RotateCredentialRequest{
+	resp, err := cc.RotateCredential(ctx, v2.RotateCredentialRequest_builder{
 		ResourceId:        t.GetResourceId(),
 		CredentialOptions: t.GetCredentialOptions(),
 		EncryptionConfigs: t.GetEncryptionConfigs(),
-	})
+	}.Build())
 	if err != nil {
 		l.Error("failed rotating credentials", zap.Error(err))
 		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))

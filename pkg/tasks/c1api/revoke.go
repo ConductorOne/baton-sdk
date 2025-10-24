@@ -31,7 +31,7 @@ func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "revokeTaskHandler.HandleTask")
 	defer span.End()
 
-	l := ctxzap.Extract(ctx).With(zap.String("task_id", r.task.Id), zap.Stringer("task_type", tasks.GetType(r.task)))
+	l := ctxzap.Extract(ctx).With(zap.String("task_id", r.task.GetId()), zap.Stringer("task_type", tasks.GetType(r.task)))
 
 	if r.task.GetRevoke() == nil || r.task.GetRevoke().GetGrant() == nil {
 		l.Error("revoke task was nil or missing grant", zap.Any("revoke", r.task.GetRevoke()), zap.Any("grant", r.task.GetRevoke().GetGrant()))
@@ -39,9 +39,9 @@ func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	cc := r.helpers.ConnectorClient()
-	resp, err := cc.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
+	resp, err := cc.Revoke(ctx, v2.GrantManagerServiceRevokeRequest_builder{
 		Grant: r.task.GetRevoke().GetGrant(),
-	})
+	}.Build())
 	if err != nil {
 		l.Error("failed while granting entitlement", zap.Error(err))
 		return r.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))

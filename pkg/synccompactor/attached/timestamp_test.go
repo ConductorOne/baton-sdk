@@ -38,18 +38,18 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 
-		userRT := &v2.ResourceType{Id: "user", DisplayName: "User"}
+		userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
 		err = baseDB.PutResourceTypes(ctx, userRT)
 		require.NoError(t, err)
 
 		// Base resource (will be older)
-		baseResource := &v2.Resource{
-			Id: &v2.ResourceId{
+		baseResource := v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "user",
 				Resource:     "overlapping-user",
-			},
+			}.Build(),
 			DisplayName: "Base Version (Should Lose)",
-		}
+		}.Build()
 		err = baseDB.PutResources(ctx, baseResource)
 		require.NoError(t, err)
 
@@ -71,13 +71,13 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 
 		// Applied resource (will be newer)
-		appliedResource := &v2.Resource{
-			Id: &v2.ResourceId{
+		appliedResource := v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "user",
 				Resource:     "overlapping-user",
-			},
+			}.Build(),
 			DisplayName: "Applied Version (Should Win)",
-		}
+		}.Build()
 		err = appliedDB.PutResources(ctx, appliedResource)
 		require.NoError(t, err)
 
@@ -100,11 +100,11 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify applied version won
-		resp, err := destDB.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
-			ResourceId: appliedResource.Id,
-		})
+		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: appliedResource.GetId(),
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "Applied Version (Should Win)", resp.Resource.DisplayName)
+		require.Equal(t, "Applied Version (Should Win)", resp.GetResource().GetDisplayName())
 	})
 
 	// Test Case 2: Base is newer (reverse timing)
@@ -127,18 +127,18 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
 
-		userRT := &v2.ResourceType{Id: "user", DisplayName: "User"}
+		userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
 		err = appliedDB.PutResourceTypes(ctx, userRT)
 		require.NoError(t, err)
 
 		// Applied resource (will be older due to creation order)
-		appliedResource := &v2.Resource{
-			Id: &v2.ResourceId{
+		appliedResource := v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "user",
 				Resource:     "overlapping-user",
-			},
+			}.Build(),
 			DisplayName: "Applied Version (Should Lose)",
-		}
+		}.Build()
 		err = appliedDB.PutResources(ctx, appliedResource)
 		require.NoError(t, err)
 
@@ -160,13 +160,13 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 
 		// Base resource (will be newer)
-		baseResource := &v2.Resource{
-			Id: &v2.ResourceId{
+		baseResource := v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "user",
 				Resource:     "overlapping-user",
-			},
+			}.Build(),
 			DisplayName: "Base Version (Should Win)",
-		}
+		}.Build()
 		err = baseDB.PutResources(ctx, baseResource)
 		require.NoError(t, err)
 
@@ -189,10 +189,10 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify base version won (because it was created later and has newer discovered_at)
-		resp, err := destDB.GetResource(ctx, &reader_v2.ResourcesReaderServiceGetResourceRequest{
-			ResourceId: baseResource.Id,
-		})
+		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: baseResource.GetId(),
+		}.Build())
 		require.NoError(t, err)
-		require.Equal(t, "Base Version (Should Win)", resp.Resource.DisplayName)
+		require.Equal(t, "Base Version (Should Win)", resp.GetResource().GetDisplayName())
 	})
 }

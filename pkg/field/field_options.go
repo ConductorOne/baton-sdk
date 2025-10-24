@@ -21,22 +21,22 @@ func WithRequired(required bool) fieldOption {
 			if o.Rules.i == nil {
 				o.Rules.i = &v1_conf.Int64Rules{}
 			}
-			o.Rules.i.IsRequired = required
+			o.Rules.i.SetIsRequired(required)
 		case StringVariant:
 			if o.Rules.s == nil {
 				o.Rules.s = &v1_conf.StringRules{}
 			}
-			o.Rules.s.IsRequired = required
+			o.Rules.s.SetIsRequired(required)
 		case StringSliceVariant:
 			if o.Rules.ss == nil {
 				o.Rules.ss = &v1_conf.RepeatedStringRules{}
 			}
-			o.Rules.ss.IsRequired = required
+			o.Rules.ss.SetIsRequired(required)
 		case StringMapVariant:
 			if o.Rules.sm == nil {
 				o.Rules.sm = &v1_conf.StringMapRules{}
 			}
-			o.Rules.sm.IsRequired = required
+			o.Rules.sm.SetIsRequired(required)
 		default:
 			panic(fmt.Sprintf("field %s has unsupported type %s", o.FieldName, o.Variant))
 		}
@@ -236,11 +236,11 @@ func NewStringMapBuilder(rules *v1_conf.StringMapRules) *StringMapRuler {
 }
 
 func (r *StringMapRuler) WithRequired(required bool) *StringMapRuler {
-	r.rules.IsRequired = required
+	r.rules.SetIsRequired(required)
 	return r
 }
 
 func (r *StringMapRuler) WithValidateEmpty(validateEmpty bool) *StringMapRuler {
-	r.rules.ValidateEmpty = validateEmpty
+	r.rules.SetValidateEmpty(validateEmpty)
 	return r
 }
