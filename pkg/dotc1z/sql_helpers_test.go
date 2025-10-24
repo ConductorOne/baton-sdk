@@ -44,10 +44,10 @@ func TestPutResources(t *testing.T) {
 	syncId, err := c1zFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	resourceType := &v2.ResourceType{
+	resourceType := v2.ResourceType_builder{
 		Id:          "test_resource_type",
 		DisplayName: "Test Resource Type",
-	}
+	}.Build()
 	err = c1zFile.PutResourceTypes(ctx, resourceType)
 	require.NoError(t, err)
 
@@ -63,7 +63,7 @@ func TestPutResources(t *testing.T) {
 	stats, err := c1zFile.Stats(ctx, connectorstore.SyncTypeFull, syncId)
 	require.NoError(t, err)
 
-	require.Equal(t, int64(10_000), stats[resourceType.Id])
+	require.Equal(t, int64(10_000), stats[resourceType.GetId()])
 
 	err = c1zFile.Close()
 	require.NoError(t, err)
@@ -95,10 +95,10 @@ func BenchmarkPutResources(b *testing.B) {
 				_, err = c1zFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 				require.NoError(b, err)
 
-				resourceType := &v2.ResourceType{
+				resourceType := v2.ResourceType_builder{
 					Id:          "test_resource_type",
 					DisplayName: "Test Resource Type",
-				}
+				}.Build()
 				err = c1zFile.PutResourceTypes(ctx, resourceType)
 				require.NoError(b, err)
 

@@ -197,7 +197,7 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		return err
 	}
 
-	tlsConfig, err := utls2.ListenerConfig(ctx, serverCfg.Credential)
+	tlsConfig, err := utls2.ListenerConfig(ctx, serverCfg.GetCredential())
 	if err != nil {
 		return err
 	}
@@ -218,7 +218,7 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 		)),
 	)
 
-	rl, err := ratelimit2.NewLimiter(ctx, cw.now, serverCfg.RateLimiterConfig)
+	rl, err := ratelimit2.NewLimiter(ctx, cw.now, serverCfg.GetRateLimiterConfig())
 	if err != nil {
 		return err
 	}
@@ -281,12 +281,12 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		}()
 	}
 
-	serverCfg, err := proto.Marshal(&connectorwrapperV1.ServerConfig{
+	serverCfg, err := proto.Marshal(connectorwrapperV1.ServerConfig_builder{
 		Credential:             serverCred,
 		RateLimiterConfig:      cw.rlCfg,
 		ListenPort:             listenPort,
 		SessionStoreListenPort: sessionListenerPort,
-	})
+	}.Build())
 	if err != nil {
 		return 0, err
 	}

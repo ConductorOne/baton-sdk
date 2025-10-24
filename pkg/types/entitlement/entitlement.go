@@ -12,44 +12,44 @@ type EntitlementOption func(*v2.Entitlement)
 
 func WithAnnotation(msgs ...proto.Message) EntitlementOption {
 	return func(e *v2.Entitlement) {
-		annos := annotations.Annotations(e.Annotations)
+		annos := annotations.Annotations(e.GetAnnotations())
 		for _, msg := range msgs {
 			annos.Append(msg)
 		}
-		e.Annotations = annos
+		e.SetAnnotations(annos)
 	}
 }
 
 func WithGrantableTo(grantableTo ...*v2.ResourceType) EntitlementOption {
 	return func(g *v2.Entitlement) {
-		g.GrantableTo = grantableTo
+		g.SetGrantableTo(grantableTo)
 	}
 }
 
 func WithDisplayName(displayName string) EntitlementOption {
 	return func(g *v2.Entitlement) {
-		g.DisplayName = displayName
+		g.SetDisplayName(displayName)
 	}
 }
 
 func WithDescription(description string) EntitlementOption {
 	return func(g *v2.Entitlement) {
-		g.Description = description
+		g.SetDescription(description)
 	}
 }
 
 func NewEntitlementID(resource *v2.Resource, permission string) string {
-	return fmt.Sprintf("%s:%s:%s", resource.Id.ResourceType, resource.Id.Resource, permission)
+	return fmt.Sprintf("%s:%s:%s", resource.GetId().GetResourceType(), resource.GetId().GetResource(), permission)
 }
 
 func NewPermissionEntitlement(resource *v2.Resource, name string, entitlementOptions ...EntitlementOption) *v2.Entitlement {
-	entitlement := &v2.Entitlement{
+	entitlement := v2.Entitlement_builder{
 		Id:          NewEntitlementID(resource, name),
 		DisplayName: name,
 		Slug:        name,
 		Purpose:     v2.Entitlement_PURPOSE_VALUE_PERMISSION,
 		Resource:    resource,
-	}
+	}.Build()
 
 	for _, entitlementOption := range entitlementOptions {
 		entitlementOption(entitlement)
@@ -58,13 +58,13 @@ func NewPermissionEntitlement(resource *v2.Resource, name string, entitlementOpt
 }
 
 func NewAssignmentEntitlement(resource *v2.Resource, name string, entitlementOptions ...EntitlementOption) *v2.Entitlement {
-	entitlement := &v2.Entitlement{
+	entitlement := v2.Entitlement_builder{
 		Id:          NewEntitlementID(resource, name),
 		DisplayName: name,
 		Slug:        name,
 		Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
 		Resource:    resource,
-	}
+	}.Build()
 
 	for _, entitlementOption := range entitlementOptions {
 		entitlementOption(entitlement)
@@ -83,13 +83,13 @@ func NewEntitlement(resource *v2.Resource, name, purposeStr string, entitlementO
 		purpose = v2.Entitlement_PURPOSE_VALUE_UNSPECIFIED
 	}
 
-	entitlement := &v2.Entitlement{
+	entitlement := v2.Entitlement_builder{
 		Id:          NewEntitlementID(resource, name),
 		DisplayName: name,
 		Slug:        name,
 		Purpose:     purpose,
 		Resource:    resource,
-	}
+	}.Build()
 
 	for _, entitlementOption := range entitlementOptions {
 		entitlementOption(entitlement)

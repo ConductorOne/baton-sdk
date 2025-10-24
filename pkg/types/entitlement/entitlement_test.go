@@ -16,12 +16,12 @@ func TestNewAssignmentEntitlement(t *testing.T) {
 
 	en := NewAssignmentEntitlement(ur, "member", WithGrantableTo(rt))
 	require.NotNil(t, en)
-	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT, en.Purpose)
-	require.Equal(t, ur, en.Resource)
-	require.Equal(t, "member", en.DisplayName)
-	require.Equal(t, "member", en.Slug)
-	require.Len(t, en.GrantableTo, 1)
-	require.Equal(t, rt, en.GrantableTo[0])
+	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT, en.GetPurpose())
+	require.Equal(t, ur, en.GetResource())
+	require.Equal(t, "member", en.GetDisplayName())
+	require.Equal(t, "member", en.GetSlug())
+	require.Len(t, en.GetGrantableTo(), 1)
+	require.Equal(t, rt, en.GetGrantableTo()[0])
 }
 
 func TestNewEntitlementID(t *testing.T) {
@@ -37,12 +37,12 @@ func TestNewEntitlementID(t *testing.T) {
 		{
 			"ID for role member",
 			args{
-				resource: &v2.Resource{
-					Id: &v2.ResourceId{
+				resource: v2.Resource_builder{
+					Id: v2.ResourceId_builder{
 						ResourceType: "foo",
 						Resource:     "1234",
-					},
-				},
+					}.Build(),
+				}.Build(),
 				permission: "member",
 			},
 			"foo:1234:member",
@@ -65,10 +65,10 @@ func TestNewPermissionEntitlement(t *testing.T) {
 
 	en := NewPermissionEntitlement(ur, "admin", WithGrantableTo(rt))
 	require.NotNil(t, en)
-	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_PERMISSION, en.Purpose)
-	require.Equal(t, ur, en.Resource)
-	require.Equal(t, "admin", en.DisplayName)
-	require.Equal(t, "admin", en.Slug)
-	require.Len(t, en.GrantableTo, 1)
-	require.Equal(t, rt, en.GrantableTo[0])
+	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_PERMISSION, en.GetPurpose())
+	require.Equal(t, ur, en.GetResource())
+	require.Equal(t, "admin", en.GetDisplayName())
+	require.Equal(t, "admin", en.GetSlug())
+	require.Len(t, en.GetGrantableTo(), 1)
+	require.Equal(t, rt, en.GetGrantableTo()[0])
 }

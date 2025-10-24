@@ -18,15 +18,15 @@ func TestNewGrant(t *testing.T) {
 	en := entitlement.NewPermissionEntitlement(ur, "admin", entitlement.WithGrantableTo(rt))
 	require.NotNil(t, en)
 
-	grant := NewGrant(ur, en.Slug, &v2.ResourceId{
+	grant := NewGrant(ur, en.GetSlug(), v2.ResourceId_builder{
 		ResourceType: "user",
 		Resource:     "567",
-	})
+	}.Build())
 	require.NotNil(t, grant)
-	require.NotNil(t, grant.Entitlement)
-	require.Equal(t, "group:1234:admin", grant.Entitlement.Id)
-	require.NotNil(t, grant.Principal)
-	require.Equal(t, "user", grant.Principal.Id.ResourceType)
-	require.Equal(t, "567", grant.Principal.Id.Resource)
-	require.Equal(t, "group:1234:admin:user:567", grant.Id)
+	require.NotNil(t, grant.GetEntitlement())
+	require.Equal(t, "group:1234:admin", grant.GetEntitlement().GetId())
+	require.NotNil(t, grant.GetPrincipal())
+	require.Equal(t, "user", grant.GetPrincipal().GetId().GetResourceType())
+	require.Equal(t, "567", grant.GetPrincipal().GetId().GetResource())
+	require.Equal(t, "group:1234:admin:user:567", grant.GetId())
 }

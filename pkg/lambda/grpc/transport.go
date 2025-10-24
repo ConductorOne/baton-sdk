@@ -138,11 +138,11 @@ func NewRequest(method string, req proto.Message, headers metadata.MD) (*Request
 		return nil, status.Errorf(codes.Internal, "error marshalling headers: %v", err)
 	}
 	return &Request{
-		msg: &pbtransport.Request{
+		msg: pbtransport.Request_builder{
 			Method:  method,
 			Req:     reqAny,
 			Headers: reqHdrs,
-		},
+		}.Build(),
 	}, nil
 }
 

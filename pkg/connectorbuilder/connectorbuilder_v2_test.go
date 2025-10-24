@@ -33,86 +33,86 @@ func TestConnectorBuilderV2_FullCapabilities(t *testing.T) {
 	require.NotNil(t, connector)
 
 	// Test ResourceSyncerV2 functionality
-	resp, err := connector.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+	resp, err := connector.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: "resource-1",
-	})
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	require.Len(t, resp.List, 1)
-	require.Equal(t, "resource-1-1", resp.List[0].Id.Resource)
+	require.Len(t, resp.GetList(), 1)
+	require.Equal(t, "resource-1-1", resp.GetList()[0].GetId().GetResource())
 
 	// Test ResourceProvisionerV2 functionality
-	grantResp, err := connector.Grant(ctx, &v2.GrantManagerServiceGrantRequest{
-		Principal: &v2.Resource{
-			Id: &v2.ResourceId{
+	grantResp, err := connector.Grant(ctx, v2.GrantManagerServiceGrantRequest_builder{
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "user",
 				Resource:     "user-1",
-			},
-		},
-		Entitlement: &v2.Entitlement{
+			}.Build(),
+		}.Build(),
+		Entitlement: v2.Entitlement_builder{
 			Id: "entitlement-1",
-			Resource: &v2.Resource{
-				Id: &v2.ResourceId{
+			Resource: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
 					ResourceType: "resource-1",
 					Resource:     "resource-1-1",
-				},
-			},
-		},
-	})
+				}.Build(),
+			}.Build(),
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, grantResp)
-	require.Len(t, grantResp.Grants, 1)
-	require.Equal(t, "grant-v2-1", grantResp.Grants[0].Id)
+	require.Len(t, grantResp.GetGrants(), 1)
+	require.Equal(t, "grant-v2-1", grantResp.GetGrants()[0].GetId())
 
 	// Test ResourceManagerV2 functionality
-	createResp, err := connector.CreateResource(ctx, &v2.CreateResourceRequest{
-		Resource: &v2.Resource{
-			Id: &v2.ResourceId{
+	createResp, err := connector.CreateResource(ctx, v2.CreateResourceRequest_builder{
+		Resource: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: "resource-2",
 				Resource:     "new-resource",
-			},
+			}.Build(),
 			DisplayName: "New Resource",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, createResp)
-	require.NotNil(t, createResp.Created)
-	require.Equal(t, "new-resource", createResp.Created.Id.Resource)
+	require.NotNil(t, createResp.GetCreated())
+	require.Equal(t, "new-resource", createResp.GetCreated().GetId().GetResource())
 
 	// Test ResourceDeleterV2 functionality
-	deleteResp, err := connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
-		ResourceId: &v2.ResourceId{
+	deleteResp, err := connector.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
+		ResourceId: v2.ResourceId_builder{
 			ResourceType: "resource-2",
 			Resource:     "resource-to-delete",
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, deleteResp)
 
 	// Test RegisterActionManager functionality
-	actionResp, err := connector.InvokeAction(ctx, &v2.InvokeActionRequest{
+	actionResp, err := connector.InvokeAction(ctx, v2.InvokeActionRequest_builder{
 		Name: "test-action",
 		Args: &structpb.Struct{},
-	})
+	}.Build())
 	require.NoError(t, err)
 	require.NotNil(t, actionResp)
-	require.NotNil(t, actionResp.Response)
+	require.NotNil(t, actionResp.GetResponse())
 
-	require.Equal(t, "action-id-123", actionResp.Id)
+	require.Equal(t, "action-id-123", actionResp.GetId())
 
 	// Test legacy event feed functionality
 	eventResp, err := connector.ListEventFeeds(ctx, &v2.ListEventFeedsRequest{})
 	require.NoError(t, err)
 	require.NotNil(t, eventResp)
-	require.Len(t, eventResp.List, 1)
-	require.Equal(t, "baton_feed_event", eventResp.List[0].Id)
+	require.Len(t, eventResp.GetList(), 1)
+	require.Equal(t, "baton_feed_event", eventResp.GetList()[0].GetId())
 
 	// Test metadata (should include capabilities)
 	metadataResp, err := connector.GetMetadata(ctx, &v2.ConnectorServiceGetMetadataRequest{})
 	require.NoError(t, err)
 	require.NotNil(t, metadataResp)
-	require.NotNil(t, metadataResp.Metadata)
-	require.NotNil(t, metadataResp.Metadata.Capabilities)
+	require.NotNil(t, metadataResp.GetMetadata())
+	require.NotNil(t, metadataResp.GetMetadata().GetCapabilities())
 }
 
 type testConnectorBuilderV2Full struct {
@@ -122,10 +122,10 @@ type testConnectorBuilderV2Full struct {
 }
 
 func (t *testConnectorBuilderV2Full) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
-	return &v2.ConnectorMetadata{
+	return v2.ConnectorMetadata_builder{
 		DisplayName: "test-connector-v2-full",
 		Description: "A test connector v2 with ResourceSyncerV2s",
-	}, nil
+	}.Build(), nil
 }
 
 func (t *testConnectorBuilderV2Full) Validate(ctx context.Context) (annotations.Annotations, error) {
@@ -149,9 +149,9 @@ func (t *testConnectorBuilderV2Full) ListEvents(
 	pToken *pagination.StreamToken,
 ) ([]*v2.Event, *pagination.StreamState, annotations.Annotations, error) {
 	return []*v2.Event{
-		{
+		v2.Event_builder{
 			Id: "test-event-1",
-		},
+		}.Build(),
 	}, &pagination.StreamState{}, annotations.Annotations{}, nil
 }
 
@@ -172,10 +172,10 @@ type testResourceSyncerV2Simple struct {
 }
 
 func (t *testResourceSyncerV2Simple) ResourceType(ctx context.Context) *v2.ResourceType {
-	return &v2.ResourceType{
+	return v2.ResourceType_builder{
 		Id:          t.resourceType,
 		DisplayName: "Test " + t.resourceType,
-	}
+	}.Build()
 }
 
 func (t *testResourceSyncerV2Simple) List(
@@ -184,13 +184,13 @@ func (t *testResourceSyncerV2Simple) List(
 	opts resource.SyncOpAttrs,
 ) ([]*v2.Resource, *resource.SyncOpResults, error) {
 	return []*v2.Resource{
-		{
-			Id: &v2.ResourceId{
+		v2.Resource_builder{
+			Id: v2.ResourceId_builder{
 				ResourceType: t.resourceType,
 				Resource:     t.resourceType + "-1",
-			},
+			}.Build(),
 			DisplayName: "Test Resource",
-		},
+		}.Build(),
 	}, nil, nil
 }
 
@@ -200,11 +200,11 @@ func (t *testResourceSyncerV2Simple) Entitlements(
 	opts resource.SyncOpAttrs,
 ) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
 	return []*v2.Entitlement{
-		{
+		v2.Entitlement_builder{
 			Id:          "entitlement-1",
 			DisplayName: "Test Entitlement",
 			Resource:    resource,
-		},
+		}.Build(),
 	}, nil, nil
 }
 
@@ -214,9 +214,9 @@ func (t *testResourceSyncerV2Simple) Grants(
 	opts resource.SyncOpAttrs,
 ) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	return []*v2.Grant{
-		{
+		v2.Grant_builder{
 			Id: "grant-1",
-		},
+		}.Build(),
 	}, nil, nil
 }
 
@@ -230,9 +230,9 @@ func (t *testResourceSyncerV2WithProvisioner) Grant(
 	entitlement *v2.Entitlement,
 ) ([]*v2.Grant, annotations.Annotations, error) {
 	return []*v2.Grant{
-		{
+		v2.Grant_builder{
 			Id: "grant-v2-1",
-		},
+		}.Build(),
 	}, annotations.Annotations{}, nil
 }
 

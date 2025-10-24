@@ -38,7 +38,7 @@ func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloReq
 		info.VirtualizationSystem = "none"
 	}
 
-	return &v1.BatonServiceHelloRequest_OSInfo{
+	return v1.BatonServiceHelloRequest_OSInfo_builder{
 		Hostname:             info.Hostname,
 		Os:                   info.OS,
 		Platform:             info.Platform,
@@ -47,16 +47,16 @@ func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloReq
 		KernelVersion:        info.KernelVersion,
 		KernelArch:           info.KernelArch,
 		VirtualizationSystem: info.VirtualizationSystem,
-	}, nil
+	}.Build(), nil
 }
 
 func (c *helloTaskHandler) buildInfo(ctx context.Context) *v1.BatonServiceHelloRequest_BuildInfo {
 	l := ctxzap.Extract(ctx)
-	buildInfo := &v1.BatonServiceHelloRequest_BuildInfo{
+	buildInfo := v1.BatonServiceHelloRequest_BuildInfo_builder{
 		LangVersion:    "0.0.0",
 		Package:        "/dummy/path",
 		PackageVersion: "0.0.0",
-	}
+	}.Build()
 
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
@@ -67,19 +67,19 @@ func (c *helloTaskHandler) buildInfo(ctx context.Context) *v1.BatonServiceHelloR
 	if bi.Main.Path == "" {
 		l.Warn("missing build info Main.path")
 	} else {
-		buildInfo.Package = bi.Main.Path
+		buildInfo.SetPackage(bi.Main.Path)
 	}
 
 	if bi.Main.Version == "" {
 		l.Warn("missing build info Main.version")
 	} else {
-		buildInfo.PackageVersion = bi.Main.Version
+		buildInfo.SetPackageVersion(bi.Main.Version)
 	}
 
 	if bi.GoVersion == "" {
 		l.Warn("missing build info GoVersion")
 	} else {
-		buildInfo.LangVersion = bi.GoVersion
+		buildInfo.SetLangVersion(bi.GoVersion)
 	}
 
 	return buildInfo
@@ -110,12 +110,12 @@ func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.helpers.HelloClient().Hello(ctx, &v1.BatonServiceHelloRequest{
+	_, err = c.helpers.HelloClient().Hello(ctx, v1.BatonServiceHelloRequest_builder{
 		TaskId:            taskID,
 		BuildInfo:         c.buildInfo(ctx),
 		OsInfo:            osInfo,
 		ConnectorMetadata: mdResp.GetMetadata(),
-	})
+	}.Build())
 	if err != nil {
 		l.Error("failed while sending hello", zap.Error(err))
 		return err

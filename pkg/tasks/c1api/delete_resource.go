@@ -29,7 +29,7 @@ func (g *deleteResourceTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "deleteResourceTaskHandler.HandleTask")
 	defer span.End()
 
-	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.Id), zap.Stringer("task_type", tasks.GetType(g.task)))
+	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
 
 	t := g.task.GetDeleteResource()
 	if t == nil || t.GetResourceId() == nil || t.GetResourceId().GetResource() == "" || t.GetResourceId().GetResourceType() == "" {
@@ -41,10 +41,10 @@ func (g *deleteResourceTaskHandler) HandleTask(ctx context.Context) error {
 	}
 
 	cc := g.helpers.ConnectorClient()
-	resp, err := cc.DeleteResource(ctx, &v2.DeleteResourceRequest{
+	resp, err := cc.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
 		ResourceId:       t.GetResourceId(),
 		ParentResourceId: t.GetParentResourceId(),
-	})
+	}.Build())
 	if err != nil {
 		l.Error("failed delete resource task", zap.Error(err))
 		return g.helpers.FinishTask(ctx, nil, nil, errors.Join(err, ErrTaskNonRetryable))

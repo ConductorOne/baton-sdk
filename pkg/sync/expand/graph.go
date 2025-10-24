@@ -156,7 +156,7 @@ func (g *EntitlementGraph) HasEntitlement(entitlementID string) bool {
 // AddEntitlement - add an entitlement's ID as an unconnected node in the graph.
 func (g *EntitlementGraph) AddEntitlement(entitlement *v2.Entitlement) {
 	// If the entitlement is already in the graph, fail silently.
-	found := g.GetNode(entitlement.Id)
+	found := g.GetNode(entitlement.GetId())
 	if found != nil {
 		return
 	}
@@ -168,12 +168,12 @@ func (g *EntitlementGraph) AddEntitlement(entitlement *v2.Entitlement) {
 	// Create a new node.
 	node := Node{
 		Id:             g.NextNodeID,
-		EntitlementIDs: []string{entitlement.Id},
+		EntitlementIDs: []string{entitlement.GetId()},
 	}
 
 	// Add the node to the data structures.
 	g.Nodes[node.Id] = node
-	g.EntitlementsToNodes[entitlement.Id] = node.Id
+	g.EntitlementsToNodes[entitlement.GetId()] = node.Id
 }
 
 // GetEntitlements returns a combined list of _all_ entitlements from all nodes.

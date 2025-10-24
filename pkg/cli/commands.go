@@ -48,7 +48,7 @@ type ContrainstSetter func(*cobra.Command, field.Configuration) error
 func getGRPCSessionStoreClient(ctx context.Context, serverCfg *v1.ServerConfig) func(ctx context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
 	return func(_ context.Context, opt ...sessions.SessionStoreConstructorOption) (sessions.SessionStore, error) {
 		l := ctxzap.Extract(ctx)
-		clientTLSConfig, err := utls2.ClientConfig(ctx, serverCfg.Credential)
+		clientTLSConfig, err := utls2.ClientConfig(ctx, serverCfg.GetCredential())
 		if err != nil {
 			return nil, err
 		}
@@ -61,7 +61,7 @@ func getGRPCSessionStoreClient(ctx context.Context, serverCfg *v1.ServerConfig) 
 		for {
 			conn, err = grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
 				ctx,
-				fmt.Sprintf("127.0.0.1:%d", serverCfg.SessionStoreListenPort),
+				fmt.Sprintf("127.0.0.1:%d", serverCfg.GetSessionStoreListenPort()),
 				grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
 				grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still.
 			)
@@ -626,7 +626,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 
-		if md.Metadata.Capabilities == nil {
+		if !md.GetMetadata().HasCapabilities() {
 			return fmt.Errorf("connector does not support capabilities")
 		}
 
@@ -636,7 +636,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		}
 
 		a := &anypb.Any{}
-		err = anypb.MarshalFrom(a, md.Metadata.Capabilities, proto.MarshalOptions{Deterministic: true})
+		err = anypb.MarshalFrom(a, md.GetMetadata().GetCapabilities(), proto.MarshalOptions{Deterministic: true})
 		if err != nil {
 			return err
 		}

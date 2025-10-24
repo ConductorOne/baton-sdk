@@ -28,17 +28,17 @@ func TestGenerateSyncDiff(t *testing.T) {
 
 	// Add a resource type to the base file
 	resourceTypeID := testResourceType
-	err = syncFile.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
 	require.NoError(t, err)
 
 	// Add a resource to the base file
 	baseResourceID := "base-resource"
-	err = syncFile.PutResources(ctx, &v2.Resource{
-		Id: &v2.ResourceId{
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: resourceTypeID,
 			Resource:     baseResourceID,
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 
 	// End the sync in the base file
@@ -51,26 +51,26 @@ func TestGenerateSyncDiff(t *testing.T) {
 	require.NotEmpty(t, newSyncID)
 
 	// Add the same resource type to the new file
-	err = syncFile.PutResourceTypes(ctx, &v2.ResourceType{Id: resourceTypeID})
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
 	require.NoError(t, err)
 
 	// Add the same resource to the new file
-	err = syncFile.PutResources(ctx, &v2.Resource{
-		Id: &v2.ResourceId{
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: resourceTypeID,
 			Resource:     baseResourceID,
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 
 	// Add a new resource to the new file that wasn't in the base file
 	newResourceID := "new-resource"
-	err = syncFile.PutResources(ctx, &v2.Resource{
-		Id: &v2.ResourceId{
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
 			ResourceType: resourceTypeID,
 			Resource:     newResourceID,
-		},
-	})
+		}.Build(),
+	}.Build())
 	require.NoError(t, err)
 
 	// End the sync in the new file
@@ -87,12 +87,12 @@ func TestGenerateSyncDiff(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify that the diff contains only the new resource
-	resourcesResp, err := syncFile.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
+	resourcesResp, err := syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: resourceTypeID,
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Len(t, resourcesResp.List, 1)
-	require.Equal(t, newResourceID, resourcesResp.List[0].Id.Resource)
+	require.Len(t, resourcesResp.GetList(), 1)
+	require.Equal(t, newResourceID, resourcesResp.GetList()[0].GetId().GetResource())
 
 	// Close the new file
 	err = syncFile.Close()

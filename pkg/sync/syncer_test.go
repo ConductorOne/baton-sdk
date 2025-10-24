@@ -24,17 +24,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var groupResourceType = &v2.ResourceType{
+var groupResourceType = v2.ResourceType_builder{
 	Id:          "group",
 	DisplayName: "Group",
 	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
-}
-var userResourceType = &v2.ResourceType{
+}.Build()
+var userResourceType = v2.ResourceType_builder{
 	Id:          "user",
 	DisplayName: "User",
 	Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_USER},
 	Annotations: annotations.New(&v2.SkipEntitlementsAndGrants{}),
-}
+}.Build()
 
 func TestExpandGrants(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -151,11 +151,11 @@ func TestExpandGrantBadEntitlement(t *testing.T) {
 
 	mc := newMockConnector()
 
-	var badResourceType = &v2.ResourceType{
+	var badResourceType = v2.ResourceType_builder{
 		Id:          "bad",
 		DisplayName: "Bad",
 		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
-	}
+	}.Build()
 	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType, badResourceType)
 
 	group1, _, err := mc.AddGroup(ctx, "test_group_1")
@@ -186,11 +186,11 @@ func TestExpandGrantBadEntitlement(t *testing.T) {
 		"bad_member",
 		et.WithGrantableTo(groupResourceType, userResourceType, badResourceType),
 	)
-	grantOpts := gt.WithAnnotation(&v2.GrantExpandable{
+	grantOpts := gt.WithAnnotation(v2.GrantExpandable_builder{
 		EntitlementIds: []string{
-			group2Ent.Id,
+			group2Ent.GetId(),
 		},
-	})
+	}.Build())
 
 	badGrant := gt.NewGrant(
 		badEntResource,
@@ -198,7 +198,7 @@ func TestExpandGrantBadEntitlement(t *testing.T) {
 		group2,
 		grantOpts,
 	)
-	mc.grantDB[badEntResource.Id.Resource] = append(mc.grantDB[badEntResource.Id.Resource], badGrant)
+	mc.grantDB[badEntResource.GetId().GetResource()] = append(mc.grantDB[badEntResource.GetId().GetResource()], badGrant)
 	// _ = mc.AddGroupMember(ctx, group2, badEntResource)
 
 	_ = mc.AddGroupMember(ctx, group1, group2, badEnt)
@@ -265,49 +265,49 @@ func TestExpandGrantImmutable(t *testing.T) {
 	allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
 	allGrants, err := store.ListGrants(ctx, allGrantsReq)
 	require.NoError(t, err)
-	require.Len(t, allGrants.List, 5)
+	require.Len(t, allGrants.GetList(), 5)
 
-	req := &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
+	req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: group1Ent,
 		PageToken:   "",
 		Annotations: nil,
-	}
+	}.Build()
 	resp, err := store.ListGrantsForEntitlement(ctx, req)
 	require.NoError(t, err)
-	require.Len(t, resp.List, 3) // both users and group2 should have group1 membership
+	require.Len(t, resp.GetList(), 3) // both users and group2 should have group1 membership
 
-	req = &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
+	req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: group1Ent,
-		PrincipalId: user1.Id,
+		PrincipalId: user1.GetId(),
 		PageToken:   "",
 		Annotations: nil,
-	}
+	}.Build()
 	resp, err = store.ListGrantsForEntitlement(ctx, req)
 	require.NoError(t, err)
-	require.Len(t, resp.List, 1)
+	require.Len(t, resp.GetList(), 1)
 
-	grant := resp.List[0]
+	grant := resp.GetList()[0]
 
-	annos := annotations.Annotations(grant.Annotations)
+	annos := annotations.Annotations(grant.GetAnnotations())
 	immutable := &v2.GrantImmutable{}
 	hasImmutable, err := annos.Pick(immutable)
 	require.NoError(t, err)
 
 	require.False(t, hasImmutable) // Direct grant should not be immutable
 
-	req = &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
+	req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: group1Ent,
-		PrincipalId: user2.Id,
+		PrincipalId: user2.GetId(),
 		PageToken:   "",
 		Annotations: nil,
-	}
+	}.Build()
 	resp, err = store.ListGrantsForEntitlement(ctx, req)
 	require.NoError(t, err)
-	require.Len(t, resp.List, 1)
+	require.Len(t, resp.GetList(), 1)
 
-	grant = resp.List[0]
+	grant = resp.GetList()[0]
 
-	annos = annotations.Annotations(grant.Annotations)
+	annos = annotations.Annotations(grant.GetAnnotations())
 	immutable = &v2.GrantImmutable{}
 	hasImmutable, err = annos.Pick(immutable)
 	require.NoError(t, err)
@@ -371,55 +371,55 @@ func TestExpandGrantImmutableCycle(t *testing.T) {
 	allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
 	allGrants, err := store.ListGrants(ctx, allGrantsReq)
 	require.NoError(t, err)
-	require.Len(t, allGrants.List, 6)
+	require.Len(t, allGrants.GetList(), 6)
 
-	req := &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
+	req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: group1Ent,
 		PageToken:   "",
 		Annotations: nil,
-	}
+	}.Build()
 	resp, err := store.ListGrantsForEntitlement(ctx, req)
 	require.NoError(t, err)
-	require.Len(t, resp.List, 2) // both users and group2 should have group1 membership
+	require.Len(t, resp.GetList(), 2) // both users and group2 should have group1 membership
 
-	req = &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
+	req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		// Entitlement: group1Ent,
-		PrincipalId: user1.Id,
+		PrincipalId: user1.GetId(),
 		PageToken:   "",
 		Annotations: nil,
-	}
+	}.Build()
 	resp, err = store.ListGrantsForPrincipal(ctx, req)
 	require.NoError(t, err)
-	require.Len(t, resp.List, 2)
+	require.Len(t, resp.GetList(), 2)
 
-	grant := resp.List[0]
-	for _, g := range resp.List {
-		if g.Entitlement.Id == group1Ent.Id {
+	grant := resp.GetList()[0]
+	for _, g := range resp.GetList() {
+		if g.GetEntitlement().GetId() == group1Ent.GetId() {
 			grant = g
 			break
 		}
 	}
-	require.Equal(t, grant.Entitlement.Id, group1Ent.Id)
+	require.Equal(t, grant.GetEntitlement().GetId(), group1Ent.GetId())
 
-	annos := annotations.Annotations(grant.Annotations)
+	annos := annotations.Annotations(grant.GetAnnotations())
 	immutable := &v2.GrantImmutable{}
 	hasImmutable, err := annos.Pick(immutable)
 	require.NoError(t, err)
 
 	require.False(t, hasImmutable) // Direct grant should not be immutable
 
-	req = &reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest{
-		PrincipalId: user2.Id,
+	req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		PrincipalId: user2.GetId(),
 		PageToken:   "",
 		Annotations: nil,
-	}
+	}.Build()
 	resp, err = store.ListGrantsForPrincipal(ctx, req)
 	require.NoError(t, err)
-	require.Len(t, resp.List, 1)
+	require.Len(t, resp.GetList(), 1)
 
-	grant = resp.List[0]
+	grant = resp.GetList()[0]
 
-	annos = annotations.Annotations(grant.Annotations)
+	annos = annotations.Annotations(grant.GetAnnotations())
 	immutable = &v2.GrantImmutable{}
 	hasImmutable, err = annos.Pick(immutable)
 	require.NoError(t, err)
@@ -473,7 +473,7 @@ func BenchmarkExpandCircle(b *testing.B) {
 		currentEnt := mc.entDB[groupId][0]
 		nextEnt := mc.entDB[nextGroupId][0]
 
-		_ = mc.AddGroupMember(ctx, currentEnt.Resource, nextEnt.Resource, nextEnt)
+		_ = mc.AddGroupMember(ctx, currentEnt.GetResource(), nextEnt.GetResource(), nextEnt)
 	}
 
 	tempDir, err := os.MkdirTemp("", "baton-benchmark-expand-circle")
@@ -512,17 +512,17 @@ func TestExternalResourcePath(t *testing.T) {
 
 	internalGroup, _, err := internalMc.AddGroup(ctx, "2")
 	require.NoError(t, err)
-	internalMc.grantDB[internalGroup.Id.Resource] = []*v2.Grant{
+	internalMc.grantDB[internalGroup.GetId().GetResource()] = []*v2.Grant{
 		gt.NewGrant(
 			internalGroup,
 			"member",
-			internalUserRs.Id,
+			internalUserRs.GetId(),
 			// Same id as external user profile key value
-			gt.WithAnnotation(&v2.ExternalResourceMatch{
+			gt.WithAnnotation(v2.ExternalResourceMatch_builder{
 				Key:          "external_id_match",
 				Value:        "10",
 				ResourceType: v2.ResourceType_TRAIT_USER,
-			}),
+			}.Build()),
 		),
 	}
 
@@ -537,16 +537,16 @@ func TestExternalResourcePath(t *testing.T) {
 	require.NoError(t, err)
 
 	// External resource has a grant to itself
-	externalMc.grantDB[externalGroup.Id.Resource] = []*v2.Grant{
+	externalMc.grantDB[externalGroup.GetId().GetResource()] = []*v2.Grant{
 		gt.NewGrant(
 			externalGroup,
 			"member",
-			externalUserRs.Id,
-			gt.WithAnnotation(&v2.ExternalResourceMatch{
+			externalUserRs.GetId(),
+			gt.WithAnnotation(v2.ExternalResourceMatch_builder{
 				Key:          "external_id_match",
 				Value:        "10",
 				ResourceType: v2.ResourceType_TRAIT_USER,
-			}),
+			}.Build()),
 		),
 	}
 
@@ -577,15 +577,15 @@ func TestExternalResourcePath(t *testing.T) {
 	store, err := c1zManager.LoadC1Z(ctx)
 	require.NoError(t, err)
 
-	resources, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
-		ResourceTypeId: userResourceType.Id,
-	})
+	resources, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: userResourceType.GetId(),
+	}.Build())
 	require.NoError(t, err)
 	require.Equal(t, len(resources.GetList()), 2)
 
-	entitlements, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+	entitlements, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		Resource: internalGroup,
-	})
+	}.Build())
 	require.NoError(t, err)
 	require.Equal(t, 1, len(entitlements.GetList()))
 
@@ -593,7 +593,7 @@ func TestExternalResourcePath(t *testing.T) {
 	allGrants, err := store.ListGrants(ctx, allGrantsReq)
 	require.NoError(t, err)
 
-	require.Len(t, allGrants.List, 2)
+	require.Len(t, allGrants.GetList(), 2)
 }
 
 func TestPartialSync(t *testing.T) {
@@ -653,22 +653,22 @@ func TestPartialSync(t *testing.T) {
 	store, err := c1zManager.LoadC1Z(ctx)
 	require.NoError(t, err)
 
-	resourcesResp, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
-		ResourceTypeId: userResourceType.Id,
-	})
+	resourcesResp, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: userResourceType.GetId(),
+	}.Build())
 	require.NoError(t, err)
 	require.Equal(t, len(resourcesResp.GetList()), 1)
 
-	resourcesResp, err = store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
-		ResourceTypeId: groupResourceType.Id,
-	})
+	resourcesResp, err = store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: groupResourceType.GetId(),
+	}.Build())
 	require.NoError(t, err)
 	// This connector has 2 groups but partial sync means we only synced one of them.
 	require.Equal(t, len(resourcesResp.GetList()), 1)
 
-	entitlements, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+	entitlements, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		Resource: group,
-	})
+	}.Build())
 	require.NoError(t, err)
 	require.Equal(t, 1, len(entitlements.GetList()))
 
@@ -676,7 +676,7 @@ func TestPartialSync(t *testing.T) {
 	allGrants, err := store.ListGrants(ctx, allGrantsReq)
 	require.NoError(t, err)
 
-	require.Len(t, allGrants.List, 1)
+	require.Len(t, allGrants.GetList(), 1)
 }
 
 func TestPartialSyncBadIDs(t *testing.T) {
@@ -759,23 +759,23 @@ func TestPartialSyncSkipEntitlementsAndGrants(t *testing.T) {
 	store, err := c1zManager.LoadC1Z(ctx)
 	require.NoError(t, err)
 
-	resources, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
-		ResourceTypeId: groupResourceType.Id,
-	})
+	resources, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: groupResourceType.GetId(),
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, 1, len(resources.List))
+	require.Equal(t, 1, len(resources.GetList()))
 
-	entitlements, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+	entitlements, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		Resource: group,
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, 0, len(entitlements.List))
+	require.Equal(t, 0, len(entitlements.GetList()))
 
-	grants, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
+	grants, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		Resource: group,
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, 0, len(grants.List))
+	require.Equal(t, 0, len(grants.GetList()))
 }
 
 func TestPartialSyncUnimplemented(t *testing.T) {
@@ -832,23 +832,23 @@ func TestPartialSyncUnimplemented(t *testing.T) {
 	require.Equal(t, 1, len(syncs))
 	require.Equal(t, connectorstore.SyncTypePartial, syncs[0].Type)
 
-	resources, err := store.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
-		ResourceTypeId: groupResourceType.Id,
-	})
+	resources, err := store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: groupResourceType.GetId(),
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, 1, len(resources.List))
+	require.Equal(t, 1, len(resources.GetList()))
 
-	entitlements, err := store.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
+	entitlements, err := store.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{
 		Resource: group,
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, 1, len(entitlements.List))
+	require.Equal(t, 1, len(entitlements.GetList()))
 
-	grants, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
+	grants, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
 		Resource: group,
-	})
+	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, 1, len(grants.List))
+	require.Equal(t, 1, len(grants.GetList()))
 }
 
 func newMockConnector() *mockConnector {
@@ -890,14 +890,14 @@ func (mc *mockConnector) AddGroup(ctx context.Context, groupId string) (*v2.Reso
 		return nil, nil, err
 	}
 
-	mc.resourceDB[groupResourceType.Id] = append(mc.resourceDB[groupResourceType.Id], group)
+	mc.resourceDB[groupResourceType.GetId()] = append(mc.resourceDB[groupResourceType.GetId()], group)
 
 	ent := et.NewAssignmentEntitlement(
 		group,
 		"member",
 		et.WithGrantableTo(groupResourceType, userResourceType),
 	)
-	ent.Slug = "member"
+	ent.SetSlug("member")
 	mc.entDB[groupId] = append(mc.entDB[groupId], ent)
 
 	return group, ent, nil
@@ -915,7 +915,7 @@ func (mc *mockConnector) AddUser(ctx context.Context, userId string) (*v2.Resour
 		return nil, err
 	}
 
-	mc.resourceDB[userResourceType.Id] = append(mc.resourceDB[userResourceType.Id], user)
+	mc.resourceDB[userResourceType.GetId()] = append(mc.resourceDB[userResourceType.GetId()], user)
 	return user, nil
 }
 
@@ -933,12 +933,12 @@ func (mc *mockConnector) AddUserProfile(ctx context.Context, userId string, prof
 		return nil, err
 	}
 
-	mc.resourceDB[userResourceType.Id] = append(mc.resourceDB[userResourceType.Id], user)
+	mc.resourceDB[userResourceType.GetId()] = append(mc.resourceDB[userResourceType.GetId()], user)
 	return user, nil
 }
 
 func (mc *mockConnector) AddResource(ctx context.Context, resource *v2.Resource) {
-	mc.resourceDB[resource.Id.ResourceType] = append(mc.resourceDB[resource.Id.ResourceType], resource)
+	mc.resourceDB[resource.GetId().GetResourceType()] = append(mc.resourceDB[resource.GetId().GetResourceType()], resource)
 }
 
 func (mc *mockConnector) AddResourceType(ctx context.Context, resourceType *v2.ResourceType) {
@@ -949,11 +949,11 @@ func (mc *mockConnector) AddGroupMember(ctx context.Context, resource *v2.Resour
 	grantOpts := []gt.GrantOption{}
 
 	for _, ent := range expandEnts {
-		grantOpts = append(grantOpts, gt.WithAnnotation(&v2.GrantExpandable{
+		grantOpts = append(grantOpts, gt.WithAnnotation(v2.GrantExpandable_builder{
 			EntitlementIds: []string{
-				ent.Id,
+				ent.GetId(),
 			},
-		}))
+		}.Build()))
 	}
 
 	grant := gt.NewGrant(
@@ -963,28 +963,28 @@ func (mc *mockConnector) AddGroupMember(ctx context.Context, resource *v2.Resour
 		grantOpts...,
 	)
 
-	mc.grantDB[resource.Id.Resource] = append(mc.grantDB[resource.Id.Resource], grant)
+	mc.grantDB[resource.GetId().GetResource()] = append(mc.grantDB[resource.GetId().GetResource()], grant)
 
 	return grant
 }
 
 func (mc *mockConnector) ListResourceTypes(context.Context, *v2.ResourceTypesServiceListResourceTypesRequest, ...grpc.CallOption) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	return &v2.ResourceTypesServiceListResourceTypesResponse{List: mc.rtDB}, nil
+	return v2.ResourceTypesServiceListResourceTypesResponse_builder{List: mc.rtDB}.Build(), nil
 }
 
 func (mc *mockConnector) ListResources(ctx context.Context, in *v2.ResourcesServiceListResourcesRequest, opts ...grpc.CallOption) (*v2.ResourcesServiceListResourcesResponse, error) {
-	resources := mc.resourceDB[in.ResourceTypeId]
+	resources := mc.resourceDB[in.GetResourceTypeId()]
 	if resources == nil {
 		resources = []*v2.Resource{}
 	}
-	return &v2.ResourcesServiceListResourcesResponse{List: resources}, nil
+	return v2.ResourcesServiceListResourcesResponse_builder{List: resources}.Build(), nil
 }
 
 func (mc *mockConnector) GetResource(ctx context.Context, in *v2.ResourceGetterServiceGetResourceRequest, opts ...grpc.CallOption) (*v2.ResourceGetterServiceGetResourceResponse, error) {
 	var resource *v2.Resource
-	resources := mc.resourceDB[in.ResourceId.ResourceType]
+	resources := mc.resourceDB[in.GetResourceId().GetResourceType()]
 	for _, r := range resources {
-		if r.Id.Resource == in.ResourceId.Resource {
+		if r.GetId().GetResource() == in.GetResourceId().GetResource() {
 			resource = r
 			break
 		}
@@ -992,21 +992,21 @@ func (mc *mockConnector) GetResource(ctx context.Context, in *v2.ResourceGetterS
 	if resource == nil {
 		return nil, status.Errorf(codes.NotFound, "resource not found")
 	}
-	return &v2.ResourceGetterServiceGetResourceResponse{Resource: resource}, nil
+	return v2.ResourceGetterServiceGetResourceResponse_builder{Resource: resource}.Build(), nil
 }
 
 func (mc *mockConnector) ListEntitlements(ctx context.Context, in *v2.EntitlementsServiceListEntitlementsRequest, opts ...grpc.CallOption) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
-	return &v2.EntitlementsServiceListEntitlementsResponse{List: mc.entDB[in.Resource.Id.Resource]}, nil
+	return v2.EntitlementsServiceListEntitlementsResponse_builder{List: mc.entDB[in.GetResource().GetId().GetResource()]}.Build(), nil
 }
 
 func (mc *mockConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
-	return &v2.GrantsServiceListGrantsResponse{List: mc.grantDB[in.Resource.Id.Resource]}, nil
+	return v2.GrantsServiceListGrantsResponse_builder{List: mc.grantDB[in.GetResource().GetId().GetResource()]}.Build(), nil
 }
 
 func (mc *mockConnector) GetMetadata(ctx context.Context, in *v2.ConnectorServiceGetMetadataRequest, opts ...grpc.CallOption) (*v2.ConnectorServiceGetMetadataResponse, error) {
-	return &v2.ConnectorServiceGetMetadataResponse{
+	return v2.ConnectorServiceGetMetadataResponse_builder{
 		Metadata: mc.metadata,
-	}, nil
+	}.Build(), nil
 }
 
 func (mc *mockConnector) Validate(ctx context.Context, in *v2.ConnectorServiceValidateRequest, opts ...grpc.CallOption) (*v2.ConnectorServiceValidateResponse, error) {

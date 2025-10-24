@@ -48,7 +48,7 @@ func parseExpression(
 		for _, entitlementID := range entitlementIDs {
 			// Create the entitlement if it hasn't already been created.
 			if !entitlementIDSet.Contains(entitlementID) {
-				graph.AddEntitlement(&v2.Entitlement{Id: entitlementID})
+				graph.AddEntitlement(v2.Entitlement_builder{Id: entitlementID}.Build())
 			}
 			// Add an edge if from left side to right side.
 			if previousEntitlementID != dummyID {

@@ -153,15 +153,15 @@ func resourcePartToStr(r *v2.Resource) (string, error) {
 }
 
 func entitlementPartToStr(e *v2.Entitlement) (string, error) {
-	resourcePart, err := resourcePartToStr(e.Resource)
+	resourcePart, err := resourcePartToStr(e.GetResource())
 	if err != nil {
 		return "", err
 	}
-	if e.Slug == "" {
+	if e.GetSlug() == "" {
 		return "", NewBidStringError(e, "entitlement slug is empty")
 	}
 
-	return strings.Join([]string{resourcePart, escapeParts(e.Slug)}, ":"), nil
+	return strings.Join([]string{resourcePart, escapeParts(e.GetSlug())}, ":"), nil
 }
 
 func makeResourceBid(r *v2.Resource) (string, error) {
@@ -183,11 +183,11 @@ func makeEntitlementBid(e *v2.Entitlement) (string, error) {
 }
 
 func makeGrantBid(g *v2.Grant) (string, error) {
-	principalPart, err := resourcePartToStr(g.Principal)
+	principalPart, err := resourcePartToStr(g.GetPrincipal())
 	if err != nil {
 		return "", err
 	}
-	entitlementPart, err := entitlementPartToStr(g.Entitlement)
+	entitlementPart, err := entitlementPartToStr(g.GetEntitlement())
 	if err != nil {
 		return "", err
 	}
