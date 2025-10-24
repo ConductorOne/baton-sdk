@@ -310,3 +310,21 @@ func SelectField(name string, options []string, optional ...fieldOption) SchemaF
 
 	return field
 }
+
+func Oauth2Field(name string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:       name,
+		Variant:         StringVariant,
+		DefaultValue:    "",
+		ExportTarget:    ExportTargetGUI,
+		Rules:           FieldRule{},
+		SyncerConfig:    syncerConfig{},
+		ConnectorConfig: connectorConfig{FieldType: OAuth2},
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
+}

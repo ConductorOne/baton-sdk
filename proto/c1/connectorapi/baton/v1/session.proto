@@ -117,9 +117,7 @@ message SetManyRequest {
       }
     }
     values: {
-      bytes: {
-        max_len: 1047552
-      }
+      bytes: {max_len: 1047552}
     }
   }];
 

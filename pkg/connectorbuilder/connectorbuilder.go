@@ -188,6 +188,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		}
 		return b, nil
 	}
+
 	return nil, fmt.Errorf("input is not a ConnectorBuilder or a ConnectorBuilderV2")
 }
 
