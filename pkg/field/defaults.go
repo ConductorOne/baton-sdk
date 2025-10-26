@@ -59,6 +59,11 @@ var (
 		WithDescription("The start time of the event feed to read events from"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
+	eventFeedCursorField = StringField("event-feed-cursor",
+		WithHidden(true),
+		WithDescription("The cursor to use for resuming the event feed from a specific point"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 	fileField = StringField("file", WithShortHand("f"), WithDefaultValue("sync.c1z"), WithDescription("The path to the c1z file to sync with"),
 		WithPersistent(true), WithExportTarget(ExportTargetNone))
 	grantEntitlementField = StringField("grant-entitlement", WithHidden(true), WithDescription("The id of the entitlement to grant to the supplied principal"),
@@ -253,6 +258,7 @@ var DefaultFields = []SchemaField{
 	eventFeedField,
 	eventFeedIdField,
 	eventFeedStartAtField,
+	eventFeedCursorField,
 	fileField,
 	grantEntitlementField,
 	grantPrincipalField,
