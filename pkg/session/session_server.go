@@ -49,14 +49,9 @@ func (s *GRPCSessionServer) Get(ctx context.Context, req *v1.GetRequest) (*v1.Ge
 		return nil, fmt.Errorf("failed to get value from cache: %w", err)
 	}
 
-	if !found {
-		return v1.GetResponse_builder{
-			Value: nil,
-		}.Build(), nil
-	}
-
 	return v1.GetResponse_builder{
 		Value: value,
+		Found: found,
 	}.Build(), nil
 }
 
