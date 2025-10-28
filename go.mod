@@ -26,7 +26,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/klauspost/compress v1.18.0
-	github.com/maypok86/otter v1.2.4
+	github.com/maypok86/otter/v2 v2.2.1
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/pquerna/xjwt v0.3.0
 	github.com/pquerna/xjwt/xkeyset v0.0.0-20241217022915-10fc997b2a9f
@@ -53,7 +53,7 @@ require (
 	golang.org/x/net v0.35.0
 	golang.org/x/oauth2 v0.26.0
 	golang.org/x/sync v0.11.0
-	golang.org/x/sys v0.35.0
+	golang.org/x/sys v0.37.0
 	golang.org/x/term v0.29.0
 	golang.org/x/text v0.22.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250219182151-9fdb1cabc7b2
@@ -79,11 +79,9 @@ require (
 	github.com/benbjohnson/clock v1.3.5 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/dolthub/maphash v0.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/ebitengine/purego v0.8.4 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
-	github.com/gammazero/deque v1.0.0 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
