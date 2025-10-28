@@ -601,3 +601,58 @@ func TestFieldGroupMapping(t *testing.T) {
 		require.Len(t, marshal.GetFieldGroups()[0].GetFields(), 2)
 	})
 }
+
+func TestFieldGroupMappingSkip(t *testing.T) {
+	t.Run("field group mapping skip", func(t *testing.T) {
+		carrier := Configuration{
+			Fields: []SchemaField{
+				StringField("key1", WithRequired(true)),
+				StringField("key2", WithRequired(false)),
+			},
+			FieldGroups: []SchemaFieldGroup{
+				{
+					Name: "group1",
+					Fields: []SchemaField{
+						StringField("key1"),
+					},
+				},
+				{
+					Name: "group2",
+					Fields: []SchemaField{
+						StringField("key2"),
+					},
+				},
+			},
+		}
+
+		AssertOutcome(
+			t,
+			carrier,
+			map[string]string{
+				"key2":        "value1",
+				"auth-method": "group2",
+			},
+			"",
+		)
+
+		AssertOutcome(
+			t,
+			carrier,
+			map[string]string{
+				"key1":        "value1",
+				"auth-method": "group1",
+			},
+			"",
+		)
+
+		AssertOutcome(
+			t,
+			carrier,
+			map[string]string{
+				"key1":        "",
+				"auth-method": "group1",
+			},
+			"errors found:\nfield key1 of type string is marked as required but it has a zero-value",
+		)
+	})
+}

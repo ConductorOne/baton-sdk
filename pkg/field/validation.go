@@ -337,7 +337,26 @@ func Validate(c Configuration, v Configurable) error {
 	present := make(map[string]int)
 	validationErrors := &ErrConfigurationMissingFields{}
 
+	authMethod := v.GetString("auth-method")
+	var fieldGroupMap map[string]SchemaField
+
+	if authMethod != "" {
+		for _, fg := range c.FieldGroups {
+			if fg.Name == authMethod {
+				fieldGroupMap = fg.FieldMap()
+				break
+			}
+		}
+	}
+
 	for _, f := range c.Fields {
+		if fieldGroupMap != nil {
+			if _, ok := fieldGroupMap[f.FieldName]; !ok {
+				// skip fields not in the selected auth method group
+				continue
+			}
+		}
+
 		// Note: the viper methods are actually casting
 		//   internal strings into the desired type.
 		var isPresent bool
