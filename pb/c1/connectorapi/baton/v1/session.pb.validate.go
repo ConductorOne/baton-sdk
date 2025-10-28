@@ -193,6 +193,8 @@ func (m *GetResponse) validate(all bool) error {
 
 	// no validation rules for Value
 
+	// no validation rules for Found
+
 	if len(errors) > 0 {
 		return GetResponseMultiError(errors)
 	}

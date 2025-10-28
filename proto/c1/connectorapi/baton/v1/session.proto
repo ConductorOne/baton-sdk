@@ -39,6 +39,7 @@ message GetRequest {
 
 message GetResponse {
   bytes value = 1;
+  bool found = 2;
 }
 
 message GetManyRequest {

@@ -87,10 +87,10 @@ func TestGRPCSessionCache_Get(t *testing.T) {
 	mockClient := &SimpleMockBatonSessionServiceClient{
 		getFunc: func(ctx context.Context, req *v1.GetRequest) (*v1.GetResponse, error) {
 			if req.Key == "test-key" && req.SyncId == syncID {
-				return &v1.GetResponse{Value: expectedValue}, nil
+				return &v1.GetResponse{Value: expectedValue, Found: true}, nil
 			}
-			// Return nil for non-existent keys to indicate "not found"
-			return nil, nil
+			// Return found=false for non-existent keys
+			return &v1.GetResponse{Found: false}, nil
 		},
 	}
 

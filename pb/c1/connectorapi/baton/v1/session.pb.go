@@ -111,6 +111,7 @@ func (b0 GetRequest_builder) Build() *GetRequest {
 type GetResponse struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Value         []byte                 `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	Found         bool                   `protobuf:"varint,2,opt,name=found,proto3" json:"found,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -147,6 +148,13 @@ func (x *GetResponse) GetValue() []byte {
 	return nil
 }
 
+func (x *GetResponse) GetFound() bool {
+	if x != nil {
+		return x.Found
+	}
+	return false
+}
+
 func (x *GetResponse) SetValue(v []byte) {
 	if v == nil {
 		v = []byte{}
@@ -154,10 +162,15 @@ func (x *GetResponse) SetValue(v []byte) {
 	x.Value = v
 }
 
+func (x *GetResponse) SetFound(v bool) {
+	x.Found = v
+}
+
 type GetResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Value []byte
+	Found bool
 }
 
 func (b0 GetResponse_builder) Build() *GetResponse {
@@ -165,6 +178,7 @@ func (b0 GetResponse_builder) Build() *GetResponse {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Value = b.Value
+	x.Found = b.Found
 	return m0
 }
 
@@ -614,6 +628,7 @@ func (b0 GetAllItem_builder) Build() *GetAllItem {
 	return m0
 }
 
+// 4MB for a single gRPC request is the default limit- divide by 100 (SetMany/GetMany max items) and add some padding for overhead.
 type SetRequest struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	SyncId        string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`
@@ -1267,9 +1282,10 @@ const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
 	"\x03key\x18\x02 \x01(\tB\n" +
 	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\x12 \n" +
-	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"#\n" +
+	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"9\n" +
 	"\vGetResponse\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\fR\x05value\"\x90\x01\n" +
+	"\x05value\x18\x01 \x01(\fR\x05value\x12\x14\n" +
+	"\x05found\x18\x02 \x01(\bR\x05found\"\x90\x01\n" +
 	"\x0eGetManyRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12)\n" +
 	"\x04keys\x18\x02 \x03(\tB\x15\xfaB\x12\x92\x01\x0f\b\x01\x10d\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\x12 \n" +

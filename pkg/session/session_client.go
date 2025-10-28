@@ -167,11 +167,7 @@ func (g *GRPCSessionStoreClient) Get(ctx context.Context, key string, opt ...ses
 		return nil, false, fmt.Errorf("failed to get value from gRPC session cache: %w", err)
 	}
 
-	if resp == nil {
-		return nil, false, nil
-	}
-
-	return resp.GetValue(), true, nil
+	return resp.GetValue(), resp.GetFound(), nil
 }
 
 // GetMany retrieves multiple values from the cache by keys.
