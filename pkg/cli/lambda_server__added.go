@@ -17,6 +17,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/go-jose/go-jose/v4"
+	"github.com/maypok86/otter/v2"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -186,9 +187,15 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			}
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
-
+		sessionStoreMaximumSize := v.GetInt(field.ServerSessionStoreMaximumSizeField.GetName())
 		ops := RunTimeOpts{
-			SessionStore: &lazySessionStore{constructor: createSessionCacheConstructor(grpcClient)},
+			SessionStore: NewLazyCachingSessionStore(createSessionCacheConstructor(grpcClient), func(otterOptions *otter.Options[string, []byte]) {
+				if sessionStoreMaximumSize <= 0 {
+					otterOptions.MaximumWeight = 0
+				} else {
+					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
+				}
+			}),
 		}
 
 		if hasOauthField(connectorSchema.Fields) {

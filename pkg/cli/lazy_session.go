@@ -2,32 +2,78 @@ package cli
 
 import (
 	"context"
+	"math"
 	"sync"
+	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/maypok86/otter/v2"
+	"github.com/maypok86/otter/v2/stats"
 )
 
-var _ sessions.SessionStore = (*lazySessionStore)(nil)
+var _ sessions.SessionStore = (*lazyCachingSessionStore)(nil)
 
-// lazySessionStore implements types.SessionStore interface but only creates the actual session
+type OtterAdjuster func(otterOptions *otter.Options[string, []byte])
+
+func NewLazyCachingSessionStore(constructor sessions.SessionStoreConstructor, otterAdjuster OtterAdjuster) *lazyCachingSessionStore {
+	otterOptions := &otter.Options[string, []byte]{
+		// 15MB Note(kans): not much rigor went into this number.  An arbirary sampling of lambda invocations suggests they use around 50MB out of 128MB.
+		MaximumWeight:    1024 * 1024 * 15,
+		ExpiryCalculator: otter.ExpiryWriting[string, []byte](10 * time.Minute),
+		StatsRecorder:    stats.NewCounter(),
+		Weigher: func(key string, value []byte) uint32 {
+			totalLen := 32 + len(key) + len(value)
+			if totalLen < 0 {
+				return math.MaxUint32
+			}
+			if totalLen > math.MaxInt32 {
+				return math.MaxUint32
+			}
+			return uint32(totalLen)
+		},
+	}
+	if otterAdjuster != nil {
+		otterAdjuster(otterOptions)
+	}
+
+	if otterOptions.MaximumWeight == 0 {
+		otterOptions = nil
+	}
+	return &lazyCachingSessionStore{constructor: constructor, otterOptions: otterOptions}
+}
+
+// lazyCachingSessionStore implements types.SessionStore interface but only creates the actual session
 // when a method is called for the first time.
-type lazySessionStore struct {
-	constructor sessions.SessionStoreConstructor
-	once        sync.Once
-	session     sessions.SessionStore
-	err         error
+type lazyCachingSessionStore struct {
+	constructor  sessions.SessionStoreConstructor
+	once         sync.Once
+	session      sessions.SessionStore
+	err          error
+	otterOptions *otter.Options[string, []byte]
 }
 
 // ensureSession creates the actual session store if it hasn't been created yet.
-func (l *lazySessionStore) ensureSession(ctx context.Context) error {
+func (l *lazyCachingSessionStore) ensureSession(ctx context.Context) error {
 	l.once.Do(func() {
-		l.session, l.err = l.constructor(ctx)
+		var ss sessions.SessionStore
+		ss, l.err = l.constructor(ctx)
+		if l.err != nil {
+			return
+		}
+		if l.otterOptions == nil {
+			ctxzap.Extract(ctx).Info("Session store cache is disabled")
+			l.session = ss
+			return
+		}
+		l.session, l.err = session.NewMemorySessionCache(l.otterOptions, ss)
 	})
 	return l.err
 }
 
 // Get implements types.SessionStore.
-func (l *lazySessionStore) Get(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
+func (l *lazyCachingSessionStore) Get(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
 	if err := l.ensureSession(ctx); err != nil {
 		return nil, false, err
 	}
@@ -35,7 +81,7 @@ func (l *lazySessionStore) Get(ctx context.Context, key string, opt ...sessions.
 }
 
 // GetMany implements types.SessionStore.
-func (l *lazySessionStore) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+func (l *lazyCachingSessionStore) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
 	if err := l.ensureSession(ctx); err != nil {
 		return nil, err
 	}
@@ -43,7 +89,7 @@ func (l *lazySessionStore) GetMany(ctx context.Context, keys []string, opt ...se
 }
 
 // Set implements types.SessionStore.
-func (l *lazySessionStore) Set(ctx context.Context, key string, value []byte, opt ...sessions.SessionStoreOption) error {
+func (l *lazyCachingSessionStore) Set(ctx context.Context, key string, value []byte, opt ...sessions.SessionStoreOption) error {
 	if err := l.ensureSession(ctx); err != nil {
 		return err
 	}
@@ -51,7 +97,7 @@ func (l *lazySessionStore) Set(ctx context.Context, key string, value []byte, op
 }
 
 // SetMany implements types.SessionStore.
-func (l *lazySessionStore) SetMany(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
+func (l *lazyCachingSessionStore) SetMany(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
 	if err := l.ensureSession(ctx); err != nil {
 		return err
 	}
@@ -59,7 +105,7 @@ func (l *lazySessionStore) SetMany(ctx context.Context, values map[string][]byte
 }
 
 // Delete implements types.SessionStore.
-func (l *lazySessionStore) Delete(ctx context.Context, key string, opt ...sessions.SessionStoreOption) error {
+func (l *lazyCachingSessionStore) Delete(ctx context.Context, key string, opt ...sessions.SessionStoreOption) error {
 	if err := l.ensureSession(ctx); err != nil {
 		return err
 	}
@@ -67,7 +113,7 @@ func (l *lazySessionStore) Delete(ctx context.Context, key string, opt ...sessio
 }
 
 // Clear implements types.SessionStore.
-func (l *lazySessionStore) Clear(ctx context.Context, opt ...sessions.SessionStoreOption) error {
+func (l *lazyCachingSessionStore) Clear(ctx context.Context, opt ...sessions.SessionStoreOption) error {
 	if err := l.ensureSession(ctx); err != nil {
 		return err
 	}
@@ -75,7 +121,7 @@ func (l *lazySessionStore) Clear(ctx context.Context, opt ...sessions.SessionSto
 }
 
 // GetAll implements types.SessionStore.
-func (l *lazySessionStore) GetAll(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
+func (l *lazyCachingSessionStore) GetAll(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
 	if err := l.ensureSession(ctx); err != nil {
 		return nil, "", err
 	}
