@@ -516,3 +516,211 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = Sigv4SignedRequestSTSGetCallerIdentityValidationError{}
+
+// Validate checks the field values on GetConnectorOauthTokenRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GetConnectorOauthTokenRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetConnectorOauthTokenRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// GetConnectorOauthTokenRequestMultiError, or nil if none found.
+func (m *GetConnectorOauthTokenRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetConnectorOauthTokenRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return GetConnectorOauthTokenRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetConnectorOauthTokenRequestMultiError is an error wrapping multiple
+// validation errors returned by GetConnectorOauthTokenRequest.ValidateAll()
+// if the designated constraints aren't met.
+type GetConnectorOauthTokenRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetConnectorOauthTokenRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetConnectorOauthTokenRequestMultiError) AllErrors() []error { return m }
+
+// GetConnectorOauthTokenRequestValidationError is the validation error
+// returned by GetConnectorOauthTokenRequest.Validate if the designated
+// constraints aren't met.
+type GetConnectorOauthTokenRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetConnectorOauthTokenRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetConnectorOauthTokenRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetConnectorOauthTokenRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetConnectorOauthTokenRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetConnectorOauthTokenRequestValidationError) ErrorName() string {
+	return "GetConnectorOauthTokenRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetConnectorOauthTokenRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetConnectorOauthTokenRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetConnectorOauthTokenRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetConnectorOauthTokenRequestValidationError{}
+
+// Validate checks the field values on GetConnectorOauthTokenResponse with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GetConnectorOauthTokenResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetConnectorOauthTokenResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// GetConnectorOauthTokenResponseMultiError, or nil if none found.
+func (m *GetConnectorOauthTokenResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetConnectorOauthTokenResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Token
+
+	if len(errors) > 0 {
+		return GetConnectorOauthTokenResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetConnectorOauthTokenResponseMultiError is an error wrapping multiple
+// validation errors returned by GetConnectorOauthTokenResponse.ValidateAll()
+// if the designated constraints aren't met.
+type GetConnectorOauthTokenResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetConnectorOauthTokenResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetConnectorOauthTokenResponseMultiError) AllErrors() []error { return m }
+
+// GetConnectorOauthTokenResponseValidationError is the validation error
+// returned by GetConnectorOauthTokenResponse.Validate if the designated
+// constraints aren't met.
+type GetConnectorOauthTokenResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetConnectorOauthTokenResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetConnectorOauthTokenResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetConnectorOauthTokenResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetConnectorOauthTokenResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetConnectorOauthTokenResponseValidationError) ErrorName() string {
+	return "GetConnectorOauthTokenResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetConnectorOauthTokenResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetConnectorOauthTokenResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetConnectorOauthTokenResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetConnectorOauthTokenResponseValidationError{}

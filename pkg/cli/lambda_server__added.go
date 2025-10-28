@@ -195,7 +195,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			ops.TokenSource = &lambdaTokenSource{
 				ctx:    runCtx,
 				webKey: webKey,
-				client: v1.NewConnectorOauthTokenServiceClient(grpcClient),
+				client: configClient,
 			}
 		}
 		c, err := getconnector(runCtx, t, ops)
@@ -255,7 +255,7 @@ func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) sessions
 type lambdaTokenSource struct {
 	ctx    context.Context
 	webKey *jose.JSONWebKey
-	client v1.ConnectorOauthTokenServiceClient
+	client v1.ConnectorConfigServiceClient
 }
 
 func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
