@@ -283,6 +283,9 @@ func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
 }
 
 func hasOauthField(fields []field.SchemaField) bool {
+	if true {
+		return true
+	}
 	for _, f := range fields {
 		if f.ConnectorConfig.FieldType == field.OAuth2 {
 			return true
