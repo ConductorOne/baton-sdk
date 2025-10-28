@@ -13,7 +13,8 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"github.com/maypok86/otter"
+	"github.com/maypok86/otter/v2"
+	"github.com/maypok86/otter/v2/stats"
 	"go.uber.org/zap"
 )
 
@@ -183,22 +184,26 @@ func NewGoCache(ctx context.Context, cfg CacheConfig) (*GoCache, error) {
 	if maxSize > math.MaxInt {
 		return nil, fmt.Errorf("error converting max size to bytes")
 	}
-	//nolint:gosec // disable G115: we check the max size
-	cache, err := otter.MustBuilder[string, []byte](int(maxSize)).
-		CollectStats().
-		Cost(func(key string, value []byte) uint32 {
-			return uint32(len(key) + len(value))
-		}).
-		WithTTL(cfg.TTL).
-		Build()
+	cache, err := otter.New(&otter.Options[string, []byte]{
+		MaximumWeight: maxSize,
+		StatsRecorder: stats.NewCounter(),
+		Weigher: func(key string, value []byte) uint32 {
+			weight64 := uint64(len(key)) + uint64(len(value))
+			if weight64 > uint64(math.MaxUint32) {
+				return math.MaxUint32
+			}
+			return uint32(weight64)
+		},
+		ExpiryCalculator: otter.ExpiryWriting[string, []byte](cfg.TTL),
+	})
 
 	if err != nil {
 		l.Error("cache initialization error", zap.Error(err))
 		return nil, err
 	}
 
-	l.Debug("otter cache initialized", zap.Int("capacity", cache.Capacity()))
-	gc.rootLibrary = &cache
+	l.Debug("otter cache initialized", zap.Uint64("capacity", cache.GetMaximum()))
+	gc.rootLibrary = cache
 
 	return &gc, nil
 }
@@ -208,17 +213,9 @@ func (g *GoCache) Stats(ctx context.Context) CacheStats {
 		return CacheStats{}
 	}
 	stats := g.rootLibrary.Stats()
-	hits := stats.Hits()
-	misses := stats.Misses()
-	if hits < 0 {
-		hits = 0
-	}
-	if misses < 0 {
-		misses = 0
-	}
 	return CacheStats{
-		Hits:   uint64(hits),   //nolint:gosec // disable G115: we check the min size
-		Misses: uint64(misses), //nolint:gosec // disable G115: we check the min size
+		Hits:   stats.Hits,
+		Misses: stats.Misses,
 	}
 }
 
@@ -232,8 +229,8 @@ func (g *GoCache) Get(req *http.Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	entry, ok := g.rootLibrary.Get(key)
-	if !ok {
+	entry, found := g.rootLibrary.GetIfPresent(key)
+	if !found {
 		return nil, nil
 	}
 
@@ -267,7 +264,7 @@ func (g *GoCache) Set(req *http.Request, value *http.Response) error {
 
 	// Otter's cost function rejects large responses if there's not enough room
 	// TODO: return some error or warning that we couldn't set?
-	_ = g.rootLibrary.Set(key, newValue)
+	_, _ = g.rootLibrary.Set(key, newValue)
 
 	return nil
 }
@@ -277,7 +274,7 @@ func (g *GoCache) Delete(key string) error {
 		return nil
 	}
 
-	g.rootLibrary.Delete(key)
+	g.rootLibrary.Invalidate(key)
 
 	return nil
 }
@@ -289,7 +286,7 @@ func (g *GoCache) Clear(ctx context.Context) error {
 		return nil
 	}
 
-	g.rootLibrary.Clear()
+	g.rootLibrary.InvalidateAll()
 
 	l.Debug("reset cache")
 	return nil
@@ -299,6 +296,6 @@ func (g *GoCache) Has(key string) bool {
 	if g.rootLibrary == nil {
 		return false
 	}
-	_, found := g.rootLibrary.Get(key)
+	_, found := g.rootLibrary.GetIfPresent(key)
 	return found
 }

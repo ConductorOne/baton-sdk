@@ -174,9 +174,6 @@ github.com/davecgh/go-spew/spew
 # github.com/deckarep/golang-set/v2 v2.7.0
 ## explicit; go 1.18
 github.com/deckarep/golang-set/v2
-# github.com/dolthub/maphash v0.1.0
-## explicit; go 1.18
-github.com/dolthub/maphash
 # github.com/doug-martin/goqu/v9 v9.19.0 => github.com/ductone/goqu/v9 v9.19.1
 ## explicit; go 1.19
 github.com/doug-martin/goqu/v9
@@ -204,9 +201,6 @@ github.com/envoyproxy/protoc-gen-validate/validate
 ## explicit; go 1.17
 github.com/fsnotify/fsnotify
 github.com/fsnotify/fsnotify/internal
-# github.com/gammazero/deque v1.0.0
-## explicit; go 1.22
-github.com/gammazero/deque
 # github.com/glebarez/go-sqlite v1.22.0
 ## explicit; go 1.17
 github.com/glebarez/go-sqlite
@@ -296,20 +290,20 @@ github.com/magiconair/properties
 github.com/mattn/go-isatty
 # github.com/mattn/go-sqlite3 v1.14.22
 ## explicit; go 1.19
-# github.com/maypok86/otter v1.2.4
-## explicit; go 1.19
-github.com/maypok86/otter
-github.com/maypok86/otter/internal/core
-github.com/maypok86/otter/internal/expiry
-github.com/maypok86/otter/internal/generated/node
-github.com/maypok86/otter/internal/hashtable
-github.com/maypok86/otter/internal/lossy
-github.com/maypok86/otter/internal/queue
-github.com/maypok86/otter/internal/s3fifo
-github.com/maypok86/otter/internal/stats
-github.com/maypok86/otter/internal/unixtime
-github.com/maypok86/otter/internal/xmath
-github.com/maypok86/otter/internal/xruntime
+# github.com/maypok86/otter/v2 v2.2.1
+## explicit; go 1.24
+github.com/maypok86/otter/v2
+github.com/maypok86/otter/v2/internal/deque
+github.com/maypok86/otter/v2/internal/deque/queue
+github.com/maypok86/otter/v2/internal/expiration
+github.com/maypok86/otter/v2/internal/generated/node
+github.com/maypok86/otter/v2/internal/hashmap
+github.com/maypok86/otter/v2/internal/lossy
+github.com/maypok86/otter/v2/internal/xiter
+github.com/maypok86/otter/v2/internal/xmath
+github.com/maypok86/otter/v2/internal/xruntime
+github.com/maypok86/otter/v2/internal/xsync
+github.com/maypok86/otter/v2/stats
 # github.com/mitchellh/mapstructure v1.5.0
 ## explicit; go 1.14
 github.com/mitchellh/mapstructure
@@ -559,8 +553,8 @@ golang.org/x/oauth2/jwt
 ## explicit; go 1.18
 golang.org/x/sync/semaphore
 golang.org/x/sync/singleflight
-# golang.org/x/sys v0.35.0
-## explicit; go 1.23.0
+# golang.org/x/sys v0.37.0
+## explicit; go 1.24.0
 golang.org/x/sys/cpu
 golang.org/x/sys/plan9
 golang.org/x/sys/unix
