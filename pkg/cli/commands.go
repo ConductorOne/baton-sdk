@@ -153,7 +153,7 @@ func MakeMainCommand[T field.Configurable](
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
 		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, t); err != nil {
+		if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
 			return err
 		}
 
@@ -467,7 +467,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
 		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, t); err != nil {
+		if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
 			return err
 		}
 
@@ -612,7 +612,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return fmt.Errorf("failed to make configuration: %w", err)
 		}
 		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, t); err != nil {
+		if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
 			return err
 		}
 

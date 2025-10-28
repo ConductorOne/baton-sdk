@@ -95,6 +95,14 @@ var (
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)
+
+	authMethod = StringField(
+		"auth-method",
+		WithDescription(""),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
 	skipGrants = BoolField("skip-grants",
 		WithDescription("This must be set to skip syncing of grants only (entitlements will still be synced)"),
 		WithPersistent(true),
@@ -294,6 +302,8 @@ var DefaultFields = []SchemaField{
 	otelCollectorEndpointTlSInsecure,
 	otelTracingDisabled,
 	otelLoggingDisabled,
+
+	authMethod,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {

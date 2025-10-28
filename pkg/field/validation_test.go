@@ -31,13 +31,14 @@ func AssertOutcome(
 	configSchema Configuration,
 	config map[string]string,
 	expectedErr string,
+	options ...Option,
 ) {
 	v := viper.New()
 	for key, value := range config {
 		v.Set(key, value)
 	}
 
-	err := Validate(configSchema, v)
+	err := Validate(configSchema, v, options...)
 	if expectedErr == "" {
 		require.NoError(t, err)
 	} else {
@@ -629,30 +630,30 @@ func TestFieldGroupMappingSkip(t *testing.T) {
 			t,
 			carrier,
 			map[string]string{
-				"key2":        "value1",
-				"auth-method": "group2",
+				"key2": "value1",
 			},
 			"",
+			WithAuthMethod("group2"),
 		)
 
 		AssertOutcome(
 			t,
 			carrier,
 			map[string]string{
-				"key1":        "value1",
-				"auth-method": "group1",
+				"key1": "value1",
 			},
 			"",
+			WithAuthMethod("group1"),
 		)
 
 		AssertOutcome(
 			t,
 			carrier,
 			map[string]string{
-				"key1":        "",
-				"auth-method": "group1",
+				"key1": "",
 			},
 			"errors found:\nfield key1 of type string is marked as required but it has a zero-value",
+			WithAuthMethod("group1"),
 		)
 	})
 }

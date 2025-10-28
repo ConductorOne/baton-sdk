@@ -169,4 +169,35 @@ func TestEntryPoint(t *testing.T) {
 		require.Error(t, err)
 		require.EqualError(t, err, "(Cobra) Execute failed: at least one of the flags in the group [string-field bool-field] is required")
 	})
+
+	t.Run("should error when required values are absent group field", func(t *testing.T) {
+		carrier := field.NewConfiguration(
+			[]field.SchemaField{
+				stringRequiredField,
+				intRequiredField,
+			},
+			field.WithFieldGroups(
+				[]field.SchemaFieldGroup{
+					{
+						Name:   "group1",
+						Fields: []field.SchemaField{stringRequiredField},
+					},
+					{
+						Name:   "group2",
+						Fields: []field.SchemaField{intRequiredField},
+					},
+				},
+			),
+		)
+
+		_, err := entrypoint(
+			ctx,
+			carrier,
+			"--auth-method",
+			"group1",
+		)
+
+		require.Error(t, err)
+		require.EqualError(t, err, "(Cobra) Execute failed: errors found:\nfield string-field of type string is marked as required but it has a zero-value")
+	})
 }
