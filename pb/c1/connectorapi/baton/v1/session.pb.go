@@ -614,6 +614,7 @@ func (b0 GetAllItem_builder) Build() *GetAllItem {
 	return m0
 }
 
+// 4MB for a single gRPC request is the default limit- divide by 100 (SetMany/GetMany max items) and add some padding for overhead.
 type SetRequest struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	SyncId        string                 `protobuf:"bytes,1,opt,name=sync_id,json=syncId,proto3" json:"sync_id,omitempty"`

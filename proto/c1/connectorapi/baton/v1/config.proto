@@ -8,6 +8,7 @@ option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
 
 service ConnectorConfigService {
   rpc GetConnectorConfig(GetConnectorConfigRequest) returns (GetConnectorConfigResponse);
+  rpc GetConnectorOauthToken(GetConnectorOauthTokenRequest) returns (GetConnectorOauthTokenResponse);
 }
 
 message GetConnectorConfigRequest {}
@@ -27,4 +28,10 @@ message Sigv4SignedRequestSTSGetCallerIdentity {
   string endpoint = 2;
   repeated SignedHeader headers = 3;
   bytes body = 4;
+}
+
+message GetConnectorOauthTokenRequest {}
+
+message GetConnectorOauthTokenResponse {
+  bytes token = 1;
 }
