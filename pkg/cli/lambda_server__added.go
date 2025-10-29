@@ -16,10 +16,12 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
+	"github.com/go-jose/go-jose/v4"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"golang.org/x/oauth2"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
@@ -185,9 +187,18 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
-		c, err := getconnector(runCtx, t, RunTimeOpts{
+		ops := RunTimeOpts{
 			SessionStore: &lazySessionStore{constructor: createSessionCacheConstructor(grpcClient)},
-		})
+		}
+
+		if hasOauthField(connectorSchema.Fields) {
+			ops.TokenSource = &lambdaTokenSource{
+				ctx:    runCtx,
+				webKey: webKey,
+				client: configClient,
+			}
+		}
+		c, err := getconnector(runCtx, t, ops)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
 		}
@@ -239,4 +250,43 @@ func createSessionCacheConstructor(grpcClient grpc.ClientConnInterface) sessions
 		// Create and return the session cache
 		return session.NewGRPCSessionStore(ctx, client, opt...)
 	}
+}
+
+type lambdaTokenSource struct {
+	ctx    context.Context
+	webKey *jose.JSONWebKey
+	client v1.ConnectorConfigServiceClient
+}
+
+func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
+	resp, err := s.client.GetConnectorOauthToken(s.ctx, &v1.GetConnectorOauthTokenRequest{})
+	if err != nil {
+		return nil, err
+	}
+
+	ed25519PrivateKey, ok := s.webKey.Key.(ed25519.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
+	}
+
+	decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, resp.Token)
+	if err != nil {
+		return nil, fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
+	}
+
+	t := oauth2.Token{}
+	err = json.Unmarshal(decrypted, &t)
+	if err != nil {
+		return nil, fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
+	}
+	return &t, nil
+}
+
+func hasOauthField(fields []field.SchemaField) bool {
+	for _, f := range fields {
+		if f.ConnectorConfig.FieldType == field.OAuth2 {
+			return true
+		}
+	}
+	return false
 }

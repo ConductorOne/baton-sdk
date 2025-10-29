@@ -12,10 +12,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"golang.org/x/oauth2"
 )
 
 type RunTimeOpts struct {
 	SessionStore sessions.SessionStore
+	TokenSource  oauth2.TokenSource
 }
 
 // GetConnectorFunc is a function type that creates a connector instance.
@@ -32,7 +34,9 @@ func WithSessionCache(ctx context.Context, constructor sessions.SessionStoreCons
 	return context.WithValue(ctx, sessions.SessionStoreKey{}, sessionCache), nil
 }
 
-type ConnectorOpts struct{}
+type ConnectorOpts struct {
+	TokenSource oauth2.TokenSource
+}
 type NewConnector[T field.Configurable] func(ctx context.Context, cfg T, opts *ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error)
 
 func MakeGenericConfiguration[T field.Configurable](v *viper.Viper, opts ...field.DecodeHookOption) (T, error) {

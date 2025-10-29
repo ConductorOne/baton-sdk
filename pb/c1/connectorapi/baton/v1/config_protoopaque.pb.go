@@ -326,6 +326,109 @@ func (b0 Sigv4SignedRequestSTSGetCallerIdentity_builder) Build() *Sigv4SignedReq
 	return m0
 }
 
+type GetConnectorOauthTokenRequest struct {
+	state         protoimpl.MessageState `protogen:"opaque.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConnectorOauthTokenRequest) Reset() {
+	*x = GetConnectorOauthTokenRequest{}
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConnectorOauthTokenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConnectorOauthTokenRequest) ProtoMessage() {}
+
+func (x *GetConnectorOauthTokenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type GetConnectorOauthTokenRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 GetConnectorOauthTokenRequest_builder) Build() *GetConnectorOauthTokenRequest {
+	m0 := &GetConnectorOauthTokenRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+type GetConnectorOauthTokenResponse struct {
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Token []byte                 `protobuf:"bytes,1,opt,name=token,proto3"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GetConnectorOauthTokenResponse) Reset() {
+	*x = GetConnectorOauthTokenResponse{}
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConnectorOauthTokenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConnectorOauthTokenResponse) ProtoMessage() {}
+
+func (x *GetConnectorOauthTokenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GetConnectorOauthTokenResponse) GetToken() []byte {
+	if x != nil {
+		return x.xxx_hidden_Token
+	}
+	return nil
+}
+
+func (x *GetConnectorOauthTokenResponse) SetToken(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_Token = v
+}
+
+type GetConnectorOauthTokenResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Token []byte
+}
+
+func (b0 GetConnectorOauthTokenResponse_builder) Build() *GetConnectorOauthTokenResponse {
+	m0 := &GetConnectorOauthTokenResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Token = b.Token
+	return m0
+}
+
 var File_c1_connectorapi_baton_v1_config_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
@@ -342,25 +445,33 @@ const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
 	"\x06method\x18\x01 \x01(\tR\x06method\x12\x1a\n" +
 	"\bendpoint\x18\x02 \x01(\tR\bendpoint\x12@\n" +
 	"\aheaders\x18\x03 \x03(\v2&.c1.connectorapi.baton.v1.SignedHeaderR\aheaders\x12\x12\n" +
-	"\x04body\x18\x04 \x01(\fR\x04body2\x99\x01\n" +
+	"\x04body\x18\x04 \x01(\fR\x04body\"\x1f\n" +
+	"\x1dGetConnectorOauthTokenRequest\"6\n" +
+	"\x1eGetConnectorOauthTokenResponse\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\fR\x05token2\xa7\x02\n" +
 	"\x16ConnectorConfigService\x12\x7f\n" +
-	"\x12GetConnectorConfig\x123.c1.connectorapi.baton.v1.GetConnectorConfigRequest\x1a4.c1.connectorapi.baton.v1.GetConnectorConfigResponseB7Z5gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1b\x06proto3"
+	"\x12GetConnectorConfig\x123.c1.connectorapi.baton.v1.GetConnectorConfigRequest\x1a4.c1.connectorapi.baton.v1.GetConnectorConfigResponse\x12\x8b\x01\n" +
+	"\x16GetConnectorOauthToken\x127.c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest\x1a8.c1.connectorapi.baton.v1.GetConnectorOauthTokenResponseB7Z5gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1b\x06proto3"
 
-var file_c1_connectorapi_baton_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_c1_connectorapi_baton_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_c1_connectorapi_baton_v1_config_proto_goTypes = []any{
 	(*GetConnectorConfigRequest)(nil),              // 0: c1.connectorapi.baton.v1.GetConnectorConfigRequest
 	(*GetConnectorConfigResponse)(nil),             // 1: c1.connectorapi.baton.v1.GetConnectorConfigResponse
 	(*SignedHeader)(nil),                           // 2: c1.connectorapi.baton.v1.SignedHeader
 	(*Sigv4SignedRequestSTSGetCallerIdentity)(nil), // 3: c1.connectorapi.baton.v1.Sigv4SignedRequestSTSGetCallerIdentity
-	(*timestamppb.Timestamp)(nil),                  // 4: google.protobuf.Timestamp
+	(*GetConnectorOauthTokenRequest)(nil),          // 4: c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest
+	(*GetConnectorOauthTokenResponse)(nil),         // 5: c1.connectorapi.baton.v1.GetConnectorOauthTokenResponse
+	(*timestamppb.Timestamp)(nil),                  // 6: google.protobuf.Timestamp
 }
 var file_c1_connectorapi_baton_v1_config_proto_depIdxs = []int32{
-	4, // 0: c1.connectorapi.baton.v1.GetConnectorConfigResponse.last_updated:type_name -> google.protobuf.Timestamp
+	6, // 0: c1.connectorapi.baton.v1.GetConnectorConfigResponse.last_updated:type_name -> google.protobuf.Timestamp
 	2, // 1: c1.connectorapi.baton.v1.Sigv4SignedRequestSTSGetCallerIdentity.headers:type_name -> c1.connectorapi.baton.v1.SignedHeader
 	0, // 2: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:input_type -> c1.connectorapi.baton.v1.GetConnectorConfigRequest
-	1, // 3: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:output_type -> c1.connectorapi.baton.v1.GetConnectorConfigResponse
-	3, // [3:4] is the sub-list for method output_type
-	2, // [2:3] is the sub-list for method input_type
+	4, // 3: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorOauthToken:input_type -> c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest
+	1, // 4: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:output_type -> c1.connectorapi.baton.v1.GetConnectorConfigResponse
+	5, // 5: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorOauthToken:output_type -> c1.connectorapi.baton.v1.GetConnectorOauthTokenResponse
+	4, // [4:6] is the sub-list for method output_type
+	2, // [2:4] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
 	2, // [2:2] is the sub-list for extension extendee
 	0, // [0:2] is the sub-list for field type_name
@@ -377,7 +488,7 @@ func file_c1_connectorapi_baton_v1_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connectorapi_baton_v1_config_proto_rawDesc), len(file_c1_connectorapi_baton_v1_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

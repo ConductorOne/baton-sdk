@@ -19,7 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ConnectorConfigService_GetConnectorConfig_FullMethodName = "/c1.connectorapi.baton.v1.ConnectorConfigService/GetConnectorConfig"
+	ConnectorConfigService_GetConnectorConfig_FullMethodName     = "/c1.connectorapi.baton.v1.ConnectorConfigService/GetConnectorConfig"
+	ConnectorConfigService_GetConnectorOauthToken_FullMethodName = "/c1.connectorapi.baton.v1.ConnectorConfigService/GetConnectorOauthToken"
 )
 
 // ConnectorConfigServiceClient is the client API for ConnectorConfigService service.
@@ -27,6 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ConnectorConfigServiceClient interface {
 	GetConnectorConfig(ctx context.Context, in *GetConnectorConfigRequest, opts ...grpc.CallOption) (*GetConnectorConfigResponse, error)
+	GetConnectorOauthToken(ctx context.Context, in *GetConnectorOauthTokenRequest, opts ...grpc.CallOption) (*GetConnectorOauthTokenResponse, error)
 }
 
 type connectorConfigServiceClient struct {
@@ -47,11 +49,22 @@ func (c *connectorConfigServiceClient) GetConnectorConfig(ctx context.Context, i
 	return out, nil
 }
 
+func (c *connectorConfigServiceClient) GetConnectorOauthToken(ctx context.Context, in *GetConnectorOauthTokenRequest, opts ...grpc.CallOption) (*GetConnectorOauthTokenResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetConnectorOauthTokenResponse)
+	err := c.cc.Invoke(ctx, ConnectorConfigService_GetConnectorOauthToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ConnectorConfigServiceServer is the server API for ConnectorConfigService service.
 // All implementations should embed UnimplementedConnectorConfigServiceServer
 // for forward compatibility.
 type ConnectorConfigServiceServer interface {
 	GetConnectorConfig(context.Context, *GetConnectorConfigRequest) (*GetConnectorConfigResponse, error)
+	GetConnectorOauthToken(context.Context, *GetConnectorOauthTokenRequest) (*GetConnectorOauthTokenResponse, error)
 }
 
 // UnimplementedConnectorConfigServiceServer should be embedded to have
@@ -63,6 +76,9 @@ type UnimplementedConnectorConfigServiceServer struct{}
 
 func (UnimplementedConnectorConfigServiceServer) GetConnectorConfig(context.Context, *GetConnectorConfigRequest) (*GetConnectorConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConnectorConfig not implemented")
+}
+func (UnimplementedConnectorConfigServiceServer) GetConnectorOauthToken(context.Context, *GetConnectorOauthTokenRequest) (*GetConnectorOauthTokenResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetConnectorOauthToken not implemented")
 }
 func (UnimplementedConnectorConfigServiceServer) testEmbeddedByValue() {}
 
@@ -102,6 +118,24 @@ func _ConnectorConfigService_GetConnectorConfig_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ConnectorConfigService_GetConnectorOauthToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetConnectorOauthTokenRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConnectorConfigServiceServer).GetConnectorOauthToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConnectorConfigService_GetConnectorOauthToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConnectorConfigServiceServer).GetConnectorOauthToken(ctx, req.(*GetConnectorOauthTokenRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ConnectorConfigService_ServiceDesc is the grpc.ServiceDesc for ConnectorConfigService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -112,6 +146,10 @@ var ConnectorConfigService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetConnectorConfig",
 			Handler:    _ConnectorConfigService_GetConnectorConfig_Handler,
+		},
+		{
+			MethodName: "GetConnectorOauthToken",
+			Handler:    _ConnectorConfigService_GetConnectorOauthToken_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
