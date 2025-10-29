@@ -143,7 +143,14 @@ func DefineConfigurationV2[T field.Configurable](
 	relationships = append(relationships, field.DefaultRelationships...)
 	relationships = append(relationships, confschema.Constraints...)
 
-	err = cli.SetFlagsAndConstraints(mainCMD, field.NewConfiguration(confschema.Fields, field.WithConstraints(relationships...)))
+	err = cli.SetFlagsAndConstraints(
+		mainCMD,
+		field.NewConfiguration(
+			confschema.Fields,
+			field.WithConstraints(relationships...),
+			field.WithFieldGroups(confschema.FieldGroups),
+		),
+	)
 	if err != nil {
 		return nil, nil, err
 	}

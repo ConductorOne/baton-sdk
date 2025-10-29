@@ -108,7 +108,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			}
 		}()
 
-		if err := field.Validate(lambdaSchema, v); err != nil {
+		if err := field.Validate(lambdaSchema, v, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
 			return err
 		}
 
@@ -174,7 +174,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			}
 		}
 
-		if err := field.Validate(connectorSchema, t); err != nil {
+		if err := field.Validate(connectorSchema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
 			return fmt.Errorf("lambda-run: failed to validate config: %w", err)
 		}
 

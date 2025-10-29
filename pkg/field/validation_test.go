@@ -31,13 +31,14 @@ func AssertOutcome(
 	configSchema Configuration,
 	config map[string]string,
 	expectedErr string,
+	options ...Option,
 ) {
 	v := viper.New()
 	for key, value := range config {
 		v.Set(key, value)
 	}
 
-	err := Validate(configSchema, v)
+	err := Validate(configSchema, v, options...)
 	if expectedErr == "" {
 		require.NoError(t, err)
 	} else {
@@ -599,5 +600,60 @@ func TestFieldGroupMapping(t *testing.T) {
 		require.Equal(t, "Group 1", marshal.GetFieldGroups()[0].GetDisplayName())
 		require.Equal(t, "This is group 1", marshal.GetFieldGroups()[0].GetHelpText())
 		require.Len(t, marshal.GetFieldGroups()[0].GetFields(), 2)
+	})
+}
+
+func TestFieldGroupMappingSkip(t *testing.T) {
+	t.Run("field group mapping skip", func(t *testing.T) {
+		carrier := Configuration{
+			Fields: []SchemaField{
+				StringField("key1", WithRequired(true)),
+				StringField("key2", WithRequired(false)),
+			},
+			FieldGroups: []SchemaFieldGroup{
+				{
+					Name: "group1",
+					Fields: []SchemaField{
+						StringField("key1"),
+					},
+				},
+				{
+					Name: "group2",
+					Fields: []SchemaField{
+						StringField("key2"),
+					},
+				},
+			},
+		}
+
+		AssertOutcome(
+			t,
+			carrier,
+			map[string]string{
+				"key2": "value1",
+			},
+			"",
+			WithAuthMethod("group2"),
+		)
+
+		AssertOutcome(
+			t,
+			carrier,
+			map[string]string{
+				"key1": "value1",
+			},
+			"",
+			WithAuthMethod("group1"),
+		)
+
+		AssertOutcome(
+			t,
+			carrier,
+			map[string]string{
+				"key1": "",
+			},
+			"errors found:\nfield key1 of type string is marked as required but it has a zero-value",
+			WithAuthMethod("group1"),
+		)
 	})
 }

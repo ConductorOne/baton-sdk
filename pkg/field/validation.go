@@ -328,16 +328,43 @@ type Configurable interface {
 	GetStringMap(key string) map[string]any
 }
 
+type validateOptions struct {
+	authGroup string
+}
+
+type Option func(*validateOptions)
+
+func WithAuthMethod(authMethod string) Option {
+	return func(o *validateOptions) {
+		o.authGroup = authMethod
+	}
+}
+
 // Validate perform validation of field requirement and constraints
 // relationships after the configuration is read.
 // We don't check the following:
 //   - if sets of fields are mutually exclusive and required
 //     together at the same time
-func Validate(c Configuration, v Configurable) error {
+func Validate(c Configuration, v Configurable, opts ...Option) error {
+	var validateOpts validateOptions
+
+	for _, opt := range opts {
+		opt(&validateOpts)
+	}
+
 	present := make(map[string]int)
 	validationErrors := &ErrConfigurationMissingFields{}
 
+	fieldGroupMap := c.FieldGroupFields(validateOpts.authGroup)
+
 	for _, f := range c.Fields {
+		if fieldGroupMap != nil {
+			if _, ok := fieldGroupMap[f.FieldName]; !ok {
+				// skip fields not in the selected auth method group
+				continue
+			}
+		}
+
 		// Note: the viper methods are actually casting
 		//   internal strings into the desired type.
 		var isPresent bool

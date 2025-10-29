@@ -221,7 +221,7 @@ func SetFlagsAndConstraints(command *cobra.Command, schema field.Configuration) 
 		}
 
 		// mark required
-		if f.Required {
+		if f.Required && len(schema.FieldGroups) == 0 {
 			if f.Variant == field.BoolVariant {
 				return fmt.Errorf("requiring %s of type %s does not make sense", f.FieldName, f.Variant)
 			}
