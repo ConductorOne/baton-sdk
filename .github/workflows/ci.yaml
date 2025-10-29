@@ -12,8 +12,8 @@ jobs:
         uses: actions/checkout@v4
       - name: Run linters
         uses: golangci/golangci-lint-action@v8
-        skip-cache: true
         with:
+          skip-cache: true
           version: latest
           args: --timeout=3m
   go-test:
