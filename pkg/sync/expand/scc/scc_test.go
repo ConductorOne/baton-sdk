@@ -157,6 +157,9 @@ func TestCliqueSingleComponent(t *testing.T) {
 func TestTailIntoRing(t *testing.T) {
 	ringN := 4
 	tail := []int{900, 901, 902}
+	tail0 := tail[0]
+	tail1 := tail[1]
+	tail2 := tail[2]
 	var nodes []int
 	for i := 0; i < ringN; i++ {
 		nodes = append(nodes, i)
@@ -168,7 +171,7 @@ func TestTailIntoRing(t *testing.T) {
 		edges = append(edges, [2]int{i, (i + 1) % ringN})
 	}
 	// tail into ring start (0)
-	edges = append(edges, [2]int{tail[0], tail[1]}, [2]int{tail[1], tail[2]}, [2]int{tail[2], 0})
+	edges = append(edges, [2]int{tail0, tail1}, [2]int{tail1, tail2}, [2]int{tail2, 0})
 	adj := makeAdj(nodes, edges)
 
 	groups, m := CondenseFWBW(context.Background(), adjSource{adj: adj}, defaultOpts())
