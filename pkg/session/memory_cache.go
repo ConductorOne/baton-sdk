@@ -34,11 +34,12 @@ func cacheKey(bag *sessions.SessionStoreBag, key string) string {
 }
 
 func cacheKeys(bag *sessions.SessionStoreBag, keys []string) []string {
+	newKeys := make([]string, len(keys))
 	prefix := fmt.Sprintf("%s/%s/", bag.SyncID, bag.Prefix)
 	for i, key := range keys {
-		keys[i] = fmt.Sprintf("%s%s", prefix, key)
+		newKeys[i] = fmt.Sprintf("%s%s", prefix, key)
 	}
-	return keys
+	return newKeys
 }
 
 func stripPrefix(bag *sessions.SessionStoreBag, key string) string {
@@ -48,10 +49,11 @@ func stripPrefix(bag *sessions.SessionStoreBag, key string) string {
 
 func stripPrefixes(bag *sessions.SessionStoreBag, keys []string) []string {
 	prefix := fmt.Sprintf("%s/%s/", bag.SyncID, bag.Prefix)
+	newKeys := make([]string, len(keys))
 	for i, key := range keys {
-		keys[i] = strings.TrimPrefix(key, prefix)
+		newKeys[i] = strings.TrimPrefix(key, prefix)
 	}
-	return keys
+	return newKeys
 }
 
 func (m *MemorySessionCache) Clear(ctx context.Context, opt ...sessions.SessionStoreOption) error {
