@@ -500,4 +500,47 @@ func TestMemorySessionCache_EdgeCases(t *testing.T) {
 		require.True(t, found)
 		require.Equal(t, []byte("value-sync2"), v2)
 	})
+
+	t.Run("cross-contamination with same cache instance", func(t *testing.T) {
+		backingStoreCallCount := 0
+		mockStore := &MockSessionStore{
+			setFunc: func(ctx context.Context, key string, value []byte, opt ...sessions.SessionStoreOption) error {
+				return nil
+			},
+			getFunc: func(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
+				backingStoreCallCount++
+				// This should be called when getting from sync-2, but currently
+				// the cache will return the value from sync-1 instead
+				return []byte("value-from-backing-store-sync-2"), true, nil
+			},
+		}
+
+		// Use a SINGLE cache instance to demonstrate cross-contamination
+		cache, err := NewMemorySessionCache(defaultOtterOptions(), mockStore)
+		require.NoError(t, err)
+		ctx := context.Background()
+
+		// Set a value with sync-1
+		err = cache.Set(ctx, "test-key", []byte("value-from-sync-1"), sessions.WithSyncID("sync-1"))
+		require.NoError(t, err)
+
+		// Get with sync-1 - should get cached value (no backing store call)
+		backingStoreCallCount = 0
+		value, found, err := cache.Get(ctx, "test-key", sessions.WithSyncID("sync-1"))
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, []byte("value-from-sync-1"), value)
+		require.Equal(t, 0, backingStoreCallCount, "should use cache, not call backing store")
+
+		// Get with DIFFERENT sync-2 - should go to backing store and get different value
+		// Currently this will FAIL because the cache doesn't isolate by syncID
+		backingStoreCallCount = 0
+		value, found, err = cache.Get(ctx, "test-key", sessions.WithSyncID("sync-2"))
+		require.NoError(t, err)
+		require.True(t, found)
+		// This assertion will fail because cache returns value from sync-1 instead
+		require.Equal(t, []byte("value-from-backing-store-sync-2"), value,
+			"should get value from backing store for different syncID, not cached value from sync-1")
+		require.Equal(t, 1, backingStoreCallCount, "should call backing store for different syncID")
+	})
 }
