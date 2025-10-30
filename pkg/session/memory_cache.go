@@ -156,7 +156,6 @@ func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...
 	if err != nil {
 		return nil, err
 	}
-	misses := make(map[string]bool)
 	values, err := m.cache.BulkGet(ctx, cacheKeys(bag, keys), otter.BulkLoaderFunc[string, []byte](func(ctx context.Context, cacheKeys []string) (map[string][]byte, error) {
 		backingValues, err := m.ss.GetMany(ctx, stripPrefixes(bag, cacheKeys), opt...)
 		if err != nil {
@@ -167,12 +166,6 @@ func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...
 			cacheKeyValues[cacheKey(bag, k)] = v
 		}
 
-		for _, k := range cacheKeys {
-			if _, ok := cacheKeyValues[k]; !ok {
-				misses[k] = true
-			}
-		}
-
 		return cacheKeyValues, nil
 	}))
 
@@ -181,11 +174,12 @@ func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...
 	}
 	unprefixedValues := make(map[string][]byte)
 	for k, v := range values {
-		strippedKey := stripPrefix(bag, k)
-		if _, ok := misses[strippedKey]; ok {
+		// NOTE(kans): GetMany returns nil values for missing keys, so we need to filter them out.
+		//  We do not allow nil values in the session store.
+		if v == nil {
 			continue
 		}
-		unprefixedValues[strippedKey] = v
+		unprefixedValues[stripPrefix(bag, k)] = v
 	}
 	return unprefixedValues, nil
 }

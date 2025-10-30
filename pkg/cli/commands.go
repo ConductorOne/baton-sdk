@@ -54,8 +54,7 @@ func getGRPCSessionStoreClient(ctx context.Context, serverCfg *v1.ServerConfig) 
 			return nil, err
 		}
 		if serverCfg.GetSessionStoreListenPort() == 0 {
-			o := session.WithErrors("session store is disabled by config - you must explicitly enable it via RunConnector.")
-			return session.NewNoOpSessionStore(o), nil
+			return &session.NoOpSessionStore{}, nil
 		}
 		// connected, grpc will handle retries for us.
 		dialCtx, canc := context.WithTimeout(ctx, 5*time.Second)

@@ -1084,10 +1084,10 @@ func (m *SetRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if len(m.GetValue()) > 35840 {
+	if l := len(m.GetValue()); l < 1 || l > 35840 {
 		err := SetRequestValidationError{
 			field:  "Value",
-			reason: "value length must be at most 35840 bytes",
+			reason: "value length must be between 1 and 35840 bytes, inclusive",
 		}
 		if !all {
 			return err
@@ -1351,10 +1351,10 @@ func (m *SetManyRequest) validate(all bool) error {
 				errors = append(errors, err)
 			}
 
-			if len(val) > 35840 {
+			if l := len(val); l < 1 || l > 35840 {
 				err := SetManyRequestValidationError{
 					field:  fmt.Sprintf("Values[%v]", key),
-					reason: "value length must be at most 35840 bytes",
+					reason: "value length must be between 1 and 35840 bytes, inclusive",
 				}
 				if !all {
 					return err

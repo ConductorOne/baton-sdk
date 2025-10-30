@@ -11,86 +11,41 @@ import (
 
 var _ sessions.SessionStore = (*NoOpSessionStore)(nil)
 
-// NoOpSessionStore is a SessionStore implementation that either returns errors
-// or logs warnings and does nothing (no-op). Useful for testing or disabling
-// session storage functionality.
-type NoOpSessionStore struct {
-	returnErrors bool
-	errorMessage string
-}
+// Don't panic in dev (ideally).
+type NoOpSessionStore struct{}
 
-// NoOpSessionStoreOption configures a NoOpSessionStore.
-type NoOpSessionStoreOption func(*NoOpSessionStore)
+var ErrSessionStoreDisabled = fmt.Errorf("session store is disabled by connector author. It must be explicitly enabled via RunConnector WithSessionStoreEnabled()")
 
-// WithErrors configures the store to return errors instead of logging warnings.
-func WithErrors(message string) NoOpSessionStoreOption {
-	return func(s *NoOpSessionStore) {
-		s.returnErrors = true
-		s.errorMessage = message
-	}
-}
-
-// NewNoOpSessionStore creates a new NoOpSessionStore.
-// By default, it logs warnings and does nothing. Use WithErrors() to make it return errors instead.
-func NewNoOpSessionStore(opts ...NoOpSessionStoreOption) *NoOpSessionStore {
-	s := &NoOpSessionStore{
-		returnErrors: false,
-		errorMessage: "session store is disabled",
-	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
-}
-
-func (n *NoOpSessionStore) logOrError(ctx context.Context, operation string) error {
-	if n.returnErrors {
-		return fmt.Errorf("%s: %s", operation, n.errorMessage)
-	}
+func (n *NoOpSessionStore) logAndError(ctx context.Context, operation string) error {
 	l := ctxzap.Extract(ctx)
-	l.Warn("NoOpSessionStore operation ignored",
-		zap.String("operation", operation),
-		zap.String("message", n.errorMessage),
-	)
-	return nil
+	l.Warn("NoOpSessionStore operation ignored", zap.String("operation", operation))
+	return fmt.Errorf("%w: operation %s is not supported", ErrSessionStoreDisabled, operation)
 }
 
 func (n *NoOpSessionStore) Get(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
-	err := n.logOrError(ctx, "Get")
-	if err != nil {
-		return nil, false, err
-	}
-	return nil, false, nil
+	return nil, false, n.logAndError(ctx, "Get")
 }
 
 func (n *NoOpSessionStore) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
-	err := n.logOrError(ctx, "GetMany")
-	if err != nil {
-		return nil, err
-	}
-	return make(map[string][]byte), nil
+	return nil, n.logAndError(ctx, "GetMany")
 }
 
 func (n *NoOpSessionStore) Set(ctx context.Context, key string, value []byte, opt ...sessions.SessionStoreOption) error {
-	return n.logOrError(ctx, "Set")
+	return n.logAndError(ctx, "Set")
 }
 
 func (n *NoOpSessionStore) SetMany(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
-	return n.logOrError(ctx, "SetMany")
+	return n.logAndError(ctx, "SetMany")
 }
 
 func (n *NoOpSessionStore) Delete(ctx context.Context, key string, opt ...sessions.SessionStoreOption) error {
-	return n.logOrError(ctx, "Delete")
+	return n.logAndError(ctx, "Delete")
 }
 
 func (n *NoOpSessionStore) Clear(ctx context.Context, opt ...sessions.SessionStoreOption) error {
-	return n.logOrError(ctx, "Clear")
+	return n.logAndError(ctx, "Clear")
 }
 
 func (n *NoOpSessionStore) GetAll(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
-	err := n.logOrError(ctx, "GetAll")
-	if err != nil {
-		return nil, "", err
-	}
-	return make(map[string][]byte), "", nil
+	return nil, "", n.logAndError(ctx, "GetAll")
 }
