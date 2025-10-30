@@ -675,6 +675,19 @@ func WithSkipGrants(skip bool) Option {
 	}
 }
 
+func IsSessionStoreEnabled(ctx context.Context, options ...Option) (bool, error) {
+	cfg := &runnerConfig{}
+
+	for _, o := range options {
+		err := o(ctx, cfg)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	return cfg.sessionStoreEnabled, nil
+}
+
 // NewConnectorRunner creates a new connector runner.
 func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Option) (*connectorRunner, error) {
 	runner := &connectorRunner{}

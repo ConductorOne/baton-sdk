@@ -18,6 +18,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 	getconnector GetConnectorFunc2[T],
 	connectorSchema field.Configuration,
 	mainCmd *cobra.Command,
+	sessionStoreEnabled bool,
 ) error {
 	return nil
 }

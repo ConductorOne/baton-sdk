@@ -21,6 +21,7 @@ func WithSyncId(ss sessions.SessionStore, syncID string) sessions.SessionStore {
 		syncID: syncID,
 	}
 }
+
 func (w *SessionStoreWithSyncID) Get(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
 	opts := append([]sessions.SessionStoreOption{sessions.WithSyncID(w.syncID)}, opt...)
 	return w.ss.Get(ctx, key, opts...)

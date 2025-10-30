@@ -158,7 +158,12 @@ func DefineConfigurationV2[T field.Configurable](
 	mainCMD.AddCommand(cli.AdditionalCommands(connectorName, confschema.Fields)...)
 	cli.VisitFlags(mainCMD, v)
 
-	err = cli.OptionallyAddLambdaCommand(ctx, connectorName, v, connector, confschema, mainCMD)
+	sessionStoreEnabled, err := connectorrunner.IsSessionStoreEnabled(ctx, options...)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = cli.OptionallyAddLambdaCommand(ctx, connectorName, v, connector, confschema, mainCMD, sessionStoreEnabled)
 
 	if err != nil {
 		return nil, nil, err

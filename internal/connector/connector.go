@@ -14,6 +14,7 @@ import (
 
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	grpc_validator "github.com/grpc-ecosystem/go-grpc-middleware/validator"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.opentelemetry.io/otel/propagation"
 	"go.uber.org/zap"
@@ -273,7 +274,10 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		cw.SessionServer = server
 		go func() {
 			defer sessionListenerFile.Close()
-			serverErr := session.StartGRPCSessionServerWithOptions(ctx, sessionListener, server, grpc.Creds(credentials.NewTLS(tlsConfig)))
+			serverErr := session.StartGRPCSessionServerWithOptions(ctx, sessionListener, server,
+				grpc.Creds(credentials.NewTLS(tlsConfig)),
+				grpc.ChainUnaryInterceptor(grpc_validator.UnaryServerInterceptor()),
+			)
 			if serverErr != nil {
 				l.Error("failed to create session store server", zap.Error(serverErr))
 				return

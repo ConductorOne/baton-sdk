@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/maypok86/otter/v2"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -52,7 +53,9 @@ func getGRPCSessionStoreClient(ctx context.Context, serverCfg *v1.ServerConfig) 
 		if err != nil {
 			return nil, err
 		}
-
+		if serverCfg.GetSessionStoreListenPort() == 0 {
+			return &session.NoOpSessionStore{}, nil
+		}
 		// connected, grpc will handle retries for us.
 		dialCtx, canc := context.WithTimeout(ctx, 5*time.Second)
 		defer canc()
@@ -516,9 +519,17 @@ func MakeGRPCServerCommand[T field.Configurable](
 			}
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
+
+		sessionStoreMaximumSize := v.GetInt(field.ServerSessionStoreMaximumSizeField.GetName())
 		sessionConstructor := getGRPCSessionStoreClient(runCtx, serverCfg)
 		c, err := getconnector(runCtx, t, RunTimeOpts{
-			SessionStore: &lazySessionStore{constructor: sessionConstructor},
+			SessionStore: NewLazyCachingSessionStore(sessionConstructor, func(otterOptions *otter.Options[string, []byte]) {
+				if sessionStoreMaximumSize <= 0 {
+					otterOptions.MaximumWeight = 0
+				} else {
+					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
+				}
+			}),
 		})
 		if err != nil {
 			return err
