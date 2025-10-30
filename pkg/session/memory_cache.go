@@ -105,6 +105,10 @@ func (m *MemorySessionCache) Delete(ctx context.Context, key string, opt ...sess
 	return nil
 }
 
+type CacheItem struct {
+	Value []byte
+}
+
 func (m *MemorySessionCache) Get(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
@@ -152,26 +156,36 @@ func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...
 	if err != nil {
 		return nil, err
 	}
+	misses := make(map[string]bool)
 	values, err := m.cache.BulkGet(ctx, cacheKeys(bag, keys), otter.BulkLoaderFunc[string, []byte](func(ctx context.Context, cacheKeys []string) (map[string][]byte, error) {
 		backingValues, err := m.ss.GetMany(ctx, stripPrefixes(bag, cacheKeys), opt...)
 		if err != nil {
 			return nil, err
 		}
-		// Map results from original keys back to cache keys for otter
 		cacheKeyValues := make(map[string][]byte, len(backingValues))
 		for k, v := range backingValues {
 			cacheKeyValues[cacheKey(bag, k)] = v
 		}
+
+		for _, k := range cacheKeys {
+			if _, ok := cacheKeyValues[k]; !ok {
+				misses[k] = true
+			}
+		}
+
 		return cacheKeyValues, nil
 	}))
 
 	if err != nil {
 		return nil, err
 	}
-
-	unprefixedValues := make(map[string][]byte, len(values))
+	unprefixedValues := make(map[string][]byte)
 	for k, v := range values {
-		unprefixedValues[stripPrefix(bag, k)] = v
+		strippedKey := stripPrefix(bag, k)
+		if _, ok := misses[strippedKey]; ok {
+			continue
+		}
+		unprefixedValues[strippedKey] = v
 	}
 	return unprefixedValues, nil
 }
