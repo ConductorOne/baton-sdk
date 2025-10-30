@@ -201,6 +201,12 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 		require.Len(t, result, 2)
 		require.Equal(t, []byte("prefixed-value1"), result["prefixed-key1"])
 		require.Equal(t, []byte("prefixed-value2"), result["prefixed-key2"])
+
+		// Verify prefix is stripped - keys should NOT have the prefix
+		_, hasPrefixInKey := result["test-prefix:prefixed-key1"]
+		require.False(t, hasPrefixInKey, "returned keys should not include the prefix")
+		_, hasPrefixInKey = result["test-prefix:prefixed-key2"]
+		require.False(t, hasPrefixInKey, "returned keys should not include the prefix")
 	})
 
 	t.Run("GetMany without sync ID", func(t *testing.T) {
@@ -499,6 +505,13 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 		require.Equal(t, []byte("getall-prefix1-value1"), result["getall-prefix1-key1"])
 		require.Equal(t, []byte("getall-prefix1-value2"), result["getall-prefix1-key2"])
 		require.Equal(t, "", pageToken)
+
+		// Verify prefix is stripped - keys should NOT have the prefix
+		_, hasPrefixInKey := result["getall-prefix1:getall-prefix1-key1"]
+		require.False(t, hasPrefixInKey, "returned keys should not include the prefix")
+		// Also verify we don't get keys from prefix2
+		_, hasPrefix2Key := result["getall-prefix2-key1"]
+		require.False(t, hasPrefix2Key, "should not return keys from different prefix")
 	})
 
 	t.Run("GetAll without sync ID", func(t *testing.T) {

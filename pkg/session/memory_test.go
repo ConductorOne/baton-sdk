@@ -314,8 +314,59 @@ func TestMemorySessionCache_GetMany(t *testing.T) {
 
 		// Verify the backing store received prefixed keys
 		// The current implementation passes prefixed keys to the backing store
-		require.Contains(t, keysReceived, "prefix/key1", "Backing store receives prefixed keys")
-		require.Contains(t, keysReceived, "prefix/key2", "Backing store receives prefixed keys")
+		require.Contains(t, keysReceived, "key1", "Backing store receives prefixed keys")
+		require.Contains(t, keysReceived, "key2", "Backing store receives prefixed keys")
+	})
+
+	t.Run("cross-contamination with GetMany", func(t *testing.T) {
+		backingStoreCallCount := 0
+		mockStore := &MockSessionStore{
+			setManyFunc: func(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
+				return nil
+			},
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+				backingStoreCallCount++
+				result := make(map[string][]byte)
+				// Return different values for sync-2 to demonstrate isolation
+				for _, key := range keys {
+					result[key] = []byte(fmt.Sprintf("value-from-backing-store-sync-2-%s", key))
+				}
+				return result, nil
+			},
+		}
+
+		// Use a SINGLE cache instance to demonstrate cross-contamination prevention
+		cache, err := NewMemorySessionCache(defaultOtterOptions(), mockStore)
+		require.NoError(t, err)
+		ctx := context.Background()
+
+		// SetMany with sync-1
+		err = cache.SetMany(ctx, map[string][]byte{
+			"key1": []byte("value-sync-1-key1"),
+			"key2": []byte("value-sync-1-key2"),
+		}, sessions.WithSyncID("sync-1"))
+		require.NoError(t, err)
+
+		// GetMany with sync-1 - should get cached values (no backing store call)
+		backingStoreCallCount = 0
+		values, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-1"))
+		require.NoError(t, err)
+		require.Equal(t, 2, len(values))
+		require.Equal(t, []byte("value-sync-1-key1"), values["key1"])
+		require.Equal(t, []byte("value-sync-1-key2"), values["key2"])
+		require.Equal(t, 0, backingStoreCallCount, "should use cache, not call backing store")
+
+		// GetMany with DIFFERENT sync-2 - should go to backing store and get different values
+		backingStoreCallCount = 0
+		values, err = cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-2"))
+		require.NoError(t, err)
+		require.Equal(t, 2, len(values))
+		// These assertions verify we get values from backing store for sync-2, not cached values from sync-1
+		require.Equal(t, []byte("value-from-backing-store-sync-2-key1"), values["key1"],
+			"should get value from backing store for different syncID, not cached value from sync-1")
+		require.Equal(t, []byte("value-from-backing-store-sync-2-key2"), values["key2"],
+			"should get value from backing store for different syncID, not cached value from sync-1")
+		require.Equal(t, 1, backingStoreCallCount, "should call backing store for different syncID")
 	})
 }
 
@@ -408,6 +459,145 @@ func TestMemorySessionCache_Clear(t *testing.T) {
 
 		// prefix2 should still exist (but cache won't have it since Clear also clears cache for that prefix)
 		// This test verifies the code doesn't crash
+	})
+
+	t.Run("clear isolates by syncID", func(t *testing.T) {
+		mockStore := &MockSessionStore{
+			clearFunc: func(ctx context.Context, opt ...sessions.SessionStoreOption) error {
+				return nil
+			},
+			getFunc: func(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
+				return nil, false, nil
+			},
+		}
+
+		cache, err := NewMemorySessionCache(defaultOtterOptions(), mockStore)
+		require.NoError(t, err)
+		ctx := context.Background()
+
+		// Set values in sync-1
+		err = cache.Set(ctx, "key1", []byte("value-sync-1-key1"), sessions.WithSyncID("sync-1"))
+		require.NoError(t, err)
+		err = cache.Set(ctx, "key2", []byte("value-sync-1-key2"), sessions.WithSyncID("sync-1"))
+		require.NoError(t, err)
+
+		// Set values in sync-2
+		err = cache.Set(ctx, "key1", []byte("value-sync-2-key1"), sessions.WithSyncID("sync-2"))
+		require.NoError(t, err)
+		err = cache.Set(ctx, "key2", []byte("value-sync-2-key2"), sessions.WithSyncID("sync-2"))
+		require.NoError(t, err)
+
+		// Verify both syncs have their values cached
+		value1, found, err := cache.Get(ctx, "key1", sessions.WithSyncID("sync-1"))
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, []byte("value-sync-1-key1"), value1)
+
+		value2, found, err := cache.Get(ctx, "key1", sessions.WithSyncID("sync-2"))
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, []byte("value-sync-2-key1"), value2)
+
+		// Clear only sync-1
+		err = cache.Clear(ctx, sessions.WithSyncID("sync-1"))
+		require.NoError(t, err)
+
+		// Verify sync-1 is cleared
+		_, found, err = cache.Get(ctx, "key1", sessions.WithSyncID("sync-1"))
+		require.NoError(t, err)
+		require.False(t, found, "sync-1 keys should be cleared")
+
+		_, found, err = cache.Get(ctx, "key2", sessions.WithSyncID("sync-1"))
+		require.NoError(t, err)
+		require.False(t, found, "sync-1 keys should be cleared")
+
+		// Verify sync-2 values are still cached (not affected by clearing sync-1)
+		value2, found, err = cache.Get(ctx, "key1", sessions.WithSyncID("sync-2"))
+		require.NoError(t, err)
+		require.True(t, found, "sync-2 keys should still be cached after clearing sync-1")
+		require.Equal(t, []byte("value-sync-2-key1"), value2)
+
+		value2, found, err = cache.Get(ctx, "key2", sessions.WithSyncID("sync-2"))
+		require.NoError(t, err)
+		require.True(t, found, "sync-2 keys should still be cached after clearing sync-1")
+		require.Equal(t, []byte("value-sync-2-key2"), value2)
+	})
+
+	t.Run("clear with prefix isolates by syncID", func(t *testing.T) {
+		mockStore := &MockSessionStore{
+			clearFunc: func(ctx context.Context, opt ...sessions.SessionStoreOption) error {
+				return nil
+			},
+			getFunc: func(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error) {
+				return nil, false, nil
+			},
+		}
+
+		cache, err := NewMemorySessionCache(defaultOtterOptions(), mockStore)
+		require.NoError(t, err)
+		ctx := context.Background()
+
+		// Set values in sync-1 with prefix "test-prefix:"
+		err = cache.Set(ctx, "key1", []byte("value-sync-1-prefix-key1"), sessions.WithSyncID("sync-1"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+		err = cache.Set(ctx, "key2", []byte("value-sync-1-prefix-key2"), sessions.WithSyncID("sync-1"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+
+		// Set values in sync-2 with the same prefix "test-prefix:"
+		err = cache.Set(ctx, "key1", []byte("value-sync-2-prefix-key1"), sessions.WithSyncID("sync-2"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+		err = cache.Set(ctx, "key2", []byte("value-sync-2-prefix-key2"), sessions.WithSyncID("sync-2"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+
+		// Set values in sync-1 with different prefix "other-prefix:"
+		err = cache.Set(ctx, "key1", []byte("value-sync-1-other-key1"), sessions.WithSyncID("sync-1"), sessions.WithPrefix("other-prefix:"))
+		require.NoError(t, err)
+
+		// Verify all values are cached
+		value, found, err := cache.Get(ctx, "key1", sessions.WithSyncID("sync-1"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, []byte("value-sync-1-prefix-key1"), value)
+
+		value, found, err = cache.Get(ctx, "key1", sessions.WithSyncID("sync-2"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, []byte("value-sync-2-prefix-key1"), value)
+
+		value, found, err = cache.Get(ctx, "key1", sessions.WithSyncID("sync-1"), sessions.WithPrefix("other-prefix:"))
+		require.NoError(t, err)
+		require.True(t, found)
+		require.Equal(t, []byte("value-sync-1-other-key1"), value)
+
+		// Clear only sync-1 with "test-prefix:" prefix
+		err = cache.Clear(ctx, sessions.WithSyncID("sync-1"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+
+		// Verify sync-1 "test-prefix:" keys are cleared
+		_, found, err = cache.Get(ctx, "key1", sessions.WithSyncID("sync-1"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+		require.False(t, found, "sync-1 test-prefix: keys should be cleared")
+
+		_, found, err = cache.Get(ctx, "key2", sessions.WithSyncID("sync-1"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+		require.False(t, found, "sync-1 test-prefix: keys should be cleared")
+
+		// Verify sync-2 "test-prefix:" values are still cached (not affected)
+		value, found, err = cache.Get(ctx, "key1", sessions.WithSyncID("sync-2"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+		require.True(t, found, "sync-2 test-prefix: keys should still be cached after clearing sync-1 test-prefix:")
+		require.Equal(t, []byte("value-sync-2-prefix-key1"), value)
+
+		value, found, err = cache.Get(ctx, "key2", sessions.WithSyncID("sync-2"), sessions.WithPrefix("test-prefix:"))
+		require.NoError(t, err)
+		require.True(t, found, "sync-2 test-prefix: keys should still be cached after clearing sync-1 test-prefix:")
+		require.Equal(t, []byte("value-sync-2-prefix-key2"), value)
+
+		// Verify sync-1 "other-prefix:" values are still cached (different prefix, not affected)
+		value, found, err = cache.Get(ctx, "key1", sessions.WithSyncID("sync-1"), sessions.WithPrefix("other-prefix:"))
+		require.NoError(t, err)
+		require.True(t, found, "sync-1 other-prefix: keys should still be cached after clearing sync-1 test-prefix:")
+		require.Equal(t, []byte("value-sync-1-other-key1"), value)
 	})
 }
 
@@ -533,12 +723,10 @@ func TestMemorySessionCache_EdgeCases(t *testing.T) {
 		require.Equal(t, 0, backingStoreCallCount, "should use cache, not call backing store")
 
 		// Get with DIFFERENT sync-2 - should go to backing store and get different value
-		// Currently this will FAIL because the cache doesn't isolate by syncID
 		backingStoreCallCount = 0
 		value, found, err = cache.Get(ctx, "test-key", sessions.WithSyncID("sync-2"))
 		require.NoError(t, err)
 		require.True(t, found)
-		// This assertion will fail because cache returns value from sync-1 instead
 		require.Equal(t, []byte("value-from-backing-store-sync-2"), value,
 			"should get value from backing store for different syncID, not cached value from sync-1")
 		require.Equal(t, 1, backingStoreCallCount, "should call backing store for different syncID")
