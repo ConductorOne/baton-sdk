@@ -116,12 +116,12 @@ func saveC1z(dbFilePath string, outputFilePath string) error {
 
 	err = outFile.Sync()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to sync out file: %w", err)
 	}
 
 	err = outFile.Close()
 	if err != nil {
-		return fmt.Errorf("failed to sync out file: %w", err)
+		return fmt.Errorf("failed to close out file: %w", err)
 	}
 	outFile = nil
 
