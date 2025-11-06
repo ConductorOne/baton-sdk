@@ -132,10 +132,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return resp, fmt.Errorf(
-			"error: listing resources failed: next page token %s is the same as the current page token "+
-				"for resource type id %s and resource parent id: %s this is most likely a connector bug",
-			retOptions.NextPageToken, request.GetResourceTypeId(), request.GetParentResourceId())
+		return resp, fmt.Errorf("error: listing resources failed: next page token is the same as the current page token. this is most likely connector bug")
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
