@@ -360,7 +360,7 @@ func (b *builder) getCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 
 		r := rb.ResourceType(ctx)
 		annos := annotations.Annotations(r.Annotations)
-		p := &v2.CapabilityPermission{}
+		p := &v2.CapabilityPermissions{}
 		ok, err := annos.Pick(p)
 		// TODO(lauren) handle multiple 
 		if err != nil {
@@ -373,7 +373,7 @@ func (b *builder) getCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 		resourceTypeCapabilities = append(resourceTypeCapabilities, v2.ResourceTypeCapability_builder{
 			ResourceType: rb.ResourceType(ctx),
 			Capabilities: caps,
-			Permissions:  []*v2.CapabilityPermission{p},
+			Permissions:  p,
 		}.Build())
 	}
 
