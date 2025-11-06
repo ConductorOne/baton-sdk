@@ -98,9 +98,14 @@ message ConnectorCapabilities {
   CredentialDetails credential_details = 3;
 }
 
+message CapabilityPermission {
+  string permission = 1;
+}
+
 message ResourceTypeCapability {
   c1.connector.v2.ResourceType resource_type = 1;
   repeated Capability capabilities = 2;
+  repeated CapabilityPermission permissions = 3;
 }
 
 message ConnectorServiceGetMetadataRequest {}

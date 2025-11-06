@@ -358,9 +358,22 @@ func (b *builder) getCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 			connectorCaps[cap] = struct{}{}
 		}
 
+		r := rb.ResourceType(ctx)
+		annos := annotations.Annotations(r.Annotations)
+		p := &v2.CapabilityPermission{}
+		ok, err := annos.Pick(p)
+		// TODO(lauren) handle multiple 
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+
+		}
+
 		resourceTypeCapabilities = append(resourceTypeCapabilities, v2.ResourceTypeCapability_builder{
 			ResourceType: rb.ResourceType(ctx),
 			Capabilities: caps,
+			Permissions:  []*v2.CapabilityPermission{p},
 		}.Build())
 	}
 
