@@ -522,15 +522,19 @@ func MakeGRPCServerCommand[T field.Configurable](
 
 		sessionStoreMaximumSize := v.GetInt(field.ServerSessionStoreMaximumSizeField.GetName())
 		sessionConstructor := getGRPCSessionStoreClient(runCtx, serverCfg)
-		c, err := getconnector(runCtx, t, RunTimeOpts{
+		ops := RunTimeOpts{
 			SessionStore: NewLazyCachingSessionStore(sessionConstructor, func(otterOptions *otter.Options[string, []byte]) {
-				if sessionStoreMaximumSize <= 0 {
-					otterOptions.MaximumWeight = 0
-				} else {
-					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
-				}
+				otterOptions.MaximumWeight = 0
 			}),
-		})
+		}
+		cache, err := session.NewCache(uint64(sessionStoreMaximumSize))
+		if err != nil {
+			return fmt.Errorf("lambda-run: failed to create session cache: %w", err)
+		}
+
+		ops.Cache = cache
+
+		c, err := getconnector(runCtx, t, ops)
 		if err != nil {
 			return err
 		}

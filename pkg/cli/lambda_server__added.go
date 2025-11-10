@@ -208,13 +208,15 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		}
 		ops := RunTimeOpts{
 			SessionStore: NewLazyCachingSessionStore(sessionStoreConstructor, func(otterOptions *otter.Options[string, []byte]) {
-				if sessionStoreMaximumSize <= 0 {
-					otterOptions.MaximumWeight = 0
-				} else {
-					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
-				}
+				otterOptions.MaximumWeight = 0
 			}),
 		}
+
+		cache, err := session.NewCache(uint64(sessionStoreMaximumSize))
+		if err != nil {
+			return fmt.Errorf("lambda-run: failed to create session cache: %w", err)
+		}
+		ops.Cache = cache
 
 		if hasOauthField(connectorSchema.Fields) {
 			ops.TokenSource = &lambdaTokenSource{

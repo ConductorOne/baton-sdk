@@ -24,11 +24,18 @@ type SessionStoreConstructor func(ctx context.Context, opt ...SessionStoreConstr
 
 type SessionStoreConstructorOption func(ctx context.Context) (context.Context, error)
 
+type WeightedValue struct {
+	V interface{}
+	W uint32
+}
+
+type Cache = otter.Cache[string, *WeightedValue]
+
 type SessionStoreBag struct {
 	SyncID    string
 	Prefix    string
 	PageToken string
-	Cache     *otter.Cache[string, interface{}]
+	Cache     *Cache
 }
 
 // SyncIDKey is the context key for storing the current sync ID.
@@ -64,7 +71,7 @@ func WithPageToken(pageToken string) SessionStoreOption {
 	}
 }
 
-func WithCache(cache *otter.Cache[string, interface{}]) SessionStoreOption {
+func WithCache(cache *Cache) SessionStoreOption {
 	return func(ctx context.Context, bag *SessionStoreBag) error {
 		bag.Cache = cache
 		return nil

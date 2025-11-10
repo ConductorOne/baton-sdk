@@ -5,47 +5,33 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/maypok86/otter/v2"
-	"github.com/maypok86/otter/v2/stats"
 )
 
-type Cache = otter.Cache[string, *WeightedValue]
-
-func NewOtter(otterOptions *otter.Options[string, *WeightedValue]) (*Cache, error) {
-	if otterOptions == nil {
-		otterOptions = &otter.Options[string, *WeightedValue]{
-			// 15MB Note(kans): not much rigor went into this number.  An arbirary sampling of lambda invocations suggests they use around 50MB out of 128MB.
-			MaximumWeight:    1024 * 1024 * 15,
-			ExpiryCalculator: otter.ExpiryWriting[string, *WeightedValue](10 * time.Minute),
-			StatsRecorder:    stats.NewCounter(),
-			Weigher: func(key string, value *WeightedValue) uint32 {
-				return value.W
-			},
-		}
-	}
-	return otter.New(otterOptions)
+func JSONCache(cache *sessions.Cache) CCache {
+	return cache
 }
 
-type WeightedValue struct {
-	V interface{}
-	W uint32
+type Cache struct {
+	cache *sessions.Cache
+
+	GetMany func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string]*sessions.WeightedValue, error)
 }
 
-type JSONCaching struct {
-	cache *Cache
+type CCache[T any] interface {
+	GetMany(ctx context.Context, keys []string) (map[string]T, error)
 }
 
 // See GRPC validation rules for eg GetManyRequest.
-func GetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Cache, keys []string, opt ...sessions.SessionStoreOption) (map[string]T, error) {
-	getFromSS := func(ctx context.Context, missingKeys []string) (map[string]*WeightedValue, error) {
+func GetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *sessions.Cache, keys []string, opt ...sessions.SessionStoreOption) (map[string]T, error) {
+	getFromSS := func(ctx context.Context, missingKeys []string) (map[string]*sessions.WeightedValue, error) {
 		bytesMap, err := UnrollGetMany(ctx, ss, missingKeys, opt...)
 		if err != nil {
 			return nil, err
 		}
-		result := make(map[string]*WeightedValue)
+		result := make(map[string]*sessions.WeightedValue)
 		for key, bytes := range bytesMap {
 			var item T
 			err = json.Unmarshal(bytes, &item)
@@ -53,7 +39,7 @@ func GetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Ca
 				return nil, fmt.Errorf("failed to unmarshal item for key %s: %w", key, err)
 			}
 			fmt.Printf("🌮 loaded a many %v\n", item)
-			result[key] = &WeightedValue{
+			result[key] = &sessions.WeightedValue{
 				V: item,
 				W: uint32(len(bytes)),
 			}
@@ -64,13 +50,13 @@ func GetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Ca
 		return result, nil
 	}
 	fmt.Printf("🌮 getting a many %v\n", keys)
-	var values map[string]*WeightedValue
+	var values map[string]*sessions.WeightedValue
 	var err error
 
 	if cache == nil {
 		values, err = getFromSS(ctx, keys)
 	} else {
-		values, err = cache.BulkGet(ctx, keys, otter.BulkLoaderFunc[string, *WeightedValue](getFromSS))
+		values, err = cache.BulkGet(ctx, keys, otter.BulkLoaderFunc[string, *sessions.WeightedValue](getFromSS))
 	}
 
 	if err != nil {
@@ -93,7 +79,7 @@ func GetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Ca
 	return result, nil
 }
 
-func SetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Cache, items map[string]T, opt ...sessions.SessionStoreOption) error {
+func SetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *sessions.Cache, items map[string]T, opt ...sessions.SessionStoreOption) error {
 	bytesMap := make(map[string][]byte)
 	fmt.Printf("🌮 setting a many\n")
 	for key, item := range items {
@@ -102,7 +88,7 @@ func SetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Ca
 			return fmt.Errorf("failed to marshal item for key %s: %w", key, err)
 		}
 		fmt.Printf("🌮 setting %s\n", key)
-		cache.Set(key, &WeightedValue{
+		cache.Set(key, &sessions.WeightedValue{
 			V: item,
 			W: uint32(len(bytes)),
 		})
@@ -112,9 +98,9 @@ func SetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Ca
 	return UnrollSetMany(ctx, ss, bytesMap, opt...)
 }
 
-func GetJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Cache, key string, opt ...sessions.SessionStoreOption) (T, bool, error) {
-	loader := func(ctx context.Context, key string) (*WeightedValue, error) {
-		v := &WeightedValue{}
+func GetJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *sessions.Cache, key string, opt ...sessions.SessionStoreOption) (T, bool, error) {
+	loader := func(ctx context.Context, key string) (*sessions.WeightedValue, error) {
+		v := &sessions.WeightedValue{}
 		bytes, found, err := ss.Get(ctx, key, opt...)
 		if err != nil {
 			return v, err
@@ -133,10 +119,10 @@ func GetJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Cache,
 		return v, nil
 	}
 
-	var item *WeightedValue
+	var item *sessions.WeightedValue
 	var err error
 	if cache != nil {
-		item, err = cache.Get(ctx, key, otter.LoaderFunc[string, *WeightedValue](loader))
+		item, err = cache.Get(ctx, key, otter.LoaderFunc[string, *sessions.WeightedValue](loader))
 	} else {
 		item, err = loader(ctx, key)
 	}
@@ -156,31 +142,31 @@ func GetJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Cache,
 	return v, true, nil
 }
 
-func SetJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Cache, key string, item T, opt ...sessions.SessionStoreOption) error {
+func SetJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *sessions.Cache, key string, item T, opt ...sessions.SessionStoreOption) error {
 	bytes, err := json.Marshal(item)
 	if err != nil {
 		return fmt.Errorf("failed to marshal item: %w", err)
 	}
 	fmt.Printf("🌮 seta a item %v\n", key)
-	_, _ = cache.Set(key, &WeightedValue{
+	_, _ = cache.Set(key, &sessions.WeightedValue{
 		V: item,
 		W: uint32(len(bytes)),
 	})
 	return ss.Set(ctx, key, bytes, opt...)
 }
 
-func DeleteJSON(ctx context.Context, ss sessions.SessionStore, cache *Cache, key string, opt ...sessions.SessionStoreOption) error {
+func DeleteJSON(ctx context.Context, ss sessions.SessionStore, cache *sessions.Cache, key string, opt ...sessions.SessionStoreOption) error {
 	_, _ = cache.Invalidate(key)
 	return ss.Delete(ctx, key, opt...)
 }
 
-func ClearJSON(ctx context.Context, ss sessions.SessionStore, cache *Cache, opt ...sessions.SessionStoreOption) error {
+func ClearJSON(ctx context.Context, ss sessions.SessionStore, cache *sessions.Cache, opt ...sessions.SessionStoreOption) error {
 	// TODO. Respect the prefix....
 	cache.InvalidateAll()
 	return ss.Clear(ctx, opt...)
 }
 
-func GetAllJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Cache, opt ...sessions.SessionStoreOption) (map[string]T, error) {
+func GetAllJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *sessions.Cache, opt ...sessions.SessionStoreOption) (map[string]T, error) {
 	result := make(map[string]T)
 	pageToken := ""
 
@@ -198,7 +184,7 @@ func GetAllJSON[T any](ctx context.Context, ss sessions.SessionStore, cache *Cac
 			result[key] = item
 
 			if cache != nil {
-				_, _ = cache.Set(key, &WeightedValue{
+				_, _ = cache.Set(key, &sessions.WeightedValue{
 					V: item,
 					W: uint32(len(bytes)),
 				})

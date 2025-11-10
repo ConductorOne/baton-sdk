@@ -5,14 +5,29 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
+	"github.com/maypok86/otter/v2/stats"
 	"go.uber.org/zap"
 )
 
 var _ sessions.SessionStore = (*MemorySessionCache)(nil)
+
+func NewCache(maximumWeight uint64) (*sessions.Cache, error) {
+	otterOptions := &otter.Options[string, *sessions.WeightedValue]{
+		// 15MB Note(kans): not much rigor went into this number.  An arbirary sampling of lambda invocations suggests they use around 50MB out of 128MB.
+		MaximumWeight:    maximumWeight,
+		ExpiryCalculator: otter.ExpiryWriting[string, *sessions.WeightedValue](10 * time.Minute),
+		StatsRecorder:    stats.NewCounter(),
+		Weigher: func(key string, value *sessions.WeightedValue) uint32 {
+			return value.W
+		},
+	}
+	return otter.New(otterOptions)
+}
 
 func NewMemorySessionCache(otterOptions *otter.Options[string, []byte], ss sessions.SessionStore) (*MemorySessionCache, error) {
 	cache, err := otter.New(otterOptions)
