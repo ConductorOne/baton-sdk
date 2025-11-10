@@ -2,6 +2,8 @@ package sessions
 
 import (
 	"context"
+
+	"github.com/maypok86/otter/v2"
 )
 
 type SessionStoreKey struct{}
@@ -26,6 +28,7 @@ type SessionStoreBag struct {
 	SyncID    string
 	Prefix    string
 	PageToken string
+	Cache     *otter.Cache[string, interface{}]
 }
 
 // SyncIDKey is the context key for storing the current sync ID.
@@ -57,6 +60,13 @@ func GetSyncID(ctx context.Context) string {
 func WithPageToken(pageToken string) SessionStoreOption {
 	return func(ctx context.Context, bag *SessionStoreBag) error {
 		bag.PageToken = pageToken
+		return nil
+	}
+}
+
+func WithCache(cache *otter.Cache[string, interface{}]) SessionStoreOption {
+	return func(ctx context.Context, bag *SessionStoreBag) error {
+		bag.Cache = cache
 		return nil
 	}
 }
