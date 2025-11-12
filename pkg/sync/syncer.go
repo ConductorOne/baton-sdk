@@ -2682,15 +2682,18 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 
 	actionsDone, err := s.runGrantExpandActions(ctx)
 	if err != nil {
-		// Skip action and delete the edge that caused the error.
 		erroredAction := graph.Actions[0]
 		l.Error("expandGrantsForEntitlements: error running graph action", zap.Error(err), zap.Any("action", erroredAction))
 		_ = graph.DeleteEdge(ctx, erroredAction.SourceEntitlementID, erroredAction.DescendantEntitlementID)
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		// Skip action and delete the edge that caused the error.
 		graph.Actions = graph.Actions[1:]
 		if len(graph.Actions) == 0 {
 			actionsDone = true
 		}
-		// TODO: return a warning
+		// TODO: Return a warning? The connector gave a bad entitlement ID to expand.
 	}
 	if !actionsDone {
 		return nil
