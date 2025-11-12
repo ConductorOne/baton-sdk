@@ -2538,13 +2538,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	for _, sourceGrant := range sourceGrants.GetList() {
 		// Skip this grant if it is not for a resource type we care about
 		if len(action.ResourceTypeIDs) > 0 {
-			relevantResourceType := false
-			for _, resourceTypeID := range action.ResourceTypeIDs {
-				if sourceGrant.GetPrincipal().GetId().GetResourceType() == resourceTypeID {
-					relevantResourceType = true
-					break
-				}
-			}
+			relevantResourceType := slices.Contains(action.ResourceTypeIDs, sourceGrant.GetPrincipal().GetId().GetResourceType())
 
 			if !relevantResourceType {
 				continue
@@ -2688,15 +2682,18 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 
 	actionsDone, err := s.runGrantExpandActions(ctx)
 	if err != nil {
-		// Skip action and delete the edge that caused the error.
 		erroredAction := graph.Actions[0]
 		l.Error("expandGrantsForEntitlements: error running graph action", zap.Error(err), zap.Any("action", erroredAction))
 		_ = graph.DeleteEdge(ctx, erroredAction.SourceEntitlementID, erroredAction.DescendantEntitlementID)
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		// Skip action and delete the edge that caused the error.
 		graph.Actions = graph.Actions[1:]
 		if len(graph.Actions) == 0 {
 			actionsDone = true
 		}
-		// TODO: return a warning
+		// TODO: Return a warning? The connector gave a bad entitlement ID to expand.
 	}
 	if !actionsDone {
 		return nil
