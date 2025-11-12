@@ -2538,13 +2538,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	for _, sourceGrant := range sourceGrants.GetList() {
 		// Skip this grant if it is not for a resource type we care about
 		if len(action.ResourceTypeIDs) > 0 {
-			relevantResourceType := false
-			for _, resourceTypeID := range action.ResourceTypeIDs {
-				if sourceGrant.GetPrincipal().GetId().GetResourceType() == resourceTypeID {
-					relevantResourceType = true
-					break
-				}
-			}
+			relevantResourceType := slices.Contains(action.ResourceTypeIDs, sourceGrant.GetPrincipal().GetId().GetResourceType())
 
 			if !relevantResourceType {
 				continue
