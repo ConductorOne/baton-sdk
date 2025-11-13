@@ -2629,7 +2629,10 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	}
 
 	// Checkpoint before we stomp over any grants that were previously marked expandable.
-	s.Checkpoint(ctx, true)
+	err = s.Checkpoint(ctx, true)
+	if err != nil {
+		return false, err
+	}
 
 	err = s.store.PutGrants(ctx, newGrants...)
 	if err != nil {
