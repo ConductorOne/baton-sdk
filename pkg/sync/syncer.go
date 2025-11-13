@@ -450,6 +450,8 @@ func (s *syncer) Sync(ctx context.Context) error {
 			zap.Bool("graph_has_no_cycles", entitlementGraph.HasNoCycles),
 			zap.Int("graph_depth", entitlementGraph.Depth),
 			zap.Int("graph_actions", len(entitlementGraph.Actions)),
+			zap.Int("graph_edges", len(entitlementGraph.Edges)),
+			zap.Int("graph_nodes", len(entitlementGraph.Nodes)),
 		)
 	}
 
