@@ -427,6 +427,31 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return err
 	}
 	s.state = state
+	if !newSync {
+		currentAction := s.state.Current()
+		currentActionOp := ""
+		currentActionPageToken := ""
+		if currentAction != nil {
+			currentActionOp = currentAction.Op.String()
+			currentActionPageToken = currentAction.PageToken
+		}
+		entitlementGraph := s.state.EntitlementGraph(ctx)
+		l.Debug("resumed previous sync",
+			zap.String("sync_id", syncID),
+			zap.String("sync_type", string(s.syncType)),
+			zap.String("current_action_op", currentActionOp),
+			zap.String("current_action_page_token", currentActionPageToken),
+			zap.Bool("needs_expansion", s.state.NeedsExpansion()),
+			zap.Bool("has_external_resources_grants", s.state.HasExternalResourcesGrants()),
+			zap.Bool("should_fetch_related_resources", s.state.ShouldFetchRelatedResources()),
+			zap.Bool("should_skip_entitlements_and_grants", s.state.ShouldSkipEntitlementsAndGrants()),
+			zap.Bool("should_skip_grants", s.state.ShouldSkipGrants()),
+			zap.Bool("graph_loaded", entitlementGraph.Loaded),
+			zap.Bool("graph_has_no_cycles", entitlementGraph.HasNoCycles),
+			zap.Int("graph_depth", entitlementGraph.Depth),
+			zap.Int("graph_actions", len(entitlementGraph.Actions)),
+		)
+	}
 
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
 		MaxAttempts:  0,
