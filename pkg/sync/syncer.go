@@ -476,7 +476,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 			switch {
 			case errors.Is(err, context.DeadlineExceeded):
 				l.Debug("sync run duration has expired, exiting sync early", zap.String("sync_id", syncID))
-				return ErrSyncNotComplete
+				// It would be nice to remove this once we're more confident in the checkpointing logic.
+				checkpointErr := s.Checkpoint(ctx, true)
+				if checkpointErr != nil {
+					l.Error("error checkpointing before exiting sync", zap.Error(checkpointErr))
+				}
+				return errors.Join(checkpointErr, ErrSyncNotComplete)
 			default:
 				l.Error("sync context cancelled", zap.String("sync_id", syncID), zap.Error(err))
 				return err
