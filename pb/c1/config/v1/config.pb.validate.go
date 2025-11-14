@@ -706,6 +706,47 @@ func (m *Field) validate(all bool) error {
 			}
 		}
 
+	case *Field_ResourceField:
+		if v == nil {
+			err := FieldValidationError{
+				field:  "Field",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetResourceField()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, FieldValidationError{
+						field:  "ResourceField",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, FieldValidationError{
+						field:  "ResourceField",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetResourceField()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return FieldValidationError{
+					field:  "ResourceField",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -786,6 +827,110 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = FieldValidationError{}
+
+// Validate checks the field values on ResourceField with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *ResourceField) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ResourceField with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in ResourceFieldMultiError, or
+// nil if none found.
+func (m *ResourceField) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ResourceField) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for ResourceTypeId
+
+	// no validation rules for AllowMultiple
+
+	if len(errors) > 0 {
+		return ResourceFieldMultiError(errors)
+	}
+
+	return nil
+}
+
+// ResourceFieldMultiError is an error wrapping multiple validation errors
+// returned by ResourceField.ValidateAll() if the designated constraints
+// aren't met.
+type ResourceFieldMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ResourceFieldMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ResourceFieldMultiError) AllErrors() []error { return m }
+
+// ResourceFieldValidationError is the validation error returned by
+// ResourceField.Validate if the designated constraints aren't met.
+type ResourceFieldValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ResourceFieldValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ResourceFieldValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ResourceFieldValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ResourceFieldValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ResourceFieldValidationError) ErrorName() string { return "ResourceFieldValidationError" }
+
+// Error satisfies the builtin error interface
+func (e ResourceFieldValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sResourceField.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ResourceFieldValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ResourceFieldValidationError{}
 
 // Validate checks the field values on IntField with the rules defined in the
 // proto definition for this message. If any rules are violated, the first

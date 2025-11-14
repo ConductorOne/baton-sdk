@@ -66,6 +66,12 @@ func (tt TaskType) String() string {
 		return "action_status"
 	case CreateSyncDiff:
 		return "create_sync_diff"
+	case ListResourceActionsType:
+		return "list_resource_actions"
+	case InvokeResourceActionType:
+		return "invoke_resource_action"
+	case InvokeBulkResourceActionsType:
+		return "invoke_bulk_resource_actions"
 	default:
 		return "unknown"
 	}
@@ -102,6 +108,9 @@ const (
 	ActionGetSchemaType
 	ActionInvokeType
 	ActionStatusType
+	ListResourceActionsType
+	InvokeResourceActionType
+	InvokeBulkResourceActionsType
 	CreateSyncDiff
 	ListStaticEntitlementsType
 )
