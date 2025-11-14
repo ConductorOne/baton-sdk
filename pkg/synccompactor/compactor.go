@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -35,8 +36,9 @@ type Compactor struct {
 	compactorType CompactorType
 	entries       []*CompactableSync
 
-	tmpDir  string
-	destDir string
+	tmpDir      string
+	destDir     string
+	runDuration time.Duration
 }
 
 type CompactableSync struct {
@@ -59,6 +61,12 @@ func WithTmpDir(tempDir string) Option {
 func WithCompactorType(compactorType CompactorType) Option {
 	return func(c *Compactor) {
 		c.compactorType = compactorType
+	}
+}
+
+func WithRunDuration(runDuration time.Duration) Option {
+	return func(c *Compactor) {
+		c.runDuration = runDuration
 	}
 }
 
@@ -99,6 +107,7 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	ctx, span := tracer.Start(ctx, "Compactor.Compact")
 	defer span.End()
+	now := time.Now()
 	if len(c.entries) < 2 {
 		return nil, nil
 	}
@@ -124,13 +133,28 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 
 	// Use syncer to expand grants.
 	// TODO: Handle external resources.
-	syncer, err := sync.NewSyncer(
-		ctx,
-		emptyConnector,
+	syncOpts := []sync.SyncOpt{
 		sync.WithC1ZPath(applied.FilePath),
 		sync.WithTmpDir(c.tmpDir),
 		sync.WithSyncID(applied.SyncID),
 		sync.WithOnlyExpandGrants(),
+	}
+
+	compactionDuration := time.Since(now)
+	runDuration := c.runDuration - compactionDuration
+	l.Debug("finished compaction", zap.Duration("compaction_duration", compactionDuration))
+
+	switch {
+	case c.runDuration > 0 && runDuration < 0:
+		return nil, fmt.Errorf("unable to finish compaction sync in run duration (%s). compactions took %s", c.runDuration, compactionDuration)
+	case runDuration > 0:
+		syncOpts = append(syncOpts, sync.WithRunDuration(runDuration))
+	}
+
+	syncer, err := sync.NewSyncer(
+		ctx,
+		emptyConnector,
+		syncOpts...,
 	)
 	if err != nil {
 		l.Error("error creating syncer", zap.Error(err))
