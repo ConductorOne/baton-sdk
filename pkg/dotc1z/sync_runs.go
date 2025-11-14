@@ -672,10 +672,12 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		}
 	}
 
+	l.Debug("vacuuming database")
 	err = c.Vacuum(ctx)
 	if err != nil {
 		return err
 	}
+	l.Debug("vacuum complete")
 
 	c.dbUpdated = true
 
