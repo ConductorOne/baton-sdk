@@ -436,7 +436,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			currentActionPageToken = currentAction.PageToken
 		}
 		entitlementGraph := s.state.EntitlementGraph(ctx)
-		l.Debug("resumed previous sync",
+		l.Info("resumed previous sync",
 			zap.String("sync_id", syncID),
 			zap.String("sync_type", string(s.syncType)),
 			zap.String("current_action_op", currentActionOp),
@@ -477,7 +477,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			err = context.Cause(runCtx)
 			switch {
 			case errors.Is(err, context.DeadlineExceeded):
-				l.Debug("sync run duration has expired, exiting sync early", zap.String("sync_id", syncID))
+				l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", syncID))
 				// It would be nice to remove this once we're more confident in the checkpointing logic.
 				checkpointErr := s.Checkpoint(ctx, true)
 				if checkpointErr != nil {
