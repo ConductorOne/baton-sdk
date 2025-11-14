@@ -61,7 +61,13 @@ message Field {
     BoolField bool_field = 102;
     StringSliceField string_slice_field = 103;
     StringMapField string_map_field = 104;
+    ResourceField resource_field = 105;
   }
+}
+
+message ResourceField {
+  string resource_type_id = 1; // Optional: restricts to specific resource type
+  bool allow_multiple = 2; // Whether multiple resources can be selected
 }
 
 message IntField {

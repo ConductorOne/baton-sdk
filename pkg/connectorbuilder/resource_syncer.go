@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -368,7 +369,7 @@ func (b *builder) addTargetedSyncer(_ context.Context, typeId string, in any) er
 	return nil
 }
 
-func (b *builder) addResourceSyncers(_ context.Context, typeId string, in any) error {
+func (b *builder) addResourceSyncers(_ context.Context, typeId string, in interface{}) error {
 	// no duplicates
 	if _, ok := b.resourceSyncers[typeId]; ok {
 		return fmt.Errorf("error: duplicate resource type found for resource builder %s", typeId)
@@ -385,6 +386,25 @@ func (b *builder) addResourceSyncers(_ context.Context, typeId string, in any) e
 	// A resource syncer is required
 	if _, ok := b.resourceSyncers[typeId]; !ok {
 		return fmt.Errorf("error: the resource syncer interface must be implemented for all types (%s)", typeId)
+	}
+
+	// Check for resource actions
+	if actionProvider, ok := in.(ResourceActionProvider); ok {
+		schemas, handlers, err := actionProvider.ResourceActions(ctx)
+		if err != nil {
+			return fmt.Errorf("error getting resource actions for %s: %w", typeId, err)
+		}
+
+		// Register actions with ResourceActionManager
+		// Convert ResourceActionHandler to actions.ResourceActionHandler
+		actionHandlers := make(map[string]actions.ResourceActionHandler, len(handlers))
+		for name, handler := range handlers {
+			actionHandlers[name] = actions.ResourceActionHandler(handler)
+		}
+		err = b.resourceActionManager.RegisterResourceActions(ctx, typeId, schemas, actionHandlers)
+		if err != nil {
+			return fmt.Errorf("error registering resource actions for %s: %w", typeId, err)
+		}
 	}
 
 	return nil

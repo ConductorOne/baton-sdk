@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
+import "c1/connector/v2/action.proto";
 import "c1/connector/v2/asset.proto";
 import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
@@ -110,6 +111,7 @@ message ResourceTypeCapability {
   c1.connector.v2.ResourceType resource_type = 1;
   repeated Capability capabilities = 2;
   CapabilityPermissions permissions = 3;
+  repeated c1.connector.v2.ResourceActionSchema resource_actions = 4;
 }
 
 message ConnectorServiceGetMetadataRequest {}

@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/metrics"
@@ -77,6 +78,7 @@ type builder struct {
 	credentialManagers      map[string]CredentialManagerLimited
 	eventFeeds              map[string]EventFeed
 	accountManagers         map[string]AccountManagerLimited // NOTE(kans): currently unused
+	resourceActionManager   *actions.ResourceActionManager
 }
 
 // NewConnector creates a new ConnectorServer for a new resource.
@@ -113,6 +115,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		credentialManagers:      make(map[string]CredentialManagerLimited),
 		eventFeeds:              make(map[string]EventFeed),
 		accountManagers:         make(map[string]AccountManagerLimited),
+		resourceActionManager:   actions.NewResourceActionManager(ctx),
 	}
 
 	// WithTicketingEnabled checks for the ticketManager
@@ -366,10 +369,20 @@ func (b *builder) getCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 			return nil, err
 		}
 
+		// Add resource actions
+		var resourceActions []*v2.ResourceActionSchema
+		if b.resourceActionManager != nil {
+			actions, err := b.resourceActionManager.ListResourceActions(ctx, resourceTypeID, nil)
+			if err == nil {
+				resourceActions = actions
+			}
+		}
+
 		resourceTypeCapabilities = append(resourceTypeCapabilities, v2.ResourceTypeCapability_builder{
-			ResourceType: rb.ResourceType(ctx),
-			Capabilities: caps,
-			Permissions:  p,
+			ResourceType:    rb.ResourceType(ctx),
+			Capabilities:    caps,
+			Permissions:     p,
+			ResourceActions: resourceActions,
 		}.Build())
 	}
 
