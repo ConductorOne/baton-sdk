@@ -7,6 +7,10 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -144,6 +148,107 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return resp, nil
+}
+
+func (b *builder) ListResourceActions(ctx context.Context, req *v2.ListResourceActionsRequest) (*v2.ListResourceActionsResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.ListResourceActions")
+	defer span.End()
+
+	start := b.nowFunc()
+	tt := tasks.ListResourceActionsType
+	l := ctxzap.Extract(ctx)
+
+	if b.resourceActionManager == nil {
+		l.Error("error: connector does not have resource action manager configured")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return &v2.ListResourceActionsResponse{
+			Schemas: []*v2.ResourceActionSchema{},
+		}, nil
+	}
+
+	schemas, err := b.resourceActionManager.ListResourceActions(ctx, req.GetResourceTypeId(), req.GetResourceId())
+	if err != nil {
+		l.Error("error: list resource actions failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: list resource actions failed: %w", err)
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return &v2.ListResourceActionsResponse{
+		Schemas: schemas,
+	}, nil
+}
+
+func (b *builder) InvokeResourceAction(ctx context.Context, req *v2.InvokeResourceActionRequest) (*v2.InvokeResourceActionResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.InvokeResourceAction")
+	defer span.End()
+
+	start := b.nowFunc()
+	tt := tasks.InvokeResourceActionType
+	l := ctxzap.Extract(ctx)
+
+	if b.resourceActionManager == nil {
+		l.Error("error: connector does not have resource action manager configured")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, status.Error(codes.Unimplemented, "connector does not have resource action manager configured")
+	}
+
+	actionID, actionStatus, response, annos, err := b.resourceActionManager.InvokeResourceAction(
+		ctx,
+		req.GetResourceId(),
+		req.GetActionName(),
+		req.GetArgs(),
+		req.GetEncryptionConfigs(),
+	)
+	if err != nil {
+		l.Error("error: invoke resource action failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: invoke resource action failed: %w", err)
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return &v2.InvokeResourceActionResponse{
+		ActionId:    actionID,
+		Status:      actionStatus,
+		Response:    response,
+		Annotations: annos,
+	}, nil
+}
+
+func (b *builder) InvokeBulkResourceActions(ctx context.Context, req *v2.InvokeBulkResourceActionsRequest) (*v2.InvokeBulkResourceActionsResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.InvokeBulkResourceActions")
+	defer span.End()
+
+	start := b.nowFunc()
+	tt := tasks.InvokeBulkResourceActionsType
+	l := ctxzap.Extract(ctx)
+
+	if b.resourceActionManager == nil {
+		l.Error("error: connector does not have resource action manager configured")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, status.Error(codes.Unimplemented, "connector does not have resource action manager configured")
+	}
+
+	actionID, actionStatus, response, annos, err := b.resourceActionManager.InvokeBulkResourceActions(
+		ctx,
+		req.GetActionName(),
+		req.GetResourceIds(),
+		req.GetArgs(),
+		req.GetEncryptionConfigs(),
+	)
+	if err != nil {
+		l.Error("error: invoke bulk resource actions failed", zap.Error(err))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: invoke bulk resource actions failed: %w", err)
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return &v2.InvokeBulkResourceActionsResponse{
+		ActionId:    actionID,
+		Status:      actionStatus,
+		Response:    response,
+		Annotations: annos,
+	}, nil
 }
 
 func (b *builder) addActionManager(ctx context.Context, in interface{}) error {

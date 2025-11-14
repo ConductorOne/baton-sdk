@@ -957,12 +957,13 @@ func (b0 CapabilityPermissions_builder) Build() *CapabilityPermissions {
 }
 
 type ResourceTypeCapability struct {
-	state                   protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ResourceType *ResourceType          `protobuf:"bytes,1,opt,name=resource_type,json=resourceType,proto3"`
-	xxx_hidden_Capabilities []Capability           `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=c1.connector.v2.Capability"`
-	xxx_hidden_Permissions  *CapabilityPermissions `protobuf:"bytes,3,opt,name=permissions,proto3"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                      protoimpl.MessageState   `protogen:"opaque.v1"`
+	xxx_hidden_ResourceType    *ResourceType            `protobuf:"bytes,1,opt,name=resource_type,json=resourceType,proto3"`
+	xxx_hidden_Capabilities    []Capability             `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=c1.connector.v2.Capability"`
+	xxx_hidden_Permissions     *CapabilityPermissions   `protobuf:"bytes,3,opt,name=permissions,proto3"`
+	xxx_hidden_ResourceActions *[]*ResourceActionSchema `protobuf:"bytes,4,rep,name=resource_actions,json=resourceActions,proto3"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *ResourceTypeCapability) Reset() {
@@ -1011,6 +1012,15 @@ func (x *ResourceTypeCapability) GetPermissions() *CapabilityPermissions {
 	return nil
 }
 
+func (x *ResourceTypeCapability) GetResourceActions() []*ResourceActionSchema {
+	if x != nil {
+		if x.xxx_hidden_ResourceActions != nil {
+			return *x.xxx_hidden_ResourceActions
+		}
+	}
+	return nil
+}
+
 func (x *ResourceTypeCapability) SetResourceType(v *ResourceType) {
 	x.xxx_hidden_ResourceType = v
 }
@@ -1021,6 +1031,10 @@ func (x *ResourceTypeCapability) SetCapabilities(v []Capability) {
 
 func (x *ResourceTypeCapability) SetPermissions(v *CapabilityPermissions) {
 	x.xxx_hidden_Permissions = v
+}
+
+func (x *ResourceTypeCapability) SetResourceActions(v []*ResourceActionSchema) {
+	x.xxx_hidden_ResourceActions = &v
 }
 
 func (x *ResourceTypeCapability) HasResourceType() bool {
@@ -1048,9 +1062,10 @@ func (x *ResourceTypeCapability) ClearPermissions() {
 type ResourceTypeCapability_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	ResourceType *ResourceType
-	Capabilities []Capability
-	Permissions  *CapabilityPermissions
+	ResourceType    *ResourceType
+	Capabilities    []Capability
+	Permissions     *CapabilityPermissions
+	ResourceActions []*ResourceActionSchema
 }
 
 func (b0 ResourceTypeCapability_builder) Build() *ResourceTypeCapability {
@@ -1060,6 +1075,7 @@ func (b0 ResourceTypeCapability_builder) Build() *ResourceTypeCapability {
 	x.xxx_hidden_ResourceType = b.ResourceType
 	x.xxx_hidden_Capabilities = b.Capabilities
 	x.xxx_hidden_Permissions = b.Permissions
+	x.xxx_hidden_ResourceActions = &b.ResourceActions
 	return m0
 }
 
@@ -2087,7 +2103,7 @@ var File_c1_connector_v2_connector_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\n" +
-	"\x1fc1/connector/v2/connector.proto\x12\x0fc1.connector.v2\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\x8d\x01\n" +
+	"\x1fc1/connector/v2/connector.proto\x12\x0fc1.connector.v2\x1a\x1cc1/connector/v2/action.proto\x1a\x1bc1/connector/v2/asset.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\x8d\x01\n" +
 	"\x1eConnectorServiceCleanupRequest\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
 	"\x0eactive_sync_id\x18\x02 \x01(\tB\r\xfaB\n" +
@@ -2124,11 +2140,12 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"permission\x18\x01 \x01(\tR\n" +
 	"permission\"`\n" +
 	"\x15CapabilityPermissions\x12G\n" +
-	"\vpermissions\x18\x01 \x03(\v2%.c1.connector.v2.CapabilityPermissionR\vpermissions\"\xe7\x01\n" +
+	"\vpermissions\x18\x01 \x03(\v2%.c1.connector.v2.CapabilityPermissionR\vpermissions\"\xb9\x02\n" +
 	"\x16ResourceTypeCapability\x12B\n" +
 	"\rresource_type\x18\x01 \x01(\v2\x1d.c1.connector.v2.ResourceTypeR\fresourceType\x12?\n" +
 	"\fcapabilities\x18\x02 \x03(\x0e2\x1b.c1.connector.v2.CapabilityR\fcapabilities\x12H\n" +
-	"\vpermissions\x18\x03 \x01(\v2&.c1.connector.v2.CapabilityPermissionsR\vpermissions\"$\n" +
+	"\vpermissions\x18\x03 \x01(\v2&.c1.connector.v2.CapabilityPermissionsR\vpermissions\x12P\n" +
+	"\x10resource_actions\x18\x04 \x03(\v2%.c1.connector.v2.ResourceActionSchemaR\x0fresourceActions\"$\n" +
 	"\"ConnectorServiceGetMetadataRequest\"e\n" +
 	"#ConnectorServiceGetMetadataResponse\x12>\n" +
 	"\bmetadata\x18\x01 \x01(\v2\".c1.connector.v2.ConnectorMetadataR\bmetadata\"!\n" +
@@ -2228,11 +2245,12 @@ var file_c1_connector_v2_connector_proto_goTypes = []any{
 	(*ConnectorAccountCreationSchema_StringListField)(nil), // 21: c1.connector.v2.ConnectorAccountCreationSchema.StringListField
 	(*ConnectorAccountCreationSchema_IntField)(nil),        // 22: c1.connector.v2.ConnectorAccountCreationSchema.IntField
 	(*ConnectorAccountCreationSchema_MapField)(nil),        // 23: c1.connector.v2.ConnectorAccountCreationSchema.MapField
-	nil,                     // 24: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
-	(*anypb.Any)(nil),       // 25: google.protobuf.Any
-	(*AssetRef)(nil),        // 26: c1.connector.v2.AssetRef
-	(*structpb.Struct)(nil), // 27: google.protobuf.Struct
-	(*ResourceType)(nil),    // 28: c1.connector.v2.ResourceType
+	nil,                          // 24: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
+	(*anypb.Any)(nil),            // 25: google.protobuf.Any
+	(*AssetRef)(nil),             // 26: c1.connector.v2.AssetRef
+	(*structpb.Struct)(nil),      // 27: google.protobuf.Struct
+	(*ResourceType)(nil),         // 28: c1.connector.v2.ResourceType
+	(*ResourceActionSchema)(nil), // 29: c1.connector.v2.ResourceActionSchema
 }
 var file_c1_connector_v2_connector_proto_depIdxs = []int32{
 	25, // 0: c1.connector.v2.ConnectorServiceCleanupRequest.annotations:type_name -> google.protobuf.Any
@@ -2256,28 +2274,29 @@ var file_c1_connector_v2_connector_proto_depIdxs = []int32{
 	28, // 18: c1.connector.v2.ResourceTypeCapability.resource_type:type_name -> c1.connector.v2.ResourceType
 	0,  // 19: c1.connector.v2.ResourceTypeCapability.capabilities:type_name -> c1.connector.v2.Capability
 	10, // 20: c1.connector.v2.ResourceTypeCapability.permissions:type_name -> c1.connector.v2.CapabilityPermissions
-	4,  // 21: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
-	25, // 22: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
-	17, // 23: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
-	18, // 24: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	19, // 25: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
-	20, // 26: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
-	21, // 27: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
-	22, // 28: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
-	23, // 29: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
-	24, // 30: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
-	18, // 31: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	12, // 32: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
-	14, // 33: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
-	2,  // 34: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
-	13, // 35: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
-	15, // 36: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
-	3,  // 37: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
-	35, // [35:38] is the sub-list for method output_type
-	32, // [32:35] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	29, // 21: c1.connector.v2.ResourceTypeCapability.resource_actions:type_name -> c1.connector.v2.ResourceActionSchema
+	4,  // 22: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
+	25, // 23: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
+	17, // 24: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
+	18, // 25: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	19, // 26: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
+	20, // 27: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
+	21, // 28: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
+	22, // 29: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
+	23, // 30: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
+	24, // 31: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
+	18, // 32: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	12, // 33: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
+	14, // 34: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
+	2,  // 35: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
+	13, // 36: c1.connector.v2.ConnectorService.GetMetadata:output_type -> c1.connector.v2.ConnectorServiceGetMetadataResponse
+	15, // 37: c1.connector.v2.ConnectorService.Validate:output_type -> c1.connector.v2.ConnectorServiceValidateResponse
+	3,  // 38: c1.connector.v2.ConnectorService.Cleanup:output_type -> c1.connector.v2.ConnectorServiceCleanupResponse
+	36, // [36:39] is the sub-list for method output_type
+	33, // [33:36] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_connector_proto_init() }
@@ -2285,6 +2304,7 @@ func file_c1_connector_v2_connector_proto_init() {
 	if File_c1_connector_v2_connector_proto != nil {
 		return
 	}
+	file_c1_connector_v2_action_proto_init()
 	file_c1_connector_v2_asset_proto_init()
 	file_c1_connector_v2_resource_proto_init()
 	file_c1_connector_v2_connector_proto_msgTypes[16].OneofWrappers = []any{
