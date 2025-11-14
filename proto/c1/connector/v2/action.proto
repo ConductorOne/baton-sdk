@@ -3,6 +3,7 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "c1/config/v1/config.proto";
+import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
 
@@ -13,6 +14,9 @@ service ActionService {
   rpc GetActionStatus(GetActionStatusRequest) returns (GetActionStatusResponse);
   rpc GetActionSchema(GetActionSchemaRequest) returns (GetActionSchemaResponse);
   rpc ListActionSchemas(ListActionSchemasRequest) returns (ListActionSchemasResponse);
+  rpc ListResourceActions(ListResourceActionsRequest) returns (ListResourceActionsResponse);
+  rpc InvokeResourceAction(InvokeResourceActionRequest) returns (InvokeResourceActionResponse);
+  rpc InvokeBulkResourceActions(InvokeBulkResourceActionsRequest) returns (InvokeBulkResourceActionsResponse);
 }
 
 enum BatonActionStatus {
@@ -45,6 +49,41 @@ enum ActionType {
   ACTION_TYPE_ACCOUNT_UPDATE_PROFILE = 3;
   ACTION_TYPE_ACCOUNT_DISABLE = 4;
   ACTION_TYPE_ACCOUNT_ENABLE = 5;
+  
+  // Generic resource actions
+  ACTION_TYPE_RESOURCE_CREATE = 6;
+  ACTION_TYPE_RESOURCE_DELETE = 7;
+  ACTION_TYPE_RESOURCE_MUTATE = 8;
+  ACTION_TYPE_RESOURCE_ENABLE = 9;
+  ACTION_TYPE_RESOURCE_DISABLE = 10;
+  
+  // TRAIT_USER actions
+  ACTION_TYPE_USER_SUSPEND = 11;
+  ACTION_TYPE_USER_RESUME = 12;
+  ACTION_TYPE_USER_LOCK = 13;
+  ACTION_TYPE_USER_UNLOCK = 14;
+  ACTION_TYPE_USER_RESET_PASSWORD = 15;
+  ACTION_TYPE_USER_CHANGE_PASSWORD = 16;
+  ACTION_TYPE_USER_CHANGE_EMAIL = 17;
+  ACTION_TYPE_USER_UPDATE_PROFILE = 18;
+  ACTION_TYPE_USER_ASSIGN_ROLE = 19;
+  ACTION_TYPE_USER_UNASSIGN_ROLE = 20;
+  
+  // TRAIT_GROUP actions
+  ACTION_TYPE_GROUP_ADD_MEMBER = 21;
+  ACTION_TYPE_GROUP_REMOVE_MEMBER = 22;
+  
+  // TRAIT_ROLE actions
+  ACTION_TYPE_ROLE_ASSIGN = 23;
+  ACTION_TYPE_ROLE_UNASSIGN = 24;
+  
+  // TRAIT_APP actions
+  ACTION_TYPE_APP_ASSIGN_USER = 25;
+  ACTION_TYPE_APP_UNASSIGN_USER = 26;
+  
+  // TRAIT_SECRET actions
+  ACTION_TYPE_SECRET_ROTATE = 27;
+  ACTION_TYPE_SECRET_REGENERATE = 28;
 }
 
 message InvokeActionRequest {
@@ -91,5 +130,53 @@ message ListActionSchemasRequest {
 
 message ListActionSchemasResponse {
   repeated BatonActionSchema schemas = 1;
+  repeated google.protobuf.Any annotations = 2;
+}
+
+message ResourceActionSchema {
+  string resource_type_id = 1; // Required: the resource type this action applies to
+  string name = 2;
+  repeated c1.config.v1.Field arguments = 3;
+  repeated c1.config.v1.Field return_types = 4;
+  string display_name = 5;
+  string description = 6;
+  repeated ActionType action_type = 7; // Well-known action types
+}
+
+message InvokeResourceActionRequest {
+  c1.connector.v2.ResourceId resource_id = 1; // Optional for create actions
+  string action_name = 2;
+  google.protobuf.Struct args = 3;
+  repeated c1.connector.v2.EncryptionConfig encryption_configs = 4;
+}
+
+message InvokeResourceActionResponse {
+  string action_id = 1;
+  BatonActionStatus status = 2;
+  google.protobuf.Struct response = 3;
+  repeated google.protobuf.Any annotations = 4;
+}
+
+message InvokeBulkResourceActionsRequest {
+  string action_name = 1;
+  repeated c1.connector.v2.ResourceId resource_ids = 2;
+  google.protobuf.Struct args = 3;
+  repeated c1.connector.v2.EncryptionConfig encryption_configs = 4;
+}
+
+message InvokeBulkResourceActionsResponse {
+  string action_id = 1;
+  BatonActionStatus status = 2;
+  google.protobuf.Struct response = 3;
+  repeated google.protobuf.Any annotations = 4;
+}
+
+message ListResourceActionsRequest {
+  string resource_type_id = 1; // Optional: filter by resource type
+  c1.connector.v2.ResourceId resource_id = 2; // Optional: filter by specific resource
+}
+
+message ListResourceActionsResponse {
+  repeated ResourceActionSchema schemas = 1;
   repeated google.protobuf.Any annotations = 2;
 }
