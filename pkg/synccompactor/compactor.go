@@ -141,14 +141,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	}
 
 	compactionDuration := time.Since(now)
-	runDuration := time.Duration(0)
-	if c.runDuration > 0 {
-		runDuration = c.runDuration - compactionDuration
-	}
+	runDuration := c.runDuration - compactionDuration
 	l.Debug("finished compaction", zap.Duration("compaction_duration", compactionDuration))
 
 	switch {
-	case runDuration < 0:
+	case c.runDuration > 0 && runDuration < 0:
 		return nil, fmt.Errorf("unable to finish compaction sync in run duration (%s). compactions took %s", c.runDuration, compactionDuration)
 	case runDuration > 0:
 		syncOpts = append(syncOpts, sync.WithRunDuration(runDuration))
