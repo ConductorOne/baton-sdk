@@ -107,6 +107,11 @@ message Task {
     repeated google.protobuf.Any annotations = 1;
   }
 
+  message ListResourceActionsTask {
+    string resource_type_id = 1;
+    repeated google.protobuf.Any annotations = 2;
+  }
+
   message GetTicketTask {
     string ticket_id = 1;
     repeated google.protobuf.Any annotations = 2;
@@ -174,6 +179,7 @@ message Task {
     ActionStatusTask action_status = 118;
     CreateSyncDiffTask create_sync_diff = 119;
     CompactSyncs compact_syncs = 120;
+    ListResourceActionsTask list_resource_actions = 121;
   }
   bool debug = 3;
 }
