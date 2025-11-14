@@ -3,6 +3,7 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "c1/config/v1/config.proto";
+import "c1/connector/v2/resource.proto";
 import "google/protobuf/any.proto";
 import "google/protobuf/struct.proto";
 
@@ -36,6 +37,7 @@ message BatonActionSchema {
 
   repeated ActionType action_type = 7;
 
+  // Optional: if set, this action is scoped to a specific resource type
   string resource_type_id = 8;
 }
 
@@ -47,12 +49,51 @@ enum ActionType {
   ACTION_TYPE_ACCOUNT_UPDATE_PROFILE = 3;
   ACTION_TYPE_ACCOUNT_DISABLE = 4;
   ACTION_TYPE_ACCOUNT_ENABLE = 5;
+
+  // Generic resource actions
+  ACTION_TYPE_RESOURCE_CREATE = 6;
+  ACTION_TYPE_RESOURCE_DELETE = 7;
+  ACTION_TYPE_RESOURCE_MUTATE = 8;
+  ACTION_TYPE_RESOURCE_ENABLE = 9;
+  ACTION_TYPE_RESOURCE_DISABLE = 10;
+
+  // TRAIT_USER actions
+  ACTION_TYPE_USER_SUSPEND = 11;
+  ACTION_TYPE_USER_RESUME = 12;
+  ACTION_TYPE_USER_LOCK = 13;
+  ACTION_TYPE_USER_UNLOCK = 14;
+  ACTION_TYPE_USER_RESET_PASSWORD = 15;
+  ACTION_TYPE_USER_CHANGE_PASSWORD = 16;
+  ACTION_TYPE_USER_CHANGE_EMAIL = 17;
+  ACTION_TYPE_USER_UPDATE_PROFILE = 18;
+  ACTION_TYPE_USER_ASSIGN_ROLE = 19;
+  ACTION_TYPE_USER_UNASSIGN_ROLE = 20;
+
+  // TRAIT_GROUP actions
+  ACTION_TYPE_GROUP_ADD_MEMBER = 21;
+  ACTION_TYPE_GROUP_REMOVE_MEMBER = 22;
+
+  // TRAIT_ROLE actions
+  ACTION_TYPE_ROLE_ASSIGN = 23;
+  ACTION_TYPE_ROLE_UNASSIGN = 24;
+
+  // TRAIT_APP actions
+  ACTION_TYPE_APP_ASSIGN_USER = 25;
+  ACTION_TYPE_APP_UNASSIGN_USER = 26;
+
+  // TRAIT_SECRET actions
+  ACTION_TYPE_SECRET_ROTATE = 27;
+  ACTION_TYPE_SECRET_REGENERATE = 28;
 }
 
 message InvokeActionRequest {
   string name = 1;
   google.protobuf.Struct args = 2;
   repeated google.protobuf.Any annotations = 3;
+  // Optional: if set, invokes a resource-scoped action
+  string resource_type_id = 4;
+  // Optional: encryption configs for secret fields
+  repeated c1.connector.v2.EncryptionConfig encryption_configs = 5;
 }
 
 message InvokeActionResponse {
@@ -89,6 +130,8 @@ message GetActionSchemaResponse {
 
 message ListActionSchemasRequest {
   repeated google.protobuf.Any annotations = 1;
+  // Optional: filter to only return actions for a specific resource type
+  string resource_type_id = 2;
 }
 
 message ListActionSchemasResponse {

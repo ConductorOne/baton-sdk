@@ -685,6 +685,42 @@ func (x *Field) GetStringMapField() *StringMapField {
 	return nil
 }
 
+func (x *Field) GetResourceIdField() *ResourceIdField {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Field.(*field_ResourceIdField); ok {
+			return x.ResourceIdField
+		}
+	}
+	return nil
+}
+
+func (x *Field) GetResourceIdListField() *ResourceIdListField {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Field.(*field_ResourceIdListField); ok {
+			return x.ResourceIdListField
+		}
+	}
+	return nil
+}
+
+func (x *Field) GetResourceField() *ResourceField {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Field.(*field_ResourceField); ok {
+			return x.ResourceField
+		}
+	}
+	return nil
+}
+
+func (x *Field) GetResourceListField() *ResourceListField {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Field.(*field_ResourceListField); ok {
+			return x.ResourceListField
+		}
+	}
+	return nil
+}
+
 func (x *Field) SetName(v string) {
 	x.xxx_hidden_Name = v
 }
@@ -753,6 +789,38 @@ func (x *Field) SetStringMapField(v *StringMapField) {
 	x.xxx_hidden_Field = &field_StringMapField{v}
 }
 
+func (x *Field) SetResourceIdField(v *ResourceIdField) {
+	if v == nil {
+		x.xxx_hidden_Field = nil
+		return
+	}
+	x.xxx_hidden_Field = &field_ResourceIdField{v}
+}
+
+func (x *Field) SetResourceIdListField(v *ResourceIdListField) {
+	if v == nil {
+		x.xxx_hidden_Field = nil
+		return
+	}
+	x.xxx_hidden_Field = &field_ResourceIdListField{v}
+}
+
+func (x *Field) SetResourceField(v *ResourceField) {
+	if v == nil {
+		x.xxx_hidden_Field = nil
+		return
+	}
+	x.xxx_hidden_Field = &field_ResourceField{v}
+}
+
+func (x *Field) SetResourceListField(v *ResourceListField) {
+	if v == nil {
+		x.xxx_hidden_Field = nil
+		return
+	}
+	x.xxx_hidden_Field = &field_ResourceListField{v}
+}
+
 func (x *Field) HasField() bool {
 	if x == nil {
 		return false
@@ -800,6 +868,38 @@ func (x *Field) HasStringMapField() bool {
 	return ok
 }
 
+func (x *Field) HasResourceIdField() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Field.(*field_ResourceIdField)
+	return ok
+}
+
+func (x *Field) HasResourceIdListField() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Field.(*field_ResourceIdListField)
+	return ok
+}
+
+func (x *Field) HasResourceField() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Field.(*field_ResourceField)
+	return ok
+}
+
+func (x *Field) HasResourceListField() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Field.(*field_ResourceListField)
+	return ok
+}
+
 func (x *Field) ClearField() {
 	x.xxx_hidden_Field = nil
 }
@@ -834,12 +934,40 @@ func (x *Field) ClearStringMapField() {
 	}
 }
 
+func (x *Field) ClearResourceIdField() {
+	if _, ok := x.xxx_hidden_Field.(*field_ResourceIdField); ok {
+		x.xxx_hidden_Field = nil
+	}
+}
+
+func (x *Field) ClearResourceIdListField() {
+	if _, ok := x.xxx_hidden_Field.(*field_ResourceIdListField); ok {
+		x.xxx_hidden_Field = nil
+	}
+}
+
+func (x *Field) ClearResourceField() {
+	if _, ok := x.xxx_hidden_Field.(*field_ResourceField); ok {
+		x.xxx_hidden_Field = nil
+	}
+}
+
+func (x *Field) ClearResourceListField() {
+	if _, ok := x.xxx_hidden_Field.(*field_ResourceListField); ok {
+		x.xxx_hidden_Field = nil
+	}
+}
+
 const Field_Field_not_set_case case_Field_Field = 0
 const Field_StringField_case case_Field_Field = 100
 const Field_IntField_case case_Field_Field = 101
 const Field_BoolField_case case_Field_Field = 102
 const Field_StringSliceField_case case_Field_Field = 103
 const Field_StringMapField_case case_Field_Field = 104
+const Field_ResourceIdField_case case_Field_Field = 105
+const Field_ResourceIdListField_case case_Field_Field = 106
+const Field_ResourceField_case case_Field_Field = 107
+const Field_ResourceListField_case case_Field_Field = 108
 
 func (x *Field) WhichField() case_Field_Field {
 	if x == nil {
@@ -856,6 +984,14 @@ func (x *Field) WhichField() case_Field_Field {
 		return Field_StringSliceField_case
 	case *field_StringMapField:
 		return Field_StringMapField_case
+	case *field_ResourceIdField:
+		return Field_ResourceIdField_case
+	case *field_ResourceIdListField:
+		return Field_ResourceIdListField_case
+	case *field_ResourceField:
+		return Field_ResourceField_case
+	case *field_ResourceListField:
+		return Field_ResourceListField_case
 	default:
 		return Field_Field_not_set_case
 	}
@@ -872,11 +1008,16 @@ type Field_builder struct {
 	IsOps       bool
 	IsSecret    bool
 	// Fields of oneof xxx_hidden_Field:
-	StringField      *StringField
-	IntField         *IntField
-	BoolField        *BoolField
-	StringSliceField *StringSliceField
-	StringMapField   *StringMapField
+	StringField         *StringField
+	IntField            *IntField
+	BoolField           *BoolField
+	StringSliceField    *StringSliceField
+	StringMapField      *StringMapField
+	ResourceIdField     *ResourceIdField
+	ResourceIdListField *ResourceIdListField
+	// These are meant to serve as return types for actions.
+	ResourceField     *ResourceField
+	ResourceListField *ResourceListField
 	// -- end of xxx_hidden_Field
 }
 
@@ -905,6 +1046,18 @@ func (b0 Field_builder) Build() *Field {
 	}
 	if b.StringMapField != nil {
 		x.xxx_hidden_Field = &field_StringMapField{b.StringMapField}
+	}
+	if b.ResourceIdField != nil {
+		x.xxx_hidden_Field = &field_ResourceIdField{b.ResourceIdField}
+	}
+	if b.ResourceIdListField != nil {
+		x.xxx_hidden_Field = &field_ResourceIdListField{b.ResourceIdListField}
+	}
+	if b.ResourceField != nil {
+		x.xxx_hidden_Field = &field_ResourceField{b.ResourceField}
+	}
+	if b.ResourceListField != nil {
+		x.xxx_hidden_Field = &field_ResourceListField{b.ResourceListField}
 	}
 	return m0
 }
@@ -943,6 +1096,23 @@ type field_StringMapField struct {
 	StringMapField *StringMapField `protobuf:"bytes,104,opt,name=string_map_field,json=stringMapField,proto3,oneof"`
 }
 
+type field_ResourceIdField struct {
+	ResourceIdField *ResourceIdField `protobuf:"bytes,105,opt,name=resource_id_field,json=resourceIdField,proto3,oneof"`
+}
+
+type field_ResourceIdListField struct {
+	ResourceIdListField *ResourceIdListField `protobuf:"bytes,106,opt,name=resource_id_list_field,json=resourceIdListField,proto3,oneof"`
+}
+
+type field_ResourceField struct {
+	// These are meant to serve as return types for actions.
+	ResourceField *ResourceField `protobuf:"bytes,107,opt,name=resource_field,json=resourceField,proto3,oneof"`
+}
+
+type field_ResourceListField struct {
+	ResourceListField *ResourceListField `protobuf:"bytes,108,opt,name=resource_list_field,json=resourceListField,proto3,oneof"`
+}
+
 func (*field_StringField) isField_Field() {}
 
 func (*field_IntField) isField_Field() {}
@@ -952,6 +1122,424 @@ func (*field_BoolField) isField_Field() {}
 func (*field_StringSliceField) isField_Field() {}
 
 func (*field_StringMapField) isField_Field() {}
+
+func (*field_ResourceIdField) isField_Field() {}
+
+func (*field_ResourceIdListField) isField_Field() {}
+
+func (*field_ResourceField) isField_Field() {}
+
+func (*field_ResourceListField) isField_Field() {}
+
+// These are partially duplicate with the Resource proto in the connector package.
+// This is to avoid import cycles
+type Resource struct {
+	state                       protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ResourceId       *ResourceIdField       `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3"`
+	xxx_hidden_ParentResourceId *ResourceIdField       `protobuf:"bytes,2,opt,name=parent_resource_id,json=parentResourceId,proto3"`
+	xxx_hidden_DisplayName      string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3"`
+	xxx_hidden_Description      string                 `protobuf:"bytes,4,opt,name=description,proto3"`
+	xxx_hidden_Annotations      *[]*anypb.Any          `protobuf:"bytes,5,rep,name=annotations,proto3"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
+}
+
+func (x *Resource) Reset() {
+	*x = Resource{}
+	mi := &file_c1_config_v1_config_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Resource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Resource) ProtoMessage() {}
+
+func (x *Resource) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_config_v1_config_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *Resource) GetResourceId() *ResourceIdField {
+	if x != nil {
+		return x.xxx_hidden_ResourceId
+	}
+	return nil
+}
+
+func (x *Resource) GetParentResourceId() *ResourceIdField {
+	if x != nil {
+		return x.xxx_hidden_ParentResourceId
+	}
+	return nil
+}
+
+func (x *Resource) GetDisplayName() string {
+	if x != nil {
+		return x.xxx_hidden_DisplayName
+	}
+	return ""
+}
+
+func (x *Resource) GetDescription() string {
+	if x != nil {
+		return x.xxx_hidden_Description
+	}
+	return ""
+}
+
+func (x *Resource) GetAnnotations() []*anypb.Any {
+	if x != nil {
+		if x.xxx_hidden_Annotations != nil {
+			return *x.xxx_hidden_Annotations
+		}
+	}
+	return nil
+}
+
+func (x *Resource) SetResourceId(v *ResourceIdField) {
+	x.xxx_hidden_ResourceId = v
+}
+
+func (x *Resource) SetParentResourceId(v *ResourceIdField) {
+	x.xxx_hidden_ParentResourceId = v
+}
+
+func (x *Resource) SetDisplayName(v string) {
+	x.xxx_hidden_DisplayName = v
+}
+
+func (x *Resource) SetDescription(v string) {
+	x.xxx_hidden_Description = v
+}
+
+func (x *Resource) SetAnnotations(v []*anypb.Any) {
+	x.xxx_hidden_Annotations = &v
+}
+
+func (x *Resource) HasResourceId() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_ResourceId != nil
+}
+
+func (x *Resource) HasParentResourceId() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_ParentResourceId != nil
+}
+
+func (x *Resource) ClearResourceId() {
+	x.xxx_hidden_ResourceId = nil
+}
+
+func (x *Resource) ClearParentResourceId() {
+	x.xxx_hidden_ParentResourceId = nil
+}
+
+type Resource_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ResourceId       *ResourceIdField
+	ParentResourceId *ResourceIdField
+	DisplayName      string
+	Description      string
+	Annotations      []*anypb.Any
+}
+
+func (b0 Resource_builder) Build() *Resource {
+	m0 := &Resource{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ResourceId = b.ResourceId
+	x.xxx_hidden_ParentResourceId = b.ParentResourceId
+	x.xxx_hidden_DisplayName = b.DisplayName
+	x.xxx_hidden_Description = b.Description
+	x.xxx_hidden_Annotations = &b.Annotations
+	return m0
+}
+
+type ResourceField struct {
+	state               protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Resource *Resource              `protobuf:"bytes,1,opt,name=resource,proto3"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ResourceField) Reset() {
+	*x = ResourceField{}
+	mi := &file_c1_config_v1_config_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceField) ProtoMessage() {}
+
+func (x *ResourceField) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_config_v1_config_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResourceField) GetResource() *Resource {
+	if x != nil {
+		return x.xxx_hidden_Resource
+	}
+	return nil
+}
+
+func (x *ResourceField) SetResource(v *Resource) {
+	x.xxx_hidden_Resource = v
+}
+
+func (x *ResourceField) HasResource() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Resource != nil
+}
+
+func (x *ResourceField) ClearResource() {
+	x.xxx_hidden_Resource = nil
+}
+
+type ResourceField_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Resource *Resource
+}
+
+func (b0 ResourceField_builder) Build() *ResourceField {
+	m0 := &ResourceField{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Resource = b.Resource
+	return m0
+}
+
+type ResourceListField struct {
+	state           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_List *[]*Resource           `protobuf:"bytes,1,rep,name=list,proto3"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ResourceListField) Reset() {
+	*x = ResourceListField{}
+	mi := &file_c1_config_v1_config_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceListField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceListField) ProtoMessage() {}
+
+func (x *ResourceListField) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_config_v1_config_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResourceListField) GetList() []*Resource {
+	if x != nil {
+		if x.xxx_hidden_List != nil {
+			return *x.xxx_hidden_List
+		}
+	}
+	return nil
+}
+
+func (x *ResourceListField) SetList(v []*Resource) {
+	x.xxx_hidden_List = &v
+}
+
+type ResourceListField_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	List []*Resource
+}
+
+func (b0 ResourceListField_builder) Build() *ResourceListField {
+	m0 := &ResourceListField{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_List = &b.List
+	return m0
+}
+
+type ResourceIdField struct {
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,1,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	xxx_hidden_ResourceId     string                 `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *ResourceIdField) Reset() {
+	*x = ResourceIdField{}
+	mi := &file_c1_config_v1_config_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceIdField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceIdField) ProtoMessage() {}
+
+func (x *ResourceIdField) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_config_v1_config_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResourceIdField) GetResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeId
+	}
+	return ""
+}
+
+func (x *ResourceIdField) GetResourceId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceId
+	}
+	return ""
+}
+
+func (x *ResourceIdField) SetResourceTypeId(v string) {
+	x.xxx_hidden_ResourceTypeId = v
+}
+
+func (x *ResourceIdField) SetResourceId(v string) {
+	x.xxx_hidden_ResourceId = v
+}
+
+type ResourceIdField_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ResourceTypeId string
+	ResourceId     string
+}
+
+func (b0 ResourceIdField_builder) Build() *ResourceIdField {
+	m0 := &ResourceIdField{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
+	x.xxx_hidden_ResourceId = b.ResourceId
+	return m0
+}
+
+type ResourceIdListField struct {
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_List           *[]*ResourceIdField    `protobuf:"bytes,1,rep,name=list,proto3"`
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *ResourceIdListField) Reset() {
+	*x = ResourceIdListField{}
+	mi := &file_c1_config_v1_config_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceIdListField) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceIdListField) ProtoMessage() {}
+
+func (x *ResourceIdListField) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_config_v1_config_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResourceIdListField) GetList() []*ResourceIdField {
+	if x != nil {
+		if x.xxx_hidden_List != nil {
+			return *x.xxx_hidden_List
+		}
+	}
+	return nil
+}
+
+func (x *ResourceIdListField) GetResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeId
+	}
+	return ""
+}
+
+func (x *ResourceIdListField) SetList(v []*ResourceIdField) {
+	x.xxx_hidden_List = &v
+}
+
+func (x *ResourceIdListField) SetResourceTypeId(v string) {
+	x.xxx_hidden_ResourceTypeId = v
+}
+
+type ResourceIdListField_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	List           []*ResourceIdField
+	ResourceTypeId string
+}
+
+func (b0 ResourceIdListField_builder) Build() *ResourceIdListField {
+	m0 := &ResourceIdListField{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_List = &b.List
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
+	return m0
+}
 
 type IntField struct {
 	state                   protoimpl.MessageState `protogen:"opaque.v1"`
@@ -963,7 +1551,7 @@ type IntField struct {
 
 func (x *IntField) Reset() {
 	*x = IntField{}
-	mi := &file_c1_config_v1_config_proto_msgTypes[4]
+	mi := &file_c1_config_v1_config_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -975,7 +1563,7 @@ func (x *IntField) String() string {
 func (*IntField) ProtoMessage() {}
 
 func (x *IntField) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_config_v1_config_proto_msgTypes[4]
+	mi := &file_c1_config_v1_config_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1046,7 +1634,7 @@ type BoolField struct {
 
 func (x *BoolField) Reset() {
 	*x = BoolField{}
-	mi := &file_c1_config_v1_config_proto_msgTypes[5]
+	mi := &file_c1_config_v1_config_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1058,7 +1646,7 @@ func (x *BoolField) String() string {
 func (*BoolField) ProtoMessage() {}
 
 func (x *BoolField) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_config_v1_config_proto_msgTypes[5]
+	mi := &file_c1_config_v1_config_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1128,7 +1716,7 @@ type StringSliceField struct {
 
 func (x *StringSliceField) Reset() {
 	*x = StringSliceField{}
-	mi := &file_c1_config_v1_config_proto_msgTypes[6]
+	mi := &file_c1_config_v1_config_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1140,7 +1728,7 @@ func (x *StringSliceField) String() string {
 func (*StringSliceField) ProtoMessage() {}
 
 func (x *StringSliceField) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_config_v1_config_proto_msgTypes[6]
+	mi := &file_c1_config_v1_config_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1210,7 +1798,7 @@ type StringMapField struct {
 
 func (x *StringMapField) Reset() {
 	*x = StringMapField{}
-	mi := &file_c1_config_v1_config_proto_msgTypes[7]
+	mi := &file_c1_config_v1_config_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1222,7 +1810,7 @@ func (x *StringMapField) String() string {
 func (*StringMapField) ProtoMessage() {}
 
 func (x *StringMapField) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_config_v1_config_proto_msgTypes[7]
+	mi := &file_c1_config_v1_config_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1293,7 +1881,7 @@ type StringFieldOption struct {
 
 func (x *StringFieldOption) Reset() {
 	*x = StringFieldOption{}
-	mi := &file_c1_config_v1_config_proto_msgTypes[8]
+	mi := &file_c1_config_v1_config_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1305,7 +1893,7 @@ func (x *StringFieldOption) String() string {
 func (*StringFieldOption) ProtoMessage() {}
 
 func (x *StringFieldOption) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_config_v1_config_proto_msgTypes[8]
+	mi := &file_c1_config_v1_config_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1380,7 +1968,7 @@ type StringField struct {
 
 func (x *StringField) Reset() {
 	*x = StringField{}
-	mi := &file_c1_config_v1_config_proto_msgTypes[9]
+	mi := &file_c1_config_v1_config_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1392,7 +1980,7 @@ func (x *StringField) String() string {
 func (*StringField) ProtoMessage() {}
 
 func (x *StringField) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_config_v1_config_proto_msgTypes[9]
+	mi := &file_c1_config_v1_config_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1527,7 +2115,7 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1b\n" +
 	"\thelp_text\x18\x03 \x01(\tR\bhelpText\x12\x16\n" +
 	"\x06fields\x18\x04 \x03(\tR\x06fields\x12\x18\n" +
-	"\adefault\x18\x05 \x01(\bR\adefault\"\xab\x04\n" +
+	"\adefault\x18\x05 \x01(\bR\adefault\"\xeb\x06\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12 \n" +
@@ -1542,8 +2130,30 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\n" +
 	"bool_field\x18f \x01(\v2\x17.c1.config.v1.BoolFieldH\x00R\tboolField\x12N\n" +
 	"\x12string_slice_field\x18g \x01(\v2\x1e.c1.config.v1.StringSliceFieldH\x00R\x10stringSliceField\x12H\n" +
-	"\x10string_map_field\x18h \x01(\v2\x1c.c1.config.v1.StringMapFieldH\x00R\x0estringMapFieldB\a\n" +
-	"\x05field\"n\n" +
+	"\x10string_map_field\x18h \x01(\v2\x1c.c1.config.v1.StringMapFieldH\x00R\x0estringMapField\x12K\n" +
+	"\x11resource_id_field\x18i \x01(\v2\x1d.c1.config.v1.ResourceIdFieldH\x00R\x0fresourceIdField\x12X\n" +
+	"\x16resource_id_list_field\x18j \x01(\v2!.c1.config.v1.ResourceIdListFieldH\x00R\x13resourceIdListField\x12D\n" +
+	"\x0eresource_field\x18k \x01(\v2\x1b.c1.config.v1.ResourceFieldH\x00R\rresourceField\x12Q\n" +
+	"\x13resource_list_field\x18l \x01(\v2\x1f.c1.config.v1.ResourceListFieldH\x00R\x11resourceListFieldB\a\n" +
+	"\x05field\"\x94\x02\n" +
+	"\bResource\x12>\n" +
+	"\vresource_id\x18\x01 \x01(\v2\x1d.c1.config.v1.ResourceIdFieldR\n" +
+	"resourceId\x12K\n" +
+	"\x12parent_resource_id\x18\x02 \x01(\v2\x1d.c1.config.v1.ResourceIdFieldR\x10parentResourceId\x12!\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12 \n" +
+	"\vdescription\x18\x04 \x01(\tR\vdescription\x126\n" +
+	"\vannotations\x18\x05 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"C\n" +
+	"\rResourceField\x122\n" +
+	"\bresource\x18\x01 \x01(\v2\x16.c1.config.v1.ResourceR\bresource\"?\n" +
+	"\x11ResourceListField\x12*\n" +
+	"\x04list\x18\x01 \x03(\v2\x16.c1.config.v1.ResourceR\x04list\"\\\n" +
+	"\x0fResourceIdField\x12(\n" +
+	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
+	"\vresource_id\x18\x02 \x01(\tR\n" +
+	"resourceId\"r\n" +
+	"\x13ResourceIdListField\x121\n" +
+	"\x04list\x18\x01 \x03(\v2\x1d.c1.config.v1.ResourceIdFieldR\x04list\x12(\n" +
+	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\"n\n" +
 	"\bIntField\x12#\n" +
 	"\rdefault_value\x18\x01 \x01(\x03R\fdefaultValue\x123\n" +
 	"\x05rules\x18\x02 \x01(\v2\x18.c1.config.v1.Int64RulesH\x00R\x05rules\x88\x01\x01B\b\n" +
@@ -1588,7 +2198,7 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x1dSTRING_FIELD_TYPE_FILE_UPLOAD\x10\x04B3Z1github.com/conductorone/baton-sdk/pb/c1/config/v1b\x06proto3"
 
 var file_c1_config_v1_config_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_c1_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_c1_config_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_c1_config_v1_config_proto_goTypes = []any{
 	(ConstraintKind)(0),         // 0: c1.config.v1.ConstraintKind
 	(StringFieldType)(0),        // 1: c1.config.v1.StringFieldType
@@ -1596,44 +2206,59 @@ var file_c1_config_v1_config_proto_goTypes = []any{
 	(*Constraint)(nil),          // 3: c1.config.v1.Constraint
 	(*FieldGroup)(nil),          // 4: c1.config.v1.FieldGroup
 	(*Field)(nil),               // 5: c1.config.v1.Field
-	(*IntField)(nil),            // 6: c1.config.v1.IntField
-	(*BoolField)(nil),           // 7: c1.config.v1.BoolField
-	(*StringSliceField)(nil),    // 8: c1.config.v1.StringSliceField
-	(*StringMapField)(nil),      // 9: c1.config.v1.StringMapField
-	(*StringFieldOption)(nil),   // 10: c1.config.v1.StringFieldOption
-	(*StringField)(nil),         // 11: c1.config.v1.StringField
-	nil,                         // 12: c1.config.v1.StringMapField.DefaultValueEntry
-	(*Int64Rules)(nil),          // 13: c1.config.v1.Int64Rules
-	(*BoolRules)(nil),           // 14: c1.config.v1.BoolRules
-	(*RepeatedStringRules)(nil), // 15: c1.config.v1.RepeatedStringRules
-	(*StringMapRules)(nil),      // 16: c1.config.v1.StringMapRules
-	(*StringRules)(nil),         // 17: c1.config.v1.StringRules
+	(*Resource)(nil),            // 6: c1.config.v1.Resource
+	(*ResourceField)(nil),       // 7: c1.config.v1.ResourceField
+	(*ResourceListField)(nil),   // 8: c1.config.v1.ResourceListField
+	(*ResourceIdField)(nil),     // 9: c1.config.v1.ResourceIdField
+	(*ResourceIdListField)(nil), // 10: c1.config.v1.ResourceIdListField
+	(*IntField)(nil),            // 11: c1.config.v1.IntField
+	(*BoolField)(nil),           // 12: c1.config.v1.BoolField
+	(*StringSliceField)(nil),    // 13: c1.config.v1.StringSliceField
+	(*StringMapField)(nil),      // 14: c1.config.v1.StringMapField
+	(*StringFieldOption)(nil),   // 15: c1.config.v1.StringFieldOption
+	(*StringField)(nil),         // 16: c1.config.v1.StringField
+	nil,                         // 17: c1.config.v1.StringMapField.DefaultValueEntry
 	(*anypb.Any)(nil),           // 18: google.protobuf.Any
+	(*Int64Rules)(nil),          // 19: c1.config.v1.Int64Rules
+	(*BoolRules)(nil),           // 20: c1.config.v1.BoolRules
+	(*RepeatedStringRules)(nil), // 21: c1.config.v1.RepeatedStringRules
+	(*StringMapRules)(nil),      // 22: c1.config.v1.StringMapRules
+	(*StringRules)(nil),         // 23: c1.config.v1.StringRules
 }
 var file_c1_config_v1_config_proto_depIdxs = []int32{
 	5,  // 0: c1.config.v1.Configuration.fields:type_name -> c1.config.v1.Field
 	3,  // 1: c1.config.v1.Configuration.constraints:type_name -> c1.config.v1.Constraint
 	4,  // 2: c1.config.v1.Configuration.field_groups:type_name -> c1.config.v1.FieldGroup
 	0,  // 3: c1.config.v1.Constraint.kind:type_name -> c1.config.v1.ConstraintKind
-	11, // 4: c1.config.v1.Field.string_field:type_name -> c1.config.v1.StringField
-	6,  // 5: c1.config.v1.Field.int_field:type_name -> c1.config.v1.IntField
-	7,  // 6: c1.config.v1.Field.bool_field:type_name -> c1.config.v1.BoolField
-	8,  // 7: c1.config.v1.Field.string_slice_field:type_name -> c1.config.v1.StringSliceField
-	9,  // 8: c1.config.v1.Field.string_map_field:type_name -> c1.config.v1.StringMapField
-	13, // 9: c1.config.v1.IntField.rules:type_name -> c1.config.v1.Int64Rules
-	14, // 10: c1.config.v1.BoolField.rules:type_name -> c1.config.v1.BoolRules
-	15, // 11: c1.config.v1.StringSliceField.rules:type_name -> c1.config.v1.RepeatedStringRules
-	12, // 12: c1.config.v1.StringMapField.default_value:type_name -> c1.config.v1.StringMapField.DefaultValueEntry
-	16, // 13: c1.config.v1.StringMapField.rules:type_name -> c1.config.v1.StringMapRules
-	17, // 14: c1.config.v1.StringField.rules:type_name -> c1.config.v1.StringRules
-	1,  // 15: c1.config.v1.StringField.type:type_name -> c1.config.v1.StringFieldType
-	10, // 16: c1.config.v1.StringField.options:type_name -> c1.config.v1.StringFieldOption
-	18, // 17: c1.config.v1.StringMapField.DefaultValueEntry.value:type_name -> google.protobuf.Any
-	18, // [18:18] is the sub-list for method output_type
-	18, // [18:18] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	16, // 4: c1.config.v1.Field.string_field:type_name -> c1.config.v1.StringField
+	11, // 5: c1.config.v1.Field.int_field:type_name -> c1.config.v1.IntField
+	12, // 6: c1.config.v1.Field.bool_field:type_name -> c1.config.v1.BoolField
+	13, // 7: c1.config.v1.Field.string_slice_field:type_name -> c1.config.v1.StringSliceField
+	14, // 8: c1.config.v1.Field.string_map_field:type_name -> c1.config.v1.StringMapField
+	9,  // 9: c1.config.v1.Field.resource_id_field:type_name -> c1.config.v1.ResourceIdField
+	10, // 10: c1.config.v1.Field.resource_id_list_field:type_name -> c1.config.v1.ResourceIdListField
+	7,  // 11: c1.config.v1.Field.resource_field:type_name -> c1.config.v1.ResourceField
+	8,  // 12: c1.config.v1.Field.resource_list_field:type_name -> c1.config.v1.ResourceListField
+	9,  // 13: c1.config.v1.Resource.resource_id:type_name -> c1.config.v1.ResourceIdField
+	9,  // 14: c1.config.v1.Resource.parent_resource_id:type_name -> c1.config.v1.ResourceIdField
+	18, // 15: c1.config.v1.Resource.annotations:type_name -> google.protobuf.Any
+	6,  // 16: c1.config.v1.ResourceField.resource:type_name -> c1.config.v1.Resource
+	6,  // 17: c1.config.v1.ResourceListField.list:type_name -> c1.config.v1.Resource
+	9,  // 18: c1.config.v1.ResourceIdListField.list:type_name -> c1.config.v1.ResourceIdField
+	19, // 19: c1.config.v1.IntField.rules:type_name -> c1.config.v1.Int64Rules
+	20, // 20: c1.config.v1.BoolField.rules:type_name -> c1.config.v1.BoolRules
+	21, // 21: c1.config.v1.StringSliceField.rules:type_name -> c1.config.v1.RepeatedStringRules
+	17, // 22: c1.config.v1.StringMapField.default_value:type_name -> c1.config.v1.StringMapField.DefaultValueEntry
+	22, // 23: c1.config.v1.StringMapField.rules:type_name -> c1.config.v1.StringMapRules
+	23, // 24: c1.config.v1.StringField.rules:type_name -> c1.config.v1.StringRules
+	1,  // 25: c1.config.v1.StringField.type:type_name -> c1.config.v1.StringFieldType
+	15, // 26: c1.config.v1.StringField.options:type_name -> c1.config.v1.StringFieldOption
+	18, // 27: c1.config.v1.StringMapField.DefaultValueEntry.value:type_name -> google.protobuf.Any
+	28, // [28:28] is the sub-list for method output_type
+	28, // [28:28] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_c1_config_v1_config_proto_init() }
@@ -1648,19 +2273,23 @@ func file_c1_config_v1_config_proto_init() {
 		(*field_BoolField)(nil),
 		(*field_StringSliceField)(nil),
 		(*field_StringMapField)(nil),
+		(*field_ResourceIdField)(nil),
+		(*field_ResourceIdListField)(nil),
+		(*field_ResourceField)(nil),
+		(*field_ResourceListField)(nil),
 	}
-	file_c1_config_v1_config_proto_msgTypes[4].OneofWrappers = []any{}
-	file_c1_config_v1_config_proto_msgTypes[5].OneofWrappers = []any{}
-	file_c1_config_v1_config_proto_msgTypes[6].OneofWrappers = []any{}
-	file_c1_config_v1_config_proto_msgTypes[7].OneofWrappers = []any{}
 	file_c1_config_v1_config_proto_msgTypes[9].OneofWrappers = []any{}
+	file_c1_config_v1_config_proto_msgTypes[10].OneofWrappers = []any{}
+	file_c1_config_v1_config_proto_msgTypes[11].OneofWrappers = []any{}
+	file_c1_config_v1_config_proto_msgTypes[12].OneofWrappers = []any{}
+	file_c1_config_v1_config_proto_msgTypes[14].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_config_v1_config_proto_rawDesc), len(file_c1_config_v1_config_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   11,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

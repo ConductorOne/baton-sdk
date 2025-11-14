@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/metrics"
@@ -68,7 +69,6 @@ type builder struct {
 	validateProvider        ValidateProvider
 	ticketManager           TicketManagerLimited
 	accountManager          AccountManagerLimited
-	actionManager           CustomActionManager
 	resourceSyncers         map[string]ResourceSyncerV2
 	resourceProvisioners    map[string]ResourceProvisionerV2Limited
 	resourceManagers        map[string]ResourceManagerV2Limited
@@ -77,6 +77,7 @@ type builder struct {
 	credentialManagers      map[string]CredentialManagerLimited
 	eventFeeds              map[string]EventFeed
 	accountManagers         map[string]AccountManagerLimited // NOTE(kans): currently unused
+	actionManager           ActionManager                    // Unified action manager for all actions
 }
 
 // NewConnector creates a new ConnectorServer for a new resource.
@@ -97,12 +98,14 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 	clientSecretValue := ctx.Value(crypto.ContextClientSecretKey)
 	clientSecretJWK, _ := clientSecretValue.(*jose.JSONWebKey)
 
+	// Create the action manager (concrete type for registration, stored as interface for dispatch)
+	actionMgr := actions.NewActionManager(ctx)
+
 	b := &builder{
 		metadataProvider:        nil,
 		validateProvider:        nil,
 		ticketManager:           nil,
 		accountManager:          nil,
-		actionManager:           nil,
 		nowFunc:                 time.Now,
 		clientSecret:            clientSecretJWK,
 		resourceSyncers:         make(map[string]ResourceSyncerV2),
@@ -113,6 +116,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		credentialManagers:      make(map[string]CredentialManagerLimited),
 		eventFeeds:              make(map[string]EventFeed),
 		accountManagers:         make(map[string]AccountManagerLimited),
+		actionManager:           actionMgr,
 	}
 
 	// WithTicketingEnabled checks for the ticketManager
@@ -137,8 +141,16 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		return nil, err
 	}
 
-	if err := b.addActionManager(ctx, in); err != nil {
+	// Handle deprecated action manager interfaces (pass concrete type for registration)
+	if err := b.addActionManager(ctx, in, actionMgr); err != nil {
 		return nil, err
+	}
+
+	// Handle the new GlobalActionProvider interface
+	if globalActionProvider, ok := in.(GlobalActionProvider); ok {
+		if err := globalActionProvider.GlobalActions(ctx, actionMgr); err != nil {
+			return nil, fmt.Errorf("error registering global actions: %w", err)
+		}
 	}
 
 	addResourceType := func(ctx context.Context, rType string, rs interface{}) error {
@@ -389,7 +401,7 @@ func (b *builder) getCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 		connectorCaps[v2.Capability_CAPABILITY_TICKETING] = struct{}{}
 	}
 
-	if b.actionManager != nil {
+	if b.actionManager.HasActions() {
 		connectorCaps[v2.Capability_CAPABILITY_ACTIONS] = struct{}{}
 	}
 

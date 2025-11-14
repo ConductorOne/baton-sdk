@@ -21,8 +21,9 @@ type localActionInvoker struct {
 	dbPath string
 	o      sync.Once
 
-	action string
-	args   *structpb.Struct
+	action         string
+	resourceTypeID string // Optional: if set, invokes a resource-scoped action
+	args           *structpb.Struct
 }
 
 func (m *localActionInvoker) GetTempDir() string {
@@ -38,8 +39,9 @@ func (m *localActionInvoker) Next(ctx context.Context) (*v1.Task, time.Duration,
 	m.o.Do(func() {
 		task = v1.Task_builder{
 			ActionInvoke: v1.Task_ActionInvokeTask_builder{
-				Name: m.action,
-				Args: m.args,
+				Name:           m.action,
+				Args:           m.args,
+				ResourceTypeId: m.resourceTypeID,
 			}.Build(),
 		}.Build()
 	})
@@ -52,17 +54,27 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 	defer span.End()
 
 	t := task.GetActionInvoke()
-	resp, err := cc.InvokeAction(ctx, v2.InvokeActionRequest_builder{
+	reqBuilder := v2.InvokeActionRequest_builder{
 		Name:        t.GetName(),
 		Args:        t.GetArgs(),
 		Annotations: t.GetAnnotations(),
-	}.Build())
+	}
+	if resourceTypeID := t.GetResourceTypeId(); resourceTypeID != "" {
+		reqBuilder.ResourceTypeId = resourceTypeID
+	}
+	resp, err := cc.InvokeAction(ctx, reqBuilder.Build())
 	if err != nil {
 		return err
 	}
 
 	status := resp.GetStatus()
 	finalResp := resp.GetResponse()
+	l.Info("ActionInvoke response",
+		zap.String("action_id", resp.GetId()),
+		zap.String("name", resp.GetName()),
+		zap.String("status", resp.GetStatus().String()),
+		zap.Any("response", resp.GetResponse()),
+	)
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -93,10 +105,12 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 }
 
 // NewActionInvoker returns a task manager that queues an action invoke task.
-func NewActionInvoker(ctx context.Context, dbPath string, action string, args *structpb.Struct) tasks.Manager {
+// If resourceTypeID is provided, it invokes a resource-scoped action.
+func NewActionInvoker(ctx context.Context, dbPath string, action string, resourceTypeID string, args *structpb.Struct) tasks.Manager {
 	return &localActionInvoker{
-		dbPath: dbPath,
-		action: action,
-		args:   args,
+		dbPath:         dbPath,
+		action:         action,
+		resourceTypeID: resourceTypeID,
+		args:           args,
 	}
 }

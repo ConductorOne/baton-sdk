@@ -115,6 +115,8 @@ message Task {
 
   message ActionListSchemasTask {
     repeated google.protobuf.Any annotations = 1;
+    // Optional: filter to only return actions for a specific resource type
+    string resource_type_id = 2;
   }
 
   message ActionGetSchemaTask {
@@ -126,6 +128,8 @@ message Task {
     string name = 1;
     google.protobuf.Struct args = 2;
     repeated google.protobuf.Any annotations = 3;
+    // Optional: if set, invokes a resource-scoped action
+    string resource_type_id = 4;
   }
 
   message ActionStatusTask {

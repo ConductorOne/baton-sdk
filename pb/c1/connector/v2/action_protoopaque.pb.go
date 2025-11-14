@@ -88,17 +88,69 @@ const (
 	ActionType_ACTION_TYPE_ACCOUNT_UPDATE_PROFILE ActionType = 3
 	ActionType_ACTION_TYPE_ACCOUNT_DISABLE        ActionType = 4
 	ActionType_ACTION_TYPE_ACCOUNT_ENABLE         ActionType = 5
+	// Generic resource actions
+	ActionType_ACTION_TYPE_RESOURCE_CREATE  ActionType = 6
+	ActionType_ACTION_TYPE_RESOURCE_DELETE  ActionType = 7
+	ActionType_ACTION_TYPE_RESOURCE_MUTATE  ActionType = 8
+	ActionType_ACTION_TYPE_RESOURCE_ENABLE  ActionType = 9
+	ActionType_ACTION_TYPE_RESOURCE_DISABLE ActionType = 10
+	// TRAIT_USER actions
+	ActionType_ACTION_TYPE_USER_SUSPEND         ActionType = 11
+	ActionType_ACTION_TYPE_USER_RESUME          ActionType = 12
+	ActionType_ACTION_TYPE_USER_LOCK            ActionType = 13
+	ActionType_ACTION_TYPE_USER_UNLOCK          ActionType = 14
+	ActionType_ACTION_TYPE_USER_RESET_PASSWORD  ActionType = 15
+	ActionType_ACTION_TYPE_USER_CHANGE_PASSWORD ActionType = 16
+	ActionType_ACTION_TYPE_USER_CHANGE_EMAIL    ActionType = 17
+	ActionType_ACTION_TYPE_USER_UPDATE_PROFILE  ActionType = 18
+	ActionType_ACTION_TYPE_USER_ASSIGN_ROLE     ActionType = 19
+	ActionType_ACTION_TYPE_USER_UNASSIGN_ROLE   ActionType = 20
+	// TRAIT_GROUP actions
+	ActionType_ACTION_TYPE_GROUP_ADD_MEMBER    ActionType = 21
+	ActionType_ACTION_TYPE_GROUP_REMOVE_MEMBER ActionType = 22
+	// TRAIT_ROLE actions
+	ActionType_ACTION_TYPE_ROLE_ASSIGN   ActionType = 23
+	ActionType_ACTION_TYPE_ROLE_UNASSIGN ActionType = 24
+	// TRAIT_APP actions
+	ActionType_ACTION_TYPE_APP_ASSIGN_USER   ActionType = 25
+	ActionType_ACTION_TYPE_APP_UNASSIGN_USER ActionType = 26
+	// TRAIT_SECRET actions
+	ActionType_ACTION_TYPE_SECRET_ROTATE     ActionType = 27
+	ActionType_ACTION_TYPE_SECRET_REGENERATE ActionType = 28
 )
 
 // Enum value maps for ActionType.
 var (
 	ActionType_name = map[int32]string{
-		0: "ACTION_TYPE_UNSPECIFIED",
-		1: "ACTION_TYPE_DYNAMIC",
-		2: "ACTION_TYPE_ACCOUNT",
-		3: "ACTION_TYPE_ACCOUNT_UPDATE_PROFILE",
-		4: "ACTION_TYPE_ACCOUNT_DISABLE",
-		5: "ACTION_TYPE_ACCOUNT_ENABLE",
+		0:  "ACTION_TYPE_UNSPECIFIED",
+		1:  "ACTION_TYPE_DYNAMIC",
+		2:  "ACTION_TYPE_ACCOUNT",
+		3:  "ACTION_TYPE_ACCOUNT_UPDATE_PROFILE",
+		4:  "ACTION_TYPE_ACCOUNT_DISABLE",
+		5:  "ACTION_TYPE_ACCOUNT_ENABLE",
+		6:  "ACTION_TYPE_RESOURCE_CREATE",
+		7:  "ACTION_TYPE_RESOURCE_DELETE",
+		8:  "ACTION_TYPE_RESOURCE_MUTATE",
+		9:  "ACTION_TYPE_RESOURCE_ENABLE",
+		10: "ACTION_TYPE_RESOURCE_DISABLE",
+		11: "ACTION_TYPE_USER_SUSPEND",
+		12: "ACTION_TYPE_USER_RESUME",
+		13: "ACTION_TYPE_USER_LOCK",
+		14: "ACTION_TYPE_USER_UNLOCK",
+		15: "ACTION_TYPE_USER_RESET_PASSWORD",
+		16: "ACTION_TYPE_USER_CHANGE_PASSWORD",
+		17: "ACTION_TYPE_USER_CHANGE_EMAIL",
+		18: "ACTION_TYPE_USER_UPDATE_PROFILE",
+		19: "ACTION_TYPE_USER_ASSIGN_ROLE",
+		20: "ACTION_TYPE_USER_UNASSIGN_ROLE",
+		21: "ACTION_TYPE_GROUP_ADD_MEMBER",
+		22: "ACTION_TYPE_GROUP_REMOVE_MEMBER",
+		23: "ACTION_TYPE_ROLE_ASSIGN",
+		24: "ACTION_TYPE_ROLE_UNASSIGN",
+		25: "ACTION_TYPE_APP_ASSIGN_USER",
+		26: "ACTION_TYPE_APP_UNASSIGN_USER",
+		27: "ACTION_TYPE_SECRET_ROTATE",
+		28: "ACTION_TYPE_SECRET_REGENERATE",
 	}
 	ActionType_value = map[string]int32{
 		"ACTION_TYPE_UNSPECIFIED":            0,
@@ -107,6 +159,29 @@ var (
 		"ACTION_TYPE_ACCOUNT_UPDATE_PROFILE": 3,
 		"ACTION_TYPE_ACCOUNT_DISABLE":        4,
 		"ACTION_TYPE_ACCOUNT_ENABLE":         5,
+		"ACTION_TYPE_RESOURCE_CREATE":        6,
+		"ACTION_TYPE_RESOURCE_DELETE":        7,
+		"ACTION_TYPE_RESOURCE_MUTATE":        8,
+		"ACTION_TYPE_RESOURCE_ENABLE":        9,
+		"ACTION_TYPE_RESOURCE_DISABLE":       10,
+		"ACTION_TYPE_USER_SUSPEND":           11,
+		"ACTION_TYPE_USER_RESUME":            12,
+		"ACTION_TYPE_USER_LOCK":              13,
+		"ACTION_TYPE_USER_UNLOCK":            14,
+		"ACTION_TYPE_USER_RESET_PASSWORD":    15,
+		"ACTION_TYPE_USER_CHANGE_PASSWORD":   16,
+		"ACTION_TYPE_USER_CHANGE_EMAIL":      17,
+		"ACTION_TYPE_USER_UPDATE_PROFILE":    18,
+		"ACTION_TYPE_USER_ASSIGN_ROLE":       19,
+		"ACTION_TYPE_USER_UNASSIGN_ROLE":     20,
+		"ACTION_TYPE_GROUP_ADD_MEMBER":       21,
+		"ACTION_TYPE_GROUP_REMOVE_MEMBER":    22,
+		"ACTION_TYPE_ROLE_ASSIGN":            23,
+		"ACTION_TYPE_ROLE_UNASSIGN":          24,
+		"ACTION_TYPE_APP_ASSIGN_USER":        25,
+		"ACTION_TYPE_APP_UNASSIGN_USER":      26,
+		"ACTION_TYPE_SECRET_ROTATE":          27,
+		"ACTION_TYPE_SECRET_REGENERATE":      28,
 	}
 )
 
@@ -268,13 +343,14 @@ func (x *BatonActionSchema) SetResourceTypeId(v string) {
 type BatonActionSchema_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Name           string
-	Arguments      []*v1.Field
-	Constraints    []*v1.Constraint
-	ReturnTypes    []*v1.Field
-	DisplayName    string
-	Description    string
-	ActionType     []ActionType
+	Name        string
+	Arguments   []*v1.Field
+	Constraints []*v1.Constraint
+	ReturnTypes []*v1.Field
+	DisplayName string
+	Description string
+	ActionType  []ActionType
+	// Optional: if set, this action is scoped to a specific resource type
 	ResourceTypeId string
 }
 
@@ -294,12 +370,14 @@ func (b0 BatonActionSchema_builder) Build() *BatonActionSchema {
 }
 
 type InvokeActionRequest struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Name        string                 `protobuf:"bytes,1,opt,name=name,proto3"`
-	xxx_hidden_Args        *structpb.Struct       `protobuf:"bytes,2,opt,name=args,proto3"`
-	xxx_hidden_Annotations *[]*anypb.Any          `protobuf:"bytes,3,rep,name=annotations,proto3"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                        protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Name              string                 `protobuf:"bytes,1,opt,name=name,proto3"`
+	xxx_hidden_Args              *structpb.Struct       `protobuf:"bytes,2,opt,name=args,proto3"`
+	xxx_hidden_Annotations       *[]*anypb.Any          `protobuf:"bytes,3,rep,name=annotations,proto3"`
+	xxx_hidden_ResourceTypeId    string                 `protobuf:"bytes,4,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	xxx_hidden_EncryptionConfigs *[]*EncryptionConfig   `protobuf:"bytes,5,rep,name=encryption_configs,json=encryptionConfigs,proto3"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *InvokeActionRequest) Reset() {
@@ -350,6 +428,22 @@ func (x *InvokeActionRequest) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+func (x *InvokeActionRequest) GetResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeId
+	}
+	return ""
+}
+
+func (x *InvokeActionRequest) GetEncryptionConfigs() []*EncryptionConfig {
+	if x != nil {
+		if x.xxx_hidden_EncryptionConfigs != nil {
+			return *x.xxx_hidden_EncryptionConfigs
+		}
+	}
+	return nil
+}
+
 func (x *InvokeActionRequest) SetName(v string) {
 	x.xxx_hidden_Name = v
 }
@@ -360,6 +454,14 @@ func (x *InvokeActionRequest) SetArgs(v *structpb.Struct) {
 
 func (x *InvokeActionRequest) SetAnnotations(v []*anypb.Any) {
 	x.xxx_hidden_Annotations = &v
+}
+
+func (x *InvokeActionRequest) SetResourceTypeId(v string) {
+	x.xxx_hidden_ResourceTypeId = v
+}
+
+func (x *InvokeActionRequest) SetEncryptionConfigs(v []*EncryptionConfig) {
+	x.xxx_hidden_EncryptionConfigs = &v
 }
 
 func (x *InvokeActionRequest) HasArgs() bool {
@@ -379,6 +481,10 @@ type InvokeActionRequest_builder struct {
 	Name        string
 	Args        *structpb.Struct
 	Annotations []*anypb.Any
+	// Optional: if set, invokes a resource-scoped action
+	ResourceTypeId string
+	// Optional: encryption configs for secret fields
+	EncryptionConfigs []*EncryptionConfig
 }
 
 func (b0 InvokeActionRequest_builder) Build() *InvokeActionRequest {
@@ -388,6 +494,8 @@ func (b0 InvokeActionRequest_builder) Build() *InvokeActionRequest {
 	x.xxx_hidden_Name = b.Name
 	x.xxx_hidden_Args = b.Args
 	x.xxx_hidden_Annotations = &b.Annotations
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
+	x.xxx_hidden_EncryptionConfigs = &b.EncryptionConfigs
 	return m0
 }
 
@@ -891,10 +999,11 @@ func (b0 GetActionSchemaResponse_builder) Build() *GetActionSchemaResponse {
 }
 
 type ListActionSchemasRequest struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Annotations *[]*anypb.Any          `protobuf:"bytes,1,rep,name=annotations,proto3"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Annotations    *[]*anypb.Any          `protobuf:"bytes,1,rep,name=annotations,proto3"`
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *ListActionSchemasRequest) Reset() {
@@ -931,14 +1040,27 @@ func (x *ListActionSchemasRequest) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+func (x *ListActionSchemasRequest) GetResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeId
+	}
+	return ""
+}
+
 func (x *ListActionSchemasRequest) SetAnnotations(v []*anypb.Any) {
 	x.xxx_hidden_Annotations = &v
+}
+
+func (x *ListActionSchemasRequest) SetResourceTypeId(v string) {
+	x.xxx_hidden_ResourceTypeId = v
 }
 
 type ListActionSchemasRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Annotations []*anypb.Any
+	// Optional: filter to only return actions for a specific resource type
+	ResourceTypeId string
 }
 
 func (b0 ListActionSchemasRequest_builder) Build() *ListActionSchemasRequest {
@@ -946,6 +1068,7 @@ func (b0 ListActionSchemasRequest_builder) Build() *ListActionSchemasRequest {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Annotations = &b.Annotations
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -1028,7 +1151,7 @@ var File_c1_connector_v2_action_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\n" +
-	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xfb\x02\n" +
+	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xfb\x02\n" +
 	"\x11BatonActionSchema\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
 	"\targuments\x18\x02 \x03(\v2\x13.c1.config.v1.FieldR\targuments\x12:\n" +
@@ -1038,11 +1161,13 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x12<\n" +
 	"\vaction_type\x18\a \x03(\x0e2\x1b.c1.connector.v2.ActionTypeR\n" +
 	"actionType\x12(\n" +
-	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\x8e\x01\n" +
+	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\x8a\x02\n" +
 	"\x13InvokeActionRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x04args\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x04args\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xe3\x01\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
+	"\x10resource_type_id\x18\x04 \x01(\tR\x0eresourceTypeId\x12P\n" +
+	"\x12encryption_configs\x18\x05 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\"\xe3\x01\n" +
 	"\x14InvokeActionResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\x06status\x18\x02 \x01(\x0e2\".c1.connector.v2.BatonActionStatusR\x06status\x126\n" +
@@ -1064,9 +1189,10 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x8d\x01\n" +
 	"\x17GetActionSchemaResponse\x12:\n" +
 	"\x06schema\x18\x01 \x01(\v2\".c1.connector.v2.BatonActionSchemaR\x06schema\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"R\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"|\n" +
 	"\x18ListActionSchemasRequest\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x91\x01\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
+	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\"\x91\x01\n" +
 	"\x19ListActionSchemasResponse\x12<\n" +
 	"\aschemas\x18\x01 \x03(\v2\".c1.connector.v2.BatonActionSchemaR\aschemas\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations*\xdd\x01\n" +
@@ -1076,7 +1202,7 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\x1bBATON_ACTION_STATUS_PENDING\x10\x02\x12\x1f\n" +
 	"\x1bBATON_ACTION_STATUS_RUNNING\x10\x03\x12 \n" +
 	"\x1cBATON_ACTION_STATUS_COMPLETE\x10\x04\x12\x1e\n" +
-	"\x1aBATON_ACTION_STATUS_FAILED\x10\x05*\xc4\x01\n" +
+	"\x1aBATON_ACTION_STATUS_FAILED\x10\x05*\xbf\a\n" +
 	"\n" +
 	"ActionType\x12\x1b\n" +
 	"\x17ACTION_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
@@ -1084,7 +1210,31 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\x13ACTION_TYPE_ACCOUNT\x10\x02\x12&\n" +
 	"\"ACTION_TYPE_ACCOUNT_UPDATE_PROFILE\x10\x03\x12\x1f\n" +
 	"\x1bACTION_TYPE_ACCOUNT_DISABLE\x10\x04\x12\x1e\n" +
-	"\x1aACTION_TYPE_ACCOUNT_ENABLE\x10\x052\xa4\x03\n" +
+	"\x1aACTION_TYPE_ACCOUNT_ENABLE\x10\x05\x12\x1f\n" +
+	"\x1bACTION_TYPE_RESOURCE_CREATE\x10\x06\x12\x1f\n" +
+	"\x1bACTION_TYPE_RESOURCE_DELETE\x10\a\x12\x1f\n" +
+	"\x1bACTION_TYPE_RESOURCE_MUTATE\x10\b\x12\x1f\n" +
+	"\x1bACTION_TYPE_RESOURCE_ENABLE\x10\t\x12 \n" +
+	"\x1cACTION_TYPE_RESOURCE_DISABLE\x10\n" +
+	"\x12\x1c\n" +
+	"\x18ACTION_TYPE_USER_SUSPEND\x10\v\x12\x1b\n" +
+	"\x17ACTION_TYPE_USER_RESUME\x10\f\x12\x19\n" +
+	"\x15ACTION_TYPE_USER_LOCK\x10\r\x12\x1b\n" +
+	"\x17ACTION_TYPE_USER_UNLOCK\x10\x0e\x12#\n" +
+	"\x1fACTION_TYPE_USER_RESET_PASSWORD\x10\x0f\x12$\n" +
+	" ACTION_TYPE_USER_CHANGE_PASSWORD\x10\x10\x12!\n" +
+	"\x1dACTION_TYPE_USER_CHANGE_EMAIL\x10\x11\x12#\n" +
+	"\x1fACTION_TYPE_USER_UPDATE_PROFILE\x10\x12\x12 \n" +
+	"\x1cACTION_TYPE_USER_ASSIGN_ROLE\x10\x13\x12\"\n" +
+	"\x1eACTION_TYPE_USER_UNASSIGN_ROLE\x10\x14\x12 \n" +
+	"\x1cACTION_TYPE_GROUP_ADD_MEMBER\x10\x15\x12#\n" +
+	"\x1fACTION_TYPE_GROUP_REMOVE_MEMBER\x10\x16\x12\x1b\n" +
+	"\x17ACTION_TYPE_ROLE_ASSIGN\x10\x17\x12\x1d\n" +
+	"\x19ACTION_TYPE_ROLE_UNASSIGN\x10\x18\x12\x1f\n" +
+	"\x1bACTION_TYPE_APP_ASSIGN_USER\x10\x19\x12!\n" +
+	"\x1dACTION_TYPE_APP_UNASSIGN_USER\x10\x1a\x12\x1d\n" +
+	"\x19ACTION_TYPE_SECRET_ROTATE\x10\x1b\x12!\n" +
+	"\x1dACTION_TYPE_SECRET_REGENERATE\x10\x1c2\xa4\x03\n" +
 	"\rActionService\x12[\n" +
 	"\fInvokeAction\x12$.c1.connector.v2.InvokeActionRequest\x1a%.c1.connector.v2.InvokeActionResponse\x12d\n" +
 	"\x0fGetActionStatus\x12'.c1.connector.v2.GetActionStatusRequest\x1a(.c1.connector.v2.GetActionStatusResponse\x12d\n" +
@@ -1109,6 +1259,7 @@ var file_c1_connector_v2_action_proto_goTypes = []any{
 	(*v1.Constraint)(nil),             // 12: c1.config.v1.Constraint
 	(*structpb.Struct)(nil),           // 13: google.protobuf.Struct
 	(*anypb.Any)(nil),                 // 14: google.protobuf.Any
+	(*EncryptionConfig)(nil),          // 15: c1.connector.v2.EncryptionConfig
 }
 var file_c1_connector_v2_action_proto_depIdxs = []int32{
 	11, // 0: c1.connector.v2.BatonActionSchema.arguments:type_name -> c1.config.v1.Field
@@ -1117,32 +1268,33 @@ var file_c1_connector_v2_action_proto_depIdxs = []int32{
 	1,  // 3: c1.connector.v2.BatonActionSchema.action_type:type_name -> c1.connector.v2.ActionType
 	13, // 4: c1.connector.v2.InvokeActionRequest.args:type_name -> google.protobuf.Struct
 	14, // 5: c1.connector.v2.InvokeActionRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 6: c1.connector.v2.InvokeActionResponse.status:type_name -> c1.connector.v2.BatonActionStatus
-	14, // 7: c1.connector.v2.InvokeActionResponse.annotations:type_name -> google.protobuf.Any
-	13, // 8: c1.connector.v2.InvokeActionResponse.response:type_name -> google.protobuf.Struct
-	14, // 9: c1.connector.v2.GetActionStatusRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 10: c1.connector.v2.GetActionStatusResponse.status:type_name -> c1.connector.v2.BatonActionStatus
-	14, // 11: c1.connector.v2.GetActionStatusResponse.annotations:type_name -> google.protobuf.Any
-	13, // 12: c1.connector.v2.GetActionStatusResponse.response:type_name -> google.protobuf.Struct
-	14, // 13: c1.connector.v2.GetActionSchemaRequest.annotations:type_name -> google.protobuf.Any
-	2,  // 14: c1.connector.v2.GetActionSchemaResponse.schema:type_name -> c1.connector.v2.BatonActionSchema
-	14, // 15: c1.connector.v2.GetActionSchemaResponse.annotations:type_name -> google.protobuf.Any
-	14, // 16: c1.connector.v2.ListActionSchemasRequest.annotations:type_name -> google.protobuf.Any
-	2,  // 17: c1.connector.v2.ListActionSchemasResponse.schemas:type_name -> c1.connector.v2.BatonActionSchema
-	14, // 18: c1.connector.v2.ListActionSchemasResponse.annotations:type_name -> google.protobuf.Any
-	3,  // 19: c1.connector.v2.ActionService.InvokeAction:input_type -> c1.connector.v2.InvokeActionRequest
-	5,  // 20: c1.connector.v2.ActionService.GetActionStatus:input_type -> c1.connector.v2.GetActionStatusRequest
-	7,  // 21: c1.connector.v2.ActionService.GetActionSchema:input_type -> c1.connector.v2.GetActionSchemaRequest
-	9,  // 22: c1.connector.v2.ActionService.ListActionSchemas:input_type -> c1.connector.v2.ListActionSchemasRequest
-	4,  // 23: c1.connector.v2.ActionService.InvokeAction:output_type -> c1.connector.v2.InvokeActionResponse
-	6,  // 24: c1.connector.v2.ActionService.GetActionStatus:output_type -> c1.connector.v2.GetActionStatusResponse
-	8,  // 25: c1.connector.v2.ActionService.GetActionSchema:output_type -> c1.connector.v2.GetActionSchemaResponse
-	10, // 26: c1.connector.v2.ActionService.ListActionSchemas:output_type -> c1.connector.v2.ListActionSchemasResponse
-	23, // [23:27] is the sub-list for method output_type
-	19, // [19:23] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	15, // 6: c1.connector.v2.InvokeActionRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
+	0,  // 7: c1.connector.v2.InvokeActionResponse.status:type_name -> c1.connector.v2.BatonActionStatus
+	14, // 8: c1.connector.v2.InvokeActionResponse.annotations:type_name -> google.protobuf.Any
+	13, // 9: c1.connector.v2.InvokeActionResponse.response:type_name -> google.protobuf.Struct
+	14, // 10: c1.connector.v2.GetActionStatusRequest.annotations:type_name -> google.protobuf.Any
+	0,  // 11: c1.connector.v2.GetActionStatusResponse.status:type_name -> c1.connector.v2.BatonActionStatus
+	14, // 12: c1.connector.v2.GetActionStatusResponse.annotations:type_name -> google.protobuf.Any
+	13, // 13: c1.connector.v2.GetActionStatusResponse.response:type_name -> google.protobuf.Struct
+	14, // 14: c1.connector.v2.GetActionSchemaRequest.annotations:type_name -> google.protobuf.Any
+	2,  // 15: c1.connector.v2.GetActionSchemaResponse.schema:type_name -> c1.connector.v2.BatonActionSchema
+	14, // 16: c1.connector.v2.GetActionSchemaResponse.annotations:type_name -> google.protobuf.Any
+	14, // 17: c1.connector.v2.ListActionSchemasRequest.annotations:type_name -> google.protobuf.Any
+	2,  // 18: c1.connector.v2.ListActionSchemasResponse.schemas:type_name -> c1.connector.v2.BatonActionSchema
+	14, // 19: c1.connector.v2.ListActionSchemasResponse.annotations:type_name -> google.protobuf.Any
+	3,  // 20: c1.connector.v2.ActionService.InvokeAction:input_type -> c1.connector.v2.InvokeActionRequest
+	5,  // 21: c1.connector.v2.ActionService.GetActionStatus:input_type -> c1.connector.v2.GetActionStatusRequest
+	7,  // 22: c1.connector.v2.ActionService.GetActionSchema:input_type -> c1.connector.v2.GetActionSchemaRequest
+	9,  // 23: c1.connector.v2.ActionService.ListActionSchemas:input_type -> c1.connector.v2.ListActionSchemasRequest
+	4,  // 24: c1.connector.v2.ActionService.InvokeAction:output_type -> c1.connector.v2.InvokeActionResponse
+	6,  // 25: c1.connector.v2.ActionService.GetActionStatus:output_type -> c1.connector.v2.GetActionStatusResponse
+	8,  // 26: c1.connector.v2.ActionService.GetActionSchema:output_type -> c1.connector.v2.GetActionSchemaResponse
+	10, // 27: c1.connector.v2.ActionService.ListActionSchemas:output_type -> c1.connector.v2.ListActionSchemasResponse
+	24, // [24:28] is the sub-list for method output_type
+	20, // [20:24] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_action_proto_init() }
@@ -1150,6 +1302,7 @@ func file_c1_connector_v2_action_proto_init() {
 	if File_c1_connector_v2_action_proto != nil {
 		return
 	}
+	file_c1_connector_v2_resource_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
