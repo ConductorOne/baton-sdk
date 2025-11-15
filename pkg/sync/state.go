@@ -225,6 +225,7 @@ func (st *state) Unmarshal(input string) error {
 		st.actions = token.Actions
 		st.currentAction = token.CurrentAction
 		st.needsExpansion = token.NeedsExpansion
+		st.entitlementGraph = token.EntitlementGraph
 		st.hasExternalResourceGrants = token.HasExternalResourceGrants
 		st.shouldSkipEntitlementsAndGrants = token.ShouldSkipEntitlementsAndGrants
 		st.shouldSkipGrants = token.ShouldSkipGrants
