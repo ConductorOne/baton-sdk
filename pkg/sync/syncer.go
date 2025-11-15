@@ -2661,12 +2661,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		newGrants = append(newGrants, descendantGrants...)
 	}
 
-	// Checkpoint before we stomp over any grants that were previously marked expandable.
-	err = s.Checkpoint(ctx, true)
-	if err != nil {
-		return false, err
-	}
-
 	err = s.store.PutGrants(ctx, newGrants...)
 	if err != nil {
 		l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
