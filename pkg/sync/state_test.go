@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/stretchr/testify/require"
 )
 
@@ -117,4 +119,104 @@ func TestSyncerTokenNextPage(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, st.actions, 0)
 	compareSyncerState(t, op2, st.Current())
+}
+
+func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
+	ctx := context.Background()
+	st := &state{}
+
+	// Push an action to initialize the state
+	op1 := Action{Op: SyncGrantExpansionOp}
+	st.PushAction(ctx, op1)
+
+	// Get the entitlement graph from state
+	graph := st.EntitlementGraph(ctx)
+	require.NotNil(t, graph)
+
+	// Create some test entitlements and add them to the graph
+	entitlement1 := &v2.Entitlement{Id: "ent1"}
+	entitlement2 := &v2.Entitlement{Id: "ent2"}
+	entitlement3 := &v2.Entitlement{Id: "ent3"}
+
+	graph.AddEntitlement(entitlement1)
+	graph.AddEntitlement(entitlement2)
+	graph.AddEntitlement(entitlement3)
+
+	// Add edges between entitlements
+	err := graph.AddEdge(ctx, "ent1", "ent2", false, []string{"user"})
+	require.NoError(t, err)
+	err = graph.AddEdge(ctx, "ent2", "ent3", true, []string{"group"})
+	require.NoError(t, err)
+
+	// Add some actions to the graph
+	graph.Actions = []*expand.EntitlementGraphAction{
+		{
+			SourceEntitlementID:     "ent1",
+			DescendantEntitlementID: "ent2",
+			Shallow:                 false,
+			ResourceTypeIDs:         []string{"user"},
+			PageToken:               "page1",
+		},
+		{
+			SourceEntitlementID:     "ent2",
+			DescendantEntitlementID: "ent3",
+			Shallow:                 true,
+			ResourceTypeIDs:         []string{"group", "role"},
+			PageToken:               "",
+		},
+	}
+
+	// Set some graph state
+	graph.Depth = 5
+	graph.Loaded = true
+	graph.HasNoCycles = true
+
+	// Marshal the state
+	tokenString, err := st.Marshal()
+	require.NoError(t, err)
+	require.NotEmpty(t, tokenString)
+
+	// Create a new state and unmarshal
+	newState := &state{}
+	err = newState.Unmarshal(tokenString)
+	require.NoError(t, err)
+
+	// Verify the action was restored
+	compareSyncerState(t, op1, newState.Current())
+
+	// Get the entitlement graph from the new state
+	restoredGraph := newState.entitlementGraph
+	require.NotNil(t, restoredGraph, "entitlement graph should be restored")
+
+	// Verify nodes were restored
+	require.Len(t, restoredGraph.Nodes, 3)
+	require.NotNil(t, restoredGraph.GetNode("ent1"))
+	require.NotNil(t, restoredGraph.GetNode("ent2"))
+	require.NotNil(t, restoredGraph.GetNode("ent3"))
+
+	// Verify edges were restored
+	require.Len(t, restoredGraph.Edges, 2)
+
+	// Verify actions were restored
+	require.Len(t, restoredGraph.Actions, 2)
+	require.Equal(t, "ent1", restoredGraph.Actions[0].SourceEntitlementID)
+	require.Equal(t, "ent2", restoredGraph.Actions[0].DescendantEntitlementID)
+	require.Equal(t, false, restoredGraph.Actions[0].Shallow)
+	require.Equal(t, []string{"user"}, restoredGraph.Actions[0].ResourceTypeIDs)
+	require.Equal(t, "page1", restoredGraph.Actions[0].PageToken)
+
+	require.Equal(t, "ent2", restoredGraph.Actions[1].SourceEntitlementID)
+	require.Equal(t, "ent3", restoredGraph.Actions[1].DescendantEntitlementID)
+	require.Equal(t, true, restoredGraph.Actions[1].Shallow)
+	require.Equal(t, []string{"group", "role"}, restoredGraph.Actions[1].ResourceTypeIDs)
+	require.Equal(t, "", restoredGraph.Actions[1].PageToken)
+
+	// Verify graph state was restored
+	require.Equal(t, 5, restoredGraph.Depth)
+	require.Equal(t, true, restoredGraph.Loaded)
+	require.Equal(t, true, restoredGraph.HasNoCycles)
+
+	// Verify NextNodeID and NextEdgeID were restored
+	require.Equal(t, graph.NextNodeID, restoredGraph.NextNodeID)
+	require.Equal(t, graph.NextEdgeID, restoredGraph.NextEdgeID)
 }
