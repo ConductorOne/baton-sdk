@@ -43,7 +43,8 @@ func (n *NoOpSessionStore) Delete(ctx context.Context, key string, opt ...sessio
 }
 
 func (n *NoOpSessionStore) Clear(ctx context.Context, opt ...sessions.SessionStoreOption) error {
-	return n.logAndError(ctx, "Clear")
+	// NOTE: we call this unconditionally for cleanup, so don't throw.
+	return nil
 }
 
 func (n *NoOpSessionStore) GetAll(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
