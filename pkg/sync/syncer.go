@@ -2169,9 +2169,7 @@ func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.E
 				PageToken:   pageToken,
 			}.Build())
 			if err != nil {
-				if !yield(nil, err) {
-					return
-				}
+				_ = yield(nil, err)
 				return
 			}
 			grants := grantsForEntitlementResp.GetList()
@@ -2182,7 +2180,7 @@ func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.E
 			}
 			pageToken = grantsForEntitlementResp.GetNextPageToken()
 			if pageToken == "" {
-				break
+				return
 			}
 		}
 	}
@@ -2215,9 +2213,7 @@ func (s *syncer) listAllGrants(ctx context.Context) iter.Seq2[[]*v2.Grant, error
 				PageToken: pageToken,
 			}.Build())
 			if err != nil {
-				if !yield(nil, err) {
-					return
-				}
+				_ = yield(nil, err)
 				return
 			}
 
@@ -2228,7 +2224,7 @@ func (s *syncer) listAllGrants(ctx context.Context) iter.Seq2[[]*v2.Grant, error
 			}
 			pageToken = grantsResp.GetNextPageToken()
 			if pageToken == "" {
-				break
+				return
 			}
 		}
 	}
