@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"os"
 	"slices"
 	"strconv"
@@ -1886,20 +1887,10 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	resourceTypeIDs := mapset.NewSet[string]()
 	resourceIDs := make(map[string]*v2.ResourceId)
 
-	pageToken := ""
-	for {
-		grants, nextPageToken, err := s.listExternalGrantsForEntitlement(ctx, filterEntitlement.GetEntitlement(), pageToken)
-		if err != nil {
-			return err
-		}
+	for grants := range s.listExternalGrantsForEntitlement(ctx, filterEntitlement.GetEntitlement()) {
 		for _, g := range grants {
 			resourceTypeIDs.Add(g.GetPrincipal().GetId().GetResourceType())
 			resourceIDs[g.GetPrincipal().GetId().GetResource()] = g.GetPrincipal().GetId()
-		}
-
-		pageToken = nextPageToken
-		if pageToken == "" {
-			break
 		}
 	}
 
@@ -1982,20 +1973,11 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		if rAnnos.Contains(&v2.SkipGrants{}) {
 			continue
 		}
-		pageToken := ""
-		for {
-			grantsForEnt, nextPageToken, err := s.listExternalGrantsForEntitlement(ctx, ent, pageToken)
+		for grants := range s.listExternalGrantsForEntitlement(ctx, ent) {
+			grantsForEntsCount += len(grants)
+			err = s.store.PutGrants(ctx, grants...)
 			if err != nil {
 				return err
-			}
-			grantsForEntsCount += len(grantsForEnt)
-			err = s.store.PutGrants(ctx, grantsForEnt...)
-			if err != nil {
-				return err
-			}
-			pageToken = nextPageToken
-			if pageToken == "" {
-				break
 			}
 		}
 	}
@@ -2102,20 +2084,11 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		if rAnnos.Contains(&v2.SkipGrants{}) {
 			continue
 		}
-		pageToken := ""
-		for {
-			grantsForEnt, nextPageToken, err := s.listExternalGrantsForEntitlement(ctx, ent, pageToken)
+		for grants := range s.listExternalGrantsForEntitlement(ctx, ent) {
+			grantsForEntsCount += len(grants)
+			err = s.store.PutGrants(ctx, grants...)
 			if err != nil {
 				return err
-			}
-			grantsForEntsCount += len(grantsForEnt)
-			err = s.store.PutGrants(ctx, grantsForEnt...)
-			if err != nil {
-				return err
-			}
-			pageToken = nextPageToken
-			if pageToken == "" {
-				break
 			}
 		}
 	}
@@ -2178,15 +2151,29 @@ func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resour
 	return ents, nil
 }
 
-func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.Entitlement, pageToken string) ([]*v2.Grant, string, error) {
-	grantsForEntitlementResp, err := s.externalResourceReader.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: ent,
-		PageToken:   pageToken,
-	}.Build())
-	if err != nil {
-		return nil, "", err
+func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.Entitlement) iter.Seq[[]*v2.Grant] {
+	return func(yield func([]*v2.Grant) bool) {
+		pageToken := ""
+		for {
+			grantsForEntitlementResp, err := s.externalResourceReader.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				Entitlement: ent,
+				PageToken:   pageToken,
+			}.Build())
+			if err != nil {
+				return
+			}
+			grants := grantsForEntitlementResp.GetList()
+			if len(grants) > 0 {
+				if !yield(grants) {
+					return
+				}
+			}
+			pageToken = grantsForEntitlementResp.GetNextPageToken()
+			if pageToken == "" {
+				break
+			}
+		}
 	}
-	return grantsForEntitlementResp.GetList(), grantsForEntitlementResp.GetNextPageToken(), nil
 }
 
 func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceType, error) {
