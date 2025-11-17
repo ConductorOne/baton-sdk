@@ -1883,22 +1883,27 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		return err
 	}
 
-	grants, err := s.listExternalGrantsForEntitlement(ctx, filterEntitlement.GetEntitlement())
-	if err != nil {
-		return err
-	}
-
-	ents := make([]*v2.Entitlement, 0)
-	principals := make([]*v2.Resource, 0)
-	resourceTypes := make([]*v2.ResourceType, 0)
 	resourceTypeIDs := mapset.NewSet[string]()
 	resourceIDs := make(map[string]*v2.ResourceId)
 
-	for _, g := range grants {
-		resourceTypeIDs.Add(g.GetPrincipal().GetId().GetResourceType())
-		resourceIDs[g.GetPrincipal().GetId().GetResource()] = g.GetPrincipal().GetId()
+	pageToken := ""
+	for {
+		grants, nextPageToken, err := s.listExternalGrantsForEntitlement(ctx, filterEntitlement.GetEntitlement(), pageToken)
+		if err != nil {
+			return err
+		}
+		for _, g := range grants {
+			resourceTypeIDs.Add(g.GetPrincipal().GetId().GetResourceType())
+			resourceIDs[g.GetPrincipal().GetId().GetResource()] = g.GetPrincipal().GetId()
+		}
+
+		pageToken = nextPageToken
+		if pageToken == "" {
+			break
+		}
 	}
 
+	resourceTypes := make([]*v2.ResourceType, 0)
 	for _, resourceTypeId := range resourceTypeIDs.ToSlice() {
 		resourceTypeResp, err := s.externalResourceReader.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{ResourceTypeId: resourceTypeId}.Build())
 		if err != nil {
@@ -1922,6 +1927,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		return err
 	}
 
+	principals := make([]*v2.Resource, 0)
 	for _, resourceId := range resourceIDs {
 		resourceResp, err := s.externalResourceReader.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{ResourceId: resourceId}.Build())
 		if err != nil {
@@ -1949,6 +1955,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	}
 
 	entsCount := 0
+	ents := make([]*v2.Entitlement, 0)
 	for _, principal := range principals {
 		rAnnos := annotations.Annotations(principal.GetAnnotations())
 		skipEnts := skipEGForResourceType[principal.GetId().GetResourceType()] || rAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
@@ -1975,14 +1982,21 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		if rAnnos.Contains(&v2.SkipGrants{}) {
 			continue
 		}
-		grantsForEnt, err := s.listExternalGrantsForEntitlement(ctx, ent)
-		if err != nil {
-			return err
-		}
-		grantsForEntsCount += len(grantsForEnt)
-		err = s.store.PutGrants(ctx, grantsForEnt...)
-		if err != nil {
-			return err
+		pageToken := ""
+		for {
+			grantsForEnt, nextPageToken, err := s.listExternalGrantsForEntitlement(ctx, ent, pageToken)
+			if err != nil {
+				return err
+			}
+			grantsForEntsCount += len(grantsForEnt)
+			err = s.store.PutGrants(ctx, grantsForEnt...)
+			if err != nil {
+				return err
+			}
+			pageToken = nextPageToken
+			if pageToken == "" {
+				break
+			}
 		}
 	}
 
@@ -2080,7 +2094,6 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		if err != nil {
 			return err
 		}
-
 	}
 
 	grantsForEntsCount := 0
@@ -2089,14 +2102,21 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		if rAnnos.Contains(&v2.SkipGrants{}) {
 			continue
 		}
-		grantsForEnt, err := s.listExternalGrantsForEntitlement(ctx, ent)
-		if err != nil {
-			return err
-		}
-		grantsForEntsCount += len(grantsForEnt)
-		err = s.store.PutGrants(ctx, grantsForEnt...)
-		if err != nil {
-			return err
+		pageToken := ""
+		for {
+			grantsForEnt, nextPageToken, err := s.listExternalGrantsForEntitlement(ctx, ent, pageToken)
+			if err != nil {
+				return err
+			}
+			grantsForEntsCount += len(grantsForEnt)
+			err = s.store.PutGrants(ctx, grantsForEnt...)
+			if err != nil {
+				return err
+			}
+			pageToken = nextPageToken
+			if pageToken == "" {
+				break
+			}
 		}
 	}
 
@@ -2158,24 +2178,15 @@ func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resour
 	return ents, nil
 }
 
-func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.Entitlement) ([]*v2.Grant, error) {
-	grantsForEnts := make([]*v2.Grant, 0)
-	entitlementGrantPageToken := ""
-	for {
-		grantsForEntitlementResp, err := s.externalResourceReader.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-			Entitlement: ent,
-			PageToken:   entitlementGrantPageToken,
-		}.Build())
-		if err != nil {
-			return nil, err
-		}
-		grantsForEnts = append(grantsForEnts, grantsForEntitlementResp.GetList()...)
-		entitlementGrantPageToken = grantsForEntitlementResp.GetNextPageToken()
-		if entitlementGrantPageToken == "" {
-			break
-		}
+func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.Entitlement, pageToken string) ([]*v2.Grant, string, error) {
+	grantsForEntitlementResp, err := s.externalResourceReader.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		Entitlement: ent,
+		PageToken:   pageToken,
+	}.Build())
+	if err != nil {
+		return nil, "", err
 	}
-	return grantsForEnts, nil
+	return grantsForEntitlementResp.GetList(), grantsForEntitlementResp.GetNextPageToken(), nil
 }
 
 func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceType, error) {
