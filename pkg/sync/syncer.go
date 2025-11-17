@@ -1894,8 +1894,6 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	resourceTypeIDs := mapset.NewSet[string]()
 	resourceIDs := make(map[string]*v2.ResourceId)
 
-	grantsForEnts := make([]*v2.Grant, 0)
-
 	for _, g := range grants {
 		resourceTypeIDs.Add(g.GetPrincipal().GetId().GetResourceType())
 		resourceIDs[g.GetPrincipal().GetId().GetResource()] = g.GetPrincipal().GetId()
@@ -1919,6 +1917,11 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		skipEGForResourceType[resourceTypeResp.GetResourceType().GetId()] = skipEntitlements
 	}
 
+	err = s.store.PutResourceTypes(ctx, resourceTypes...)
+	if err != nil {
+		return err
+	}
+
 	for _, resourceId := range resourceIDs {
 		resourceResp, err := s.externalResourceReader.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{ResourceId: resourceId}.Build())
 		if err != nil {
@@ -1940,6 +1943,12 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		principals = append(principals, resourceVal)
 	}
 
+	err = s.store.PutResources(ctx, principals...)
+	if err != nil {
+		return err
+	}
+
+	entsCount := 0
 	for _, principal := range principals {
 		rAnnos := annotations.Annotations(principal.GetAnnotations())
 		skipEnts := skipEGForResourceType[principal.GetId().GetResourceType()] || rAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
@@ -1952,8 +1961,15 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 			return err
 		}
 		ents = append(ents, resourceEnts...)
+		entsCount += len(resourceEnts)
 	}
 
+	err = s.store.PutEntitlements(ctx, ents...)
+	if err != nil {
+		return err
+	}
+
+	grantsForEntsCount := 0
 	for _, ent := range ents {
 		rAnnos := annotations.Annotations(ent.GetResource().GetAnnotations())
 		if rAnnos.Contains(&v2.SkipGrants{}) {
@@ -1963,34 +1979,18 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 		if err != nil {
 			return err
 		}
-		grantsForEnts = append(grantsForEnts, grantsForEnt...)
-	}
-
-	err = s.store.PutResourceTypes(ctx, resourceTypes...)
-	if err != nil {
-		return err
-	}
-
-	err = s.store.PutResources(ctx, principals...)
-	if err != nil {
-		return err
-	}
-
-	err = s.store.PutEntitlements(ctx, ents...)
-	if err != nil {
-		return err
-	}
-
-	err = s.store.PutGrants(ctx, grantsForEnts...)
-	if err != nil {
-		return err
+		grantsForEntsCount += len(grantsForEnt)
+		err = s.store.PutGrants(ctx, grantsForEnt...)
+		if err != nil {
+			return err
+		}
 	}
 
 	l.Info("Synced external resources for entitlement",
 		zap.Int("resource_type_count", len(resourceTypes)),
 		zap.Int("resource_count", len(principals)),
-		zap.Int("entitlement_count", len(ents)),
-		zap.Int("grant_count", len(grantsForEnts)),
+		zap.Int("entitlement_count", entsCount),
+		zap.Int("grant_count", grantsForEntsCount),
 	)
 
 	err = s.processGrantsWithExternalPrincipals(ctx, principals)
@@ -2020,7 +2020,6 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 	userAndGroupResourceTypes := make([]*v2.ResourceType, 0)
 	ents := make([]*v2.Entitlement, 0)
 	principals := make([]*v2.Resource, 0)
-	grantsForEnts := make([]*v2.Grant, 0)
 	for _, rt := range resourceTypes {
 		for _, t := range rt.GetTraits() {
 			if t == v2.ResourceType_TRAIT_USER || t == v2.ResourceType_TRAIT_GROUP {
@@ -2028,6 +2027,11 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 				continue
 			}
 		}
+	}
+
+	err = s.store.PutResourceTypes(ctx, userAndGroupResourceTypes...)
+	if err != nil {
+		return err
 	}
 
 	for _, rt := range userAndGroupResourceTypes {
@@ -2049,6 +2053,13 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		}
 	}
 
+	err = s.store.PutResources(ctx, principals...)
+	if err != nil {
+		return err
+	}
+
+	entsCount := 0
+	principalsCount := len(principals)
 	for _, principal := range principals {
 		skipEnts := skipEGForResourceType[principal.GetId().GetResourceType()]
 		if skipEnts {
@@ -2064,8 +2075,15 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 			return err
 		}
 		ents = append(ents, resourceEnts...)
+		entsCount += len(resourceEnts)
+		err = s.store.PutEntitlements(ctx, resourceEnts...)
+		if err != nil {
+			return err
+		}
+
 	}
 
+	grantsForEntsCount := 0
 	for _, ent := range ents {
 		rAnnos := annotations.Annotations(ent.GetResource().GetAnnotations())
 		if rAnnos.Contains(&v2.SkipGrants{}) {
@@ -2075,34 +2093,18 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 		if err != nil {
 			return err
 		}
-		grantsForEnts = append(grantsForEnts, grantsForEnt...)
-	}
-
-	err = s.store.PutResourceTypes(ctx, userAndGroupResourceTypes...)
-	if err != nil {
-		return err
-	}
-
-	err = s.store.PutResources(ctx, principals...)
-	if err != nil {
-		return err
-	}
-
-	err = s.store.PutEntitlements(ctx, ents...)
-	if err != nil {
-		return err
-	}
-
-	err = s.store.PutGrants(ctx, grantsForEnts...)
-	if err != nil {
-		return err
+		grantsForEntsCount += len(grantsForEnt)
+		err = s.store.PutGrants(ctx, grantsForEnt...)
+		if err != nil {
+			return err
+		}
 	}
 
 	l.Info("Synced external resources",
 		zap.Int("resource_type_count", len(userAndGroupResourceTypes)),
-		zap.Int("resource_count", len(principals)),
-		zap.Int("entitlement_count", len(ents)),
-		zap.Int("grant_count", len(grantsForEnts)),
+		zap.Int("resource_count", principalsCount),
+		zap.Int("entitlement_count", entsCount),
+		zap.Int("grant_count", grantsForEntsCount),
 	)
 
 	err = s.processGrantsWithExternalPrincipals(ctx, principals)
