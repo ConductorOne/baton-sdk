@@ -2207,24 +2207,31 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 	return resourceTypes, nil
 }
 
-func (s *syncer) listAllGrants(ctx context.Context) ([]*v2.Grant, error) {
-	grants := make([]*v2.Grant, 0)
-	pageToken := ""
-	for {
-		grantsResp, err := s.store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
-			PageToken: pageToken,
-		}.Build())
-		if err != nil {
-			return nil, err
-		}
+func (s *syncer) listAllGrants(ctx context.Context) iter.Seq2[[]*v2.Grant, error] {
+	return func(yield func([]*v2.Grant, error) bool) {
+		pageToken := ""
+		for {
+			grantsResp, err := s.store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+				PageToken: pageToken,
+			}.Build())
+			if err != nil {
+				if !yield(nil, err) {
+					return
+				}
+				return
+			}
 
-		grants = append(grants, grantsResp.GetList()...)
-		pageToken = grantsResp.GetNextPageToken()
-		if pageToken == "" {
-			break
+			if len(grantsResp.GetList()) > 0 {
+				if !yield(grantsResp.GetList(), err) {
+					return
+				}
+			}
+			pageToken = grantsResp.GetNextPageToken()
+			if pageToken == "" {
+				break
+			}
 		}
 	}
-	return grants, nil
 }
 
 func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
@@ -2264,196 +2271,197 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	grantsToDelete := make([]string, 0)
 	expandedGrants := make([]*v2.Grant, 0)
 
-	grants, err := s.listAllGrants(ctx)
-	if err != nil {
-		return err
-	}
-
-	for _, grant := range grants {
-		annos := annotations.Annotations(grant.GetAnnotations())
-		if !annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
-			continue
-		}
-
-		// Match all
-		matchResourceMatchAllAnno, err := GetExternalResourceMatchAllAnnotation(annos)
+	for grants, err := range s.listAllGrants(ctx) {
 		if err != nil {
 			return err
 		}
-		if matchResourceMatchAllAnno != nil {
-			var processPrincipals []*v2.Resource
-			switch matchResourceMatchAllAnno.GetResourceType() {
-			case v2.ResourceType_TRAIT_USER:
-				processPrincipals = userPrincipals
-			case v2.ResourceType_TRAIT_GROUP:
-				processPrincipals = groupPrincipals
-			default:
-				l.Error("unexpected external resource type trait", zap.Any("trait", matchResourceMatchAllAnno.GetResourceType()))
+
+		for _, grant := range grants {
+			annos := annotations.Annotations(grant.GetAnnotations())
+			if !annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
+				continue
 			}
-			for _, principal := range processPrincipals {
-				newGrant := newGrantForExternalPrincipal(grant, principal)
-				expandedGrants = append(expandedGrants, newGrant)
+
+			// Match all
+			matchResourceMatchAllAnno, err := GetExternalResourceMatchAllAnnotation(annos)
+			if err != nil {
+				return err
 			}
-			grantsToDelete = append(grantsToDelete, grant.GetId())
-			continue
-		}
-
-		expandableAnno, err := GetExpandableAnnotation(annos)
-		if err != nil {
-			return err
-		}
-		expandableEntitlementsResourceMap := make(map[string][]*v2.Entitlement)
-		if expandableAnno != nil {
-			for _, entId := range expandableAnno.GetEntitlementIds() {
-				parsedEnt, err := bid.ParseEntitlementBid(entId)
-				if err != nil {
-					l.Error("error parsing expandable entitlement bid", zap.Any("entitlementId", entId))
-					continue
+			if matchResourceMatchAllAnno != nil {
+				var processPrincipals []*v2.Resource
+				switch matchResourceMatchAllAnno.GetResourceType() {
+				case v2.ResourceType_TRAIT_USER:
+					processPrincipals = userPrincipals
+				case v2.ResourceType_TRAIT_GROUP:
+					processPrincipals = groupPrincipals
+				default:
+					l.Error("unexpected external resource type trait", zap.Any("trait", matchResourceMatchAllAnno.GetResourceType()))
 				}
-				resourceBID, err := bid.MakeBid(parsedEnt.GetResource())
-				if err != nil {
-					l.Error("error making resource bid", zap.Any("parsedEnt.Resource", parsedEnt.GetResource()))
-					continue
-				}
-				entitlementMap, ok := expandableEntitlementsResourceMap[resourceBID]
-				if !ok {
-					entitlementMap = make([]*v2.Entitlement, 0)
-				}
-				entitlementMap = append(entitlementMap, parsedEnt)
-				expandableEntitlementsResourceMap[resourceBID] = entitlementMap
-			}
-		}
-
-		// Match by ID
-		matchResourceMatchIDAnno, err := GetExternalResourceMatchIDAnnotation(annos)
-		if err != nil {
-			return err
-		}
-		if matchResourceMatchIDAnno != nil {
-			if principal, ok := principalMap[matchResourceMatchIDAnno.GetId()]; ok {
-				newGrant := newGrantForExternalPrincipal(grant, principal)
-				expandedGrants = append(expandedGrants, newGrant)
-
-				newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
-
-				newExpandableEntitlementIDs := make([]string, 0)
-				if expandableAnno != nil {
-					groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
-					if err != nil {
-						l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.GetPrincipal()))
-						continue
-					}
-
-					principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
-					for _, expandableGrant := range principalEntitlements {
-						newExpandableEntId := entitlement.NewEntitlementID(principal, expandableGrant.GetSlug())
-						_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
-						if err != nil {
-							if errors.Is(err, sql.ErrNoRows) {
-								l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
-								continue
-							}
-							return err
-						}
-						newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
-					}
-
-					newExpandableAnno := v2.GrantExpandable_builder{
-						EntitlementIds:  newExpandableEntitlementIDs,
-						Shallow:         expandableAnno.GetShallow(),
-						ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
-					}.Build()
-					newGrantAnnos.Update(newExpandableAnno)
-					newGrant.SetAnnotations(newGrantAnnos)
+				for _, principal := range processPrincipals {
+					newGrant := newGrantForExternalPrincipal(grant, principal)
 					expandedGrants = append(expandedGrants, newGrant)
 				}
+				grantsToDelete = append(grantsToDelete, grant.GetId())
+				continue
 			}
 
-			// We still want to delete the grant even if there are no matches
-			// Since it does not correspond to any known user
-			grantsToDelete = append(grantsToDelete, grant.GetId())
-		}
-
-		// Match by key/val
-		matchExternalResource, err := GetExternalResourceMatchAnnotation(annos)
-		if err != nil {
-			return err
-		}
-
-		if matchExternalResource != nil {
-			switch matchExternalResource.GetResourceType() {
-			case v2.ResourceType_TRAIT_USER:
-				for _, userPrincipal := range userPrincipals {
-					userTrait, err := resource.GetUserTrait(userPrincipal)
+			expandableAnno, err := GetExpandableAnnotation(annos)
+			if err != nil {
+				return err
+			}
+			expandableEntitlementsResourceMap := make(map[string][]*v2.Entitlement)
+			if expandableAnno != nil {
+				for _, entId := range expandableAnno.GetEntitlementIds() {
+					parsedEnt, err := bid.ParseEntitlementBid(entId)
 					if err != nil {
-						l.Error("error getting user trait", zap.Any("userPrincipal", userPrincipal))
+						l.Error("error parsing expandable entitlement bid", zap.Any("entitlementId", entId))
 						continue
 					}
-					if matchExternalResource.GetKey() == "email" {
-						if userTraitContainsEmail(userTrait.GetEmails(), matchExternalResource.GetValue()) {
-							newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
-							expandedGrants = append(expandedGrants, newGrant)
-							// continue to next principal since we found an email match
+					resourceBID, err := bid.MakeBid(parsedEnt.GetResource())
+					if err != nil {
+						l.Error("error making resource bid", zap.Any("parsedEnt.Resource", parsedEnt.GetResource()))
+						continue
+					}
+					entitlementMap, ok := expandableEntitlementsResourceMap[resourceBID]
+					if !ok {
+						entitlementMap = make([]*v2.Entitlement, 0)
+					}
+					entitlementMap = append(entitlementMap, parsedEnt)
+					expandableEntitlementsResourceMap[resourceBID] = entitlementMap
+				}
+			}
+
+			// Match by ID
+			matchResourceMatchIDAnno, err := GetExternalResourceMatchIDAnnotation(annos)
+			if err != nil {
+				return err
+			}
+			if matchResourceMatchIDAnno != nil {
+				if principal, ok := principalMap[matchResourceMatchIDAnno.GetId()]; ok {
+					newGrant := newGrantForExternalPrincipal(grant, principal)
+					expandedGrants = append(expandedGrants, newGrant)
+
+					newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
+
+					newExpandableEntitlementIDs := make([]string, 0)
+					if expandableAnno != nil {
+						groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
+						if err != nil {
+							l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.GetPrincipal()))
 							continue
 						}
-					}
-					profileVal, ok := resource.GetProfileStringValue(userTrait.GetProfile(), matchExternalResource.GetKey())
-					if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
-						newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
+
+						principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
+						for _, expandableGrant := range principalEntitlements {
+							newExpandableEntId := entitlement.NewEntitlementID(principal, expandableGrant.GetSlug())
+							_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
+							if err != nil {
+								if errors.Is(err, sql.ErrNoRows) {
+									l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
+									continue
+								}
+								return err
+							}
+							newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
+						}
+
+						newExpandableAnno := v2.GrantExpandable_builder{
+							EntitlementIds:  newExpandableEntitlementIDs,
+							Shallow:         expandableAnno.GetShallow(),
+							ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
+						}.Build()
+						newGrantAnnos.Update(newExpandableAnno)
+						newGrant.SetAnnotations(newGrantAnnos)
 						expandedGrants = append(expandedGrants, newGrant)
 					}
 				}
-			case v2.ResourceType_TRAIT_GROUP:
-				for _, groupPrincipal := range groupPrincipals {
-					groupTrait, err := resource.GetGroupTrait(groupPrincipal)
-					if err != nil {
-						l.Error("error getting group trait", zap.Any("groupPrincipal", groupPrincipal))
-						continue
-					}
-					profileVal, ok := resource.GetProfileStringValue(groupTrait.GetProfile(), matchExternalResource.GetKey())
-					if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
-						newGrant := newGrantForExternalPrincipal(grant, groupPrincipal)
-						newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
 
-						newExpandableEntitlementIDs := make([]string, 0)
-						if expandableAnno != nil {
-							groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
-							if err != nil {
-								l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.GetPrincipal()))
+				// We still want to delete the grant even if there are no matches
+				// Since it does not correspond to any known user
+				grantsToDelete = append(grantsToDelete, grant.GetId())
+			}
+
+			// Match by key/val
+			matchExternalResource, err := GetExternalResourceMatchAnnotation(annos)
+			if err != nil {
+				return err
+			}
+
+			if matchExternalResource != nil {
+				switch matchExternalResource.GetResourceType() {
+				case v2.ResourceType_TRAIT_USER:
+					for _, userPrincipal := range userPrincipals {
+						userTrait, err := resource.GetUserTrait(userPrincipal)
+						if err != nil {
+							l.Error("error getting user trait", zap.Any("userPrincipal", userPrincipal))
+							continue
+						}
+						if matchExternalResource.GetKey() == "email" {
+							if userTraitContainsEmail(userTrait.GetEmails(), matchExternalResource.GetValue()) {
+								newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
+								expandedGrants = append(expandedGrants, newGrant)
+								// continue to next principal since we found an email match
 								continue
 							}
-
-							principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
-							for _, expandableGrant := range principalEntitlements {
-								newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, expandableGrant.GetSlug())
-								_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
-								if err != nil {
-									if errors.Is(err, sql.ErrNoRows) {
-										l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
-										continue
-									}
-									return err
-								}
-								newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
-							}
-
-							newExpandableAnno := v2.GrantExpandable_builder{
-								EntitlementIds:  newExpandableEntitlementIDs,
-								Shallow:         expandableAnno.GetShallow(),
-								ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
-							}.Build()
-							newGrantAnnos.Update(newExpandableAnno)
-							newGrant.SetAnnotations(newGrantAnnos)
+						}
+						profileVal, ok := resource.GetProfileStringValue(userTrait.GetProfile(), matchExternalResource.GetKey())
+						if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
+							newGrant := newGrantForExternalPrincipal(grant, userPrincipal)
 							expandedGrants = append(expandedGrants, newGrant)
 						}
 					}
-				}
-			default:
-				l.Error("unexpected external resource type trait", zap.Any("trait", matchExternalResource.GetResourceType()))
-			}
+				case v2.ResourceType_TRAIT_GROUP:
+					for _, groupPrincipal := range groupPrincipals {
+						groupTrait, err := resource.GetGroupTrait(groupPrincipal)
+						if err != nil {
+							l.Error("error getting group trait", zap.Any("groupPrincipal", groupPrincipal))
+							continue
+						}
+						profileVal, ok := resource.GetProfileStringValue(groupTrait.GetProfile(), matchExternalResource.GetKey())
+						if ok && strings.EqualFold(profileVal, matchExternalResource.GetValue()) {
+							newGrant := newGrantForExternalPrincipal(grant, groupPrincipal)
+							newGrantAnnos := annotations.Annotations(newGrant.GetAnnotations())
 
-			// We still want to delete the grant even if there are no matches
-			grantsToDelete = append(grantsToDelete, grant.GetId())
+							newExpandableEntitlementIDs := make([]string, 0)
+							if expandableAnno != nil {
+								groupPrincipalBID, err := bid.MakeBid(grant.GetPrincipal())
+								if err != nil {
+									l.Error("error making group principal bid", zap.Error(err), zap.Any("grant.Principal", grant.GetPrincipal()))
+									continue
+								}
+
+								principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
+								for _, expandableGrant := range principalEntitlements {
+									newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, expandableGrant.GetSlug())
+									_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
+									if err != nil {
+										if errors.Is(err, sql.ErrNoRows) {
+											l.Error("found no entitlement with entitlement id generated from external source sync", zap.Any("entitlementId", newExpandableEntId))
+											continue
+										}
+										return err
+									}
+									newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
+								}
+
+								newExpandableAnno := v2.GrantExpandable_builder{
+									EntitlementIds:  newExpandableEntitlementIDs,
+									Shallow:         expandableAnno.GetShallow(),
+									ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
+								}.Build()
+								newGrantAnnos.Update(newExpandableAnno)
+								newGrant.SetAnnotations(newGrantAnnos)
+								expandedGrants = append(expandedGrants, newGrant)
+							}
+						}
+					}
+				default:
+					l.Error("unexpected external resource type trait", zap.Any("trait", matchExternalResource.GetResourceType()))
+				}
+
+				// We still want to delete the grant even if there are no matches
+				grantsToDelete = append(grantsToDelete, grant.GetId())
+			}
 		}
 	}
 
@@ -2462,7 +2470,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		newGrantIDs.Add(ng.GetId())
 	}
 
-	err = s.store.PutGrants(ctx, expandedGrants...)
+	err := s.store.PutGrants(ctx, expandedGrants...)
 	if err != nil {
 		return err
 	}
