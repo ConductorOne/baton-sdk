@@ -432,15 +432,21 @@ func (s *syncer) Sync(ctx context.Context) error {
 		currentAction := s.state.Current()
 		currentActionOp := ""
 		currentActionPageToken := ""
+		currentActionResourceID := ""
+		currentActionResourceTypeID := ""
 		if currentAction != nil {
 			currentActionOp = currentAction.Op.String()
 			currentActionPageToken = currentAction.PageToken
+			currentActionResourceID = currentAction.ResourceID
+			currentActionResourceTypeID = currentAction.ResourceTypeID
 		}
 		entitlementGraph := s.state.EntitlementGraph(ctx)
 		l.Info("resumed previous sync",
 			zap.String("sync_id", syncID),
 			zap.String("sync_type", string(s.syncType)),
 			zap.String("current_action_op", currentActionOp),
+			zap.String("current_action_resource_id", currentActionResourceID),
+			zap.String("current_action_resource_type_id", currentActionResourceTypeID),
 			zap.String("current_action_page_token", currentActionPageToken),
 			zap.Bool("needs_expansion", s.state.NeedsExpansion()),
 			zap.Bool("has_external_resources_grants", s.state.HasExternalResourcesGrants()),
