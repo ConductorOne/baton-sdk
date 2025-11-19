@@ -43,6 +43,7 @@ message FieldGroup {
   string display_name = 2;
   string help_text = 3;
   repeated string fields = 4;
+  bool default = 5;
 }
 
 message Field {

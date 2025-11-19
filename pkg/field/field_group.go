@@ -5,6 +5,7 @@ type SchemaFieldGroup struct {
 	DisplayName string
 	HelpText    string
 	Fields      []SchemaField
+	Default     bool
 }
 
 func WithFieldGroups(fieldGroups []SchemaFieldGroup) configOption {
