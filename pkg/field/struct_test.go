@@ -46,6 +46,7 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
 				DisplayName: "Group 1",
 				HelpText:    "This is group 1",
 				Fields:      []SchemaField{StringField("onlyInGroup1"), StringField("onlyInGroup2")},
+				Default:     true,
 			},
 		}),
 	)
@@ -82,7 +83,8 @@ func TestConfiguration_MarshalJSON(t *testing.T) {
                 "onlyInGroup2"
             ],
             "helpText": "This is group 1",
-            "name": "group1"
+            "name": "group1",
+            "default": true
         }
     ],
     "fields": [
