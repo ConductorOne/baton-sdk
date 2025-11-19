@@ -68,6 +68,7 @@ func fieldGroupToV1(fg SchemaFieldGroup) *v1_conf.FieldGroup {
 		Name:        fg.Name,
 		DisplayName: fg.DisplayName,
 		HelpText:    fg.HelpText,
+		Default:     fg.Default,
 	}.Build()
 
 	fieldGroupV1.SetFields(make([]string, 0, len(fg.Fields)))

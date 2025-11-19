@@ -445,6 +445,7 @@ type FieldGroup struct {
 	xxx_hidden_DisplayName string                 `protobuf:"bytes,2,opt,name=display_name,json=displayName,proto3"`
 	xxx_hidden_HelpText    string                 `protobuf:"bytes,3,opt,name=help_text,json=helpText,proto3"`
 	xxx_hidden_Fields      []string               `protobuf:"bytes,4,rep,name=fields,proto3"`
+	xxx_hidden_Default     bool                   `protobuf:"varint,5,opt,name=default,proto3"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -502,6 +503,13 @@ func (x *FieldGroup) GetFields() []string {
 	return nil
 }
 
+func (x *FieldGroup) GetDefault() bool {
+	if x != nil {
+		return x.xxx_hidden_Default
+	}
+	return false
+}
+
 func (x *FieldGroup) SetName(v string) {
 	x.xxx_hidden_Name = v
 }
@@ -518,6 +526,10 @@ func (x *FieldGroup) SetFields(v []string) {
 	x.xxx_hidden_Fields = v
 }
 
+func (x *FieldGroup) SetDefault(v bool) {
+	x.xxx_hidden_Default = v
+}
+
 type FieldGroup_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -525,6 +537,7 @@ type FieldGroup_builder struct {
 	DisplayName string
 	HelpText    string
 	Fields      []string
+	Default     bool
 }
 
 func (b0 FieldGroup_builder) Build() *FieldGroup {
@@ -535,6 +548,7 @@ func (b0 FieldGroup_builder) Build() *FieldGroup {
 	x.xxx_hidden_DisplayName = b.DisplayName
 	x.xxx_hidden_HelpText = b.HelpText
 	x.xxx_hidden_Fields = b.Fields
+	x.xxx_hidden_Default = b.Default
 	return m0
 }
 
@@ -1506,13 +1520,14 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x15secondary_field_names\x18\x03 \x03(\tR\x13secondaryFieldNames\x12\x12\n" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x12\x1b\n" +
 	"\thelp_text\x18\x05 \x01(\tR\bhelpText\x12$\n" +
-	"\x0eis_field_group\x18\x06 \x01(\bR\fisFieldGroup\"x\n" +
+	"\x0eis_field_group\x18\x06 \x01(\bR\fisFieldGroup\"\x92\x01\n" +
 	"\n" +
 	"FieldGroup\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\x1b\n" +
 	"\thelp_text\x18\x03 \x01(\tR\bhelpText\x12\x16\n" +
-	"\x06fields\x18\x04 \x03(\tR\x06fields\"\xab\x04\n" +
+	"\x06fields\x18\x04 \x03(\tR\x06fields\x12\x18\n" +
+	"\adefault\x18\x05 \x01(\bR\adefault\"\xab\x04\n" +
 	"\x05Field\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12 \n" +

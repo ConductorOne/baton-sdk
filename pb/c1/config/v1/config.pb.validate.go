@@ -386,6 +386,8 @@ func (m *FieldGroup) validate(all bool) error {
 
 	// no validation rules for HelpText
 
+	// no validation rules for Default
+
 	if len(errors) > 0 {
 		return FieldGroupMultiError(errors)
 	}
