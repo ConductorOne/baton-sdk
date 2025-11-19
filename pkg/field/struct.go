@@ -94,10 +94,6 @@ func NewConfiguration(fields []SchemaField, opts ...configOption) Configuration 
 func (c *Configuration) FieldGroupFields(group string) map[string]SchemaField {
 	var fieldGroupMap map[string]SchemaField
 
-	if group == "" {
-		return fieldGroupMap
-	}
-
 	for _, fg := range c.FieldGroups {
 		if fg.Name == group {
 			fieldGroupMap = fg.FieldMap()
