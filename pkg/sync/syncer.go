@@ -551,6 +551,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 					s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
 				}
 				s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+				s.state.PushAction(ctx, Action{Op: SyncStaticEntitlementsOp})
 			}
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
 			s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
@@ -588,6 +589,18 @@ func (s *syncer) Sync(ctx context.Context) error {
 			}
 			continue
 
+		case SyncStaticEntitlementsOp:
+			err = s.SyncStaticEntitlements(ctx)
+			if isWarning(ctx, err) {
+				l.Warn("skipping sync static entitlements action", zap.Any("stateAction", stateAction), zap.Error(err))
+				warnings = append(warnings, err)
+				s.state.FinishAction(ctx)
+				continue
+			}
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
+				return err
+			}
+			continue
 		case SyncEntitlementsOp:
 			err = s.SyncEntitlements(ctx)
 			if isWarning(ctx, err) {
@@ -718,6 +731,29 @@ func (s *syncer) SkipSync(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.ResourceType, error] {
+	return func(yield func([]*v2.ResourceType, error) bool) {
+		pageToken := ""
+		for {
+			resp, err := s.connector.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{PageToken: pageToken}.Build())
+			if err != nil {
+				_ = yield(nil, err)
+				return
+			}
+			resourceTypes := resp.GetList()
+			if len(resourceTypes) > 0 {
+				if !yield(resourceTypes, err) {
+					return
+				}
+			}
+			pageToken = resp.GetNextPageToken()
+			if pageToken == "" {
+				return
+			}
+		}
+	}
 }
 
 // SyncResourceTypes calls the ListResourceType() connector endpoint and persists the results in to the datasource.
@@ -1247,6 +1283,95 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 	} else {
 		s.counts.EntitlementsProgress[resourceID.GetResourceType()] += 1
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
+
+		s.state.FinishAction(ctx)
+	}
+
+	return nil
+}
+
+func (s *syncer) SyncStaticEntitlements(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "syncer.SyncStaticEntitlements")
+	defer span.End()
+
+	if s.state.ResourceTypeID(ctx) != "" {
+		return s.syncStaticEntitlementsForResourceType(ctx, s.state.ResourceTypeID(ctx))
+	}
+
+	ctxzap.Extract(ctx).Info("Syncing static entitlements...")
+	s.handleInitialActionForStep(ctx, *s.state.Current())
+
+	s.state.FinishAction(ctx)
+	for rts, err := range s.listAllResourceTypes(ctx) {
+		if err != nil {
+			return err
+		}
+		for _, rt := range rts {
+			// Queue up actions to sync static entitlements for each resource type
+			s.state.PushAction(ctx, Action{Op: SyncStaticEntitlementsOp, ResourceTypeID: rt.GetId()})
+		}
+	}
+
+	return nil
+}
+
+func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, resourceTypeID string) error {
+	ctx, span := tracer.Start(ctx, "syncer.syncStaticEntitlementsForResource")
+	defer span.End()
+
+	resp, err := s.connector.ListStaticEntitlements(ctx, v2.EntitlementsServiceListStaticEntitlementsRequest_builder{
+		ResourceTypeId: resourceTypeID,
+		PageToken:      s.state.PageToken(ctx),
+		ActiveSyncId:   s.getActiveSyncID(),
+	}.Build())
+	if err != nil {
+		return err
+	}
+
+	for _, ent := range resp.GetList() {
+		resourcePageToken := ""
+		for {
+			// get all resources of resource type and create entitlements for each one
+			resourcesResp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+				ResourceTypeId: resourceTypeID,
+				PageToken:      resourcePageToken,
+				ActiveSyncId:   s.getActiveSyncID(),
+			}.Build())
+			if err != nil {
+				return err
+			}
+			entitlements := []*v2.Entitlement{}
+			for _, resource := range resourcesResp.GetList() {
+				entitlements = append(entitlements, &v2.Entitlement{
+					Resource:    resource,
+					Id:          entitlement.NewEntitlementID(resource, ent.GetSlug()),
+					DisplayName: ent.GetDisplayName(),
+					Description: ent.GetDescription(),
+					GrantableTo: ent.GetGrantableTo(),
+					Annotations: ent.GetAnnotations(),
+				})
+			}
+			err = s.store.PutEntitlements(ctx, entitlements...)
+			if err != nil {
+				return err
+			}
+			resourcePageToken = resourcesResp.GetNextPageToken()
+			if resourcePageToken == "" {
+				break
+			}
+		}
+	}
+
+	s.handleProgress(ctx, s.state.Current(), len(resp.GetList()))
+
+	if resp.GetNextPageToken() != "" {
+		err = s.state.NextPage(ctx, resp.GetNextPageToken())
+		if err != nil {
+			return err
+		}
+	} else {
+		s.counts.EntitlementsProgress[resourceTypeID] += 1
+		s.counts.LogEntitlementsProgress(ctx, resourceTypeID)
 
 		s.state.FinishAction(ctx)
 	}

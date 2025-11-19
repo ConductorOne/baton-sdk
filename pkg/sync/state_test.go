@@ -9,12 +9,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var allActionOps = []ActionOp{
+	UnknownOp,
+	InitOp,
+	SyncResourceTypesOp,
+	SyncResourcesOp,
+	SyncEntitlementsOp,
+	ListResourcesForEntitlementsOp,
+	SyncGrantsOp,
+	SyncExternalResourcesOp,
+	SyncAssetsOp,
+	SyncGrantExpansionOp,
+	SyncTargetedResourceOp,
+	SyncStaticEntitlementsOp,
+}
+
 func compareSyncerState(t *testing.T, expected Action, actual *Action) {
 	require.NotNil(t, actual)
 	require.Equal(t, expected.Op, actual.Op)
 	require.Equal(t, expected.PageToken, actual.PageToken)
 	require.Equal(t, expected.ResourceID, actual.ResourceID)
 	require.Equal(t, expected.ResourceTypeID, actual.ResourceTypeID)
+}
+
+func TestActionOps(t *testing.T) {
+	for _, op := range allActionOps {
+		require.Equal(t, op, newActionOp(op.String()), "action op %s should be equal to %s", op.String(), op.String())
+	}
 }
 
 func TestSyncerToken(t *testing.T) {

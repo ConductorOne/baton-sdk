@@ -44,6 +44,10 @@ type ResourceSyncerLimited interface {
 	Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error)
 }
 
+type StaticEntitlementSyncer interface {
+	StaticEntitlements(ctx context.Context, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error)
+}
+
 type ResourceSyncerV2 interface {
 	ResourceType
 	ResourceSyncerV2Limited
@@ -53,6 +57,10 @@ type ResourceSyncerV2Limited interface {
 	List(ctx context.Context, parentResourceID *v2.ResourceId, opts resource.SyncOpAttrs) ([]*v2.Resource, *resource.SyncOpResults, error)
 	Entitlements(ctx context.Context, resource *v2.Resource, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error)
 	Grants(ctx context.Context, resource *v2.Resource, opts resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error)
+}
+
+type StaticEntitlementSyncerV2 interface {
+	StaticEntitlements(ctx context.Context, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error)
 }
 
 // ResourceTargetedSyncer extends ResourceSyncer to add capabilities for directly syncing an individual resource
@@ -170,6 +178,57 @@ func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterSer
 	}.Build(), nil
 }
 
+// ListStaticEntitlements returns all the static entitlements for a given resource type.
+// Static entitlements are used to create entitlements for all resources of a given resource type.
+func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.EntitlementsServiceListStaticEntitlementsRequest) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
+	ctx, span := tracer.Start(ctx, "builder.ListStaticEntitlements")
+	defer span.End()
+
+	start := b.nowFunc()
+	tt := tasks.ListStaticEntitlementsType
+	rb, ok := b.resourceSyncers[request.GetResourceTypeId()]
+	if !ok {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: list static entitlements with unknown resource type %s", request.GetResourceTypeId())
+	}
+	rbse, ok := rb.(StaticEntitlementSyncerV2)
+	if !ok {
+		// Resource syncer doesn't support static entitlements. Return empty response.
+		return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{
+			List:          []*v2.Entitlement{},
+			NextPageToken: "",
+			Annotations:   nil,
+		}.Build(), nil
+	}
+
+	token := pagination.Token{
+		Size:  int(request.GetPageSize()),
+		Token: request.GetPageToken(),
+	}
+	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
+	out, retOptions, err := rbse.StaticEntitlements(ctx, opts)
+	if retOptions == nil {
+		retOptions = &resource.SyncOpResults{}
+	}
+
+	resp := v2.EntitlementsServiceListStaticEntitlementsResponse_builder{
+		List:          out,
+		NextPageToken: retOptions.NextPageToken,
+		Annotations:   retOptions.Annotations,
+	}.Build()
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: listing static entitlements failed: %w", err)
+	}
+	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return resp, fmt.Errorf("error: listing static entitlements failed: next page token is the same as the current page token. this is most likely a connector bug")
+	}
+
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return resp, nil
+}
+
 // ListEntitlements returns all the entitlements for a given resource.
 func (b *builder) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListEntitlements")
@@ -263,6 +322,9 @@ type resourceSyncerV1toV2 struct {
 	rb ResourceSyncer
 }
 
+var _ ResourceSyncerV2 = &resourceSyncerV1toV2{}
+var _ StaticEntitlementSyncerV2 = &resourceSyncerV1toV2{}
+
 func (rw *resourceSyncerV1toV2) ResourceType(ctx context.Context) *v2.ResourceType {
 	return rw.rb.ResourceType(ctx)
 }
@@ -279,13 +341,24 @@ func (rw *resourceSyncerV1toV2) Entitlements(ctx context.Context, r *v2.Resource
 	return ents, ret, err
 }
 
+func (rw *resourceSyncerV1toV2) StaticEntitlements(ctx context.Context, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
+	rb, ok := rw.rb.(StaticEntitlementSyncer)
+	if !ok {
+		return nil, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
+	}
+
+	ents, pageToken, annos, err := rb.StaticEntitlements(ctx, &opts.PageToken)
+	ret := &resource.SyncOpResults{NextPageToken: pageToken, Annotations: annos}
+	return ents, ret, err
+}
+
 func (rw *resourceSyncerV1toV2) Grants(ctx context.Context, r *v2.Resource, opts resource.SyncOpAttrs) ([]*v2.Grant, *resource.SyncOpResults, error) {
 	grants, pageToken, annos, err := rw.rb.Grants(ctx, r, &opts.PageToken)
 	ret := &resource.SyncOpResults{NextPageToken: pageToken, Annotations: annos}
 	return grants, ret, err
 }
 
-func (b *builder) addTargetedSyncer(_ context.Context, typeId string, in interface{}) error {
+func (b *builder) addTargetedSyncer(_ context.Context, typeId string, in any) error {
 	if targetedSyncer, ok := in.(ResourceTargetedSyncerLimited); ok {
 		if _, ok := b.resourceTargetedSyncers[typeId]; ok {
 			return fmt.Errorf("error: duplicate resource type found for resource targeted syncer %s", typeId)
@@ -295,7 +368,7 @@ func (b *builder) addTargetedSyncer(_ context.Context, typeId string, in interfa
 	return nil
 }
 
-func (b *builder) addResourceSyncers(_ context.Context, typeId string, in interface{}) error {
+func (b *builder) addResourceSyncers(_ context.Context, typeId string, in any) error {
 	// no duplicates
 	if _, ok := b.resourceSyncers[typeId]; ok {
 		return fmt.Errorf("error: duplicate resource type found for resource builder %s", typeId)
