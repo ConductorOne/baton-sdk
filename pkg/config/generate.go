@@ -27,6 +27,18 @@ func Generate(name string, schema field.Configuration) {
 	if len(schema.Fields) == 0 {
 		panic("schema must contain at least one field")
 	}
+
+	defaultGroupCount := 0
+	for _, group := range schema.FieldGroups {
+		if group.Default {
+			defaultGroupCount++
+		}
+	}
+
+	if defaultGroupCount > 1 {
+		panic("schema must not contain more than one default field group")
+	}
+
 	confschema := schema
 	confschema.Fields = append(confschema.Fields, field.DefaultFields...)
 	// Ensure unique fields

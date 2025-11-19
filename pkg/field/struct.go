@@ -105,5 +105,18 @@ func (c *Configuration) FieldGroupFields(group string) map[string]SchemaField {
 		}
 	}
 
+	if fieldGroupMap == nil {
+		for _, fg := range c.FieldGroups {
+			if fg.Default {
+				fieldGroupMap = fg.FieldMap()
+				break
+			}
+		}
+	}
+
+	if fieldGroupMap == nil && len(c.FieldGroups) >= 1 {
+		fieldGroupMap = c.FieldGroups[0].FieldMap()
+	}
+
 	return fieldGroupMap
 }
