@@ -443,6 +443,204 @@ func (b0 EntitlementsServiceListEntitlementsResponse_builder) Build() *Entitleme
 	return m0
 }
 
+type EntitlementsServiceListStaticEntitlementsRequest struct {
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	ResourceTypeId string                 `protobuf:"bytes,1,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"`
+	PageSize       uint32                 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
+	PageToken      string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
+	Annotations    []*anypb.Any           `protobuf:"bytes,4,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	ActiveSyncId   string                 `protobuf:"bytes,5,opt,name=active_sync_id,json=activeSyncId,proto3" json:"active_sync_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) Reset() {
+	*x = EntitlementsServiceListStaticEntitlementsRequest{}
+	mi := &file_c1_connector_v2_entitlement_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EntitlementsServiceListStaticEntitlementsRequest) ProtoMessage() {}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_entitlement_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) GetResourceTypeId() string {
+	if x != nil {
+		return x.ResourceTypeId
+	}
+	return ""
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) GetPageSize() uint32 {
+	if x != nil {
+		return x.PageSize
+	}
+	return 0
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) GetAnnotations() []*anypb.Any {
+	if x != nil {
+		return x.Annotations
+	}
+	return nil
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) GetActiveSyncId() string {
+	if x != nil {
+		return x.ActiveSyncId
+	}
+	return ""
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) SetResourceTypeId(v string) {
+	x.ResourceTypeId = v
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) SetPageSize(v uint32) {
+	x.PageSize = v
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) SetPageToken(v string) {
+	x.PageToken = v
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) SetAnnotations(v []*anypb.Any) {
+	x.Annotations = v
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsRequest) SetActiveSyncId(v string) {
+	x.ActiveSyncId = v
+}
+
+type EntitlementsServiceListStaticEntitlementsRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ResourceTypeId string
+	PageSize       uint32
+	PageToken      string
+	Annotations    []*anypb.Any
+	ActiveSyncId   string
+}
+
+func (b0 EntitlementsServiceListStaticEntitlementsRequest_builder) Build() *EntitlementsServiceListStaticEntitlementsRequest {
+	m0 := &EntitlementsServiceListStaticEntitlementsRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.ResourceTypeId = b.ResourceTypeId
+	x.PageSize = b.PageSize
+	x.PageToken = b.PageToken
+	x.Annotations = b.Annotations
+	x.ActiveSyncId = b.ActiveSyncId
+	return m0
+}
+
+type EntitlementsServiceListStaticEntitlementsResponse struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	List          []*Entitlement         `protobuf:"bytes,1,rep,name=list,proto3" json:"list,omitempty"`
+	NextPageToken string                 `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
+	Annotations   []*anypb.Any           `protobuf:"bytes,3,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsResponse) Reset() {
+	*x = EntitlementsServiceListStaticEntitlementsResponse{}
+	mi := &file_c1_connector_v2_entitlement_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EntitlementsServiceListStaticEntitlementsResponse) ProtoMessage() {}
+
+func (x *EntitlementsServiceListStaticEntitlementsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_entitlement_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsResponse) GetList() []*Entitlement {
+	if x != nil {
+		return x.List
+	}
+	return nil
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsResponse) GetAnnotations() []*anypb.Any {
+	if x != nil {
+		return x.Annotations
+	}
+	return nil
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsResponse) SetList(v []*Entitlement) {
+	x.List = v
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsResponse) SetNextPageToken(v string) {
+	x.NextPageToken = v
+}
+
+func (x *EntitlementsServiceListStaticEntitlementsResponse) SetAnnotations(v []*anypb.Any) {
+	x.Annotations = v
+}
+
+type EntitlementsServiceListStaticEntitlementsResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	List          []*Entitlement
+	NextPageToken string
+	Annotations   []*anypb.Any
+}
+
+func (b0 EntitlementsServiceListStaticEntitlementsResponse_builder) Build() *EntitlementsServiceListStaticEntitlementsResponse {
+	m0 := &EntitlementsServiceListStaticEntitlementsResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.List = b.List
+	x.NextPageToken = b.NextPageToken
+	x.Annotations = b.Annotations
+	return m0
+}
+
 var File_c1_connector_v2_entitlement_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_entitlement_proto_rawDesc = "" +
@@ -476,37 +674,59 @@ const file_c1_connector_v2_entitlement_proto_rawDesc = "" +
 	"+EntitlementsServiceListEntitlementsResponse\x120\n" +
 	"\x04list\x18\x01 \x03(\v2\x1c.c1.connector.v2.EntitlementR\x04list\x126\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\rnextPageToken\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations2\xa5\x01\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xad\x02\n" +
+	"0EntitlementsServiceListStaticEntitlementsRequest\x124\n" +
+	"\x10resource_type_id\x18\x01 \x01(\tB\n" +
+	"\xfaB\ar\x05 \x01(\x80\bR\x0eresourceTypeId\x12'\n" +
+	"\tpage_size\x18\x02 \x01(\rB\n" +
+	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12-\n" +
+	"\n" +
+	"page_token\x18\x03 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\tpageToken\x126\n" +
+	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
+	"\x0eactive_sync_id\x18\x05 \x01(\tB\r\xfaB\n" +
+	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\"\xd5\x01\n" +
+	"1EntitlementsServiceListStaticEntitlementsResponse\x120\n" +
+	"\x04list\x18\x01 \x03(\v2\x1c.c1.connector.v2.EntitlementR\x04list\x126\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\rnextPageToken\x126\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations2\xc7\x02\n" +
 	"\x13EntitlementsService\x12\x8d\x01\n" +
-	"\x10ListEntitlements\x12;.c1.connector.v2.EntitlementsServiceListEntitlementsRequest\x1a<.c1.connector.v2.EntitlementsServiceListEntitlementsResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\x10ListEntitlements\x12;.c1.connector.v2.EntitlementsServiceListEntitlementsRequest\x1a<.c1.connector.v2.EntitlementsServiceListEntitlementsResponse\x12\x9f\x01\n" +
+	"\x16ListStaticEntitlements\x12A.c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest\x1aB.c1.connector.v2.EntitlementsServiceListStaticEntitlementsResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_entitlement_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_connector_v2_entitlement_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_c1_connector_v2_entitlement_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_c1_connector_v2_entitlement_proto_goTypes = []any{
-	(Entitlement_PurposeValue)(0),                       // 0: c1.connector.v2.Entitlement.PurposeValue
-	(*Entitlement)(nil),                                 // 1: c1.connector.v2.Entitlement
-	(*EntitlementsServiceListEntitlementsRequest)(nil),  // 2: c1.connector.v2.EntitlementsServiceListEntitlementsRequest
-	(*EntitlementsServiceListEntitlementsResponse)(nil), // 3: c1.connector.v2.EntitlementsServiceListEntitlementsResponse
-	(*Resource)(nil),                                    // 4: c1.connector.v2.Resource
-	(*ResourceType)(nil),                                // 5: c1.connector.v2.ResourceType
-	(*anypb.Any)(nil),                                   // 6: google.protobuf.Any
+	(Entitlement_PurposeValue)(0),                             // 0: c1.connector.v2.Entitlement.PurposeValue
+	(*Entitlement)(nil),                                       // 1: c1.connector.v2.Entitlement
+	(*EntitlementsServiceListEntitlementsRequest)(nil),        // 2: c1.connector.v2.EntitlementsServiceListEntitlementsRequest
+	(*EntitlementsServiceListEntitlementsResponse)(nil),       // 3: c1.connector.v2.EntitlementsServiceListEntitlementsResponse
+	(*EntitlementsServiceListStaticEntitlementsRequest)(nil),  // 4: c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest
+	(*EntitlementsServiceListStaticEntitlementsResponse)(nil), // 5: c1.connector.v2.EntitlementsServiceListStaticEntitlementsResponse
+	(*Resource)(nil),     // 6: c1.connector.v2.Resource
+	(*ResourceType)(nil), // 7: c1.connector.v2.ResourceType
+	(*anypb.Any)(nil),    // 8: google.protobuf.Any
 }
 var file_c1_connector_v2_entitlement_proto_depIdxs = []int32{
-	4, // 0: c1.connector.v2.Entitlement.resource:type_name -> c1.connector.v2.Resource
-	5, // 1: c1.connector.v2.Entitlement.grantable_to:type_name -> c1.connector.v2.ResourceType
-	6, // 2: c1.connector.v2.Entitlement.annotations:type_name -> google.protobuf.Any
-	0, // 3: c1.connector.v2.Entitlement.purpose:type_name -> c1.connector.v2.Entitlement.PurposeValue
-	4, // 4: c1.connector.v2.EntitlementsServiceListEntitlementsRequest.resource:type_name -> c1.connector.v2.Resource
-	6, // 5: c1.connector.v2.EntitlementsServiceListEntitlementsRequest.annotations:type_name -> google.protobuf.Any
-	1, // 6: c1.connector.v2.EntitlementsServiceListEntitlementsResponse.list:type_name -> c1.connector.v2.Entitlement
-	6, // 7: c1.connector.v2.EntitlementsServiceListEntitlementsResponse.annotations:type_name -> google.protobuf.Any
-	2, // 8: c1.connector.v2.EntitlementsService.ListEntitlements:input_type -> c1.connector.v2.EntitlementsServiceListEntitlementsRequest
-	3, // 9: c1.connector.v2.EntitlementsService.ListEntitlements:output_type -> c1.connector.v2.EntitlementsServiceListEntitlementsResponse
-	9, // [9:10] is the sub-list for method output_type
-	8, // [8:9] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	6,  // 0: c1.connector.v2.Entitlement.resource:type_name -> c1.connector.v2.Resource
+	7,  // 1: c1.connector.v2.Entitlement.grantable_to:type_name -> c1.connector.v2.ResourceType
+	8,  // 2: c1.connector.v2.Entitlement.annotations:type_name -> google.protobuf.Any
+	0,  // 3: c1.connector.v2.Entitlement.purpose:type_name -> c1.connector.v2.Entitlement.PurposeValue
+	6,  // 4: c1.connector.v2.EntitlementsServiceListEntitlementsRequest.resource:type_name -> c1.connector.v2.Resource
+	8,  // 5: c1.connector.v2.EntitlementsServiceListEntitlementsRequest.annotations:type_name -> google.protobuf.Any
+	1,  // 6: c1.connector.v2.EntitlementsServiceListEntitlementsResponse.list:type_name -> c1.connector.v2.Entitlement
+	8,  // 7: c1.connector.v2.EntitlementsServiceListEntitlementsResponse.annotations:type_name -> google.protobuf.Any
+	8,  // 8: c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest.annotations:type_name -> google.protobuf.Any
+	1,  // 9: c1.connector.v2.EntitlementsServiceListStaticEntitlementsResponse.list:type_name -> c1.connector.v2.Entitlement
+	8,  // 10: c1.connector.v2.EntitlementsServiceListStaticEntitlementsResponse.annotations:type_name -> google.protobuf.Any
+	2,  // 11: c1.connector.v2.EntitlementsService.ListEntitlements:input_type -> c1.connector.v2.EntitlementsServiceListEntitlementsRequest
+	4,  // 12: c1.connector.v2.EntitlementsService.ListStaticEntitlements:input_type -> c1.connector.v2.EntitlementsServiceListStaticEntitlementsRequest
+	3,  // 13: c1.connector.v2.EntitlementsService.ListEntitlements:output_type -> c1.connector.v2.EntitlementsServiceListEntitlementsResponse
+	5,  // 14: c1.connector.v2.EntitlementsService.ListStaticEntitlements:output_type -> c1.connector.v2.EntitlementsServiceListStaticEntitlementsResponse
+	13, // [13:15] is the sub-list for method output_type
+	11, // [11:13] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_entitlement_proto_init() }
@@ -521,7 +741,7 @@ func file_c1_connector_v2_entitlement_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_entitlement_proto_rawDesc), len(file_c1_connector_v2_entitlement_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

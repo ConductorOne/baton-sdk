@@ -10,6 +10,7 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
 service EntitlementsService {
   rpc ListEntitlements(EntitlementsServiceListEntitlementsRequest) returns (EntitlementsServiceListEntitlementsResponse);
+  rpc ListStaticEntitlements(EntitlementsServiceListStaticEntitlementsRequest) returns (EntitlementsServiceListStaticEntitlementsResponse);
 }
 
 message Entitlement {
@@ -60,6 +61,38 @@ message EntitlementsServiceListEntitlementsRequest {
 }
 
 message EntitlementsServiceListEntitlementsResponse {
+  repeated Entitlement list = 1;
+  string next_page_token = 2 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 1048576 // 1MB
+  }];
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message EntitlementsServiceListStaticEntitlementsRequest {
+  string resource_type_id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  uint32 page_size = 2 [(validate.rules).uint32 = {
+    ignore_empty: true
+    lte: 250
+  }];
+  string page_token = 3 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 1048576 // 1MB
+  }];
+  repeated google.protobuf.Any annotations = 4;
+  string active_sync_id = 5 [(validate.rules).string = {
+    ignore_empty: true
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+}
+
+message EntitlementsServiceListStaticEntitlementsResponse {
   repeated Entitlement list = 1;
   string next_page_token = 2 [(validate.rules).string = {
     ignore_empty: true

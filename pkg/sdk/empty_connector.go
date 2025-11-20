@@ -53,6 +53,16 @@ func (n *emptyConnector) ListEntitlements(
 	}.Build(), nil
 }
 
+func (n *emptyConnector) ListStaticEntitlements(
+	ctx context.Context,
+	request *v2.EntitlementsServiceListStaticEntitlementsRequest,
+	opts ...grpc.CallOption,
+) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
+	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{
+		List: []*v2.Entitlement{},
+	}.Build(), nil
+}
+
 // ListGrants returns a list of grants.
 func (n *emptyConnector) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
 	return v2.GrantsServiceListGrantsResponse_builder{

@@ -194,6 +194,10 @@ func (t *testResourceSyncerV2Simple) List(
 	}, nil, nil
 }
 
+func (t *testResourceSyncerV2Simple) StaticEntitlements(ctx context.Context, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
+	return []*v2.Entitlement{}, nil, nil
+}
+
 func (t *testResourceSyncerV2Simple) Entitlements(
 	ctx context.Context,
 	resource *v2.Resource,

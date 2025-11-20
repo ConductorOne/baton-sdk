@@ -130,6 +130,10 @@ func (t *testResourceSyncerV2WithTargetedSync) List(
 	}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
+func (t *testResourceSyncerV2WithTargetedSync) StaticEntitlements(ctx context.Context, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
+	return []*v2.Entitlement{}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
+}
+
 func (t *testResourceSyncerV2WithTargetedSync) Entitlements(
 	ctx context.Context,
 	r *v2.Resource,

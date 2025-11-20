@@ -52,6 +52,8 @@ func (s ActionOp) String() string {
 		return "list-resources"
 	case SyncEntitlementsOp:
 		return "list-entitlements"
+	case ListResourcesForEntitlementsOp:
+		return "list-resources-for-entitlements"
 	case SyncGrantsOp:
 		return "list-grants"
 	case SyncExternalResourcesOp:
@@ -62,6 +64,8 @@ func (s ActionOp) String() string {
 		return "grant-expansion"
 	case SyncTargetedResourceOp:
 		return "targeted-resource-sync"
+	case SyncStaticEntitlementsOp:
+		return "list-static-entitlements"
 	default:
 		return "unknown"
 	}
@@ -105,11 +109,17 @@ func newActionOp(str string) ActionOp {
 		return SyncExternalResourcesOp
 	case SyncTargetedResourceOp.String():
 		return SyncTargetedResourceOp
+	case SyncStaticEntitlementsOp.String():
+		return SyncStaticEntitlementsOp
+	case ListResourcesForEntitlementsOp.String():
+		return ListResourcesForEntitlementsOp
 	default:
 		return UnknownOp
 	}
 }
 
+// Do not change the order of these constants, and only append new ones at the end.
+// Otherwise resuming a sync started by an older version of baton-sdk will cause very strange behavior.
 const (
 	UnknownOp ActionOp = iota
 	InitOp
@@ -122,6 +132,7 @@ const (
 	SyncAssetsOp
 	SyncGrantExpansionOp
 	SyncTargetedResourceOp
+	SyncStaticEntitlementsOp
 )
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.

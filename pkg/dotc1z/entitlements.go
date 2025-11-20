@@ -97,6 +97,16 @@ func (c *C1File) GetEntitlement(ctx context.Context, request *reader_v2.Entitlem
 	}.Build(), nil
 }
 
+func (c *C1File) ListStaticEntitlements(ctx context.Context, request *v2.EntitlementsServiceListStaticEntitlementsRequest) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
+	_, span := tracer.Start(ctx, "C1File.ListStaticEntitlements")
+	defer span.End()
+
+	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{
+		List:          []*v2.Entitlement{},
+		NextPageToken: "",
+	}.Build(), nil
+}
+
 func (c *C1File) PutEntitlements(ctx context.Context, entitlementObjs ...*v2.Entitlement) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutEntitlements")
 	defer span.End()

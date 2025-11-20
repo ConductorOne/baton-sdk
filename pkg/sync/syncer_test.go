@@ -1344,6 +1344,7 @@ type mockConnector struct {
 	v2.TicketsServiceClient
 	v2.ActionServiceClient
 	v2.ResourceGetterServiceClient
+	v2.EntitlementsServiceClient
 }
 
 func (mc *mockConnector) AddGroup(ctx context.Context, groupId string) (*v2.Resource, *v2.Entitlement, error) {
@@ -1464,6 +1465,14 @@ func (mc *mockConnector) GetResource(ctx context.Context, in *v2.ResourceGetterS
 
 func (mc *mockConnector) ListEntitlements(ctx context.Context, in *v2.EntitlementsServiceListEntitlementsRequest, opts ...grpc.CallOption) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	return v2.EntitlementsServiceListEntitlementsResponse_builder{List: mc.entDB[in.GetResource().GetId().GetResource()]}.Build(), nil
+}
+
+func (mc *mockConnector) ListStaticEntitlements(
+	ctx context.Context,
+	in *v2.EntitlementsServiceListStaticEntitlementsRequest,
+	opts ...grpc.CallOption,
+) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
+	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{List: []*v2.Entitlement{}}.Build(), nil
 }
 
 func (mc *mockConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
