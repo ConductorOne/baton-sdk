@@ -1899,6 +1899,10 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	grants = append(grants, resp.GetList()...)
 
 	l := ctxzap.Extract(ctx)
+	resourcesToInsert := make([]*v2.Resource, 0)
+	respAnnos := annotations.Annotations(resp.GetAnnotations())
+	insertResourceGrants := respAnnos.Contains(&v2.InsertResourceGrants{})
+
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
 		if !s.dontExpandGrants && grantAnnos.Contains(&v2.GrantExpandable{}) {
@@ -1906,6 +1910,11 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		}
 		if grantAnnos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			s.state.SetHasExternalResourcesGrants()
+		}
+
+		if insertResourceGrants {
+			resource := grant.GetEntitlement().GetResource()
+			resourcesToInsert = append(resourcesToInsert, resource)
 		}
 
 		if !s.state.ShouldFetchRelatedResources() {
@@ -1936,6 +1945,14 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 			}
 		}
 	}
+
+	if len(resourcesToInsert) > 0 {
+		err = s.store.PutResources(ctx, resourcesToInsert...)
+		if err != nil {
+			return err
+		}
+	}
+
 	err = s.store.PutGrants(ctx, grants...)
 	if err != nil {
 		return err
