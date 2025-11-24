@@ -27,3 +27,6 @@ message GrantAlreadyExists {}
 
 // Grant was not revoked because the entitlement does not exist.
 message GrantAlreadyRevoked {}
+
+// If a resource for a grant doesn't exist, insert it.
+message InsertResourceGrants {}
