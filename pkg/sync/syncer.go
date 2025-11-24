@@ -1899,7 +1899,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 	grants = append(grants, resp.GetList()...)
 
 	l := ctxzap.Extract(ctx)
-	resourcesToInsert := make([]*v2.Resource, 0)
+	resourcesToInsertMap := make(map[string]*v2.Resource, 0)
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	insertResourceGrants := respAnnos.Contains(&v2.InsertResourceGrants{})
 
@@ -1914,7 +1914,11 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 		if insertResourceGrants {
 			resource := grant.GetEntitlement().GetResource()
-			resourcesToInsert = append(resourcesToInsert, resource)
+			bid, err := bid.MakeBid(resource)
+			if err != nil {
+				return err
+			}
+			resourcesToInsertMap[bid] = resource
 		}
 
 		if !s.state.ShouldFetchRelatedResources() {
@@ -1946,7 +1950,11 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		}
 	}
 
-	if len(resourcesToInsert) > 0 {
+	if len(resourcesToInsertMap) > 0 {
+		resourcesToInsert := make([]*v2.Resource, 0)
+		for _, resource := range resourcesToInsertMap {
+			resourcesToInsert = append(resourcesToInsert, resource)
+		}
 		err = s.store.PutResources(ctx, resourcesToInsert...)
 		if err != nil {
 			return err
