@@ -518,3 +518,27 @@ func TestWrapperConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestWrapper_RedactSensitiveHeaders(t *testing.T) {
+	headers := http.Header{
+		"Authorization":       {"Bearer 1234567890"},
+		"Set-Cookie":          {"session=1234567890"},
+		"Cookie":              {"session=1234567890"},
+		"X-Auth-User":         {"user@example.com"},
+		"Content-Type":        {"application/json"},
+		"X-Auth-Token":        {"1234567890"},
+		"X-Api-Key":           {"1234567890"},
+		"Proxy-Authorization": {"Basic 1234567890"},
+	}
+	redactedHeaders := RedactSensitiveHeaders(headers)
+	require.Equal(t, http.Header{
+		"Authorization":       {"REDACTED"},
+		"Set-Cookie":          {"REDACTED"},
+		"Cookie":              {"REDACTED"},
+		"X-Auth-User":         {"REDACTED"},
+		"Content-Type":        {"application/json"},
+		"X-Auth-Token":        {"REDACTED"},
+		"X-Api-Key":           {"REDACTED"},
+		"Proxy-Authorization": {"REDACTED"},
+	}, redactedHeaders)
+}

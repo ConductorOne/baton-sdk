@@ -433,7 +433,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 
 	// Log response headers directly for certain errors
 	if resp.StatusCode >= 400 {
-		redactedHeaders := redactHeaders(resp.Header)
+		redactedHeaders := RedactSensitiveHeaders(resp.Header)
 		l.Error("base-http-client: HTTP error status",
 			zap.Int("status_code", resp.StatusCode),
 			zap.String("status", resp.Status),
@@ -476,13 +476,26 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	return resp, errors.Join(optErrs...)
 }
 
-func redactHeaders(h http.Header) http.Header {
+func RedactSensitiveHeaders(h http.Header) http.Header {
+	if h == nil {
+		return nil
+	}
 	safe := make(http.Header, len(h))
 	for k, v := range h {
-		switch strings.ToLower(k) {
-		case "authorization", "set-cookie", "cookie":
+		sensitive := false
+		headerKey := strings.ToLower(k)
+		if strings.HasPrefix(headerKey, "auth") {
+			sensitive = true
+		} else {
+			switch headerKey {
+			case "set-cookie", "cookie", "x-auth-token", "x-api-key", "x-auth-user", "proxy-authorization":
+				sensitive = true
+			}
+		}
+
+		if sensitive {
 			safe[k] = []string{"REDACTED"}
-		default:
+		} else {
 			safe[k] = v
 		}
 	}
