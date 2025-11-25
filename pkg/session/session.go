@@ -28,6 +28,10 @@ type GetManyable[T any] interface {
 
 func UnrollGetMany[T any](ctx context.Context, ss GetManyable[T], keys []string, opt ...sessions.SessionStoreOption) (map[string]T, error) {
 	all := make(map[string]T)
+	if len(keys) == 0 {
+		return all, nil
+	}
+
 	// TODO(Kans): parallelize this?
 	for keys := range Chunk(keys, MaxKeysPerRequest) {
 		some, err := ss.GetMany(ctx, keys, opt...)
@@ -44,6 +48,9 @@ type SetManyable[T any] interface {
 }
 
 func UnrollSetMany[T any](ctx context.Context, ss SetManyable[T], items map[string]T, opt ...sessions.SessionStoreOption) error {
+	if len(items) == 0 {
+		return nil
+	}
 	if len(items) <= MaxKeysPerRequest {
 		return ss.SetMany(ctx, items, opt...)
 	}

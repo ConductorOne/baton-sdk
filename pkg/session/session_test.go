@@ -656,7 +656,7 @@ func TestUnrollSetMany(t *testing.T) {
 		ctx := context.Background()
 		err := UnrollSetMany(ctx, mockStore, make(map[string][]byte))
 		require.NoError(t, err)
-		require.Equal(t, 1, callCount)
+		require.Equal(t, 0, callCount)
 	})
 }
 
