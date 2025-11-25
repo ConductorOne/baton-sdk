@@ -1350,11 +1350,20 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, reso
 			}
 			entitlements := []*v2.Entitlement{}
 			for _, resource := range resourcesResp.GetList() {
+				displayName := ent.GetDisplayName()
+				if displayName == "" {
+					displayName = resource.GetDisplayName()
+				}
+				description := ent.GetDescription()
+				if description == "" {
+					description = resource.GetDescription()
+				}
+
 				entitlements = append(entitlements, &v2.Entitlement{
 					Resource:    resource,
 					Id:          entitlement.NewEntitlementID(resource, ent.GetSlug()),
-					DisplayName: ent.GetDisplayName(),
-					Description: ent.GetDescription(),
+					DisplayName: displayName,
+					Description: description,
 					GrantableTo: ent.GetGrantableTo(),
 					Annotations: ent.GetAnnotations(),
 				})
