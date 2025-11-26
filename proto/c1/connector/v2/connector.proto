@@ -106,7 +106,6 @@ message CapabilityPermissions {
   repeated CapabilityPermission permissions = 1;
 }
 
-
 message ResourceTypeCapability {
   c1.connector.v2.ResourceType resource_type = 1;
   repeated Capability capabilities = 2;
