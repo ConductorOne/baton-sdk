@@ -570,6 +570,65 @@ func TestUnrollGetMany(t *testing.T) {
 		require.Equal(t, "mock error", err.Error())
 	})
 
+	t.Run("unrolling unprocessed keys", func(t *testing.T) {
+		callCount := 0
+		mockStore := &MockSessionStore{
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
+				callCount++
+				result := make(map[string][]byte)
+				unprocessed := make([]string, 0)
+
+				// Simulate partial processing: return first 3 keys, mark last 2 as unprocessed
+				for i, key := range keys {
+					if i < 3 {
+						result[key] = []byte(fmt.Sprintf("value-%s", key))
+					} else {
+						unprocessed = append(unprocessed, key)
+					}
+				}
+				return result, unprocessed, nil
+			},
+		}
+
+		// Create 5 keys (less than maxKeysPerRequest = 100)
+		keys := []string{"key-0", "key-1", "key-2", "key-3", "key-4"}
+
+		ctx := context.Background()
+		result, err := UnrollGetMany(ctx, mockStore, keys)
+		require.NoError(t, err)
+		// Should be called twice: once with all 5 keys, once with the 2 unprocessed keys
+		require.Equal(t, 2, callCount)
+		// All 5 keys should be in the result after unrolling
+		require.Equal(t, 5, len(result))
+
+		// Verify all values are present
+		for i := 0; i < 5; i++ {
+			key := fmt.Sprintf("key-%d", i)
+			require.Contains(t, result, key)
+			require.Equal(t, fmt.Sprintf("value-%s", key), string(result[key]))
+		}
+	})
+
+	t.Run("unrolling unprocessed keys - infinite loop detection", func(t *testing.T) {
+		callCount := 0
+		mockStore := &MockSessionStore{
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
+				callCount++
+				// Simulate a bug: return all keys as unprocessed (no progress)
+				return make(map[string][]byte), keys, nil
+			},
+		}
+
+		keys := []string{"key-0", "key-1", "key-2"}
+
+		ctx := context.Background()
+		_, err := UnrollGetMany(ctx, mockStore, keys)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unprocessed keys not reduced")
+		// Should detect the infinite loop after first call
+		require.Equal(t, 1, callCount)
+	})
+
 	t.Run("empty keys", func(t *testing.T) {
 		callCount := 0
 		mockStore := &MockSessionStore{

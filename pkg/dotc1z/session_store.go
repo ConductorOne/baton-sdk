@@ -17,6 +17,10 @@ type SessionStore interface {
 
 var _ sessions.SessionStore = (*C1File)(nil)
 
+// The default gRPC message size limit is 4MB (we subtract 30KB for general overhead, which is overkill).
+// Unfortunately, this layer has to be aware of the size limit to avoid exceeding the size limit
+// because the client does not know the size of the items it requests.
+const sessionStoreSizeLimit = 4163584
 const sessionStoreTableVersion = "1"
 const sessionStoreTableName = "connector_sessions"
 const sessionStoreTableSchema = `
@@ -268,10 +272,15 @@ func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.Ses
 	}
 	defer rows.Close()
 
-	result := make(map[string][]byte)
 	unprocessedKeys := make(map[string]struct{}, len(keys))
 	// Initialize unprocessedKeys with all keys - we'll remove them as we process results
 	// Start by calculating size of all unprocessed keys (they'll be in the return slice)
+
+	type item struct {
+		key   string
+		value []byte
+	}
+	results := make([]item, 0, len(keys))
 	messageSize := 0
 	for rows.Next() {
 		var key string
@@ -284,25 +293,34 @@ func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.Ses
 		if bag.Prefix != "" && len(key) >= len(bag.Prefix) && key[:len(bag.Prefix)] == bag.Prefix {
 			key = key[len(bag.Prefix):]
 		}
-		// 10 is general padding, we ignore the keys which could be up to ~25KB
-		netItemSize := len(value)
-		if messageSize+netItemSize <= 4163584 {
-			messageSize += netItemSize
-			result[key] = value
-		} else {
-			unprocessedKeys[key] = struct{}{}
-		}
+		results = append(results, item{key: key, value: value})
+		// 10 is extra padding.  The key goes into the response unconditionally.
+		messageSize += len(key) + 10
 	}
 
 	if err := rows.Err(); err != nil {
 		return nil, nil, fmt.Errorf("session-get-many: error getting data from session: %w", err)
 	}
 
+	ret := make(map[string][]byte)
+	for _, r := range results {
+		value := r.value
+		key := r.key
+
+		netItemSize := len(value) + 10 // 10 is extra padding for overhead.
+		if messageSize+netItemSize <= sessionStoreSizeLimit {
+			messageSize += netItemSize
+			ret[key] = value
+		} else {
+			unprocessedKeys[key] = struct{}{}
+		}
+	}
+
 	unprocessedKeysSlice := make([]string, 0, len(unprocessedKeys))
 	for key := range unprocessedKeys {
 		unprocessedKeysSlice = append(unprocessedKeysSlice, key)
 	}
-	return result, unprocessedKeysSlice, nil
+	return ret, unprocessedKeysSlice, nil
 }
 
 // GetAll implements types.SessionStore.
@@ -313,7 +331,7 @@ func (c *C1File) GetAll(ctx context.Context, pageToken string, opt ...sessions.S
 	}
 
 	result := make(map[string][]byte)
-	messageSizeRemaining := 4163584
+	messageSizeRemaining := sessionStoreSizeLimit
 	for {
 		items, nextPageToken, itemsSize, err := c.getAllChunk(ctx, pageToken, messageSizeRemaining, bag)
 		if err != nil {
