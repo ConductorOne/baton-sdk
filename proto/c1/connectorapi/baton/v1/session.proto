@@ -59,7 +59,7 @@ message GetManyRequest {
 
 message GetManyResponse {
   repeated GetManyItem items = 1;
-  string page_token = 2;
+  repeated string unprocessed_keys = 2;
 }
 
 message GetManyItem {
@@ -93,8 +93,8 @@ message SetRequest {
   }];
   bytes value = 3 [(validate.rules).bytes = {
     min_len: 0
-    // Max GRPC size of 4MB minus 30kb for other fields.
-    max_len: 4163584
+    // Max GRPC size of 4MB minus 35kb for other fields.
+    max_len: 4158464
   }];
 
   string prefix = 4 [(validate.rules).string = {max_len: 256}];
@@ -116,8 +116,8 @@ message SetManyRequest {
     values: {
       bytes: {
         min_len: 0
-        // Max GRPC size of 4MB minus 30kb for other fields.
-        max_len: 4163584
+        // Max GRPC size of 4MB minus 35kb for other fields.
+        max_len: 4158464
       }
     }
   }];

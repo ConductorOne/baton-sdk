@@ -11,7 +11,7 @@ import (
 // See GRPC validation rules for eg GetManyRequest.
 
 func GetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, keys []string, opt ...sessions.SessionStoreOption) (map[string]T, error) {
-	allBytes, err := UnrollGetMany(ctx, ss, keys, opt...)
+	allBytes, err := UnrollGetMany[[]byte](ctx, ss, keys, opt...)
 	if err != nil {
 		return nil, err
 	}

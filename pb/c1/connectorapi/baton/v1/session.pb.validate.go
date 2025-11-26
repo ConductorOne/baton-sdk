@@ -494,8 +494,6 @@ func (m *GetManyResponse) validate(all bool) error {
 
 	}
 
-	// no validation rules for PageToken
-
 	if len(errors) > 0 {
 		return GetManyResponseMultiError(errors)
 	}
@@ -1086,10 +1084,10 @@ func (m *SetRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := len(m.GetValue()); l < 0 || l > 4163584 {
+	if l := len(m.GetValue()); l < 0 || l > 4158464 {
 		err := SetRequestValidationError{
 			field:  "Value",
-			reason: "value length must be between 0 and 4163584 bytes, inclusive",
+			reason: "value length must be between 0 and 4158464 bytes, inclusive",
 		}
 		if !all {
 			return err
@@ -1353,10 +1351,10 @@ func (m *SetManyRequest) validate(all bool) error {
 				errors = append(errors, err)
 			}
 
-			if l := len(val); l < 0 || l > 4163584 {
+			if l := len(val); l < 0 || l > 4158464 {
 				err := SetManyRequestValidationError{
 					field:  fmt.Sprintf("Values[%v]", key),
-					reason: "value length must be between 0 and 4163584 bytes, inclusive",
+					reason: "value length must be between 0 and 4158464 bytes, inclusive",
 				}
 				if !all {
 					return err

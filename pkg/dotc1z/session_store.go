@@ -3,7 +3,6 @@ package dotc1z
 import (
 	"context"
 	"fmt"
-	"log"
 	"maps"
 	"strings"
 
@@ -234,14 +233,14 @@ func (c *C1File) Clear(ctx context.Context, opt ...sessions.SessionStoreOption) 
 }
 
 // GetMany implements types.SessionStore.
-func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
+func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 	bag, err := applyBag(ctx, opt...)
 	if err != nil {
-		return nil, "", fmt.Errorf("session-get-many: error applying session option: %w", err)
+		return nil, nil, fmt.Errorf("session-get-many: error applying session option: %w", err)
 	}
 
 	if len(keys) == 0 {
-		return make(map[string][]byte), "", nil
+		return make(map[string][]byte), nil, nil
 	}
 	prefixedKeys := make([]string, len(keys))
 	if bag.Prefix == "" {
@@ -260,42 +259,50 @@ func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.Ses
 
 	sql, params, err := q.ToSQL()
 	if err != nil {
-		return nil, "", fmt.Errorf("session-get-many: error generating SQL: %w", err)
+		return nil, nil, fmt.Errorf("session-get-many: error generating SQL: %w", err)
 	}
 
 	rows, err := c.db.QueryContext(ctx, sql, params...)
 	if err != nil {
-		return nil, "", fmt.Errorf("session-get-many: error executing SQL: %w", err)
+		return nil, nil, fmt.Errorf("session-get-many: error executing SQL: %w", err)
 	}
 	defer rows.Close()
 
 	result := make(map[string][]byte)
+	unprocessedKeys := make(map[string]struct{}, len(keys))
+	// Initialize unprocessedKeys with all keys - we'll remove them as we process results
+	// Start by calculating size of all unprocessed keys (they'll be in the return slice)
 	messageSize := 0
-	nextPageToken := ""
 	for rows.Next() {
 		var key string
 		var value []byte
 		err = rows.Scan(&key, &value)
 		if err != nil {
-			return nil, "", fmt.Errorf("session-get-many: error scanning row: %w", err)
+			return nil, nil, fmt.Errorf("session-get-many: error scanning row: %w", err)
 		}
 		// Remove prefix from key to return original key
 		if bag.Prefix != "" && len(key) >= len(bag.Prefix) && key[:len(bag.Prefix)] == bag.Prefix {
 			key = key[len(bag.Prefix):]
 		}
-		messageSize += len(key) + len(value) + 20
-		if messageSize > 4163584 {
-			nextPageToken = key
-			break
+		// 10 is general padding, we ignore the keys which could be up to ~25KB
+		netItemSize := len(value)
+		if messageSize+netItemSize <= 4163584 {
+			messageSize += netItemSize
+			result[key] = value
+		} else {
+			unprocessedKeys[key] = struct{}{}
 		}
-		result[key] = value
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, "", fmt.Errorf("session-get-many: error getting data from session: %w", err)
+		return nil, nil, fmt.Errorf("session-get-many: error getting data from session: %w", err)
 	}
 
-	return result, nextPageToken, nil
+	unprocessedKeysSlice := make([]string, 0, len(unprocessedKeys))
+	for key := range unprocessedKeys {
+		unprocessedKeysSlice = append(unprocessedKeysSlice, key)
+	}
+	return result, unprocessedKeysSlice, nil
 }
 
 // GetAll implements types.SessionStore.
@@ -313,13 +320,21 @@ func (c *C1File) GetAll(ctx context.Context, pageToken string, opt ...sessions.S
 			return nil, "", fmt.Errorf("session-get-all: error getting all data from session: %w", err)
 		}
 		maps.Copy(result, items)
-		pageToken = nextPageToken
+
 		if len(items) == 0 {
 			break
 		}
+
 		if nextPageToken == "" {
+			pageToken = ""
 			break
 		}
+
+		if pageToken == nextPageToken {
+			return nil, "", fmt.Errorf("page token is the same as the next page token: %s", pageToken)
+		}
+		pageToken = nextPageToken
+
 		messageSizeRemaining -= itemsSize
 		if messageSizeRemaining <= 0 {
 			break
@@ -341,7 +356,7 @@ func (c *C1File) getAllChunk(ctx context.Context, pageToken string, sizeLimit in
 	}
 
 	if pageToken != "" {
-		q = q.Where(goqu.C("key").Gte(pageToken))
+		q = q.Where(goqu.C("key").Gte(bag.Prefix + pageToken))
 	}
 
 	sql, params, err := q.ToSQL()
@@ -386,7 +401,6 @@ func (c *C1File) getAllChunk(ctx context.Context, pageToken string, sizeLimit in
 	if err := rows.Err(); err != nil {
 		return nil, "", 0, fmt.Errorf("session-get-all: error getting data from session: %w", err)
 	}
-	log.Printf("getAllChunk: messageSize: %d, sizeLimit: %d, nextPageToken: %s", messageSize, sizeLimit, nextPageToken)
 
 	if tooBig {
 		return result, nextPageToken, messageSize, nil
