@@ -33,15 +33,31 @@ func UnrollGetMany[T any](ctx context.Context, ss GetManyable[T], keys []string,
 	}
 
 	// TODO(Kans): parallelize this?
-	for keys := range Chunk(keys, MaxKeysPerRequest) {
-		some, unprocessedKeys, err := ss.GetMany(ctx, keys, opt...)
-		if err != nil {
-			return nil, err
+	for keyChunk := range Chunk(keys, MaxKeysPerRequest) {
+		// For each chunk, unroll any unprocessed keys until all are processed
+		remainingKeys := keyChunk
+		for {
+			some, unprocessedKeys, err := ss.GetMany(ctx, remainingKeys, opt...)
+			if err != nil {
+				return nil, err
+			}
+
+			// Accumulate results
+			maps.Copy(all, some)
+
+			// If no unprocessed keys, we're done with this chunk
+			if len(unprocessedKeys) == 0 {
+				break
+			}
+
+			// Check for infinite loop: if unprocessed keys haven't been reduced, something is wrong
+			if len(unprocessedKeys) == len(remainingKeys) {
+				return nil, fmt.Errorf("unprocessed keys not reduced: %d unprocessed out of %d requested", len(unprocessedKeys), len(remainingKeys))
+			}
+
+			// Continue with unprocessed keys
+			remainingKeys = unprocessedKeys
 		}
-		if len(unprocessedKeys) != 0 {
-			return all, fmt.Errorf("get many returned unprocessed keys, unrolling should be handled by the client")
-		}
-		maps.Copy(all, some)
 	}
 	return all, nil
 }

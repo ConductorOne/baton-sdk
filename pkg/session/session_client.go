@@ -181,30 +181,21 @@ func (g *GRPCSessionStoreClient) GetMany(ctx context.Context, keys []string, opt
 	slices.Sort(keys)
 	keys = slices.Compact(keys)
 
-	results := make(map[string][]byte)
-	for {
-		resp, err := g.client.GetMany(ctx, v1.GetManyRequest_builder{
-			SyncId: bag.SyncID,
-			Keys:   keys,
-			Prefix: bag.Prefix,
-		}.Build())
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
-		}
-
-		for _, item := range resp.Items {
-			results[item.Key] = item.Value
-		}
-		if len(resp.UnprocessedKeys) == len(keys) {
-			return nil, nil, fmt.Errorf("unprocessed keys not reduced")
-		}
-		if len(resp.UnprocessedKeys) == 0 {
-			break
-		}
-		keys = resp.UnprocessedKeys
+	resp, err := g.client.GetMany(ctx, v1.GetManyRequest_builder{
+		SyncId: bag.SyncID,
+		Keys:   keys,
+		Prefix: bag.Prefix,
+	}.Build())
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
 	}
 
-	return results, nil, nil
+	results := make(map[string][]byte, len(resp.Items))
+	for _, item := range resp.Items {
+		results[item.Key] = item.Value
+	}
+
+	return results, resp.UnprocessedKeys, nil
 }
 
 // Set stores a value in the cache with the given key.
