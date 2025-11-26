@@ -23,7 +23,7 @@ func Chunk[T any](items []T, chunkSize int) iter.Seq[[]T] {
 }
 
 type GetManyable[T any] interface {
-	GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string]T, error)
+	GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string]T, string, error)
 }
 
 func UnrollGetMany[T any](ctx context.Context, ss GetManyable[T], keys []string, opt ...sessions.SessionStoreOption) (map[string]T, error) {
@@ -34,9 +34,12 @@ func UnrollGetMany[T any](ctx context.Context, ss GetManyable[T], keys []string,
 
 	// TODO(Kans): parallelize this?
 	for keys := range Chunk(keys, MaxKeysPerRequest) {
-		some, err := ss.GetMany(ctx, keys, opt...)
+		some, pageToken, err := ss.GetMany(ctx, keys, opt...)
 		if err != nil {
 			return nil, err
+		}
+		if pageToken != "" {
+			return all, fmt.Errorf("get many returned a page token")
 		}
 		maps.Copy(all, some)
 	}

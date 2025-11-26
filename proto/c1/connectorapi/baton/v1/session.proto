@@ -59,6 +59,7 @@ message GetManyRequest {
 
 message GetManyResponse {
   repeated GetManyItem items = 1;
+  string page_token = 2;
 }
 
 message GetManyItem {

@@ -153,15 +153,18 @@ func (m *MemorySessionCache) GetAll(ctx context.Context, pageToken string, opt .
 	return values, nextPageToken, nil
 }
 
-func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	values, err := m.cache.BulkGet(ctx, cacheKeys(bag, keys), otter.BulkLoaderFunc[string, []byte](func(ctx context.Context, cacheKeys []string) (map[string][]byte, error) {
-		backingValues, err := m.ss.GetMany(ctx, stripPrefixes(bag, cacheKeys), opt...)
+		backingValues, pageToken, err := m.ss.GetMany(ctx, stripPrefixes(bag, cacheKeys), opt...)
 		if err != nil {
 			return nil, err
+		}
+		if pageToken != "" {
+			return nil, fmt.Errorf("get many returned a page token")
 		}
 		cacheKeyValues := make(map[string][]byte, len(backingValues))
 		for k, v := range backingValues {
@@ -172,7 +175,7 @@ func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...
 	}))
 
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	unprefixedValues := make(map[string][]byte)
 	for k, v := range values {
@@ -183,7 +186,7 @@ func (m *MemorySessionCache) GetMany(ctx context.Context, keys []string, opt ...
 		}
 		unprefixedValues[stripPrefix(bag, k)] = v
 	}
-	return unprefixedValues, nil
+	return unprefixedValues, "", nil
 }
 
 func (m *MemorySessionCache) Set(ctx context.Context, key string, value []byte, opt ...sessions.SessionStoreOption) error {

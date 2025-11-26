@@ -1,9 +1,13 @@
 package dotc1z
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log"
+	"maps"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
@@ -148,15 +152,17 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("GetMany empty keys", func(t *testing.T) {
-		result, err := c1zFile.GetMany(ctx, []string{}, sessions.WithSyncID(syncID))
+		result, nextPageToken, err := c1zFile.GetMany(ctx, []string{}, sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 		require.Empty(t, result)
+		require.Equal(t, "", nextPageToken)
 	})
 
 	t.Run("GetMany non-existent keys", func(t *testing.T) {
-		result, err := c1zFile.GetMany(ctx, []string{"non-existent-1", "non-existent-2"}, sessions.WithSyncID(syncID))
+		result, nextPageToken, err := c1zFile.GetMany(ctx, []string{"non-existent-1", "non-existent-2"}, sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 		require.Empty(t, result)
+		require.Equal(t, "", nextPageToken)
 	})
 
 	t.Run("GetMany existing keys", func(t *testing.T) {
@@ -169,8 +175,9 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 		require.NoError(t, err)
 
 		// Get multiple keys
-		result, err := c1zFile.GetMany(ctx, []string{"key1", "key2", "key3"}, sessions.WithSyncID(syncID))
+		result, nextPageToken, err := c1zFile.GetMany(ctx, []string{"key1", "key2", "key3"}, sessions.WithSyncID(syncID))
 		require.NoError(t, err)
+		require.Equal(t, "", nextPageToken)
 		require.Len(t, result, 3)
 		require.Equal(t, []byte("value1"), result["key1"])
 		require.Equal(t, []byte("value2"), result["key2"])
@@ -178,8 +185,9 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 	})
 
 	t.Run("GetMany mixed existing and non-existent keys", func(t *testing.T) {
-		result, err := c1zFile.GetMany(ctx, []string{"key1", "non-existent", "key2"}, sessions.WithSyncID(syncID))
+		result, nextPageToken, err := c1zFile.GetMany(ctx, []string{"key1", "non-existent", "key2"}, sessions.WithSyncID(syncID))
 		require.NoError(t, err)
+		require.Equal(t, "", nextPageToken)
 		require.Len(t, result, 2)
 		require.Equal(t, []byte("value1"), result["key1"])
 		require.Equal(t, []byte("value2"), result["key2"])
@@ -195,9 +203,10 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 		require.NoError(t, err)
 
 		// Get multiple keys with prefix
-		result, err := c1zFile.GetMany(ctx, []string{"prefixed-key1", "prefixed-key2"},
+		result, nextPageToken, err := c1zFile.GetMany(ctx, []string{"prefixed-key1", "prefixed-key2"},
 			sessions.WithSyncID(syncID), sessions.WithPrefix("test-prefix:"))
 		require.NoError(t, err)
+		require.Equal(t, "", nextPageToken)
 		require.Len(t, result, 2)
 		require.Equal(t, []byte("prefixed-value1"), result["prefixed-key1"])
 		require.Equal(t, []byte("prefixed-value2"), result["prefixed-key2"])
@@ -210,9 +219,10 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 	})
 
 	t.Run("GetMany without sync ID", func(t *testing.T) {
-		_, err := c1zFile.GetMany(ctx, []string{"key1"})
+		_, nextPageToken, err := c1zFile.GetMany(ctx, []string{"key1"})
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "sync id is required")
+		require.Equal(t, "", nextPageToken)
 	})
 }
 
@@ -687,12 +697,18 @@ func TestC1FileSessionStore_Performance(t *testing.T) {
 	t.Run("Large batch operations", func(t *testing.T) {
 		// Test SetMany with large number of keys
 		largeValues := make(map[string][]byte)
-		for i := 0; i < 1000; i++ {
+		for i := range 1000 {
 			key := fmt.Sprintf("large-batch-key-%d", i)
-			value := []byte(fmt.Sprintf("large-batch-value-%d", i))
+			// Each value is 10kb.
+			value := bytes.Repeat([]byte("large-byte-value"), 640)
 			largeValues[key] = value
 		}
 
+		largeValuesSize := 0
+		for _, value := range largeValues {
+			largeValuesSize += len(value)
+		}
+		t.Logf("Setting %d large values, total size %d", len(largeValues), largeValuesSize)
 		err := c1zFile.SetMany(ctx, largeValues, sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 
@@ -702,11 +718,15 @@ func TestC1FileSessionStore_Performance(t *testing.T) {
 		for {
 			items, nextPageToken, err := c1zFile.GetAll(ctx, pageToken, sessions.WithSyncID(syncID))
 			require.NoError(t, err)
-			require.Len(t, items, 100, "expected 100 items, got %d for page token %s", len(items), pageToken)
-			for k, v := range items {
-				all[k] = v
+			// Check that size of items is less than 4MB.
+			itemsSize := 0
+			for _, value := range items {
+				itemsSize += len(value)
 			}
+			require.Less(t, itemsSize, 4163584)
+			maps.Copy(all, items)
 
+			log.Printf("itemsSize: %d, items: %d, nextPageToken: %s, pageToken: %s", itemsSize, len(items), nextPageToken, pageToken)
 			require.NotEqual(t, nextPageToken, pageToken)
 			pageToken = nextPageToken
 			if nextPageToken == "" {
@@ -721,10 +741,20 @@ func TestC1FileSessionStore_Performance(t *testing.T) {
 		for key := range largeValues {
 			keys = append(keys, key)
 		}
+		slices.Sort(keys)
 
-		result, err := c1zFile.GetMany(ctx, keys, sessions.WithSyncID(syncID))
-		require.NoError(t, err)
-		require.Len(t, result, 1000)
+		all = make(map[string][]byte)
+		for {
+			result, nextPageToken, err := c1zFile.GetMany(ctx, keys, sessions.WithSyncID(syncID))
+			require.NoError(t, err)
+			keys = keys[len(result):]
+			maps.Copy(all, result)
+			if nextPageToken == "" {
+				break
+			}
+		}
+		log.Printf("GetMany: result: %d", len(all))
+		require.Len(t, all, 1000, "expected 1000 items, got %d for nextPageToken %s", len(all))
 	})
 
 	t.Run("Large values", func(t *testing.T) {

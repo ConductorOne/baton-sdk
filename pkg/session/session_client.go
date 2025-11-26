@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -171,27 +172,48 @@ func (g *GRPCSessionStoreClient) Get(ctx context.Context, key string, opt ...ses
 }
 
 // GetMany retrieves multiple values from the cache by keys.
-func (g *GRPCSessionStoreClient) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+func (g *GRPCSessionStoreClient) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
+
+	slices.Sort(keys)
+	keys = slices.Compact(keys)
 
 	results := make(map[string][]byte)
-	resp, err := g.client.GetMany(ctx, v1.GetManyRequest_builder{
-		SyncId: bag.SyncID,
-		Keys:   keys,
-		Prefix: bag.Prefix,
-	}.Build())
-	if err != nil {
-		return nil, fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
+	prevPageToken := ""
+	for {
+		resp, err := g.client.GetMany(ctx, v1.GetManyRequest_builder{
+			SyncId: bag.SyncID,
+			Keys:   keys,
+			Prefix: bag.Prefix,
+		}.Build())
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
+		}
+		if prevPageToken != "" && resp.PageToken == prevPageToken {
+			return results, prevPageToken, fmt.Errorf("page token not changed")
+		}
+
+		for _, item := range resp.Items {
+			results[item.Key] = item.Value
+		}
+		prevPageToken = resp.PageToken
+		if prevPageToken == "" {
+			break
+		}
+		// Filter keys that we already fetched (everything before the page token)
+		keyIndex := slices.IndexFunc(keys, func(key string) bool {
+			return key == prevPageToken
+		})
+		if keyIndex == -1 {
+			return results, prevPageToken, fmt.Errorf("page token not found in keys")
+		}
+		keys = keys[keyIndex:]
 	}
 
-	for _, item := range resp.Items {
-		results[item.Key] = item.Value
-	}
-
-	return results, nil
+	return results, "", nil
 }
 
 // Set stores a value in the cache with the given key.

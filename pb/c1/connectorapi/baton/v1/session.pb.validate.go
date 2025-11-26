@@ -494,6 +494,8 @@ func (m *GetManyResponse) validate(all bool) error {
 
 	}
 
+	// no validation rules for PageToken
+
 	if len(errors) > 0 {
 		return GetManyResponseMultiError(errors)
 	}
