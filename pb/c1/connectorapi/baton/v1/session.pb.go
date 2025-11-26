@@ -268,10 +268,11 @@ func (b0 GetManyRequest_builder) Build() *GetManyRequest {
 }
 
 type GetManyResponse struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Items         []*GetManyItem         `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state           protoimpl.MessageState `protogen:"hybrid.v1"`
+	Items           []*GetManyItem         `protobuf:"bytes,1,rep,name=items,proto3" json:"items,omitempty"`
+	UnprocessedKeys []string               `protobuf:"bytes,2,rep,name=unprocessed_keys,json=unprocessedKeys,proto3" json:"unprocessed_keys,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *GetManyResponse) Reset() {
@@ -306,14 +307,26 @@ func (x *GetManyResponse) GetItems() []*GetManyItem {
 	return nil
 }
 
+func (x *GetManyResponse) GetUnprocessedKeys() []string {
+	if x != nil {
+		return x.UnprocessedKeys
+	}
+	return nil
+}
+
 func (x *GetManyResponse) SetItems(v []*GetManyItem) {
 	x.Items = v
+}
+
+func (x *GetManyResponse) SetUnprocessedKeys(v []string) {
+	x.UnprocessedKeys = v
 }
 
 type GetManyResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Items []*GetManyItem
+	Items           []*GetManyItem
+	UnprocessedKeys []string
 }
 
 func (b0 GetManyResponse_builder) Build() *GetManyResponse {
@@ -321,6 +334,7 @@ func (b0 GetManyResponse_builder) Build() *GetManyResponse {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Items = b.Items
+	x.UnprocessedKeys = b.UnprocessedKeys
 	return m0
 }
 
@@ -1289,9 +1303,10 @@ const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\x0eGetManyRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12)\n" +
 	"\x04keys\x18\x02 \x03(\tB\x15\xfaB\x12\x92\x01\x0f\b\x01\x10d\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x04keys\x12 \n" +
-	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"N\n" +
+	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"y\n" +
 	"\x0fGetManyResponse\x12;\n" +
-	"\x05items\x18\x01 \x03(\v2%.c1.connectorapi.baton.v1.GetManyItemR\x05items\"5\n" +
+	"\x05items\x18\x01 \x03(\v2%.c1.connectorapi.baton.v1.GetManyItemR\x05items\x12)\n" +
+	"\x10unprocessed_keys\x18\x02 \x03(\tR\x0funprocessedKeys\"5\n" +
 	"\vGetManyItem\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value\"\x83\x01\n" +
@@ -1307,18 +1322,18 @@ const file_c1_connectorapi_baton_v1_session_proto_rawDesc = "" +
 	"\n" +
 	"GetAllItem\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value\"\xa2\x01\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value\"\xa3\x01\n" +
 	"\n" +
 	"SetRequest\x121\n" +
 	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12\x1c\n" +
 	"\x03key\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\x12!\n" +
-	"\x05value\x18\x03 \x01(\fB\v\xfaB\bz\x06\x10\x01\x18\x80\x98\x02R\x05value\x12 \n" +
+	"\xfaB\ar\x05\x10\x01\x18\x80\x02R\x03key\x12\"\n" +
+	"\x05value\x18\x03 \x01(\fB\f\xfaB\tz\a\x10\x00\x18\x80\xe8\xfd\x01R\x05value\x12 \n" +
 	"\x06prefix\x18\x04 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\"\r\n" +
-	"\vSetResponse\"\x8d\x02\n" +
+	"\vSetResponse\"\x8e\x02\n" +
 	"\x0eSetManyRequest\x121\n" +
-	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12k\n" +
-	"\x06values\x18\x02 \x03(\v24.c1.connectorapi.baton.v1.SetManyRequest.ValuesEntryB\x1d\xfaB\x1a\x9a\x01\x17\b\x01\x10d\"\ar\x05\x10\x01\x18\x80\x02*\bz\x06\x10\x01\x18\x80\x98\x02R\x06values\x12 \n" +
+	"\async_id\x18\x01 \x01(\tB\x18\xfaB\x15r\x132\x11^[a-zA-Z0-9]{27}$R\x06syncId\x12l\n" +
+	"\x06values\x18\x02 \x03(\v24.c1.connectorapi.baton.v1.SetManyRequest.ValuesEntryB\x1e\xfaB\x1b\x9a\x01\x18\b\x01\x10d\"\ar\x05\x10\x01\x18\x80\x02*\tz\a\x10\x00\x18\x80\xe8\xfd\x01R\x06values\x12 \n" +
 	"\x06prefix\x18\x03 \x01(\tB\b\xfaB\x05r\x03\x18\x80\x02R\x06prefix\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +

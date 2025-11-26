@@ -52,22 +52,22 @@ func (t *TypedSessionCache[T]) Set(ctx context.Context, key string, value T, opt
 	return t.cache.Set(ctx, key, data, opt...)
 }
 
-func (t *TypedSessionCache[T]) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string]T, error) {
-	dataMap, err := t.cache.GetMany(ctx, keys, opt...)
+func (t *TypedSessionCache[T]) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string]T, []string, error) {
+	dataMap, unprocessedKeys, err := t.cache.GetMany(ctx, keys, opt...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	result := make(map[string]T)
 	for key, data := range dataMap {
 		value, err := t.codec.Decode(data)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode value for key %s: %w", key, err)
+			return nil, nil, fmt.Errorf("failed to decode value for key %s: %w", key, err)
 		}
 		result[key] = value
 	}
 
-	return result, nil
+	return result, unprocessedKeys, nil
 }
 
 func (t *TypedSessionCache[T]) SetMany(ctx context.Context, values map[string]T, opt ...sessions.SessionStoreOption) error {

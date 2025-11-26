@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"slices"
 	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -171,27 +172,30 @@ func (g *GRPCSessionStoreClient) Get(ctx context.Context, key string, opt ...ses
 }
 
 // GetMany retrieves multiple values from the cache by keys.
-func (g *GRPCSessionStoreClient) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+func (g *GRPCSessionStoreClient) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 	bag, err := applyOptions(ctx, opt...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	results := make(map[string][]byte)
+	slices.Sort(keys)
+	keys = slices.Compact(keys)
+
 	resp, err := g.client.GetMany(ctx, v1.GetManyRequest_builder{
 		SyncId: bag.SyncID,
 		Keys:   keys,
 		Prefix: bag.Prefix,
 	}.Build())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
+		return nil, nil, fmt.Errorf("failed to get many values from gRPC session cache: %w", err)
 	}
 
+	results := make(map[string][]byte, len(resp.Items))
 	for _, item := range resp.Items {
 		results[item.Key] = item.Value
 	}
 
-	return results, nil
+	return results, resp.UnprocessedKeys, nil
 }
 
 // Set stores a value in the cache with the given key.

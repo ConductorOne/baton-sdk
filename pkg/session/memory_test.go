@@ -258,13 +258,13 @@ func TestMemorySessionCache_GetMany(t *testing.T) {
 	t.Run("successful getMany", func(t *testing.T) {
 		callCount := 0
 		mockStore := &MockSessionStore{
-			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 				callCount++
 				result := make(map[string][]byte)
 				for _, key := range keys {
 					result[key] = []byte(fmt.Sprintf("value-%s", key))
 				}
-				return result, nil
+				return result, nil, nil
 			},
 		}
 
@@ -273,16 +273,18 @@ func TestMemorySessionCache_GetMany(t *testing.T) {
 		ctx := context.Background()
 
 		// First call
-		values, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-1"))
+		values, unprocessedKeys, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-1"))
 		require.NoError(t, err)
+		require.Empty(t, unprocessedKeys)
 		require.Equal(t, 2, len(values))
 		require.Equal(t, []byte("value-key1"), values["key1"])
 		require.Equal(t, []byte("value-key2"), values["key2"])
 		require.Equal(t, 1, callCount)
 
 		// Second call - should hit cache
-		values, err = cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-1"))
+		values, unprocessedKeys, err = cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-1"))
 		require.NoError(t, err)
+		require.Empty(t, unprocessedKeys)
 		require.Equal(t, 2, len(values))
 		require.Equal(t, 1, callCount, "should not call backing store again")
 	})
@@ -290,13 +292,13 @@ func TestMemorySessionCache_GetMany(t *testing.T) {
 	t.Run("getMany with prefix", func(t *testing.T) {
 		keysReceived := []string{}
 		mockStore := &MockSessionStore{
-			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 				keysReceived = keys // Capture what keys the backing store receives
 				result := make(map[string][]byte)
 				for _, key := range keys {
 					result[key] = []byte(fmt.Sprintf("value-%s", key))
 				}
-				return result, nil
+				return result, nil, nil
 			},
 		}
 
@@ -304,8 +306,9 @@ func TestMemorySessionCache_GetMany(t *testing.T) {
 		require.NoError(t, err)
 		ctx := context.Background()
 
-		values, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-1"), sessions.WithPrefix("prefix/"))
+		values, unprocessedKeys, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-1"), sessions.WithPrefix("prefix/"))
 		require.NoError(t, err)
+		require.Empty(t, unprocessedKeys)
 		require.Equal(t, 2, len(values))
 
 		for key := range values {
@@ -324,14 +327,14 @@ func TestMemorySessionCache_GetMany(t *testing.T) {
 			setManyFunc: func(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
 				return nil
 			},
-			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 				backingStoreCallCount++
 				result := make(map[string][]byte)
 				// Return different values for sync-2 to demonstrate isolation
 				for _, key := range keys {
 					result[key] = []byte(fmt.Sprintf("value-from-backing-store-sync-2-%s", key))
 				}
-				return result, nil
+				return result, nil, nil
 			},
 		}
 
@@ -349,8 +352,9 @@ func TestMemorySessionCache_GetMany(t *testing.T) {
 
 		// GetMany with sync-1 - should get cached values (no backing store call)
 		backingStoreCallCount = 0
-		values, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-1"))
+		values, unprocessedKeys, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-1"))
 		require.NoError(t, err)
+		require.Empty(t, unprocessedKeys)
 		require.Equal(t, 2, len(values))
 		require.Equal(t, []byte("value-sync-1-key1"), values["key1"])
 		require.Equal(t, []byte("value-sync-1-key2"), values["key2"])
@@ -358,8 +362,9 @@ func TestMemorySessionCache_GetMany(t *testing.T) {
 
 		// GetMany with DIFFERENT sync-2 - should go to backing store and get different values
 		backingStoreCallCount = 0
-		values, err = cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-2"))
+		values, unprocessedKeys, err = cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("sync-2"))
 		require.NoError(t, err)
+		require.Empty(t, unprocessedKeys)
 		require.Equal(t, 2, len(values))
 		// These assertions verify we get values from backing store for sync-2, not cached values from sync-1
 		require.Equal(t, []byte("value-from-backing-store-sync-2-key1"), values["key1"],

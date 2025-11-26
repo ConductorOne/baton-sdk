@@ -8,7 +8,7 @@ type SessionStoreKey struct{}
 
 type SessionStore interface {
 	Get(ctx context.Context, key string, opt ...SessionStoreOption) ([]byte, bool, error)
-	GetMany(ctx context.Context, keys []string, opt ...SessionStoreOption) (map[string][]byte, error)
+	GetMany(ctx context.Context, keys []string, opt ...SessionStoreOption) (map[string][]byte, []string, error)
 	Set(ctx context.Context, key string, value []byte, opt ...SessionStoreOption) error
 	SetMany(ctx context.Context, values map[string][]byte, opt ...SessionStoreOption) error
 	Delete(ctx context.Context, key string, opt ...SessionStoreOption) error

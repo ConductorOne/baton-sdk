@@ -60,7 +60,7 @@ func (s *GRPCSessionServer) GetMany(ctx context.Context, req *v1.GetManyRequest)
 		return nil, err
 	}
 
-	values, err := s.store.GetMany(
+	values, unprocessedKeys, err := s.store.GetMany(
 		ctx,
 		req.GetKeys(),
 		sessions.WithSyncID(req.GetSyncId()),
@@ -80,7 +80,8 @@ func (s *GRPCSessionServer) GetMany(ctx context.Context, req *v1.GetManyRequest)
 	}
 
 	return v1.GetManyResponse_builder{
-		Items: items,
+		Items:           items,
+		UnprocessedKeys: unprocessedKeys,
 	}.Build(), nil
 }
 

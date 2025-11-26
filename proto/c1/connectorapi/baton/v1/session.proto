@@ -32,9 +32,7 @@ message GetRequest {
     max_len: 256
   }];
 
-  string prefix = 3 [(validate.rules).string = {
-    max_len: 256
-  }];
+  string prefix = 3 [(validate.rules).string = {max_len: 256}];
 }
 
 message GetResponse {
@@ -56,14 +54,12 @@ message GetManyRequest {
       }
     }
   }];
-
-  string prefix = 3 [(validate.rules).string = {
-    max_len: 256
-  }];
+  string prefix = 3 [(validate.rules).string = {max_len: 256}];
 }
 
 message GetManyResponse {
   repeated GetManyItem items = 1;
+  repeated string unprocessed_keys = 2;
 }
 
 message GetManyItem {
@@ -75,9 +71,7 @@ message GetAllRequest {
   string sync_id = 1 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
   string page_token = 2;
 
-  string prefix = 3 [(validate.rules).string = {
-    max_len: 256
-  }];
+  string prefix = 3 [(validate.rules).string = {max_len: 256}];
 }
 
 message GetAllResponse {
@@ -98,13 +92,12 @@ message SetRequest {
     max_len: 256
   }];
   bytes value = 3 [(validate.rules).bytes = {
-    min_len: 1
-    max_len: 35840
+    min_len: 0
+    // Max GRPC size of 4MB minus 35kb for other fields.
+    max_len: 4158464
   }];
 
-  string prefix = 4 [(validate.rules).string = {
-    max_len: 256
-  }];
+  string prefix = 4 [(validate.rules).string = {max_len: 256}];
 }
 
 message SetResponse {}
@@ -122,15 +115,14 @@ message SetManyRequest {
     }
     values: {
       bytes: {
-        min_len: 1
-        max_len: 35840
+        min_len: 0
+        // Max GRPC size of 4MB minus 35kb for other fields.
+        max_len: 4158464
       }
     }
   }];
 
-  string prefix = 3 [(validate.rules).string = {
-    max_len: 256
-  }];
+  string prefix = 3 [(validate.rules).string = {max_len: 256}];
 }
 
 message SetManyResponse {}
@@ -142,9 +134,7 @@ message DeleteRequest {
     max_len: 256
   }];
 
-  string prefix = 3 [(validate.rules).string = {
-    max_len: 256
-  }];
+  string prefix = 3 [(validate.rules).string = {max_len: 256}];
 }
 
 message DeleteResponse {}
@@ -162,18 +152,14 @@ message DeleteManyRequest {
     }
   }];
 
-  string prefix = 3 [(validate.rules).string = {
-    max_len: 256
-  }];
+  string prefix = 3 [(validate.rules).string = {max_len: 256}];
 }
 message DeleteManyResponse {}
 
 message ClearRequest {
   string sync_id = 1 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
 
-  string prefix = 2 [(validate.rules).string = {
-    max_len: 256
-  }];
+  string prefix = 2 [(validate.rules).string = {max_len: 256}];
 }
 
 message ClearResponse {}
