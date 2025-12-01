@@ -369,7 +369,7 @@ func (b *builder) addTargetedSyncer(_ context.Context, typeId string, in any) er
 	return nil
 }
 
-func (b *builder) addResourceSyncers(_ context.Context, typeId string, in interface{}) error {
+func (b *builder) addResourceSyncers(ctx context.Context, typeId string, in any) error {
 	// no duplicates
 	if _, ok := b.resourceSyncers[typeId]; ok {
 		return fmt.Errorf("error: duplicate resource type found for resource builder %s", typeId)
