@@ -1658,6 +1658,7 @@ type ListResourceActionsRequest struct {
 	state          protoimpl.MessageState `protogen:"hybrid.v1"`
 	ResourceTypeId string                 `protobuf:"bytes,1,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"` // Optional: filter by resource type
 	ResourceId     *ResourceId            `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`               // Optional: filter by specific resource
+	Annotations    []*anypb.Any           `protobuf:"bytes,3,rep,name=annotations,proto3" json:"annotations,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1701,12 +1702,23 @@ func (x *ListResourceActionsRequest) GetResourceId() *ResourceId {
 	return nil
 }
 
+func (x *ListResourceActionsRequest) GetAnnotations() []*anypb.Any {
+	if x != nil {
+		return x.Annotations
+	}
+	return nil
+}
+
 func (x *ListResourceActionsRequest) SetResourceTypeId(v string) {
 	x.ResourceTypeId = v
 }
 
 func (x *ListResourceActionsRequest) SetResourceId(v *ResourceId) {
 	x.ResourceId = v
+}
+
+func (x *ListResourceActionsRequest) SetAnnotations(v []*anypb.Any) {
+	x.Annotations = v
 }
 
 func (x *ListResourceActionsRequest) HasResourceId() bool {
@@ -1725,6 +1737,7 @@ type ListResourceActionsRequest_builder struct {
 
 	ResourceTypeId string
 	ResourceId     *ResourceId
+	Annotations    []*anypb.Any
 }
 
 func (b0 ListResourceActionsRequest_builder) Build() *ListResourceActionsRequest {
@@ -1733,6 +1746,7 @@ func (b0 ListResourceActionsRequest_builder) Build() *ListResourceActionsRequest
 	_, _ = b, x
 	x.ResourceTypeId = b.ResourceTypeId
 	x.ResourceId = b.ResourceId
+	x.Annotations = b.Annotations
 	return m0
 }
 
@@ -1883,11 +1897,12 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\taction_id\x18\x01 \x01(\tR\bactionId\x12:\n" +
 	"\x06status\x18\x02 \x01(\x0e2\".c1.connector.v2.BatonActionStatusR\x06status\x123\n" +
 	"\bresponse\x18\x03 \x01(\v2\x17.google.protobuf.StructR\bresponse\x126\n" +
-	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x84\x01\n" +
+	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xbc\x01\n" +
 	"\x1aListResourceActionsRequest\x12(\n" +
 	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\x12<\n" +
 	"\vresource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
-	"resourceId\"\x96\x01\n" +
+	"resourceId\x126\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x96\x01\n" +
 	"\x1bListResourceActionsResponse\x12?\n" +
 	"\aschemas\x18\x01 \x03(\v2%.c1.connector.v2.ResourceActionSchemaR\aschemas\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations*\xdd\x01\n" +
@@ -2003,27 +2018,28 @@ var file_c1_connector_v2_action_proto_depIdxs = []int32{
 	20, // 32: c1.connector.v2.InvokeBulkResourceActionsResponse.response:type_name -> google.protobuf.Struct
 	21, // 33: c1.connector.v2.InvokeBulkResourceActionsResponse.annotations:type_name -> google.protobuf.Any
 	22, // 34: c1.connector.v2.ListResourceActionsRequest.resource_id:type_name -> c1.connector.v2.ResourceId
-	11, // 35: c1.connector.v2.ListResourceActionsResponse.schemas:type_name -> c1.connector.v2.ResourceActionSchema
-	21, // 36: c1.connector.v2.ListResourceActionsResponse.annotations:type_name -> google.protobuf.Any
-	3,  // 37: c1.connector.v2.ActionService.InvokeAction:input_type -> c1.connector.v2.InvokeActionRequest
-	5,  // 38: c1.connector.v2.ActionService.GetActionStatus:input_type -> c1.connector.v2.GetActionStatusRequest
-	7,  // 39: c1.connector.v2.ActionService.GetActionSchema:input_type -> c1.connector.v2.GetActionSchemaRequest
-	9,  // 40: c1.connector.v2.ActionService.ListActionSchemas:input_type -> c1.connector.v2.ListActionSchemasRequest
-	16, // 41: c1.connector.v2.ActionService.ListResourceActions:input_type -> c1.connector.v2.ListResourceActionsRequest
-	12, // 42: c1.connector.v2.ActionService.InvokeResourceAction:input_type -> c1.connector.v2.InvokeResourceActionRequest
-	14, // 43: c1.connector.v2.ActionService.InvokeBulkResourceActions:input_type -> c1.connector.v2.InvokeBulkResourceActionsRequest
-	4,  // 44: c1.connector.v2.ActionService.InvokeAction:output_type -> c1.connector.v2.InvokeActionResponse
-	6,  // 45: c1.connector.v2.ActionService.GetActionStatus:output_type -> c1.connector.v2.GetActionStatusResponse
-	8,  // 46: c1.connector.v2.ActionService.GetActionSchema:output_type -> c1.connector.v2.GetActionSchemaResponse
-	10, // 47: c1.connector.v2.ActionService.ListActionSchemas:output_type -> c1.connector.v2.ListActionSchemasResponse
-	17, // 48: c1.connector.v2.ActionService.ListResourceActions:output_type -> c1.connector.v2.ListResourceActionsResponse
-	13, // 49: c1.connector.v2.ActionService.InvokeResourceAction:output_type -> c1.connector.v2.InvokeResourceActionResponse
-	15, // 50: c1.connector.v2.ActionService.InvokeBulkResourceActions:output_type -> c1.connector.v2.InvokeBulkResourceActionsResponse
-	44, // [44:51] is the sub-list for method output_type
-	37, // [37:44] is the sub-list for method input_type
-	37, // [37:37] is the sub-list for extension type_name
-	37, // [37:37] is the sub-list for extension extendee
-	0,  // [0:37] is the sub-list for field type_name
+	21, // 35: c1.connector.v2.ListResourceActionsRequest.annotations:type_name -> google.protobuf.Any
+	11, // 36: c1.connector.v2.ListResourceActionsResponse.schemas:type_name -> c1.connector.v2.ResourceActionSchema
+	21, // 37: c1.connector.v2.ListResourceActionsResponse.annotations:type_name -> google.protobuf.Any
+	3,  // 38: c1.connector.v2.ActionService.InvokeAction:input_type -> c1.connector.v2.InvokeActionRequest
+	5,  // 39: c1.connector.v2.ActionService.GetActionStatus:input_type -> c1.connector.v2.GetActionStatusRequest
+	7,  // 40: c1.connector.v2.ActionService.GetActionSchema:input_type -> c1.connector.v2.GetActionSchemaRequest
+	9,  // 41: c1.connector.v2.ActionService.ListActionSchemas:input_type -> c1.connector.v2.ListActionSchemasRequest
+	16, // 42: c1.connector.v2.ActionService.ListResourceActions:input_type -> c1.connector.v2.ListResourceActionsRequest
+	12, // 43: c1.connector.v2.ActionService.InvokeResourceAction:input_type -> c1.connector.v2.InvokeResourceActionRequest
+	14, // 44: c1.connector.v2.ActionService.InvokeBulkResourceActions:input_type -> c1.connector.v2.InvokeBulkResourceActionsRequest
+	4,  // 45: c1.connector.v2.ActionService.InvokeAction:output_type -> c1.connector.v2.InvokeActionResponse
+	6,  // 46: c1.connector.v2.ActionService.GetActionStatus:output_type -> c1.connector.v2.GetActionStatusResponse
+	8,  // 47: c1.connector.v2.ActionService.GetActionSchema:output_type -> c1.connector.v2.GetActionSchemaResponse
+	10, // 48: c1.connector.v2.ActionService.ListActionSchemas:output_type -> c1.connector.v2.ListActionSchemasResponse
+	17, // 49: c1.connector.v2.ActionService.ListResourceActions:output_type -> c1.connector.v2.ListResourceActionsResponse
+	13, // 50: c1.connector.v2.ActionService.InvokeResourceAction:output_type -> c1.connector.v2.InvokeResourceActionResponse
+	15, // 51: c1.connector.v2.ActionService.InvokeBulkResourceActions:output_type -> c1.connector.v2.InvokeBulkResourceActionsResponse
+	45, // [45:52] is the sub-list for method output_type
+	38, // [38:45] is the sub-list for method input_type
+	38, // [38:38] is the sub-list for extension type_name
+	38, // [38:38] is the sub-list for extension extendee
+	0,  // [0:38] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_action_proto_init() }
