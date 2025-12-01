@@ -389,7 +389,11 @@ func (b *builder) addResourceSyncers(ctx context.Context, typeId string, in any)
 
 	// Check for resource actions
 	if actionProvider, ok := in.(ResourceActionProvider); ok {
-		err := actionProvider.ResourceActions(ctx, b.resourceActionManager)
+		registry, err := b.resourceActionManager.GetTypeRegistry(ctx, typeId)
+		if err != nil {
+			return fmt.Errorf("error getting resource type action registry for %s: %w", typeId, err)
+		}
+		err = actionProvider.ResourceActions(ctx, registry)
 		if err != nil {
 			return fmt.Errorf("error getting resource actions for %s: %w", typeId, err)
 		}
