@@ -20,8 +20,8 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-type ResourceActionRegistry interface {
-	RegisterResourceAction(ctx context.Context, resourceTypeID string, schema *v2.ResourceActionSchema, handler ResourceActionHandler) error
+type ResourceTypeActionRegistry interface {
+	Register(ctx context.Context, schema *v2.ResourceActionSchema, handler ResourceActionHandler) error
 }
 
 // ResourceActionHandler is the function signature for handling resource actions.
@@ -48,51 +48,62 @@ func NewResourceActionManager(ctx context.Context) *ResourceActionManager {
 	}
 }
 
+type resourceTypeActionRegistry struct {
+	resourceTypeID string
+	actionManager  *ResourceActionManager
+}
+
 // RegisterResourceAction registers a resource action for a specific resource type.
-func (r *ResourceActionManager) RegisterResourceAction(
+func (r *resourceTypeActionRegistry) Register(
 	ctx context.Context,
-	resourceTypeID string,
 	schema *v2.ResourceActionSchema,
 	handler ResourceActionHandler,
 ) error {
-	if resourceTypeID == "" {
+	if r.resourceTypeID == "" {
 		return errors.New("resource type ID cannot be empty")
 	}
+
 	if schema == nil {
 		return errors.New("action schema cannot be nil")
 	}
 	if schema.Name == "" {
 		return errors.New("action schema name cannot be empty")
 	}
-	if schema.ResourceTypeId != resourceTypeID {
-		return fmt.Errorf("schema resource type ID %s does not match expected %s", schema.ResourceTypeId, resourceTypeID)
-	}
 	if handler == nil {
 		return fmt.Errorf("handler cannot be nil for action %s", schema.Name)
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.actionManager.mu.Lock()
+	defer r.actionManager.mu.Unlock()
 
-	// Initialize maps for this resource type if they don't exist
-	if r.resourceActions[resourceTypeID] == nil {
-		r.resourceActions[resourceTypeID] = make(map[string]ResourceActionHandler)
+	schema.ResourceTypeId = r.resourceTypeID
+
+	if r.actionManager.resourceSchemas[r.resourceTypeID] == nil {
+		r.actionManager.resourceSchemas[r.resourceTypeID] = make(map[string]*v2.ResourceActionSchema)
 	}
-	if r.resourceSchemas[resourceTypeID] == nil {
-		r.resourceSchemas[resourceTypeID] = make(map[string]*v2.ResourceActionSchema)
+	if r.actionManager.resourceActions[r.resourceTypeID] == nil {
+		r.actionManager.resourceActions[r.resourceTypeID] = make(map[string]ResourceActionHandler)
 	}
 
 	// Check for duplicates
-	if _, ok := r.resourceSchemas[resourceTypeID][schema.Name]; ok {
-		return fmt.Errorf("action schema %s already registered for resource type %s", schema.Name, resourceTypeID)
+	if _, ok := r.actionManager.resourceSchemas[r.resourceTypeID][schema.Name]; ok {
+		return fmt.Errorf("action schema %s already registered for resource type %s", schema.Name, r.resourceTypeID)
 	}
 
-	r.resourceSchemas[resourceTypeID][schema.Name] = schema
-	r.resourceActions[resourceTypeID][schema.Name] = handler
+	r.actionManager.resourceSchemas[r.resourceTypeID][schema.Name] = schema
+	r.actionManager.resourceActions[r.resourceTypeID][schema.Name] = handler
 
-	ctxzap.Extract(ctx).Info("registered resource action", zap.String("resource_type", resourceTypeID), zap.String("action_name", schema.Name))
+	ctxzap.Extract(ctx).Info("registered resource action", zap.String("resource_type", r.resourceTypeID), zap.String("action_name", schema.Name))
 
 	return nil
+}
+
+func (r *ResourceActionManager) GetTypeRegistry(ctx context.Context, resourceTypeID string) (ResourceTypeActionRegistry, error) {
+	if resourceTypeID == "" {
+		return nil, errors.New("resource type ID cannot be empty")
+	}
+
+	return &resourceTypeActionRegistry{resourceTypeID: resourceTypeID, actionManager: r}, nil
 }
 
 // ListResourceActions returns all resource actions for a given resource type, optionally filtered by resource ID.
@@ -364,66 +375,4 @@ func (r *ResourceActionManager) InvokeResourceAction(
 		oa.SetError(ctx, ctx.Err())
 		return oa.Id, oa.Status, oa.Rv, oa.Annos, ctx.Err()
 	}
-}
-
-// InvokeBulkResourceActions invokes the same action on multiple resources.
-func (r *ResourceActionManager) InvokeBulkResourceActions(
-	ctx context.Context,
-	actionName string,
-	resourceIDs []*v2.ResourceId,
-	args *structpb.Struct,
-	encryptionConfigs []*v2.EncryptionConfig,
-) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
-	if len(resourceIDs) == 0 {
-		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "at least one resource ID is required")
-	}
-	if actionName == "" {
-		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "action name is required")
-	}
-
-	// For bulk operations, we'll invoke each action separately and aggregate results
-	// In a real implementation, you might want to batch these or handle them differently
-	oa := r.GetNewAction(actionName)
-	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
-
-	results := make([]map[string]interface{}, 0, len(resourceIDs))
-	var lastErr error
-
-	for _, resourceID := range resourceIDs {
-		_, status, response, _, err := r.InvokeResourceAction(ctx, resourceID.ResourceType, actionName, args, encryptionConfigs)
-		if err != nil {
-			lastErr = err
-			results = append(results, map[string]interface{}{
-				"resource_id": resourceID.Resource,
-				"status":      status.String(),
-				"error":       err.Error(),
-			})
-			continue
-		}
-
-		result := map[string]interface{}{
-			"resource_id": resourceID.Resource,
-			"status":      status.String(),
-		}
-		if response != nil {
-			result["response"] = response.AsMap()
-		}
-		results = append(results, result)
-	}
-
-	responseStruct, err := structpb.NewStruct(map[string]interface{}{
-		"results": results,
-	})
-	if err != nil {
-		return oa.Id, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, fmt.Errorf("failed to create response struct: %w", err)
-	}
-
-	if lastErr != nil {
-		oa.SetError(ctx, lastErr)
-		return oa.Id, oa.Status, responseStruct, nil, nil
-	}
-
-	oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
-	oa.Rv = responseStruct
-	return oa.Id, oa.Status, responseStruct, nil, nil
 }

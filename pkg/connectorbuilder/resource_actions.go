@@ -23,5 +23,5 @@ type ResourceActionHandler func(
 type ResourceActionProvider interface {
 	// ResourceActions returns the schemas and handlers for all resource actions
 	// supported by this resource type.
-	ResourceActions(ctx context.Context, registry actions.ResourceActionRegistry) error
+	ResourceActions(ctx context.Context, registry actions.ResourceTypeActionRegistry) error
 }

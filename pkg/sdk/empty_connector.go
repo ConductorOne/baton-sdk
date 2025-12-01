@@ -180,10 +180,6 @@ func (n *emptyConnector) InvokeResourceAction(ctx context.Context, request *v2.I
 	return nil, status.Errorf(codes.Unimplemented, "empty connector")
 }
 
-func (n *emptyConnector) InvokeBulkResourceActions(ctx context.Context, request *v2.InvokeBulkResourceActionsRequest, opts ...grpc.CallOption) (*v2.InvokeBulkResourceActionsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "empty connector")
-}
-
 // NewEmptyConnector returns a new emptyConnector.
 func NewEmptyConnector() (*emptyConnector, error) {
 	return &emptyConnector{}, nil
