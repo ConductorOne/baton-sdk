@@ -320,6 +320,42 @@ func MakeMainCommand[T field.Configurable](
 						v.GetStringSlice("compact-sync-ids"),
 					),
 				)
+			case v.GetString("list-resource-actions") != "":
+				opts = append(opts,
+					connectorrunner.WithOnDemandListResourceActions(
+						v.GetString("file"),
+						v.GetString("list-resource-actions"),
+					))
+			case v.GetString("invoke-resource-action") != "":
+				actionName := v.GetString("invoke-resource-action")
+				resourceTypeID := v.GetString("invoke-resource-action-resource-type")
+
+				if actionName == "" {
+					return fmt.Errorf("invoke-resource-action is required")
+				}
+				if resourceTypeID == "" {
+					return fmt.Errorf("invoke-resource-action-resource-type is required when using invoke-resource-action")
+				}
+
+				invokeResourceActionArgsStr := v.GetString("invoke-resource-action-args")
+				invokeResourceActionArgs := map[string]any{}
+				if invokeResourceActionArgsStr != "" {
+					err := json.Unmarshal([]byte(invokeResourceActionArgsStr), &invokeResourceActionArgs)
+					if err != nil {
+						return fmt.Errorf("failed to parse invoke-resource-action-args: %w", err)
+					}
+				}
+				invokeResourceActionArgsStruct, err := structpb.NewStruct(invokeResourceActionArgs)
+				if err != nil {
+					return fmt.Errorf("failed to parse invoke-resource-action-args: %w", err)
+				}
+				opts = append(opts,
+					connectorrunner.WithOnDemandInvokeResourceAction(
+						v.GetString("file"),
+						v.GetString("invoke-resource-action-resource-type"),
+						v.GetString("invoke-resource-action"),
+						invokeResourceActionArgsStruct,
+					))
 			default:
 				if len(v.GetStringSlice("sync-resources")) > 0 {
 					opts = append(opts,

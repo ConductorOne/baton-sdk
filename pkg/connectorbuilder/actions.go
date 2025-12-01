@@ -195,7 +195,7 @@ func (b *builder) InvokeResourceAction(ctx context.Context, req *v2.InvokeResour
 
 	actionID, actionStatus, response, annos, err := b.resourceActionManager.InvokeResourceAction(
 		ctx,
-		req.GetResourceId(),
+		req.ResourceTypeId,
 		req.GetActionName(),
 		req.GetArgs(),
 		req.GetEncryptionConfigs(),
