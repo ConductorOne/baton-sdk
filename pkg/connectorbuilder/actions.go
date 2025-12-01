@@ -215,42 +215,6 @@ func (b *builder) InvokeResourceAction(ctx context.Context, req *v2.InvokeResour
 	}, nil
 }
 
-func (b *builder) InvokeBulkResourceActions(ctx context.Context, req *v2.InvokeBulkResourceActionsRequest) (*v2.InvokeBulkResourceActionsResponse, error) {
-	ctx, span := tracer.Start(ctx, "builder.InvokeBulkResourceActions")
-	defer span.End()
-
-	start := b.nowFunc()
-	tt := tasks.InvokeBulkResourceActionsType
-	l := ctxzap.Extract(ctx)
-
-	if b.resourceActionManager == nil {
-		l.Error("error: connector does not have resource action manager configured")
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, status.Error(codes.Unimplemented, "connector does not have resource action manager configured")
-	}
-
-	actionID, actionStatus, response, annos, err := b.resourceActionManager.InvokeBulkResourceActions(
-		ctx,
-		req.GetActionName(),
-		req.GetResourceIds(),
-		req.GetArgs(),
-		req.GetEncryptionConfigs(),
-	)
-	if err != nil {
-		l.Error("error: invoke bulk resource actions failed", zap.Error(err))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: invoke bulk resource actions failed: %w", err)
-	}
-
-	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-	return &v2.InvokeBulkResourceActionsResponse{
-		ActionId:    actionID,
-		Status:      actionStatus,
-		Response:    response,
-		Annotations: annos,
-	}, nil
-}
-
 func (b *builder) addActionManager(ctx context.Context, in interface{}) error {
 	if actionManager, ok := in.(CustomActionManager); ok {
 		if b.actionManager != nil {

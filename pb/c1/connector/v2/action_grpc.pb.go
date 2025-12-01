@@ -19,13 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ActionService_InvokeAction_FullMethodName              = "/c1.connector.v2.ActionService/InvokeAction"
-	ActionService_GetActionStatus_FullMethodName           = "/c1.connector.v2.ActionService/GetActionStatus"
-	ActionService_GetActionSchema_FullMethodName           = "/c1.connector.v2.ActionService/GetActionSchema"
-	ActionService_ListActionSchemas_FullMethodName         = "/c1.connector.v2.ActionService/ListActionSchemas"
-	ActionService_ListResourceActions_FullMethodName       = "/c1.connector.v2.ActionService/ListResourceActions"
-	ActionService_InvokeResourceAction_FullMethodName      = "/c1.connector.v2.ActionService/InvokeResourceAction"
-	ActionService_InvokeBulkResourceActions_FullMethodName = "/c1.connector.v2.ActionService/InvokeBulkResourceActions"
+	ActionService_InvokeAction_FullMethodName         = "/c1.connector.v2.ActionService/InvokeAction"
+	ActionService_GetActionStatus_FullMethodName      = "/c1.connector.v2.ActionService/GetActionStatus"
+	ActionService_GetActionSchema_FullMethodName      = "/c1.connector.v2.ActionService/GetActionSchema"
+	ActionService_ListActionSchemas_FullMethodName    = "/c1.connector.v2.ActionService/ListActionSchemas"
+	ActionService_ListResourceActions_FullMethodName  = "/c1.connector.v2.ActionService/ListResourceActions"
+	ActionService_InvokeResourceAction_FullMethodName = "/c1.connector.v2.ActionService/InvokeResourceAction"
 )
 
 // ActionServiceClient is the client API for ActionService service.
@@ -38,7 +37,6 @@ type ActionServiceClient interface {
 	ListActionSchemas(ctx context.Context, in *ListActionSchemasRequest, opts ...grpc.CallOption) (*ListActionSchemasResponse, error)
 	ListResourceActions(ctx context.Context, in *ListResourceActionsRequest, opts ...grpc.CallOption) (*ListResourceActionsResponse, error)
 	InvokeResourceAction(ctx context.Context, in *InvokeResourceActionRequest, opts ...grpc.CallOption) (*InvokeResourceActionResponse, error)
-	InvokeBulkResourceActions(ctx context.Context, in *InvokeBulkResourceActionsRequest, opts ...grpc.CallOption) (*InvokeBulkResourceActionsResponse, error)
 }
 
 type actionServiceClient struct {
@@ -109,16 +107,6 @@ func (c *actionServiceClient) InvokeResourceAction(ctx context.Context, in *Invo
 	return out, nil
 }
 
-func (c *actionServiceClient) InvokeBulkResourceActions(ctx context.Context, in *InvokeBulkResourceActionsRequest, opts ...grpc.CallOption) (*InvokeBulkResourceActionsResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(InvokeBulkResourceActionsResponse)
-	err := c.cc.Invoke(ctx, ActionService_InvokeBulkResourceActions_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 // ActionServiceServer is the server API for ActionService service.
 // All implementations should embed UnimplementedActionServiceServer
 // for forward compatibility.
@@ -129,7 +117,6 @@ type ActionServiceServer interface {
 	ListActionSchemas(context.Context, *ListActionSchemasRequest) (*ListActionSchemasResponse, error)
 	ListResourceActions(context.Context, *ListResourceActionsRequest) (*ListResourceActionsResponse, error)
 	InvokeResourceAction(context.Context, *InvokeResourceActionRequest) (*InvokeResourceActionResponse, error)
-	InvokeBulkResourceActions(context.Context, *InvokeBulkResourceActionsRequest) (*InvokeBulkResourceActionsResponse, error)
 }
 
 // UnimplementedActionServiceServer should be embedded to have
@@ -156,9 +143,6 @@ func (UnimplementedActionServiceServer) ListResourceActions(context.Context, *Li
 }
 func (UnimplementedActionServiceServer) InvokeResourceAction(context.Context, *InvokeResourceActionRequest) (*InvokeResourceActionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InvokeResourceAction not implemented")
-}
-func (UnimplementedActionServiceServer) InvokeBulkResourceActions(context.Context, *InvokeBulkResourceActionsRequest) (*InvokeBulkResourceActionsResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method InvokeBulkResourceActions not implemented")
 }
 func (UnimplementedActionServiceServer) testEmbeddedByValue() {}
 
@@ -288,24 +272,6 @@ func _ActionService_InvokeResourceAction_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ActionService_InvokeBulkResourceActions_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(InvokeBulkResourceActionsRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(ActionServiceServer).InvokeBulkResourceActions(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: ActionService_InvokeBulkResourceActions_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ActionServiceServer).InvokeBulkResourceActions(ctx, req.(*InvokeBulkResourceActionsRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 // ActionService_ServiceDesc is the grpc.ServiceDesc for ActionService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -336,10 +302,6 @@ var ActionService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InvokeResourceAction",
 			Handler:    _ActionService_InvokeResourceAction_Handler,
-		},
-		{
-			MethodName: "InvokeBulkResourceActions",
-			Handler:    _ActionService_InvokeBulkResourceActions_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
