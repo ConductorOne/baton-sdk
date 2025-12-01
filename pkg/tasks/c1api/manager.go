@@ -279,6 +279,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newBulkGetTicketTaskHandler(task, tHelpers)
 	case taskTypes.ActionListSchemasType:
 		handler = newActionListSchemasTaskHandler(task, tHelpers)
+	case taskTypes.ListResourceActionsType:
+		handler = newActionListResourceActionsTaskHandler(task, tHelpers)
 	case taskTypes.ActionGetSchemaType:
 		handler = newActionGetSchemaTaskHandler(task, tHelpers)
 	case taskTypes.ActionInvokeType:
