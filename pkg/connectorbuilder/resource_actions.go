@@ -4,6 +4,7 @@ import (
 	"context"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -22,5 +23,5 @@ type ResourceActionHandler func(
 type ResourceActionProvider interface {
 	// ResourceActions returns the schemas and handlers for all resource actions
 	// supported by this resource type.
-	ResourceActions(ctx context.Context) ([]*v2.ResourceActionSchema, map[string]ResourceActionHandler, error)
+	ResourceActions(ctx context.Context, registry actions.ResourceActionRegistry) error
 }
