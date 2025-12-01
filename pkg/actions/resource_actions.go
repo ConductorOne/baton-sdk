@@ -12,6 +12,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -19,6 +20,10 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
+
+type ResourceActionRegistry interface {
+	RegisterResourceAction(ctx context.Context, resourceTypeID string, schema *v2.ResourceActionSchema, handler ResourceActionHandler) error
+}
 
 // ResourceActionHandler is the function signature for handling resource actions.
 type ResourceActionHandler func(
@@ -45,15 +50,27 @@ func NewResourceActionManager(ctx context.Context) *ResourceActionManager {
 	}
 }
 
-// RegisterResourceActions registers resource actions for a specific resource type.
-func (r *ResourceActionManager) RegisterResourceActions(
+// RegisterResourceAction registers a resource action for a specific resource type.
+func (r *ResourceActionManager) RegisterResourceAction(
 	ctx context.Context,
 	resourceTypeID string,
-	schemas []*v2.ResourceActionSchema,
-	handlers map[string]ResourceActionHandler,
+	schema *v2.ResourceActionSchema,
+	handler ResourceActionHandler,
 ) error {
 	if resourceTypeID == "" {
 		return errors.New("resource type ID cannot be empty")
+	}
+	if schema == nil {
+		return errors.New("action schema cannot be nil")
+	}
+	if schema.Name == "" {
+		return errors.New("action schema name cannot be empty")
+	}
+	if schema.ResourceTypeId != resourceTypeID {
+		return fmt.Errorf("schema resource type ID %s does not match expected %s", schema.ResourceTypeId, resourceTypeID)
+	}
+	if handler == nil {
+		return fmt.Errorf("handler cannot be nil for action %s", schema.Name)
 	}
 
 	r.mu.Lock()
@@ -67,34 +84,18 @@ func (r *ResourceActionManager) RegisterResourceActions(
 		r.resourceSchemas[resourceTypeID] = make(map[string]*v2.ResourceActionSchema)
 	}
 
-	// Register each schema and handler
-	for _, schema := range schemas {
-		if schema.Name == "" {
-			return errors.New("action schema name cannot be empty")
-		}
-		if schema.ResourceTypeId != resourceTypeID {
-			return fmt.Errorf("schema resource type ID %s does not match expected %s", schema.ResourceTypeId, resourceTypeID)
-		}
-
-		// Check for duplicates
-		if _, ok := r.resourceSchemas[resourceTypeID][schema.Name]; ok {
-			return fmt.Errorf("action schema %s already registered for resource type %s", schema.Name, resourceTypeID)
-		}
-
-		handler, ok := handlers[schema.Name]
-		if !ok {
-			return fmt.Errorf("handler not found for action %s", schema.Name)
-		}
-		if handler == nil {
-			return fmt.Errorf("handler cannot be nil for action %s", schema.Name)
-		}
-
-		r.resourceSchemas[resourceTypeID][schema.Name] = schema
-		r.resourceActions[resourceTypeID][schema.Name] = handler
+	// Check for duplicates
+	if _, ok := r.resourceSchemas[resourceTypeID][schema.Name]; ok {
+		return fmt.Errorf("action schema %s already registered for resource type %s", schema.Name, resourceTypeID)
 	}
 
+	r.resourceSchemas[resourceTypeID][schema.Name] = schema
+	r.resourceActions[resourceTypeID][schema.Name] = handler
+
+	spew.Dump(r.resourceSchemas)
+
 	l := ctxzap.Extract(ctx)
-	l.Debug("registered resource actions", zap.String("resource_type", resourceTypeID), zap.Int("count", len(schemas)))
+	l.Info("registered resource action", zap.String("resource_type", resourceTypeID), zap.String("action_name", schema.Name))
 
 	return nil
 }

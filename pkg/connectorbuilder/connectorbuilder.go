@@ -372,9 +372,10 @@ func (b *builder) getCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 		// Add resource actions
 		var resourceActions []*v2.ResourceActionSchema
 		if b.resourceActionManager != nil {
-			actions, err := b.resourceActionManager.ListResourceActions(ctx, resourceTypeID, nil)
-			if err == nil {
+			if actions, err := b.resourceActionManager.ListResourceActions(ctx, resourceTypeID, nil); err == nil {
 				resourceActions = actions
+			} else {
+				ctxzap.Extract(ctx).Warn("failed to list resource actions for resource type", zap.String("resource_type", resourceTypeID), zap.Error(err))
 			}
 		}
 
