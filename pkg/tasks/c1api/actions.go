@@ -55,6 +55,49 @@ func newActionListSchemasTaskHandler(task *v1.Task, helpers actionListSchemasTas
 	}
 }
 
+type actionListResourceActionsTaskHelpers interface {
+	ConnectorClient() types.ConnectorClient
+	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
+}
+
+type actionListResourceActionsTaskHandler struct {
+	task    *v1.Task
+	helpers actionListResourceActionsTaskHelpers
+}
+
+func (c *actionListResourceActionsTaskHandler) HandleTask(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "actionListResourceActionsTaskHandler.HandleTask")
+	defer span.End()
+
+	l := ctxzap.Extract(ctx)
+
+	cc := c.helpers.ConnectorClient()
+
+	t := c.task.GetListResourceActions()
+	if t == nil {
+		return c.helpers.FinishTask(ctx, nil, nil, errors.New("resource type id required"))
+	}
+
+	resp, err := cc.ListResourceActions(ctx, v2.ListResourceActionsRequest_builder{
+		ResourceTypeId: t.GetResourceTypeId(),
+		Annotations:    t.GetAnnotations(),
+	}.Build())
+	if err != nil {
+		return c.helpers.FinishTask(ctx, nil, nil, err)
+	}
+
+	l.Debug("ListResourceActions response", zap.Any("resp", resp))
+
+	return c.helpers.FinishTask(ctx, resp, nil, nil)
+}
+
+func newActionListResourceActionsTaskHandler(task *v1.Task, helpers actionListResourceActionsTaskHelpers) *actionListResourceActionsTaskHandler {
+	return &actionListResourceActionsTaskHandler{
+		task:    task,
+		helpers: helpers,
+	}
+}
+
 type actionGetSchemaTaskHelpers interface {
 	ConnectorClient() types.ConnectorClient
 	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
