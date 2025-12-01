@@ -146,7 +146,7 @@ message ResourceActionSchema {
 }
 
 message InvokeResourceActionRequest {
-  c1.connector.v2.ResourceId resource_id = 1; // Optional for create actions
+  string resource_type_id = 1; // Optional for create actions
   string action_name = 2;
   google.protobuf.Struct args = 3;
   repeated c1.connector.v2.EncryptionConfig encryption_configs = 4;

@@ -315,6 +315,16 @@ type syncCompactorConfig struct {
 	outputPath string
 }
 
+type listResourceActionsConfig struct {
+	resourceTypeID string
+}
+
+type invokeResourceActionConfig struct {
+	resourceTypeID string
+	actionName     string
+	args           *structpb.Struct
+}
+
 type runnerConfig struct {
 	rlCfg                               *ratelimitV1.RateLimiterConfig
 	rlDescriptors                       []*ratelimitV1.RateLimitDescriptors_Entry
@@ -340,6 +350,8 @@ type runnerConfig struct {
 	getTicketConfig                     *getTicketConfig
 	syncDifferConfig                    *syncDifferConfig
 	syncCompactorConfig                 *syncCompactorConfig
+	listResourceActionsConfig           *listResourceActionsConfig
+	invokeResourceActionConfig          *invokeResourceActionConfig
 	skipFullSync                        bool
 	targetedSyncResourceIDs             []string
 	externalResourceC1Z                 string
@@ -482,6 +494,30 @@ func WithOnDemandInvokeAction(c1zPath string, action string, args *structpb.Stru
 		cfg.invokeActionConfig = &invokeActionConfig{
 			action: action,
 			args:   args,
+		}
+		return nil
+	}
+}
+
+func WithOnDemandListResourceActions(c1zPath string, resourceTypeID string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.listResourceActionsConfig = &listResourceActionsConfig{
+			resourceTypeID: resourceTypeID,
+		}
+		return nil
+	}
+}
+
+func WithOnDemandInvokeResourceAction(c1zPath string, resourceTypeID string, actionName string, args *structpb.Struct) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.invokeResourceActionConfig = &invokeResourceActionConfig{
+			resourceTypeID: resourceTypeID,
+			actionName:     actionName,
+			args:           args,
 		}
 		return nil
 	}
@@ -739,7 +775,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	runner.cw = cw
 
 	if cfg.onDemand {
-		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil && cfg.bulkCreateTicketConfig == nil {
+		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil && cfg.bulkCreateTicketConfig == nil && cfg.listResourceActionsConfig == nil && cfg.invokeResourceActionConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -794,6 +830,11 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				})
 			}
 			tm = local.NewLocalCompactor(ctx, cfg.syncCompactorConfig.outputPath, configs)
+		case cfg.listResourceActionsConfig != nil:
+			tm = local.NewResourceActionLister(ctx, cfg.c1zPath, cfg.listResourceActionsConfig.resourceTypeID)
+		case cfg.invokeResourceActionConfig != nil:
+			c := cfg.invokeResourceActionConfig
+			tm = local.NewResourceActionInvoker(ctx, cfg.c1zPath, c.resourceTypeID, c.actionName, c.args)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
 				local.WithTmpDir(cfg.tempDir),
