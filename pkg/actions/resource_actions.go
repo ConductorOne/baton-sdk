@@ -12,7 +12,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -28,7 +27,6 @@ type ResourceActionRegistry interface {
 // ResourceActionHandler is the function signature for handling resource actions.
 type ResourceActionHandler func(
 	ctx context.Context,
-	resourceID *v2.ResourceId,
 	args *structpb.Struct,
 ) (*structpb.Struct, annotations.Annotations, error)
 
@@ -92,10 +90,7 @@ func (r *ResourceActionManager) RegisterResourceAction(
 	r.resourceSchemas[resourceTypeID][schema.Name] = schema
 	r.resourceActions[resourceTypeID][schema.Name] = handler
 
-	spew.Dump(r.resourceSchemas)
-
-	l := ctxzap.Extract(ctx)
-	l.Info("registered resource action", zap.String("resource_type", resourceTypeID), zap.String("action_name", schema.Name))
+	ctxzap.Extract(ctx).Info("registered resource action", zap.String("resource_type", resourceTypeID), zap.String("action_name", schema.Name))
 
 	return nil
 }
@@ -292,35 +287,35 @@ func (r *ResourceActionManager) encryptSecretFields(
 // InvokeResourceAction invokes a resource action.
 func (r *ResourceActionManager) InvokeResourceAction(
 	ctx context.Context,
-	resourceID *v2.ResourceId,
+	resourceTypeID string,
 	actionName string,
 	args *structpb.Struct,
 	encryptionConfigs []*v2.EncryptionConfig,
 ) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
-	if resourceID == nil {
-		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "resource ID is required")
+	if resourceTypeID == "" {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "resource type ID is required")
 	}
 	if actionName == "" {
 		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "action name is required")
 	}
 
 	r.mu.RLock()
-	handlers, ok := r.resourceActions[resourceID.ResourceType]
+	handlers, ok := r.resourceActions[resourceTypeID]
 	if !ok {
 		r.mu.RUnlock()
-		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("no actions found for resource type %s", resourceID.ResourceType))
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("no actions found for resource type %s", resourceTypeID))
 	}
 
 	handler, ok := handlers[actionName]
 	if !ok {
 		r.mu.RUnlock()
-		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found for resource type %s", actionName, resourceID.ResourceType))
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found for resource type %s", actionName, resourceTypeID))
 	}
 
-	schemas, ok := r.resourceSchemas[resourceID.ResourceType]
+	schemas, ok := r.resourceSchemas[resourceTypeID]
 	if !ok {
 		r.mu.RUnlock()
-		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.Internal, fmt.Sprintf("schemas not found for resource type %s", resourceID.ResourceType))
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.Internal, fmt.Sprintf("schemas not found for resource type %s", resourceTypeID))
 	}
 
 	schema, ok := schemas[actionName]
@@ -345,7 +340,7 @@ func (r *ResourceActionManager) InvokeResourceAction(
 		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
 		var oaErr error
-		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, resourceID, decryptedArgs)
+		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, decryptedArgs)
 		if oaErr == nil {
 			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
 		} else {
@@ -395,7 +390,7 @@ func (r *ResourceActionManager) InvokeBulkResourceActions(
 	var lastErr error
 
 	for _, resourceID := range resourceIDs {
-		_, status, response, _, err := r.InvokeResourceAction(ctx, resourceID, actionName, args, encryptionConfigs)
+		_, status, response, _, err := r.InvokeResourceAction(ctx, resourceID.ResourceType, actionName, args, encryptionConfigs)
 		if err != nil {
 			lastErr = err
 			results = append(results, map[string]interface{}{
