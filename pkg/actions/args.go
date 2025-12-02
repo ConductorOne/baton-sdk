@@ -3,7 +3,9 @@ package actions
 import (
 	"fmt"
 
+	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -179,7 +181,6 @@ func RequireResourceIDArg(args *structpb.Struct, key string) (*v2.ResourceId, er
 	return value, nil
 }
 
-
 // RequireResourceIdListArg extracts a list of ResourceId from the args struct by key.
 // Returns the list of ResourceId or an error if not found or invalid.
 func RequireResourceIdListArg(args *structpb.Struct, key string) ([]*v2.ResourceId, error) {
@@ -238,4 +239,265 @@ func GetResourceIdListArg(args *structpb.Struct, key string) ([]*v2.ResourceId, 
 	}
 
 	return resourceIds, true
+}
+
+// GetResourceFieldArg extracts a Resource proto message from the args struct by key.
+// The Resource is expected to be stored as a JSON-serialized struct value.
+// Returns the Resource and true if found and valid, or nil and false otherwise.
+func GetResourceFieldArg(args *structpb.Struct, key string) (*v2.Resource, bool) {
+	if args == nil || args.Fields == nil {
+		return nil, false
+	}
+	value, ok := args.Fields[key]
+	if !ok {
+		return nil, false
+	}
+	structValue, ok := value.GetKind().(*structpb.Value_StructValue)
+	if !ok {
+		return nil, false
+	}
+
+	// Marshal the struct value back to JSON, then unmarshal into the proto message
+	jsonBytes, err := protojson.Marshal(structValue.StructValue)
+	if err != nil {
+		return nil, false
+	}
+
+	basicResource := &config.Resource{}
+	if err := protojson.Unmarshal(jsonBytes, basicResource); err != nil {
+		return nil, false
+	}
+
+	return basicResourceToResource(basicResource), true
+}
+
+func resourceToBasicResource(resource *v2.Resource) *config.Resource {
+	return &config.Resource{
+		ResourceId: &config.ResourceIdField{
+			ResourceTypeId: resource.Id.ResourceType,
+			ResourceId:     resource.Id.Resource,
+		},
+		DisplayName: resource.DisplayName,
+		Description: resource.Description,
+		Annotations: resource.Annotations,
+	}
+}
+
+func basicResourceToResource(basicResource *config.Resource) *v2.Resource {
+	return &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: basicResource.ResourceId.ResourceTypeId,
+			Resource:     basicResource.ResourceId.ResourceId,
+		},
+		DisplayName: basicResource.DisplayName,
+		Description: basicResource.Description,
+		Annotations: basicResource.Annotations,
+	}
+}
+
+// GetResourceListFieldArg extracts a list of Resource proto messages from the args struct by key.
+// Each Resource is expected to be stored as a JSON-serialized struct value.
+// Returns the list of Resource and true if found and valid, or nil and false otherwise.
+func GetResourceListFieldArg(args *structpb.Struct, key string) ([]*v2.Resource, bool) {
+	if args == nil || args.Fields == nil {
+		return nil, false
+	}
+	value, ok := args.Fields[key]
+	if !ok {
+		return nil, false
+	}
+	listValue, ok := value.GetKind().(*structpb.Value_ListValue)
+	if !ok {
+		return nil, false
+	}
+	var resources []*v2.Resource
+	for _, v := range listValue.ListValue.Values {
+		structValue, ok := v.GetKind().(*structpb.Value_StructValue)
+		if !ok {
+			return nil, false
+		}
+
+		// Marshal the struct value back to JSON, then unmarshal into the proto message
+		jsonBytes, err := protojson.Marshal(structValue.StructValue)
+		if err != nil {
+			return nil, false
+		}
+
+		basicResource := &config.Resource{}
+		if err := protojson.Unmarshal(jsonBytes, basicResource); err != nil {
+			return nil, false
+		}
+
+		resources = append(resources, basicResourceToResource(basicResource))
+	}
+	return resources, true
+}
+
+// SetResourceFieldArg stores a Resource proto message in the args struct by key.
+// The Resource is serialized as a JSON struct value.
+func SetResourceFieldArg(args *structpb.Struct, key string, resource *v2.Resource) error {
+	if args == nil {
+		return fmt.Errorf("args cannot be nil")
+	}
+	if resource == nil {
+		return fmt.Errorf("resource cannot be nil")
+	}
+
+	basicResource := resourceToBasicResource(resource)
+
+	// Marshal the proto message to JSON, then unmarshal into a struct value
+	jsonBytes, err := protojson.Marshal(basicResource)
+	if err != nil {
+		return fmt.Errorf("failed to marshal resource: %w", err)
+	}
+
+	structValue := &structpb.Struct{}
+	if err := protojson.Unmarshal(jsonBytes, structValue); err != nil {
+		return fmt.Errorf("failed to unmarshal resource to struct: %w", err)
+	}
+
+	if args.Fields == nil {
+		args.Fields = make(map[string]*structpb.Value)
+	}
+	args.Fields[key] = structpb.NewStructValue(structValue)
+	return nil
+}
+
+// ReturnField represents a key-value pair for action return values.
+type ReturnField struct {
+	Key   string
+	Value *structpb.Value
+}
+
+// NewReturnField creates a new return field with the given key and value.
+func NewReturnField(key string, value *structpb.Value) ReturnField {
+	return ReturnField{Key: key, Value: value}
+}
+
+// NewStringReturnField creates a return field with a string value.
+func NewStringReturnField(key string, value string) ReturnField {
+	return ReturnField{Key: key, Value: structpb.NewStringValue(value)}
+}
+
+// NewBoolReturnField creates a return field with a bool value.
+func NewBoolReturnField(key string, value bool) ReturnField {
+	return ReturnField{Key: key, Value: structpb.NewBoolValue(value)}
+}
+
+// NewNumberReturnField creates a return field with a number value.
+func NewNumberReturnField(key string, value float64) ReturnField {
+	return ReturnField{Key: key, Value: structpb.NewNumberValue(value)}
+}
+
+// NewResourceReturnField creates a return field with a Resource proto value.
+func NewResourceReturnField(key string, resource *v2.Resource) (ReturnField, error) {
+	basicResource := resourceToBasicResource(resource)
+	jsonBytes, err := protojson.Marshal(basicResource)
+	if err != nil {
+		return ReturnField{}, fmt.Errorf("failed to marshal resource: %w", err)
+	}
+
+	structValue := &structpb.Struct{}
+	if err := protojson.Unmarshal(jsonBytes, structValue); err != nil {
+		return ReturnField{}, fmt.Errorf("failed to unmarshal resource to struct: %w", err)
+	}
+
+	return ReturnField{Key: key, Value: structpb.NewStructValue(structValue)}, nil
+}
+
+// NewResourceIdReturnField creates a return field with a ResourceId proto value.
+func NewResourceIdReturnField(key string, resourceId *v2.ResourceId) (ReturnField, error) {
+	basicResourceId := &config.ResourceIdField{
+		ResourceTypeId: resourceId.ResourceType,
+		ResourceId:     resourceId.Resource,
+	}
+	jsonBytes, err := protojson.Marshal(basicResourceId)
+	if err != nil {
+		return ReturnField{}, fmt.Errorf("failed to marshal resource id: %w", err)
+	}
+
+	structValue := &structpb.Struct{}
+	if err := protojson.Unmarshal(jsonBytes, structValue); err != nil {
+		return ReturnField{}, fmt.Errorf("failed to unmarshal resource id to struct: %w", err)
+	}
+
+	return ReturnField{Key: key, Value: structpb.NewStructValue(structValue)}, nil
+}
+
+// NewStringListReturnField creates a return field with a list of string values.
+func NewStringListReturnField(key string, values []string) ReturnField {
+	listValues := make([]*structpb.Value, len(values))
+	for i, v := range values {
+		listValues[i] = structpb.NewStringValue(v)
+	}
+	return ReturnField{Key: key, Value: structpb.NewListValue(&structpb.ListValue{Values: listValues})}
+}
+
+// NewNumberListReturnField creates a return field with a list of number values.
+func NewNumberListReturnField(key string, values []float64) ReturnField {
+	listValues := make([]*structpb.Value, len(values))
+	for i, v := range values {
+		listValues[i] = structpb.NewNumberValue(v)
+	}
+	return ReturnField{Key: key, Value: structpb.NewListValue(&structpb.ListValue{Values: listValues})}
+}
+
+// NewResourceListReturnField creates a return field with a list of Resource proto values.
+func NewResourceListReturnField(key string, resources []*v2.Resource) (ReturnField, error) {
+	listValues := make([]*structpb.Value, len(resources))
+	for i, resource := range resources {
+		basicResource := resourceToBasicResource(resource)
+		jsonBytes, err := protojson.Marshal(basicResource)
+		if err != nil {
+			return ReturnField{}, fmt.Errorf("failed to marshal resource: %w", err)
+		}
+
+		structValue := &structpb.Struct{}
+		if err := protojson.Unmarshal(jsonBytes, structValue); err != nil {
+			return ReturnField{}, fmt.Errorf("failed to unmarshal resource to struct: %w", err)
+		}
+
+		listValues[i] = structpb.NewStructValue(structValue)
+	}
+	return ReturnField{Key: key, Value: structpb.NewListValue(&structpb.ListValue{Values: listValues})}, nil
+}
+
+// NewResourceIdListReturnField creates a return field with a list of ResourceId proto values.
+func NewResourceIdListReturnField(key string, resourceIds []*v2.ResourceId) (ReturnField, error) {
+	listValues := make([]*structpb.Value, len(resourceIds))
+	for i, resourceId := range resourceIds {
+		jsonBytes, err := protojson.Marshal(resourceId)
+		if err != nil {
+			return ReturnField{}, fmt.Errorf("failed to marshal resource id: %w", err)
+		}
+
+		structValue := &structpb.Struct{}
+		if err := protojson.Unmarshal(jsonBytes, structValue); err != nil {
+			return ReturnField{}, fmt.Errorf("failed to unmarshal resource id to struct: %w", err)
+		}
+
+		listValues[i] = structpb.NewStructValue(structValue)
+	}
+	return ReturnField{Key: key, Value: structpb.NewListValue(&structpb.ListValue{Values: listValues})}, nil
+}
+
+// NewListReturnField creates a return field with a list of arbitrary values.
+func NewListReturnField(key string, values []*structpb.Value) ReturnField {
+	return ReturnField{Key: key, Value: structpb.NewListValue(&structpb.ListValue{Values: values})}
+}
+
+// NewReturnValues creates a return struct with the specified success status and fields.
+// This helps users avoid having to remember the correct structure for return values.
+func NewReturnValues(success bool, fields ...ReturnField) *structpb.Struct {
+	rv := &structpb.Struct{
+		Fields: map[string]*structpb.Value{
+			"success": structpb.NewBoolValue(success),
+		},
+	}
+
+	for _, field := range fields {
+		rv.Fields[field.Key] = field.Value
+	}
+
+	return rv
 }
