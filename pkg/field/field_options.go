@@ -227,6 +227,13 @@ func WithStructFieldName(name string) fieldOption {
 	}
 }
 
+func WithOrder(order int) fieldOption {
+	return func(o SchemaField) SchemaField {
+		o.Order = order
+		return o
+	}
+}
+
 type StringMapRuler struct {
 	rules *v1_conf.StringMapRules
 }
