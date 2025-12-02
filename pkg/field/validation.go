@@ -352,10 +352,13 @@ func Validate(c Configuration, v Configurable, opts ...Option) error {
 		opt(&validateOpts)
 	}
 
-	present := make(map[string]int)
-	validationErrors := &ErrConfigurationMissingFields{}
+	var (
+		present          = make(map[string]int)
+		validationErrors = &ErrConfigurationMissingFields{}
 
-	fieldGroupMap := c.FieldGroupFields(validateOpts.authGroup)
+		fieldGroupMap = c.FieldGroupFields(validateOpts.authGroup)
+		orderMap      = make(map[int]struct{}, len(c.Fields))
+	)
 
 	for _, f := range c.Fields {
 		if fieldGroupMap != nil {
@@ -363,6 +366,14 @@ func Validate(c Configuration, v Configurable, opts ...Option) error {
 				// skip fields not in the selected auth method group
 				continue
 			}
+		}
+
+		if _, ok := orderMap[f.Order]; ok {
+			return fmt.Errorf("field Order should be unique")
+		}
+
+		if f.Order > 0 {
+			orderMap[f.Order] = struct{}{}
 		}
 
 		// Note: the viper methods are actually casting

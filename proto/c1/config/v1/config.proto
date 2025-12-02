@@ -54,8 +54,7 @@ message Field {
   bool is_required = 5;
   bool is_ops = 6;
   bool is_secret = 7;
-  int64 order = 8;
-  
+
   oneof field {
     StringField string_field = 100;
     IntField int_field = 101;
