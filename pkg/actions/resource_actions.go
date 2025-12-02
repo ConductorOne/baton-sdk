@@ -85,9 +85,29 @@ func (r *resourceTypeActionRegistry) Register(
 		r.actionManager.resourceActions[r.resourceTypeID] = make(map[string]ResourceActionHandler)
 	}
 
-	// Check for duplicates
+	// Check for duplicate action names
 	if _, ok := r.actionManager.resourceSchemas[r.resourceTypeID][schema.Name]; ok {
 		return fmt.Errorf("action schema %s already registered for resource type %s", schema.Name, r.resourceTypeID)
+	}
+
+	// Check for duplicate action types
+	if len(schema.ActionType) > 0 {
+		for existingName, existingSchema := range r.actionManager.resourceSchemas[r.resourceTypeID] {
+			if existingSchema == nil || len(existingSchema.ActionType) == 0 {
+				continue
+			}
+			// Check if any ActionType in the new schema matches any in existing schemas
+			for _, newActionType := range schema.ActionType {
+				if newActionType == v2.ActionType_ACTION_TYPE_UNSPECIFIED || newActionType == v2.ActionType_ACTION_TYPE_DYNAMIC {
+					continue // Skip unspecified and dynamic types as they can overlap
+				}
+				for _, existingActionType := range existingSchema.ActionType {
+					if newActionType == existingActionType {
+						return fmt.Errorf("action type %s already registered for resource type %s (existing action: %s)", newActionType.String(), r.resourceTypeID, existingName)
+					}
+				}
+			}
+		}
 	}
 
 	r.actionManager.resourceSchemas[r.resourceTypeID][schema.Name] = schema
