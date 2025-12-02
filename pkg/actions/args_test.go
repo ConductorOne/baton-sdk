@@ -1063,13 +1063,13 @@ func TestNewResourceListReturnField(t *testing.T) {
 }
 
 func TestNewResourceIdListReturnField(t *testing.T) {
-	resourceIds := []*v2.ResourceId{
+	resourceIDs := []*v2.ResourceId{
 		{ResourceType: "user", Resource: "1"},
 		{ResourceType: "user", Resource: "2"},
 		{ResourceType: "group", Resource: "3"},
 	}
 
-	field, err := NewResourceIdListReturnField("ids", resourceIds)
+	field, err := NewResourceIdListReturnField("ids", resourceIDs)
 	require.NoError(t, err)
 	require.Equal(t, "ids", field.Key)
 	require.NotNil(t, field.Value)
