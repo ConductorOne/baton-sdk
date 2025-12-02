@@ -179,3 +179,63 @@ func RequireResourceIDArg(args *structpb.Struct, key string) (*v2.ResourceId, er
 	return value, nil
 }
 
+
+// RequireResourceIdListArg extracts a list of ResourceId from the args struct by key.
+// Returns the list of ResourceId or an error if not found or invalid.
+func RequireResourceIdListArg(args *structpb.Struct, key string) ([]*v2.ResourceId, error) {
+	list, ok := GetResourceIdListArg(args, key)
+	if !ok {
+		return nil, fmt.Errorf("required argument %s is missing or invalid", key)
+	}
+	return list, nil
+}
+
+// GetResourceIdListArg extracts a list of ResourceId from the args struct by key.
+// Returns the list and true if found and valid, or nil and false otherwise.
+func GetResourceIdListArg(args *structpb.Struct, key string) ([]*v2.ResourceId, bool) {
+	if args == nil || args.Fields == nil {
+		return nil, false
+	}
+
+	value, ok := args.Fields[key]
+	if !ok {
+		return nil, false
+	}
+
+	listValue, ok := value.GetKind().(*structpb.Value_ListValue)
+	if !ok {
+		return nil, false
+	}
+
+	var resourceIds []*v2.ResourceId
+	for _, v := range listValue.ListValue.Values {
+		structValue, ok := v.GetKind().(*structpb.Value_StructValue)
+		if !ok {
+			return nil, false
+		}
+		// Try to get resource_type_id and resource_id fields
+		resourceTypeID, ok := GetStringArg(structValue.StructValue, "resource_type_id")
+		if !ok {
+			// Also try resource_type as an alternative
+			resourceTypeID, ok = GetStringArg(structValue.StructValue, "resource_type")
+			if !ok {
+				return nil, false
+			}
+		}
+
+		resourceID, ok := GetStringArg(structValue.StructValue, "resource_id")
+		if !ok {
+			// Also try resource as an alternative
+			resourceID, ok = GetStringArg(structValue.StructValue, "resource")
+			if !ok {
+				return nil, false
+			}
+		}
+		resourceIds = append(resourceIds, &v2.ResourceId{
+			ResourceType: resourceTypeID,
+			Resource:     resourceID,
+		})
+	}
+
+	return resourceIds, true
+}
