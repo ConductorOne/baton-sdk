@@ -370,9 +370,9 @@ func (b *builder) getCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 		}
 
 		resourceTypeCapabilities = append(resourceTypeCapabilities, v2.ResourceTypeCapability_builder{
-			ResourceType:    rb.ResourceType(ctx),
-			Capabilities:    caps,
-			Permissions:     p,
+			ResourceType: rb.ResourceType(ctx),
+			Capabilities: caps,
+			Permissions:  p,
 		}.Build())
 	}
 
