@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/cli"
@@ -115,19 +116,27 @@ func DefineConfigurationV2[T field.Configurable](
 	confschema.Fields = append(field.DefaultFields, confschema.Fields...)
 	// Ensure unique fields
 	uniqueFields := make(map[string]field.SchemaField)
+	fieldsToDelete := []string{}
 	for _, f := range confschema.Fields {
 		if s, ok := uniqueFields[f.FieldName]; ok {
 			if !f.WasReExported && !s.WasReExported {
 				return nil, nil, fmt.Errorf("multiple fields with the same name: %s.If you want to use a default field in the SDK, use ExportAs on the connector schema field", f.FieldName)
 			}
+			fieldsToDelete = append(fieldsToDelete, s.FieldName)
 		}
 
 		uniqueFields[f.FieldName] = f
 	}
-	confschema.Fields = make([]field.SchemaField, 0, len(uniqueFields))
-	for _, f := range uniqueFields {
-		confschema.Fields = append(confschema.Fields, f)
+
+	// Filter out fields that were not reexported and were in the fieldsToDelete list.
+	fields := make([]field.SchemaField, 0, len(confschema.Fields))
+	for _, f := range confschema.Fields {
+		if !f.WasReExported && slices.Contains(fieldsToDelete, f.FieldName) {
+			continue
+		}
+		fields = append(fields, f)
 	}
+	confschema.Fields = fields
 
 	// setup CLI with cobra
 	mainCMD := &cobra.Command{

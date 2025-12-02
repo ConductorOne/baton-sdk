@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"sort"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -674,11 +673,6 @@ func MakeConfigSchemaCommand[T field.Configurable](
 	getconnector GetConnectorFunc2[T],
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		// Sort fields by FieldName
-		sort.Slice(confschema.Fields, func(i, j int) bool {
-			return confschema.Fields[i].FieldName < confschema.Fields[j].FieldName
-		})
-
 		// Use MarshalIndent for pretty printing
 		pb, err := json.MarshalIndent(&confschema, "", "  ")
 		if err != nil {
