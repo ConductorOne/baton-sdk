@@ -463,9 +463,9 @@ func NewResourceListReturnField(key string, resources []*v2.Resource) (ReturnFie
 }
 
 // NewResourceIdListReturnField creates a return field with a list of ResourceId proto values.
-func NewResourceIdListReturnField(key string, resourceIds []*v2.ResourceId) (ReturnField, error) {
-	listValues := make([]*structpb.Value, len(resourceIds))
-	for i, resourceId := range resourceIds {
+func NewResourceIdListReturnField(key string, resourceIDs []*v2.ResourceId) (ReturnField, error) {
+	listValues := make([]*structpb.Value, len(resourceIDs))
+	for i, resourceId := range resourceIDs {
 		jsonBytes, err := protojson.Marshal(resourceId)
 		if err != nil {
 			return ReturnField{}, fmt.Errorf("failed to marshal resource id: %w", err)
