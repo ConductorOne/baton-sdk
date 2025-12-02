@@ -10,7 +10,7 @@ import (
 
 func TestEntryPoint(t *testing.T) {
 	// We want a context that is already DeadlineExceeded so that entrypoint() doesn't hang
-	ctx, cancel := context.WithTimeout(context.Background(), 0)
+	ctx, cancel := context.WithTimeout(t.Context(), 0)
 	defer cancel()
 
 	stringRequiredField := field.StringField(
@@ -103,11 +103,23 @@ func TestEntryPoint(t *testing.T) {
 	})
 
 	t.Run("should not error when default field is retargeted", func(t *testing.T) {
+		// Copy the field so that we can export it as GUI
+		listTicketSchemasField := field.ListTicketSchemasField
 		carrier := field.NewConfiguration(
 			[]field.SchemaField{
-				field.ListTicketSchemasField.ExportAs(field.ExportTargetGUI),
+				listTicketSchemasField.ExportAs(field.ExportTargetGUI),
 			},
 		)
+
+		for _, f := range carrier.Fields {
+			if f.FieldName == listTicketSchemasField.FieldName {
+				require.Equal(t, field.ExportTargetGUI, f.ExportTarget)
+				require.Equal(t, true, f.WasReExported)
+			}
+		}
+
+		require.Equal(t, field.ListTicketSchemasField.FieldName, listTicketSchemasField.FieldName)
+		require.Equal(t, false, field.ListTicketSchemasField.WasReExported)
 
 		_, err := entrypoint(ctx, carrier)
 		require.NoError(t, err)
