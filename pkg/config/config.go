@@ -61,6 +61,8 @@ func RunConnector[T field.Configurable](
 	}
 }
 
+var DuplicateFieldError = errors.New("multiple fields with the same name")
+
 // GetConnectorFunc is a function type that creates a connector instance.
 // It takes a context and configuration. The session cache constructor is retrieved from the context.
 // deprecated - prefer RunConnector.
@@ -128,14 +130,14 @@ func DefineConfigurationV2[T field.Configurable](
 		if existingField, ok := uniqueFields[f.FieldName]; ok {
 			// If the duplicate field is not a default field, error.
 			if _, ok := defaultFieldsByName[f.FieldName]; !ok {
-				return nil, nil, fmt.Errorf("multiple fields with the same name: %s", f.FieldName)
+				return nil, nil, fmt.Errorf("%w: %s", DuplicateFieldError, f.FieldName)
 			}
 			// If redeclaring a default field and not reexporting it, error.
 			if !f.WasReExported {
-				return nil, nil, fmt.Errorf("multiple fields with the same name: %s. If you want to use a default field in the SDK, use ExportAs on the connector schema field", f.FieldName)
+				return nil, nil, fmt.Errorf("%w: %s. If you want to use a default field in the SDK, use ExportAs on the connector schema field", DuplicateFieldError, f.FieldName)
 			}
 			if existingField.WasReExported {
-				return nil, nil, fmt.Errorf("multiple fields with the same name: %s. If you want to use a default field in the SDK, use ExportAs on the connector schema field", f.FieldName)
+				return nil, nil, fmt.Errorf("%w: %s. If you want to use a default field in the SDK, use ExportAs on the connector schema field", DuplicateFieldError, f.FieldName)
 			}
 
 			fieldsToDelete[existingField.FieldName] = true

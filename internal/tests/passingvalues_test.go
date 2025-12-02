@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/conductorone/baton-sdk/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/stretchr/testify/require"
 )
@@ -108,6 +109,7 @@ func TestEntryPoint(t *testing.T) {
 		_, err := entrypoint(ctx, carrier)
 
 		require.Error(t, err)
+		require.ErrorIs(t, err, config.DuplicateFieldError)
 		require.EqualError(t, err, duplicateDefaultFieldError("client-id"))
 	})
 
@@ -122,6 +124,7 @@ func TestEntryPoint(t *testing.T) {
 		)
 		_, err := entrypoint(ctx, carrier)
 		require.Error(t, err)
+		require.ErrorIs(t, err, config.DuplicateFieldError)
 		require.EqualError(t, err, duplicateFieldError("string-field"))
 	})
 
@@ -163,6 +166,7 @@ func TestEntryPoint(t *testing.T) {
 
 		_, err := entrypoint(ctx, carrier)
 		require.Error(t, err)
+		require.ErrorIs(t, err, config.DuplicateFieldError)
 		require.EqualError(t, err, duplicateDefaultFieldError("list-ticket-schemas"))
 	})
 
