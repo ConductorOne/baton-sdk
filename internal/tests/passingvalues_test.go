@@ -109,7 +109,7 @@ func TestEntryPoint(t *testing.T) {
 		_, err := entrypoint(ctx, carrier)
 
 		require.Error(t, err)
-		require.ErrorIs(t, err, config.DuplicateFieldError)
+		require.ErrorIs(t, err, config.ErrDuplicateField)
 		require.EqualError(t, err, duplicateDefaultFieldError("client-id"))
 	})
 
@@ -124,7 +124,7 @@ func TestEntryPoint(t *testing.T) {
 		)
 		_, err := entrypoint(ctx, carrier)
 		require.Error(t, err)
-		require.ErrorIs(t, err, config.DuplicateFieldError)
+		require.ErrorIs(t, err, config.ErrDuplicateField)
 		require.EqualError(t, err, duplicateFieldError("string-field"))
 	})
 
@@ -166,7 +166,7 @@ func TestEntryPoint(t *testing.T) {
 
 		_, err := entrypoint(ctx, carrier)
 		require.Error(t, err)
-		require.ErrorIs(t, err, config.DuplicateFieldError)
+		require.ErrorIs(t, err, config.ErrDuplicateField)
 		require.EqualError(t, err, duplicateDefaultFieldError("list-ticket-schemas"))
 	})
 
