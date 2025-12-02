@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/cli"
@@ -112,17 +111,34 @@ func DefineConfigurationV2[T field.Configurable](
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	v.AutomaticEnv()
 
+	defaultFieldsByName := make(map[string]field.SchemaField)
+	for _, f := range field.DefaultFields {
+		if _, ok := defaultFieldsByName[f.FieldName]; ok {
+			return nil, nil, fmt.Errorf("multiple default fields with the same name: %s", f.FieldName)
+		}
+		defaultFieldsByName[f.FieldName] = f
+	}
+
 	confschema := schema
 	confschema.Fields = append(field.DefaultFields, confschema.Fields...)
 	// Ensure unique fields
 	uniqueFields := make(map[string]field.SchemaField)
-	fieldsToDelete := []string{}
+	fieldsToDelete := make(map[string]bool)
 	for _, f := range confschema.Fields {
-		if s, ok := uniqueFields[f.FieldName]; ok {
-			if !f.WasReExported && !s.WasReExported {
-				return nil, nil, fmt.Errorf("multiple fields with the same name: %s.If you want to use a default field in the SDK, use ExportAs on the connector schema field", f.FieldName)
+		if existingField, ok := uniqueFields[f.FieldName]; ok {
+			// If the duplicate field is not a default field, error.
+			if _, ok := defaultFieldsByName[f.FieldName]; !ok {
+				return nil, nil, fmt.Errorf("multiple fields with the same name: %s", f.FieldName)
 			}
-			fieldsToDelete = append(fieldsToDelete, s.FieldName)
+			// If redeclaring a default field and not reexporting it, error.
+			if !f.WasReExported {
+				return nil, nil, fmt.Errorf("multiple fields with the same name: %s. If you want to use a default field in the SDK, use ExportAs on the connector schema field", f.FieldName)
+			}
+			if existingField.WasReExported {
+				return nil, nil, fmt.Errorf("multiple fields with the same name: %s. If you want to use a default field in the SDK, use ExportAs on the connector schema field", f.FieldName)
+			}
+
+			fieldsToDelete[existingField.FieldName] = true
 		}
 
 		uniqueFields[f.FieldName] = f
@@ -131,7 +147,7 @@ func DefineConfigurationV2[T field.Configurable](
 	// Filter out fields that were not reexported and were in the fieldsToDelete list.
 	fields := make([]field.SchemaField, 0, len(confschema.Fields))
 	for _, f := range confschema.Fields {
-		if !f.WasReExported && slices.Contains(fieldsToDelete, f.FieldName) {
+		if !f.WasReExported && fieldsToDelete[f.FieldName] {
 			continue
 		}
 		fields = append(fields, f)
