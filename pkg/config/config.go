@@ -61,6 +61,8 @@ func RunConnector[T field.Configurable](
 	}
 }
 
+var ErrDuplicateField = errors.New("multiple fields with the same name")
+
 // GetConnectorFunc is a function type that creates a connector instance.
 // It takes a context and configuration. The session cache constructor is retrieved from the context.
 // deprecated - prefer RunConnector.
@@ -111,23 +113,48 @@ func DefineConfigurationV2[T field.Configurable](
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 	v.AutomaticEnv()
 
+	defaultFieldsByName := make(map[string]field.SchemaField)
+	for _, f := range field.DefaultFields {
+		if _, ok := defaultFieldsByName[f.FieldName]; ok {
+			return nil, nil, fmt.Errorf("multiple default fields with the same name: %s", f.FieldName)
+		}
+		defaultFieldsByName[f.FieldName] = f
+	}
+
 	confschema := schema
 	confschema.Fields = append(field.DefaultFields, confschema.Fields...)
 	// Ensure unique fields
 	uniqueFields := make(map[string]field.SchemaField)
+	fieldsToDelete := make(map[string]bool)
 	for _, f := range confschema.Fields {
-		if s, ok := uniqueFields[f.FieldName]; ok {
-			if !f.WasReExported && !s.WasReExported {
-				return nil, nil, fmt.Errorf("multiple fields with the same name: %s.If you want to use a default field in the SDK, use ExportAs on the connector schema field", f.FieldName)
+		if existingField, ok := uniqueFields[f.FieldName]; ok {
+			// If the duplicate field is not a default field, error.
+			if _, ok := defaultFieldsByName[f.FieldName]; !ok {
+				return nil, nil, fmt.Errorf("%w: %s", ErrDuplicateField, f.FieldName)
 			}
+			// If redeclaring a default field and not reexporting it, error.
+			if !f.WasReExported {
+				return nil, nil, fmt.Errorf("%w: %s. If you want to use a default field in the SDK, use ExportAs on the connector schema field", ErrDuplicateField, f.FieldName)
+			}
+			if existingField.WasReExported {
+				return nil, nil, fmt.Errorf("%w: %s. If you want to use a default field in the SDK, use ExportAs on the connector schema field", ErrDuplicateField, f.FieldName)
+			}
+
+			fieldsToDelete[existingField.FieldName] = true
 		}
 
 		uniqueFields[f.FieldName] = f
 	}
-	confschema.Fields = make([]field.SchemaField, 0, len(uniqueFields))
-	for _, f := range uniqueFields {
-		confschema.Fields = append(confschema.Fields, f)
+
+	// Filter out fields that were not reexported and were in the fieldsToDelete list.
+	fields := make([]field.SchemaField, 0, len(confschema.Fields))
+	for _, f := range confschema.Fields {
+		if !f.WasReExported && fieldsToDelete[f.FieldName] {
+			continue
+		}
+		fields = append(fields, f)
 	}
+	confschema.Fields = fields
 
 	// setup CLI with cobra
 	mainCMD := &cobra.Command{

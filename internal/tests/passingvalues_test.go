@@ -4,13 +4,24 @@ import (
 	"context"
 	"testing"
 
+	"github.com/conductorone/baton-sdk/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/stretchr/testify/require"
 )
 
+func duplicateDefaultFieldError(fieldName string) string {
+	return "DefineConfiguration failed: multiple fields with the same name: " +
+		fieldName +
+		". If you want to use a default field in the SDK, use ExportAs on the connector schema field"
+}
+
+func duplicateFieldError(fieldName string) string {
+	return "DefineConfiguration failed: multiple fields with the same name: " + fieldName
+}
+
 func TestEntryPoint(t *testing.T) {
 	// We want a context that is already DeadlineExceeded so that entrypoint() doesn't hang
-	ctx, cancel := context.WithTimeout(context.Background(), 0)
+	ctx, cancel := context.WithTimeout(t.Context(), 0)
 	defer cancel()
 
 	stringRequiredField := field.StringField(
@@ -98,19 +109,65 @@ func TestEntryPoint(t *testing.T) {
 		_, err := entrypoint(ctx, carrier)
 
 		require.Error(t, err)
-		require.EqualError(t, err, "DefineConfiguration failed: multiple fields with the same name: "+
-			"client-id.If you want to use a default field in the SDK, use ExportAs on the connector schema field")
+		require.ErrorIs(t, err, config.ErrDuplicateField)
+		require.EqualError(t, err, duplicateDefaultFieldError("client-id"))
+	})
+
+	t.Run("should error when fields have the same name", func(t *testing.T) {
+		field1 := field.StringField("string-field")
+		field2 := field.StringField("string-field")
+		carrier := field.NewConfiguration(
+			[]field.SchemaField{
+				field1,
+				field2.ExportAs(field.ExportTargetGUI),
+			},
+		)
+		_, err := entrypoint(ctx, carrier)
+		require.Error(t, err)
+		require.ErrorIs(t, err, config.ErrDuplicateField)
+		require.EqualError(t, err, duplicateFieldError("string-field"))
 	})
 
 	t.Run("should not error when default field is retargeted", func(t *testing.T) {
+		// Copy the field so that we can export it as GUI
+		listTicketSchemasField := field.ListTicketSchemasField
 		carrier := field.NewConfiguration(
 			[]field.SchemaField{
-				field.ListTicketSchemasField.ExportAs(field.ExportTargetGUI),
+				listTicketSchemasField.ExportAs(field.ExportTargetGUI),
+			},
+		)
+
+		found := false
+		for _, f := range carrier.Fields {
+			if f.FieldName == listTicketSchemasField.FieldName {
+				require.Equal(t, field.ExportTargetGUI, f.ExportTarget)
+				require.Equal(t, true, f.WasReExported)
+				found = true
+			}
+		}
+
+		require.True(t, found)
+		require.Equal(t, field.ListTicketSchemasField.FieldName, listTicketSchemasField.FieldName)
+		require.Equal(t, false, field.ListTicketSchemasField.WasReExported)
+
+		_, err := entrypoint(ctx, carrier)
+		require.NoError(t, err)
+	})
+
+	t.Run("should error when default field is exported twice", func(t *testing.T) {
+		listTicketSchemasField := field.ListTicketSchemasField
+		listTicketSchemasField2 := field.ListTicketSchemasField
+		carrier := field.NewConfiguration(
+			[]field.SchemaField{
+				listTicketSchemasField.ExportAs(field.ExportTargetGUI),
+				listTicketSchemasField2,
 			},
 		)
 
 		_, err := entrypoint(ctx, carrier)
-		require.NoError(t, err)
+		require.Error(t, err)
+		require.ErrorIs(t, err, config.ErrDuplicateField)
+		require.EqualError(t, err, duplicateDefaultFieldError("list-ticket-schemas"))
 	})
 
 	t.Run("should error when fields are required together", func(t *testing.T) {
