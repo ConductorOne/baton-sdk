@@ -208,7 +208,7 @@ func GetResourceIdListArg(args *structpb.Struct, key string) ([]*v2.ResourceId, 
 		return nil, false
 	}
 
-	var resourceIds []*v2.ResourceId
+	var resourceIDs []*v2.ResourceId
 	for _, v := range listValue.ListValue.Values {
 		structValue, ok := v.GetKind().(*structpb.Value_StructValue)
 		if !ok {
@@ -232,13 +232,13 @@ func GetResourceIdListArg(args *structpb.Struct, key string) ([]*v2.ResourceId, 
 				return nil, false
 			}
 		}
-		resourceIds = append(resourceIds, &v2.ResourceId{
+		resourceIDs = append(resourceIDs, &v2.ResourceId{
 			ResourceType: resourceTypeID,
 			Resource:     resourceID,
 		})
 	}
 
-	return resourceIds, true
+	return resourceIDs, true
 }
 
 // GetResourceFieldArg extracts a Resource proto message from the args struct by key.

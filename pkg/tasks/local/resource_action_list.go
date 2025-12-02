@@ -99,4 +99,3 @@ func NewResourceActionLister(ctx context.Context, dbPath string, resourceTypeID 
 		resourceTypeID: resourceTypeID,
 	}
 }
-

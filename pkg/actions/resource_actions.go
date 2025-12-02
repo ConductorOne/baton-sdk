@@ -340,7 +340,11 @@ func (r *ResourceActionManager) InvokeResourceAction(
 	handler, ok := handlers[actionName]
 	if !ok {
 		r.mu.RUnlock()
-		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found for resource type %s", actionName, resourceTypeID))
+		return "",
+			v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED,
+			nil,
+			nil,
+			status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found for resource type %s", actionName, resourceTypeID))
 	}
 
 	schemas, ok := r.resourceSchemas[resourceTypeID]
