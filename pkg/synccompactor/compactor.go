@@ -107,12 +107,36 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	ctx, span := tracer.Start(ctx, "Compactor.Compact")
 	defer span.End()
-	now := time.Now()
 	if len(c.entries) < 2 {
 		return nil, nil
 	}
 
+	compactionStart := time.Now()
+	runCtx := ctx
+	var runCanc context.CancelFunc
+	if c.runDuration > 0 {
+		runCtx, runCanc = context.WithTimeout(ctx, c.runDuration)
+	}
+	if runCanc != nil {
+		defer runCanc()
+	}
+
+	l := ctxzap.Extract(ctx)
 	var err error
+	select {
+	case <-runCtx.Done():
+		err = context.Cause(runCtx)
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			l.Info("compaction run duration has expired, exiting compaction early")
+			return nil, fmt.Errorf("compaction run duration has expired: %w", err)
+		default:
+			l.Error("compaction context cancelled", zap.Error(err))
+			return nil, err
+		}
+	default:
+	}
+
 	// Base sync is c.entries[0], so compact all incrementals first, then apply that onto the base.
 	applied := c.entries[len(c.entries)-1]
 	for i := len(c.entries) - 2; i >= 0; i-- {
@@ -122,7 +146,6 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		}
 	}
 
-	l := ctxzap.Extract(ctx)
 	// Grant expansion doesn't use the connector interface at all, so giving syncer an empty connector is safe... for now.
 	// If that ever changes, we should implement a file connector that is a wrapper around the reader.
 	emptyConnector, err := sdk.NewEmptyConnector()
@@ -140,7 +163,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		sync.WithOnlyExpandGrants(),
 	}
 
-	compactionDuration := time.Since(now)
+	compactionDuration := time.Since(compactionStart)
 	runDuration := c.runDuration - compactionDuration
 	l.Debug("finished compaction", zap.Duration("compaction_duration", compactionDuration))
 
