@@ -81,9 +81,9 @@ func (l *lazyCachingSessionStore) Get(ctx context.Context, key string, opt ...se
 }
 
 // GetMany implements types.SessionStore.
-func (l *lazyCachingSessionStore) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+func (l *lazyCachingSessionStore) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 	if err := l.ensureSession(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return l.session.GetMany(ctx, keys, opt...)
 }

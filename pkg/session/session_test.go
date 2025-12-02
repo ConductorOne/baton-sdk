@@ -156,8 +156,9 @@ func TestGRPCSessionCache_GetMany(t *testing.T) {
 	cache := &GRPCSessionStoreClient{client: mockClient}
 	ctx := context.Background()
 
-	values, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("test-sync-id-get-many"))
+	values, pageToken, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID("test-sync-id-get-many"))
 	require.NoError(t, err)
+	require.Empty(t, pageToken)
 	require.Equal(t, 2, len(values))
 	require.Equal(t, "value1-get-many", string(values["key1"]))
 	require.Equal(t, "value2-get-many", string(values["key2"]))
@@ -186,8 +187,9 @@ func TestGRPCSessionCache_GetMany_Pagination(t *testing.T) {
 	cache := &GRPCSessionStoreClient{client: mockClient}
 	ctx := context.Background()
 
-	values, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID(syncID))
+	values, pageToken, err := cache.GetMany(ctx, []string{"key1", "key2"}, sessions.WithSyncID(syncID))
 	require.NoError(t, err)
+	require.Empty(t, pageToken)
 	// With only 2 keys, they fit in a single chunk, so only 1 call is made
 	require.Equal(t, 1, callCount)
 	require.Equal(t, 2, len(values))
@@ -285,7 +287,7 @@ func TestGRPCSessionCache_GetAll(t *testing.T) {
 	require.Equal(t, 2, len(values))
 	require.Equal(t, "value1-get-all", string(values["key1"]))
 	require.Equal(t, "value2-get-all", string(values["key2"]))
-	require.Equal(t, "", pageToken)
+	require.Empty(t, pageToken)
 }
 
 func TestGRPCSessionCache_GetAll_Pagination(t *testing.T) {
@@ -434,7 +436,7 @@ func TestGRPCSessionCache_SetMany_Chunking(t *testing.T) {
 // MockSessionStore is a mock implementation for testing unroll variants.
 type MockSessionStore struct {
 	getFunc     func(ctx context.Context, key string, opt ...sessions.SessionStoreOption) ([]byte, bool, error)
-	getManyFunc func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error)
+	getManyFunc func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error)
 	getAllFunc  func(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error)
 	setFunc     func(ctx context.Context, key string, value []byte, opt ...sessions.SessionStoreOption) error
 	setManyFunc func(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error
@@ -449,11 +451,11 @@ func (m *MockSessionStore) Get(ctx context.Context, key string, opt ...sessions.
 	return nil, false, nil
 }
 
-func (m *MockSessionStore) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+func (m *MockSessionStore) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 	if m.getManyFunc != nil {
 		return m.getManyFunc(ctx, keys, opt...)
 	}
-	return make(map[string][]byte), nil
+	return make(map[string][]byte), nil, nil
 }
 
 func (m *MockSessionStore) GetAll(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
@@ -495,14 +497,14 @@ func TestUnrollGetMany(t *testing.T) {
 	t.Run("small number of keys - no chunking needed", func(t *testing.T) {
 		callCount := 0
 		mockStore := &MockSessionStore{
-			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 				callCount++
 				require.Equal(t, 50, len(keys))
 				result := make(map[string][]byte)
 				for _, key := range keys {
 					result[key] = []byte(fmt.Sprintf("value-%s", key))
 				}
-				return result, nil
+				return result, nil, nil
 			},
 		}
 
@@ -526,14 +528,14 @@ func TestUnrollGetMany(t *testing.T) {
 	t.Run("large number of keys - requires chunking", func(t *testing.T) {
 		callCount := 0
 		mockStore := &MockSessionStore{
-			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 				callCount++
 				require.LessOrEqual(t, len(keys), 100)
 				result := make(map[string][]byte)
 				for _, key := range keys {
 					result[key] = []byte(fmt.Sprintf("value-%s", key))
 				}
-				return result, nil
+				return result, nil, nil
 			},
 		}
 
@@ -556,8 +558,8 @@ func TestUnrollGetMany(t *testing.T) {
 
 	t.Run("error handling", func(t *testing.T) {
 		mockStore := &MockSessionStore{
-			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
-				return nil, fmt.Errorf("mock error")
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
+				return nil, nil, fmt.Errorf("mock error")
 			},
 		}
 
@@ -568,12 +570,71 @@ func TestUnrollGetMany(t *testing.T) {
 		require.Equal(t, "mock error", err.Error())
 	})
 
+	t.Run("unrolling unprocessed keys", func(t *testing.T) {
+		callCount := 0
+		mockStore := &MockSessionStore{
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
+				callCount++
+				result := make(map[string][]byte)
+				unprocessed := make([]string, 0)
+
+				// Simulate partial processing: return first 3 keys, mark last 2 as unprocessed
+				for i, key := range keys {
+					if i < 3 {
+						result[key] = []byte(fmt.Sprintf("value-%s", key))
+					} else {
+						unprocessed = append(unprocessed, key)
+					}
+				}
+				return result, unprocessed, nil
+			},
+		}
+
+		// Create 5 keys (less than maxKeysPerRequest = 100)
+		keys := []string{"key-0", "key-1", "key-2", "key-3", "key-4"}
+
+		ctx := context.Background()
+		result, err := UnrollGetMany(ctx, mockStore, keys)
+		require.NoError(t, err)
+		// Should be called twice: once with all 5 keys, once with the 2 unprocessed keys
+		require.Equal(t, 2, callCount)
+		// All 5 keys should be in the result after unrolling
+		require.Equal(t, 5, len(result))
+
+		// Verify all values are present
+		for i := 0; i < 5; i++ {
+			key := fmt.Sprintf("key-%d", i)
+			require.Contains(t, result, key)
+			require.Equal(t, fmt.Sprintf("value-%s", key), string(result[key]))
+		}
+	})
+
+	t.Run("unrolling unprocessed keys - infinite loop detection", func(t *testing.T) {
+		callCount := 0
+		mockStore := &MockSessionStore{
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
+				callCount++
+				// Simulate a bug: return all keys as unprocessed (no progress)
+				return make(map[string][]byte), keys, nil
+			},
+		}
+
+		keys := []string{"key-0", "key-1", "key-2"}
+
+		ctx := context.Background()
+		_, err := UnrollGetMany(ctx, mockStore, keys)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "unprocessed keys not reduced")
+		// Should detect the infinite loop after first call
+		require.Equal(t, 1, callCount)
+	})
+
 	t.Run("empty keys", func(t *testing.T) {
 		callCount := 0
 		mockStore := &MockSessionStore{
-			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+			getManyFunc: func(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 				callCount++
-				return make(map[string][]byte), nil
+				return make(map[string][]byte), nil, nil
 			},
 		}
 

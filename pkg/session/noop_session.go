@@ -26,8 +26,8 @@ func (n *NoOpSessionStore) Get(ctx context.Context, key string, opt ...sessions.
 	return nil, false, n.logAndError(ctx, "Get")
 }
 
-func (n *NoOpSessionStore) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
-	return nil, n.logAndError(ctx, "GetMany")
+func (n *NoOpSessionStore) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
+	return nil, nil, n.logAndError(ctx, "GetMany")
 }
 
 func (n *NoOpSessionStore) Set(ctx context.Context, key string, value []byte, opt ...sessions.SessionStoreOption) error {

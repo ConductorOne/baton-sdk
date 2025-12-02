@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/doug-martin/goqu/v9"
@@ -16,6 +17,10 @@ type SessionStore interface {
 
 var _ sessions.SessionStore = (*C1File)(nil)
 
+// The default gRPC message size limit is 4MB (we subtract 30KB for general overhead, which is overkill).
+// Unfortunately, this layer has to be aware of the size limit to avoid exceeding the size limit
+// because the client does not know the size of the items it requests.
+const sessionStoreSizeLimit = 4163584
 const sessionStoreTableVersion = "1"
 const sessionStoreTableName = "connector_sessions"
 const sessionStoreTableSchema = `
@@ -232,14 +237,14 @@ func (c *C1File) Clear(ctx context.Context, opt ...sessions.SessionStoreOption) 
 }
 
 // GetMany implements types.SessionStore.
-func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, error) {
+func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.SessionStoreOption) (map[string][]byte, []string, error) {
 	bag, err := applyBag(ctx, opt...)
 	if err != nil {
-		return nil, fmt.Errorf("error applying session option: %w", err)
+		return nil, nil, fmt.Errorf("session-get-many: error applying session option: %w", err)
 	}
 
 	if len(keys) == 0 {
-		return make(map[string][]byte), nil
+		return make(map[string][]byte), nil, nil
 	}
 	prefixedKeys := make([]string, len(keys))
 	if bag.Prefix == "" {
@@ -254,98 +259,174 @@ func (c *C1File) GetMany(ctx context.Context, keys []string, opt ...sessions.Ses
 	q = q.Select("key", "value")
 	q = q.Where(goqu.C("sync_id").Eq(bag.SyncID))
 	q = q.Where(goqu.C("key").In(prefixedKeys))
+	q = q.Order(goqu.C("key").Asc())
 
 	sql, params, err := q.ToSQL()
 	if err != nil {
-		return nil, fmt.Errorf("error getting many sessions: %w", err)
+		return nil, nil, fmt.Errorf("session-get-many: error generating SQL: %w", err)
 	}
 
 	rows, err := c.db.QueryContext(ctx, sql, params...)
 	if err != nil {
-		return nil, fmt.Errorf("error getting many sessions: %w", err)
+		return nil, nil, fmt.Errorf("session-get-many: error executing SQL: %w", err)
 	}
 	defer rows.Close()
 
-	result := make(map[string][]byte)
+	unprocessedKeys := make(map[string]struct{}, len(keys))
+	// Initialize unprocessedKeys with all keys - we'll remove them as we process results
+	// Start by calculating size of all unprocessed keys (they'll be in the return slice)
+
+	type item struct {
+		key   string
+		value []byte
+	}
+	results := make([]item, 0, len(keys))
+	messageSize := 0
 	for rows.Next() {
 		var key string
 		var value []byte
 		err = rows.Scan(&key, &value)
 		if err != nil {
-			return nil, fmt.Errorf("error scanning session: %w", err)
+			return nil, nil, fmt.Errorf("session-get-many: error scanning row: %w", err)
 		}
 		// Remove prefix from key to return original key
 		if bag.Prefix != "" && len(key) >= len(bag.Prefix) && key[:len(bag.Prefix)] == bag.Prefix {
 			key = key[len(bag.Prefix):]
 		}
-		result[key] = value
+		results = append(results, item{key: key, value: value})
+		// 10 is extra padding.  The key goes into the response unconditionally.
+		messageSize += len(key) + 10
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error getting data from session: %w", err)
+		return nil, nil, fmt.Errorf("session-get-many: error getting data from session: %w", err)
 	}
 
-	return result, nil
+	ret := make(map[string][]byte)
+	for _, r := range results {
+		value := r.value
+		key := r.key
+
+		netItemSize := len(value) + 10 // 10 is extra padding for overhead.
+		if messageSize+netItemSize <= sessionStoreSizeLimit {
+			messageSize += netItemSize
+			ret[key] = value
+		} else {
+			unprocessedKeys[key] = struct{}{}
+		}
+	}
+
+	unprocessedKeysSlice := make([]string, 0, len(unprocessedKeys))
+	for key := range unprocessedKeys {
+		unprocessedKeysSlice = append(unprocessedKeysSlice, key)
+	}
+	return ret, unprocessedKeysSlice, nil
 }
 
 // GetAll implements types.SessionStore.
 func (c *C1File) GetAll(ctx context.Context, pageToken string, opt ...sessions.SessionStoreOption) (map[string][]byte, string, error) {
 	bag, err := applyBag(ctx, opt...)
 	if err != nil {
-		return nil, "", fmt.Errorf("error applying session option: %w", err)
+		return nil, "", fmt.Errorf("session-get-all: error applying session option: %w", err)
 	}
 
+	result := make(map[string][]byte)
+	messageSizeRemaining := sessionStoreSizeLimit
+	for {
+		items, nextPageToken, itemsSize, err := c.getAllChunk(ctx, pageToken, messageSizeRemaining, bag)
+		if err != nil {
+			return nil, "", fmt.Errorf("session-get-all: error getting all data from session: %w", err)
+		}
+		maps.Copy(result, items)
+
+		if len(items) == 0 {
+			break
+		}
+
+		if nextPageToken == "" {
+			pageToken = ""
+			break
+		}
+
+		if pageToken == nextPageToken {
+			return nil, "", fmt.Errorf("page token is the same as the next page token: %s", pageToken)
+		}
+		pageToken = nextPageToken
+
+		messageSizeRemaining -= itemsSize
+		if messageSizeRemaining <= 0 {
+			break
+		}
+	}
+
+	return result, pageToken, nil
+}
+
+func (c *C1File) getAllChunk(ctx context.Context, pageToken string, sizeLimit int, bag *sessions.SessionStoreBag) (map[string][]byte, string, int, error) {
 	q := c.db.From(sessionStore.Name()).Prepared(true).
 		Select("key", "value").
 		Where(goqu.C("sync_id").Eq(bag.SyncID)).
 		Order(goqu.C("key").Asc()).
-		Limit(101)
+		Limit(100)
 
 	if bag.Prefix != "" {
 		q = q.Where(goqu.C("key").Like(escapeLike(bag.Prefix) + "%"))
 	}
 
 	if pageToken != "" {
-		q = q.Where(goqu.C("key").Gte(pageToken))
+		q = q.Where(goqu.C("key").Gte(bag.Prefix + pageToken))
 	}
 
 	sql, params, err := q.ToSQL()
-
 	if err != nil {
-		return nil, "", fmt.Errorf("error getting all sessions: %w", err)
+		return nil, "", 0, fmt.Errorf("session-get-all: error generating SQL: %w", err)
 	}
 
 	rows, err := c.db.QueryContext(ctx, sql, params...)
 	if err != nil {
-		return nil, "", fmt.Errorf("error getting all sessions: %w", err)
+		return nil, "", 0, fmt.Errorf("session-get-all: error executing SQL: %w", err)
 	}
 	defer rows.Close()
 
 	result := make(map[string][]byte)
 	nextPageToken := ""
-	i := 0
+	messageSize := 0
+	tooBig := false
 	for rows.Next() {
 		var key string
 		var value []byte
 		err = rows.Scan(&key, &value)
 		if err != nil {
-			return nil, "", fmt.Errorf("error scanning session: %w", err)
-		}
-		i++
-		if i > 100 {
-			nextPageToken = key
-			break
+			return nil, "", 0, fmt.Errorf("session-get-all: error scanning row: %w", err)
 		}
 		// Remove prefix from key to return original key
 		if bag.Prefix != "" && len(key) >= len(bag.Prefix) && key[:len(bag.Prefix)] == bag.Prefix {
 			key = key[len(bag.Prefix):]
 		}
+		nextPageToken = key
+		itemSize := len(key) + len(value) + 20
+		if messageSize+itemSize > sizeLimit {
+			tooBig = true
+			break
+		}
+		if len(result) >= 100 {
+			break
+		}
 		result[key] = value
+		messageSize += itemSize
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, "", fmt.Errorf("error getting data from session: %w", err)
+		return nil, "", 0, fmt.Errorf("session-get-all: error getting data from session: %w", err)
 	}
 
-	return result, nextPageToken, nil
+	if tooBig {
+		return result, nextPageToken, messageSize, nil
+	}
+
+	if len(result) < 100 {
+		return result, "", messageSize, nil
+	}
+
+	return result, nextPageToken, messageSize, nil
 }
