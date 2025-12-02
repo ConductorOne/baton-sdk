@@ -775,7 +775,14 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	runner.cw = cw
 
 	if cfg.onDemand {
-		if cfg.c1zPath == "" && cfg.eventFeedConfig == nil && cfg.createTicketConfig == nil && cfg.listTicketSchemasConfig == nil && cfg.getTicketConfig == nil && cfg.bulkCreateTicketConfig == nil && cfg.listResourceActionsConfig == nil && cfg.invokeResourceActionConfig == nil {
+		if cfg.c1zPath == "" &&
+			cfg.eventFeedConfig == nil &&
+			cfg.createTicketConfig == nil &&
+			cfg.listTicketSchemasConfig == nil &&
+			cfg.getTicketConfig == nil &&
+			cfg.bulkCreateTicketConfig == nil &&
+			cfg.listResourceActionsConfig == nil &&
+			cfg.invokeResourceActionConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
