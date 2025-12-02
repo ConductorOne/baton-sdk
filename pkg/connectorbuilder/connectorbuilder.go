@@ -369,21 +369,10 @@ func (b *builder) getCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 			return nil, err
 		}
 
-		// Add resource actions
-		var resourceActions []*v2.ResourceActionSchema
-		if b.resourceActionManager != nil {
-			if actions, err := b.resourceActionManager.ListResourceActions(ctx, resourceTypeID, nil); err == nil {
-				resourceActions = actions
-			} else {
-				ctxzap.Extract(ctx).Warn("failed to list resource actions for resource type", zap.String("resource_type", resourceTypeID), zap.Error(err))
-			}
-		}
-
 		resourceTypeCapabilities = append(resourceTypeCapabilities, v2.ResourceTypeCapability_builder{
 			ResourceType:    rb.ResourceType(ctx),
 			Capabilities:    caps,
 			Permissions:     p,
-			ResourceActions: resourceActions,
 		}.Build())
 	}
 
