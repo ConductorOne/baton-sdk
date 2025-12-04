@@ -78,7 +78,7 @@ type builder struct {
 	credentialManagers      map[string]CredentialManagerLimited
 	eventFeeds              map[string]EventFeed
 	accountManagers         map[string]AccountManagerLimited // NOTE(kans): currently unused
-	resourceActionManager   *actions.ResourceActionManager
+	internalActionManager   *actions.ActionManager           // Unified action manager for resource-scoped actions
 }
 
 // NewConnector creates a new ConnectorServer for a new resource.
@@ -115,7 +115,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		credentialManagers:      make(map[string]CredentialManagerLimited),
 		eventFeeds:              make(map[string]EventFeed),
 		accountManagers:         make(map[string]AccountManagerLimited),
-		resourceActionManager:   actions.NewResourceActionManager(ctx),
+		internalActionManager:   actions.NewActionManager(ctx),
 	}
 
 	// WithTicketingEnabled checks for the ticketManager
