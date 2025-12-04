@@ -24,6 +24,7 @@ type localSyncer struct {
 	targetedSyncResourceIDs             []string
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
+	skipEntitlements                    bool
 	syncResourceTypeIDs                 []string
 }
 
@@ -71,6 +72,12 @@ func WithSkipGrants(skip bool) Option {
 	}
 }
 
+func WithSkipEntitlements(skip bool) Option {
+	return func(m *localSyncer) {
+		m.skipEntitlements = skip
+	}
+}
+
 func (m *localSyncer) GetTempDir() string {
 	return ""
 }
@@ -105,6 +112,7 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithTargetedSyncResourceIDs(m.targetedSyncResourceIDs),
 		sdkSync.WithSkipEntitlementsAndGrants(m.skipEntitlementsAndGrants),
 		sdkSync.WithSkipGrants(m.skipGrants),
+		sdkSync.WithSkipEntitlements(m.skipEntitlements),
 		sdkSync.WithSessionStore(setSessionStore),
 		sdkSync.WithSyncResourceTypes(m.syncResourceTypeIDs),
 	)

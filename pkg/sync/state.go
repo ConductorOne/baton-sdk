@@ -36,6 +36,8 @@ type State interface {
 	SetShouldSkipEntitlementsAndGrants()
 	ShouldSkipGrants() bool
 	SetShouldSkipGrants()
+	ShouldSkipEntitlements() bool
+	SetShouldSkipEntitlements()
 }
 
 // ActionOp represents a sync operation.
@@ -156,6 +158,7 @@ type state struct {
 	shouldFetchRelatedResources     bool
 	shouldSkipEntitlementsAndGrants bool
 	shouldSkipGrants                bool
+	shouldSkipEntitlements          bool
 }
 
 // serializedToken is used to serialize the token to JSON. This separate object is used to avoid having exported fields
@@ -169,6 +172,7 @@ type serializedToken struct {
 	ShouldFetchRelatedResources     bool                     `json:"should_fetch_related_resources,omitempty"`
 	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
 	ShouldSkipGrants                bool                     `json:"should_skip_grants,omitempty"`
+	ShouldSkipEntitlements          bool                     `json:"should_skip_entitlements,omitempty"`
 }
 
 // push adds a new action to the stack. If there is no current state, the action is directly set to current, else
@@ -339,6 +343,14 @@ func (st *state) ShouldSkipGrants() bool {
 
 func (st *state) SetShouldSkipGrants() {
 	st.shouldSkipGrants = true
+}
+
+func (st *state) ShouldSkipEntitlements() bool {
+	return st.shouldSkipEntitlements
+}
+
+func (st *state) SetShouldSkipEntitlements() {
+	st.shouldSkipEntitlements = true
 }
 
 // PageToken returns the page token for the current action.

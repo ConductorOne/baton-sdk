@@ -215,8 +215,10 @@ type syncer struct {
 	dontExpandGrants                    bool
 	syncID                              string
 	skipEGForResourceType               map[string]bool
+	skipEntitlementsForResourceType     map[string]bool
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
+	skipEntitlements                    bool
 	resourceTypeTraits                  map[string][]v2.ResourceType_Trait
 	syncType                            connectorstore.SyncType
 	injectSyncIDAnnotation              bool
@@ -452,6 +454,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 			zap.Bool("should_fetch_related_resources", s.state.ShouldFetchRelatedResources()),
 			zap.Bool("should_skip_entitlements_and_grants", s.state.ShouldSkipEntitlementsAndGrants()),
 			zap.Bool("should_skip_grants", s.state.ShouldSkipGrants()),
+			zap.Bool("should_skip_entitlements", s.state.ShouldSkipEntitlements()),
 			zap.Bool("graph_loaded", entitlementGraph.Loaded),
 			zap.Bool("graph_has_no_cycles", entitlementGraph.HasNoCycles),
 			zap.Int("graph_depth", entitlementGraph.Depth),
@@ -509,6 +512,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 			if s.skipGrants {
 				s.state.SetShouldSkipGrants()
 			}
+			if s.skipEntitlements {
+				s.state.SetShouldSkipEntitlements()
+			}
 			if len(targetedResources) > 0 {
 				for _, r := range targetedResources {
 					s.state.PushAction(ctx, Action{
@@ -549,7 +555,11 @@ func (s *syncer) Sync(ctx context.Context) error {
 				if !s.state.ShouldSkipGrants() {
 					s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
 				}
-				s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+
+				if !s.state.ShouldSkipEntitlements() {
+					s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+				}
+
 				s.state.PushAction(ctx, Action{Op: SyncStaticEntitlementsOp})
 			}
 			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
@@ -949,7 +959,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 		})
 	}
 
-	shouldSkipEnts, err := s.shouldSkipEntitlementsAndGrants(ctx, resource)
+	shouldSkipEnts, err := s.shouldSkipEntitlements(ctx, resource)
 	if err != nil {
 		return err
 	}
@@ -1189,6 +1199,47 @@ func (s *syncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, er
 	return s.shouldSkipEntitlementsAndGrants(ctx, r)
 }
 
+func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bool, error) {
+	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlements")
+	defer span.End()
+
+	if s.state.ShouldSkipEntitlements() {
+		return true, nil
+	}
+
+	ok, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
+	if err != nil {
+		return false, err
+	}
+
+	if ok {
+		return true, nil
+	}
+
+	rAnnos := annotations.Annotations(r.GetAnnotations())
+	if rAnnos.Contains(&v2.SkipEntitlements{}) || rAnnos.Contains(&v2.SkipEntitlementsAndGrants{}) {
+		return true, nil
+	}
+
+	if skip, ok := s.skipEntitlementsForResourceType[r.GetId().GetResourceType()]; ok {
+		return skip, nil
+	}
+
+	rt, err := s.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
+		ResourceTypeId: r.GetId().GetResourceType(),
+	}.Build())
+	if err != nil {
+		return false, err
+	}
+
+	rtAnnos := annotations.Annotations(rt.GetResourceType().GetAnnotations())
+
+	skipEntitlements := rtAnnos.Contains(&v2.SkipEntitlements{}) || rtAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
+	s.skipEntitlementsForResourceType[r.GetId().GetResourceType()] = skipEntitlements
+
+	return skipEntitlements, nil
+}
+
 // SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
 // and pushes an action to fetch the entitlements for each resource.
 func (s *syncer) SyncEntitlements(ctx context.Context) error {
@@ -1219,7 +1270,7 @@ func (s *syncer) SyncEntitlements(ctx context.Context) error {
 		}
 
 		for _, r := range resp.GetList() {
-			shouldSkipEntitlements, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
+			shouldSkipEntitlements, err := s.shouldSkipEntitlements(ctx, r)
 			if err != nil {
 				return err
 			}
@@ -3162,14 +3213,21 @@ func WithSkipGrants(skip bool) SyncOpt {
 	}
 }
 
+func WithSkipEntitlements(skip bool) SyncOpt {
+	return func(s *syncer) {
+		s.skipEntitlements = skip
+	}
+}
+
 // NewSyncer returns a new syncer object.
 func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
 	s := &syncer{
-		connector:             c,
-		skipEGForResourceType: make(map[string]bool),
-		resourceTypeTraits:    make(map[string][]v2.ResourceType_Trait),
-		counts:                NewProgressCounts(),
-		syncType:              connectorstore.SyncTypeFull,
+		connector:                       c,
+		skipEGForResourceType:           make(map[string]bool),
+		skipEntitlementsForResourceType: make(map[string]bool),
+		resourceTypeTraits:              make(map[string][]v2.ResourceType_Trait),
+		counts:                          NewProgressCounts(),
+		syncType:                        connectorstore.SyncTypeFull,
 	}
 
 	for _, o := range opts {
