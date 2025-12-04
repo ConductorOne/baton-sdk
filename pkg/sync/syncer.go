@@ -218,7 +218,6 @@ type syncer struct {
 	skipEntitlementsForResourceType     map[string]bool
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
-	skipEntitlements                    bool
 	resourceTypeTraits                  map[string][]v2.ResourceType_Trait
 	syncType                            connectorstore.SyncType
 	injectSyncIDAnnotation              bool
@@ -454,7 +453,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 			zap.Bool("should_fetch_related_resources", s.state.ShouldFetchRelatedResources()),
 			zap.Bool("should_skip_entitlements_and_grants", s.state.ShouldSkipEntitlementsAndGrants()),
 			zap.Bool("should_skip_grants", s.state.ShouldSkipGrants()),
-			zap.Bool("should_skip_entitlements", s.state.ShouldSkipEntitlements()),
 			zap.Bool("graph_loaded", entitlementGraph.Loaded),
 			zap.Bool("graph_has_no_cycles", entitlementGraph.HasNoCycles),
 			zap.Int("graph_depth", entitlementGraph.Depth),
@@ -512,9 +510,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 			if s.skipGrants {
 				s.state.SetShouldSkipGrants()
 			}
-			if s.skipEntitlements {
-				s.state.SetShouldSkipEntitlements()
-			}
 			if len(targetedResources) > 0 {
 				for _, r := range targetedResources {
 					s.state.PushAction(ctx, Action{
@@ -556,9 +551,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 					s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
 				}
 
-				if !s.state.ShouldSkipEntitlements() {
-					s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
-				}
+				s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
 
 				s.state.PushAction(ctx, Action{Op: SyncStaticEntitlementsOp})
 			}
@@ -1202,10 +1195,6 @@ func (s *syncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, er
 func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlements")
 	defer span.End()
-
-	if s.state.ShouldSkipEntitlements() {
-		return true, nil
-	}
 
 	ok, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
 	if err != nil {
@@ -3210,12 +3199,6 @@ func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 func WithSkipGrants(skip bool) SyncOpt {
 	return func(s *syncer) {
 		s.skipGrants = skip
-	}
-}
-
-func WithSkipEntitlements(skip bool) SyncOpt {
-	return func(s *syncer) {
-		s.skipEntitlements = skip
 	}
 }
 
