@@ -7,13 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -59,14 +56,6 @@ type C1File struct {
 	slowQueryLogTimesMu   sync.Mutex
 	slowQueryThreshold    time.Duration
 	slowQueryLogFrequency time.Duration
-
-	// WAL checkpointing
-	checkpointTicker  *time.Ticker
-	checkpointStop    chan struct{}
-	checkpointDone    chan struct{}
-	checkpointOnce    sync.Once
-	checkpointMu      sync.RWMutex // Prevents DB activity during WAL checkpoint to avoid WAL file growth under heavy load
-	checkpointEnabled bool         // Whether WAL checkpointing is enabled
 }
 
 var _ connectorstore.Writer = (*C1File)(nil)
@@ -100,12 +89,6 @@ func WithC1FEncoderConcurrency(concurrency int) C1FOption {
 	}
 }
 
-func WithC1FWALCheckpoint(enable bool) C1FOption {
-	return func(o *C1File) {
-		o.checkpointEnabled = enable
-	}
-}
-
 // Returns a C1File instance for the given db filepath.
 func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1File")
@@ -127,8 +110,6 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		slowQueryThreshold:    5 * time.Second,
 		slowQueryLogFrequency: 1 * time.Minute,
 		encoderConcurrency:    1,
-		checkpointStop:        make(chan struct{}),
-		checkpointDone:        make(chan struct{}),
 	}
 
 	for _, opt := range opts {
@@ -149,12 +130,11 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 }
 
 type c1zOptions struct {
-	tmpDir              string
-	pragmas             []pragma
-	decoderOptions      []DecoderOption
-	readOnly            bool
-	encoderConcurrency  int
-	enableWALCheckpoint bool
+	tmpDir             string
+	pragmas            []pragma
+	decoderOptions     []DecoderOption
+	readOnly           bool
+	encoderConcurrency int
 }
 type C1ZOption func(*c1zOptions)
 
@@ -192,12 +172,6 @@ func WithReadOnly(readOnly bool) C1ZOption {
 func WithEncoderConcurrency(concurrency int) C1ZOption {
 	return func(o *c1zOptions) {
 		o.encoderConcurrency = concurrency
-	}
-}
-
-func WithWALCheckpoint(enable bool) C1ZOption {
-	return func(o *c1zOptions) {
-		o.enableWALCheckpoint = enable
 	}
 }
 
@@ -261,15 +235,6 @@ func (c *C1File) Close() error {
 // with our changes. The provided context is used for the WAL checkpoint operation.
 func (c *C1File) CloseContext(ctx context.Context) error {
 	var err error
-
-	// Stop WAL checkpointing if it's running
-	if c.checkpointTicker != nil {
-		c.checkpointTicker.Stop()
-		c.checkpointOnce.Do(func() {
-			close(c.checkpointStop)
-		})
-		<-c.checkpointDone // Wait for goroutine to finish
-	}
 
 	if c.rawDb != nil {
 		// CRITICAL: Force a full WAL checkpoint before closing the database.
@@ -566,71 +531,4 @@ func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 	}
 
 	return stats, nil
-}
-
-// isWALMode checks if the database is using WAL mode.
-func (c *C1File) isWALMode(ctx context.Context) bool {
-	for _, pragma := range c.pragmas {
-		if pragma.name == "journal_mode" && strings.EqualFold(pragma.value, "wal") {
-			return true
-		}
-	}
-
-	var mode string
-	if err := c.rawDb.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&mode); err == nil {
-		return strings.EqualFold(mode, "wal")
-	}
-
-	return false
-}
-
-// startWALCheckpointing starts a background goroutine to perform WAL checkpoints every 5 minutes.
-func (c *C1File) startWALCheckpointing() {
-	c.checkpointTicker = time.NewTicker(5 * time.Minute)
-
-	go func() {
-		defer close(c.checkpointDone)
-		for {
-			select {
-			case <-c.checkpointTicker.C:
-				c.performWALCheckpoint()
-			case <-c.checkpointStop:
-				return
-			}
-		}
-	}()
-}
-
-// acquireCheckpointLock acquires a read lock for database operations.
-func (c *C1File) acquireCheckpointLock() {
-	if c.checkpointEnabled {
-		c.checkpointMu.RLock()
-	}
-}
-
-// releaseCheckpointLock releases the read lock for database operations.
-func (c *C1File) releaseCheckpointLock() {
-	if c.checkpointEnabled {
-		c.checkpointMu.RUnlock()
-	}
-}
-
-// performWALCheckpoint performs a WAL checkpoint using SQLITE_CHECKPOINT_RESTART or SQLITE_CHECKPOINT_TRUNCATE.
-func (c *C1File) performWALCheckpoint() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	// Acquire write lock to pause all database operations during checkpoint
-	c.checkpointMu.Lock()
-	defer c.checkpointMu.Unlock()
-
-	// First try SQLITE_CHECKPOINT_TRUNCATE
-	_, err := c.rawDb.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
-	if err != nil {
-		// If TRUNCATE fails, try RESTART
-		_, err = c.rawDb.ExecContext(ctx, "PRAGMA wal_checkpoint(RESTART)")
-		if err != nil {
-			ctxzap.Extract(ctx).Error("failed to perform WAL checkpoint", zap.Error(err))
-		}
-	}
 }

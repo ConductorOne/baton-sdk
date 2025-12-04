@@ -33,14 +33,6 @@ const (
 	finishAction   = "finish"
 )
 
-// min returns the smaller of two integers.
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // addTaskWithRetry adds a task to the queue with retry logic for queue full errors.
 func (ps *parallelSyncer) addTaskWithRetry(ctx context.Context, task *task, maxRetries int) error {
 	for attempt := 0; attempt <= maxRetries; attempt++ {
@@ -418,7 +410,7 @@ func (q *taskQueue) expandQueueAndRetry(bucket string, t *task, timeout time.Dur
 	}
 
 	// Calculate new size (double it, but cap at reasonable limit)
-	newSize := minInt(currentSize*2, 50000) // Cap at 50k tasks per bucket
+	newSize := min(currentSize*2, 50000) // Cap at 50k tasks per bucket
 
 	if newSize <= currentSize {
 		l.Warn("queue expansion blocked - already at maximum size",
@@ -834,9 +826,6 @@ func NewParallelSyncer(baseSyncer *SequentialSyncer, config *ParallelSyncConfig)
 	if config == nil {
 		config = DefaultParallelSyncConfig()
 	}
-
-	// Enable WAL checkpointing for parallel sync to prevent checkpoint failures under high concurrency
-	baseSyncer.enableWALCheckpoint = true
 
 	return &parallelSyncer{
 		syncer: baseSyncer,

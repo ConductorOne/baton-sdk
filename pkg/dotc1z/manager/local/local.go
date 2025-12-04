@@ -16,11 +16,10 @@ import (
 var tracer = otel.Tracer("baton-sdk/pkg.dotc1z.manager.local")
 
 type localManager struct {
-	filePath            string
-	tmpPath             string
-	tmpDir              string
-	decoderOptions      []dotc1z.DecoderOption
-	enableWALCheckpoint bool
+	filePath       string
+	tmpPath        string
+	tmpDir         string
+	decoderOptions []dotc1z.DecoderOption
 }
 
 type Option func(*localManager)
@@ -34,12 +33,6 @@ func WithTmpDir(tmpDir string) Option {
 func WithDecoderOptions(opts ...dotc1z.DecoderOption) Option {
 	return func(o *localManager) {
 		o.decoderOptions = opts
-	}
-}
-
-func WithWALCheckpoint(enable bool) Option {
-	return func(o *localManager) {
-		o.enableWALCheckpoint = enable
 	}
 }
 
@@ -144,9 +137,6 @@ func (l *localManager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 	}
 	if len(l.decoderOptions) > 0 {
 		opts = append(opts, dotc1z.WithDecoderOptions(l.decoderOptions...))
-	}
-	if l.enableWALCheckpoint {
-		opts = append(opts, dotc1z.WithWALCheckpoint(true))
 	}
 	return dotc1z.NewC1ZFile(ctx, l.tmpPath, opts...)
 }
