@@ -341,7 +341,6 @@ type SequentialSyncer struct {
 	injectSyncIDAnnotation              bool
 	setSessionStore                     sessions.SetSessionStore
 	syncResourceTypes                   []string
-	enableWALCheckpoint                 bool
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -3148,10 +3147,6 @@ func (s *SequentialSyncer) loadStore(ctx context.Context) error {
 
 	if s.c1zManager == nil {
 		opts := []manager.ManagerOption{manager.WithTmpDir(s.tmpDir)}
-		// Enable WAL checkpointing for parallel sync to prevent checkpoint failures under high concurrency
-		if s.enableWALCheckpoint {
-			opts = append(opts, manager.WithWALCheckpoint(true))
-		}
 		m, err := manager.New(ctx, s.c1zPath, opts...)
 		if err != nil {
 			return err
