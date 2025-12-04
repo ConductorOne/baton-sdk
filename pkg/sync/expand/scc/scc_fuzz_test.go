@@ -358,7 +358,7 @@ func generateAdjFromBytes(data []byte, maxN, maxM int) map[int]map[int]int {
 	switch {
 	case n64 < 1:
 		n = 1
-	case n64 > uint64(maxN): //nolint:gosec // maxN is a small, non-negative test bound
+	case n64 > uint64(maxN):
 		n = maxN
 	case n64 > uint64(^uint(0)>>1):
 		n = maxN
@@ -367,7 +367,7 @@ func generateAdjFromBytes(data []byte, maxN, maxM int) map[int]map[int]int {
 	}
 	var m int
 	switch {
-	case m64 > uint64(maxM): //nolint:gosec // maxM is a non-negative test bound
+	case m64 > uint64(maxM):
 		m = maxM
 	case m64 > uint64(^uint(0)>>1):
 		m = maxM

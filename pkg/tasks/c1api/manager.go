@@ -186,7 +186,7 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 	_, rpcErr := c.serviceClient.FinishTask(finishCtx, v1.BatonServiceFinishTaskRequest_builder{
 		TaskId: task.GetId(),
 		Status: &pbstatus.Status{
-			//nolint:gosec // No risk of overflow because `Code` is a small enum.
+
 			Code:    int32(statusErr.Code()),
 			Message: statusErr.Message(),
 		},

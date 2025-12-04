@@ -125,7 +125,7 @@ func (b *bitset) forEachSet(fn func(i int)) {
 			tz := bits.TrailingZeros64(w)
 			i := (wi << 6) + tz
 			fn(i)
-			w &^= 1 << uint(tz) //nolint:gosec // trailing zeros is non-negative
+			w &^= 1 << uint(tz)
 		}
 	}
 }

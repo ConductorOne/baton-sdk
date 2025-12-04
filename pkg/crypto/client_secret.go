@@ -1,4 +1,4 @@
-package crypto
+package crypto //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 import (
 	"bytes"
