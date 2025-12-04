@@ -107,11 +107,6 @@ message Task {
     repeated google.protobuf.Any annotations = 1;
   }
 
-  message ListResourceActionsTask {
-    string resource_type_id = 1;
-    repeated google.protobuf.Any annotations = 2;
-  }
-
   message GetTicketTask {
     string ticket_id = 1;
     repeated google.protobuf.Any annotations = 2;
@@ -119,6 +114,8 @@ message Task {
 
   message ActionListSchemasTask {
     repeated google.protobuf.Any annotations = 1;
+    // Optional: filter to only return actions for a specific resource type
+    string resource_type_id = 2;
   }
 
   message ActionGetSchemaTask {
@@ -130,6 +127,8 @@ message Task {
     string name = 1;
     google.protobuf.Struct args = 2;
     repeated google.protobuf.Any annotations = 3;
+    // Optional: if set, invokes a resource-scoped action
+    string resource_type_id = 4;
   }
 
   message ActionStatusTask {
@@ -179,7 +178,6 @@ message Task {
     ActionStatusTask action_status = 118;
     CreateSyncDiffTask create_sync_diff = 119;
     CompactSyncs compact_syncs = 120;
-    ListResourceActionsTask list_resource_actions = 121;
   }
   bool debug = 3;
 }

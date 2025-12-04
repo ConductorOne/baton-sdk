@@ -208,16 +208,18 @@ func (x ActionType) Number() protoreflect.EnumNumber {
 }
 
 type BatonActionSchema struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Arguments     []*v1.Field            `protobuf:"bytes,2,rep,name=arguments,proto3" json:"arguments,omitempty"`
-	Constraints   []*v1.Constraint       `protobuf:"bytes,3,rep,name=constraints,proto3" json:"constraints,omitempty"`
-	ReturnTypes   []*v1.Field            `protobuf:"bytes,4,rep,name=return_types,json=returnTypes,proto3" json:"return_types,omitempty"`
-	DisplayName   string                 `protobuf:"bytes,5,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Description   string                 `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
-	ActionType    []ActionType           `protobuf:"varint,7,rep,packed,name=action_type,json=actionType,proto3,enum=c1.connector.v2.ActionType" json:"action_type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"hybrid.v1"`
+	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Arguments   []*v1.Field            `protobuf:"bytes,2,rep,name=arguments,proto3" json:"arguments,omitempty"`
+	Constraints []*v1.Constraint       `protobuf:"bytes,3,rep,name=constraints,proto3" json:"constraints,omitempty"`
+	ReturnTypes []*v1.Field            `protobuf:"bytes,4,rep,name=return_types,json=returnTypes,proto3" json:"return_types,omitempty"`
+	DisplayName string                 `protobuf:"bytes,5,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Description string                 `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
+	ActionType  []ActionType           `protobuf:"varint,7,rep,packed,name=action_type,json=actionType,proto3,enum=c1.connector.v2.ActionType" json:"action_type,omitempty"`
+	// Optional: if set, this action is scoped to a specific resource type
+	ResourceTypeId *string `protobuf:"bytes,8,opt,name=resource_type_id,json=resourceTypeId,proto3,oneof" json:"resource_type_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *BatonActionSchema) Reset() {
@@ -294,6 +296,13 @@ func (x *BatonActionSchema) GetActionType() []ActionType {
 	return nil
 }
 
+func (x *BatonActionSchema) GetResourceTypeId() string {
+	if x != nil && x.ResourceTypeId != nil {
+		return *x.ResourceTypeId
+	}
+	return ""
+}
+
 func (x *BatonActionSchema) SetName(v string) {
 	x.Name = v
 }
@@ -322,6 +331,21 @@ func (x *BatonActionSchema) SetActionType(v []ActionType) {
 	x.ActionType = v
 }
 
+func (x *BatonActionSchema) SetResourceTypeId(v string) {
+	x.ResourceTypeId = &v
+}
+
+func (x *BatonActionSchema) HasResourceTypeId() bool {
+	if x == nil {
+		return false
+	}
+	return x.ResourceTypeId != nil
+}
+
+func (x *BatonActionSchema) ClearResourceTypeId() {
+	x.ResourceTypeId = nil
+}
+
 type BatonActionSchema_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -332,6 +356,8 @@ type BatonActionSchema_builder struct {
 	DisplayName string
 	Description string
 	ActionType  []ActionType
+	// Optional: if set, this action is scoped to a specific resource type
+	ResourceTypeId *string
 }
 
 func (b0 BatonActionSchema_builder) Build() *BatonActionSchema {
@@ -345,16 +371,21 @@ func (b0 BatonActionSchema_builder) Build() *BatonActionSchema {
 	x.DisplayName = b.DisplayName
 	x.Description = b.Description
 	x.ActionType = b.ActionType
+	x.ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
 type InvokeActionRequest struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Args          *structpb.Struct       `protobuf:"bytes,2,opt,name=args,proto3" json:"args,omitempty"`
-	Annotations   []*anypb.Any           `protobuf:"bytes,3,rep,name=annotations,proto3" json:"annotations,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"hybrid.v1"`
+	Name        string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Args        *structpb.Struct       `protobuf:"bytes,2,opt,name=args,proto3" json:"args,omitempty"`
+	Annotations []*anypb.Any           `protobuf:"bytes,3,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	// Optional: if set, invokes a resource-scoped action
+	ResourceTypeId *string `protobuf:"bytes,4,opt,name=resource_type_id,json=resourceTypeId,proto3,oneof" json:"resource_type_id,omitempty"`
+	// Optional: encryption configs for secret fields
+	EncryptionConfigs []*EncryptionConfig `protobuf:"bytes,5,rep,name=encryption_configs,json=encryptionConfigs,proto3" json:"encryption_configs,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *InvokeActionRequest) Reset() {
@@ -403,6 +434,20 @@ func (x *InvokeActionRequest) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+func (x *InvokeActionRequest) GetResourceTypeId() string {
+	if x != nil && x.ResourceTypeId != nil {
+		return *x.ResourceTypeId
+	}
+	return ""
+}
+
+func (x *InvokeActionRequest) GetEncryptionConfigs() []*EncryptionConfig {
+	if x != nil {
+		return x.EncryptionConfigs
+	}
+	return nil
+}
+
 func (x *InvokeActionRequest) SetName(v string) {
 	x.Name = v
 }
@@ -415,6 +460,14 @@ func (x *InvokeActionRequest) SetAnnotations(v []*anypb.Any) {
 	x.Annotations = v
 }
 
+func (x *InvokeActionRequest) SetResourceTypeId(v string) {
+	x.ResourceTypeId = &v
+}
+
+func (x *InvokeActionRequest) SetEncryptionConfigs(v []*EncryptionConfig) {
+	x.EncryptionConfigs = v
+}
+
 func (x *InvokeActionRequest) HasArgs() bool {
 	if x == nil {
 		return false
@@ -422,8 +475,19 @@ func (x *InvokeActionRequest) HasArgs() bool {
 	return x.Args != nil
 }
 
+func (x *InvokeActionRequest) HasResourceTypeId() bool {
+	if x == nil {
+		return false
+	}
+	return x.ResourceTypeId != nil
+}
+
 func (x *InvokeActionRequest) ClearArgs() {
 	x.Args = nil
+}
+
+func (x *InvokeActionRequest) ClearResourceTypeId() {
+	x.ResourceTypeId = nil
 }
 
 type InvokeActionRequest_builder struct {
@@ -432,6 +496,10 @@ type InvokeActionRequest_builder struct {
 	Name        string
 	Args        *structpb.Struct
 	Annotations []*anypb.Any
+	// Optional: if set, invokes a resource-scoped action
+	ResourceTypeId *string
+	// Optional: encryption configs for secret fields
+	EncryptionConfigs []*EncryptionConfig
 }
 
 func (b0 InvokeActionRequest_builder) Build() *InvokeActionRequest {
@@ -441,6 +509,8 @@ func (b0 InvokeActionRequest_builder) Build() *InvokeActionRequest {
 	x.Name = b.Name
 	x.Args = b.Args
 	x.Annotations = b.Annotations
+	x.ResourceTypeId = b.ResourceTypeId
+	x.EncryptionConfigs = b.EncryptionConfigs
 	return m0
 }
 
@@ -935,10 +1005,12 @@ func (b0 GetActionSchemaResponse_builder) Build() *GetActionSchemaResponse {
 }
 
 type ListActionSchemasRequest struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Annotations   []*anypb.Any           `protobuf:"bytes,1,rep,name=annotations,proto3" json:"annotations,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state       protoimpl.MessageState `protogen:"hybrid.v1"`
+	Annotations []*anypb.Any           `protobuf:"bytes,1,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	// Optional: filter to only return actions for a specific resource type
+	ResourceTypeId *string `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3,oneof" json:"resource_type_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ListActionSchemasRequest) Reset() {
@@ -973,14 +1045,38 @@ func (x *ListActionSchemasRequest) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+func (x *ListActionSchemasRequest) GetResourceTypeId() string {
+	if x != nil && x.ResourceTypeId != nil {
+		return *x.ResourceTypeId
+	}
+	return ""
+}
+
 func (x *ListActionSchemasRequest) SetAnnotations(v []*anypb.Any) {
 	x.Annotations = v
+}
+
+func (x *ListActionSchemasRequest) SetResourceTypeId(v string) {
+	x.ResourceTypeId = &v
+}
+
+func (x *ListActionSchemasRequest) HasResourceTypeId() bool {
+	if x == nil {
+		return false
+	}
+	return x.ResourceTypeId != nil
+}
+
+func (x *ListActionSchemasRequest) ClearResourceTypeId() {
+	x.ResourceTypeId = nil
 }
 
 type ListActionSchemasRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Annotations []*anypb.Any
+	// Optional: filter to only return actions for a specific resource type
+	ResourceTypeId *string
 }
 
 func (b0 ListActionSchemasRequest_builder) Build() *ListActionSchemasRequest {
@@ -988,6 +1084,7 @@ func (b0 ListActionSchemasRequest_builder) Build() *ListActionSchemasRequest {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Annotations = b.Annotations
+	x.ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -1062,539 +1159,11 @@ func (b0 ListActionSchemasResponse_builder) Build() *ListActionSchemasResponse {
 	return m0
 }
 
-type ResourceActionSchema struct {
-	state          protoimpl.MessageState `protogen:"hybrid.v1"`
-	ResourceTypeId string                 `protobuf:"bytes,1,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"` // Required: the resource type this action applies to
-	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Arguments      []*v1.Field            `protobuf:"bytes,3,rep,name=arguments,proto3" json:"arguments,omitempty"`
-	ReturnTypes    []*v1.Field            `protobuf:"bytes,4,rep,name=return_types,json=returnTypes,proto3" json:"return_types,omitempty"`
-	DisplayName    string                 `protobuf:"bytes,5,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Description    string                 `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
-	ActionType     []ActionType           `protobuf:"varint,7,rep,packed,name=action_type,json=actionType,proto3,enum=c1.connector.v2.ActionType" json:"action_type,omitempty"` // Well-known action types
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *ResourceActionSchema) Reset() {
-	*x = ResourceActionSchema{}
-	mi := &file_c1_connector_v2_action_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ResourceActionSchema) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ResourceActionSchema) ProtoMessage() {}
-
-func (x *ResourceActionSchema) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_action_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *ResourceActionSchema) GetResourceTypeId() string {
-	if x != nil {
-		return x.ResourceTypeId
-	}
-	return ""
-}
-
-func (x *ResourceActionSchema) GetName() string {
-	if x != nil {
-		return x.Name
-	}
-	return ""
-}
-
-func (x *ResourceActionSchema) GetArguments() []*v1.Field {
-	if x != nil {
-		return x.Arguments
-	}
-	return nil
-}
-
-func (x *ResourceActionSchema) GetReturnTypes() []*v1.Field {
-	if x != nil {
-		return x.ReturnTypes
-	}
-	return nil
-}
-
-func (x *ResourceActionSchema) GetDisplayName() string {
-	if x != nil {
-		return x.DisplayName
-	}
-	return ""
-}
-
-func (x *ResourceActionSchema) GetDescription() string {
-	if x != nil {
-		return x.Description
-	}
-	return ""
-}
-
-func (x *ResourceActionSchema) GetActionType() []ActionType {
-	if x != nil {
-		return x.ActionType
-	}
-	return nil
-}
-
-func (x *ResourceActionSchema) SetResourceTypeId(v string) {
-	x.ResourceTypeId = v
-}
-
-func (x *ResourceActionSchema) SetName(v string) {
-	x.Name = v
-}
-
-func (x *ResourceActionSchema) SetArguments(v []*v1.Field) {
-	x.Arguments = v
-}
-
-func (x *ResourceActionSchema) SetReturnTypes(v []*v1.Field) {
-	x.ReturnTypes = v
-}
-
-func (x *ResourceActionSchema) SetDisplayName(v string) {
-	x.DisplayName = v
-}
-
-func (x *ResourceActionSchema) SetDescription(v string) {
-	x.Description = v
-}
-
-func (x *ResourceActionSchema) SetActionType(v []ActionType) {
-	x.ActionType = v
-}
-
-type ResourceActionSchema_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	ResourceTypeId string
-	Name           string
-	Arguments      []*v1.Field
-	ReturnTypes    []*v1.Field
-	DisplayName    string
-	Description    string
-	ActionType     []ActionType
-}
-
-func (b0 ResourceActionSchema_builder) Build() *ResourceActionSchema {
-	m0 := &ResourceActionSchema{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.ResourceTypeId = b.ResourceTypeId
-	x.Name = b.Name
-	x.Arguments = b.Arguments
-	x.ReturnTypes = b.ReturnTypes
-	x.DisplayName = b.DisplayName
-	x.Description = b.Description
-	x.ActionType = b.ActionType
-	return m0
-}
-
-type InvokeResourceActionRequest struct {
-	state             protoimpl.MessageState `protogen:"hybrid.v1"`
-	ResourceTypeId    string                 `protobuf:"bytes,1,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"`
-	ActionName        string                 `protobuf:"bytes,2,opt,name=action_name,json=actionName,proto3" json:"action_name,omitempty"`
-	Args              *structpb.Struct       `protobuf:"bytes,3,opt,name=args,proto3" json:"args,omitempty"`
-	EncryptionConfigs []*EncryptionConfig    `protobuf:"bytes,4,rep,name=encryption_configs,json=encryptionConfigs,proto3" json:"encryption_configs,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
-}
-
-func (x *InvokeResourceActionRequest) Reset() {
-	*x = InvokeResourceActionRequest{}
-	mi := &file_c1_connector_v2_action_proto_msgTypes[10]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *InvokeResourceActionRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*InvokeResourceActionRequest) ProtoMessage() {}
-
-func (x *InvokeResourceActionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_action_proto_msgTypes[10]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *InvokeResourceActionRequest) GetResourceTypeId() string {
-	if x != nil {
-		return x.ResourceTypeId
-	}
-	return ""
-}
-
-func (x *InvokeResourceActionRequest) GetActionName() string {
-	if x != nil {
-		return x.ActionName
-	}
-	return ""
-}
-
-func (x *InvokeResourceActionRequest) GetArgs() *structpb.Struct {
-	if x != nil {
-		return x.Args
-	}
-	return nil
-}
-
-func (x *InvokeResourceActionRequest) GetEncryptionConfigs() []*EncryptionConfig {
-	if x != nil {
-		return x.EncryptionConfigs
-	}
-	return nil
-}
-
-func (x *InvokeResourceActionRequest) SetResourceTypeId(v string) {
-	x.ResourceTypeId = v
-}
-
-func (x *InvokeResourceActionRequest) SetActionName(v string) {
-	x.ActionName = v
-}
-
-func (x *InvokeResourceActionRequest) SetArgs(v *structpb.Struct) {
-	x.Args = v
-}
-
-func (x *InvokeResourceActionRequest) SetEncryptionConfigs(v []*EncryptionConfig) {
-	x.EncryptionConfigs = v
-}
-
-func (x *InvokeResourceActionRequest) HasArgs() bool {
-	if x == nil {
-		return false
-	}
-	return x.Args != nil
-}
-
-func (x *InvokeResourceActionRequest) ClearArgs() {
-	x.Args = nil
-}
-
-type InvokeResourceActionRequest_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	ResourceTypeId    string
-	ActionName        string
-	Args              *structpb.Struct
-	EncryptionConfigs []*EncryptionConfig
-}
-
-func (b0 InvokeResourceActionRequest_builder) Build() *InvokeResourceActionRequest {
-	m0 := &InvokeResourceActionRequest{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.ResourceTypeId = b.ResourceTypeId
-	x.ActionName = b.ActionName
-	x.Args = b.Args
-	x.EncryptionConfigs = b.EncryptionConfigs
-	return m0
-}
-
-type InvokeResourceActionResponse struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	ActionId      string                 `protobuf:"bytes,1,opt,name=action_id,json=actionId,proto3" json:"action_id,omitempty"`
-	Status        BatonActionStatus      `protobuf:"varint,2,opt,name=status,proto3,enum=c1.connector.v2.BatonActionStatus" json:"status,omitempty"`
-	Response      *structpb.Struct       `protobuf:"bytes,3,opt,name=response,proto3" json:"response,omitempty"`
-	Annotations   []*anypb.Any           `protobuf:"bytes,4,rep,name=annotations,proto3" json:"annotations,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *InvokeResourceActionResponse) Reset() {
-	*x = InvokeResourceActionResponse{}
-	mi := &file_c1_connector_v2_action_proto_msgTypes[11]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *InvokeResourceActionResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*InvokeResourceActionResponse) ProtoMessage() {}
-
-func (x *InvokeResourceActionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_action_proto_msgTypes[11]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *InvokeResourceActionResponse) GetActionId() string {
-	if x != nil {
-		return x.ActionId
-	}
-	return ""
-}
-
-func (x *InvokeResourceActionResponse) GetStatus() BatonActionStatus {
-	if x != nil {
-		return x.Status
-	}
-	return BatonActionStatus_BATON_ACTION_STATUS_UNSPECIFIED
-}
-
-func (x *InvokeResourceActionResponse) GetResponse() *structpb.Struct {
-	if x != nil {
-		return x.Response
-	}
-	return nil
-}
-
-func (x *InvokeResourceActionResponse) GetAnnotations() []*anypb.Any {
-	if x != nil {
-		return x.Annotations
-	}
-	return nil
-}
-
-func (x *InvokeResourceActionResponse) SetActionId(v string) {
-	x.ActionId = v
-}
-
-func (x *InvokeResourceActionResponse) SetStatus(v BatonActionStatus) {
-	x.Status = v
-}
-
-func (x *InvokeResourceActionResponse) SetResponse(v *structpb.Struct) {
-	x.Response = v
-}
-
-func (x *InvokeResourceActionResponse) SetAnnotations(v []*anypb.Any) {
-	x.Annotations = v
-}
-
-func (x *InvokeResourceActionResponse) HasResponse() bool {
-	if x == nil {
-		return false
-	}
-	return x.Response != nil
-}
-
-func (x *InvokeResourceActionResponse) ClearResponse() {
-	x.Response = nil
-}
-
-type InvokeResourceActionResponse_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	ActionId    string
-	Status      BatonActionStatus
-	Response    *structpb.Struct
-	Annotations []*anypb.Any
-}
-
-func (b0 InvokeResourceActionResponse_builder) Build() *InvokeResourceActionResponse {
-	m0 := &InvokeResourceActionResponse{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.ActionId = b.ActionId
-	x.Status = b.Status
-	x.Response = b.Response
-	x.Annotations = b.Annotations
-	return m0
-}
-
-type ListResourceActionsRequest struct {
-	state          protoimpl.MessageState `protogen:"hybrid.v1"`
-	ResourceTypeId string                 `protobuf:"bytes,1,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"` // Optional: filter by resource type
-	ResourceId     *ResourceId            `protobuf:"bytes,2,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`               // Optional: filter by specific resource
-	Annotations    []*anypb.Any           `protobuf:"bytes,3,rep,name=annotations,proto3" json:"annotations,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
-}
-
-func (x *ListResourceActionsRequest) Reset() {
-	*x = ListResourceActionsRequest{}
-	mi := &file_c1_connector_v2_action_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListResourceActionsRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListResourceActionsRequest) ProtoMessage() {}
-
-func (x *ListResourceActionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_action_proto_msgTypes[12]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *ListResourceActionsRequest) GetResourceTypeId() string {
-	if x != nil {
-		return x.ResourceTypeId
-	}
-	return ""
-}
-
-func (x *ListResourceActionsRequest) GetResourceId() *ResourceId {
-	if x != nil {
-		return x.ResourceId
-	}
-	return nil
-}
-
-func (x *ListResourceActionsRequest) GetAnnotations() []*anypb.Any {
-	if x != nil {
-		return x.Annotations
-	}
-	return nil
-}
-
-func (x *ListResourceActionsRequest) SetResourceTypeId(v string) {
-	x.ResourceTypeId = v
-}
-
-func (x *ListResourceActionsRequest) SetResourceId(v *ResourceId) {
-	x.ResourceId = v
-}
-
-func (x *ListResourceActionsRequest) SetAnnotations(v []*anypb.Any) {
-	x.Annotations = v
-}
-
-func (x *ListResourceActionsRequest) HasResourceId() bool {
-	if x == nil {
-		return false
-	}
-	return x.ResourceId != nil
-}
-
-func (x *ListResourceActionsRequest) ClearResourceId() {
-	x.ResourceId = nil
-}
-
-type ListResourceActionsRequest_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	ResourceTypeId string
-	ResourceId     *ResourceId
-	Annotations    []*anypb.Any
-}
-
-func (b0 ListResourceActionsRequest_builder) Build() *ListResourceActionsRequest {
-	m0 := &ListResourceActionsRequest{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.ResourceTypeId = b.ResourceTypeId
-	x.ResourceId = b.ResourceId
-	x.Annotations = b.Annotations
-	return m0
-}
-
-type ListResourceActionsResponse struct {
-	state         protoimpl.MessageState  `protogen:"hybrid.v1"`
-	Schemas       []*ResourceActionSchema `protobuf:"bytes,1,rep,name=schemas,proto3" json:"schemas,omitempty"`
-	Annotations   []*anypb.Any            `protobuf:"bytes,2,rep,name=annotations,proto3" json:"annotations,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ListResourceActionsResponse) Reset() {
-	*x = ListResourceActionsResponse{}
-	mi := &file_c1_connector_v2_action_proto_msgTypes[13]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ListResourceActionsResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ListResourceActionsResponse) ProtoMessage() {}
-
-func (x *ListResourceActionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_action_proto_msgTypes[13]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *ListResourceActionsResponse) GetSchemas() []*ResourceActionSchema {
-	if x != nil {
-		return x.Schemas
-	}
-	return nil
-}
-
-func (x *ListResourceActionsResponse) GetAnnotations() []*anypb.Any {
-	if x != nil {
-		return x.Annotations
-	}
-	return nil
-}
-
-func (x *ListResourceActionsResponse) SetSchemas(v []*ResourceActionSchema) {
-	x.Schemas = v
-}
-
-func (x *ListResourceActionsResponse) SetAnnotations(v []*anypb.Any) {
-	x.Annotations = v
-}
-
-type ListResourceActionsResponse_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	Schemas     []*ResourceActionSchema
-	Annotations []*anypb.Any
-}
-
-func (b0 ListResourceActionsResponse_builder) Build() *ListResourceActionsResponse {
-	m0 := &ListResourceActionsResponse{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.Schemas = b.Schemas
-	x.Annotations = b.Annotations
-	return m0
-}
-
 var File_c1_connector_v2_action_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\n" +
-	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xd1\x02\n" +
+	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\"\x95\x03\n" +
 	"\x11BatonActionSchema\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
 	"\targuments\x18\x02 \x03(\v2\x13.c1.config.v1.FieldR\targuments\x12:\n" +
@@ -1603,11 +1172,16 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x05 \x01(\tR\vdisplayName\x12 \n" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x12<\n" +
 	"\vaction_type\x18\a \x03(\x0e2\x1b.c1.connector.v2.ActionTypeR\n" +
-	"actionType\"\x8e\x01\n" +
+	"actionType\x12-\n" +
+	"\x10resource_type_id\x18\b \x01(\tH\x00R\x0eresourceTypeId\x88\x01\x01B\x13\n" +
+	"\x11_resource_type_id\"\xa4\x02\n" +
 	"\x13InvokeActionRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x04args\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x04args\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xe3\x01\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12-\n" +
+	"\x10resource_type_id\x18\x04 \x01(\tH\x00R\x0eresourceTypeId\x88\x01\x01\x12P\n" +
+	"\x12encryption_configs\x18\x05 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigsB\x13\n" +
+	"\x11_resource_type_id\"\xe3\x01\n" +
 	"\x14InvokeActionResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\x06status\x18\x02 \x01(\x0e2\".c1.connector.v2.BatonActionStatusR\x06status\x126\n" +
@@ -1629,39 +1203,13 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x8d\x01\n" +
 	"\x17GetActionSchemaResponse\x12:\n" +
 	"\x06schema\x18\x01 \x01(\v2\".c1.connector.v2.BatonActionSchemaR\x06schema\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"R\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x96\x01\n" +
 	"\x18ListActionSchemasRequest\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x91\x01\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12-\n" +
+	"\x10resource_type_id\x18\x02 \x01(\tH\x00R\x0eresourceTypeId\x88\x01\x01B\x13\n" +
+	"\x11_resource_type_id\"\x91\x01\n" +
 	"\x19ListActionSchemasResponse\x12<\n" +
 	"\aschemas\x18\x01 \x03(\v2\".c1.connector.v2.BatonActionSchemaR\aschemas\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xc2\x02\n" +
-	"\x14ResourceActionSchema\x12(\n" +
-	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\x121\n" +
-	"\targuments\x18\x03 \x03(\v2\x13.c1.config.v1.FieldR\targuments\x126\n" +
-	"\freturn_types\x18\x04 \x03(\v2\x13.c1.config.v1.FieldR\vreturnTypes\x12!\n" +
-	"\fdisplay_name\x18\x05 \x01(\tR\vdisplayName\x12 \n" +
-	"\vdescription\x18\x06 \x01(\tR\vdescription\x12<\n" +
-	"\vaction_type\x18\a \x03(\x0e2\x1b.c1.connector.v2.ActionTypeR\n" +
-	"actionType\"\xe7\x01\n" +
-	"\x1bInvokeResourceActionRequest\x12(\n" +
-	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
-	"\vaction_name\x18\x02 \x01(\tR\n" +
-	"actionName\x12+\n" +
-	"\x04args\x18\x03 \x01(\v2\x17.google.protobuf.StructR\x04args\x12P\n" +
-	"\x12encryption_configs\x18\x04 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\"\xe4\x01\n" +
-	"\x1cInvokeResourceActionResponse\x12\x1b\n" +
-	"\taction_id\x18\x01 \x01(\tR\bactionId\x12:\n" +
-	"\x06status\x18\x02 \x01(\x0e2\".c1.connector.v2.BatonActionStatusR\x06status\x123\n" +
-	"\bresponse\x18\x03 \x01(\v2\x17.google.protobuf.StructR\bresponse\x126\n" +
-	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xbc\x01\n" +
-	"\x1aListResourceActionsRequest\x12(\n" +
-	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\x12<\n" +
-	"\vresource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\n" +
-	"resourceId\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x96\x01\n" +
-	"\x1bListResourceActionsResponse\x12?\n" +
-	"\aschemas\x18\x01 \x03(\v2%.c1.connector.v2.ResourceActionSchemaR\aschemas\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations*\xdd\x01\n" +
 	"\x11BatonActionStatus\x12#\n" +
 	"\x1fBATON_ACTION_STATUS_UNSPECIFIED\x10\x00\x12\x1f\n" +
@@ -1701,90 +1249,67 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\x1bACTION_TYPE_APP_ASSIGN_USER\x10\x19\x12!\n" +
 	"\x1dACTION_TYPE_APP_UNASSIGN_USER\x10\x1a\x12\x1d\n" +
 	"\x19ACTION_TYPE_SECRET_ROTATE\x10\x1b\x12!\n" +
-	"\x1dACTION_TYPE_SECRET_REGENERATE\x10\x1c2\x8b\x05\n" +
+	"\x1dACTION_TYPE_SECRET_REGENERATE\x10\x1c2\xa4\x03\n" +
 	"\rActionService\x12[\n" +
 	"\fInvokeAction\x12$.c1.connector.v2.InvokeActionRequest\x1a%.c1.connector.v2.InvokeActionResponse\x12d\n" +
 	"\x0fGetActionStatus\x12'.c1.connector.v2.GetActionStatusRequest\x1a(.c1.connector.v2.GetActionStatusResponse\x12d\n" +
 	"\x0fGetActionSchema\x12'.c1.connector.v2.GetActionSchemaRequest\x1a(.c1.connector.v2.GetActionSchemaResponse\x12j\n" +
-	"\x11ListActionSchemas\x12).c1.connector.v2.ListActionSchemasRequest\x1a*.c1.connector.v2.ListActionSchemasResponse\x12p\n" +
-	"\x13ListResourceActions\x12+.c1.connector.v2.ListResourceActionsRequest\x1a,.c1.connector.v2.ListResourceActionsResponse\x12s\n" +
-	"\x14InvokeResourceAction\x12,.c1.connector.v2.InvokeResourceActionRequest\x1a-.c1.connector.v2.InvokeResourceActionResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\x11ListActionSchemas\x12).c1.connector.v2.ListActionSchemasRequest\x1a*.c1.connector.v2.ListActionSchemasResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_action_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_c1_connector_v2_action_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_c1_connector_v2_action_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_c1_connector_v2_action_proto_goTypes = []any{
-	(BatonActionStatus)(0),               // 0: c1.connector.v2.BatonActionStatus
-	(ActionType)(0),                      // 1: c1.connector.v2.ActionType
-	(*BatonActionSchema)(nil),            // 2: c1.connector.v2.BatonActionSchema
-	(*InvokeActionRequest)(nil),          // 3: c1.connector.v2.InvokeActionRequest
-	(*InvokeActionResponse)(nil),         // 4: c1.connector.v2.InvokeActionResponse
-	(*GetActionStatusRequest)(nil),       // 5: c1.connector.v2.GetActionStatusRequest
-	(*GetActionStatusResponse)(nil),      // 6: c1.connector.v2.GetActionStatusResponse
-	(*GetActionSchemaRequest)(nil),       // 7: c1.connector.v2.GetActionSchemaRequest
-	(*GetActionSchemaResponse)(nil),      // 8: c1.connector.v2.GetActionSchemaResponse
-	(*ListActionSchemasRequest)(nil),     // 9: c1.connector.v2.ListActionSchemasRequest
-	(*ListActionSchemasResponse)(nil),    // 10: c1.connector.v2.ListActionSchemasResponse
-	(*ResourceActionSchema)(nil),         // 11: c1.connector.v2.ResourceActionSchema
-	(*InvokeResourceActionRequest)(nil),  // 12: c1.connector.v2.InvokeResourceActionRequest
-	(*InvokeResourceActionResponse)(nil), // 13: c1.connector.v2.InvokeResourceActionResponse
-	(*ListResourceActionsRequest)(nil),   // 14: c1.connector.v2.ListResourceActionsRequest
-	(*ListResourceActionsResponse)(nil),  // 15: c1.connector.v2.ListResourceActionsResponse
-	(*v1.Field)(nil),                     // 16: c1.config.v1.Field
-	(*v1.Constraint)(nil),                // 17: c1.config.v1.Constraint
-	(*structpb.Struct)(nil),              // 18: google.protobuf.Struct
-	(*anypb.Any)(nil),                    // 19: google.protobuf.Any
-	(*EncryptionConfig)(nil),             // 20: c1.connector.v2.EncryptionConfig
-	(*ResourceId)(nil),                   // 21: c1.connector.v2.ResourceId
+	(BatonActionStatus)(0),            // 0: c1.connector.v2.BatonActionStatus
+	(ActionType)(0),                   // 1: c1.connector.v2.ActionType
+	(*BatonActionSchema)(nil),         // 2: c1.connector.v2.BatonActionSchema
+	(*InvokeActionRequest)(nil),       // 3: c1.connector.v2.InvokeActionRequest
+	(*InvokeActionResponse)(nil),      // 4: c1.connector.v2.InvokeActionResponse
+	(*GetActionStatusRequest)(nil),    // 5: c1.connector.v2.GetActionStatusRequest
+	(*GetActionStatusResponse)(nil),   // 6: c1.connector.v2.GetActionStatusResponse
+	(*GetActionSchemaRequest)(nil),    // 7: c1.connector.v2.GetActionSchemaRequest
+	(*GetActionSchemaResponse)(nil),   // 8: c1.connector.v2.GetActionSchemaResponse
+	(*ListActionSchemasRequest)(nil),  // 9: c1.connector.v2.ListActionSchemasRequest
+	(*ListActionSchemasResponse)(nil), // 10: c1.connector.v2.ListActionSchemasResponse
+	(*v1.Field)(nil),                  // 11: c1.config.v1.Field
+	(*v1.Constraint)(nil),             // 12: c1.config.v1.Constraint
+	(*structpb.Struct)(nil),           // 13: google.protobuf.Struct
+	(*anypb.Any)(nil),                 // 14: google.protobuf.Any
+	(*EncryptionConfig)(nil),          // 15: c1.connector.v2.EncryptionConfig
 }
 var file_c1_connector_v2_action_proto_depIdxs = []int32{
-	16, // 0: c1.connector.v2.BatonActionSchema.arguments:type_name -> c1.config.v1.Field
-	17, // 1: c1.connector.v2.BatonActionSchema.constraints:type_name -> c1.config.v1.Constraint
-	16, // 2: c1.connector.v2.BatonActionSchema.return_types:type_name -> c1.config.v1.Field
+	11, // 0: c1.connector.v2.BatonActionSchema.arguments:type_name -> c1.config.v1.Field
+	12, // 1: c1.connector.v2.BatonActionSchema.constraints:type_name -> c1.config.v1.Constraint
+	11, // 2: c1.connector.v2.BatonActionSchema.return_types:type_name -> c1.config.v1.Field
 	1,  // 3: c1.connector.v2.BatonActionSchema.action_type:type_name -> c1.connector.v2.ActionType
-	18, // 4: c1.connector.v2.InvokeActionRequest.args:type_name -> google.protobuf.Struct
-	19, // 5: c1.connector.v2.InvokeActionRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 6: c1.connector.v2.InvokeActionResponse.status:type_name -> c1.connector.v2.BatonActionStatus
-	19, // 7: c1.connector.v2.InvokeActionResponse.annotations:type_name -> google.protobuf.Any
-	18, // 8: c1.connector.v2.InvokeActionResponse.response:type_name -> google.protobuf.Struct
-	19, // 9: c1.connector.v2.GetActionStatusRequest.annotations:type_name -> google.protobuf.Any
-	0,  // 10: c1.connector.v2.GetActionStatusResponse.status:type_name -> c1.connector.v2.BatonActionStatus
-	19, // 11: c1.connector.v2.GetActionStatusResponse.annotations:type_name -> google.protobuf.Any
-	18, // 12: c1.connector.v2.GetActionStatusResponse.response:type_name -> google.protobuf.Struct
-	19, // 13: c1.connector.v2.GetActionSchemaRequest.annotations:type_name -> google.protobuf.Any
-	2,  // 14: c1.connector.v2.GetActionSchemaResponse.schema:type_name -> c1.connector.v2.BatonActionSchema
-	19, // 15: c1.connector.v2.GetActionSchemaResponse.annotations:type_name -> google.protobuf.Any
-	19, // 16: c1.connector.v2.ListActionSchemasRequest.annotations:type_name -> google.protobuf.Any
-	2,  // 17: c1.connector.v2.ListActionSchemasResponse.schemas:type_name -> c1.connector.v2.BatonActionSchema
-	19, // 18: c1.connector.v2.ListActionSchemasResponse.annotations:type_name -> google.protobuf.Any
-	16, // 19: c1.connector.v2.ResourceActionSchema.arguments:type_name -> c1.config.v1.Field
-	16, // 20: c1.connector.v2.ResourceActionSchema.return_types:type_name -> c1.config.v1.Field
-	1,  // 21: c1.connector.v2.ResourceActionSchema.action_type:type_name -> c1.connector.v2.ActionType
-	18, // 22: c1.connector.v2.InvokeResourceActionRequest.args:type_name -> google.protobuf.Struct
-	20, // 23: c1.connector.v2.InvokeResourceActionRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
-	0,  // 24: c1.connector.v2.InvokeResourceActionResponse.status:type_name -> c1.connector.v2.BatonActionStatus
-	18, // 25: c1.connector.v2.InvokeResourceActionResponse.response:type_name -> google.protobuf.Struct
-	19, // 26: c1.connector.v2.InvokeResourceActionResponse.annotations:type_name -> google.protobuf.Any
-	21, // 27: c1.connector.v2.ListResourceActionsRequest.resource_id:type_name -> c1.connector.v2.ResourceId
-	19, // 28: c1.connector.v2.ListResourceActionsRequest.annotations:type_name -> google.protobuf.Any
-	11, // 29: c1.connector.v2.ListResourceActionsResponse.schemas:type_name -> c1.connector.v2.ResourceActionSchema
-	19, // 30: c1.connector.v2.ListResourceActionsResponse.annotations:type_name -> google.protobuf.Any
-	3,  // 31: c1.connector.v2.ActionService.InvokeAction:input_type -> c1.connector.v2.InvokeActionRequest
-	5,  // 32: c1.connector.v2.ActionService.GetActionStatus:input_type -> c1.connector.v2.GetActionStatusRequest
-	7,  // 33: c1.connector.v2.ActionService.GetActionSchema:input_type -> c1.connector.v2.GetActionSchemaRequest
-	9,  // 34: c1.connector.v2.ActionService.ListActionSchemas:input_type -> c1.connector.v2.ListActionSchemasRequest
-	14, // 35: c1.connector.v2.ActionService.ListResourceActions:input_type -> c1.connector.v2.ListResourceActionsRequest
-	12, // 36: c1.connector.v2.ActionService.InvokeResourceAction:input_type -> c1.connector.v2.InvokeResourceActionRequest
-	4,  // 37: c1.connector.v2.ActionService.InvokeAction:output_type -> c1.connector.v2.InvokeActionResponse
-	6,  // 38: c1.connector.v2.ActionService.GetActionStatus:output_type -> c1.connector.v2.GetActionStatusResponse
-	8,  // 39: c1.connector.v2.ActionService.GetActionSchema:output_type -> c1.connector.v2.GetActionSchemaResponse
-	10, // 40: c1.connector.v2.ActionService.ListActionSchemas:output_type -> c1.connector.v2.ListActionSchemasResponse
-	15, // 41: c1.connector.v2.ActionService.ListResourceActions:output_type -> c1.connector.v2.ListResourceActionsResponse
-	13, // 42: c1.connector.v2.ActionService.InvokeResourceAction:output_type -> c1.connector.v2.InvokeResourceActionResponse
-	37, // [37:43] is the sub-list for method output_type
-	31, // [31:37] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	13, // 4: c1.connector.v2.InvokeActionRequest.args:type_name -> google.protobuf.Struct
+	14, // 5: c1.connector.v2.InvokeActionRequest.annotations:type_name -> google.protobuf.Any
+	15, // 6: c1.connector.v2.InvokeActionRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
+	0,  // 7: c1.connector.v2.InvokeActionResponse.status:type_name -> c1.connector.v2.BatonActionStatus
+	14, // 8: c1.connector.v2.InvokeActionResponse.annotations:type_name -> google.protobuf.Any
+	13, // 9: c1.connector.v2.InvokeActionResponse.response:type_name -> google.protobuf.Struct
+	14, // 10: c1.connector.v2.GetActionStatusRequest.annotations:type_name -> google.protobuf.Any
+	0,  // 11: c1.connector.v2.GetActionStatusResponse.status:type_name -> c1.connector.v2.BatonActionStatus
+	14, // 12: c1.connector.v2.GetActionStatusResponse.annotations:type_name -> google.protobuf.Any
+	13, // 13: c1.connector.v2.GetActionStatusResponse.response:type_name -> google.protobuf.Struct
+	14, // 14: c1.connector.v2.GetActionSchemaRequest.annotations:type_name -> google.protobuf.Any
+	2,  // 15: c1.connector.v2.GetActionSchemaResponse.schema:type_name -> c1.connector.v2.BatonActionSchema
+	14, // 16: c1.connector.v2.GetActionSchemaResponse.annotations:type_name -> google.protobuf.Any
+	14, // 17: c1.connector.v2.ListActionSchemasRequest.annotations:type_name -> google.protobuf.Any
+	2,  // 18: c1.connector.v2.ListActionSchemasResponse.schemas:type_name -> c1.connector.v2.BatonActionSchema
+	14, // 19: c1.connector.v2.ListActionSchemasResponse.annotations:type_name -> google.protobuf.Any
+	3,  // 20: c1.connector.v2.ActionService.InvokeAction:input_type -> c1.connector.v2.InvokeActionRequest
+	5,  // 21: c1.connector.v2.ActionService.GetActionStatus:input_type -> c1.connector.v2.GetActionStatusRequest
+	7,  // 22: c1.connector.v2.ActionService.GetActionSchema:input_type -> c1.connector.v2.GetActionSchemaRequest
+	9,  // 23: c1.connector.v2.ActionService.ListActionSchemas:input_type -> c1.connector.v2.ListActionSchemasRequest
+	4,  // 24: c1.connector.v2.ActionService.InvokeAction:output_type -> c1.connector.v2.InvokeActionResponse
+	6,  // 25: c1.connector.v2.ActionService.GetActionStatus:output_type -> c1.connector.v2.GetActionStatusResponse
+	8,  // 26: c1.connector.v2.ActionService.GetActionSchema:output_type -> c1.connector.v2.GetActionSchemaResponse
+	10, // 27: c1.connector.v2.ActionService.ListActionSchemas:output_type -> c1.connector.v2.ListActionSchemasResponse
+	24, // [24:28] is the sub-list for method output_type
+	20, // [20:24] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_action_proto_init() }
@@ -1793,13 +1318,16 @@ func file_c1_connector_v2_action_proto_init() {
 		return
 	}
 	file_c1_connector_v2_resource_proto_init()
+	file_c1_connector_v2_action_proto_msgTypes[0].OneofWrappers = []any{}
+	file_c1_connector_v2_action_proto_msgTypes[1].OneofWrappers = []any{}
+	file_c1_connector_v2_action_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_action_proto_rawDesc), len(file_c1_connector_v2_action_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   14,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

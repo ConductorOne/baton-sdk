@@ -924,47 +924,6 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
-	case *Task_ListResourceActions:
-		if v == nil {
-			err := TaskValidationError{
-				field:  "TaskType",
-				reason: "oneof value cannot be a typed-nil",
-			}
-			if !all {
-				return err
-			}
-			errors = append(errors, err)
-		}
-
-		if all {
-			switch v := interface{}(m.GetListResourceActions()).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "ListResourceActions",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, TaskValidationError{
-						field:  "ListResourceActions",
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(m.GetListResourceActions()).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return TaskValidationError{
-					field:  "ListResourceActions",
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
 	default:
 		_ = v // ensures v is used
 	}
@@ -5369,145 +5328,6 @@ var _ interface {
 	ErrorName() string
 } = Task_ListTicketSchemasTaskValidationError{}
 
-// Validate checks the field values on Task_ListResourceActionsTask with the
-// rules defined in the proto definition for this message. If any rules are
-// violated, the first error encountered is returned, or nil if there are no violations.
-func (m *Task_ListResourceActionsTask) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on Task_ListResourceActionsTask with the
-// rules defined in the proto definition for this message. If any rules are
-// violated, the result is a list of violation errors wrapped in
-// Task_ListResourceActionsTaskMultiError, or nil if none found.
-func (m *Task_ListResourceActionsTask) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *Task_ListResourceActionsTask) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for ResourceTypeId
-
-	for idx, item := range m.GetAnnotations() {
-		_, _ = idx, item
-
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, Task_ListResourceActionsTaskValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, Task_ListResourceActionsTaskValidationError{
-						field:  fmt.Sprintf("Annotations[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return Task_ListResourceActionsTaskValidationError{
-					field:  fmt.Sprintf("Annotations[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
-			}
-		}
-
-	}
-
-	if len(errors) > 0 {
-		return Task_ListResourceActionsTaskMultiError(errors)
-	}
-
-	return nil
-}
-
-// Task_ListResourceActionsTaskMultiError is an error wrapping multiple
-// validation errors returned by Task_ListResourceActionsTask.ValidateAll() if
-// the designated constraints aren't met.
-type Task_ListResourceActionsTaskMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m Task_ListResourceActionsTaskMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m Task_ListResourceActionsTaskMultiError) AllErrors() []error { return m }
-
-// Task_ListResourceActionsTaskValidationError is the validation error returned
-// by Task_ListResourceActionsTask.Validate if the designated constraints
-// aren't met.
-type Task_ListResourceActionsTaskValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e Task_ListResourceActionsTaskValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e Task_ListResourceActionsTaskValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e Task_ListResourceActionsTaskValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e Task_ListResourceActionsTaskValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e Task_ListResourceActionsTaskValidationError) ErrorName() string {
-	return "Task_ListResourceActionsTaskValidationError"
-}
-
-// Error satisfies the builtin error interface
-func (e Task_ListResourceActionsTaskValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sTask_ListResourceActionsTask.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = Task_ListResourceActionsTaskValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = Task_ListResourceActionsTaskValidationError{}
-
 // Validate checks the field values on Task_GetTicketTask with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
@@ -5701,6 +5521,8 @@ func (m *Task_ActionListSchemasTask) validate(all bool) error {
 		}
 
 	}
+
+	// no validation rules for ResourceTypeId
 
 	if len(errors) > 0 {
 		return Task_ActionListSchemasTaskMultiError(errors)
@@ -6006,6 +5828,8 @@ func (m *Task_ActionInvokeTask) validate(all bool) error {
 		}
 
 	}
+
+	// no validation rules for ResourceTypeId
 
 	if len(errors) > 0 {
 		return Task_ActionInvokeTaskMultiError(errors)

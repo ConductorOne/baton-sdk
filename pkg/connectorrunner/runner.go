@@ -284,8 +284,13 @@ type createAccountConfig struct {
 }
 
 type invokeActionConfig struct {
-	action string
-	args   *structpb.Struct
+	action         string
+	resourceTypeID string // Optional: if set, invokes a resource-scoped action
+	args           *structpb.Struct
+}
+
+type listActionSchemasConfig struct {
+	resourceTypeID string // Optional: filter by resource type
 }
 
 type deleteResourceConfig struct {
@@ -315,16 +320,6 @@ type syncCompactorConfig struct {
 	outputPath string
 }
 
-type listResourceActionsConfig struct {
-	resourceTypeID string
-}
-
-type invokeResourceActionConfig struct {
-	resourceTypeID string
-	actionName     string
-	args           *structpb.Struct
-}
-
 type runnerConfig struct {
 	rlCfg                               *ratelimitV1.RateLimiterConfig
 	rlDescriptors                       []*ratelimitV1.RateLimitDescriptors_Entry
@@ -342,6 +337,7 @@ type runnerConfig struct {
 	tempDir                             string
 	createAccountConfig                 *createAccountConfig
 	invokeActionConfig                  *invokeActionConfig
+	listActionSchemasConfig             *listActionSchemasConfig
 	deleteResourceConfig                *deleteResourceConfig
 	rotateCredentialsConfig             *rotateCredentialsConfig
 	createTicketConfig                  *createTicketConfig
@@ -350,8 +346,6 @@ type runnerConfig struct {
 	getTicketConfig                     *getTicketConfig
 	syncDifferConfig                    *syncDifferConfig
 	syncCompactorConfig                 *syncCompactorConfig
-	listResourceActionsConfig           *listResourceActionsConfig
-	invokeResourceActionConfig          *invokeResourceActionConfig
 	skipFullSync                        bool
 	targetedSyncResourceIDs             []string
 	externalResourceC1Z                 string
@@ -487,37 +481,29 @@ func WithOnDemandCreateAccount(c1zPath string, login string, email string, profi
 	}
 }
 
-func WithOnDemandInvokeAction(c1zPath string, action string, args *structpb.Struct) Option {
+// WithOnDemandInvokeAction creates an option for invoking an action.
+// If resourceTypeID is provided, it invokes a resource-scoped action.
+func WithOnDemandInvokeAction(c1zPath string, action string, resourceTypeID string, args *structpb.Struct) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.onDemand = true
 		cfg.c1zPath = c1zPath
 		cfg.invokeActionConfig = &invokeActionConfig{
-			action: action,
-			args:   args,
-		}
-		return nil
-	}
-}
-
-func WithOnDemandListResourceActions(c1zPath string, resourceTypeID string) Option {
-	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		cfg.c1zPath = c1zPath
-		cfg.listResourceActionsConfig = &listResourceActionsConfig{
+			action:         action,
 			resourceTypeID: resourceTypeID,
-		}
-		return nil
-	}
-}
-
-func WithOnDemandInvokeResourceAction(c1zPath string, resourceTypeID string, actionName string, args *structpb.Struct) Option {
-	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.onDemand = true
-		cfg.c1zPath = c1zPath
-		cfg.invokeResourceActionConfig = &invokeResourceActionConfig{
-			resourceTypeID: resourceTypeID,
-			actionName:     actionName,
 			args:           args,
+		}
+		return nil
+	}
+}
+
+// WithOnDemandListActionSchemas creates an option for listing action schemas.
+// If resourceTypeID is provided, it filters schemas for that specific resource type.
+func WithOnDemandListActionSchemas(c1zPath string, resourceTypeID string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.onDemand = true
+		cfg.c1zPath = c1zPath
+		cfg.listActionSchemasConfig = &listActionSchemasConfig{
+			resourceTypeID: resourceTypeID,
 		}
 		return nil
 	}
@@ -780,9 +766,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			cfg.createTicketConfig == nil &&
 			cfg.listTicketSchemasConfig == nil &&
 			cfg.getTicketConfig == nil &&
-			cfg.bulkCreateTicketConfig == nil &&
-			cfg.listResourceActionsConfig == nil &&
-			cfg.invokeResourceActionConfig == nil {
+			cfg.bulkCreateTicketConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
@@ -804,7 +788,10 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			tm = local.NewCreateAccountManager(ctx, cfg.c1zPath, cfg.createAccountConfig.login, cfg.createAccountConfig.email, cfg.createAccountConfig.profile)
 
 		case cfg.invokeActionConfig != nil:
-			tm = local.NewActionInvoker(ctx, cfg.c1zPath, cfg.invokeActionConfig.action, cfg.invokeActionConfig.args)
+			tm = local.NewActionInvoker(ctx, cfg.c1zPath, cfg.invokeActionConfig.action, cfg.invokeActionConfig.resourceTypeID, cfg.invokeActionConfig.args)
+
+		case cfg.listActionSchemasConfig != nil:
+			tm = local.NewListActionSchemas(ctx, cfg.listActionSchemasConfig.resourceTypeID)
 
 		case cfg.deleteResourceConfig != nil:
 			tm = local.NewResourceDeleter(ctx, cfg.c1zPath, cfg.deleteResourceConfig.resourceId, cfg.deleteResourceConfig.resourceType)
@@ -837,11 +824,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				})
 			}
 			tm = local.NewLocalCompactor(ctx, cfg.syncCompactorConfig.outputPath, configs)
-		case cfg.listResourceActionsConfig != nil:
-			tm = local.NewResourceActionLister(ctx, cfg.c1zPath, cfg.listResourceActionsConfig.resourceTypeID)
-		case cfg.invokeResourceActionConfig != nil:
-			c := cfg.invokeResourceActionConfig
-			tm = local.NewResourceActionInvoker(ctx, cfg.c1zPath, c.resourceTypeID, c.actionName, c.args)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
 				local.WithTmpDir(cfg.tempDir),
