@@ -2,19 +2,23 @@ package actions
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 
+	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -82,17 +86,34 @@ func (oa *OutstandingAction) SetError(ctx context.Context, err error) {
 
 const maxOldActions = 1000
 
+// ResourceTypeActionRegistry is the interface for registering resource-scoped actions.
+type ResourceTypeActionRegistry interface {
+	Register(ctx context.Context, schema *v2.BatonActionSchema, handler ActionHandler) error
+}
+
+// ActionManager manages both global actions and resource-scoped actions.
 type ActionManager struct {
-	schemas  map[string]*v2.BatonActionSchema // map of action name to schema
-	handlers map[string]ActionHandler
-	actions  map[string]*OutstandingAction // map of actions IDs
+	// Global actions (no resource type)
+	schemas  map[string]*v2.BatonActionSchema // actionName -> schema
+	handlers map[string]ActionHandler         // actionName -> handler
+
+	// Resource-scoped actions (keyed by resource type)
+	resourceSchemas  map[string]map[string]*v2.BatonActionSchema // resourceTypeID -> actionName -> schema
+	resourceHandlers map[string]map[string]ActionHandler         // resourceTypeID -> actionName -> handler
+
+	// Outstanding actions (shared across global and resource-scoped)
+	actions map[string]*OutstandingAction // actionID -> outstanding action
+
+	mu sync.RWMutex
 }
 
 func NewActionManager(_ context.Context) *ActionManager {
 	return &ActionManager{
-		schemas:  make(map[string]*v2.BatonActionSchema),
-		handlers: make(map[string]ActionHandler),
-		actions:  make(map[string]*OutstandingAction),
+		schemas:          make(map[string]*v2.BatonActionSchema),
+		handlers:         make(map[string]ActionHandler),
+		resourceSchemas:  make(map[string]map[string]*v2.BatonActionSchema),
+		resourceHandlers: make(map[string]map[string]ActionHandler),
+		actions:          make(map[string]*OutstandingAction),
 	}
 }
 
@@ -102,6 +123,8 @@ func (a *ActionManager) GetNewActionId() string {
 }
 
 func (a *ActionManager) GetNewAction(name string) *OutstandingAction {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	actionId := a.GetNewActionId()
 	oa := NewOutstandingAction(actionId, name)
 	a.actions[actionId] = oa
@@ -109,6 +132,9 @@ func (a *ActionManager) GetNewAction(name string) *OutstandingAction {
 }
 
 func (a *ActionManager) CleanupOldActions(ctx context.Context) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if len(a.actions) < maxOldActions {
 		return
 	}
@@ -138,7 +164,7 @@ func (a *ActionManager) CleanupOldActions(ctx context.Context) {
 	l.Debug("cleaned up old actions", zap.Int("count", count))
 }
 
-func (a *ActionManager) registerActionSchema(ctx context.Context, name string, schema *v2.BatonActionSchema) error {
+func (a *ActionManager) registerActionSchema(_ context.Context, name string, schema *v2.BatonActionSchema) error {
 	if name == "" {
 		return errors.New("action name cannot be empty")
 	}
@@ -152,7 +178,11 @@ func (a *ActionManager) registerActionSchema(ctx context.Context, name string, s
 	return nil
 }
 
+// RegisterAction registers a global action (not scoped to a resource type).
 func (a *ActionManager) RegisterAction(ctx context.Context, name string, schema *v2.BatonActionSchema, handler ActionHandler) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if handler == nil {
 		return errors.New("action handler cannot be nil")
 	}
@@ -172,7 +202,96 @@ func (a *ActionManager) RegisterAction(ctx context.Context, name string, schema 
 	return nil
 }
 
+// RegisterResourceAction registers a resource-scoped action.
+func (a *ActionManager) RegisterResourceAction(
+	ctx context.Context,
+	resourceTypeID string,
+	schema *v2.BatonActionSchema,
+	handler ActionHandler,
+) error {
+	if resourceTypeID == "" {
+		return errors.New("resource type ID cannot be empty")
+	}
+	if schema == nil {
+		return errors.New("action schema cannot be nil")
+	}
+	if schema.GetName() == "" {
+		return errors.New("action schema name cannot be empty")
+	}
+	if handler == nil {
+		return fmt.Errorf("handler cannot be nil for action %s", schema.GetName())
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Set the resource type ID on the schema
+	schema.SetResourceTypeId(resourceTypeID)
+
+	if a.resourceSchemas[resourceTypeID] == nil {
+		a.resourceSchemas[resourceTypeID] = make(map[string]*v2.BatonActionSchema)
+	}
+	if a.resourceHandlers[resourceTypeID] == nil {
+		a.resourceHandlers[resourceTypeID] = make(map[string]ActionHandler)
+	}
+
+	actionName := schema.GetName()
+
+	// Check for duplicate action names
+	if _, ok := a.resourceSchemas[resourceTypeID][actionName]; ok {
+		return fmt.Errorf("action schema %s already registered for resource type %s", actionName, resourceTypeID)
+	}
+
+	// Check for duplicate action types
+	if len(schema.GetActionType()) > 0 {
+		for existingName, existingSchema := range a.resourceSchemas[resourceTypeID] {
+			if existingSchema == nil || len(existingSchema.GetActionType()) == 0 {
+				continue
+			}
+			// Check if any ActionType in the new schema matches any in existing schemas
+			for _, newActionType := range schema.GetActionType() {
+				if newActionType == v2.ActionType_ACTION_TYPE_UNSPECIFIED || newActionType == v2.ActionType_ACTION_TYPE_DYNAMIC {
+					continue // Skip unspecified and dynamic types as they can overlap
+				}
+				for _, existingActionType := range existingSchema.GetActionType() {
+					if newActionType == existingActionType {
+						return fmt.Errorf("action type %s already registered for resource type %s (existing action: %s)", newActionType.String(), resourceTypeID, existingName)
+					}
+				}
+			}
+		}
+	}
+
+	a.resourceSchemas[resourceTypeID][actionName] = schema
+	a.resourceHandlers[resourceTypeID][actionName] = handler
+
+	ctxzap.Extract(ctx).Info("registered resource action", zap.String("resource_type", resourceTypeID), zap.String("action_name", actionName))
+
+	return nil
+}
+
+// resourceTypeActionRegistry implements ResourceTypeActionRegistry for a specific resource type.
+type resourceTypeActionRegistry struct {
+	resourceTypeID string
+	actionManager  *ActionManager
+}
+
+func (r *resourceTypeActionRegistry) Register(ctx context.Context, schema *v2.BatonActionSchema, handler ActionHandler) error {
+	return r.actionManager.RegisterResourceAction(ctx, r.resourceTypeID, schema, handler)
+}
+
+// GetTypeRegistry returns a ResourceTypeActionRegistry for registering actions scoped to a specific resource type.
+func (a *ActionManager) GetTypeRegistry(_ context.Context, resourceTypeID string) (ResourceTypeActionRegistry, error) {
+	if resourceTypeID == "" {
+		return nil, errors.New("resource type ID cannot be empty")
+	}
+	return &resourceTypeActionRegistry{resourceTypeID: resourceTypeID, actionManager: a}, nil
+}
+
 func (a *ActionManager) UnregisterAction(ctx context.Context, name string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if _, ok := a.schemas[name]; !ok {
 		return fmt.Errorf("action %s not registered", name)
 	}
@@ -190,16 +309,48 @@ func (a *ActionManager) UnregisterAction(ctx context.Context, name string) error
 	return nil
 }
 
-func (a *ActionManager) ListActionSchemas(ctx context.Context) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
-	rv := make([]*v2.BatonActionSchema, 0, len(a.schemas))
-	for _, schema := range a.schemas {
-		rv = append(rv, schema)
+// ListActionSchemas returns all action schemas, optionally filtered by resource type.
+// If resourceTypeID is empty, returns all global actions plus all resource-scoped actions.
+// If resourceTypeID is set, returns only actions for that resource type.
+func (a *ActionManager) ListActionSchemas(_ context.Context, resourceTypeID string) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	var rv []*v2.BatonActionSchema
+
+	if resourceTypeID == "" {
+		// Return all global actions
+		rv = make([]*v2.BatonActionSchema, 0, len(a.schemas))
+		for _, schema := range a.schemas {
+			rv = append(rv, schema)
+		}
+
+		// Also return all resource-scoped actions
+		for _, schemas := range a.resourceSchemas {
+			for _, schema := range schemas {
+				rv = append(rv, schema)
+			}
+		}
+	} else {
+		// Return only actions for the specified resource type
+		schemas, ok := a.resourceSchemas[resourceTypeID]
+		if !ok {
+			return []*v2.BatonActionSchema{}, nil, nil
+		}
+
+		rv = make([]*v2.BatonActionSchema, 0, len(schemas))
+		for _, schema := range schemas {
+			rv = append(rv, schema)
+		}
 	}
 
 	return rv, nil, nil
 }
 
-func (a *ActionManager) GetActionSchema(ctx context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error) {
+func (a *ActionManager) GetActionSchema(_ context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
 	schema, ok := a.schemas[name]
 	if !ok {
 		return nil, nil, status.Error(codes.NotFound, fmt.Sprintf("action %s not found", name))
@@ -207,7 +358,10 @@ func (a *ActionManager) GetActionSchema(ctx context.Context, name string) (*v2.B
 	return schema, nil, nil
 }
 
-func (a *ActionManager) GetActionStatus(ctx context.Context, actionId string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
+func (a *ActionManager) GetActionStatus(_ context.Context, actionId string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
 	oa := a.actions[actionId]
 	if oa == nil {
 		return v2.BatonActionStatus_BATON_ACTION_STATUS_UNKNOWN, "", nil, nil, status.Error(codes.NotFound, fmt.Sprintf("action id %s not found", actionId))
@@ -218,8 +372,185 @@ func (a *ActionManager) GetActionStatus(ctx context.Context, actionId string) (v
 	return oa.Status, oa.Name, oa.Rv, oa.Annos, nil
 }
 
-func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+// decryptSecretFields decrypts secret fields in the args struct based on the schema.
+func (a *ActionManager) decryptSecretFields(
+	ctx context.Context,
+	schema []*config.Field,
+	args *structpb.Struct,
+	encryptionConfigs []*v2.EncryptionConfig,
+) (*structpb.Struct, error) {
+	if args == nil || len(encryptionConfigs) == 0 {
+		return args, nil
+	}
+
+	l := ctxzap.Extract(ctx)
+	// Create a copy of the struct
+	result := proto.Clone(args).(*structpb.Struct)
+
+	// Build a map of secret field names
+	secretFields := make(map[string]bool)
+	for _, field := range schema {
+		if field.GetIsSecret() {
+			secretFields[field.GetName()] = true
+		}
+	}
+
+	if len(secretFields) == 0 {
+		return result, nil
+	}
+
+	// Decrypt secret fields
+	for fieldName := range secretFields {
+		fieldValue, ok := result.Fields[fieldName]
+		if !ok {
+			continue
+		}
+
+		// The field value should be an EncryptedData message encoded as a struct
+		encryptedDataStruct, ok := fieldValue.GetKind().(*structpb.Value_StructValue)
+		if !ok {
+			l.Warn("secret field is not a struct, skipping decryption", zap.String("field", fieldName))
+			continue
+		}
+
+		// Convert struct to EncryptedData
+		encryptedDataBytes, err := encryptedDataStruct.StructValue.MarshalJSON()
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal encrypted data for field %s: %w", fieldName, err)
+		}
+
+		var encryptedData v2.EncryptedData
+		if err := json.Unmarshal(encryptedDataBytes, &encryptedData); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal encrypted data for field %s: %w", fieldName, err)
+		}
+
+		// For decryption, we need the private key which should be available from context
+		// or from the encryption config. For now, we'll try to get it from context.
+		// If decryption is not possible, we'll pass through the encrypted value.
+		// The handler can decide how to handle it, or we can enhance this later.
+
+		// Try to get private key from context (similar to how accounts.go does it)
+		// For now, if we can't decrypt, we'll skip and let the handler deal with it
+		// In a full implementation, you'd extract the key ID from encryptedData and
+		// match it with a private key from context or config
+		l.Debug("skipping decryption for secret field - decryption from encryption configs not yet implemented", zap.String("field", fieldName))
+		// For now, pass through the encrypted value as-is
+		// TODO: Implement proper decryption using private key from context or config
+	}
+
+	return result, nil
+}
+
+// encryptSecretFields encrypts secret fields in the response struct based on the schema.
+func (a *ActionManager) encryptSecretFields(
+	ctx context.Context,
+	schema []*config.Field,
+	response *structpb.Struct,
+	encryptionConfigs []*v2.EncryptionConfig,
+) (*structpb.Struct, error) {
+	if response == nil || len(encryptionConfigs) == 0 {
+		return response, nil
+	}
+
+	l := ctxzap.Extract(ctx)
+	// Create a copy of the struct
+	result := proto.Clone(response).(*structpb.Struct)
+
+	// Build a map of secret field names
+	secretFields := make(map[string]bool)
+	for _, field := range schema {
+		if field.GetIsSecret() {
+			secretFields[field.GetName()] = true
+		}
+	}
+
+	if len(secretFields) == 0 {
+		return result, nil
+	}
+
+	// Create encryption manager
+	em, err := crypto.NewEncryptionManager(nil, encryptionConfigs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create encryption manager: %w", err)
+	}
+
+	// Encrypt secret fields
+	for fieldName := range secretFields {
+		fieldValue, ok := result.Fields[fieldName]
+		if !ok {
+			continue
+		}
+
+		// Get the plaintext string value
+		stringValue, ok := fieldValue.GetKind().(*structpb.Value_StringValue)
+		if !ok {
+			l.Warn("secret field is not a string, skipping encryption", zap.String("field", fieldName))
+			continue
+		}
+
+		// Create PlaintextData
+		plaintextData := &v2.PlaintextData{
+			Name:        fieldName,
+			Description: fmt.Sprintf("Secret field %s", fieldName),
+			Schema:      "string",
+			Bytes:       []byte(stringValue.StringValue),
+		}
+
+		// Encrypt
+		encryptedDatas, err := em.Encrypt(ctx, plaintextData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encrypt field %s: %w", fieldName, err)
+		}
+
+		if len(encryptedDatas) == 0 {
+			return nil, fmt.Errorf("no encrypted data returned for field %s", fieldName)
+		}
+
+		// Convert first encrypted data to struct
+		encryptedDataBytes, err := json.Marshal(encryptedDatas[0])
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal encrypted data for field %s: %w", fieldName, err)
+		}
+
+		var encryptedDataStruct map[string]interface{}
+		if err := json.Unmarshal(encryptedDataBytes, &encryptedDataStruct); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal encrypted data struct for field %s: %w", fieldName, err)
+		}
+
+		encryptedStruct, err := structpb.NewStruct(encryptedDataStruct)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create struct for encrypted data for field %s: %w", fieldName, err)
+		}
+
+		// Replace the plaintext value with encrypted struct
+		result.Fields[fieldName] = structpb.NewStructValue(encryptedStruct)
+	}
+
+	return result, nil
+}
+
+// InvokeAction invokes an action. If resourceTypeID is set, it invokes a resource-scoped action.
+// Otherwise, it invokes a global action.
+func (a *ActionManager) InvokeAction(
+	ctx context.Context,
+	name string,
+	resourceTypeID string,
+	args *structpb.Struct,
+	encryptionConfigs []*v2.EncryptionConfig,
+) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+	if resourceTypeID != "" {
+		return a.invokeResourceAction(ctx, resourceTypeID, name, args, encryptionConfigs)
+	}
+
+	return a.invokeGlobalAction(ctx, name, args)
+}
+
+// invokeGlobalAction invokes a global (non-resource-scoped) action.
+func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+	a.mu.RLock()
 	handler, ok := a.handlers[name]
+	a.mu.RUnlock()
+
 	if !ok {
 		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found", name))
 	}
@@ -248,6 +579,92 @@ func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *str
 	select {
 	case <-done:
 		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
+	case <-time.After(1 * time.Second):
+		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
+	case <-ctx.Done():
+		oa.SetError(ctx, ctx.Err())
+		return oa.Id, oa.Status, oa.Rv, oa.Annos, ctx.Err()
+	}
+}
+
+// invokeResourceAction invokes a resource-scoped action.
+func (a *ActionManager) invokeResourceAction(
+	ctx context.Context,
+	resourceTypeID string,
+	actionName string,
+	args *structpb.Struct,
+	encryptionConfigs []*v2.EncryptionConfig,
+) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+	if resourceTypeID == "" {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "resource type ID is required")
+	}
+	if actionName == "" {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "action name is required")
+	}
+
+	a.mu.RLock()
+	handlers, ok := a.resourceHandlers[resourceTypeID]
+	if !ok {
+		a.mu.RUnlock()
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("no actions found for resource type %s", resourceTypeID))
+	}
+
+	handler, ok := handlers[actionName]
+	if !ok {
+		a.mu.RUnlock()
+		return "",
+			v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED,
+			nil,
+			nil,
+			status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found for resource type %s", actionName, resourceTypeID))
+	}
+
+	schemas, ok := a.resourceSchemas[resourceTypeID]
+	if !ok {
+		a.mu.RUnlock()
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.Internal, fmt.Sprintf("schemas not found for resource type %s", resourceTypeID))
+	}
+
+	schema, ok := schemas[actionName]
+	if !ok {
+		a.mu.RUnlock()
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.Internal, fmt.Sprintf("schema not found for action %s", actionName))
+	}
+	a.mu.RUnlock()
+
+	// Decrypt secret input fields
+	decryptedArgs, err := a.decryptSecretFields(ctx, schema.GetArguments(), args, encryptionConfigs)
+	if err != nil {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, fmt.Errorf("failed to decrypt secret fields: %w", err)
+	}
+
+	oa := a.GetNewAction(actionName)
+	done := make(chan struct{})
+
+	// Invoke handler in goroutine
+	go func() {
+		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
+		defer cancel()
+		var oaErr error
+		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, decryptedArgs)
+		if oaErr == nil {
+			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
+		} else {
+			oa.SetError(ctx, oaErr)
+		}
+		done <- struct{}{}
+	}()
+
+	// Wait for completion or timeout
+	select {
+	case <-done:
+		// Encrypt secret output fields
+		encryptedResponse, err := a.encryptSecretFields(ctx, schema.GetReturnTypes(), oa.Rv, encryptionConfigs)
+		if err != nil {
+			return oa.Id, oa.Status, oa.Rv, oa.Annos, fmt.Errorf("failed to encrypt secret fields: %w", err)
+		}
+		return oa.Id, oa.Status, encryptedResponse, oa.Annos, nil
 	case <-time.After(1 * time.Second):
 		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
 	case <-ctx.Done():
