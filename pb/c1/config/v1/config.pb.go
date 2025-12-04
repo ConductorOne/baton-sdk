@@ -1027,8 +1027,9 @@ type Field_builder struct {
 	StringMapField      *StringMapField
 	ResourceIdField     *ResourceIdField
 	ResourceIdListField *ResourceIdListField
-	ResourceField       *ResourceField
-	ResourceListField   *ResourceListField
+	// These are meant to serve as return types for actions.
+	ResourceField     *ResourceField
+	ResourceListField *ResourceListField
 	// -- end of Field
 }
 
@@ -1116,6 +1117,7 @@ type Field_ResourceIdListField struct {
 }
 
 type Field_ResourceField struct {
+	// These are meant to serve as return types for actions.
 	ResourceField *ResourceField `protobuf:"bytes,107,opt,name=resource_field,json=resourceField,proto3,oneof"`
 }
 
@@ -1141,6 +1143,8 @@ func (*Field_ResourceField) isField_Field() {}
 
 func (*Field_ResourceListField) isField_Field() {}
 
+// These are partially duplicate with the Resource proto in the connector package.
+// This is to avoid import cycles
 type Resource struct {
 	state            protoimpl.MessageState `protogen:"hybrid.v1"`
 	ResourceId       *ResourceIdField       `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`

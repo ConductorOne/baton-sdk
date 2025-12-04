@@ -170,16 +170,6 @@ func (n *emptyConnector) ListEventFeeds(ctx context.Context, request *v2.ListEve
 	}.Build(), nil
 }
 
-func (n *emptyConnector) ListResourceActions(ctx context.Context, request *v2.ListResourceActionsRequest, opts ...grpc.CallOption) (*v2.ListResourceActionsResponse, error) {
-	return v2.ListResourceActionsResponse_builder{
-		Schemas: []*v2.ResourceActionSchema{},
-	}.Build(), nil
-}
-
-func (n *emptyConnector) InvokeResourceAction(ctx context.Context, request *v2.InvokeResourceActionRequest, opts ...grpc.CallOption) (*v2.InvokeResourceActionResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "empty connector")
-}
-
 // NewEmptyConnector returns a new emptyConnector.
 func NewEmptyConnector() (*emptyConnector, error) {
 	return &emptyConnector{}, nil

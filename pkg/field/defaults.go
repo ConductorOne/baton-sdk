@@ -171,6 +171,25 @@ var (
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)
+	invokeActionResourceTypeField = StringField("invoke-action-resource-type",
+		WithHidden(true),
+		WithDescription("The resource type ID for resource-scoped actions"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
+	listActionSchemasField = BoolField("list-action-schemas",
+		WithHidden(true),
+		WithDescription("List available action schemas"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	listActionSchemasResourceTypeField = StringField("list-action-schemas-resource-type",
+		WithHidden(true),
+		WithDescription("Filter action schemas by resource type ID"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
 
 	listResourceActionsField = StringField("list-resource-actions",
 		WithDescription("The resource type ID to list actions for"),
@@ -329,6 +348,9 @@ var DefaultFields = []SchemaField{
 	compactSyncsField,
 	invokeActionField,
 	invokeActionArgsField,
+	invokeActionResourceTypeField,
+	listActionSchemasField,
+	listActionSchemasResourceTypeField,
 	listResourceActionsField,
 	invokeResourceActionField,
 	invokeResourceActionTypeField,
