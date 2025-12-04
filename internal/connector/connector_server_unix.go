@@ -15,7 +15,6 @@ import (
 )
 
 func getPort(listener net.Listener) uint32 {
-	//nolint:gosec // No risk of overflow because `Port` is 16-bit.
 	return uint32(listener.Addr().(*net.TCPAddr).Port)
 }
 

@@ -60,7 +60,8 @@ func TestGoCache_GetSet(t *testing.T) {
 	resultBody, err := io.ReadAll(result.Body)
 	require.NoError(t, err)
 	require.Equal(t, body, string(resultBody))
-	result.Body.Close()
+	err = result.Body.Close()
+	require.NoError(t, err)
 }
 
 func TestGoCache_Stats(t *testing.T) {
