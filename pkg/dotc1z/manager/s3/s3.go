@@ -19,12 +19,11 @@ import (
 var tracer = otel.Tracer("baton-sdk/pkg.dotc1z.manager.s3")
 
 type s3Manager struct {
-	client              *us3.S3Client
-	fileName            string
-	tmpFile             string
-	tmpDir              string
-	decoderOptions      []dotc1z.DecoderOption
-	enableWALCheckpoint bool
+	client         *us3.S3Client
+	fileName       string
+	tmpFile        string
+	tmpDir         string
+	decoderOptions []dotc1z.DecoderOption
 }
 
 type Option func(*s3Manager)
@@ -38,12 +37,6 @@ func WithTmpDir(tmpDir string) Option {
 func WithDecoderOptions(opts ...dotc1z.DecoderOption) Option {
 	return func(o *s3Manager) {
 		o.decoderOptions = opts
-	}
-}
-
-func WithWALCheckpoint(enable bool) Option {
-	return func(o *s3Manager) {
-		o.enableWALCheckpoint = enable
 	}
 }
 
@@ -136,9 +129,6 @@ func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 	}
 	if len(s.decoderOptions) > 0 {
 		opts = append(opts, dotc1z.WithDecoderOptions(s.decoderOptions...))
-	}
-	if s.enableWALCheckpoint {
-		opts = append(opts, dotc1z.WithWALCheckpoint(true))
 	}
 	return dotc1z.NewC1ZFile(ctx, s.tmpFile, opts...)
 }
