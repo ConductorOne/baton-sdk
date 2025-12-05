@@ -44,7 +44,7 @@ func (m *localListActionSchemas) Process(ctx context.Context, task *v1.Task, cc 
 
 	reqBuilder := v2.ListActionSchemasRequest_builder{}
 	if m.resourceTypeID != "" {
-		reqBuilder.ResourceTypeId = &m.resourceTypeID
+		reqBuilder.ResourceTypeId = m.resourceTypeID
 	}
 
 	resp, err := cc.ListActionSchemas(ctx, reqBuilder.Build())
@@ -75,4 +75,3 @@ func NewListActionSchemas(ctx context.Context, resourceTypeID string) tasks.Mana
 		resourceTypeID: resourceTypeID,
 	}
 }
-
