@@ -475,9 +475,12 @@ func (s *syncer) Sync(ctx context.Context) error {
 			return err
 		}
 
-		// TODO: count actions divided by warnings and error if warning percentage is too high
+		// If we have more than 10 warnings and more than 10% of actions ended in a warning, exit the sync.
 		if len(warnings) > 10 {
-			return fmt.Errorf("too many warnings, exiting sync. warnings: %v", warnings)
+			completedActionsCount := s.state.GetCompletedActionsCount()
+			if completedActionsCount > 0 && float64(len(warnings))/float64(completedActionsCount) > 0.1 {
+				return fmt.Errorf("too many warnings, exiting sync. warnings: %v completed actions: %d", warnings, completedActionsCount)
+			}
 		}
 		select {
 		case <-runCtx.Done():
