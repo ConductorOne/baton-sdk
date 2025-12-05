@@ -356,6 +356,7 @@ func MakeMainCommand[T field.Configurable](
 		}
 
 		opts = append(opts, connectorrunner.WithSkipEntitlementsAndGrants(v.GetBool("skip-entitlements-and-grants")))
+
 		if v.GetBool("skip-grants") {
 			opts = append(opts, connectorrunner.WithSkipGrants(v.GetBool("skip-grants")))
 		}

@@ -109,6 +109,7 @@ var (
 		WithExportTarget(ExportTargetNone),
 		WithHidden(true),
 	)
+
 	syncResourceTypeIDs = StringSliceField("sync-resource-types",
 		WithDescription("The resource type IDs to sync"),
 		WithPersistent(true),

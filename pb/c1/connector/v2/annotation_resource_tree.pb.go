@@ -165,6 +165,49 @@ func (b0 SkipGrants_builder) Build() *SkipGrants {
 	return m0
 }
 
+type SkipEntitlements struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SkipEntitlements) Reset() {
+	*x = SkipEntitlements{}
+	mi := &file_c1_connector_v2_annotation_resource_tree_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SkipEntitlements) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SkipEntitlements) ProtoMessage() {}
+
+func (x *SkipEntitlements) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_resource_tree_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type SkipEntitlements_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 SkipEntitlements_builder) Build() *SkipEntitlements {
+	m0 := &SkipEntitlements{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
 var File_c1_connector_v2_annotation_resource_tree_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_resource_tree_proto_rawDesc = "" +
@@ -174,13 +217,15 @@ const file_c1_connector_v2_annotation_resource_tree_proto_rawDesc = "" +
 	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\"\x1b\n" +
 	"\x19SkipEntitlementsAndGrants\"\f\n" +
 	"\n" +
-	"SkipGrantsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"SkipGrants\"\x12\n" +
+	"\x10SkipEntitlementsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_resource_tree_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_c1_connector_v2_annotation_resource_tree_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_c1_connector_v2_annotation_resource_tree_proto_goTypes = []any{
 	(*ChildResourceType)(nil),         // 0: c1.connector.v2.ChildResourceType
 	(*SkipEntitlementsAndGrants)(nil), // 1: c1.connector.v2.SkipEntitlementsAndGrants
 	(*SkipGrants)(nil),                // 2: c1.connector.v2.SkipGrants
+	(*SkipEntitlements)(nil),          // 3: c1.connector.v2.SkipEntitlements
 }
 var file_c1_connector_v2_annotation_resource_tree_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -201,7 +246,7 @@ func file_c1_connector_v2_annotation_resource_tree_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_resource_tree_proto_rawDesc), len(file_c1_connector_v2_annotation_resource_tree_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
