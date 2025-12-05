@@ -3075,7 +3075,7 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (*
 		connector:             c,
 		skipEGForResourceType: make(map[string]bool),
 		resourceTypeTraits:    make(map[string][]v2.ResourceType_Trait),
-		counts:                progresslog.NewProgressCounts(),
+		counts:                progresslog.NewProgressCounts(ctx),
 		syncType:              connectorstore.SyncTypeFull,
 	}
 
