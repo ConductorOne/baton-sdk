@@ -1469,10 +1469,11 @@ func (b0 ResourceIdField_builder) Build() *ResourceIdField {
 }
 
 type ResourceIdListField struct {
-	state           protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_List *[]*ResourceIdField    `protobuf:"bytes,1,rep,name=list,proto3"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_List           *[]*ResourceIdField    `protobuf:"bytes,1,rep,name=list,proto3"`
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *ResourceIdListField) Reset() {
@@ -1509,14 +1510,26 @@ func (x *ResourceIdListField) GetList() []*ResourceIdField {
 	return nil
 }
 
+func (x *ResourceIdListField) GetResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeId
+	}
+	return ""
+}
+
 func (x *ResourceIdListField) SetList(v []*ResourceIdField) {
 	x.xxx_hidden_List = &v
+}
+
+func (x *ResourceIdListField) SetResourceTypeId(v string) {
+	x.xxx_hidden_ResourceTypeId = v
 }
 
 type ResourceIdListField_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	List []*ResourceIdField
+	List           []*ResourceIdField
+	ResourceTypeId string
 }
 
 func (b0 ResourceIdListField_builder) Build() *ResourceIdListField {
@@ -1524,6 +1537,7 @@ func (b0 ResourceIdListField_builder) Build() *ResourceIdListField {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_List = &b.List
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -2136,9 +2150,10 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x0fResourceIdField\x12(\n" +
 	"\x10resource_type_id\x18\x01 \x01(\tR\x0eresourceTypeId\x12\x1f\n" +
 	"\vresource_id\x18\x02 \x01(\tR\n" +
-	"resourceId\"H\n" +
+	"resourceId\"r\n" +
 	"\x13ResourceIdListField\x121\n" +
-	"\x04list\x18\x01 \x03(\v2\x1d.c1.config.v1.ResourceIdFieldR\x04list\"n\n" +
+	"\x04list\x18\x01 \x03(\v2\x1d.c1.config.v1.ResourceIdFieldR\x04list\x12(\n" +
+	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\"n\n" +
 	"\bIntField\x12#\n" +
 	"\rdefault_value\x18\x01 \x01(\x03R\fdefaultValue\x123\n" +
 	"\x05rules\x18\x02 \x01(\v2\x18.c1.config.v1.Int64RulesH\x00R\x05rules\x88\x01\x01B\b\n" +

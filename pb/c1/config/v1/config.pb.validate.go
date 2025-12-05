@@ -1571,6 +1571,8 @@ func (m *ResourceIdListField) validate(all bool) error {
 
 	}
 
+	// no validation rules for ResourceTypeId
+
 	if len(errors) > 0 {
 		return ResourceIdListFieldMultiError(errors)
 	}
