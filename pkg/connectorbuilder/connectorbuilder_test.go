@@ -7,6 +7,7 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -486,7 +487,7 @@ func newTestCustomActionManager() CustomActionManager {
 	return &testCustomActionManager{}
 }
 
-func (t *testCustomActionManager) ListActionSchemas(ctx context.Context) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
+func (t *testCustomActionManager) ListActionSchemas(ctx context.Context, resourceTypeID string) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
 	return []*v2.BatonActionSchema{
 		v2.BatonActionSchema_builder{
 			Name:        "test-action",
@@ -502,12 +503,16 @@ func (t *testCustomActionManager) GetActionSchema(ctx context.Context, name stri
 	}.Build(), annotations.Annotations{}, nil
 }
 
-func (t *testCustomActionManager) InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+func (t *testCustomActionManager) InvokeAction(ctx context.Context, name string, resourceTypeID string, args *structpb.Struct, encryptionConfigs []*v2.EncryptionConfig) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	return "action-id-123", v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, &structpb.Struct{}, annotations.Annotations{}, nil
 }
 
 func (t *testCustomActionManager) GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
 	return v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, "Action completed successfully", &structpb.Struct{}, annotations.Annotations{}, nil
+}
+
+func (t *testCustomActionManager) GetTypeRegistry(ctx context.Context, resourceTypeID string) (actions.ResourceTypeActionRegistry, error) {
+	return nil, nil
 }
 
 type testRegisterActionManager struct {

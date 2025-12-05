@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/metrics"
@@ -77,6 +78,7 @@ type builder struct {
 	credentialManagers      map[string]CredentialManagerLimited
 	eventFeeds              map[string]EventFeed
 	accountManagers         map[string]AccountManagerLimited // NOTE(kans): currently unused
+	internalActionManager   *actions.ActionManager           // Unified action manager for resource-scoped actions
 }
 
 // NewConnector creates a new ConnectorServer for a new resource.
@@ -113,6 +115,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		credentialManagers:      make(map[string]CredentialManagerLimited),
 		eventFeeds:              make(map[string]EventFeed),
 		accountManagers:         make(map[string]AccountManagerLimited),
+		internalActionManager:   actions.NewActionManager(ctx),
 	}
 
 	// WithTicketingEnabled checks for the ticketManager

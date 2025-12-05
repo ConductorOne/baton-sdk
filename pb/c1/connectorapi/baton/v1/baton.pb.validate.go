@@ -5522,6 +5522,8 @@ func (m *Task_ActionListSchemasTask) validate(all bool) error {
 
 	}
 
+	// no validation rules for ResourceTypeId
+
 	if len(errors) > 0 {
 		return Task_ActionListSchemasTaskMultiError(errors)
 	}
@@ -5826,6 +5828,8 @@ func (m *Task_ActionInvokeTask) validate(all bool) error {
 		}
 
 	}
+
+	// no validation rules for ResourceTypeId
 
 	if len(errors) > 0 {
 		return Task_ActionInvokeTaskMultiError(errors)
