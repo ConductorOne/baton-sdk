@@ -95,6 +95,7 @@ message ResourceIdField {
 
 message ResourceIdListField {
   repeated ResourceIdField list = 1;
+  string resource_type_id = 2;
 }
 
 message IntField {

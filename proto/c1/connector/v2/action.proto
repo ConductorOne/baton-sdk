@@ -38,7 +38,7 @@ message BatonActionSchema {
   repeated ActionType action_type = 7;
 
   // Optional: if set, this action is scoped to a specific resource type
-  optional string resource_type_id = 8;
+  string resource_type_id = 8;
 }
 
 // This defines the action type.

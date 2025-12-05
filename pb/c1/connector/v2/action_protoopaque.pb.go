@@ -216,9 +216,7 @@ type BatonActionSchema struct {
 	xxx_hidden_DisplayName    string                 `protobuf:"bytes,5,opt,name=display_name,json=displayName,proto3"`
 	xxx_hidden_Description    string                 `protobuf:"bytes,6,opt,name=description,proto3"`
 	xxx_hidden_ActionType     []ActionType           `protobuf:"varint,7,rep,packed,name=action_type,json=actionType,proto3,enum=c1.connector.v2.ActionType"`
-	xxx_hidden_ResourceTypeId *string                `protobuf:"bytes,8,opt,name=resource_type_id,json=resourceTypeId,proto3,oneof"`
-	XXX_raceDetectHookData    protoimpl.RaceDetectHookData
-	XXX_presence              [1]uint32
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,8,opt,name=resource_type_id,json=resourceTypeId,proto3"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -305,10 +303,7 @@ func (x *BatonActionSchema) GetActionType() []ActionType {
 
 func (x *BatonActionSchema) GetResourceTypeId() string {
 	if x != nil {
-		if x.xxx_hidden_ResourceTypeId != nil {
-			return *x.xxx_hidden_ResourceTypeId
-		}
-		return ""
+		return x.xxx_hidden_ResourceTypeId
 	}
 	return ""
 }
@@ -342,20 +337,7 @@ func (x *BatonActionSchema) SetActionType(v []ActionType) {
 }
 
 func (x *BatonActionSchema) SetResourceTypeId(v string) {
-	x.xxx_hidden_ResourceTypeId = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 8)
-}
-
-func (x *BatonActionSchema) HasResourceTypeId() bool {
-	if x == nil {
-		return false
-	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 7)
-}
-
-func (x *BatonActionSchema) ClearResourceTypeId() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 7)
-	x.xxx_hidden_ResourceTypeId = nil
+	x.xxx_hidden_ResourceTypeId = v
 }
 
 type BatonActionSchema_builder struct {
@@ -369,7 +351,7 @@ type BatonActionSchema_builder struct {
 	Description string
 	ActionType  []ActionType
 	// Optional: if set, this action is scoped to a specific resource type
-	ResourceTypeId *string
+	ResourceTypeId string
 }
 
 func (b0 BatonActionSchema_builder) Build() *BatonActionSchema {
@@ -383,10 +365,7 @@ func (b0 BatonActionSchema_builder) Build() *BatonActionSchema {
 	x.xxx_hidden_DisplayName = b.DisplayName
 	x.xxx_hidden_Description = b.Description
 	x.xxx_hidden_ActionType = b.ActionType
-	if b.ResourceTypeId != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 8)
-		x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
-	}
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -1214,7 +1193,7 @@ var File_c1_connector_v2_action_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\n" +
-	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\"\x95\x03\n" +
+	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xfb\x02\n" +
 	"\x11BatonActionSchema\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
 	"\targuments\x18\x02 \x03(\v2\x13.c1.config.v1.FieldR\targuments\x12:\n" +
@@ -1223,9 +1202,8 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x05 \x01(\tR\vdisplayName\x12 \n" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x12<\n" +
 	"\vaction_type\x18\a \x03(\x0e2\x1b.c1.connector.v2.ActionTypeR\n" +
-	"actionType\x12-\n" +
-	"\x10resource_type_id\x18\b \x01(\tH\x00R\x0eresourceTypeId\x88\x01\x01B\x13\n" +
-	"\x11_resource_type_id\"\xa4\x02\n" +
+	"actionType\x12(\n" +
+	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\xa4\x02\n" +
 	"\x13InvokeActionRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x04args\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x04args\x126\n" +
@@ -1369,7 +1347,6 @@ func file_c1_connector_v2_action_proto_init() {
 		return
 	}
 	file_c1_connector_v2_resource_proto_init()
-	file_c1_connector_v2_action_proto_msgTypes[0].OneofWrappers = []any{}
 	file_c1_connector_v2_action_proto_msgTypes[1].OneofWrappers = []any{}
 	file_c1_connector_v2_action_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
