@@ -60,7 +60,7 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 		Annotations: t.GetAnnotations(),
 	}
 	if resourceTypeID := t.GetResourceTypeId(); resourceTypeID != "" {
-		reqBuilder.ResourceTypeId = &resourceTypeID
+		reqBuilder.ResourceTypeId = resourceTypeID
 	}
 	resp, err := cc.InvokeAction(ctx, reqBuilder.Build())
 	if err != nil {

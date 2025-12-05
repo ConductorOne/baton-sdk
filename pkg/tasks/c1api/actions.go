@@ -40,7 +40,7 @@ func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
 		Annotations: t.GetAnnotations(),
 	}
 	if resourceTypeID := t.GetResourceTypeId(); resourceTypeID != "" {
-		reqBuilder.ResourceTypeId = &resourceTypeID
+		reqBuilder.ResourceTypeId = resourceTypeID
 	}
 	resp, err := cc.ListActionSchemas(ctx, reqBuilder.Build())
 	if err != nil {
@@ -131,7 +131,7 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 		Annotations: t.GetAnnotations(),
 	}
 	if resourceTypeID := t.GetResourceTypeId(); resourceTypeID != "" {
-		reqBuilder.ResourceTypeId = &resourceTypeID
+		reqBuilder.ResourceTypeId = resourceTypeID
 	}
 	resp, err := cc.InvokeAction(ctx, reqBuilder.Build())
 	if err != nil {
