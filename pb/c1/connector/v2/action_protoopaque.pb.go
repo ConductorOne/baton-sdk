@@ -374,10 +374,8 @@ type InvokeActionRequest struct {
 	xxx_hidden_Name              string                 `protobuf:"bytes,1,opt,name=name,proto3"`
 	xxx_hidden_Args              *structpb.Struct       `protobuf:"bytes,2,opt,name=args,proto3"`
 	xxx_hidden_Annotations       *[]*anypb.Any          `protobuf:"bytes,3,rep,name=annotations,proto3"`
-	xxx_hidden_ResourceTypeId    *string                `protobuf:"bytes,4,opt,name=resource_type_id,json=resourceTypeId,proto3,oneof"`
+	xxx_hidden_ResourceTypeId    string                 `protobuf:"bytes,4,opt,name=resource_type_id,json=resourceTypeId,proto3"`
 	xxx_hidden_EncryptionConfigs *[]*EncryptionConfig   `protobuf:"bytes,5,rep,name=encryption_configs,json=encryptionConfigs,proto3"`
-	XXX_raceDetectHookData       protoimpl.RaceDetectHookData
-	XXX_presence                 [1]uint32
 	unknownFields                protoimpl.UnknownFields
 	sizeCache                    protoimpl.SizeCache
 }
@@ -432,10 +430,7 @@ func (x *InvokeActionRequest) GetAnnotations() []*anypb.Any {
 
 func (x *InvokeActionRequest) GetResourceTypeId() string {
 	if x != nil {
-		if x.xxx_hidden_ResourceTypeId != nil {
-			return *x.xxx_hidden_ResourceTypeId
-		}
-		return ""
+		return x.xxx_hidden_ResourceTypeId
 	}
 	return ""
 }
@@ -462,8 +457,7 @@ func (x *InvokeActionRequest) SetAnnotations(v []*anypb.Any) {
 }
 
 func (x *InvokeActionRequest) SetResourceTypeId(v string) {
-	x.xxx_hidden_ResourceTypeId = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 5)
+	x.xxx_hidden_ResourceTypeId = v
 }
 
 func (x *InvokeActionRequest) SetEncryptionConfigs(v []*EncryptionConfig) {
@@ -477,20 +471,8 @@ func (x *InvokeActionRequest) HasArgs() bool {
 	return x.xxx_hidden_Args != nil
 }
 
-func (x *InvokeActionRequest) HasResourceTypeId() bool {
-	if x == nil {
-		return false
-	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 3)
-}
-
 func (x *InvokeActionRequest) ClearArgs() {
 	x.xxx_hidden_Args = nil
-}
-
-func (x *InvokeActionRequest) ClearResourceTypeId() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 3)
-	x.xxx_hidden_ResourceTypeId = nil
 }
 
 type InvokeActionRequest_builder struct {
@@ -500,7 +482,7 @@ type InvokeActionRequest_builder struct {
 	Args        *structpb.Struct
 	Annotations []*anypb.Any
 	// Optional: if set, invokes a resource-scoped action
-	ResourceTypeId *string
+	ResourceTypeId string
 	// Optional: encryption configs for secret fields
 	EncryptionConfigs []*EncryptionConfig
 }
@@ -512,10 +494,7 @@ func (b0 InvokeActionRequest_builder) Build() *InvokeActionRequest {
 	x.xxx_hidden_Name = b.Name
 	x.xxx_hidden_Args = b.Args
 	x.xxx_hidden_Annotations = &b.Annotations
-	if b.ResourceTypeId != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 5)
-		x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
-	}
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	x.xxx_hidden_EncryptionConfigs = &b.EncryptionConfigs
 	return m0
 }
@@ -1022,9 +1001,7 @@ func (b0 GetActionSchemaResponse_builder) Build() *GetActionSchemaResponse {
 type ListActionSchemasRequest struct {
 	state                     protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Annotations    *[]*anypb.Any          `protobuf:"bytes,1,rep,name=annotations,proto3"`
-	xxx_hidden_ResourceTypeId *string                `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3,oneof"`
-	XXX_raceDetectHookData    protoimpl.RaceDetectHookData
-	XXX_presence              [1]uint32
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -1065,10 +1042,7 @@ func (x *ListActionSchemasRequest) GetAnnotations() []*anypb.Any {
 
 func (x *ListActionSchemasRequest) GetResourceTypeId() string {
 	if x != nil {
-		if x.xxx_hidden_ResourceTypeId != nil {
-			return *x.xxx_hidden_ResourceTypeId
-		}
-		return ""
+		return x.xxx_hidden_ResourceTypeId
 	}
 	return ""
 }
@@ -1078,20 +1052,7 @@ func (x *ListActionSchemasRequest) SetAnnotations(v []*anypb.Any) {
 }
 
 func (x *ListActionSchemasRequest) SetResourceTypeId(v string) {
-	x.xxx_hidden_ResourceTypeId = &v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 2)
-}
-
-func (x *ListActionSchemasRequest) HasResourceTypeId() bool {
-	if x == nil {
-		return false
-	}
-	return protoimpl.X.Present(&(x.XXX_presence[0]), 1)
-}
-
-func (x *ListActionSchemasRequest) ClearResourceTypeId() {
-	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 1)
-	x.xxx_hidden_ResourceTypeId = nil
+	x.xxx_hidden_ResourceTypeId = v
 }
 
 type ListActionSchemasRequest_builder struct {
@@ -1099,7 +1060,7 @@ type ListActionSchemasRequest_builder struct {
 
 	Annotations []*anypb.Any
 	// Optional: filter to only return actions for a specific resource type
-	ResourceTypeId *string
+	ResourceTypeId string
 }
 
 func (b0 ListActionSchemasRequest_builder) Build() *ListActionSchemasRequest {
@@ -1107,10 +1068,7 @@ func (b0 ListActionSchemasRequest_builder) Build() *ListActionSchemasRequest {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Annotations = &b.Annotations
-	if b.ResourceTypeId != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 2)
-		x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
-	}
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -1203,14 +1161,13 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x12<\n" +
 	"\vaction_type\x18\a \x03(\x0e2\x1b.c1.connector.v2.ActionTypeR\n" +
 	"actionType\x12(\n" +
-	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\xa4\x02\n" +
+	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\x8a\x02\n" +
 	"\x13InvokeActionRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x04args\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x04args\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12-\n" +
-	"\x10resource_type_id\x18\x04 \x01(\tH\x00R\x0eresourceTypeId\x88\x01\x01\x12P\n" +
-	"\x12encryption_configs\x18\x05 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigsB\x13\n" +
-	"\x11_resource_type_id\"\xe3\x01\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
+	"\x10resource_type_id\x18\x04 \x01(\tR\x0eresourceTypeId\x12P\n" +
+	"\x12encryption_configs\x18\x05 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\"\xe3\x01\n" +
 	"\x14InvokeActionResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\x06status\x18\x02 \x01(\x0e2\".c1.connector.v2.BatonActionStatusR\x06status\x126\n" +
@@ -1232,11 +1189,10 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x8d\x01\n" +
 	"\x17GetActionSchemaResponse\x12:\n" +
 	"\x06schema\x18\x01 \x01(\v2\".c1.connector.v2.BatonActionSchemaR\x06schema\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x96\x01\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"|\n" +
 	"\x18ListActionSchemasRequest\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12-\n" +
-	"\x10resource_type_id\x18\x02 \x01(\tH\x00R\x0eresourceTypeId\x88\x01\x01B\x13\n" +
-	"\x11_resource_type_id\"\x91\x01\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
+	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\"\x91\x01\n" +
 	"\x19ListActionSchemasResponse\x12<\n" +
 	"\aschemas\x18\x01 \x03(\v2\".c1.connector.v2.BatonActionSchemaR\aschemas\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations*\xdd\x01\n" +
@@ -1347,8 +1303,6 @@ func file_c1_connector_v2_action_proto_init() {
 		return
 	}
 	file_c1_connector_v2_resource_proto_init()
-	file_c1_connector_v2_action_proto_msgTypes[1].OneofWrappers = []any{}
-	file_c1_connector_v2_action_proto_msgTypes[7].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

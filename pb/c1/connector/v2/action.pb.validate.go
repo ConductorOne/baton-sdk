@@ -334,6 +334,8 @@ func (m *InvokeActionRequest) validate(all bool) error {
 
 	}
 
+	// no validation rules for ResourceTypeId
+
 	for idx, item := range m.GetEncryptionConfigs() {
 		_, _ = idx, item
 
@@ -366,10 +368,6 @@ func (m *InvokeActionRequest) validate(all bool) error {
 			}
 		}
 
-	}
-
-	if m.ResourceTypeId != nil {
-		// no validation rules for ResourceTypeId
 	}
 
 	if len(errors) > 0 {
@@ -1293,9 +1291,7 @@ func (m *ListActionSchemasRequest) validate(all bool) error {
 
 	}
 
-	if m.ResourceTypeId != nil {
-		// no validation rules for ResourceTypeId
-	}
+	// no validation rules for ResourceTypeId
 
 	if len(errors) > 0 {
 		return ListActionSchemasRequestMultiError(errors)

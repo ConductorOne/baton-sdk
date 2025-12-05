@@ -91,7 +91,7 @@ message InvokeActionRequest {
   google.protobuf.Struct args = 2;
   repeated google.protobuf.Any annotations = 3;
   // Optional: if set, invokes a resource-scoped action
-  optional string resource_type_id = 4;
+  string resource_type_id = 4;
   // Optional: encryption configs for secret fields
   repeated c1.connector.v2.EncryptionConfig encryption_configs = 5;
 }
@@ -131,7 +131,7 @@ message GetActionSchemaResponse {
 message ListActionSchemasRequest {
   repeated google.protobuf.Any annotations = 1;
   // Optional: filter to only return actions for a specific resource type
-  optional string resource_type_id = 2;
+  string resource_type_id = 2;
 }
 
 message ListActionSchemasResponse {
