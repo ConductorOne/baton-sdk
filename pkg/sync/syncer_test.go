@@ -37,7 +37,7 @@ var userResourceType = v2.ResourceType_builder{
 }.Build()
 
 func TestExpandGrants(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	// 2500 * 4 = 10K - used to cause an infinite loop on pagition
@@ -52,7 +52,7 @@ func TestExpandGrants(t *testing.T) {
 		e *v2.Entitlement
 	}
 	groups := make([]*asdf, 0)
-	for i := 0; i < groupCount; i++ {
+	for i := range groupCount {
 		groupId := "group_" + strconv.Itoa(i)
 		group, groupEnt, err := mc.AddGroup(ctx, groupId)
 		for _, g := range groups {
