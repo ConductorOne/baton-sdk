@@ -77,6 +77,9 @@ type SchemaField struct {
 
 	// Groups
 	FieldGroups []SchemaFieldGroup
+
+	// Displaying the SchemaField in order.
+	Order int
 }
 
 type SchemaTypes interface {
