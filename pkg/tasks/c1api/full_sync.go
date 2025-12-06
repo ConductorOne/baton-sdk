@@ -93,6 +93,8 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithSessionStore(setSessionStore))
 	}
 
+	// TODO: enable parallel sync here
+
 	var syncer sdkSync.Syncer
 	baseSyncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), syncOpts...)
 	if err != nil {
