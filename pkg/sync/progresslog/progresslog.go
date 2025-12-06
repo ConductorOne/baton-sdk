@@ -52,9 +52,9 @@ func WithLogger(l *zap.Logger) Option {
 func WithSequentialMode(sequential bool) Option {
 	return func(p *ProgressLog) {
 		if sequential {
-			p.mu = &sync.RWMutex{}
-		} else {
 			p.mu = &noOpMutex{}
+		} else {
+			p.mu = &sync.RWMutex{}
 		}
 	}
 }
@@ -258,8 +258,8 @@ func (p *ProgressLog) AddGrantsProgress(resourceType string, count int) {
 // TODO: Remove this method and use the WithSequentialMode option instead.
 func (p *ProgressLog) SetSequentialMode(sequential bool) {
 	if sequential {
-		p.mu = &sync.RWMutex{}
-	} else {
 		p.mu = &noOpMutex{}
+	} else {
+		p.mu = &sync.RWMutex{}
 	}
 }
