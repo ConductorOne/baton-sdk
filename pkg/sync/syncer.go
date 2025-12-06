@@ -82,6 +82,7 @@ type SequentialSyncer struct {
 	injectSyncIDAnnotation              bool
 	setSessionStore                     sessions.SetSessionStore
 	syncResourceTypes                   []string
+	workerCount                         int // If 0, sequential sync is used. If > 0, parallel sync is used.
 }
 
 var _ Syncer = (*SequentialSyncer)(nil)
@@ -321,9 +322,17 @@ func (s *SequentialSyncer) Sync(ctx context.Context) error {
 		)
 	}
 
-	warnings, err := s.sequentialSync(ctx, runCtx, targetedResources)
-	if err != nil {
-		return err
+	var warnings []error
+	if s.workerCount == 0 {
+		warnings, err = s.sequentialSync(ctx, runCtx, targetedResources)
+		if err != nil {
+			return err
+		}
+	} else {
+		warnings, err = s.parallelSync(ctx, runCtx, targetedResources)
+		if err != nil {
+			return err
+		}
 	}
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
@@ -2672,6 +2681,12 @@ func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 func WithSkipGrants(skip bool) SyncOpt {
 	return func(s *SequentialSyncer) {
 		s.skipGrants = skip
+	}
+}
+
+func WithWorkerCount(count int) SyncOpt {
+	return func(s *SequentialSyncer) {
+		s.workerCount = count
 	}
 }
 
