@@ -133,16 +133,17 @@ func (x ActionType) Number() protoreflect.EnumNumber {
 }
 
 type BatonActionSchema struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Arguments     []*v1.Field            `protobuf:"bytes,2,rep,name=arguments,proto3" json:"arguments,omitempty"`
-	Constraints   []*v1.Constraint       `protobuf:"bytes,3,rep,name=constraints,proto3" json:"constraints,omitempty"`
-	ReturnTypes   []*v1.Field            `protobuf:"bytes,4,rep,name=return_types,json=returnTypes,proto3" json:"return_types,omitempty"`
-	DisplayName   string                 `protobuf:"bytes,5,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
-	Description   string                 `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
-	ActionType    []ActionType           `protobuf:"varint,7,rep,packed,name=action_type,json=actionType,proto3,enum=c1.connector.v2.ActionType" json:"action_type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	Name           string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Arguments      []*v1.Field            `protobuf:"bytes,2,rep,name=arguments,proto3" json:"arguments,omitempty"`
+	Constraints    []*v1.Constraint       `protobuf:"bytes,3,rep,name=constraints,proto3" json:"constraints,omitempty"`
+	ReturnTypes    []*v1.Field            `protobuf:"bytes,4,rep,name=return_types,json=returnTypes,proto3" json:"return_types,omitempty"`
+	DisplayName    string                 `protobuf:"bytes,5,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	Description    string                 `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
+	ActionType     []ActionType           `protobuf:"varint,7,rep,packed,name=action_type,json=actionType,proto3,enum=c1.connector.v2.ActionType" json:"action_type,omitempty"`
+	ResourceTypeId string                 `protobuf:"bytes,8,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *BatonActionSchema) Reset() {
@@ -219,6 +220,13 @@ func (x *BatonActionSchema) GetActionType() []ActionType {
 	return nil
 }
 
+func (x *BatonActionSchema) GetResourceTypeId() string {
+	if x != nil {
+		return x.ResourceTypeId
+	}
+	return ""
+}
+
 func (x *BatonActionSchema) SetName(v string) {
 	x.Name = v
 }
@@ -247,16 +255,21 @@ func (x *BatonActionSchema) SetActionType(v []ActionType) {
 	x.ActionType = v
 }
 
+func (x *BatonActionSchema) SetResourceTypeId(v string) {
+	x.ResourceTypeId = v
+}
+
 type BatonActionSchema_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Name        string
-	Arguments   []*v1.Field
-	Constraints []*v1.Constraint
-	ReturnTypes []*v1.Field
-	DisplayName string
-	Description string
-	ActionType  []ActionType
+	Name           string
+	Arguments      []*v1.Field
+	Constraints    []*v1.Constraint
+	ReturnTypes    []*v1.Field
+	DisplayName    string
+	Description    string
+	ActionType     []ActionType
+	ResourceTypeId string
 }
 
 func (b0 BatonActionSchema_builder) Build() *BatonActionSchema {
@@ -270,6 +283,7 @@ func (b0 BatonActionSchema_builder) Build() *BatonActionSchema {
 	x.DisplayName = b.DisplayName
 	x.Description = b.Description
 	x.ActionType = b.ActionType
+	x.ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -991,7 +1005,7 @@ var File_c1_connector_v2_action_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\n" +
-	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xd1\x02\n" +
+	"\x1cc1/connector/v2/action.proto\x12\x0fc1.connector.v2\x1a\x19c1/config/v1/config.proto\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\"\xfb\x02\n" +
 	"\x11BatonActionSchema\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x121\n" +
 	"\targuments\x18\x02 \x03(\v2\x13.c1.config.v1.FieldR\targuments\x12:\n" +
@@ -1000,7 +1014,8 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\fdisplay_name\x18\x05 \x01(\tR\vdisplayName\x12 \n" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x12<\n" +
 	"\vaction_type\x18\a \x03(\x0e2\x1b.c1.connector.v2.ActionTypeR\n" +
-	"actionType\"\x8e\x01\n" +
+	"actionType\x12(\n" +
+	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\x8e\x01\n" +
 	"\x13InvokeActionRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x04args\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x04args\x126\n" +
