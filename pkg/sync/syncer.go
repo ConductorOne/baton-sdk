@@ -471,7 +471,7 @@ func (s *SequentialSyncer) SyncResourceTypes(ctx context.Context) error {
 		return err
 	}
 
-	s.counts.ResourceTypes += len(resourceTypes)
+	s.counts.AddResourceTypes(len(resourceTypes))
 	s.handleProgress(ctx, s.state.Current(), len(resourceTypes))
 
 	if resp.GetNextPageToken() == "" {
@@ -720,7 +720,7 @@ func (s *SequentialSyncer) syncResources(ctx context.Context) error {
 	s.handleProgress(ctx, s.state.Current(), len(resp.GetList()))
 
 	resourceTypeId := s.state.ResourceTypeID(ctx)
-	s.counts.Resources[resourceTypeId] += len(resp.GetList())
+	s.counts.AddResources(resourceTypeId, len(resp.GetList()))
 
 	if resp.GetNextPageToken() == "" {
 		s.counts.LogResourcesProgress(ctx, resourceTypeId)
@@ -1798,7 +1798,7 @@ func (s *SequentialSyncer) syncGrantsForResource(ctx context.Context, resourceID
 		return nil
 	}
 
-	s.counts.GrantsProgress[resourceID.GetResourceType()] += 1
+	s.counts.AddGrantsProgress(resourceID.GetResourceType(), 1)
 	s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
 	s.state.FinishAction(ctx)
 

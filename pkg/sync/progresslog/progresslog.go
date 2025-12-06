@@ -28,13 +28,13 @@ func (m *noOpMutex) RLock()   {}
 func (m *noOpMutex) RUnlock() {}
 
 type ProgressLog struct {
-	ResourceTypes        int
-	Resources            map[string]int
-	EntitlementsProgress map[string]int
-	LastEntitlementLog   map[string]time.Time
-	GrantsProgress       map[string]int
-	LastGrantLog         map[string]time.Time
-	LastActionLog        time.Time
+	resourceTypes        int
+	resources            map[string]int
+	entitlementsProgress map[string]int
+	lastEntitlementLog   map[string]time.Time
+	grantsProgress       map[string]int
+	lastGrantLog         map[string]time.Time
+	lastActionLog        time.Time
 	mu                   rwMutex // If noOpMutex, sequential mode is enabled. If sync.RWMutex, parallel mode is enabled.
 	l                    *zap.Logger
 	maxLogFrequency      time.Duration
@@ -67,12 +67,12 @@ func WithLogFrequency(logFrequency time.Duration) Option {
 
 func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 	p := &ProgressLog{
-		Resources:            make(map[string]int),
-		EntitlementsProgress: make(map[string]int),
-		LastEntitlementLog:   make(map[string]time.Time),
-		GrantsProgress:       make(map[string]int),
-		LastGrantLog:         make(map[string]time.Time),
-		LastActionLog:        time.Time{},
+		resources:            make(map[string]int),
+		entitlementsProgress: make(map[string]int),
+		lastEntitlementLog:   make(map[string]time.Time),
+		grantsProgress:       make(map[string]int),
+		lastGrantLog:         make(map[string]time.Time),
+		lastActionLog:        time.Time{},
 		l:                    ctxzap.Extract(ctx),
 		maxLogFrequency:      defaultMaxLogFrequency,
 		mu:                   &noOpMutex{}, // Default to sequential mode for backward compatibility
@@ -84,13 +84,13 @@ func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 }
 
 func (p *ProgressLog) LogResourceTypesProgress(ctx context.Context) {
-	p.l.Info("Synced resource types", zap.Int("count", p.ResourceTypes))
+	p.l.Info("Synced resource types", zap.Int("count", p.resourceTypes))
 }
 
 func (p *ProgressLog) LogResourcesProgress(ctx context.Context, resourceType string) {
 	var resources int
 	p.mu.RLock()
-	resources = p.Resources[resourceType]
+	resources = p.resources[resourceType]
 	p.mu.RUnlock()
 
 	p.l.Info("Synced resources", zap.String("resource_type_id", resourceType), zap.Int("count", resources))
@@ -101,9 +101,9 @@ func (p *ProgressLog) LogEntitlementsProgress(ctx context.Context, resourceType 
 	var lastLogTime time.Time
 
 	p.mu.RLock()
-	entitlementsProgress = p.EntitlementsProgress[resourceType]
-	resources = p.Resources[resourceType]
-	lastLogTime = p.LastEntitlementLog[resourceType]
+	entitlementsProgress = p.entitlementsProgress[resourceType]
+	resources = p.resources[resourceType]
+	lastLogTime = p.lastEntitlementLog[resourceType]
 	p.mu.RUnlock()
 
 	if resources == 0 {
@@ -114,7 +114,7 @@ func (p *ProgressLog) LogEntitlementsProgress(ctx context.Context, resourceType 
 				zap.Int("synced", entitlementsProgress),
 			)
 			p.mu.Lock()
-			p.LastEntitlementLog[resourceType] = time.Now()
+			p.lastEntitlementLog[resourceType] = time.Now()
 			p.mu.Unlock()
 		}
 		return
@@ -130,7 +130,7 @@ func (p *ProgressLog) LogEntitlementsProgress(ctx context.Context, resourceType 
 			zap.Int("total", resources),
 		)
 		p.mu.Lock()
-		p.LastEntitlementLog[resourceType] = time.Time{}
+		p.lastEntitlementLog[resourceType] = time.Time{}
 		p.mu.Unlock()
 	case time.Since(lastLogTime) > p.maxLogFrequency:
 		if entitlementsProgress > resources {
@@ -148,7 +148,7 @@ func (p *ProgressLog) LogEntitlementsProgress(ctx context.Context, resourceType 
 			)
 		}
 		p.mu.Lock()
-		p.LastEntitlementLog[resourceType] = time.Now()
+		p.lastEntitlementLog[resourceType] = time.Now()
 		p.mu.Unlock()
 	}
 }
@@ -158,9 +158,9 @@ func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string
 	var lastLogTime time.Time
 
 	p.mu.RLock()
-	grantsProgress = p.GrantsProgress[resourceType]
-	resources = p.Resources[resourceType]
-	lastLogTime = p.LastGrantLog[resourceType]
+	grantsProgress = p.grantsProgress[resourceType]
+	resources = p.resources[resourceType]
+	lastLogTime = p.lastGrantLog[resourceType]
 	p.mu.RUnlock()
 
 	if resources == 0 {
@@ -171,7 +171,7 @@ func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string
 				zap.Int("synced", grantsProgress),
 			)
 			p.mu.Lock()
-			p.LastGrantLog[resourceType] = time.Now()
+			p.lastGrantLog[resourceType] = time.Now()
 			p.mu.Unlock()
 		}
 		return
@@ -187,7 +187,7 @@ func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string
 			zap.Int("total", resources),
 		)
 		p.mu.Lock()
-		p.LastGrantLog[resourceType] = time.Time{}
+		p.lastGrantLog[resourceType] = time.Time{}
 		p.mu.Unlock()
 	case time.Since(lastLogTime) > p.maxLogFrequency:
 		if grantsProgress > resources {
@@ -205,7 +205,7 @@ func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string
 			)
 		}
 		p.mu.Lock()
-		p.LastGrantLog[resourceType] = time.Now()
+		p.lastGrantLog[resourceType] = time.Now()
 		p.mu.Unlock()
 	}
 }
@@ -215,10 +215,10 @@ func (p *ProgressLog) LogExpandProgress(ctx context.Context, actions []*expand.E
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if time.Since(p.LastActionLog) < p.maxLogFrequency {
+	if time.Since(p.lastActionLog) < p.maxLogFrequency {
 		return
 	}
-	p.LastActionLog = time.Now()
+	p.lastActionLog = time.Now()
 
 	l := ctxzap.Extract(ctx)
 	l.Info("Expanding grants", zap.Int("actions_remaining", actionsLen))
@@ -230,28 +230,28 @@ func (p *ProgressLog) LogExpandProgress(ctx context.Context, actions []*expand.E
 func (p *ProgressLog) AddResourceTypes(count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.ResourceTypes += count
+	p.resourceTypes += count
 }
 
 // AddResources safely adds to the resources count for a specific resource type.
 func (p *ProgressLog) AddResources(resourceType string, count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.Resources[resourceType] += count
+	p.resources[resourceType] += count
 }
 
 // AddEntitlementsProgress safely adds to the entitlements progress count for a specific resource type.
 func (p *ProgressLog) AddEntitlementsProgress(resourceType string, count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.EntitlementsProgress[resourceType] += count
+	p.entitlementsProgress[resourceType] += count
 }
 
 // AddGrantsProgress safely adds to the grants progress count for a specific resource type.
 func (p *ProgressLog) AddGrantsProgress(resourceType string, count int) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	p.GrantsProgress[resourceType] += count
+	p.grantsProgress[resourceType] += count
 }
 
 // SetSequentialMode enables/disables mutex protection for sequential sync.
