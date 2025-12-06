@@ -165,6 +165,8 @@ func (m *BatonActionSchema) validate(all bool) error {
 
 	// no validation rules for Description
 
+	// no validation rules for ResourceTypeId
+
 	if len(errors) > 0 {
 		return BatonActionSchemaMultiError(errors)
 	}
