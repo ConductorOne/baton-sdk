@@ -36,7 +36,8 @@ var userResourceType = v2.ResourceType_builder{
 }.Build()
 
 func TestExpandGrants(t *testing.T) {
-	ctx := t.Context()
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 
 	// 2500 * 4 = 10K - used to cause an infinite loop on pagition
 	usersPerLayer := 2500
