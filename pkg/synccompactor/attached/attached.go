@@ -25,6 +25,12 @@ func NewAttachedCompactor(base *dotc1z.C1File, applied *dotc1z.C1File, dest *dot
 }
 
 func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) error {
+	// Drop grants indexes to improve performance.
+	err := c.dest.DropGrantIndexes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to drop grants indexes: %w", err)
+	}
+
 	baseSyncID, err := c.base.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
 	if err != nil {
 		return fmt.Errorf("failed to get base sync ID: %w", err)
