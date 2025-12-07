@@ -204,6 +204,30 @@ func (c *C1File) init(ctx context.Context) error {
 		return err
 	}
 
+	err = c.InitTables(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, pragma := range c.pragmas {
+		_, err := c.db.ExecContext(ctx, fmt.Sprintf("PRAGMA %s = %s", pragma.name, pragma.value))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *C1File) InitTables(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "C1File.InitTables")
+	defer span.End()
+
+	err := c.validateDb(ctx)
+	if err != nil {
+		return err
+	}
+
 	for _, t := range allTableDescriptors {
 		query, args := t.Schema()
 		_, err = c.db.ExecContext(ctx, fmt.Sprintf(query, args...))
@@ -211,13 +235,6 @@ func (c *C1File) init(ctx context.Context) error {
 			return err
 		}
 		err = t.Migrations(ctx, c.db)
-		if err != nil {
-			return err
-		}
-	}
-
-	for _, pragma := range c.pragmas {
-		_, err := c.db.ExecContext(ctx, fmt.Sprintf("PRAGMA %s = %s", pragma.name, pragma.value))
 		if err != nil {
 			return err
 		}

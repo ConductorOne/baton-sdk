@@ -62,6 +62,29 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 	return nil
 }
 
+// DropGrantIndexes drops the indexes on the grants table.
+// This should only be called when compacting the grants table.
+// These indexes are re-created when we open the database again.
+func (c *C1File) DropGrantIndexes(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "C1File.DropGrantsIndexes")
+	defer span.End()
+
+	indexes := []string{
+		fmt.Sprintf("idx_grants_resource_type_id_resource_id_v%s", grants.Version()),
+		fmt.Sprintf("idx_grants_principal_id_v%s", grants.Version()),
+		fmt.Sprintf("idx_grants_entitlement_id_principal_id_v%s", grants.Version()),
+		fmt.Sprintf("idx_grants_external_sync_v%s", grants.Version()),
+	}
+
+	for _, index := range indexes {
+		_, err := c.db.ExecContext(ctx, fmt.Sprintf("DROP INDEX IF EXISTS %s", index))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrants")
 	defer span.End()

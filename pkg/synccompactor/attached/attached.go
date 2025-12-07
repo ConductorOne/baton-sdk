@@ -66,8 +66,20 @@ func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) er
 		}
 	}()
 
+	// Drop grants indexes to improve performance.
+	err = c.dest.DropGrantIndexes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to drop grants indexes: %w", err)
+	}
+
 	if err := c.processRecords(ctx, attached, destSyncID, baseSyncID, appliedSyncID); err != nil {
 		return fmt.Errorf("failed to process records: %w", err)
+	}
+
+	// Re-create the destination database to re-create the grant indexes.
+	err = c.dest.InitTables(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to re-create destination database: %w", err)
 	}
 
 	return nil
