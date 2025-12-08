@@ -57,6 +57,10 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithDontExpandGrants())
 	}
 
+	if bid := c.task.GetSyncFull().GetBid(); len(bid) > 0 {
+		syncOpts = append(syncOpts, sdkSync.WithTargetedSyncResourceIDs(bid))
+	}
+
 	if c.task.GetSyncFull().GetSkipEntitlementsAndGrants() {
 		// Sync only resources. This is meant to be used for a first sync so initial data gets into the UI faster.
 		syncOpts = append(syncOpts, sdkSync.WithSkipEntitlementsAndGrants(true))
