@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
-	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -57,23 +56,13 @@ func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsS
 	ctx, span := tracer.Start(ctx, "C1File.ListEntitlements")
 	defer span.End()
 
-	objs, nextPageToken, err := c.listConnectorObjects(ctx, entitlements.Name(), request)
+	objs, nextPageToken, err := listConnectorObjects(ctx, c, entitlements.Name(), request, func() *v2.Entitlement { return &v2.Entitlement{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing entitlements: %w", err)
 	}
 
-	ret := make([]*v2.Entitlement, 0, len(objs))
-	for _, o := range objs {
-		en := &v2.Entitlement{}
-		err = proto.Unmarshal(o, en)
-		if err != nil {
-			return nil, err
-		}
-		ret = append(ret, en)
-	}
-
 	return v2.EntitlementsServiceListEntitlementsResponse_builder{
-		List:          ret,
+		List:          objs,
 		NextPageToken: nextPageToken,
 	}.Build(), nil
 }

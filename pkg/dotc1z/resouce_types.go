@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/doug-martin/goqu/v9"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -53,19 +51,9 @@ func (c *C1File) ListResourceTypes(ctx context.Context, request *v2.ResourceType
 	ctx, span := tracer.Start(ctx, "C1File.ListResourceTypes")
 	defer span.End()
 
-	objs, nextPageToken, err := c.listConnectorObjects(ctx, resourceTypes.Name(), request)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, resourceTypes.Name(), request, func() *v2.ResourceType { return &v2.ResourceType{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing resource types: %w", err)
-	}
-
-	ret := make([]*v2.ResourceType, 0, len(objs))
-	for _, o := range objs {
-		rt := &v2.ResourceType{}
-		err = proto.Unmarshal(o, rt)
-		if err != nil {
-			return nil, err
-		}
-		ret = append(ret, rt)
 	}
 
 	return v2.ResourceTypesServiceListResourceTypesResponse_builder{

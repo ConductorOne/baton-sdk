@@ -2,6 +2,7 @@ package dotc1z
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strconv"
@@ -93,8 +94,8 @@ func (c *C1File) throttledWarnSlowQuery(ctx context.Context, query string, durat
 }
 
 // listConnectorObjects uses a connector list request to fetch the corresponding data from the local db.
-// It returns the raw bytes that need to be unmarshalled into the correct proto message.
-func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req proto.Message) ([][]byte, string, error) {
+// It returns a slice of typed proto messages constructed via the provided factory function.
+func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T) ([]T, string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.listConnectorObjects")
 	defer span.End()
 
@@ -103,13 +104,7 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 		return nil, "", err
 	}
 
-	// If this doesn't look like a list request, bail
-	listReq, ok := req.(listRequest)
-	if !ok {
-		return nil, "", fmt.Errorf("c1file: invalid list request")
-	}
-
-	annoSyncID, err := annotations.GetSyncIdFromAnnotations(listReq.GetAnnotations())
+	annoSyncID, err := annotations.GetSyncIdFromAnnotations(req.GetAnnotations())
 	if err != nil {
 		return nil, "", fmt.Errorf("error getting sync id from annotations for list request: %w", err)
 	}
@@ -200,12 +195,12 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 	}
 
 	// If a page token is provided, begin listing rows greater than or equal to the token
-	if listReq.GetPageToken() != "" {
-		q = q.Where(goqu.C("id").Gte(listReq.GetPageToken()))
+	if req.GetPageToken() != "" {
+		q = q.Where(goqu.C("id").Gte(req.GetPageToken()))
 	}
 
 	// Clamp the page size
-	pageSize := listReq.GetPageSize()
+	pageSize := req.GetPageSize()
 	if pageSize > maxPageSize || pageSize == 0 {
 		pageSize = maxPageSize
 	}
@@ -214,8 +209,6 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 
 	// Select 1 more than we asked for so we know if there is another page
 	q = q.Limit(uint(pageSize + 1))
-
-	var ret [][]byte
 
 	query, args, err := q.ToSQL()
 	if err != nil {
@@ -240,21 +233,28 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 		c.throttledWarnSlowQuery(ctx, query, queryDuration)
 	}
 
+	ret := make([]T, 0, pageSize)
+
 	var count uint32 = 0
 	lastRow := 0
+	var data sql.RawBytes
 	for rows.Next() {
 		count++
 		if count > pageSize {
 			break
 		}
 		rowId := 0
-		data := make([]byte, 0)
 		err := rows.Scan(&rowId, &data)
 		if err != nil {
 			return nil, "", err
 		}
+		t := factory()
+		err = proto.Unmarshal(data, t)
+		if err != nil {
+			return nil, "", err
+		}
 		lastRow = rowId
-		ret = append(ret, data)
+		ret = append(ret, t)
 	}
 	if rows.Err() != nil {
 		return nil, "", rows.Err()
@@ -264,7 +264,6 @@ func (c *C1File) listConnectorObjects(ctx context.Context, tableName string, req
 	if count > pageSize {
 		nextPageToken = strconv.Itoa(lastRow + 1)
 	}
-
 	return ret, nextPageToken, nil
 }
 
