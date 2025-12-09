@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
-	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -89,19 +88,9 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 	ctx, span := tracer.Start(ctx, "C1File.ListGrants")
 	defer span.End()
 
-	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants: %w", err)
-	}
-
-	ret := make([]*v2.Grant, 0, len(objs))
-	for _, o := range objs {
-		g := &v2.Grant{}
-		err = proto.Unmarshal(o, g)
-		if err != nil {
-			return nil, err
-		}
-		ret = append(ret, g)
 	}
 
 	return v2.GrantsServiceListGrantsResponse_builder{
@@ -135,20 +124,9 @@ func (c *C1File) ListGrantsForEntitlement(
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlement")
 	defer span.End()
-
-	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
-	}
-
-	ret := make([]*v2.Grant, 0, len(objs))
-	for _, o := range objs {
-		en := &v2.Grant{}
-		err = proto.Unmarshal(o, en)
-		if err != nil {
-			return nil, err
-		}
-		ret = append(ret, en)
 	}
 
 	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
@@ -164,19 +142,9 @@ func (c *C1File) ListGrantsForPrincipal(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForPrincipal")
 	defer span.End()
 
-	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err)
-	}
-
-	ret := make([]*v2.Grant, 0, len(objs))
-	for _, o := range objs {
-		en := &v2.Grant{}
-		err = proto.Unmarshal(o, en)
-		if err != nil {
-			return nil, err
-		}
-		ret = append(ret, en)
 	}
 
 	return reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse_builder{
@@ -192,19 +160,9 @@ func (c *C1File) ListGrantsForResourceType(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForResourceType")
 	defer span.End()
 
-	objs, nextPageToken, err := c.listConnectorObjects(ctx, grants.Name(), request)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for resource type '%s': %w", request.GetResourceTypeId(), err)
-	}
-
-	ret := make([]*v2.Grant, 0, len(objs))
-	for _, o := range objs {
-		en := &v2.Grant{}
-		err = proto.Unmarshal(o, en)
-		if err != nil {
-			return nil, err
-		}
-		ret = append(ret, en)
 	}
 
 	return reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse_builder{

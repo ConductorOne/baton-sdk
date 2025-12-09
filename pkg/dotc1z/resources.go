@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 
@@ -62,19 +61,9 @@ func (c *C1File) ListResources(ctx context.Context, request *v2.ResourcesService
 	ctx, span := tracer.Start(ctx, "C1File.ListResources")
 	defer span.End()
 
-	objs, nextPageToken, err := c.listConnectorObjects(ctx, resources.Name(), request)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, resources.Name(), request, func() *v2.Resource { return &v2.Resource{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing resources: %w", err)
-	}
-
-	ret := make([]*v2.Resource, 0, len(objs))
-	for _, o := range objs {
-		rt := &v2.Resource{}
-		err = proto.Unmarshal(o, rt)
-		if err != nil {
-			return nil, err
-		}
-		ret = append(ret, rt)
 	}
 
 	return v2.ResourcesServiceListResourcesResponse_builder{
