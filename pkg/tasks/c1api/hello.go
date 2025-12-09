@@ -38,6 +38,10 @@ func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloReq
 		info.VirtualizationSystem = "none"
 	}
 
+	if info.PlatformVersion == "" {
+		info.PlatformVersion = info.KernelVersion
+	}
+
 	return v1.BatonServiceHelloRequest_OSInfo_builder{
 		Hostname:             info.Hostname,
 		Os:                   info.OS,
