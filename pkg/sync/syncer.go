@@ -665,6 +665,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	// Force a checkpoint to clear completed actions & entitlement graph in sync_token.
 	s.state.ClearEntitlementGraph(ctx)
+
 	err = s.Checkpoint(ctx, true)
 	if err != nil {
 		return err
@@ -2750,6 +2751,18 @@ func GetExpandableAnnotation(annos annotations.Annotations) (*v2.GrantExpandable
 	return expandableAnno, nil
 }
 
+func (s *syncer) putGrantsInChunks(ctx context.Context, grants []*v2.Grant, minChunkSize int) ([]*v2.Grant, error) {
+	if len(grants) <= minChunkSize {
+		return grants, nil
+	}
+
+	err := s.store.PutGrants(ctx, grants...)
+	if err != nil {
+		return nil, fmt.Errorf("putGrantsInChunks: error putting grants: %w", err)
+	}
+	return make([]*v2.Grant, 0), nil
+}
+
 func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.runGrantExpandActions")
 	defer span.End()
@@ -2826,7 +2839,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		}
 
 		// Unroll all grants for the principal on the descendant entitlement. This should, on average, be... 1.
-		descendantGrants := make([]*v2.Grant, 0, 1)
 		pageToken := ""
 		for {
 			req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
@@ -2842,55 +2854,71 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				return false, fmt.Errorf("runGrantExpandActions: error fetching descendant grants: %w", err)
 			}
 
-			descendantGrants = append(descendantGrants, resp.GetList()...)
+			// If we have no grants for the principal in the descendant entitlement, make one.
+			if pageToken == "" && resp.GetNextPageToken() == "" && len(resp.GetList()) == 0 {
+				// TODO(morgabra): This is kinda gnarly, grant ID won't have any special meaning.
+				// FIXME(morgabra): We should probably conflict check with grant id?
+				descendantGrant, err := s.newExpandedGrant(ctx, descendantEntitlement.GetEntitlement(), sourceGrant.GetPrincipal(), action.SourceEntitlementID)
+				if err != nil {
+					l.Error("runGrantExpandActions: error creating new grant", zap.Error(err))
+					return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
+				}
+				newGrants = append(newGrants, descendantGrant)
+				newGrants, err = s.putGrantsInChunks(ctx, newGrants, 10000000)
+				if err != nil {
+					l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
+					return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
+				}
+				break
+			}
+
+			// Add the source entitlement as a source to all descendant grants.
+			grantsToUpdate := make([]*v2.Grant, 0)
+			for _, descendantGrant := range resp.GetList() {
+				sources := descendantGrant.GetSources()
+				if sources == nil {
+					sources = &v2.GrantSources{}
+				}
+				sourcesMap := sources.GetSources()
+				if sourcesMap == nil {
+					sourcesMap = make(map[string]*v2.GrantSources_GrantSource)
+				}
+
+				updated := false
+
+				if len(sourcesMap) == 0 {
+					// If we are already granted this entitlement, make sure to add ourselves as a source.
+					sourcesMap[action.DescendantEntitlementID] = &v2.GrantSources_GrantSource{}
+					updated = true
+				}
+
+				// Include the source grant as a source.
+				if sourcesMap[action.SourceEntitlementID] == nil {
+					sourcesMap[action.SourceEntitlementID] = &v2.GrantSources_GrantSource{}
+					updated = true
+				}
+
+				if updated {
+					descendantGrant.SetSources(sources)
+					grantsToUpdate = append(grantsToUpdate, descendantGrant)
+				}
+			}
+			newGrants = append(newGrants, grantsToUpdate...)
+
+			newGrants, err = s.putGrantsInChunks(ctx, newGrants, 10000000)
+			if err != nil {
+				l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
+				return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
+			}
+
 			pageToken = resp.GetNextPageToken()
 			if pageToken == "" {
 				break
 			}
 		}
-
-		// If we have no grants for the principal in the descendant entitlement, make one.
-		directGrant := true
-		if len(descendantGrants) == 0 {
-			directGrant = false
-			// TODO(morgabra): This is kinda gnarly, grant ID won't have any special meaning.
-			// FIXME(morgabra): We should probably conflict check with grant id?
-			descendantGrant, err := s.newExpandedGrant(ctx, descendantEntitlement.GetEntitlement(), sourceGrant.GetPrincipal())
-			if err != nil {
-				l.Error("runGrantExpandActions: error creating new grant", zap.Error(err))
-				return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
-			}
-			descendantGrants = append(descendantGrants, descendantGrant)
-			l.Debug(
-				"runGrantExpandActions: created new grant for expansion",
-				zap.String("grant_id", descendantGrant.GetId()),
-			)
-		}
-
-		// Add the source entitlement as a source to all descendant grants.
-		for _, descendantGrant := range descendantGrants {
-			sources := descendantGrant.GetSources()
-			if sources == nil {
-				sources = &v2.GrantSources{}
-				descendantGrant.SetSources(sources)
-			}
-			sourcesMap := sources.GetSources()
-			if sourcesMap == nil {
-				sourcesMap = make(map[string]*v2.GrantSources_GrantSource)
-				sources.SetSources(sourcesMap)
-			}
-
-			if directGrant && len(sources.GetSources()) == 0 {
-				// If we are already granted this entitlement, make sure to add ourselves as a source.
-				sourcesMap[descendantGrant.GetEntitlement().GetId()] = &v2.GrantSources_GrantSource{}
-			}
-			// Include the source grant as a source.
-			sourcesMap[sourceGrant.GetEntitlement().GetId()] = &v2.GrantSources_GrantSource{}
-		}
-		newGrants = append(newGrants, descendantGrants...)
 	}
 
-	err = s.store.PutGrants(ctx, newGrants...)
+	_, err = s.putGrantsInChunks(ctx, newGrants, 0)
 	if err != nil {
 		l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
 		return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
@@ -2905,7 +2933,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-func (s *syncer) newExpandedGrant(_ context.Context, descEntitlement *v2.Entitlement, principal *v2.Resource) (*v2.Grant, error) {
+func (s *syncer) newExpandedGrant(_ context.Context, descEntitlement *v2.Entitlement, principal *v2.Resource, sourceEntitlementID string) (*v2.Grant, error) {
 	enResource := descEntitlement.GetResource()
 	if enResource == nil {
 		return nil, fmt.Errorf("newExpandedGrant: entitlement has no resource")
@@ -2919,10 +2947,20 @@ func (s *syncer) newExpandedGrant(_ context.Context, descEntitlement *v2.Entitle
 	var annos annotations.Annotations
 	annos.Update(&v2.GrantImmutable{})
 
+	var sources *v2.GrantSources
+	if sourceEntitlementID != "" {
+		sources = &v2.GrantSources{
+			Sources: map[string]*v2.GrantSources_GrantSource{
+				sourceEntitlementID: {},
+			},
+		}
+	}
+
 	grant := v2.Grant_builder{
 		Id:          fmt.Sprintf("%s:%s:%s", descEntitlement.GetId(), principal.GetId().GetResourceType(), principal.GetId().GetResource()),
 		Entitlement: descEntitlement,
 		Principal:   principal,
+		Sources:     sources,
 		Annotations: annos,
 	}.Build()
 

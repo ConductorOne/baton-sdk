@@ -33,6 +33,8 @@ create unique index if not exists %s on %s (external_id, sync_id);`
 
 var grants = (*grantsTable)(nil)
 
+var _ tableDescriptor = (*grantsTable)(nil)
+
 type grantsTable struct{}
 
 func (r *grantsTable) Version() string {
@@ -43,8 +45,8 @@ func (r *grantsTable) Name() string {
 	return fmt.Sprintf("v%s_%s", r.Version(), grantsTableName)
 }
 
-func (r *grantsTable) Schema() (string, []interface{}) {
-	return grantsTableSchema, []interface{}{
+func (r *grantsTable) Schema() (string, []any) {
+	return grantsTableSchema, []any{
 		r.Name(),
 		fmt.Sprintf("idx_grants_resource_type_id_resource_id_v%s", r.Version()),
 		r.Name(),
@@ -72,6 +74,29 @@ func (c *C1File) DropGrantIndexes(ctx context.Context) error {
 		fmt.Sprintf("idx_grants_resource_type_id_resource_id_v%s", grants.Version()),
 		fmt.Sprintf("idx_grants_principal_id_v%s", grants.Version()),
 		fmt.Sprintf("idx_grants_entitlement_id_principal_id_v%s", grants.Version()),
+		fmt.Sprintf("idx_grants_external_sync_v%s", grants.Version()),
+	}
+
+	for _, index := range indexes {
+		_, err := c.db.ExecContext(ctx, fmt.Sprintf("DROP INDEX IF EXISTS %s", index))
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DropGrantExpandIndexes drops the indexes on the grants table.
+// This should only be called when compacting the grants table.
+// These indexes are re-created when we open the database again.
+func (c *C1File) DropGrantExpandIndexes(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "C1File.DropGrantsIndexes")
+	defer span.End()
+
+	indexes := []string{
+		fmt.Sprintf("idx_grants_resource_type_id_resource_id_v%s", grants.Version()),
+		fmt.Sprintf("idx_grants_principal_id_v%s", grants.Version()),
+		// fmt.Sprintf("idx_grants_entitlement_id_principal_id_v%s", grants.Version()),
 		fmt.Sprintf("idx_grants_external_sync_v%s", grants.Version()),
 	}
 
