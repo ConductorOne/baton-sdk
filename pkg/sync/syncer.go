@@ -47,8 +47,7 @@ var tracer = otel.Tracer("baton-sdk/sync")
 // GrantPool manages a pool of v2.Grant objects for reuse during grant expansion.
 // It tracks allocated grants and can release them all at once.
 type GrantPool struct {
-	pool      stdsync.Pool
-	allocated []*v2.Grant
+	pool stdsync.Pool
 }
 
 // NewGrantPool creates a new GrantPool.
@@ -59,26 +58,22 @@ func NewGrantPool() *GrantPool {
 				return &v2.Grant{}
 			},
 		},
-		allocated: make([]*v2.Grant, 0, 1024),
 	}
 }
 
-// Acquire gets a grant from the pool and tracks it for later release.
+// Acquire gets a grant from the pool.
 func (p *GrantPool) Acquire() *v2.Grant {
-	g := p.pool.Get().(*v2.Grant)
-	p.allocated = append(p.allocated, g)
-	return g
+	return p.pool.Get().(*v2.Grant)
 }
 
-// ReleaseAll returns all tracked grants to the pool and clears the tracking slice.
-func (p *GrantPool) ReleaseAll() {
-	for _, g := range p.allocated {
+// Release returns the given grants to the pool after resetting them.
+func (p *GrantPool) Release(grants []*v2.Grant) {
+	for _, g := range grants {
 		if g != nil {
 			g.Reset()
 			p.pool.Put(g)
 		}
 	}
-	p.allocated = p.allocated[:0] // Keep capacity, reset length
 }
 
 const defaultMaxDepth int64 = 20
@@ -2789,16 +2784,21 @@ func GetExpandableAnnotation(annos annotations.Annotations) (*v2.GrantExpandable
 	return expandableAnno, nil
 }
 
-func (s *syncer) putGrantsInChunks(ctx context.Context, grants []*v2.Grant, minChunkSize int) ([]*v2.Grant, bool, error) {
+func (s *syncer) putGrantsInChunks(ctx context.Context, grants []*v2.Grant, minChunkSize int, onFlush func([]*v2.Grant)) ([]*v2.Grant, error) {
 	if len(grants) <= minChunkSize {
-		return grants, false, nil
+		return grants, nil
 	}
 
 	err := s.store.PutGrants(ctx, grants...)
 	if err != nil {
-		return nil, false, fmt.Errorf("putGrantsInChunks: error putting grants: %w", err)
+		return nil, fmt.Errorf("putGrantsInChunks: error putting grants: %w", err)
 	}
-	return make([]*v2.Grant, 0), true, nil
+
+	if onFlush != nil {
+		onFlush(grants)
+	}
+
+	return make([]*v2.Grant, 0), nil
 }
 
 func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
@@ -2858,7 +2858,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	}
 
 	var newGrants = make([]*v2.Grant, 0)
-	var wroteGrants bool
 	for _, sourceGrant := range sourceGrants.GetList() {
 		// Skip this grant if it is not for a resource type we care about
 		if len(action.ResourceTypeIDs) > 0 {
@@ -2913,13 +2912,10 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 					return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
 				}
 				newGrants = append(newGrants, descendantGrant)
-				newGrants, wroteGrants, err = s.putGrantsInChunks(ctx, newGrants, 10000)
+				newGrants, err = s.putGrantsInChunks(ctx, newGrants, 10000, grantPool.Release)
 				if err != nil {
 					l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
 					return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
-				}
-				if wroteGrants {
-					grantPool.ReleaseAll()
 				}
 				break
 			}
@@ -2957,15 +2953,10 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			}
 			newGrants = append(newGrants, grantsToUpdate...)
 
-			newGrants, wroteGrants, err = s.putGrantsInChunks(ctx, newGrants, 10000)
+			newGrants, err = s.putGrantsInChunks(ctx, newGrants, 10000, grantPool.Release)
 			if err != nil {
 				l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
 				return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
-			}
-
-			// If grants were written to DB (newGrants was reset), release pooled grants
-			if wroteGrants {
-				grantPool.ReleaseAll()
 			}
 
 			pageToken = nextPageToken
@@ -2975,14 +2966,11 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		}
 	}
 
-	_, _, err = s.putGrantsInChunks(ctx, newGrants, 0)
+	_, err = s.putGrantsInChunks(ctx, newGrants, 0, grantPool.Release)
 	if err != nil {
 		l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
 		return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
 	}
-
-	// // Release any remaining pooled grants now that they've been written to DB
-	// grantPool.ReleaseAll()
 
 	// If we have no more pages of work, pop the action off the stack and mark this edge in the graph as done
 	action.PageToken = sourceGrants.GetNextPageToken()
