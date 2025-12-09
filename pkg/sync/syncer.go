@@ -256,6 +256,7 @@ func (s *syncer) handleInitialActionForStep(ctx context.Context, a Action) {
 
 func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 	if s.progressHandler != nil {
+		//nolint:gosec // No risk of overflow because `c` is a slice length.
 		count := uint32(c)
 		s.progressHandler(NewProgress(a, count))
 	}
