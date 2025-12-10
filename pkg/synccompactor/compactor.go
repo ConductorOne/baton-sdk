@@ -36,10 +36,9 @@ type Compactor struct {
 	compactorType CompactorType
 	entries       []*CompactableSync
 
-	tmpDir          string
-	destDir         string
-	runDuration     time.Duration
-	optimizeInserts bool // TODO: Remove this option once we're confident it's stable.
+	tmpDir      string
+	destDir     string
+	runDuration time.Duration
 }
 
 type CompactableSync struct {
@@ -68,12 +67,6 @@ func WithCompactorType(compactorType CompactorType) Option {
 func WithRunDuration(runDuration time.Duration) Option {
 	return func(c *Compactor) {
 		c.runDuration = runDuration
-	}
-}
-
-func WithOptimizeInserts(optimizeInserts bool) Option {
-	return func(c *Compactor) {
-		c.optimizeInserts = optimizeInserts
 	}
 }
 
@@ -294,25 +287,16 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	)
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithTmpDir(c.tmpDir),
-	}
-
-	if c.optimizeInserts {
-		opts = append(opts,
-			// Performance improvements:
-			// Disable journaling.
-			dotc1z.WithPragma("journal_mode", "OFF"),
-			// Disable synchronous writes
-			dotc1z.WithPragma("synchronous", "OFF"),
-			// Use exclusive locking.
-			dotc1z.WithPragma("main.locking_mode", "EXCLUSIVE"),
-			// Use memory for temporary storage.
-			dotc1z.WithPragma("temp_store", "MEMORY"),
-			// We close this c1z after compaction, so syncer won't have these pragmas when expanding grants.
-		)
-	} else {
-		opts = append(opts,
-			dotc1z.WithPragma("journal_mode", "WAL"),
-		)
+		// Performance improvements:
+		// Disable journaling.
+		dotc1z.WithPragma("journal_mode", "OFF"),
+		// Disable synchronous writes
+		dotc1z.WithPragma("synchronous", "OFF"),
+		// Use exclusive locking.
+		dotc1z.WithPragma("main.locking_mode", "EXCLUSIVE"),
+		// Use memory for temporary storage.
+		dotc1z.WithPragma("temp_store", "MEMORY"),
+		// We close this c1z after compaction, so syncer won't have these pragmas when expanding grants.
 	}
 
 	fileName := fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID)
