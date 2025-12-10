@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
+	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -280,6 +281,100 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 	}
 	c.dbUpdated = true
 	return nil
+}
+
+// RectifyGrantSources updates grant protobuf data to match the sources column.
+// This is needed after SQL-based updates to the sources column, which don't update the protobuf.
+func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
+	ctx, span := tracer.Start(ctx, "C1File.RectifyGrantSources")
+	defer span.End()
+
+	// Query all grants with their sources column
+	rows, err := c.db.QueryContext(ctx, `
+		SELECT id, data, sources
+		FROM `+grants.Name()+`
+		WHERE sync_id = ?
+	`, c.currentSyncID)
+	if err != nil {
+		return 0, fmt.Errorf("error querying grants for rectification: %w", err)
+	}
+	defer rows.Close()
+
+	var updated int64
+	var grantsToUpdate []*v2.Grant
+
+	for rows.Next() {
+		var rowID int64
+		var data []byte
+		var sourcesJSON string
+
+		if err := rows.Scan(&rowID, &data, &sourcesJSON); err != nil {
+			return 0, fmt.Errorf("error scanning grant row: %w", err)
+		}
+
+		// Parse the grant protobuf
+		grant := &v2.Grant{}
+		if err := proto.Unmarshal(data, grant); err != nil {
+			return 0, fmt.Errorf("error unmarshalling grant data: %w", err)
+		}
+
+		// Parse the sources JSON column
+		var sourcesMap map[string]*v2.GrantSources_GrantSource
+		if sourcesJSON != "" && sourcesJSON != "{}" {
+			// First unmarshal to a simple map to check keys
+			var rawMap map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(sourcesJSON), &rawMap); err != nil {
+				return 0, fmt.Errorf("error unmarshalling sources JSON: %w", err)
+			}
+			sourcesMap = make(map[string]*v2.GrantSources_GrantSource, len(rawMap))
+			for k := range rawMap {
+				sourcesMap[k] = &v2.GrantSources_GrantSource{}
+			}
+		}
+
+		// Check if the grant's sources match the column
+		existingSources := grant.GetSources().GetSources()
+		needsUpdate := false
+
+		if len(sourcesMap) != len(existingSources) {
+			needsUpdate = true
+		} else {
+			for k := range sourcesMap {
+				if _, ok := existingSources[k]; !ok {
+					needsUpdate = true
+					break
+				}
+			}
+		}
+
+		if needsUpdate {
+			// Update the grant's sources
+			if sourcesMap == nil {
+				grant.SetSources(nil)
+			} else {
+				grant.SetSources(&v2.GrantSources{Sources: sourcesMap})
+			}
+			grantsToUpdate = append(grantsToUpdate, grant)
+			updated++
+
+			// Batch update every 1000 grants
+			if len(grantsToUpdate) >= 1000 {
+				if err := c.PutGrants(ctx, grantsToUpdate...); err != nil {
+					return 0, fmt.Errorf("error updating grants: %w", err)
+				}
+				grantsToUpdate = grantsToUpdate[:0]
+			}
+		}
+	}
+
+	// Update remaining grants
+	if len(grantsToUpdate) > 0 {
+		if err := c.PutGrants(ctx, grantsToUpdate...); err != nil {
+			return 0, fmt.Errorf("error updating remaining grants: %w", err)
+		}
+	}
+
+	return updated, nil
 }
 
 func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {

@@ -2891,28 +2891,10 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
 		}
 	}
-
-	// SQL Pass 2: Update existing grants with new sources
-	sqlUpdatedCount, err := c1zStore.UpdateExpandedGrantSources(
-		ctx,
-		action.SourceEntitlementID,
-		action.DescendantEntitlementID,
-		action.ResourceTypeIDs,
-		action.Shallow,
-	)
-	if err != nil {
-		l.Error("runGrantExpandActions: error updating grant sources via SQL", zap.Error(err))
-		return false, fmt.Errorf("runGrantExpandActions: error updating grant sources via SQL: %w", err)
-	}
-
-	l.Debug("runGrantExpandActions: sqlUpdatedCount", zap.Int64("sqlUpdatedCount", sqlUpdatedCount), zap.String("source_entitlement_id", action.SourceEntitlementID), zap.String("descendant_entitlement_id", action.DescendantEntitlementID))
-
-	if !verify {
-		graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
-		graph.Actions = graph.Actions[1:]
-		return false, nil
-	}
-
+	var newGrants = make([]*v2.Grant, 0)
+	var trulyNewGrants = make([]*v2.Grant, 0)    // Only INSERT case, for comparison with wouldBeNewGrants
+	var loopUpdatedGrants = make([]*v2.Grant, 0) // Only UPDATE case, for comparison with SQL update count
+	var sourceGrants *reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse
 	if verify {
 		// Fetch source and descendant entitlement
 		sourceEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
@@ -2928,22 +2910,20 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		}
 
 		// Fetch a page of source grants
-		sourceGrants, err := s.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+		sourceGrants, err = s.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 			Entitlement: sourceEntitlement.GetEntitlement(),
 			PageToken:   action.PageToken,
 			// Skip this grant if it is not for a resource type we care about
 			PrincipalResourceTypeIds: action.ResourceTypeIDs,
 			SourceEntitlementIds:     sourceEntitlementIDs,
 		}.Build())
+
 		if err != nil {
 			l.Error("runGrantExpandActions: error fetching source grants", zap.Error(err))
 			return false, fmt.Errorf("runGrantExpandActions: error fetching source grants: %w", err)
 		}
 		grants := make([]*v2.Grant, 0, 10000)
 
-		var newGrants = make([]*v2.Grant, 0)
-		var trulyNewGrants = make([]*v2.Grant, 0)    // Only INSERT case, for comparison with wouldBeNewGrants
-		var loopUpdatedGrants = make([]*v2.Grant, 0) // Only UPDATE case, for comparison with SQL update count
 		for _, sourceGrant := range sourceGrants.GetList() {
 			// Unroll all grants for the principal on the descendant entitlement. This should, on average, be... 1.
 			pageToken := ""
@@ -3028,7 +3008,31 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				}
 			}
 		}
+	}
+	var sqlUpdatedCount int64
+	if !verify {
+		// SQL Pass 2: Update existing grants with new sources
+		sqlUpdatedCount, err = c1zStore.UpdateExpandedGrantSources(
+			ctx,
+			action.SourceEntitlementID,
+			action.DescendantEntitlementID,
+			action.ResourceTypeIDs,
+			action.Shallow,
+		)
+		if err != nil {
+			l.Error("runGrantExpandActions: error updating grant sources via SQL", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error updating grant sources via SQL: %w", err)
+		}
 
+		l.Info("runGrantExpandActions: sqlUpdatedCount", zap.Int64("sqlUpdatedCount", sqlUpdatedCount), zap.String("source_entitlement_id", action.SourceEntitlementID), zap.String("descendant_entitlement_id", action.DescendantEntitlementID))
+
+		graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
+		graph.Actions = graph.Actions[1:]
+		return false, nil
+
+	}
+
+	if verify {
 		// Build a set of principals from trulyNewGrants for comparison (INSERT case only)
 		trulyNewGrantIDs := make(map[string]struct{}, len(trulyNewGrants))
 		for _, g := range trulyNewGrants {
@@ -3117,7 +3121,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
 			graph.Actions = graph.Actions[1:]
 		}
-
 	}
 
 	return false, nil
@@ -3233,6 +3236,18 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 
 	if graph.IsExpanded() {
 		l.Debug("expandGrantsForEntitlements: graph is expanded") // zap.Any("graph", graph)
+
+		// Rectify grant protobufs to match the sources column after SQL-based updates
+		c1zStore, ok := s.store.(*dotc1z.C1File)
+		if ok {
+			rectified, err := c1zStore.RectifyGrantSources(ctx)
+			if err != nil {
+				l.Error("expandGrantsForEntitlements: error rectifying grant sources", zap.Error(err))
+				return fmt.Errorf("expandGrantsForEntitlements: error rectifying grant sources: %w", err)
+			}
+			l.Info("expandGrantsForEntitlements: rectified grant sources", zap.Int64("rectified", rectified))
+		}
+
 		s.state.FinishAction(ctx)
 		return nil
 	}
