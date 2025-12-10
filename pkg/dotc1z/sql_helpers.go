@@ -73,6 +73,16 @@ type hasPrincipalIdListRequest interface {
 	GetPrincipalId() *v2.ResourceId
 }
 
+type hasPrincipalResourceTypeIDsListRequest interface {
+	listRequest
+	GetPrincipalResourceTypeIds() []string
+}
+
+type hasSourceEntitlementIDsListRequest interface {
+	listRequest
+	GetSourceEntitlementIds() []string
+}
+
 type protoHasID interface {
 	proto.Message
 	GetId() string
@@ -95,9 +105,14 @@ func (c *C1File) throttledWarnSlowQuery(ctx context.Context, query string, durat
 	}
 }
 
+var unmarshalerOptions = proto.UnmarshalOptions{
+	Merge:          true,
+	DiscardUnknown: true,
+}
+
 // listConnectorObjects uses a connector list request to fetch the corresponding data from the local db.
 // It returns a slice of typed proto messages constructed via the provided factory function.
-func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T) ([]T, string, error) {
+func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T, ret []T) ([]T, string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.listConnectorObjects")
 	defer span.End()
 
@@ -172,6 +187,24 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		}
 	}
 
+	if principalResourceTypeIDsReq, ok := req.(hasPrincipalResourceTypeIDsListRequest); ok {
+		p := principalResourceTypeIDsReq.GetPrincipalResourceTypeIds()
+		if len(p) > 0 {
+			q = q.Where(goqu.C("principal_resource_type_id").In(p))
+		}
+	}
+
+	if sourceEntitlementIDsReq, ok := req.(hasSourceEntitlementIDsListRequest); ok {
+		s := sourceEntitlementIDsReq.GetSourceEntitlementIds()
+		if len(s) > 0 {
+			conditions := make([]goqu.Expression, 0, len(s))
+			for _, entitlementId := range s {
+				conditions = append(conditions, goqu.L(`json_type(sources, '$."' || ? || '"') IS NOT NULL`, entitlementId))
+			}
+			q = q.Where(goqu.Or(conditions...))
+		}
+	}
+
 	// If a sync is running, be sure we only select from the current values
 	switch {
 	case reqSyncID != "":
@@ -235,8 +268,6 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		c.throttledWarnSlowQuery(ctx, query, queryDuration)
 	}
 
-	ret := make([]T, 0, pageSize)
-
 	var count uint32 = 0
 	lastRow := 0
 	var data sql.RawBytes
@@ -245,17 +276,15 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		if count > pageSize {
 			break
 		}
-		rowId := 0
-		err := rows.Scan(&rowId, &data)
+		err := rows.Scan(&lastRow, &data)
 		if err != nil {
 			return nil, "", err
 		}
 		t := factory()
-		err = proto.Unmarshal(data, t)
+		err = unmarshalerOptions.Unmarshal(data, t)
 		if err != nil {
 			return nil, "", err
 		}
-		lastRow = rowId
 		ret = append(ret, t)
 	}
 	if rows.Err() != nil {
@@ -271,7 +300,7 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 
 var protoMarshaler = proto.MarshalOptions{Deterministic: false}
 
-const parallelThreshold = 1000
+const parallelThreshold = 100
 
 // prepareSingleConnectorObjectRow processes a single message and returns the prepared record.
 func prepareSingleConnectorObjectRow[T proto.Message](
@@ -323,6 +352,17 @@ func prepareConnectorObjectRowsSerial[T proto.Message](
 	return rows, nil
 }
 
+// Use worker pool to limit goroutines.
+var numWorkers = min(max(runtime.GOMAXPROCS(0), 1), 4)
+
+var protoMarshallers = make([]proto.MarshalOptions, numWorkers)
+
+func init() {
+	for i := range numWorkers {
+		protoMarshallers[i] = proto.MarshalOptions{Deterministic: false}
+	}
+}
+
 // prepareConnectorObjectRowsParallel prepares rows for bulk insertion using parallel processing.
 // For batches smaller than parallelThreshold, it falls back to sequential processing.
 func prepareConnectorObjectRowsParallel[T proto.Message](
@@ -341,9 +381,6 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 	syncID := c.currentSyncID
 	discoveredAt := time.Now().Format("2006-01-02 15:04:05.999999999")
 
-	// Use worker pool to limit goroutines
-	numWorkers := min(max(runtime.GOMAXPROCS(0), 1), 4)
-
 	chunkSize := (len(msgs) + numWorkers - 1) / numWorkers
 
 	var wg sync.WaitGroup
@@ -356,12 +393,12 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 		}
 
 		wg.Add(1)
-		go func(start, end int) {
+		go func(start, end int, worker int) {
 			defer wg.Done()
 			for i := start; i < end; i++ {
 				m := msgs[i]
 
-				messageBlob, err := protoMarshaler.Marshal(m)
+				messageBlob, err := protoMarshallers[worker].Marshal(m)
 				if err != nil {
 					errs[i] = err
 					continue
@@ -389,7 +426,7 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 				fields["discovered_at"] = discoveredAt
 				rows[i] = &fields
 			}
-		}(start, end)
+		}(start, end, w)
 	}
 
 	wg.Wait()

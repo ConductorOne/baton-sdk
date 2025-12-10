@@ -61,7 +61,8 @@ func (c *C1File) ListResources(ctx context.Context, request *v2.ResourcesService
 	ctx, span := tracer.Start(ctx, "C1File.ListResources")
 	defer span.End()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, resources.Name(), request, func() *v2.Resource { return &v2.Resource{} })
+	resourceRows := make([]*v2.Resource, 0, 10000)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, resources.Name(), request, func() *v2.Resource { return &v2.Resource{} }, resourceRows)
 	if err != nil {
 		return nil, fmt.Errorf("error listing resources: %w", err)
 	}

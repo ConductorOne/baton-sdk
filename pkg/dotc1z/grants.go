@@ -2,6 +2,7 @@ package dotc1z
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
@@ -24,7 +25,8 @@ create table if not exists %s (
     external_id text not null,
     data blob not null,
     sync_id text not null,
-    discovered_at datetime not null
+    discovered_at datetime not null,
+    sources text not null default '{}'
 );
 create index if not exists %s on %s (resource_type_id, resource_id);
 create index if not exists %s on %s (principal_resource_type_id, principal_resource_id);
@@ -60,6 +62,21 @@ func (r *grantsTable) Schema() (string, []any) {
 }
 
 func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
+	// Check if sources column exists
+	var sourcesExists int
+	err := db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='sources'", r.Name())).Scan(&sourcesExists)
+	if err != nil {
+		return err
+	}
+	if sourcesExists == 0 {
+		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column sources text not null default '{}'", r.Name()))
+		if err != nil {
+			return err
+		}
+
+		//TODO: Grab grant sources from each row and update sources column.
+	}
+
 	return nil
 }
 
@@ -113,7 +130,8 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 	ctx, span := tracer.Start(ctx, "C1File.ListGrants")
 	defer span.End()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	grantRows := make([]*v2.Grant, 0, 10000)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, grantRows)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants: %w", err)
 	}
@@ -150,11 +168,12 @@ func (c *C1File) ListGrantsForEntitlementPooled(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 	acquireGrant func() *v2.Grant,
+	grantRows []*v2.Grant,
 ) ([]*v2.Grant, string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlementPooled")
 	defer span.End()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, acquireGrant)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, acquireGrant, grantRows)
 	if err != nil {
 		return nil, "", fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
 	}
@@ -168,7 +187,8 @@ func (c *C1File) ListGrantsForEntitlement(
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlement")
 	defer span.End()
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	grantRows := make([]*v2.Grant, 0, 10000)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, grantRows)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
 	}
@@ -186,7 +206,8 @@ func (c *C1File) ListGrantsForPrincipal(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForPrincipal")
 	defer span.End()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	grantRows := make([]*v2.Grant, 0, 10000)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, grantRows)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err)
 	}
@@ -204,7 +225,8 @@ func (c *C1File) ListGrantsForResourceType(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForResourceType")
 	defer span.End()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	grantRows := make([]*v2.Grant, 0, 10000)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, grantRows)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for resource type '%s': %w", request.GetResourceTypeId(), err)
 	}
@@ -234,12 +256,21 @@ type grantPutFunc func(context.Context, *C1File, string, func(m *v2.Grant) (goqu
 func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGrants ...*v2.Grant) error {
 	err := f(ctx, c, grants.Name(),
 		func(grant *v2.Grant) (goqu.Record, error) {
+			sources := grant.GetSources().GetSources()
+			if sources == nil {
+				sources = make(map[string]*v2.GrantSources_GrantSource)
+			}
+			sourcesJSON, err := json.Marshal(sources)
+			if err != nil {
+				return goqu.Record{}, err
+			}
 			return goqu.Record{
 				"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
 				"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
 				"entitlement_id":             grant.GetEntitlement().GetId(),
 				"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
 				"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
+				"sources":                    sourcesJSON,
 			}, nil
 		},
 		bulkGrants...,

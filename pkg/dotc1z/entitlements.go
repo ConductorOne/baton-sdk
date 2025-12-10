@@ -56,7 +56,8 @@ func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsS
 	ctx, span := tracer.Start(ctx, "C1File.ListEntitlements")
 	defer span.End()
 
-	objs, nextPageToken, err := listConnectorObjects(ctx, c, entitlements.Name(), request, func() *v2.Entitlement { return &v2.Entitlement{} })
+	entitlementRows := make([]*v2.Entitlement, 0, 10000)
+	objs, nextPageToken, err := listConnectorObjects(ctx, c, entitlements.Name(), request, func() *v2.Entitlement { return &v2.Entitlement{} }, entitlementRows)
 	if err != nil {
 		return nil, fmt.Errorf("error listing entitlements: %w", err)
 	}
