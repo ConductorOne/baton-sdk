@@ -511,7 +511,7 @@ func (t *testCustomActionManager) GetActionStatus(ctx context.Context, id string
 	return v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, "Action completed successfully", &structpb.Struct{}, annotations.Annotations{}, nil
 }
 
-func (t *testCustomActionManager) GetTypeRegistry(ctx context.Context, resourceTypeID string) (actions.ResourceTypeActionRegistry, error) {
+func (t *testCustomActionManager) GetTypeRegistry(ctx context.Context, resourceTypeID string) (actions.ActionRegistry, error) {
 	return nil, nil
 }
 
@@ -1172,7 +1172,7 @@ func TestCustomActionManager(t *testing.T) {
 	require.Equal(t, "test-action", statusResp.GetName())
 }
 
-// testGlobalActionProvider implements GlobalActionProvider for testing
+// testGlobalActionProvider implements GlobalActionProvider for testing.
 type testGlobalActionProvider struct {
 	ConnectorBuilder
 }
@@ -1193,7 +1193,7 @@ func (t *testGlobalActionProvider) GlobalActions(ctx context.Context, registry A
 			},
 		}, nil, nil
 	}
-	return registry.RegisterAction(ctx, schema.GetName(), schema, handler)
+	return registry.Register(ctx, schema, handler)
 }
 
 func TestGlobalActionProvider(t *testing.T) {
@@ -1234,7 +1234,7 @@ func TestGlobalActionProvider(t *testing.T) {
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, statusResp.GetStatus())
 }
 
-// testResourceActionProviderSyncer implements ResourceActionProvider for testing
+// testResourceActionProviderSyncer implements ResourceActionProvider for testing.
 type testResourceActionProviderSyncer struct {
 	resourceType *v2.ResourceType
 }
@@ -1264,7 +1264,7 @@ func (t *testResourceActionProviderSyncer) Grants(ctx context.Context, resource 
 	return nil, "", nil, nil
 }
 
-func (t *testResourceActionProviderSyncer) ResourceActions(ctx context.Context, registry actions.ResourceTypeActionRegistry) error {
+func (t *testResourceActionProviderSyncer) ResourceActions(ctx context.Context, registry ActionRegistry) error {
 	schema := v2.BatonActionSchema_builder{
 		Name:        "resource-test-action",
 		DisplayName: "Resource Test Action",
@@ -1324,7 +1324,7 @@ func TestHasActionsMethod(t *testing.T) {
 	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 		return nil, nil, nil
 	}
-	err := m.RegisterAction(ctx, "test", schema, handler)
+	err := m.Register(ctx, schema, handler)
 	require.NoError(t, err)
 	require.True(t, m.HasActions())
 

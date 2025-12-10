@@ -124,7 +124,7 @@ func TestActionHandler(t *testing.T) {
 	m := NewActionManager(ctx)
 	require.NotNil(t, m)
 
-	err := m.RegisterAction(ctx, "lock_account", testActionSchema, testActionHandler)
+	err := m.Register(ctx, testActionSchema, testActionHandler)
 	require.NoError(t, err)
 
 	schemas, _, err := m.ListActionSchemas(ctx, "")
@@ -164,7 +164,7 @@ func TestAsyncActionHandler(t *testing.T) {
 	m := NewActionManager(ctx)
 	require.NotNil(t, m)
 
-	err := m.RegisterAction(ctx, "lock_account", testActionSchema, testAsyncActionHandler)
+	err := m.Register(ctx, testActionSchema, testAsyncActionHandler)
 	require.NoError(t, err)
 
 	schemas, _, err := m.ListActionSchemas(ctx, "")
@@ -205,7 +205,7 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		m := NewActionManager(ctx)
 		require.NotNil(t, m)
 
-		err := m.RegisterAction(ctx, "lock_account", testActionSchema, testAsyncActionHandler)
+		err := m.Register(ctx, testActionSchema, testAsyncActionHandler)
 		require.NoError(t, err)
 
 		// Get initial goroutine count
@@ -238,7 +238,7 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		m := NewActionManager(ctx)
 		require.NotNil(t, m)
 
-		err := m.RegisterAction(ctx, "lock_account", testActionSchema, testAsyncCancelActionHandler)
+		err := m.Register(ctx, testActionSchema, testAsyncCancelActionHandler)
 		require.NoError(t, err)
 
 		// Get initial goroutine count

@@ -11,13 +11,6 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// ActionRegistry provides methods for registering global actions.
-// This interface is passed to GlobalActionProvider implementations.
-type ActionRegistry interface {
-	// RegisterAction registers a global action (not scoped to a resource type).
-	RegisterAction(ctx context.Context, name string, schema *v2.BatonActionSchema, handler actions.ActionHandler) error
-}
-
 // ActionManager defines the interface for managing actions in the connector builder.
 // This is the internal interface used by the builder for dispatch.
 // The *actions.ActionManager type implements this interface.
@@ -37,7 +30,7 @@ type ActionManager interface {
 	GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error)
 
 	// GetTypeRegistry returns a registry for registering resource-scoped actions.
-	GetTypeRegistry(ctx context.Context, resourceTypeID string) (actions.ResourceTypeActionRegistry, error)
+	GetTypeRegistry(ctx context.Context, resourceTypeID string) (actions.ActionRegistry, error)
 
 	// HasActions returns true if there are any registered actions.
 	HasActions() bool
@@ -47,7 +40,7 @@ type ActionManager interface {
 // This is the preferred method for registering global actions in new connectors.
 // Implement this interface instead of the deprecated CustomActionManager or RegisterActionManagerLimited.
 type GlobalActionProvider interface {
-	GlobalActions(ctx context.Context, registry ActionRegistry) error
+	GlobalActions(ctx context.Context, registry actions.ActionRegistry) error
 }
 
 // Deprecated: CustomActionManager is deprecated. Implement GlobalActionProvider instead,
@@ -183,17 +176,17 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 }
 
 // registerLegacyAction wraps a legacy CustomActionManager action as an ActionHandler and registers it.
-func registerLegacyAction(ctx context.Context, registry ActionRegistry, schema *v2.BatonActionSchema, legacyManager CustomActionManager) error {
+func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, schema *v2.BatonActionSchema, legacyManager CustomActionManager) error {
 	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
 		_, _, resp, annos, err := legacyManager.InvokeAction(ctx, schema.GetName(), "", args, nil)
 		return resp, annos, err
 	}
-	return registry.RegisterAction(ctx, schema.GetName(), schema, handler)
+	return registry.Register(ctx, schema, handler)
 }
 
 // addActionManager handles deprecated CustomActionManager and RegisterActionManagerLimited interfaces
 // by extracting their actions and registering them into the unified ActionManager.
-func (b *builder) addActionManager(ctx context.Context, in interface{}, registry ActionRegistry) error {
+func (b *builder) addActionManager(ctx context.Context, in interface{}, registry actions.ActionRegistry) error {
 	// Handle deprecated CustomActionManager - extract and re-register actions
 	if customManager, ok := in.(CustomActionManager); ok {
 		schemas, _, err := customManager.ListActionSchemas(ctx, "")

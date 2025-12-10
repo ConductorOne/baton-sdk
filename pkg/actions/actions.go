@@ -86,10 +86,20 @@ func (oa *OutstandingAction) SetError(ctx context.Context, err error) {
 
 const maxOldActions = 1000
 
-// ResourceTypeActionRegistry is the interface for registering resource-scoped actions.
-type ResourceTypeActionRegistry interface {
+// ActionRegistry provides methods for registering actions.
+// Used by both GlobalActionProvider (global actions) and ResourceActionProvider (resource-scoped actions).
+type ActionRegistry interface {
+	// Register registers an action using the name from the schema.
 	Register(ctx context.Context, schema *v2.BatonActionSchema, handler ActionHandler) error
+
+	// Deprecated: Use Register instead.
+	// RegisterAction registers an action.
+	RegisterAction(ctx context.Context, name string, schema *v2.BatonActionSchema, handler ActionHandler) error
 }
+
+// Deprecated: Use ActionRegistry instead.
+// ResourceTypeActionRegistry is an alias for ActionRegistry for backwards compatibility.
+type ResourceTypeActionRegistry = ActionRegistry
 
 // ActionManager manages both global actions and resource-scoped actions.
 type ActionManager struct {
@@ -178,6 +188,15 @@ func (a *ActionManager) registerActionSchema(_ context.Context, name string, sch
 	return nil
 }
 
+// Register registers a global action using the name from the schema.
+func (a *ActionManager) Register(ctx context.Context, schema *v2.BatonActionSchema, handler ActionHandler) error {
+	if schema == nil {
+		return errors.New("action schema cannot be nil")
+	}
+	return a.RegisterAction(ctx, schema.GetName(), schema, handler)
+}
+
+// Deprecated: Use Register instead.
 // RegisterAction registers a global action (not scoped to a resource type).
 func (a *ActionManager) RegisterAction(ctx context.Context, name string, schema *v2.BatonActionSchema, handler ActionHandler) error {
 	a.mu.Lock()
@@ -286,8 +305,14 @@ func (r *resourceTypeActionRegistry) Register(ctx context.Context, schema *v2.Ba
 	return r.actionManager.RegisterResourceAction(ctx, r.resourceTypeID, schema, handler)
 }
 
-// GetTypeRegistry returns a ResourceTypeActionRegistry for registering actions scoped to a specific resource type.
-func (a *ActionManager) GetTypeRegistry(_ context.Context, resourceTypeID string) (ResourceTypeActionRegistry, error) {
+// Deprecated: Use Register instead.
+// RegisterAction registers a resource-scoped action. The name parameter is ignored; the name from schema is used.
+func (r *resourceTypeActionRegistry) RegisterAction(ctx context.Context, name string, schema *v2.BatonActionSchema, handler ActionHandler) error {
+	return r.Register(ctx, schema, handler)
+}
+
+// GetTypeRegistry returns an ActionRegistry for registering actions scoped to a specific resource type.
+func (a *ActionManager) GetTypeRegistry(_ context.Context, resourceTypeID string) (ActionRegistry, error) {
 	if resourceTypeID == "" {
 		return nil, errors.New("resource type ID cannot be empty")
 	}
