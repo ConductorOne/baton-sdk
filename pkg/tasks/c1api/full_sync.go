@@ -57,8 +57,8 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithDontExpandGrants())
 	}
 
-	if bid := c.task.GetSyncFull().GetBatonId(); len(bid) > 0 {
-		syncOpts = append(syncOpts, sdkSync.WithTargetedSyncResourceIDs(bid))
+	if ids := c.task.GetSyncFull().GetTargetedSyncResourceIds(); len(ids) > 0 {
+		syncOpts = append(syncOpts, sdkSync.WithTargetedSyncResourceIDs(ids))
 	}
 
 	if c.task.GetSyncFull().GetSkipEntitlementsAndGrants() {
