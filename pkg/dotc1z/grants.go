@@ -295,13 +295,19 @@ func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 	eTable := entitlements.Name()
 	rTable := resources.Name()
 
-	const pageSize = 10000
+	const pageSize = 1000
 	var updated int64
 	var lastID int64 = 0
 
 	// Process grants in batches of pageSize
 	for {
+		// Cache maps for unmarshaled entitlements and principals
+		// These persist across pages since entitlements/principals are often reused
+		entitlementCache := make(map[string]*v2.Entitlement)
+		principalCache := make(map[string]*v2.Resource)
+
 		// Query grants with entitlement and principal data for reconstruction
+		// ORDER BY entitlement_id, principal to enable better cache hits within a page
 		// Use cursor-based pagination with ID to avoid issues with concurrent updates
 		rows, err := c.db.QueryContext(ctx, `
 			SELECT 
@@ -319,7 +325,7 @@ func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 			JOIN `+rTable+` r ON r.external_id = g.principal_resource_type_id || ':' || g.principal_resource_id 
 			                  AND r.sync_id = g.sync_id
 			WHERE g.sync_id = ? AND g.id > ?
-			ORDER BY g.id
+			ORDER BY g.entitlement_id, g.principal_resource_type_id, g.principal_resource_id, g.id
 			LIMIT ?
 		`, c.currentSyncID, lastID, pageSize)
 		if err != nil {
@@ -373,18 +379,27 @@ func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 
 			// Check if data is empty (needs full reconstruction)
 			if len(data) == 0 {
-				// Unmarshal entitlement
-				entitlement := &v2.Entitlement{}
-				if err := proto.Unmarshal(entitlementData, entitlement); err != nil {
-					rows.Close()
-					return 0, fmt.Errorf("error unmarshalling entitlement data: %w", err)
+				// Get entitlement from cache or unmarshal
+				entitlement, ok := entitlementCache[entitlementID]
+				if !ok {
+					entitlement = &v2.Entitlement{}
+					if err := proto.Unmarshal(entitlementData, entitlement); err != nil {
+						rows.Close()
+						return 0, fmt.Errorf("error unmarshalling entitlement data: %w", err)
+					}
+					entitlementCache[entitlementID] = entitlement
 				}
 
-				// Unmarshal principal
-				principal := &v2.Resource{}
-				if err := proto.Unmarshal(principalData, principal); err != nil {
-					rows.Close()
-					return 0, fmt.Errorf("error unmarshalling principal data: %w", err)
+				// Get principal from cache or unmarshal
+				principalKey := principalTypeID + ":" + principalID
+				principal, ok := principalCache[principalKey]
+				if !ok {
+					principal = &v2.Resource{}
+					if err := proto.Unmarshal(principalData, principal); err != nil {
+						rows.Close()
+						return 0, fmt.Errorf("error unmarshalling principal data: %w", err)
+					}
+					principalCache[principalKey] = principal
 				}
 
 				// Build full grant with immutable annotation (expanded grants are immutable)
