@@ -2840,7 +2840,50 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		l.Error("runGrantExpandActions: store is not a C1File")
 		return false, fmt.Errorf("runGrantExpandActions: store is not a C1File")
 	}
+
+	// SQL-only mode: Use InsertExpandedGrants and UpdateExpandedGrantSources
+	// The data blobs are reconstructed during RectifyGrantSources at the end of expansion
 	verify := false
+	if !verify {
+		// SQL Pass 1: INSERT new grants (with empty data blobs)
+		insertedCount, err := c1zStore.InsertExpandedGrants(
+			ctx,
+			action.SourceEntitlementID,
+			action.DescendantEntitlementID,
+			action.ResourceTypeIDs,
+			action.Shallow,
+		)
+		if err != nil {
+			l.Error("runGrantExpandActions: error inserting expanded grants via SQL", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error inserting expanded grants via SQL: %w", err)
+		}
+
+		// SQL Pass 2: UPDATE existing grants with new sources
+		updatedCount, err := c1zStore.UpdateExpandedGrantSources(
+			ctx,
+			action.SourceEntitlementID,
+			action.DescendantEntitlementID,
+			action.ResourceTypeIDs,
+			action.Shallow,
+		)
+		if err != nil {
+			l.Error("runGrantExpandActions: error updating grant sources via SQL", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error updating grant sources via SQL: %w", err)
+		}
+
+		if insertedCount > 0 || updatedCount > 0 {
+			l.Debug("runGrantExpandActions: SQL expansion complete",
+				zap.Int64("inserted", insertedCount),
+				zap.Int64("updated", updatedCount),
+			)
+		}
+
+		graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
+		graph.Actions = graph.Actions[1:]
+		return false, nil
+	}
+
+	// Verification mode: Run the old Go loop for comparison
 	wouldBenewGrants := make([]*v2.Grant, 0)
 	vpt := &dotc1z.ExpandNeedsInsertPageToken{}
 	for {
@@ -2880,13 +2923,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
 			}
 			wouldBenewGrants = append(wouldBenewGrants, grant)
-			if !verify {
-				wouldBenewGrants, err = s.putGrantsInChunks(ctx, wouldBenewGrants, 10000, grantPool.Release)
-				if err != nil {
-					l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
-					return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
-				}
-			}
 		}
 		if vpt == nil {
 			break
@@ -3020,7 +3056,20 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		}
 	}
 
-	// SQL Pass 2: Update existing grants with new sources
+	// SQL Pass 1: INSERT new grants (for comparison in verify mode)
+	sqlInsertedCount, err := c1zStore.InsertExpandedGrants(
+		ctx,
+		action.SourceEntitlementID,
+		action.DescendantEntitlementID,
+		action.ResourceTypeIDs,
+		action.Shallow,
+	)
+	if err != nil {
+		l.Error("runGrantExpandActions: error inserting expanded grants via SQL", zap.Error(err))
+		return false, fmt.Errorf("runGrantExpandActions: error inserting expanded grants via SQL: %w", err)
+	}
+
+	// SQL Pass 2: Update existing grants with new sources (for comparison in verify mode)
 	sqlUpdatedCount, err := c1zStore.UpdateExpandedGrantSources(
 		ctx,
 		action.SourceEntitlementID,
@@ -3031,21 +3080,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	if err != nil {
 		l.Error("runGrantExpandActions: error updating grant sources via SQL", zap.Error(err))
 		return false, fmt.Errorf("runGrantExpandActions: error updating grant sources via SQL: %w", err)
-	}
-	// if sqlUpdatedCount > 0 {
-	// 	l.Info("runGrantExpandActions: sqlUpdatedCount", zap.Int64("sqlUpdatedCount", sqlUpdatedCount), zap.String("source_entitlement_id", action.SourceEntitlementID), zap.String("descendant_entitlement_id", action.DescendantEntitlementID))
-	// }
-
-	if !verify {
-		_, err = s.putGrantsInChunks(ctx, wouldBenewGrants, 0, grantPool.Release)
-		if err != nil {
-			l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
-			return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
-		}
-
-		graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
-		graph.Actions = graph.Actions[1:]
-		return false, nil
 	}
 
 	// Build a set of principals from trulyNewGrants for comparison (INSERT case only)
@@ -3100,16 +3134,19 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		}
 	}
 
-	if len(wouldBenewGrants) == len(trulyNewGrants) {
-		l.Debug("runGrantExpandActions: INSERT SQL query matches loop - all principals match",
-			zap.Int("count", len(trulyNewGrants)),
+	if len(wouldBenewGrants) == len(trulyNewGrants) && sqlInsertedCount == int64(len(trulyNewGrants)) {
+		l.Debug("runGrantExpandActions: INSERT counts match",
+			zap.Int("loopNewGrants", len(trulyNewGrants)),
+			zap.Int("sqlQueryNewGrants", len(wouldBenewGrants)),
+			zap.Int64("sqlInsertedCount", sqlInsertedCount),
 		)
 	} else {
-		l.Error("runGrantExpandActions: INSERT SQL query mismatch",
+		l.Error("runGrantExpandActions: INSERT count mismatch",
 			zap.Int("trulyNewGrants", len(trulyNewGrants)),
 			zap.Int("wouldBeNewGrants", len(wouldBenewGrants)),
+			zap.Int64("sqlInsertedCount", sqlInsertedCount),
 		)
-		panic("runGrantExpandActions: INSERT SQL query mismatch")
+		panic("runGrantExpandActions: INSERT count mismatch")
 	}
 
 	// Compare UPDATE case: SQL update count vs loop update count
@@ -3212,7 +3249,10 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-
+	defer func(t time.Time) {
+		elapsed := time.Since(t)
+		l.Info("expandGrantsForEntitlements: elapsed", zap.Duration("elapsed", elapsed))
+	}(time.Now())
 	graph := s.state.EntitlementGraph(ctx)
 	l = l.With(zap.Int("depth", graph.Depth))
 	l.Debug("expandGrantsForEntitlements: start") // zap.Any("graph", graph)

@@ -284,16 +284,34 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 }
 
 // RectifyGrantSources updates grant protobuf data to match the sources column.
-// This is needed after SQL-based updates to the sources column, which don't update the protobuf.
+// This handles two cases:
+// 1. Grants with empty data blobs (newly inserted via SQL) - fully reconstruct the protobuf
+// 2. Grants with valid data but outdated sources - just update the sources field
 func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 	ctx, span := tracer.Start(ctx, "C1File.RectifyGrantSources")
 	defer span.End()
 
-	// Query all grants with their sources column
+	gTable := grants.Name()
+	eTable := entitlements.Name()
+	rTable := resources.Name()
+
+	// Query grants with entitlement and principal data for reconstruction
 	rows, err := c.db.QueryContext(ctx, `
-		SELECT id, data, sources
-		FROM `+grants.Name()+`
-		WHERE sync_id = ?
+		SELECT 
+			g.id,
+			g.external_id,
+			g.data,
+			g.sources,
+			g.entitlement_id,
+			g.principal_resource_type_id,
+			g.principal_resource_id,
+			e.data AS entitlement_data,
+			r.data AS principal_data
+		FROM `+gTable+` g
+		JOIN `+eTable+` e ON e.external_id = g.entitlement_id AND e.sync_id = g.sync_id
+		JOIN `+rTable+` r ON r.external_id = g.principal_resource_type_id || ':' || g.principal_resource_id 
+		                  AND r.sync_id = g.sync_id
+		WHERE g.sync_id = ?
 	`, c.currentSyncID)
 	if err != nil {
 		return 0, fmt.Errorf("error querying grants for rectification: %w", err)
@@ -305,23 +323,21 @@ func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 
 	for rows.Next() {
 		var rowID int64
+		var externalID string
 		var data []byte
 		var sourcesJSON string
+		var entitlementID string
+		var principalTypeID, principalID string
+		var entitlementData, principalData []byte
 
-		if err := rows.Scan(&rowID, &data, &sourcesJSON); err != nil {
+		if err := rows.Scan(&rowID, &externalID, &data, &sourcesJSON, &entitlementID,
+			&principalTypeID, &principalID, &entitlementData, &principalData); err != nil {
 			return 0, fmt.Errorf("error scanning grant row: %w", err)
-		}
-
-		// Parse the grant protobuf
-		grant := &v2.Grant{}
-		if err := proto.Unmarshal(data, grant); err != nil {
-			return 0, fmt.Errorf("error unmarshalling grant data: %w", err)
 		}
 
 		// Parse the sources JSON column
 		var sourcesMap map[string]*v2.GrantSources_GrantSource
 		if sourcesJSON != "" && sourcesJSON != "{}" {
-			// First unmarshal to a simple map to check keys
 			var rawMap map[string]json.RawMessage
 			if err := json.Unmarshal([]byte(sourcesJSON), &rawMap); err != nil {
 				return 0, fmt.Errorf("error unmarshalling sources JSON: %w", err)
@@ -332,28 +348,69 @@ func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 			}
 		}
 
-		// Check if the grant's sources match the column
-		existingSources := grant.GetSources().GetSources()
+		var grant *v2.Grant
 		needsUpdate := false
 
-		if len(sourcesMap) != len(existingSources) {
+		// Check if data is empty (needs full reconstruction)
+		if len(data) == 0 {
+			// Unmarshal entitlement
+			entitlement := &v2.Entitlement{}
+			if err := proto.Unmarshal(entitlementData, entitlement); err != nil {
+				return 0, fmt.Errorf("error unmarshalling entitlement data: %w", err)
+			}
+
+			// Unmarshal principal
+			principal := &v2.Resource{}
+			if err := proto.Unmarshal(principalData, principal); err != nil {
+				return 0, fmt.Errorf("error unmarshalling principal data: %w", err)
+			}
+
+			// Build full grant with immutable annotation (expanded grants are immutable)
+			var annos annotations.Annotations
+			annos.Update(&v2.GrantImmutable{})
+
+			var sources *v2.GrantSources
+			if sourcesMap != nil {
+				sources = &v2.GrantSources{Sources: sourcesMap}
+			}
+
+			grant = v2.Grant_builder{
+				Id:          externalID,
+				Entitlement: entitlement,
+				Principal:   principal,
+				Sources:     sources,
+				Annotations: annos,
+			}.Build()
 			needsUpdate = true
 		} else {
-			for k := range sourcesMap {
-				if _, ok := existingSources[k]; !ok {
-					needsUpdate = true
-					break
+			// Parse existing grant and check if sources need update
+			grant = &v2.Grant{}
+			if err := proto.Unmarshal(data, grant); err != nil {
+				return 0, fmt.Errorf("error unmarshalling grant data: %w", err)
+			}
+
+			existingSources := grant.GetSources().GetSources()
+			if len(sourcesMap) != len(existingSources) {
+				needsUpdate = true
+			} else {
+				for k := range sourcesMap {
+					if _, ok := existingSources[k]; !ok {
+						needsUpdate = true
+						break
+					}
+				}
+			}
+
+			if needsUpdate {
+				if sourcesMap == nil {
+					grant.SetSources(nil)
+				} else {
+					grant.SetSources(&v2.GrantSources{Sources: sourcesMap})
 				}
 			}
 		}
 
 		if needsUpdate {
-			// Update the grant's sources
-			if sourcesMap == nil {
-				grant.SetSources(nil)
-			} else {
-				grant.SetSources(&v2.GrantSources{Sources: sourcesMap})
-			}
 			grantsToUpdate = append(grantsToUpdate, grant)
 			updated++
 

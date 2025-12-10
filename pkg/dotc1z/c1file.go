@@ -541,6 +541,102 @@ func nilIfEmpty(s string) *string {
 	return &s
 }
 
+// InsertExpandedGrants inserts new grants for principals that have a source grant but no descendant grant.
+// This is a SQL-only INSERT that creates grants with empty data blobs - the data is reconstructed
+// during RectifyGrantSources.
+func (c *C1File) InsertExpandedGrants(
+	ctx context.Context,
+	sourceEntitlementID string,
+	descendantEntitlementID string,
+	resourceTypeIDs []string,
+	shallow bool,
+) (int64, error) {
+	ctx, span := tracer.Start(ctx, "C1File.InsertExpandedGrants")
+	defer span.End()
+
+	// Build resource type IDs JSON (or nil)
+	var resourceTypeIDsJSON *string
+	if len(resourceTypeIDs) > 0 {
+		b, _ := json.Marshal(resourceTypeIDs)
+		s := string(b)
+		resourceTypeIDsJSON = &s
+	}
+
+	shallowInt := 0
+	if shallow {
+		shallowInt = 1
+	}
+
+	// Get entitlement table and grants table names
+	entTable := entitlements.Name()
+	gTable := grants.Name()
+
+	result, err := c.db.ExecContext(ctx, `
+		INSERT INTO `+gTable+` (
+			resource_type_id,
+			resource_id,
+			entitlement_id,
+			principal_resource_type_id,
+			principal_resource_id,
+			external_id,
+			data,
+			sync_id,
+			discovered_at,
+			sources
+		)
+		SELECT
+			e.resource_type_id,
+			e.resource_id,
+			?,
+			src.principal_resource_type_id,
+			src.principal_resource_id,
+			? || ':' || src.principal_resource_type_id || ':' || src.principal_resource_id,
+			X'',
+			?,
+			datetime('now'),
+			json_object(?, json('{}'))
+		FROM `+gTable+` src
+		JOIN `+entTable+` e ON e.external_id = ? AND e.sync_id = ?
+		WHERE src.entitlement_id = ?
+		  AND src.sync_id = ?
+		  -- Optional: filter by principal resource type
+		  AND (? IS NULL 
+			   OR src.principal_resource_type_id IN (SELECT value FROM json_each(?)))
+		  -- Optional: shallow mode - source grant must have source_entitlement in its sources
+		  AND (? = 0 
+			   OR json_type(src.sources, '$."' || ? || '"') IS NOT NULL)
+		  -- Principal has NO existing grant on descendant entitlement
+		  AND NOT EXISTS (
+			  SELECT 1 FROM `+gTable+` dest
+			  WHERE dest.entitlement_id = ?
+				AND dest.sync_id = ?
+				AND dest.principal_resource_type_id = src.principal_resource_type_id
+				AND dest.principal_resource_id = src.principal_resource_id
+		  )
+		ON CONFLICT (external_id, sync_id) DO NOTHING
+	`,
+		descendantEntitlementID,                  // entitlement_id
+		descendantEntitlementID,                  // external_id prefix
+		c.currentSyncID,                          // sync_id
+		sourceEntitlementID,                      // sources json key
+		descendantEntitlementID, c.currentSyncID, // JOIN entitlements
+		sourceEntitlementID, c.currentSyncID, // WHERE src.entitlement_id
+		resourceTypeIDsJSON, resourceTypeIDsJSON, // resource type filter
+		shallowInt, sourceEntitlementID, // shallow filter
+		descendantEntitlementID, c.currentSyncID, // NOT EXISTS subquery
+	)
+	if err != nil {
+		return 0, fmt.Errorf("error inserting expanded grants: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("error getting rows affected: %w", err)
+	}
+
+	return rowsAffected, nil
+}
+
 // UpdateExpandedGrantSources updates existing descendant grants to add the source entitlement to their sources.
 // This handles the UPDATE case of grant expansion - when a principal already has a grant on the descendant
 // entitlement, but needs the source entitlement added to its sources map.
