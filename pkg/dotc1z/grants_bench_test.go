@@ -200,13 +200,14 @@ func BenchmarkListGrantsForEntitlementPooled(b *testing.B) {
 			b.ResetTimer()
 			b.ReportAllocs()
 
-			for i := 0; i < b.N; i++ {
+			grants := make([]*v2.Grant, 0, 10000)
+			for b.Loop() {
 				pool := newGrantPool()
 				pageToken := ""
 				totalGrants := 0
 				for {
 					req.SetPageToken(pageToken)
-					grants, nextPageToken, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire)
+					grants, nextPageToken, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire, grants)
 					if err != nil {
 						b.Fatal(err)
 					}
@@ -276,12 +277,13 @@ func BenchmarkListGrantsComparison(b *testing.B) {
 
 	b.Run("Pooled", func(b *testing.B) {
 		b.ReportAllocs()
+		grants := make([]*v2.Grant, 0, 10000)
 		for i := 0; i < b.N; i++ {
 			pool := newGrantPool()
 			pageToken := ""
 			for {
 				req.SetPageToken(pageToken)
-				grants, nextPageToken, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire)
+				grants, nextPageToken, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire, grants)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -320,8 +322,8 @@ func BenchmarkPooledMultipleIterations(b *testing.B) {
 
 	b.Run("NonPooled", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
-			for iter := 0; iter < iterations; iter++ {
+		for b.Loop() {
+			for range iterations {
 				req.SetPageToken("")
 				resp, err := f.ListGrantsForEntitlement(ctx, req)
 				if err != nil {
@@ -336,11 +338,12 @@ func BenchmarkPooledMultipleIterations(b *testing.B) {
 
 	b.Run("Pooled", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		grants := make([]*v2.Grant, 0, 10000)
+		for b.Loop() {
 			pool := newGrantPool()
-			for iter := 0; iter < iterations; iter++ {
+			for range iterations {
 				req.SetPageToken("")
-				grants, _, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire)
+				grants, _, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire, grants)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -352,4 +355,3 @@ func BenchmarkPooledMultipleIterations(b *testing.B) {
 		}
 	})
 }
-

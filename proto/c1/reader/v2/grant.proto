@@ -31,6 +31,9 @@ message GrantsReaderServiceGetGrantResponse {
 message GrantsReaderServiceListGrantsForEntitlementRequest {
   c1.connector.v2.Entitlement entitlement = 1 [(validate.rules).message = {required: true}];
   c1.connector.v2.ResourceId principal_id = 5 [(validate.rules).message = {required: false}];
+  repeated string principal_resource_type_ids = 6;
+  repeated string source_entitlement_ids = 7;
+
   uint32 page_size = 2 [(validate.rules).uint32 = {
     ignore_empty: true
     lte: 250

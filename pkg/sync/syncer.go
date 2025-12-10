@@ -70,7 +70,11 @@ func (p *GrantPool) Acquire() *v2.Grant {
 func (p *GrantPool) Release(grants []*v2.Grant) {
 	for _, g := range grants {
 		if g != nil {
-			g.Reset()
+			g.Annotations = nil
+			g.Entitlement = nil
+			g.Principal = nil
+			g.Sources = nil
+			g.Id = ""
 			p.pool.Put(g)
 		}
 	}
@@ -2801,6 +2805,10 @@ func (s *syncer) putGrantsInChunks(ctx context.Context, grants []*v2.Grant, minC
 	return make([]*v2.Grant, 0), nil
 }
 
+// Create a pool of grants for reuse during this operation.
+// This significantly reduces allocations when processing large numbers of grants.
+var grantPool = NewGrantPool()
+
 func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.runGrantExpandActions")
 	defer span.End()
@@ -2843,49 +2851,28 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("runGrantExpandActions: store is not a C1File")
 	}
 
-	// Create a pool of grants for reuse during this operation.
-	// This significantly reduces allocations when processing large numbers of grants.
-	grantPool := NewGrantPool()
+	sourceEntitlementIDs := []string{}
+	if action.Shallow {
+		sourceEntitlementIDs = []string{action.SourceEntitlementID}
+	}
 
 	// Fetch a page of source grants
 	sourceGrants, err := s.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: sourceEntitlement.GetEntitlement(),
 		PageToken:   action.PageToken,
+		// Skip this grant if it is not for a resource type we care about
+		PrincipalResourceTypeIds: action.ResourceTypeIDs,
+		SourceEntitlementIds:     sourceEntitlementIDs,
 	}.Build())
 	if err != nil {
 		l.Error("runGrantExpandActions: error fetching source grants", zap.Error(err))
 		return false, fmt.Errorf("runGrantExpandActions: error fetching source grants: %w", err)
 	}
 
+	grants := make([]*v2.Grant, 0, 10000)
+
 	var newGrants = make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.GetList() {
-		// Skip this grant if it is not for a resource type we care about
-		if len(action.ResourceTypeIDs) > 0 {
-			relevantResourceType := slices.Contains(action.ResourceTypeIDs, sourceGrant.GetPrincipal().GetId().GetResourceType())
-
-			if !relevantResourceType {
-				continue
-			}
-		}
-
-		// If this is a shallow action, then we only want to expand grants that have no sources which indicates that it was directly assigned.
-		if action.Shallow {
-			// If we have no sources, this is a direct grant
-			foundDirectGrant := len(sourceGrant.GetSources().GetSources()) == 0
-			// If the source grant has sources, then we need to see if any of them are the source entitlement itself
-			for src := range sourceGrant.GetSources().GetSources() {
-				if src == sourceEntitlement.GetEntitlement().GetId() {
-					foundDirectGrant = true
-					break
-				}
-			}
-
-			// This is not a direct grant, so skip it since we are a shallow action
-			if !foundDirectGrant {
-				continue
-			}
-		}
-
 		// Unroll all grants for the principal on the descendant entitlement. This should, on average, be... 1.
 		pageToken := ""
 		for {
@@ -2896,7 +2883,9 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				Annotations: nil,
 			}.Build()
 
-			resp, nextPageToken, err := c1zStore.ListGrantsForEntitlementPooled(ctx, req, grantPool.Acquire)
+			// zero out the grants slice
+			grants = grants[:0]
+			resp, nextPageToken, err := c1zStore.ListGrantsForEntitlementPooled(ctx, req, grantPool.Acquire, grants)
 			if err != nil {
 				l.Error("runGrantExpandActions: error fetching descendant grants", zap.Error(err))
 				return false, fmt.Errorf("runGrantExpandActions: error fetching descendant grants: %w", err)
