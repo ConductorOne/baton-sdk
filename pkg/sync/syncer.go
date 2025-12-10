@@ -9,6 +9,7 @@ import (
 	"io"
 	"iter"
 	"os"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -2828,15 +2829,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 
 	l = l.With(zap.String("source_entitlement_id", action.SourceEntitlementID), zap.String("descendant_entitlement_id", action.DescendantEntitlementID))
 
-	// Fetch source and descendant entitlement
-	sourceEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-		EntitlementId: action.SourceEntitlementID,
-	}.Build())
-	if err != nil {
-		l.Error("runGrantExpandActions: error fetching source entitlement", zap.Error(err))
-		return false, fmt.Errorf("runGrantExpandActions: error fetching source entitlement: %w", err)
-	}
-
 	descendantEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: action.DescendantEntitlementID,
 	}.Build())
@@ -2850,123 +2842,284 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		l.Error("runGrantExpandActions: store is not a C1File")
 		return false, fmt.Errorf("runGrantExpandActions: store is not a C1File")
 	}
+	verify := false
+	wouldBenewGrants := make([]*v2.Grant, 0)
+	for {
+		principals, nextPageToken, err := c1zStore.ListPrincipalsNeedingExpandedGrant(
+			ctx,
+			action.SourceEntitlementID,
+			action.DescendantEntitlementID,
+			action.ResourceTypeIDs,
+			action.Shallow,
+			nil,
+		)
+		if err != nil {
+			l.Error("runGrantExpandActions: error listing principals needing expanded grant", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error listing principals needing expanded grant: %w", err)
+		}
 
-	sourceEntitlementIDs := []string{}
-	if action.Shallow {
-		sourceEntitlementIDs = []string{action.SourceEntitlementID}
-	}
-
-	// Fetch a page of source grants
-	sourceGrants, err := s.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: sourceEntitlement.GetEntitlement(),
-		PageToken:   action.PageToken,
-		// Skip this grant if it is not for a resource type we care about
-		PrincipalResourceTypeIds: action.ResourceTypeIDs,
-		SourceEntitlementIds:     sourceEntitlementIDs,
-	}.Build())
-	if err != nil {
-		l.Error("runGrantExpandActions: error fetching source grants", zap.Error(err))
-		return false, fmt.Errorf("runGrantExpandActions: error fetching source grants: %w", err)
-	}
-
-	grants := make([]*v2.Grant, 0, 10000)
-
-	var newGrants = make([]*v2.Grant, 0)
-	for _, sourceGrant := range sourceGrants.GetList() {
-		// Unroll all grants for the principal on the descendant entitlement. This should, on average, be... 1.
-		pageToken := ""
-		for {
-			req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-				Entitlement: descendantEntitlement.GetEntitlement(),
-				PrincipalId: sourceGrant.GetPrincipal().GetId(),
-				PageToken:   pageToken,
-				Annotations: nil,
-			}.Build()
-
-			// zero out the grants slice
-			grants = grants[:0]
-			resp, nextPageToken, err := c1zStore.ListGrantsForEntitlementPooled(ctx, req, grantPool.Acquire, grants)
+		for _, principal := range principals {
+			grant := &v2.Grant{}
+			err = proto.Unmarshal(principal.SourceGrantData, grant)
 			if err != nil {
-				l.Error("runGrantExpandActions: error fetching descendant grants", zap.Error(err))
-				return false, fmt.Errorf("runGrantExpandActions: error fetching descendant grants: %w", err)
+				l.Error("runGrantExpandActions: error unmarshalling source grant data", zap.Error(err))
+				return false, fmt.Errorf("runGrantExpandActions: error unmarshalling source grant data: %w", err)
 			}
-
-			// If we have no grants for the principal in the descendant entitlement, make one.
-			if pageToken == "" && nextPageToken == "" && len(resp) == 0 {
-				// TODO(morgabra): This is kinda gnarly, grant ID won't have any special meaning.
-				// FIXME(morgabra): We should probably conflict check with grant id?
-				descendantGrant, err := s.newExpandedGrant(ctx, descendantEntitlement.GetEntitlement(), sourceGrant.GetPrincipal(), action.SourceEntitlementID)
-				if err != nil {
-					l.Error("runGrantExpandActions: error creating new grant", zap.Error(err))
-					return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
-				}
-				newGrants = append(newGrants, descendantGrant)
-				newGrants, err = s.putGrantsInChunks(ctx, newGrants, 10000, grantPool.Release)
+			newGrant, err := s.newExpandedGrant(ctx, descendantEntitlement.GetEntitlement(), grant.GetPrincipal(), action.SourceEntitlementID)
+			if err != nil {
+				l.Error("runGrantExpandActions: error creating new grant", zap.Error(err))
+				return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
+			}
+			wouldBenewGrants = append(wouldBenewGrants, newGrant)
+			if !verify {
+				wouldBenewGrants, err = s.putGrantsInChunks(ctx, wouldBenewGrants, 10000, nil)
 				if err != nil {
 					l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
 					return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
 				}
-				break
 			}
-
-			// Add the source entitlement as a source to all descendant grants.
-			grantsToUpdate := make([]*v2.Grant, 0)
-			for _, descendantGrant := range resp {
-				sources := descendantGrant.GetSources()
-				if sources == nil {
-					sources = &v2.GrantSources{}
-				}
-				sourcesMap := sources.GetSources()
-				if sourcesMap == nil {
-					sourcesMap = make(map[string]*v2.GrantSources_GrantSource)
-				}
-
-				updated := false
-
-				if len(sourcesMap) == 0 {
-					// If we are already granted this entitlement, make sure to add ourselves as a source.
-					sourcesMap[action.DescendantEntitlementID] = &v2.GrantSources_GrantSource{}
-					updated = true
-				}
-
-				// Include the source grant as a source.
-				if sourcesMap[action.SourceEntitlementID] == nil {
-					sourcesMap[action.SourceEntitlementID] = &v2.GrantSources_GrantSource{}
-					updated = true
-				}
-
-				if updated {
-					descendantGrant.SetSources(sources)
-					grantsToUpdate = append(grantsToUpdate, descendantGrant)
-				}
-			}
-			newGrants = append(newGrants, grantsToUpdate...)
-
-			newGrants, err = s.putGrantsInChunks(ctx, newGrants, 10000, grantPool.Release)
-			if err != nil {
-				l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
-				return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
-			}
-
-			pageToken = nextPageToken
-			if pageToken == "" {
-				break
-			}
+		}
+		if nextPageToken == nil {
+			break
 		}
 	}
 
-	_, err = s.putGrantsInChunks(ctx, newGrants, 0, grantPool.Release)
-	if err != nil {
-		l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
-		return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
+	if !verify {
+		wouldBenewGrants, err = s.putGrantsInChunks(ctx, wouldBenewGrants, 0, nil)
+		if err != nil {
+			l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
+		}
 	}
 
-	// If we have no more pages of work, pop the action off the stack and mark this edge in the graph as done
-	action.PageToken = sourceGrants.GetNextPageToken()
-	if action.PageToken == "" {
+	// SQL Pass 2: Update existing grants with new sources
+	sqlUpdatedCount, err := c1zStore.UpdateExpandedGrantSources(
+		ctx,
+		action.SourceEntitlementID,
+		action.DescendantEntitlementID,
+		action.ResourceTypeIDs,
+		action.Shallow,
+	)
+	if err != nil {
+		l.Error("runGrantExpandActions: error updating grant sources via SQL", zap.Error(err))
+		return false, fmt.Errorf("runGrantExpandActions: error updating grant sources via SQL: %w", err)
+	}
+
+	l.Debug("runGrantExpandActions: sqlUpdatedCount", zap.Int64("sqlUpdatedCount", sqlUpdatedCount), zap.String("source_entitlement_id", action.SourceEntitlementID), zap.String("descendant_entitlement_id", action.DescendantEntitlementID))
+
+	if !verify {
 		graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
 		graph.Actions = graph.Actions[1:]
+		return false, nil
 	}
+
+	if verify {
+		// Fetch source and descendant entitlement
+		sourceEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+			EntitlementId: action.SourceEntitlementID,
+		}.Build())
+		if err != nil {
+			l.Error("runGrantExpandActions: error fetching source entitlement", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error fetching source entitlement: %w", err)
+		}
+		sourceEntitlementIDs := []string{}
+		if action.Shallow {
+			sourceEntitlementIDs = []string{action.SourceEntitlementID}
+		}
+
+		// Fetch a page of source grants
+		sourceGrants, err := s.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+			Entitlement: sourceEntitlement.GetEntitlement(),
+			PageToken:   action.PageToken,
+			// Skip this grant if it is not for a resource type we care about
+			PrincipalResourceTypeIds: action.ResourceTypeIDs,
+			SourceEntitlementIds:     sourceEntitlementIDs,
+		}.Build())
+		if err != nil {
+			l.Error("runGrantExpandActions: error fetching source grants", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error fetching source grants: %w", err)
+		}
+		grants := make([]*v2.Grant, 0, 10000)
+
+		var newGrants = make([]*v2.Grant, 0)
+		var trulyNewGrants = make([]*v2.Grant, 0)    // Only INSERT case, for comparison with wouldBeNewGrants
+		var loopUpdatedGrants = make([]*v2.Grant, 0) // Only UPDATE case, for comparison with SQL update count
+		for _, sourceGrant := range sourceGrants.GetList() {
+			// Unroll all grants for the principal on the descendant entitlement. This should, on average, be... 1.
+			pageToken := ""
+			for {
+				req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+					Entitlement: descendantEntitlement.GetEntitlement(),
+					PrincipalId: sourceGrant.GetPrincipal().GetId(),
+					PageToken:   pageToken,
+					Annotations: nil,
+				}.Build()
+
+				// zero out the grants slice
+				grants = grants[:0]
+				resp, nextPageToken, err := c1zStore.ListGrantsForEntitlementPooled(ctx, req, grantPool.Acquire, grants)
+				if err != nil {
+					l.Error("runGrantExpandActions: error fetching descendant grants", zap.Error(err))
+					return false, fmt.Errorf("runGrantExpandActions: error fetching descendant grants: %w", err)
+				}
+
+				// If we have no grants for the principal in the descendant entitlement, make one.
+				if pageToken == "" && nextPageToken == "" && len(resp) == 0 {
+					// TODO(morgabra): This is kinda gnarly, grant ID won't have any special meaning.
+					// FIXME(morgabra): We should probably conflict check with grant id?
+					descendantGrant, err := s.newExpandedGrant(ctx, descendantEntitlement.GetEntitlement(), sourceGrant.GetPrincipal(), action.SourceEntitlementID)
+					if err != nil {
+						l.Error("runGrantExpandActions: error creating new grant", zap.Error(err))
+						return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
+					}
+					newGrants = append(newGrants, descendantGrant)
+					trulyNewGrants = append(trulyNewGrants, descendantGrant)
+					newGrants, err = s.putGrantsInChunks(ctx, newGrants, 10000000000, grantPool.Release)
+					if err != nil {
+						l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
+						return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
+					}
+					break
+				}
+
+				// Add the source entitlement as a source to all descendant grants.
+				grantsToUpdate := make([]*v2.Grant, 0)
+				for _, descendantGrant := range resp {
+					sources := descendantGrant.GetSources()
+					if sources == nil {
+						sources = &v2.GrantSources{}
+					}
+					sourcesMap := sources.GetSources()
+					if sourcesMap == nil {
+						sourcesMap = make(map[string]*v2.GrantSources_GrantSource)
+					}
+
+					updated := false
+
+					if len(sourcesMap) == 0 {
+						// If we are already granted this entitlement, make sure to add ourselves as a source.
+						sourcesMap[action.DescendantEntitlementID] = &v2.GrantSources_GrantSource{}
+						updated = true
+					}
+
+					// Include the source grant as a source.
+					if sourcesMap[action.SourceEntitlementID] == nil {
+						sourcesMap[action.SourceEntitlementID] = &v2.GrantSources_GrantSource{}
+						updated = true
+					}
+
+					if updated {
+						descendantGrant.SetSources(sources)
+						grantsToUpdate = append(grantsToUpdate, descendantGrant)
+						loopUpdatedGrants = append(loopUpdatedGrants, descendantGrant)
+					}
+				}
+				newGrants = append(newGrants, grantsToUpdate...)
+
+				newGrants, err = s.putGrantsInChunks(ctx, newGrants, 10000000000, grantPool.Release)
+				if err != nil {
+					l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
+					return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
+				}
+
+				pageToken = nextPageToken
+				if pageToken == "" {
+					break
+				}
+			}
+		}
+
+		// Build a set of principals from trulyNewGrants for comparison (INSERT case only)
+		trulyNewGrantIDs := make(map[string]struct{}, len(trulyNewGrants))
+		for _, g := range trulyNewGrants {
+			trulyNewGrantIDs[g.Id] = struct{}{}
+		}
+
+		// Check that all wouldBeNewGrants principals are in trulyNewGrants
+		for _, g := range wouldBenewGrants {
+			pk := g.Id
+			if _, ok := trulyNewGrantIDs[pk]; !ok {
+				l.Error("runGrantExpandActions: principal in wouldBeNewGrants but not in trulyNewGrants",
+					zap.String("principal_key", pk),
+				)
+				panic("runGrantExpandActions: principal in wouldBeNewGrants but not in trulyNewGrants")
+			}
+		}
+
+		// Check that all trulyNewGrants principals are in wouldBeNewGrants
+		wouldBePrincipals := make(map[string]*v2.Grant, len(wouldBenewGrants))
+		for _, g := range wouldBenewGrants {
+			wouldBePrincipals[g.Id] = g
+		}
+		for _, g := range trulyNewGrants {
+			pk := g.Id
+			v, ok := wouldBePrincipals[pk]
+			if !ok {
+				l.Error("runGrantExpandActions: principal in trulyNewGrants but not in wouldBeNewGrants",
+					zap.String("principal_key", pk),
+					zap.Any("g", g),
+				)
+				panic("runGrantExpandActions: principal in trulyNewGrants but not in wouldBeNewGrants")
+			}
+			// compare the sources
+			sourcesA := g.GetSources().GetSources()
+			sourcesB := v.GetSources().GetSources()
+
+			if !reflect.DeepEqual(sourcesA, sourcesB) {
+				l.Error("runGrantExpandActions: sources mismatch",
+					zap.String("principal_key", pk),
+				)
+				panic("runGrantExpandActions: sources mismatch")
+			}
+			if len(sourcesA) != len(sourcesB) {
+				l.Error("runGrantExpandActions: sources length mismatch",
+					zap.String("principal_key", pk),
+					zap.Any("sourcesa", sourcesA),
+					zap.Any("sourcesb", sourcesB),
+				)
+				panic("runGrantExpandActions: sources length mismatch")
+			}
+		}
+
+		if len(wouldBenewGrants) == len(trulyNewGrants) {
+			l.Debug("runGrantExpandActions: INSERT SQL query matches loop - all principals match",
+				zap.Int("count", len(trulyNewGrants)),
+			)
+		} else {
+			l.Error("runGrantExpandActions: INSERT SQL query mismatch",
+				zap.Int("trulyNewGrants", len(trulyNewGrants)),
+				zap.Int("wouldBeNewGrants", len(wouldBenewGrants)),
+			)
+			panic("runGrantExpandActions: INSERT SQL query mismatch")
+		}
+
+		// Compare UPDATE case: SQL update count vs loop update count
+		if sqlUpdatedCount == int64(len(loopUpdatedGrants)) {
+			l.Debug("runGrantExpandActions: UPDATE SQL query matches loop",
+				zap.Int64("sqlUpdatedCount", sqlUpdatedCount),
+				zap.Int("loopUpdatedCount", len(loopUpdatedGrants)),
+			)
+		} else {
+			l.Error("runGrantExpandActions: UPDATE SQL query mismatch",
+				zap.Int64("sqlUpdatedCount", sqlUpdatedCount),
+				zap.Int("loopUpdatedCount", len(loopUpdatedGrants)),
+			)
+			panic("runGrantExpandActions: UPDATE SQL query mismatch")
+		}
+		_, err = s.putGrantsInChunks(ctx, newGrants, 0, grantPool.Release)
+		if err != nil {
+			l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
+		}
+		// If we have no more pages of work, pop the action off the stack and mark this edge in the graph as done
+		action.PageToken = sourceGrants.GetNextPageToken()
+		if action.PageToken == "" {
+			graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
+			graph.Actions = graph.Actions[1:]
+		}
+
+	}
+
 	return false, nil
 }
 

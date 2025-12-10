@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -428,4 +429,197 @@ func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncTyp
 	}
 
 	return stats, nil
+}
+
+type ExpandNeedsInsertPageToken struct {
+	PrincipalTypeID string `json:"t,omitempty"`
+	PrincipalID     string `json:"p,omitempty"`
+}
+
+func (c *C1File) ListPrincipalsNeedingExpandedGrant(
+	ctx context.Context,
+	sourceEntitlementID string,
+	descendantEntitlementID string,
+	resourceTypeIDs []string,
+	shallow bool,
+	pt *ExpandNeedsInsertPageToken,
+) (principals []ExpandPrincipal, nextPageToken *ExpandNeedsInsertPageToken, err error) {
+	if pt == nil {
+		pt = &ExpandNeedsInsertPageToken{}
+	}
+	pageSize := 10000
+	// Build resource type IDs JSON (or nil)
+	var resourceTypeIDsJSON *string
+	if len(resourceTypeIDs) > 0 {
+		b, _ := json.Marshal(resourceTypeIDs)
+		s := string(b)
+		resourceTypeIDsJSON = &s
+	}
+
+	shallowInt := 0
+	if shallow {
+		shallowInt = 1
+	}
+
+	if pageSize <= 0 {
+		pageSize = 10000
+	}
+
+	rows, err := c.db.QueryContext(ctx, `
+        SELECT 
+            src.principal_resource_type_id,
+            src.principal_resource_id,
+            src.data
+        FROM v1_grants src
+        WHERE src.entitlement_id = ?
+          AND src.sync_id = ?
+          AND (? IS NULL OR src.principal_resource_type_id IN (SELECT value FROM json_each(?)))
+          AND (? = 0 OR json_type(src.sources, '$."' || ? || '"') IS NOT NULL)
+          AND NOT EXISTS (
+              SELECT 1 FROM v1_grants dest
+              WHERE dest.entitlement_id = ?
+                AND dest.sync_id = ?
+                AND dest.principal_resource_type_id = src.principal_resource_type_id
+                AND dest.principal_resource_id = src.principal_resource_id
+          )
+          AND (? IS NULL OR (src.principal_resource_type_id, src.principal_resource_id) > (?, ?))
+        ORDER BY src.principal_resource_type_id, src.principal_resource_id
+        LIMIT ?
+    `,
+		sourceEntitlementID,
+		c.currentSyncID,
+		resourceTypeIDsJSON, resourceTypeIDsJSON,
+		shallowInt, sourceEntitlementID,
+		descendantEntitlementID,
+		c.currentSyncID,
+		nilIfEmpty(pt.PrincipalTypeID), pt.PrincipalTypeID, pt.PrincipalID,
+		pageSize+1, // Fetch one extra to detect if there's more
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+
+	principals = make([]ExpandPrincipal, 0, pageSize)
+	var lastTypeID, lastID string
+
+	for rows.Next() {
+		var p ExpandPrincipal
+		if err := rows.Scan(&p.TypeID, &p.ID, &p.SourceGrantData); err != nil {
+			return nil, nil, err
+		}
+		principals = append(principals, p)
+		lastTypeID, lastID = p.TypeID, p.ID
+	}
+
+	// If we got more than pageSize, there's another page
+	if len(principals) > pageSize {
+		principals = principals[:pageSize]
+		lastTypeID = principals[pageSize-1].TypeID
+		lastID = principals[pageSize-1].ID
+
+		nextPT := ExpandNeedsInsertPageToken{
+			PrincipalTypeID: lastTypeID,
+			PrincipalID:     lastID,
+		}
+		nextPageToken = &nextPT
+	}
+
+	return principals, nextPageToken, nil
+}
+
+type ExpandPrincipal struct {
+	TypeID          string
+	ID              string
+	SourceGrantData []byte // Contains the principal proto we need
+}
+
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// UpdateExpandedGrantSources updates existing descendant grants to add the source entitlement to their sources.
+// This handles the UPDATE case of grant expansion - when a principal already has a grant on the descendant
+// entitlement, but needs the source entitlement added to its sources map.
+func (c *C1File) UpdateExpandedGrantSources(
+	ctx context.Context,
+	sourceEntitlementID string,
+	descendantEntitlementID string,
+	resourceTypeIDs []string,
+	shallow bool,
+) (int64, error) {
+	ctx, span := tracer.Start(ctx, "C1File.UpdateExpandedGrantSources")
+	defer span.End()
+
+	// Build resource type IDs JSON (or nil)
+	var resourceTypeIDsJSON *string
+	if len(resourceTypeIDs) > 0 {
+		b, _ := json.Marshal(resourceTypeIDs)
+		s := string(b)
+		resourceTypeIDsJSON = &s
+	}
+
+	shallowInt := 0
+	if shallow {
+		shallowInt = 1
+	}
+
+	result, err := c.db.ExecContext(ctx, `
+		UPDATE `+grants.Name()+`
+		SET sources = CASE
+			-- If sources is null/empty, add both descendant_entitlement_id and source_entitlement_id
+			WHEN json_type(sources) = 'null' 
+				 OR sources IS NULL 
+				 OR sources = '{}'
+			THEN json_set(
+				json_set('{}', '$."' || ? || '"', json('{}')),
+				'$."' || ? || '"',
+				json('{}')
+			)
+			-- Otherwise just add source_entitlement_id (if not already present)
+			WHEN json_type(sources, '$."' || ? || '"') IS NULL
+			THEN json_set(
+				sources,
+				'$."' || ? || '"',
+				json('{}')
+			)
+			-- Already has this source, keep unchanged
+			ELSE sources
+		END
+		WHERE entitlement_id = ?
+		  AND sync_id = ?
+		  -- Only for principals that have a source grant
+		  AND (principal_resource_type_id, principal_resource_id) IN (
+			  SELECT src.principal_resource_type_id, src.principal_resource_id
+			  FROM `+grants.Name()+` src
+			  WHERE src.entitlement_id = ?
+				AND src.sync_id = ?
+				-- Optional: filter by principal resource type
+				AND (? IS NULL 
+					 OR src.principal_resource_type_id IN (SELECT value FROM json_each(?)))
+				-- Optional: shallow mode - source grant must have source_entitlement in its sources
+				AND (? = 0 
+					 OR json_type(src.sources, '$."' || ? || '"') IS NOT NULL)
+		  )
+	`,
+		descendantEntitlementID, sourceEntitlementID, // CASE: empty sources
+		sourceEntitlementID, sourceEntitlementID, // CASE: add source if not present
+		descendantEntitlementID, c.currentSyncID, // WHERE clause
+		sourceEntitlementID, c.currentSyncID, // subquery
+		resourceTypeIDsJSON, resourceTypeIDsJSON, // resource type filter
+		shallowInt, sourceEntitlementID, // shallow filter
+	)
+	if err != nil {
+		return 0, fmt.Errorf("error updating expanded grant sources: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("error getting rows affected: %w", err)
+	}
+
+	return rowsAffected, nil
 }
