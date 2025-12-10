@@ -3009,118 +3009,115 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			}
 		}
 	}
-	var sqlUpdatedCount int64
-	if !verify {
-		// SQL Pass 2: Update existing grants with new sources
-		sqlUpdatedCount, err = c1zStore.UpdateExpandedGrantSources(
-			ctx,
-			action.SourceEntitlementID,
-			action.DescendantEntitlementID,
-			action.ResourceTypeIDs,
-			action.Shallow,
-		)
-		if err != nil {
-			l.Error("runGrantExpandActions: error updating grant sources via SQL", zap.Error(err))
-			return false, fmt.Errorf("runGrantExpandActions: error updating grant sources via SQL: %w", err)
-		}
-
+	// SQL Pass 2: Update existing grants with new sources
+	sqlUpdatedCount, err := c1zStore.UpdateExpandedGrantSources(
+		ctx,
+		action.SourceEntitlementID,
+		action.DescendantEntitlementID,
+		action.ResourceTypeIDs,
+		action.Shallow,
+	)
+	if err != nil {
+		l.Error("runGrantExpandActions: error updating grant sources via SQL", zap.Error(err))
+		return false, fmt.Errorf("runGrantExpandActions: error updating grant sources via SQL: %w", err)
+	}
+	if sqlUpdatedCount > 0 {
 		l.Info("runGrantExpandActions: sqlUpdatedCount", zap.Int64("sqlUpdatedCount", sqlUpdatedCount), zap.String("source_entitlement_id", action.SourceEntitlementID), zap.String("descendant_entitlement_id", action.DescendantEntitlementID))
+	}
 
+	if !verify {
 		graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
 		graph.Actions = graph.Actions[1:]
 		return false, nil
-
 	}
 
-	if verify {
-		// Build a set of principals from trulyNewGrants for comparison (INSERT case only)
-		trulyNewGrantIDs := make(map[string]struct{}, len(trulyNewGrants))
-		for _, g := range trulyNewGrants {
-			trulyNewGrantIDs[g.Id] = struct{}{}
-		}
+	// Build a set of principals from trulyNewGrants for comparison (INSERT case only)
+	trulyNewGrantIDs := make(map[string]struct{}, len(trulyNewGrants))
+	for _, g := range trulyNewGrants {
+		trulyNewGrantIDs[g.Id] = struct{}{}
+	}
 
-		// Check that all wouldBeNewGrants principals are in trulyNewGrants
-		for _, g := range wouldBenewGrants {
-			pk := g.Id
-			if _, ok := trulyNewGrantIDs[pk]; !ok {
-				l.Error("runGrantExpandActions: principal in wouldBeNewGrants but not in trulyNewGrants",
-					zap.String("principal_key", pk),
-				)
-				panic("runGrantExpandActions: principal in wouldBeNewGrants but not in trulyNewGrants")
-			}
-		}
-
-		// Check that all trulyNewGrants principals are in wouldBeNewGrants
-		wouldBePrincipals := make(map[string]*v2.Grant, len(wouldBenewGrants))
-		for _, g := range wouldBenewGrants {
-			wouldBePrincipals[g.Id] = g
-		}
-		for _, g := range trulyNewGrants {
-			pk := g.Id
-			v, ok := wouldBePrincipals[pk]
-			if !ok {
-				l.Error("runGrantExpandActions: principal in trulyNewGrants but not in wouldBeNewGrants",
-					zap.String("principal_key", pk),
-					zap.Any("g", g),
-				)
-				panic("runGrantExpandActions: principal in trulyNewGrants but not in wouldBeNewGrants")
-			}
-			// compare the sources
-			sourcesA := g.GetSources().GetSources()
-			sourcesB := v.GetSources().GetSources()
-
-			if !reflect.DeepEqual(sourcesA, sourcesB) {
-				l.Error("runGrantExpandActions: sources mismatch",
-					zap.String("principal_key", pk),
-				)
-				panic("runGrantExpandActions: sources mismatch")
-			}
-			if len(sourcesA) != len(sourcesB) {
-				l.Error("runGrantExpandActions: sources length mismatch",
-					zap.String("principal_key", pk),
-					zap.Any("sourcesa", sourcesA),
-					zap.Any("sourcesb", sourcesB),
-				)
-				panic("runGrantExpandActions: sources length mismatch")
-			}
-		}
-
-		if len(wouldBenewGrants) == len(trulyNewGrants) {
-			l.Debug("runGrantExpandActions: INSERT SQL query matches loop - all principals match",
-				zap.Int("count", len(trulyNewGrants)),
+	// Check that all wouldBeNewGrants principals are in trulyNewGrants
+	for _, g := range wouldBenewGrants {
+		pk := g.Id
+		if _, ok := trulyNewGrantIDs[pk]; !ok {
+			l.Error("runGrantExpandActions: principal in wouldBeNewGrants but not in trulyNewGrants",
+				zap.String("principal_key", pk),
 			)
-		} else {
-			l.Error("runGrantExpandActions: INSERT SQL query mismatch",
-				zap.Int("trulyNewGrants", len(trulyNewGrants)),
-				zap.Int("wouldBeNewGrants", len(wouldBenewGrants)),
-			)
-			panic("runGrantExpandActions: INSERT SQL query mismatch")
+			panic("runGrantExpandActions: principal in wouldBeNewGrants but not in trulyNewGrants")
 		}
+	}
 
-		// Compare UPDATE case: SQL update count vs loop update count
-		if sqlUpdatedCount == int64(len(loopUpdatedGrants)) {
-			l.Debug("runGrantExpandActions: UPDATE SQL query matches loop",
-				zap.Int64("sqlUpdatedCount", sqlUpdatedCount),
-				zap.Int("loopUpdatedCount", len(loopUpdatedGrants)),
+	// Check that all trulyNewGrants principals are in wouldBeNewGrants
+	wouldBePrincipals := make(map[string]*v2.Grant, len(wouldBenewGrants))
+	for _, g := range wouldBenewGrants {
+		wouldBePrincipals[g.Id] = g
+	}
+	for _, g := range trulyNewGrants {
+		pk := g.Id
+		v, ok := wouldBePrincipals[pk]
+		if !ok {
+			l.Error("runGrantExpandActions: principal in trulyNewGrants but not in wouldBeNewGrants",
+				zap.String("principal_key", pk),
+				zap.Any("g", g),
 			)
-		} else {
-			l.Error("runGrantExpandActions: UPDATE SQL query mismatch",
-				zap.Int64("sqlUpdatedCount", sqlUpdatedCount),
-				zap.Int("loopUpdatedCount", len(loopUpdatedGrants)),
+			panic("runGrantExpandActions: principal in trulyNewGrants but not in wouldBeNewGrants")
+		}
+		// compare the sources
+		sourcesA := g.GetSources().GetSources()
+		sourcesB := v.GetSources().GetSources()
+
+		if !reflect.DeepEqual(sourcesA, sourcesB) {
+			l.Error("runGrantExpandActions: sources mismatch",
+				zap.String("principal_key", pk),
 			)
-			panic("runGrantExpandActions: UPDATE SQL query mismatch")
+			panic("runGrantExpandActions: sources mismatch")
 		}
-		_, err = s.putGrantsInChunks(ctx, newGrants, 0, grantPool.Release)
-		if err != nil {
-			l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
-			return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
+		if len(sourcesA) != len(sourcesB) {
+			l.Error("runGrantExpandActions: sources length mismatch",
+				zap.String("principal_key", pk),
+				zap.Any("sourcesa", sourcesA),
+				zap.Any("sourcesb", sourcesB),
+			)
+			panic("runGrantExpandActions: sources length mismatch")
 		}
-		// If we have no more pages of work, pop the action off the stack and mark this edge in the graph as done
-		action.PageToken = sourceGrants.GetNextPageToken()
-		if action.PageToken == "" {
-			graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
-			graph.Actions = graph.Actions[1:]
-		}
+	}
+
+	if len(wouldBenewGrants) == len(trulyNewGrants) {
+		l.Debug("runGrantExpandActions: INSERT SQL query matches loop - all principals match",
+			zap.Int("count", len(trulyNewGrants)),
+		)
+	} else {
+		l.Error("runGrantExpandActions: INSERT SQL query mismatch",
+			zap.Int("trulyNewGrants", len(trulyNewGrants)),
+			zap.Int("wouldBeNewGrants", len(wouldBenewGrants)),
+		)
+		panic("runGrantExpandActions: INSERT SQL query mismatch")
+	}
+
+	// Compare UPDATE case: SQL update count vs loop update count
+	if sqlUpdatedCount == int64(len(loopUpdatedGrants)) {
+		l.Debug("runGrantExpandActions: UPDATE SQL query matches loop",
+			zap.Int64("sqlUpdatedCount", sqlUpdatedCount),
+			zap.Int("loopUpdatedCount", len(loopUpdatedGrants)),
+		)
+	} else {
+		l.Error("runGrantExpandActions: UPDATE SQL query mismatch",
+			zap.Int64("sqlUpdatedCount", sqlUpdatedCount),
+			zap.Int("loopUpdatedCount", len(loopUpdatedGrants)),
+		)
+		panic("runGrantExpandActions: UPDATE SQL query mismatch")
+	}
+	_, err = s.putGrantsInChunks(ctx, newGrants, 0, grantPool.Release)
+	if err != nil {
+		l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
+		return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
+	}
+	// If we have no more pages of work, pop the action off the stack and mark this edge in the graph as done
+	action.PageToken = sourceGrants.GetNextPageToken()
+	if action.PageToken == "" {
+		graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
+		graph.Actions = graph.Actions[1:]
 	}
 
 	return false, nil
