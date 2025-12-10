@@ -59,7 +59,13 @@ type CustomActionManager interface {
 	GetActionSchema(ctx context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error)
 
 	// InvokeAction invokes an action. If resourceTypeID is set, invokes a resource-scoped action.
-	InvokeAction(ctx context.Context, name string, resourceTypeID string, args *structpb.Struct, encryptionConfigs []*v2.EncryptionConfig) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
+	InvokeAction(
+		ctx context.Context,
+		name string,
+		resourceTypeID string,
+		args *structpb.Struct,
+		encryptionConfigs []*v2.EncryptionConfig,
+	) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
 
 	// GetActionStatus returns the status of an outstanding action.
 	GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error)
