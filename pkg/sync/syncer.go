@@ -3286,14 +3286,15 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		// Rectify grant protobufs to match the sources column after SQL-based updates
 		c1zStore, ok := s.store.(*dotc1z.C1File)
 		if ok {
+			now := time.Now()
 			rectified, err := c1zStore.RectifyGrantSources(ctx)
 			if err != nil {
 				l.Error("expandGrantsForEntitlements: error rectifying grant sources", zap.Error(err))
 				return fmt.Errorf("expandGrantsForEntitlements: error rectifying grant sources: %w", err)
 			}
-			l.Info("expandGrantsForEntitlements: rectified grant sources", zap.Int64("rectified", rectified))
+			elapsed := time.Since(now)
+			l.Info("expandGrantsForEntitlements: rectified grant sources", zap.Int64("rectified", rectified), zap.Duration("elapsed", elapsed))
 		}
-
 		s.state.FinishAction(ctx)
 		return nil
 	}
