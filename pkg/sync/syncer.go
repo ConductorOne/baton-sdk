@@ -2844,14 +2844,15 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	}
 	verify := false
 	wouldBenewGrants := make([]*v2.Grant, 0)
+	vpt := &dotc1z.ExpandNeedsInsertPageToken{}
 	for {
-		principals, nextPageToken, err := c1zStore.ListPrincipalsNeedingExpandedGrant(
+		principals, vpt, err := c1zStore.ListPrincipalsNeedingExpandedGrant(
 			ctx,
 			action.SourceEntitlementID,
 			action.DescendantEntitlementID,
 			action.ResourceTypeIDs,
 			action.Shallow,
-			nil,
+			vpt,
 		)
 		if err != nil {
 			l.Error("runGrantExpandActions: error listing principals needing expanded grant", zap.Error(err))
@@ -2879,18 +2880,11 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				}
 			}
 		}
-		if nextPageToken == nil {
+		if vpt == nil {
 			break
 		}
 	}
 
-	if !verify {
-		wouldBenewGrants, err = s.putGrantsInChunks(ctx, wouldBenewGrants, 0, nil)
-		if err != nil {
-			l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
-			return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
-		}
-	}
 	var newGrants = make([]*v2.Grant, 0)
 	var trulyNewGrants = make([]*v2.Grant, 0)    // Only INSERT case, for comparison with wouldBeNewGrants
 	var loopUpdatedGrants = make([]*v2.Grant, 0) // Only UPDATE case, for comparison with SQL update count
@@ -3021,11 +3015,17 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		l.Error("runGrantExpandActions: error updating grant sources via SQL", zap.Error(err))
 		return false, fmt.Errorf("runGrantExpandActions: error updating grant sources via SQL: %w", err)
 	}
-	if sqlUpdatedCount > 0 {
-		l.Info("runGrantExpandActions: sqlUpdatedCount", zap.Int64("sqlUpdatedCount", sqlUpdatedCount), zap.String("source_entitlement_id", action.SourceEntitlementID), zap.String("descendant_entitlement_id", action.DescendantEntitlementID))
-	}
+	// if sqlUpdatedCount > 0 {
+	// 	l.Info("runGrantExpandActions: sqlUpdatedCount", zap.Int64("sqlUpdatedCount", sqlUpdatedCount), zap.String("source_entitlement_id", action.SourceEntitlementID), zap.String("descendant_entitlement_id", action.DescendantEntitlementID))
+	// }
 
 	if !verify {
+		wouldBenewGrants, err = s.putGrantsInChunks(ctx, wouldBenewGrants, 0, nil)
+		if err != nil {
+			l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
+		}
+
 		graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
 		graph.Actions = graph.Actions[1:]
 		return false, nil
