@@ -1680,12 +1680,6 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 
 			// FIXME(morgabra) Log and skip some of the error paths here?
 			for _, srcEntitlementID := range expandable.GetEntitlementIds() {
-				l.Debug(
-					"Expandable entitlement found",
-					zap.String("src_entitlement_id", srcEntitlementID),
-					zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
-				)
-
 				srcEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 					EntitlementId: srcEntitlementID,
 				}.Build())
@@ -3262,7 +3256,6 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	}(time.Now())
 	graph := s.state.EntitlementGraph(ctx)
 	l = l.With(zap.Int("depth", graph.Depth))
-	l.Debug("expandGrantsForEntitlements: start") // zap.Any("graph", graph)
 
 	s.counts.LogExpandProgress(ctx, graph.Actions)
 
