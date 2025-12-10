@@ -489,7 +489,7 @@ func (c *C1File) ListPrincipalsNeedingExpandedGrant(
 	resourceTypeIDs []string,
 	shallow bool,
 	pt *ExpandNeedsInsertPageToken,
-) (principals []ExpandPrincipal, nextPageToken *ExpandNeedsInsertPageToken, err error) {
+) ([]ExpandPrincipal, *ExpandNeedsInsertPageToken, error) {
 	if pt == nil {
 		pt = &ExpandNeedsInsertPageToken{}
 	}
@@ -515,7 +515,6 @@ func (c *C1File) ListPrincipalsNeedingExpandedGrant(
         SELECT 
             src.principal_resource_type_id,
             src.principal_resource_id,
-            src.data
         FROM v1_grants src
         WHERE src.entitlement_id = ?
           AND src.sync_id = ?
@@ -546,38 +545,36 @@ func (c *C1File) ListPrincipalsNeedingExpandedGrant(
 	}
 	defer rows.Close()
 
-	principals = make([]ExpandPrincipal, 0, pageSize)
-	var lastTypeID, lastID string
+	principals := make([]ExpandPrincipal, 0, pageSize)
 
 	for rows.Next() {
 		var p ExpandPrincipal
-		if err := rows.Scan(&p.TypeID, &p.ID, &p.SourceGrantData); err != nil {
+		if err := rows.Scan(&p.TypeID, &p.ID); err != nil {
 			return nil, nil, err
 		}
 		principals = append(principals, p)
-		lastTypeID, lastID = p.TypeID, p.ID
 	}
 
+	var lastTypeID, lastID string
+	var nextPageToken *ExpandNeedsInsertPageToken
 	// If we got more than pageSize, there's another page
 	if len(principals) > pageSize {
 		principals = principals[:pageSize]
 		lastTypeID = principals[pageSize-1].TypeID
 		lastID = principals[pageSize-1].ID
 
-		nextPT := ExpandNeedsInsertPageToken{
+		nextPageToken = &ExpandNeedsInsertPageToken{
 			PrincipalTypeID: lastTypeID,
 			PrincipalID:     lastID,
 		}
-		nextPageToken = &nextPT
 	}
 
 	return principals, nextPageToken, nil
 }
 
 type ExpandPrincipal struct {
-	TypeID          string
-	ID              string
-	SourceGrantData []byte // Contains the principal proto we need
+	TypeID string
+	ID     string
 }
 
 func nilIfEmpty(s string) *string {

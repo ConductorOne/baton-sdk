@@ -285,8 +285,8 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 
 // RectifyGrantSources updates grant protobuf data to match the sources column.
 // This handles two cases:
-// 1. Grants with empty data blobs (newly inserted via SQL) - fully reconstruct the protobuf
-// 2. Grants with valid data but outdated sources - just update the sources field
+// 1. Grants with empty data blobs (newly inserted via SQL) - fully reconstruct the protobuf.
+// 2. Grants with valid data but outdated sources - just update the sources field.
 func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 	ctx, span := tracer.Start(ctx, "C1File.RectifyGrantSources")
 	defer span.End()
@@ -295,139 +295,172 @@ func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 	eTable := entitlements.Name()
 	rTable := resources.Name()
 
-	// Query grants with entitlement and principal data for reconstruction
-	rows, err := c.db.QueryContext(ctx, `
-		SELECT 
-			g.id,
-			g.external_id,
-			g.data,
-			g.sources,
-			g.entitlement_id,
-			g.principal_resource_type_id,
-			g.principal_resource_id,
-			e.data AS entitlement_data,
-			r.data AS principal_data
-		FROM `+gTable+` g
-		JOIN `+eTable+` e ON e.external_id = g.entitlement_id AND e.sync_id = g.sync_id
-		JOIN `+rTable+` r ON r.external_id = g.principal_resource_type_id || ':' || g.principal_resource_id 
-		                  AND r.sync_id = g.sync_id
-		WHERE g.sync_id = ?
-	`, c.currentSyncID)
-	if err != nil {
-		return 0, fmt.Errorf("error querying grants for rectification: %w", err)
-	}
-	defer rows.Close()
-
+	const pageSize = 10000
 	var updated int64
-	var grantsToUpdate []*v2.Grant
+	var lastID int64 = 0
 
-	for rows.Next() {
-		var rowID int64
-		var externalID string
-		var data []byte
-		var sourcesJSON string
-		var entitlementID string
-		var principalTypeID, principalID string
-		var entitlementData, principalData []byte
-
-		if err := rows.Scan(&rowID, &externalID, &data, &sourcesJSON, &entitlementID,
-			&principalTypeID, &principalID, &entitlementData, &principalData); err != nil {
-			return 0, fmt.Errorf("error scanning grant row: %w", err)
+	// Process grants in batches of pageSize
+	for {
+		// Query grants with entitlement and principal data for reconstruction
+		// Use cursor-based pagination with ID to avoid issues with concurrent updates
+		rows, err := c.db.QueryContext(ctx, `
+			SELECT 
+				g.id,
+				g.external_id,
+				g.data,
+				g.sources,
+				g.entitlement_id,
+				g.principal_resource_type_id,
+				g.principal_resource_id,
+				e.data AS entitlement_data,
+				r.data AS principal_data
+			FROM `+gTable+` g
+			JOIN `+eTable+` e ON e.external_id = g.entitlement_id AND e.sync_id = g.sync_id
+			JOIN `+rTable+` r ON r.external_id = g.principal_resource_type_id || ':' || g.principal_resource_id 
+			                  AND r.sync_id = g.sync_id
+			WHERE g.sync_id = ? AND g.id > ?
+			ORDER BY g.id
+			LIMIT ?
+		`, c.currentSyncID, lastID, pageSize)
+		if err != nil {
+			return 0, fmt.Errorf("error querying grants for rectification: %w", err)
 		}
 
-		// Parse the sources JSON column
-		var sourcesMap map[string]*v2.GrantSources_GrantSource
-		if sourcesJSON != "" && sourcesJSON != "{}" {
-			var rawMap map[string]json.RawMessage
-			if err := json.Unmarshal([]byte(sourcesJSON), &rawMap); err != nil {
-				return 0, fmt.Errorf("error unmarshalling sources JSON: %w", err)
-			}
-			sourcesMap = make(map[string]*v2.GrantSources_GrantSource, len(rawMap))
-			for k := range rawMap {
-				sourcesMap[k] = &v2.GrantSources_GrantSource{}
-			}
-		}
+		// Collect grants to update during iteration
+		grantsToUpdate := make([]*v2.Grant, 0, pageSize)
+		rowsProcessed := 0
 
-		var grant *v2.Grant
-		needsUpdate := false
+		// Iterate through all rows in this batch
+		for rows.Next() {
+			var rowID int64
+			var externalID string
+			var data []byte
+			var sourcesJSON string
+			var entitlementID string
+			var principalTypeID, principalID string
+			var entitlementData, principalData []byte
 
-		// Check if data is empty (needs full reconstruction)
-		if len(data) == 0 {
-			// Unmarshal entitlement
-			entitlement := &v2.Entitlement{}
-			if err := proto.Unmarshal(entitlementData, entitlement); err != nil {
-				return 0, fmt.Errorf("error unmarshalling entitlement data: %w", err)
+			if err := rows.Scan(&rowID, &externalID, &data, &sourcesJSON, &entitlementID,
+				&principalTypeID, &principalID, &entitlementData, &principalData); err != nil {
+				rows.Close()
+				return 0, fmt.Errorf("error scanning grant row: %w", err)
 			}
 
-			// Unmarshal principal
-			principal := &v2.Resource{}
-			if err := proto.Unmarshal(principalData, principal); err != nil {
-				return 0, fmt.Errorf("error unmarshalling principal data: %w", err)
+			// Parse the sources JSON column
+			var sourcesMap map[string]*v2.GrantSources_GrantSource
+			if sourcesJSON != "" && sourcesJSON != "{}" {
+				// Try unmarshaling directly into the map
+				if err := json.Unmarshal([]byte(sourcesJSON), &sourcesMap); err != nil {
+					// If direct unmarshal fails, fall back to creating empty structs
+					// (GrantSources_GrantSource is typically an empty marker struct)
+					var rawMap map[string]interface{}
+					if err := json.Unmarshal([]byte(sourcesJSON), &rawMap); err != nil {
+						rows.Close()
+						return 0, fmt.Errorf("error unmarshalling sources JSON: %w", err)
+					}
+					sourcesMap = make(map[string]*v2.GrantSources_GrantSource, len(rawMap))
+					for k := range rawMap {
+						sourcesMap[k] = &v2.GrantSources_GrantSource{}
+					}
+				}
 			}
 
-			// Build full grant with immutable annotation (expanded grants are immutable)
-			var annos annotations.Annotations
-			annos.Update(&v2.GrantImmutable{})
+			lastID = rowID
+			rowsProcessed++
 
-			var sources *v2.GrantSources
-			if sourcesMap != nil {
-				sources = &v2.GrantSources{Sources: sourcesMap}
-			}
+			var grant *v2.Grant
+			needsUpdate := false
 
-			grant = v2.Grant_builder{
-				Id:          externalID,
-				Entitlement: entitlement,
-				Principal:   principal,
-				Sources:     sources,
-				Annotations: annos,
-			}.Build()
-			needsUpdate = true
-		} else {
-			// Parse existing grant and check if sources need update
-			grant = &v2.Grant{}
-			if err := proto.Unmarshal(data, grant); err != nil {
-				return 0, fmt.Errorf("error unmarshalling grant data: %w", err)
-			}
+			// Check if data is empty (needs full reconstruction)
+			if len(data) == 0 {
+				// Unmarshal entitlement
+				entitlement := &v2.Entitlement{}
+				if err := proto.Unmarshal(entitlementData, entitlement); err != nil {
+					rows.Close()
+					return 0, fmt.Errorf("error unmarshalling entitlement data: %w", err)
+				}
 
-			existingSources := grant.GetSources().GetSources()
-			if len(sourcesMap) != len(existingSources) {
+				// Unmarshal principal
+				principal := &v2.Resource{}
+				if err := proto.Unmarshal(principalData, principal); err != nil {
+					rows.Close()
+					return 0, fmt.Errorf("error unmarshalling principal data: %w", err)
+				}
+
+				// Build full grant with immutable annotation (expanded grants are immutable)
+				var annos annotations.Annotations
+				annos.Update(&v2.GrantImmutable{})
+
+				var sources *v2.GrantSources
+				if sourcesMap != nil {
+					sources = &v2.GrantSources{Sources: sourcesMap}
+				}
+
+				grant = v2.Grant_builder{
+					Id:          externalID,
+					Entitlement: entitlement,
+					Principal:   principal,
+					Sources:     sources,
+					Annotations: annos,
+				}.Build()
 				needsUpdate = true
 			} else {
-				for k := range sourcesMap {
-					if _, ok := existingSources[k]; !ok {
-						needsUpdate = true
-						break
+				// Parse existing grant and check if sources need update
+				grant = &v2.Grant{}
+				if err := proto.Unmarshal(data, grant); err != nil {
+					rows.Close()
+					return 0, fmt.Errorf("error unmarshalling grant data: %w", err)
+				}
+
+				existingSources := grant.GetSources().GetSources()
+				if existingSources == nil {
+					existingSources = make(map[string]*v2.GrantSources_GrantSource)
+				}
+
+				// Check if sources need update
+				if len(sourcesMap) != len(existingSources) {
+					needsUpdate = true
+				} else {
+					for k := range sourcesMap {
+						if _, ok := existingSources[k]; !ok {
+							needsUpdate = true
+							break
+						}
+					}
+				}
+
+				if needsUpdate {
+					if sourcesMap == nil {
+						grant.SetSources(nil)
+					} else {
+						grant.SetSources(&v2.GrantSources{Sources: sourcesMap})
 					}
 				}
 			}
 
 			if needsUpdate {
-				if sourcesMap == nil {
-					grant.SetSources(nil)
-				} else {
-					grant.SetSources(&v2.GrantSources{Sources: sourcesMap})
-				}
+				grantsToUpdate = append(grantsToUpdate, grant)
 			}
 		}
 
-		if needsUpdate {
-			grantsToUpdate = append(grantsToUpdate, grant)
-			updated++
-
-			// Batch update every 1000 grants
-			if len(grantsToUpdate) >= 1000 {
-				if err := c.PutGrants(ctx, grantsToUpdate...); err != nil {
-					return 0, fmt.Errorf("error updating grants: %w", err)
-				}
-				grantsToUpdate = grantsToUpdate[:0]
-			}
+		// Check for errors from iteration
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("error iterating grant rows: %w", err)
 		}
-	}
+		rows.Close()
 
-	// Update remaining grants
-	if len(grantsToUpdate) > 0 {
-		if err := c.PutGrants(ctx, grantsToUpdate...); err != nil {
-			return 0, fmt.Errorf("error updating remaining grants: %w", err)
+		// Put grants after we're done with rows.Next() to avoid conflicts due to exclusive locking
+		if len(grantsToUpdate) > 0 {
+			if err := c.PutGrants(ctx, grantsToUpdate...); err != nil {
+				return 0, fmt.Errorf("error updating grants: %w", err)
+			}
+			updated += int64(len(grantsToUpdate))
+		}
+
+		// If we got fewer rows than the page size, we've reached the end
+		if rowsProcessed < pageSize {
+			break
 		}
 	}
 

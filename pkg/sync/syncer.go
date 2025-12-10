@@ -2809,10 +2809,11 @@ func (s *syncer) putGrantsInChunks(ctx context.Context, grants []*v2.Grant, minC
 // Create a pool of grants for reuse during this operation.
 // This significantly reduces allocations when processing large numbers of grants.
 var grantPool = NewGrantPool()
-var protmoUnmarshalOptions = proto.UnmarshalOptions{
-	DiscardUnknown: true,
-	Merge:          true,
-}
+
+// var protmoUnmarshalOptions = proto.UnmarshalOptions{
+// 	DiscardUnknown: true,
+// 	Merge:          true,
+// }
 
 func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.runGrantExpandActions")
@@ -2846,7 +2847,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	verify := false
 	if !verify {
 		// SQL Pass 1: INSERT new grants (with empty data blobs)
-		insertedCount, err := c1zStore.InsertExpandedGrants(
+		_, err := c1zStore.InsertExpandedGrants(
 			ctx,
 			action.SourceEntitlementID,
 			action.DescendantEntitlementID,
@@ -2859,7 +2860,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		}
 
 		// SQL Pass 2: UPDATE existing grants with new sources
-		updatedCount, err := c1zStore.UpdateExpandedGrantSources(
+		_, err = c1zStore.UpdateExpandedGrantSources(
 			ctx,
 			action.SourceEntitlementID,
 			action.DescendantEntitlementID,
@@ -2871,12 +2872,12 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			return false, fmt.Errorf("runGrantExpandActions: error updating grant sources via SQL: %w", err)
 		}
 
-		if insertedCount > 0 || updatedCount > 0 {
-			l.Debug("runGrantExpandActions: SQL expansion complete",
-				zap.Int64("inserted", insertedCount),
-				zap.Int64("updated", updatedCount),
-			)
-		}
+		// if insertedCount > 0 || updatedCount > 0 {
+		// 	l.Debug("runGrantExpandActions: SQL expansion complete",
+		// 		zap.Int64("inserted", insertedCount),
+		// 		zap.Int64("updated", updatedCount),
+		// 	)
+		// }
 
 		graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
 		graph.Actions = graph.Actions[1:]
@@ -2912,12 +2913,18 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				descendantEntitlement = resp.GetEntitlement()
 			}
 			grant := grantPool.Acquire()
-			err = protmoUnmarshalOptions.Unmarshal(principal.SourceGrantData, grant)
-			if err != nil {
-				l.Error("runGrantExpandActions: error unmarshalling source grant data", zap.Error(err))
-				return false, fmt.Errorf("runGrantExpandActions: error unmarshalling source grant data: %w", err)
+			// err = protmoUnmarshalOptions.Unmarshal(principal.SourceGrantData, grant)
+			// if err != nil {
+			// 	l.Error("runGrantExpandActions: error unmarshalling source grant data", zap.Error(err))
+			// 	return false, fmt.Errorf("runGrantExpandActions: error unmarshalling source grant data: %w", err)
+			// }
+			grantPrincipal := &v2.Resource{
+				Id: &v2.ResourceId{
+					Resource:     principal.ID,
+					ResourceType: principal.TypeID,
+				},
 			}
-			err := s.refurbishedExpandedGrant(ctx, grant, descendantEntitlement, grant.GetPrincipal(), action.SourceEntitlementID)
+			err := s.refurbishedExpandedGrant(ctx, grant, descendantEntitlement, grantPrincipal, action.SourceEntitlementID)
 			if err != nil {
 				l.Error("runGrantExpandActions: error creating new grant", zap.Error(err))
 				return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
