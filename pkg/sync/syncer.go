@@ -1751,6 +1751,14 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 				return err
 			}
 		}
+
+		// Populate the entitlement_edges table for SQL-based expansion
+		if c1zStore, ok := s.store.(*dotc1z.C1File); ok {
+			if err := c1zStore.PopulateEntitlementEdges(ctx, entitlementGraph); err != nil {
+				l.Error("error populating entitlement edges", zap.Error(err))
+				return fmt.Errorf("error populating entitlement edges: %w", err)
+			}
+		}
 	}
 
 	err := s.expandGrantsForEntitlements(ctx)
@@ -2836,12 +2844,11 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("runGrantExpandActions: store is not a C1File")
 	}
 
-	// SQL-only mode: Use InsertExpandedGrants and UpdateExpandedGrantSources
+	// SQL-only mode: Use ExpandGrantsSingleLevel with normalized grant_sources table
 	// The data blobs are reconstructed during RectifyGrantSources at the end of expansion
 	verify := false
 	if !verify {
-		// SQL Pass 1: INSERT new grants (with empty data blobs)
-		_, err := c1zStore.InsertExpandedGrants(
+		inserted, updated, err := c1zStore.ExpandGrantsSingleLevel(
 			ctx,
 			action.SourceEntitlementID,
 			action.DescendantEntitlementID,
@@ -2849,29 +2856,16 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			action.Shallow,
 		)
 		if err != nil {
-			l.Error("runGrantExpandActions: error inserting expanded grants via SQL", zap.Error(err))
-			return false, fmt.Errorf("runGrantExpandActions: error inserting expanded grants via SQL: %w", err)
+			l.Error("runGrantExpandActions: error expanding grants via SQL", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error expanding grants via SQL: %w", err)
 		}
 
-		// SQL Pass 2: UPDATE existing grants with new sources
-		_, err = c1zStore.UpdateExpandedGrantSources(
-			ctx,
-			action.SourceEntitlementID,
-			action.DescendantEntitlementID,
-			action.ResourceTypeIDs,
-			action.Shallow,
-		)
-		if err != nil {
-			l.Error("runGrantExpandActions: error updating grant sources via SQL", zap.Error(err))
-			return false, fmt.Errorf("runGrantExpandActions: error updating grant sources via SQL: %w", err)
+		if inserted > 0 || updated > 0 {
+			l.Debug("runGrantExpandActions: SQL expansion complete",
+				zap.Int64("inserted", inserted),
+				zap.Int64("updated", updated),
+			)
 		}
-
-		// if insertedCount > 0 || updatedCount > 0 {
-		// 	l.Debug("runGrantExpandActions: SQL expansion complete",
-		// 		zap.Int64("inserted", insertedCount),
-		// 		zap.Int64("updated", updatedCount),
-		// 	)
-		// }
 
 		graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
 		graph.Actions = graph.Actions[1:]

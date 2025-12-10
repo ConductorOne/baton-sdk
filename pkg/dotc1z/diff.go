@@ -76,6 +76,12 @@ func (c *C1File) diffTableQuery(table tableDescriptor, baseSyncID, appliedSyncID
 	case strings.Contains(tableName, sessionStoreTableName):
 		// caching is not relevant to diffs.
 		return "", nil, nil
+	case strings.Contains(tableName, grantSourcesTableName):
+		// grant_sources is derived data populated during expansion; skip diffs.
+		return "", nil, nil
+	case strings.Contains(tableName, entitlementEdgesTableName):
+		// entitlement_edges is derived data populated from the graph; skip diffs.
+		return "", nil, nil
 	case strings.Contains(tableName, resourcesTableName):
 		columns = append(columns, "resource_type_id", "parent_resource_type_id", "parent_resource_id")
 	case strings.Contains(tableName, resourceTypesTableName):

@@ -29,6 +29,8 @@ var allTableDescriptors = []tableDescriptor{
 	resources,
 	entitlements,
 	grants,
+	grantSources,
+	entitlementEdges,
 	syncRuns,
 	assets,
 	sessionStore,

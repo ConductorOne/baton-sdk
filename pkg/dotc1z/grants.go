@@ -283,7 +283,7 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 	return nil
 }
 
-// RectifyGrantSources updates grant protobuf data to match the sources column.
+// RectifyGrantSources updates grant protobuf data to match the normalized grant_sources table.
 // This handles two cases:
 // 1. Grants with empty data blobs (newly inserted via SQL) - fully reconstruct the protobuf.
 // 2. Grants with valid data but outdated sources - just update the sources field.
@@ -294,37 +294,48 @@ func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 	gTable := grants.Name()
 	eTable := entitlements.Name()
 	rTable := resources.Name()
+	gsTable := grantSources.Name()
 
 	const pageSize = 1000
 	var updated int64
 	var lastID int64 = 0
 
+	// Cache maps for unmarshaled entitlements and principals
+	// These persist across pages since entitlements/principals are often reused
+	entitlementCache := make(map[string]*v2.Entitlement)
+	principalCache := make(map[string]*v2.Resource)
+
 	// Process grants in batches of pageSize
 	for {
-		// Cache maps for unmarshaled entitlements and principals
-		// These persist across pages since entitlements/principals are often reused
-		entitlementCache := make(map[string]*v2.Entitlement)
-		principalCache := make(map[string]*v2.Resource)
-
-		// Query grants with entitlement and principal data for reconstruction
+		// Query grants that either have empty data OR have entries in grant_sources
+		// Include entitlement and principal data for reconstruction
 		// ORDER BY entitlement_id, principal to enable better cache hits within a page
-		// Use cursor-based pagination with ID to avoid issues with concurrent updates
 		rows, err := c.db.QueryContext(ctx, `
 			SELECT 
 				g.id,
 				g.external_id,
 				g.data,
-				g.sources,
 				g.entitlement_id,
 				g.principal_resource_type_id,
 				g.principal_resource_id,
 				e.data AS entitlement_data,
-				r.data AS principal_data
+				r.data AS principal_data,
+				COALESCE(
+					(SELECT group_concat(gs.source_entitlement_id, '||') 
+					 FROM `+gsTable+` gs 
+					 WHERE gs.grant_id = g.id AND gs.sync_id = g.sync_id),
+					''
+				) AS sources_list
 			FROM `+gTable+` g
 			JOIN `+eTable+` e ON e.external_id = g.entitlement_id AND e.sync_id = g.sync_id
 			JOIN `+rTable+` r ON r.external_id = g.principal_resource_type_id || ':' || g.principal_resource_id 
 			                  AND r.sync_id = g.sync_id
-			WHERE g.sync_id = ? AND g.id > ?
+			WHERE g.sync_id = ? 
+			  AND g.id > ?
+			  AND (
+			      length(g.data) = 0
+			      OR EXISTS (SELECT 1 FROM `+gsTable+` gs WHERE gs.grant_id = g.id AND gs.sync_id = g.sync_id)
+			  )
 			ORDER BY g.entitlement_id, g.principal_resource_type_id, g.principal_resource_id, g.id
 			LIMIT ?
 		`, c.currentSyncID, lastID, pageSize)
@@ -341,32 +352,25 @@ func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 			var rowID int64
 			var externalID string
 			var data []byte
-			var sourcesJSON string
 			var entitlementID string
 			var principalTypeID, principalID string
 			var entitlementData, principalData []byte
+			var sourcesList string
 
-			if err := rows.Scan(&rowID, &externalID, &data, &sourcesJSON, &entitlementID,
-				&principalTypeID, &principalID, &entitlementData, &principalData); err != nil {
+			if err := rows.Scan(&rowID, &externalID, &data, &entitlementID,
+				&principalTypeID, &principalID, &entitlementData, &principalData, &sourcesList); err != nil {
 				rows.Close()
 				return 0, fmt.Errorf("error scanning grant row: %w", err)
 			}
 
-			// Parse the sources JSON column
+			// Parse the sources from the normalized table (|| delimited)
 			var sourcesMap map[string]*v2.GrantSources_GrantSource
-			if sourcesJSON != "" && sourcesJSON != "{}" {
-				// Try unmarshaling directly into the map
-				if err := json.Unmarshal([]byte(sourcesJSON), &sourcesMap); err != nil {
-					// If direct unmarshal fails, fall back to creating empty structs
-					// (GrantSources_GrantSource is typically an empty marker struct)
-					var rawMap map[string]interface{}
-					if err := json.Unmarshal([]byte(sourcesJSON), &rawMap); err != nil {
-						rows.Close()
-						return 0, fmt.Errorf("error unmarshalling sources JSON: %w", err)
-					}
-					sourcesMap = make(map[string]*v2.GrantSources_GrantSource, len(rawMap))
-					for k := range rawMap {
-						sourcesMap[k] = &v2.GrantSources_GrantSource{}
+			if sourcesList != "" {
+				parts := splitSourcesList(sourcesList)
+				sourcesMap = make(map[string]*v2.GrantSources_GrantSource, len(parts))
+				for _, src := range parts {
+					if src != "" {
+						sourcesMap[src] = &v2.GrantSources_GrantSource{}
 					}
 				}
 			}
@@ -480,6 +484,24 @@ func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 	}
 
 	return updated, nil
+}
+
+// splitSourcesList splits a || delimited string into parts.
+func splitSourcesList(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var parts []string
+	start := 0
+	for i := 0; i < len(s)-1; i++ {
+		if s[i] == '|' && s[i+1] == '|' {
+			parts = append(parts, s[start:i])
+			start = i + 2
+			i++ // Skip the second |
+		}
+	}
+	parts = append(parts, s[start:])
+	return parts
 }
 
 func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
