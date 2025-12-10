@@ -297,6 +297,8 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 		// Use memory for temporary storage.
 		dotc1z.WithPragma("temp_store", "MEMORY"),
 		// We close this c1z after compaction, so syncer won't have these pragmas when expanding grants.
+		// Turn on decoder concurrency.
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(0)),
 	}
 
 	fileName := fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID)
