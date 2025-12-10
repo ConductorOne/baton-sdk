@@ -2809,6 +2809,10 @@ func (s *syncer) putGrantsInChunks(ctx context.Context, grants []*v2.Grant, minC
 // Create a pool of grants for reuse during this operation.
 // This significantly reduces allocations when processing large numbers of grants.
 var grantPool = NewGrantPool()
+var protmoUnmarshalOptions = proto.UnmarshalOptions{
+	DiscardUnknown: true,
+	Merge:          true,
+}
 
 func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.runGrantExpandActions")
@@ -2829,13 +2833,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 
 	l = l.With(zap.String("source_entitlement_id", action.SourceEntitlementID), zap.String("descendant_entitlement_id", action.DescendantEntitlementID))
 
-	descendantEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-		EntitlementId: action.DescendantEntitlementID,
-	}.Build())
-	if err != nil {
-		l.Error("runGrantExpandActions: error fetching descendant entitlement", zap.Error(err))
-		return false, fmt.Errorf("runGrantExpandActions: error fetching descendant entitlement: %w", err)
-	}
+	var descendantEntitlement *v2.Entitlement
 
 	c1zStore, ok := s.store.(*dotc1z.C1File)
 	if !ok {
@@ -2860,20 +2858,30 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		}
 
 		for _, principal := range principals {
-			grant := &v2.Grant{}
-			err = proto.Unmarshal(principal.SourceGrantData, grant)
+			if descendantEntitlement == nil {
+				resp, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+					EntitlementId: action.DescendantEntitlementID,
+				}.Build())
+				if err != nil {
+					l.Error("runGrantExpandActions: error fetching descendant entitlement", zap.Error(err))
+					return false, fmt.Errorf("runGrantExpandActions: error fetching descendant entitlement: %w", err)
+				}
+				descendantEntitlement = resp.GetEntitlement()
+			}
+			grant := grantPool.Acquire()
+			err = protmoUnmarshalOptions.Unmarshal(principal.SourceGrantData, grant)
 			if err != nil {
 				l.Error("runGrantExpandActions: error unmarshalling source grant data", zap.Error(err))
 				return false, fmt.Errorf("runGrantExpandActions: error unmarshalling source grant data: %w", err)
 			}
-			newGrant, err := s.newExpandedGrant(ctx, descendantEntitlement.GetEntitlement(), grant.GetPrincipal(), action.SourceEntitlementID)
+			err := s.refurbishedExpandedGrant(ctx, grant, descendantEntitlement, grant.GetPrincipal(), action.SourceEntitlementID)
 			if err != nil {
 				l.Error("runGrantExpandActions: error creating new grant", zap.Error(err))
 				return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
 			}
-			wouldBenewGrants = append(wouldBenewGrants, newGrant)
+			wouldBenewGrants = append(wouldBenewGrants, grant)
 			if !verify {
-				wouldBenewGrants, err = s.putGrantsInChunks(ctx, wouldBenewGrants, 10000, nil)
+				wouldBenewGrants, err = s.putGrantsInChunks(ctx, wouldBenewGrants, 10000, grantPool.Release)
 				if err != nil {
 					l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
 					return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
@@ -2890,6 +2898,14 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	var loopUpdatedGrants = make([]*v2.Grant, 0) // Only UPDATE case, for comparison with SQL update count
 	var sourceGrants *reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse
 	if verify {
+		resp, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+			EntitlementId: action.DescendantEntitlementID,
+		}.Build())
+		if err != nil {
+			l.Error("runGrantExpandActions: error fetching descendant entitlement", zap.Error(err))
+			return false, fmt.Errorf("runGrantExpandActions: error fetching descendant entitlement: %w", err)
+		}
+		descendantEntitlement = resp.GetEntitlement()
 		// Fetch source and descendant entitlement
 		sourceEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: action.SourceEntitlementID,
@@ -2923,7 +2939,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			pageToken := ""
 			for {
 				req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-					Entitlement: descendantEntitlement.GetEntitlement(),
+					Entitlement: descendantEntitlement,
 					PrincipalId: sourceGrant.GetPrincipal().GetId(),
 					PageToken:   pageToken,
 					Annotations: nil,
@@ -2941,7 +2957,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				if pageToken == "" && nextPageToken == "" && len(resp) == 0 {
 					// TODO(morgabra): This is kinda gnarly, grant ID won't have any special meaning.
 					// FIXME(morgabra): We should probably conflict check with grant id?
-					descendantGrant, err := s.newExpandedGrant(ctx, descendantEntitlement.GetEntitlement(), sourceGrant.GetPrincipal(), action.SourceEntitlementID)
+					descendantGrant, err := s.newExpandedGrant(ctx, descendantEntitlement, sourceGrant.GetPrincipal(), action.SourceEntitlementID)
 					if err != nil {
 						l.Error("runGrantExpandActions: error creating new grant", zap.Error(err))
 						return false, fmt.Errorf("runGrantExpandActions: error creating new grant: %w", err)
@@ -3003,6 +3019,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			}
 		}
 	}
+
 	// SQL Pass 2: Update existing grants with new sources
 	sqlUpdatedCount, err := c1zStore.UpdateExpandedGrantSources(
 		ctx,
@@ -3020,7 +3037,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	// }
 
 	if !verify {
-		wouldBenewGrants, err = s.putGrantsInChunks(ctx, wouldBenewGrants, 0, nil)
+		_, err = s.putGrantsInChunks(ctx, wouldBenewGrants, 0, grantPool.Release)
 		if err != nil {
 			l.Error("runGrantExpandActions: error updating descendant grants", zap.Error(err))
 			return false, fmt.Errorf("runGrantExpandActions: error updating descendant grants: %w", err)
@@ -3121,6 +3138,38 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	}
 
 	return false, nil
+}
+
+func (s *syncer) refurbishedExpandedGrant(_ context.Context, grant *v2.Grant, descEntitlement *v2.Entitlement, principal *v2.Resource, sourceEntitlementID string) error {
+	enResource := descEntitlement.GetResource()
+	if enResource == nil {
+		return fmt.Errorf("newExpandedGrant: entitlement has no resource")
+	}
+
+	if principal == nil {
+		return fmt.Errorf("newExpandedGrant: principal is nil")
+	}
+
+	// Add immutable annotation since this function is only called if no direct grant exists
+	var annos annotations.Annotations
+	annos.Update(&v2.GrantImmutable{})
+
+	var sources *v2.GrantSources
+	if sourceEntitlementID != "" {
+		sources = &v2.GrantSources{
+			Sources: map[string]*v2.GrantSources_GrantSource{
+				sourceEntitlementID: {},
+			},
+		}
+	}
+
+	grant.Id = fmt.Sprintf("%s:%s:%s", descEntitlement.GetId(), principal.GetId().GetResourceType(), principal.GetId().GetResource())
+	grant.Entitlement = descEntitlement
+	grant.Principal = principal
+	grant.Sources = sources
+	grant.Annotations = annos
+
+	return nil
 }
 
 func (s *syncer) newExpandedGrant(_ context.Context, descEntitlement *v2.Entitlement, principal *v2.Resource, sourceEntitlementID string) (*v2.Grant, error) {
