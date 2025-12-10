@@ -2,6 +2,8 @@ package expand
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand/scc"
@@ -364,4 +366,60 @@ func (g *EntitlementGraph) reachableFrom(start int) map[int]struct{} {
 		}
 	}
 	return visited
+}
+
+// ToDOT exports the entitlement graph in DOT format for visualization.
+func (g *EntitlementGraph) ToDOT() string {
+	var sb strings.Builder
+	sb.WriteString("digraph EntitlementGraph {\n")
+	sb.WriteString("  rankdir=LR;\n")
+	sb.WriteString("  node [shape=box];\n\n")
+
+	// Write nodes
+	for _, node := range g.Nodes {
+		for _, entID := range node.EntitlementIDs {
+			// Escape quotes in entitlement IDs
+			escapedID := strings.ReplaceAll(entID, `"`, `\"`)
+			sb.WriteString(fmt.Sprintf("  \"%s\";\n", escapedID))
+		}
+	}
+	sb.WriteString("\n")
+
+	// Write edges
+	for _, edge := range g.Edges {
+		srcNode, srcOk := g.Nodes[edge.SourceID]
+		dstNode, dstOk := g.Nodes[edge.DestinationID]
+		if !srcOk || !dstOk {
+			continue
+		}
+
+		// For each source entitlement to each destination entitlement
+		for _, srcEntID := range srcNode.EntitlementIDs {
+			for _, dstEntID := range dstNode.EntitlementIDs {
+				escapedSrc := strings.ReplaceAll(srcEntID, `"`, `\"`)
+				escapedDst := strings.ReplaceAll(dstEntID, `"`, `\"`)
+
+				// Add edge attributes
+				attrs := []string{}
+				if edge.IsShallow {
+					attrs = append(attrs, "style=dashed")
+				}
+				if edge.IsExpanded {
+					attrs = append(attrs, "color=green")
+				} else {
+					attrs = append(attrs, "color=red")
+				}
+
+				attrStr := ""
+				if len(attrs) > 0 {
+					attrStr = fmt.Sprintf(" [%s]", strings.Join(attrs, ", "))
+				}
+
+				sb.WriteString(fmt.Sprintf("  \"%s\" -> \"%s\"%s;\n", escapedSrc, escapedDst, attrStr))
+			}
+		}
+	}
+
+	sb.WriteString("}\n")
+	return sb.String()
 }

@@ -223,6 +223,7 @@ type syncer struct {
 	injectSyncIDAnnotation              bool
 	setSessionStore                     sessions.SetSessionStore
 	syncResourceTypes                   []string
+	dotFileWritten                      bool
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -2939,6 +2940,18 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	graph := s.state.EntitlementGraph(ctx)
 	l = l.With(zap.Int("depth", graph.Depth))
 	l.Debug("expandGrantsForEntitlements: start") // zap.Any("graph", graph)
+
+	// Write DOT file at depth 0 exactly once
+	if graph.Depth == 0 && !s.dotFileWritten {
+		s.dotFileWritten = true
+		dotContent := graph.ToDOT()
+		dotFilePath := "entitlement_graph.dot"
+		if err := os.WriteFile(dotFilePath, []byte(dotContent), 0644); err != nil {
+			l.Error("expandGrantsForEntitlements: error writing DOT file", zap.Error(err), zap.String("path", dotFilePath))
+		} else {
+			l.Info("expandGrantsForEntitlements: wrote DOT file", zap.String("path", dotFilePath), zap.Int("nodes", len(graph.Nodes)), zap.Int("edges", len(graph.Edges)))
+		}
+	}
 
 	s.counts.LogExpandProgress(ctx, graph.Actions)
 
