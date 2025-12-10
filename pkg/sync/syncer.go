@@ -3353,7 +3353,7 @@ func (s *syncer) loadStore(ctx context.Context) error {
 	}
 
 	if s.c1zManager == nil {
-		m, err := manager.New(ctx, s.c1zPath, manager.WithTmpDir(s.tmpDir))
+		m, err := manager.New(ctx, s.c1zPath, manager.WithTmpDir(s.tmpDir), manager.WithDecoderOptions(dotc1z.WithDecoderConcurrency(0)))
 		if err != nil {
 			return err
 		}

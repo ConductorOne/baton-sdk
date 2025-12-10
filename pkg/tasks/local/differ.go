@@ -7,6 +7,7 @@ import (
 	"time"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
@@ -50,7 +51,7 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		return errors.New("missing base sync ID or applied sync ID")
 	}
 
-	store, err := c1zmanager.New(ctx, m.dbPath)
+	store, err := c1zmanager.New(ctx, m.dbPath, c1zmanager.WithDecoderOptions(dotc1z.WithDecoderConcurrency(0)))
 	if err != nil {
 		return err
 	}
