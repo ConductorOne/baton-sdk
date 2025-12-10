@@ -202,6 +202,12 @@ func (a *ActionManager) RegisterAction(ctx context.Context, name string, schema 
 	return nil
 }
 
+func (a *ActionManager) HasActions() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return len(a.schemas) > 0 || len(a.resourceSchemas) > 0
+}
+
 // RegisterResourceAction registers a resource-scoped action.
 func (a *ActionManager) RegisterResourceAction(
 	ctx context.Context,
