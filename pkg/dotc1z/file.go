@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"syscall"
 
 	"github.com/klauspost/compress/zstd"
@@ -56,7 +57,7 @@ func loadC1z(filePath string, tmpDir string, opts ...DecoderOption) (string, err
 	return dbFilePath, nil
 }
 
-func saveC1z(dbFilePath string, outputFilePath string) error {
+func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) error {
 	if outputFilePath == "" {
 		return errors.New("c1z: output file path not configured")
 	}
@@ -93,8 +94,11 @@ func saveC1z(dbFilePath string, outputFilePath string) error {
 		return err
 	}
 
+	if encoderConcurrency == 0 {
+		encoderConcurrency = runtime.GOMAXPROCS(0)
+	}
 	c1z, err := zstd.NewWriter(outFile,
-		zstd.WithEncoderConcurrency(1),
+		zstd.WithEncoderConcurrency(encoderConcurrency),
 	)
 	if err != nil {
 		return err
@@ -107,11 +111,11 @@ func saveC1z(dbFilePath string, outputFilePath string) error {
 
 	err = c1z.Flush()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to flush c1z: %w", err)
 	}
 	err = c1z.Close()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to close c1z: %w", err)
 	}
 
 	err = outFile.Sync()
