@@ -11,9 +11,47 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// CustomActionManager defines capabilities for handling custom actions.
-//
-// Note: RegisterActionManager is preferred for new connectors.
+// ActionRegistry provides methods for registering global actions.
+// This interface is passed to GlobalActionProvider implementations.
+type ActionRegistry interface {
+	// RegisterAction registers a global action (not scoped to a resource type).
+	RegisterAction(ctx context.Context, name string, schema *v2.BatonActionSchema, handler actions.ActionHandler) error
+}
+
+// ActionManager defines the interface for managing actions in the connector builder.
+// This is the internal interface used by the builder for dispatch.
+// The *actions.ActionManager type implements this interface.
+type ActionManager interface {
+	// ListActionSchemas returns all action schemas, optionally filtered by resource type.
+	// If resourceTypeID is empty, returns all actions (both global and resource-scoped).
+	// If resourceTypeID is set, returns only actions for that resource type.
+	ListActionSchemas(ctx context.Context, resourceTypeID string) ([]*v2.BatonActionSchema, annotations.Annotations, error)
+
+	// GetActionSchema returns the schema for a specific action by name.
+	GetActionSchema(ctx context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error)
+
+	// InvokeAction invokes an action. If resourceTypeID is set, invokes a resource-scoped action.
+	InvokeAction(ctx context.Context, name string, resourceTypeID string, args *structpb.Struct, encryptionConfigs []*v2.EncryptionConfig) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
+
+	// GetActionStatus returns the status of an outstanding action.
+	GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error)
+
+	// GetTypeRegistry returns a registry for registering resource-scoped actions.
+	GetTypeRegistry(ctx context.Context, resourceTypeID string) (actions.ResourceTypeActionRegistry, error)
+
+	// HasActions returns true if there are any registered actions.
+	HasActions() bool
+}
+
+// GlobalActionProvider allows connectors to register global (non-resource-scoped) actions.
+// This is the preferred method for registering global actions in new connectors.
+// Implement this interface instead of the deprecated CustomActionManager or RegisterActionManagerLimited.
+type GlobalActionProvider interface {
+	GlobalActions(ctx context.Context, registry ActionRegistry) error
+}
+
+// Deprecated: CustomActionManager is deprecated. Implement GlobalActionProvider instead,
+// which registers actions directly into the SDK's ActionManager.
 //
 // This interface allows connectors to define and execute custom actions
 // that can be triggered from Baton. It supports both global actions and
@@ -32,20 +70,18 @@ type CustomActionManager interface {
 
 	// GetActionStatus returns the status of an outstanding action.
 	GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error)
-
-	// GetTypeRegistry returns a registry for registering resource-scoped actions.
-	GetTypeRegistry(ctx context.Context, resourceTypeID string) (actions.ResourceTypeActionRegistry, error)
 }
 
-// RegisterActionManager extends ConnectorBuilder to add capabilities for registering custom actions.
+// Deprecated: RegisterActionManager is deprecated. Implement GlobalActionProvider instead.
 //
-// This is the recommended interface for implementing custom action support in new connectors.
+// RegisterActionManager extends ConnectorBuilder to add capabilities for registering custom actions.
 // It provides a mechanism to register a CustomActionManager with the connector.
 type RegisterActionManager interface {
 	ConnectorBuilder
 	RegisterActionManagerLimited
 }
 
+// Deprecated: RegisterActionManagerLimited is deprecated. Implement GlobalActionProvider instead.
 type RegisterActionManagerLimited interface {
 	RegisterActionManager(ctx context.Context) (CustomActionManager, error)
 }
@@ -59,30 +95,14 @@ func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionS
 
 	resourceTypeID := request.GetResourceTypeId()
 
-	var allSchemas []*v2.BatonActionSchema
-
-	// Get schemas from the connector-provided action manager (if any)
-	if b.actionManager != nil {
-		actionSchemas, _, err := b.actionManager.ListActionSchemas(ctx, resourceTypeID)
-		if err != nil {
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: listing action schemas failed: %w", err)
-		}
-		allSchemas = append(allSchemas, actionSchemas...)
-	}
-
-	// Get schemas from the internal action manager (for resource-scoped actions)
-	if b.internalActionManager != nil {
-		internalSchemas, _, err := b.internalActionManager.ListActionSchemas(ctx, resourceTypeID)
-		if err != nil {
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: listing internal action schemas failed: %w", err)
-		}
-		allSchemas = append(allSchemas, internalSchemas...)
+	actionSchemas, _, err := b.actionManager.ListActionSchemas(ctx, resourceTypeID)
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: listing action schemas failed: %w", err)
 	}
 
 	rv := v2.ListActionSchemasResponse_builder{
-		Schemas: allSchemas,
+		Schemas: actionSchemas,
 	}.Build()
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
@@ -96,34 +116,18 @@ func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSche
 	start := b.nowFunc()
 	tt := tasks.ActionGetSchemaType
 
-	// Try connector-provided action manager first
-	if b.actionManager != nil {
-		actionSchema, annos, err := b.actionManager.GetActionSchema(ctx, request.GetName())
-		if err == nil {
-			rv := v2.GetActionSchemaResponse_builder{
-				Schema:      actionSchema,
-				Annotations: annos,
-			}.Build()
-			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-			return rv, nil
-		}
+	actionSchema, annos, err := b.actionManager.GetActionSchema(ctx, request.GetName())
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: action schema %s not found", request.GetName())
 	}
 
-	// Try internal action manager
-	if b.internalActionManager != nil {
-		actionSchema, annos, err := b.internalActionManager.GetActionSchema(ctx, request.GetName())
-		if err == nil {
-			rv := v2.GetActionSchemaResponse_builder{
-				Schema:      actionSchema,
-				Annotations: annos,
-			}.Build()
-			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-			return rv, nil
-		}
-	}
-
-	b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-	return nil, fmt.Errorf("error: action schema %s not found", request.GetName())
+	rv := v2.GetActionSchemaResponse_builder{
+		Schema:      actionSchema,
+		Annotations: annos,
+	}.Build()
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return rv, nil
 }
 
 func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequest) (*v2.InvokeActionResponse, error) {
@@ -136,73 +140,22 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 	resourceTypeID := request.GetResourceTypeId()
 	encryptionConfigs := request.GetEncryptionConfigs()
 
-	// If resource type is specified, use the internal action manager for resource-scoped actions
-	if resourceTypeID != "" {
-		if b.internalActionManager == nil {
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: internal action manager not configured")
-		}
-
-		id, actionStatus, resp, annos, err := b.internalActionManager.InvokeAction(ctx, request.GetName(), resourceTypeID, request.GetArgs(), encryptionConfigs)
-		if err != nil {
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: invoking resource action failed: %w", err)
-		}
-
-		rv := v2.InvokeActionResponse_builder{
-			Id:          id,
-			Name:        request.GetName(),
-			Status:      actionStatus,
-			Annotations: annos,
-			Response:    resp,
-		}.Build()
-
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return rv, nil
+	id, actionStatus, resp, annos, err := b.actionManager.InvokeAction(ctx, request.GetName(), resourceTypeID, request.GetArgs(), encryptionConfigs)
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: invoking action failed: %w", err)
 	}
 
-	// For global actions, try connector-provided action manager first
-	if b.actionManager != nil {
-		id, actionStatus, resp, annos, err := b.actionManager.InvokeAction(ctx, request.GetName(), "", request.GetArgs(), encryptionConfigs)
-		if err != nil {
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: invoking action failed: %w", err)
-		}
+	rv := v2.InvokeActionResponse_builder{
+		Id:          id,
+		Name:        request.GetName(),
+		Status:      actionStatus,
+		Annotations: annos,
+		Response:    resp,
+	}.Build()
 
-		rv := v2.InvokeActionResponse_builder{
-			Id:          id,
-			Name:        request.GetName(),
-			Status:      actionStatus,
-			Annotations: annos,
-			Response:    resp,
-		}.Build()
-
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return rv, nil
-	}
-
-	// Fall back to internal action manager for global actions
-	if b.internalActionManager != nil {
-		id, actionStatus, resp, annos, err := b.internalActionManager.InvokeAction(ctx, request.GetName(), "", request.GetArgs(), encryptionConfigs)
-		if err != nil {
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, fmt.Errorf("error: invoking action failed: %w", err)
-		}
-
-		rv := v2.InvokeActionResponse_builder{
-			Id:          id,
-			Name:        request.GetName(),
-			Status:      actionStatus,
-			Annotations: annos,
-			Response:    resp,
-		}.Build()
-
-		b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-		return rv, nil
-	}
-
-	b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-	return nil, fmt.Errorf("error: no action manager configured")
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return rv, nil
 }
 
 func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStatusRequest) (*v2.GetActionStatusResponse, error) {
@@ -212,62 +165,67 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 	start := b.nowFunc()
 	tt := tasks.ActionStatusType
 
-	// Try connector-provided action manager first
-	if b.actionManager != nil {
-		actionStatus, name, rv, annos, err := b.actionManager.GetActionStatus(ctx, request.GetId())
-		if err == nil {
-			resp := v2.GetActionStatusResponse_builder{
-				Id:          request.GetId(),
-				Name:        name,
-				Status:      actionStatus,
-				Annotations: annos,
-				Response:    rv,
-			}.Build()
-			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-			return resp, nil
-		}
+	actionStatus, name, rv, annos, err := b.actionManager.GetActionStatus(ctx, request.GetId())
+	if err != nil {
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		return nil, fmt.Errorf("error: action status for id %s not found", request.GetId())
 	}
 
-	// Try internal action manager
-	if b.internalActionManager != nil {
-		actionStatus, name, rv, annos, err := b.internalActionManager.GetActionStatus(ctx, request.GetId())
-		if err == nil {
-			resp := v2.GetActionStatusResponse_builder{
-				Id:          request.GetId(),
-				Name:        name,
-				Status:      actionStatus,
-				Annotations: annos,
-				Response:    rv,
-			}.Build()
-			b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
-			return resp, nil
-		}
-	}
-
-	b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-	return nil, fmt.Errorf("error: action status for id %s not found", request.GetId())
+	resp := v2.GetActionStatusResponse_builder{
+		Id:          request.GetId(),
+		Name:        name,
+		Status:      actionStatus,
+		Annotations: annos,
+		Response:    rv,
+	}.Build()
+	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
+	return resp, nil
 }
 
-func (b *builder) addActionManager(ctx context.Context, in interface{}) error {
-	if actionManager, ok := in.(CustomActionManager); ok {
-		if b.actionManager != nil {
-			return fmt.Errorf("error: cannot set multiple action managers")
+// registerLegacyAction wraps a legacy CustomActionManager action as an ActionHandler and registers it.
+func registerLegacyAction(ctx context.Context, registry ActionRegistry, schema *v2.BatonActionSchema, legacyManager CustomActionManager) error {
+	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		_, _, resp, annos, err := legacyManager.InvokeAction(ctx, schema.GetName(), "", args, nil)
+		return resp, annos, err
+	}
+	return registry.RegisterAction(ctx, schema.GetName(), schema, handler)
+}
+
+// addActionManager handles deprecated CustomActionManager and RegisterActionManagerLimited interfaces
+// by extracting their actions and registering them into the unified ActionManager.
+func (b *builder) addActionManager(ctx context.Context, in interface{}, registry ActionRegistry) error {
+	// Handle deprecated CustomActionManager - extract and re-register actions
+	if customManager, ok := in.(CustomActionManager); ok {
+		schemas, _, err := customManager.ListActionSchemas(ctx, "")
+		if err != nil {
+			return fmt.Errorf("error listing schemas from custom action manager: %w", err)
 		}
-		b.actionManager = actionManager
+		for _, schema := range schemas {
+			if err := registerLegacyAction(ctx, registry, schema, customManager); err != nil {
+				return fmt.Errorf("error registering legacy action %s: %w", schema.GetName(), err)
+			}
+		}
+		return nil
 	}
 
-	if registerActionManager, ok := in.(RegisterActionManagerLimited); ok {
-		if b.actionManager != nil {
-			return fmt.Errorf("error: cannot register multiple action managers")
-		}
-		actionManager, err := registerActionManager.RegisterActionManager(ctx)
+	// Handle deprecated RegisterActionManagerLimited
+	if registerManager, ok := in.(RegisterActionManagerLimited); ok {
+		customManager, err := registerManager.RegisterActionManager(ctx)
 		if err != nil {
-			return fmt.Errorf("error: registering action manager failed: %w", err)
+			return fmt.Errorf("error registering action manager: %w", err)
 		}
-		if actionManager == nil {
-			return fmt.Errorf("error: action manager is nil")
+		if customManager == nil {
+			return nil // No action manager provided
 		}
-		b.actionManager = actionManager
+		schemas, _, err := customManager.ListActionSchemas(ctx, "")
+		if err != nil {
+			return fmt.Errorf("error listing schemas from custom action manager: %w", err)
+		}
+		for _, schema := range schemas {
+			if err := registerLegacyAction(ctx, registry, schema, customManager); err != nil {
+				return fmt.Errorf("error registering legacy action %s: %w", schema.GetName(), err)
+			}
+		}
 	}
 	return nil
 }
