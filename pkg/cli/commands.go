@@ -639,7 +639,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		var c types.ConnectorServer
 
 		if defaultV, ok := any(confschema).(field.ConfigurableDefault); ok {
-			c, err = connectorbuilder.NewConnector(ctx, defaultV)
+			c, err = connectorbuilder.NewConnector(ctx, defaultV.DefaultBuilder())
 			if err != nil {
 				return err
 			}
