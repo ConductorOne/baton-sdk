@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "google/protobuf/struct.proto";
+import "google/protobuf/timestamp.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// SecurityInsightTrait is the trait annotation for resources with TRAIT_SECURITY_INSIGHT.
+// It contains the metadata for the security insight including type, value, observation time,
+// and the target entity (user or resource) that this insight should be bound to.
+message SecurityInsightTrait {
+  // The type of insight (e.g., "crowdstrike_zta_score", "wiz_critical_vulnerability")
+  string insight_type = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+
+  // The value of the insight (e.g., "85", "High", "Critical")
+  string value = 2 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+
+  // When this insight was observed/captured from the source system
+  google.protobuf.Timestamp observed_at = 3;
+
+  // Additional structured context (deep links, remediation steps, etc.)
+  google.protobuf.Struct context = 4;
+
+  // The target entity this insight should be bound to by Uplift
+  oneof target {
+    // For binding to a C1 User by email address
+    UserTarget user = 5;
+    // For binding to an AppResource by external ID
+    ResourceTarget resource = 6;
+  }
+
+  // UserTarget identifies a user by email for resolution to a C1 User
+  message UserTarget {
+    string email = 1 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 1024
+      email: true
+    }];
+  }
+
+  // ResourceTarget identifies a resource by external ID for resolution to an AppResource
+  message ResourceTarget {
+    // The external identifier of the resource (e.g., ARN, GUID, etc.)
+    string external_id = 1 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 4096
+    }];
+    // Optional hint to help find the owning app (e.g., "aws", "github")
+    string app_hint = 2 [(validate.rules).string = {
+      max_bytes: 1024
+      ignore_empty: true
+    }];
+  }
+}
