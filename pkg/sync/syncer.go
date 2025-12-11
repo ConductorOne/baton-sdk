@@ -256,6 +256,7 @@ type syncer struct {
 	skipEntitlementsForResourceType     map[string]bool
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
+	useDFSExpansion                     bool
 	resourceTypeTraits                  map[string][]v2.ResourceType_Trait
 	syncType                            connectorstore.SyncType
 	injectSyncIDAnnotation              bool
@@ -1763,6 +1764,11 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		}
 	}
 
+	// Use DFS or BFS expansion based on flag
+	if s.useDFSExpansion {
+		return s.expandGrantsDFS(ctx, entitlementGraph)
+	}
+
 	err := s.expandGrantsForEntitlements(ctx)
 	if err != nil {
 		return err
@@ -1790,6 +1796,51 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 
 	entitlementGraph.Depth++
 
+	return nil
+}
+
+// expandGrantsDFS performs grant expansion using the DFS (per-principal) approach.
+// This touches each grant exactly once, eliminating the need for rectification.
+func (s *syncer) expandGrantsDFS(ctx context.Context, graph *expand.EntitlementGraph) error {
+	ctx, span := tracer.Start(ctx, "syncer.expandGrantsDFS")
+	defer span.End()
+
+	l := ctxzap.Extract(ctx)
+	startTime := time.Now()
+
+	l.Warn("expandGrantsDFS: using DFS expansion", zap.String("tacos", "🌮🌮🌮"))
+	c1zStore, ok := s.store.(*dotc1z.C1File)
+	if !ok {
+		return fmt.Errorf("expandGrantsDFS: store is not a C1File")
+	}
+
+	// Run DFS expansion
+	stats, err := c1zStore.ExpandGrantsDFS(ctx, graph)
+	if err != nil {
+		l.Error("expandGrantsDFS: error", zap.Error(err))
+		return fmt.Errorf("expandGrantsDFS: %w", err)
+	}
+
+	// Clean up temp table
+	if err := c1zStore.DropDFSTempTable(ctx); err != nil {
+		l.Warn("expandGrantsDFS: error dropping temp table", zap.Error(err))
+	}
+
+	l.Info("expandGrantsDFS: complete",
+		zap.Int64("principals_processed", stats.PrincipalsProcessed),
+		zap.Int64("grants_inserted", stats.GrantsInserted),
+		zap.Int64("grants_updated", stats.GrantsUpdated),
+		zap.Int("entitlements_in_graph", stats.EntitlementsInGraph),
+		zap.Duration("elapsed", time.Since(startTime)),
+	)
+
+	// Mark all edges as expanded since DFS processes everything in one pass
+	for edgeID, edge := range graph.Edges {
+		edge.IsExpanded = true
+		graph.Edges[edgeID] = edge
+	}
+
+	s.state.FinishAction(ctx)
 	return nil
 }
 
@@ -3510,6 +3561,14 @@ func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 func WithSkipGrants(skip bool) SyncOpt {
 	return func(s *syncer) {
 		s.skipGrants = skip
+	}
+}
+
+// WithDFSExpansion enables or disables the DFS (per-principal) grant expansion algorithm.
+// This approach touches each grant exactly once, eliminating the need for rectification.
+func WithDFSExpansion(use bool) SyncOpt {
+	return func(s *syncer) {
+		s.useDFSExpansion = use
 	}
 }
 

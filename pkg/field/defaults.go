@@ -110,6 +110,12 @@ var (
 		WithHidden(true),
 	)
 
+	useDFSExpansion = BoolField("use-dfs-expansion",
+		WithDescription("Use the DFS (per-principal) grant expansion algorithm for faster expansion"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
 	syncResourceTypeIDs = StringSliceField("sync-resource-types",
 		WithDescription("The resource type IDs to sync"),
 		WithPersistent(true),
@@ -292,6 +298,7 @@ var DefaultFields = []SchemaField{
 	syncResourceTypeIDs,
 	skipEntitlementsAndGrants,
 	skipGrants,
+	useDFSExpansion,
 	externalResourceC1ZField,
 	externalResourceEntitlementIdFilter,
 	diffSyncsField,

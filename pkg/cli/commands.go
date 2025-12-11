@@ -361,6 +361,10 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithSkipGrants(v.GetBool("skip-grants")))
 		}
 
+		if v.GetBool("use-dfs-expansion") {
+			opts = append(opts, connectorrunner.WithDFSExpansion(v.GetBool("use-dfs-expansion")))
+		}
+
 		c, err := getconnector(runCtx, t, RunTimeOpts{})
 		if err != nil {
 			return err
