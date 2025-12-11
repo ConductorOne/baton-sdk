@@ -9,6 +9,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
 	"github.com/spf13/cobra"
@@ -605,6 +607,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 	v *viper.Viper,
 	confschema field.Configuration,
 	getconnector GetConnectorFunc2[T],
+	options ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		// NOTE(shackra): bind all the flags (persistent and
@@ -636,10 +639,24 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
 			return err
 		}
+		var c types.ConnectorServer
 
-		c, err := getconnector(runCtx, t, RunTimeOpts{})
-		if err != nil {
-			return err
+		if defaultV, ok := any(confschema).(field.ConfigurableDefault); ok {
+			c, err = connectorbuilder.NewConnector(ctx, defaultV)
+			if err != nil {
+				return err
+			}
+		}
+
+		if c == nil {
+			c, err = getconnector(runCtx, t, RunTimeOpts{})
+			if err != nil {
+				return err
+			}
+		}
+
+		if c == nil {
+			return fmt.Errorf("could not create connector %w", err)
 		}
 
 		md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})

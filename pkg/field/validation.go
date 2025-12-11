@@ -328,6 +328,11 @@ type Configurable interface {
 	GetStringMap(key string) map[string]any
 }
 
+type ConfigurableDefault interface {
+	Configurable
+	DefaultBuilder() any
+}
+
 type validateOptions struct {
 	authGroup string
 }
