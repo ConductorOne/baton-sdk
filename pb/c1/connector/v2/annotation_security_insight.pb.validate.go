@@ -220,6 +220,47 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 			}
 		}
 
+	case *SecurityInsightTrait_ExternalResource:
+		if v == nil {
+			err := SecurityInsightTraitValidationError{
+				field:  "Target",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetExternalResource()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, SecurityInsightTraitValidationError{
+						field:  "ExternalResource",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, SecurityInsightTraitValidationError{
+						field:  "ExternalResource",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetExternalResource()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return SecurityInsightTraitValidationError{
+					field:  "ExternalResource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -480,23 +521,24 @@ var _ interface {
 	ErrorName() string
 } = SecurityInsightTrait_UserTargetValidationError{}
 
-// Validate checks the field values on SecurityInsightTrait_ResourceTarget with
-// the rules defined in the proto definition for this message. If any rules
-// are violated, the first error encountered is returned, or nil if there are
-// no violations.
-func (m *SecurityInsightTrait_ResourceTarget) Validate() error {
+// Validate checks the field values on
+// SecurityInsightTrait_ExternalResourceTarget with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *SecurityInsightTrait_ExternalResourceTarget) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on SecurityInsightTrait_ResourceTarget
-// with the rules defined in the proto definition for this message. If any
-// rules are violated, the result is a list of violation errors wrapped in
-// SecurityInsightTrait_ResourceTargetMultiError, or nil if none found.
-func (m *SecurityInsightTrait_ResourceTarget) ValidateAll() error {
+// ValidateAll checks the field values on
+// SecurityInsightTrait_ExternalResourceTarget with the rules defined in the
+// proto definition for this message. If any rules are violated, the result is
+// a list of violation errors wrapped in
+// SecurityInsightTrait_ExternalResourceTargetMultiError, or nil if none found.
+func (m *SecurityInsightTrait_ExternalResourceTarget) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *SecurityInsightTrait_ResourceTarget) validate(all bool) error {
+func (m *SecurityInsightTrait_ExternalResourceTarget) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -504,7 +546,7 @@ func (m *SecurityInsightTrait_ResourceTarget) validate(all bool) error {
 	var errors []error
 
 	if l := len(m.GetExternalId()); l < 1 || l > 4096 {
-		err := SecurityInsightTrait_ResourceTargetValidationError{
+		err := SecurityInsightTrait_ExternalResourceTargetValidationError{
 			field:  "ExternalId",
 			reason: "value length must be between 1 and 4096 bytes, inclusive",
 		}
@@ -517,7 +559,7 @@ func (m *SecurityInsightTrait_ResourceTarget) validate(all bool) error {
 	if m.GetAppHint() != "" {
 
 		if len(m.GetAppHint()) > 1024 {
-			err := SecurityInsightTrait_ResourceTargetValidationError{
+			err := SecurityInsightTrait_ExternalResourceTargetValidationError{
 				field:  "AppHint",
 				reason: "value length must be at most 1024 bytes",
 			}
@@ -530,20 +572,20 @@ func (m *SecurityInsightTrait_ResourceTarget) validate(all bool) error {
 	}
 
 	if len(errors) > 0 {
-		return SecurityInsightTrait_ResourceTargetMultiError(errors)
+		return SecurityInsightTrait_ExternalResourceTargetMultiError(errors)
 	}
 
 	return nil
 }
 
-// SecurityInsightTrait_ResourceTargetMultiError is an error wrapping multiple
-// validation errors returned by
-// SecurityInsightTrait_ResourceTarget.ValidateAll() if the designated
+// SecurityInsightTrait_ExternalResourceTargetMultiError is an error wrapping
+// multiple validation errors returned by
+// SecurityInsightTrait_ExternalResourceTarget.ValidateAll() if the designated
 // constraints aren't met.
-type SecurityInsightTrait_ResourceTargetMultiError []error
+type SecurityInsightTrait_ExternalResourceTargetMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m SecurityInsightTrait_ResourceTargetMultiError) Error() string {
+func (m SecurityInsightTrait_ExternalResourceTargetMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -552,12 +594,12 @@ func (m SecurityInsightTrait_ResourceTargetMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m SecurityInsightTrait_ResourceTargetMultiError) AllErrors() []error { return m }
+func (m SecurityInsightTrait_ExternalResourceTargetMultiError) AllErrors() []error { return m }
 
-// SecurityInsightTrait_ResourceTargetValidationError is the validation error
-// returned by SecurityInsightTrait_ResourceTarget.Validate if the designated
-// constraints aren't met.
-type SecurityInsightTrait_ResourceTargetValidationError struct {
+// SecurityInsightTrait_ExternalResourceTargetValidationError is the validation
+// error returned by SecurityInsightTrait_ExternalResourceTarget.Validate if
+// the designated constraints aren't met.
+type SecurityInsightTrait_ExternalResourceTargetValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -565,24 +607,24 @@ type SecurityInsightTrait_ResourceTargetValidationError struct {
 }
 
 // Field function returns field value.
-func (e SecurityInsightTrait_ResourceTargetValidationError) Field() string { return e.field }
+func (e SecurityInsightTrait_ExternalResourceTargetValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e SecurityInsightTrait_ResourceTargetValidationError) Reason() string { return e.reason }
+func (e SecurityInsightTrait_ExternalResourceTargetValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e SecurityInsightTrait_ResourceTargetValidationError) Cause() error { return e.cause }
+func (e SecurityInsightTrait_ExternalResourceTargetValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e SecurityInsightTrait_ResourceTargetValidationError) Key() bool { return e.key }
+func (e SecurityInsightTrait_ExternalResourceTargetValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e SecurityInsightTrait_ResourceTargetValidationError) ErrorName() string {
-	return "SecurityInsightTrait_ResourceTargetValidationError"
+func (e SecurityInsightTrait_ExternalResourceTargetValidationError) ErrorName() string {
+	return "SecurityInsightTrait_ExternalResourceTargetValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e SecurityInsightTrait_ResourceTargetValidationError) Error() string {
+func (e SecurityInsightTrait_ExternalResourceTargetValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -594,14 +636,14 @@ func (e SecurityInsightTrait_ResourceTargetValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sSecurityInsightTrait_ResourceTarget.%s: %s%s",
+		"invalid %sSecurityInsightTrait_ExternalResourceTarget.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = SecurityInsightTrait_ResourceTargetValidationError{}
+var _ error = SecurityInsightTrait_ExternalResourceTargetValidationError{}
 
 var _ interface {
 	Field() string
@@ -609,4 +651,4 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = SecurityInsightTrait_ResourceTargetValidationError{}
+} = SecurityInsightTrait_ExternalResourceTargetValidationError{}

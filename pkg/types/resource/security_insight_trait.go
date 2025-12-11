@@ -43,6 +43,7 @@ func WithInsightContext(ctx map[string]interface{}) SecurityInsightTraitOption {
 }
 
 // WithInsightUserTarget sets the user target (by email) for the insight.
+// Use this when the insight should be resolved to a C1 User by Uplift.
 func WithInsightUserTarget(email string) SecurityInsightTraitOption {
 	return func(t *v2.SecurityInsightTrait) error {
 		t.SetUser(v2.SecurityInsightTrait_UserTarget_builder{
@@ -52,10 +53,20 @@ func WithInsightUserTarget(email string) SecurityInsightTraitOption {
 	}
 }
 
-// WithInsightResourceTarget sets the resource target (by external ID) for the insight.
-func WithInsightResourceTarget(externalId string, appHint string) SecurityInsightTraitOption {
+// WithInsightResourceTarget sets a direct resource reference for the insight.
+// Use this when the connector knows the actual resource (synced by this connector).
+func WithInsightResourceTarget(resourceId *v2.ResourceId) SecurityInsightTraitOption {
 	return func(t *v2.SecurityInsightTrait) error {
-		t.SetResource(v2.SecurityInsightTrait_ResourceTarget_builder{
+		t.SetResource(resourceId)
+		return nil
+	}
+}
+
+// WithInsightExternalResourceTarget sets the external resource target for the insight.
+// Use this when the connector only has an external ID (e.g., ARN) and needs Uplift to resolve it.
+func WithInsightExternalResourceTarget(externalId string, appHint string) SecurityInsightTraitOption {
+	return func(t *v2.SecurityInsightTrait) error {
+		t.SetExternalResource(v2.SecurityInsightTrait_ExternalResourceTarget_builder{
 			ExternalId: externalId,
 			AppHint:    appHint,
 		}.Build())
@@ -125,6 +136,7 @@ func NewSecurityInsightResourceType(name string) *v2.ResourceType {
 }
 
 // NewUserSecurityInsightResource creates a security insight resource targeting a user by email.
+// Use this when the insight should be resolved to a C1 User by Uplift.
 func NewUserSecurityInsightResource(
 	name string,
 	resourceType *v2.ResourceType,
@@ -135,7 +147,6 @@ func NewUserSecurityInsightResource(
 	traitOpts []SecurityInsightTraitOption,
 	opts ...ResourceOption,
 ) (*v2.Resource, error) {
-	// Create the trait with the insight type, value, and user target
 	allTraitOpts := append([]SecurityInsightTraitOption{
 		WithInsightValue(value),
 		WithInsightUserTarget(userEmail),
@@ -146,19 +157,41 @@ func NewUserSecurityInsightResource(
 		return nil, err
 	}
 
-	// Add the trait annotation
 	opts = append(opts, WithAnnotation(trait))
 
-	ret, err := NewResource(name, resourceType, objectID, opts...)
+	return NewResource(name, resourceType, objectID, opts...)
+}
+
+// NewResourceSecurityInsightResource creates a security insight resource with a direct resource reference.
+// Use this when the connector knows the actual resource (synced by this connector).
+func NewResourceSecurityInsightResource(
+	name string,
+	resourceType *v2.ResourceType,
+	objectID interface{},
+	insightType string,
+	value string,
+	targetResourceId *v2.ResourceId,
+	traitOpts []SecurityInsightTraitOption,
+	opts ...ResourceOption,
+) (*v2.Resource, error) {
+	allTraitOpts := append([]SecurityInsightTraitOption{
+		WithInsightValue(value),
+		WithInsightResourceTarget(targetResourceId),
+	}, traitOpts...)
+
+	trait, err := NewSecurityInsightTrait(insightType, allTraitOpts...)
 	if err != nil {
 		return nil, err
 	}
 
-	return ret, nil
+	opts = append(opts, WithAnnotation(trait))
+
+	return NewResource(name, resourceType, objectID, opts...)
 }
 
-// NewResourceSecurityInsightResource creates a security insight resource targeting a resource by external ID.
-func NewResourceSecurityInsightResource(
+// NewExternalResourceSecurityInsightResource creates a security insight resource targeting an external resource.
+// Use this when the connector only has an external ID (e.g., ARN) and needs Uplift to resolve it.
+func NewExternalResourceSecurityInsightResource(
 	name string,
 	resourceType *v2.ResourceType,
 	objectID interface{},
@@ -169,10 +202,9 @@ func NewResourceSecurityInsightResource(
 	traitOpts []SecurityInsightTraitOption,
 	opts ...ResourceOption,
 ) (*v2.Resource, error) {
-	// Create the trait with the insight type, value, and resource target
 	allTraitOpts := append([]SecurityInsightTraitOption{
 		WithInsightValue(value),
-		WithInsightResourceTarget(targetExternalId, targetAppHint),
+		WithInsightExternalResourceTarget(targetExternalId, targetAppHint),
 	}, traitOpts...)
 
 	trait, err := NewSecurityInsightTrait(insightType, allTraitOpts...)
@@ -180,15 +212,9 @@ func NewResourceSecurityInsightResource(
 		return nil, err
 	}
 
-	// Add the trait annotation
 	opts = append(opts, WithAnnotation(trait))
 
-	ret, err := NewResource(name, resourceType, objectID, opts...)
-	if err != nil {
-		return nil, err
-	}
-
-	return ret, nil
+	return NewResource(name, resourceType, objectID, opts...)
 }
 
 // IsSecurityInsightResource checks if a resource type has the TRAIT_SECURITY_INSIGHT trait.
@@ -201,6 +227,25 @@ func IsSecurityInsightResource(resourceType *v2.ResourceType) bool {
 	return false
 }
 
+// --- Target type checkers ---
+
+// IsUserTarget returns true if the insight targets a user.
+func IsUserTarget(trait *v2.SecurityInsightTrait) bool {
+	return trait.GetUser() != nil
+}
+
+// IsResourceTarget returns true if the insight has a direct resource reference.
+func IsResourceTarget(trait *v2.SecurityInsightTrait) bool {
+	return trait.GetResource() != nil
+}
+
+// IsExternalResourceTarget returns true if the insight targets an external resource.
+func IsExternalResourceTarget(trait *v2.SecurityInsightTrait) bool {
+	return trait.GetExternalResource() != nil
+}
+
+// --- Target data extractors ---
+
 // GetUserTargetEmail returns the user email from a SecurityInsightTrait, or empty string if not a user target.
 func GetUserTargetEmail(trait *v2.SecurityInsightTrait) string {
 	if user := trait.GetUser(); user != nil {
@@ -209,28 +254,23 @@ func GetUserTargetEmail(trait *v2.SecurityInsightTrait) string {
 	return ""
 }
 
-// GetResourceTargetExternalId returns the external ID from a SecurityInsightTrait, or empty string if not a resource target.
-func GetResourceTargetExternalId(trait *v2.SecurityInsightTrait) string {
-	if resource := trait.GetResource(); resource != nil {
-		return resource.GetExternalId()
+// GetResourceTarget returns the ResourceId from a SecurityInsightTrait, or nil if not a resource target.
+func GetResourceTarget(trait *v2.SecurityInsightTrait) *v2.ResourceId {
+	return trait.GetResource()
+}
+
+// GetExternalResourceTargetId returns the external ID from a SecurityInsightTrait, or empty string if not an external resource target.
+func GetExternalResourceTargetId(trait *v2.SecurityInsightTrait) string {
+	if ext := trait.GetExternalResource(); ext != nil {
+		return ext.GetExternalId()
 	}
 	return ""
 }
 
-// GetResourceTargetAppHint returns the app hint from a SecurityInsightTrait, or empty string if not a resource target.
-func GetResourceTargetAppHint(trait *v2.SecurityInsightTrait) string {
-	if resource := trait.GetResource(); resource != nil {
-		return resource.GetAppHint()
+// GetExternalResourceTargetAppHint returns the app hint from a SecurityInsightTrait, or empty string if not an external resource target.
+func GetExternalResourceTargetAppHint(trait *v2.SecurityInsightTrait) string {
+	if ext := trait.GetExternalResource(); ext != nil {
+		return ext.GetAppHint()
 	}
 	return ""
-}
-
-// IsUserTarget returns true if the insight targets a user.
-func IsUserTarget(trait *v2.SecurityInsightTrait) bool {
-	return trait.GetUser() != nil
-}
-
-// IsResourceTarget returns true if the insight targets a resource.
-func IsResourceTarget(trait *v2.SecurityInsightTrait) bool {
-	return trait.GetResource() != nil
 }

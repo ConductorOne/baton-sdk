@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package c1.connector.v2;
 
+import "c1/connector/v2/resource.proto";
 import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
@@ -30,12 +31,14 @@ message SecurityInsightTrait {
   // Additional structured context (deep links, remediation steps, etc.)
   google.protobuf.Struct context = 4;
 
-  // The target entity this insight should be bound to by Uplift
+  // The target entity this insight should be bound to
   oneof target {
     // For binding to a C1 User by email address
     UserTarget user = 5;
+    // For direct reference to a resource the connector knows about
+    c1.connector.v2.ResourceId resource = 6;
     // For binding to an AppResource by external ID
-    ResourceTarget resource = 6;
+    ExternalResourceTarget external_resource = 7;
   }
 
   // UserTarget identifies a user by email for resolution to a C1 User
@@ -47,8 +50,9 @@ message SecurityInsightTrait {
     }];
   }
 
-  // ResourceTarget identifies a resource by external ID for resolution to an AppResource
-  message ResourceTarget {
+  // ExternalResourceTarget identifies a resource by external ID for resolution to an AppResource.
+  // Use this when the connector doesn't sync the target resource itself.
+  message ExternalResourceTarget {
     // The external identifier of the resource (e.g., ARN, GUID, etc.)
     string external_id = 1 [(validate.rules).string = {
       min_bytes: 1

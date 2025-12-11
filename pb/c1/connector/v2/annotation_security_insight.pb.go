@@ -38,12 +38,13 @@ type SecurityInsightTrait struct {
 	ObservedAt *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
 	// Additional structured context (deep links, remediation steps, etc.)
 	Context *structpb.Struct `protobuf:"bytes,4,opt,name=context,proto3" json:"context,omitempty"`
-	// The target entity this insight should be bound to by Uplift
+	// The target entity this insight should be bound to
 	//
 	// Types that are valid to be assigned to Target:
 	//
 	//	*SecurityInsightTrait_User
 	//	*SecurityInsightTrait_Resource
+	//	*SecurityInsightTrait_ExternalResource
 	Target        isSecurityInsightTrait_Target `protobuf_oneof:"target"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -118,10 +119,19 @@ func (x *SecurityInsightTrait) GetUser() *SecurityInsightTrait_UserTarget {
 	return nil
 }
 
-func (x *SecurityInsightTrait) GetResource() *SecurityInsightTrait_ResourceTarget {
+func (x *SecurityInsightTrait) GetResource() *ResourceId {
 	if x != nil {
 		if x, ok := x.Target.(*SecurityInsightTrait_Resource); ok {
 			return x.Resource
+		}
+	}
+	return nil
+}
+
+func (x *SecurityInsightTrait) GetExternalResource() *SecurityInsightTrait_ExternalResourceTarget {
+	if x != nil {
+		if x, ok := x.Target.(*SecurityInsightTrait_ExternalResource); ok {
+			return x.ExternalResource
 		}
 	}
 	return nil
@@ -151,12 +161,20 @@ func (x *SecurityInsightTrait) SetUser(v *SecurityInsightTrait_UserTarget) {
 	x.Target = &SecurityInsightTrait_User{v}
 }
 
-func (x *SecurityInsightTrait) SetResource(v *SecurityInsightTrait_ResourceTarget) {
+func (x *SecurityInsightTrait) SetResource(v *ResourceId) {
 	if v == nil {
 		x.Target = nil
 		return
 	}
 	x.Target = &SecurityInsightTrait_Resource{v}
+}
+
+func (x *SecurityInsightTrait) SetExternalResource(v *SecurityInsightTrait_ExternalResourceTarget) {
+	if v == nil {
+		x.Target = nil
+		return
+	}
+	x.Target = &SecurityInsightTrait_ExternalResource{v}
 }
 
 func (x *SecurityInsightTrait) HasObservedAt() bool {
@@ -196,6 +214,14 @@ func (x *SecurityInsightTrait) HasResource() bool {
 	return ok
 }
 
+func (x *SecurityInsightTrait) HasExternalResource() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Target.(*SecurityInsightTrait_ExternalResource)
+	return ok
+}
+
 func (x *SecurityInsightTrait) ClearObservedAt() {
 	x.ObservedAt = nil
 }
@@ -220,9 +246,16 @@ func (x *SecurityInsightTrait) ClearResource() {
 	}
 }
 
+func (x *SecurityInsightTrait) ClearExternalResource() {
+	if _, ok := x.Target.(*SecurityInsightTrait_ExternalResource); ok {
+		x.Target = nil
+	}
+}
+
 const SecurityInsightTrait_Target_not_set_case case_SecurityInsightTrait_Target = 0
 const SecurityInsightTrait_User_case case_SecurityInsightTrait_Target = 5
 const SecurityInsightTrait_Resource_case case_SecurityInsightTrait_Target = 6
+const SecurityInsightTrait_ExternalResource_case case_SecurityInsightTrait_Target = 7
 
 func (x *SecurityInsightTrait) WhichTarget() case_SecurityInsightTrait_Target {
 	if x == nil {
@@ -233,6 +266,8 @@ func (x *SecurityInsightTrait) WhichTarget() case_SecurityInsightTrait_Target {
 		return SecurityInsightTrait_User_case
 	case *SecurityInsightTrait_Resource:
 		return SecurityInsightTrait_Resource_case
+	case *SecurityInsightTrait_ExternalResource:
+		return SecurityInsightTrait_ExternalResource_case
 	default:
 		return SecurityInsightTrait_Target_not_set_case
 	}
@@ -249,13 +284,15 @@ type SecurityInsightTrait_builder struct {
 	ObservedAt *timestamppb.Timestamp
 	// Additional structured context (deep links, remediation steps, etc.)
 	Context *structpb.Struct
-	// The target entity this insight should be bound to by Uplift
+	// The target entity this insight should be bound to
 
 	// Fields of oneof Target:
-	// For binding to a C1 User by email address
+	// For binding to a C1 User by email address (resolved by Uplift)
 	User *SecurityInsightTrait_UserTarget
-	// For binding to an AppResource by external ID
-	Resource *SecurityInsightTrait_ResourceTarget
+	// For direct reference to a resource the connector knows about (no resolution needed)
+	Resource *ResourceId
+	// For binding to an AppResource by external ID (resolved by Uplift)
+	ExternalResource *SecurityInsightTrait_ExternalResourceTarget
 	// -- end of Target
 }
 
@@ -272,6 +309,9 @@ func (b0 SecurityInsightTrait_builder) Build() *SecurityInsightTrait {
 	}
 	if b.Resource != nil {
 		x.Target = &SecurityInsightTrait_Resource{b.Resource}
+	}
+	if b.ExternalResource != nil {
+		x.Target = &SecurityInsightTrait_ExternalResource{b.ExternalResource}
 	}
 	return m0
 }
@@ -291,18 +331,25 @@ type isSecurityInsightTrait_Target interface {
 }
 
 type SecurityInsightTrait_User struct {
-	// For binding to a C1 User by email address
+	// For binding to a C1 User by email address (resolved by Uplift)
 	User *SecurityInsightTrait_UserTarget `protobuf:"bytes,5,opt,name=user,proto3,oneof"`
 }
 
 type SecurityInsightTrait_Resource struct {
-	// For binding to an AppResource by external ID
-	Resource *SecurityInsightTrait_ResourceTarget `protobuf:"bytes,6,opt,name=resource,proto3,oneof"`
+	// For direct reference to a resource the connector knows about (no resolution needed)
+	Resource *ResourceId `protobuf:"bytes,6,opt,name=resource,proto3,oneof"`
+}
+
+type SecurityInsightTrait_ExternalResource struct {
+	// For binding to an AppResource by external ID (resolved by Uplift)
+	ExternalResource *SecurityInsightTrait_ExternalResourceTarget `protobuf:"bytes,7,opt,name=external_resource,json=externalResource,proto3,oneof"`
 }
 
 func (*SecurityInsightTrait_User) isSecurityInsightTrait_Target() {}
 
 func (*SecurityInsightTrait_Resource) isSecurityInsightTrait_Target() {}
+
+func (*SecurityInsightTrait_ExternalResource) isSecurityInsightTrait_Target() {}
 
 // UserTarget identifies a user by email for resolution to a C1 User
 type SecurityInsightTrait_UserTarget struct {
@@ -362,8 +409,9 @@ func (b0 SecurityInsightTrait_UserTarget_builder) Build() *SecurityInsightTrait_
 	return m0
 }
 
-// ResourceTarget identifies a resource by external ID for resolution to an AppResource
-type SecurityInsightTrait_ResourceTarget struct {
+// ExternalResourceTarget identifies a resource by external ID for resolution to an AppResource.
+// Use this when the connector doesn't sync the target resource itself.
+type SecurityInsightTrait_ExternalResourceTarget struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// The external identifier of the resource (e.g., ARN, GUID, etc.)
 	ExternalId string `protobuf:"bytes,1,opt,name=external_id,json=externalId,proto3" json:"external_id,omitempty"`
@@ -373,20 +421,20 @@ type SecurityInsightTrait_ResourceTarget struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *SecurityInsightTrait_ResourceTarget) Reset() {
-	*x = SecurityInsightTrait_ResourceTarget{}
+func (x *SecurityInsightTrait_ExternalResourceTarget) Reset() {
+	*x = SecurityInsightTrait_ExternalResourceTarget{}
 	mi := &file_c1_connector_v2_annotation_security_insight_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *SecurityInsightTrait_ResourceTarget) String() string {
+func (x *SecurityInsightTrait_ExternalResourceTarget) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*SecurityInsightTrait_ResourceTarget) ProtoMessage() {}
+func (*SecurityInsightTrait_ExternalResourceTarget) ProtoMessage() {}
 
-func (x *SecurityInsightTrait_ResourceTarget) ProtoReflect() protoreflect.Message {
+func (x *SecurityInsightTrait_ExternalResourceTarget) ProtoReflect() protoreflect.Message {
 	mi := &file_c1_connector_v2_annotation_security_insight_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -398,29 +446,29 @@ func (x *SecurityInsightTrait_ResourceTarget) ProtoReflect() protoreflect.Messag
 	return mi.MessageOf(x)
 }
 
-func (x *SecurityInsightTrait_ResourceTarget) GetExternalId() string {
+func (x *SecurityInsightTrait_ExternalResourceTarget) GetExternalId() string {
 	if x != nil {
 		return x.ExternalId
 	}
 	return ""
 }
 
-func (x *SecurityInsightTrait_ResourceTarget) GetAppHint() string {
+func (x *SecurityInsightTrait_ExternalResourceTarget) GetAppHint() string {
 	if x != nil {
 		return x.AppHint
 	}
 	return ""
 }
 
-func (x *SecurityInsightTrait_ResourceTarget) SetExternalId(v string) {
+func (x *SecurityInsightTrait_ExternalResourceTarget) SetExternalId(v string) {
 	x.ExternalId = v
 }
 
-func (x *SecurityInsightTrait_ResourceTarget) SetAppHint(v string) {
+func (x *SecurityInsightTrait_ExternalResourceTarget) SetAppHint(v string) {
 	x.AppHint = v
 }
 
-type SecurityInsightTrait_ResourceTarget_builder struct {
+type SecurityInsightTrait_ExternalResourceTarget_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// The external identifier of the resource (e.g., ARN, GUID, etc.)
@@ -429,8 +477,8 @@ type SecurityInsightTrait_ResourceTarget_builder struct {
 	AppHint string
 }
 
-func (b0 SecurityInsightTrait_ResourceTarget_builder) Build() *SecurityInsightTrait_ResourceTarget {
-	m0 := &SecurityInsightTrait_ResourceTarget{}
+func (b0 SecurityInsightTrait_ExternalResourceTarget_builder) Build() *SecurityInsightTrait_ExternalResourceTarget {
+	m0 := &SecurityInsightTrait_ExternalResourceTarget{}
 	b, x := &b0, m0
 	_, _ = b, x
 	x.ExternalId = b.ExternalId
@@ -442,7 +490,7 @@ var File_c1_connector_v2_annotation_security_insight_proto protoreflect.FileDesc
 
 const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 	"\n" +
-	"1c1/connector/v2/annotation_security_insight.proto\x12\x0fc1.connector.v2\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\x96\x04\n" +
+	"1c1/connector/v2/annotation_security_insight.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xf2\x04\n" +
 	"\x14SecurityInsightTrait\x12-\n" +
 	"\finsight_type\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\vinsightType\x12 \n" +
@@ -451,12 +499,13 @@ const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 	"\vobserved_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
 	"observedAt\x121\n" +
 	"\acontext\x18\x04 \x01(\v2\x17.google.protobuf.StructR\acontext\x12F\n" +
-	"\x04user\x18\x05 \x01(\v20.c1.connector.v2.SecurityInsightTrait.UserTargetH\x00R\x04user\x12R\n" +
-	"\bresource\x18\x06 \x01(\v24.c1.connector.v2.SecurityInsightTrait.ResourceTargetH\x00R\bresource\x1a0\n" +
+	"\x04user\x18\x05 \x01(\v20.c1.connector.v2.SecurityInsightTrait.UserTargetH\x00R\x04user\x129\n" +
+	"\bresource\x18\x06 \x01(\v2\x1b.c1.connector.v2.ResourceIdH\x00R\bresource\x12k\n" +
+	"\x11external_resource\x18\a \x01(\v2<.c1.connector.v2.SecurityInsightTrait.ExternalResourceTargetH\x00R\x10externalResource\x1a0\n" +
 	"\n" +
 	"UserTarget\x12\"\n" +
-	"\x05email\x18\x01 \x01(\tB\f\xfaB\tr\a \x01(\x80\b`\x01R\x05email\x1ae\n" +
-	"\x0eResourceTarget\x12+\n" +
+	"\x05email\x18\x01 \x01(\tB\f\xfaB\tr\a \x01(\x80\b`\x01R\x05email\x1am\n" +
+	"\x16ExternalResourceTarget\x12+\n" +
 	"\vexternal_id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80 R\n" +
 	"externalId\x12&\n" +
@@ -465,22 +514,24 @@ const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 
 var file_c1_connector_v2_annotation_security_insight_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_c1_connector_v2_annotation_security_insight_proto_goTypes = []any{
-	(*SecurityInsightTrait)(nil),                // 0: c1.connector.v2.SecurityInsightTrait
-	(*SecurityInsightTrait_UserTarget)(nil),     // 1: c1.connector.v2.SecurityInsightTrait.UserTarget
-	(*SecurityInsightTrait_ResourceTarget)(nil), // 2: c1.connector.v2.SecurityInsightTrait.ResourceTarget
-	(*timestamppb.Timestamp)(nil),               // 3: google.protobuf.Timestamp
-	(*structpb.Struct)(nil),                     // 4: google.protobuf.Struct
+	(*SecurityInsightTrait)(nil),                        // 0: c1.connector.v2.SecurityInsightTrait
+	(*SecurityInsightTrait_UserTarget)(nil),             // 1: c1.connector.v2.SecurityInsightTrait.UserTarget
+	(*SecurityInsightTrait_ExternalResourceTarget)(nil), // 2: c1.connector.v2.SecurityInsightTrait.ExternalResourceTarget
+	(*timestamppb.Timestamp)(nil),                       // 3: google.protobuf.Timestamp
+	(*structpb.Struct)(nil),                             // 4: google.protobuf.Struct
+	(*ResourceId)(nil),                                  // 5: c1.connector.v2.ResourceId
 }
 var file_c1_connector_v2_annotation_security_insight_proto_depIdxs = []int32{
 	3, // 0: c1.connector.v2.SecurityInsightTrait.observed_at:type_name -> google.protobuf.Timestamp
 	4, // 1: c1.connector.v2.SecurityInsightTrait.context:type_name -> google.protobuf.Struct
 	1, // 2: c1.connector.v2.SecurityInsightTrait.user:type_name -> c1.connector.v2.SecurityInsightTrait.UserTarget
-	2, // 3: c1.connector.v2.SecurityInsightTrait.resource:type_name -> c1.connector.v2.SecurityInsightTrait.ResourceTarget
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	5, // 3: c1.connector.v2.SecurityInsightTrait.resource:type_name -> c1.connector.v2.ResourceId
+	2, // 4: c1.connector.v2.SecurityInsightTrait.external_resource:type_name -> c1.connector.v2.SecurityInsightTrait.ExternalResourceTarget
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_security_insight_proto_init() }
@@ -488,9 +539,11 @@ func file_c1_connector_v2_annotation_security_insight_proto_init() {
 	if File_c1_connector_v2_annotation_security_insight_proto != nil {
 		return
 	}
+	file_c1_connector_v2_resource_proto_init()
 	file_c1_connector_v2_annotation_security_insight_proto_msgTypes[0].OneofWrappers = []any{
 		(*SecurityInsightTrait_User)(nil),
 		(*SecurityInsightTrait_Resource)(nil),
+		(*SecurityInsightTrait_ExternalResource)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
