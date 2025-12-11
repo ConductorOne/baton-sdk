@@ -2912,11 +2912,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 			// Add the source entitlement as a source to all descendant grants.
 			grantsToUpdate := make([]*v2.Grant, 0)
 			for _, descendantGrant := range resp {
-				sources := descendantGrant.GetSources()
-				if sources == nil {
-					sources = &v2.GrantSources{}
-				}
-				sourcesMap := sources.GetSources()
+				sourcesMap := descendantGrant.GetSources().GetSources()
 				if sourcesMap == nil {
 					sourcesMap = make(map[string]*v2.GrantSources_GrantSource)
 				}
@@ -2928,7 +2924,6 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 					sourcesMap[action.DescendantEntitlementID] = &v2.GrantSources_GrantSource{}
 					updated = true
 				}
-
 				// Include the source grant as a source.
 				if sourcesMap[action.SourceEntitlementID] == nil {
 					sourcesMap[action.SourceEntitlementID] = &v2.GrantSources_GrantSource{}
@@ -2936,6 +2931,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 				}
 
 				if updated {
+					sources := v2.GrantSources_builder{Sources: sourcesMap}.Build()
 					descendantGrant.SetSources(sources)
 					grantsToUpdate = append(grantsToUpdate, descendantGrant)
 				}
