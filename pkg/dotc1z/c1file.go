@@ -34,15 +34,17 @@ type pragma struct {
 }
 
 type C1File struct {
-	rawDb          *sql.DB
-	db             *goqu.Database
-	currentSyncID  string
-	viewSyncID     string
-	outputFilePath string
-	dbFilePath     string
-	dbUpdated      bool
-	tempDir        string
-	pragmas        []pragma
+	rawDb              *sql.DB
+	db                 *goqu.Database
+	currentSyncID      string
+	viewSyncID         string
+	outputFilePath     string
+	dbFilePath         string
+	dbUpdated          bool
+	tempDir            string
+	pragmas            []pragma
+	readOnly           bool
+	encoderConcurrency int
 
 	// Slow query tracking
 	slowQueryLogTimes     map[string]time.Time
@@ -55,15 +57,30 @@ var _ connectorstore.Writer = (*C1File)(nil)
 
 type C1FOption func(*C1File)
 
+// WithC1FTmpDir sets the temporary directory to use when cloning a sync.
+// If not provided, os.TempDir() will be used.
 func WithC1FTmpDir(tempDir string) C1FOption {
 	return func(o *C1File) {
 		o.tempDir = tempDir
 	}
 }
 
+// WithC1FPragma sets a sqlite pragma for the c1z file.
 func WithC1FPragma(name string, value string) C1FOption {
 	return func(o *C1File) {
 		o.pragmas = append(o.pragmas, pragma{name, value})
+	}
+}
+
+func WithC1FReadOnly(readOnly bool) C1FOption {
+	return func(o *C1File) {
+		o.readOnly = readOnly
+	}
+}
+
+func WithC1FEncoderConcurrency(concurrency int) C1FOption {
+	return func(o *C1File) {
+		o.encoderConcurrency = concurrency
 	}
 }
 
@@ -87,6 +104,7 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		slowQueryLogTimes:     make(map[string]time.Time),
 		slowQueryThreshold:    5 * time.Second,
 		slowQueryLogFrequency: 1 * time.Minute,
+		encoderConcurrency:    1,
 	}
 
 	for _, opt := range opts {
@@ -107,18 +125,23 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 }
 
 type c1zOptions struct {
-	tmpDir         string
-	pragmas        []pragma
-	decoderOptions []DecoderOption
+	tmpDir             string
+	pragmas            []pragma
+	decoderOptions     []DecoderOption
+	readOnly           bool
+	encoderConcurrency int
 }
 type C1ZOption func(*c1zOptions)
 
+// WithTmpDir sets the temporary directory to extract the c1z file to.
+// If not provided, os.TempDir() will be used.
 func WithTmpDir(tmpDir string) C1ZOption {
 	return func(o *c1zOptions) {
 		o.tmpDir = tmpDir
 	}
 }
 
+// WithPragma sets a sqlite pragma for the c1z file.
 func WithPragma(name string, value string) C1ZOption {
 	return func(o *c1zOptions) {
 		o.pragmas = append(o.pragmas, pragma{name, value})
@@ -131,12 +154,30 @@ func WithDecoderOptions(opts ...DecoderOption) C1ZOption {
 	}
 }
 
+// WithReadOnly opens the c1z file in read only mode. Modifying the c1z will result in an error on close.
+func WithReadOnly(readOnly bool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.readOnly = readOnly
+	}
+}
+
+// WithEncoderConcurrency sets the number of created encoders.
+// Default is 1, which disables async encoding/concurrency.
+// 0 uses GOMAXPROCS.
+func WithEncoderConcurrency(concurrency int) C1ZOption {
+	return func(o *c1zOptions) {
+		o.encoderConcurrency = concurrency
+	}
+}
+
 // Returns a new C1File instance with its state stored at the provided filename.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
 	defer span.End()
 
-	options := &c1zOptions{}
+	options := &c1zOptions{
+		encoderConcurrency: 1,
+	}
 	for _, opt := range opts {
 		opt(options)
 	}
@@ -150,6 +191,13 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	for _, pragma := range options.pragmas {
 		c1fopts = append(c1fopts, WithC1FPragma(pragma.name, pragma.value))
 	}
+	if options.readOnly {
+		c1fopts = append(c1fopts, WithC1FReadOnly(true))
+	}
+	if options.encoderConcurrency < 0 {
+		return nil, fmt.Errorf("encoder concurrency must be greater than 0")
+	}
+	c1fopts = append(c1fopts, WithC1FEncoderConcurrency(options.encoderConcurrency))
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)
 	if err != nil {
@@ -169,6 +217,8 @@ func cleanupDbDir(dbFilePath string, err error) error {
 	return err
 }
 
+var ErrReadOnly = errors.New("c1z: read only mode")
+
 // Close ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
 // with our changes.
 func (c *C1File) Close() error {
@@ -185,7 +235,10 @@ func (c *C1File) Close() error {
 
 	// We only want to save the file if we've made any changes
 	if c.dbUpdated {
-		err = saveC1z(c.dbFilePath, c.outputFilePath)
+		if c.readOnly {
+			return cleanupDbDir(c.dbFilePath, ErrReadOnly)
+		}
+		err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
 		if err != nil {
 			return cleanupDbDir(c.dbFilePath, err)
 		}

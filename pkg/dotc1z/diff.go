@@ -11,6 +11,10 @@ import (
 )
 
 func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, appliedSyncID string) (string, error) {
+	if c.readOnly {
+		return "", ErrReadOnly
+	}
+
 	// Validate that both sync runs exist
 	baseSync, err := c.getSync(ctx, baseSyncID)
 	if err != nil {

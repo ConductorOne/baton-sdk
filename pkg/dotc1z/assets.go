@@ -58,6 +58,10 @@ func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTyp
 	ctx, span := tracer.Start(ctx, "C1File.PutAsset")
 	defer span.End()
 
+	if c.readOnly {
+		return ErrReadOnly
+	}
+
 	l := ctxzap.Extract(ctx)
 
 	if len(data) == 0 {

@@ -13,7 +13,6 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
@@ -230,25 +229,25 @@ func cpFile(sourcePath string, destPath string) error {
 	return nil
 }
 
-func (c *Compactor) getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, *dotc1z.C1File, c1zmanager.Manager, func(), error) {
+func (c *Compactor) getLatestObjects(ctx context.Context, info *CompactableSync) (*reader_v2.SyncRun, *dotc1z.C1File, func(), error) {
 	cleanup := func() {}
-	baseC1Z, err := c1zmanager.New(ctx, info.FilePath, c1zmanager.WithTmpDir(c.tmpDir))
-	if err != nil {
-		return nil, nil, nil, cleanup, err
-	}
 
-	cleanup = func() {
-		_ = baseC1Z.Close(ctx)
-	}
-
-	baseFile, err := baseC1Z.LoadC1Z(ctx)
+	baseFile, err := dotc1z.NewC1ZFile(
+		ctx,
+		info.FilePath,
+		dotc1z.WithTmpDir(c.tmpDir),
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(0)),
+		dotc1z.WithReadOnly(true),
+		// We're only reading, so it's safe to use these pragmas.
+		dotc1z.WithPragma("journal_mode", "OFF"),
+		dotc1z.WithPragma("synchronous", "OFF"),
+	)
 	if err != nil {
-		return nil, nil, nil, cleanup, err
+		return nil, nil, cleanup, err
 	}
 
 	cleanup = func() {
 		_ = baseFile.Close()
-		_ = baseC1Z.Close(ctx)
 	}
 
 	latestAppliedSync, err := baseFile.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
@@ -256,10 +255,10 @@ func (c *Compactor) getLatestObjects(ctx context.Context, info *CompactableSync)
 		Annotations: nil,
 	}.Build())
 	if err != nil {
-		return nil, nil, nil, cleanup, err
+		return nil, nil, cleanup, err
 	}
 
-	return latestAppliedSync.GetSync(), baseFile, baseC1Z, cleanup, nil
+	return latestAppliedSync.GetSync(), baseFile, cleanup, nil
 }
 
 func unionSyncTypes(a, b connectorstore.SyncType) connectorstore.SyncType {
@@ -297,6 +296,10 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 		// Use memory for temporary storage.
 		dotc1z.WithPragma("temp_store", "MEMORY"),
 		// We close this c1z after compaction, so syncer won't have these pragmas when expanding grants.
+		// Use parallel decoding.
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(0)),
+		// Use parallel encoding.
+		dotc1z.WithEncoderConcurrency(0),
 	}
 
 	fileName := fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID)
@@ -307,13 +310,13 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	}
 	defer func() { _ = newFile.Close() }()
 
-	baseSync, baseFile, _, cleanupBase, err := c.getLatestObjects(ctx, base)
+	baseSync, baseFile, cleanupBase, err := c.getLatestObjects(ctx, base)
 	defer cleanupBase()
 	if err != nil {
 		return nil, err
 	}
 
-	appliedSync, appliedFile, _, cleanupApplied, err := c.getLatestObjects(ctx, applied)
+	appliedSync, appliedFile, cleanupApplied, err := c.getLatestObjects(ctx, applied)
 	defer cleanupApplied()
 	if err != nil {
 		return nil, err
