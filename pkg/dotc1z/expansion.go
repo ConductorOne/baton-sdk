@@ -316,14 +316,14 @@ func (c *C1File) MigrateGrantSourcesToNormalized(ctx context.Context) error {
 
 // ExpandGrantsSingleLevel expands grants for a single edge (source -> descendant).
 // This is a simpler version for when you want to expand one edge at a time.
-func (c *C1File) ExpandGrantsSingleLevel(
+func (c *C1File) ExpandGrantsSingleEdge(
 	ctx context.Context,
 	sourceEntitlementID string,
 	descendantEntitlementID string,
 	resourceTypeIDs []string,
 	shallow bool,
 ) (inserted int64, updated int64, err error) {
-	ctx, span := tracer.Start(ctx, "C1File.ExpandGrantsSingleLevel")
+	ctx, span := tracer.Start(ctx, "C1File.ExpandGrantsSingleEdge")
 	defer span.End()
 
 	gTable := grants.Name()

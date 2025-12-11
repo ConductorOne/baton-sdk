@@ -328,7 +328,8 @@ func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 				) AS sources_list
 			FROM `+gTable+` g
 			JOIN `+eTable+` e ON e.external_id = g.entitlement_id AND e.sync_id = g.sync_id
-			JOIN `+rTable+` r ON r.external_id = g.principal_resource_type_id || ':' || g.principal_resource_id 
+			JOIN `+rTable+` r ON r.resource_type_id = g.principal_resource_type_id 
+			                  AND r.resource_id = g.principal_resource_id
 			                  AND r.sync_id = g.sync_id
 			WHERE g.sync_id = ? 
 			  AND g.id > ?

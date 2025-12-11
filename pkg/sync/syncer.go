@@ -1727,26 +1727,6 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		return nil
 	}
 
-	// Already expanded - rectify protobufs and finish
-	if entitlementGraph.IsExpanded() {
-		if c1zStore, ok := s.store.(*dotc1z.C1File); ok {
-			now := time.Now()
-			rectified, err := c1zStore.RectifyGrantSources(ctx)
-			if err != nil {
-				l.Error("SyncGrantExpansion: error rectifying grant sources", zap.Error(err))
-				return fmt.Errorf("SyncGrantExpansion: error rectifying grant sources: %w", err)
-			}
-			if rectified > 0 {
-				l.Info("SyncGrantExpansion: rectified grant sources",
-					zap.Int64("rectified", rectified),
-					zap.Duration("elapsed", time.Since(now)),
-				)
-			}
-		}
-		s.state.FinishAction(ctx)
-		return nil
-	}
-
 	// First time after loading: fix cycles and populate edges table
 	if !entitlementGraph.HasNoCycles {
 		comps, sccMetrics := entitlementGraph.ComputeCyclicComponents(ctx)
@@ -1787,6 +1767,28 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// Already expanded - rectify protobufs and finish
+	if entitlementGraph.IsExpanded() {
+		if c1zStore, ok := s.store.(*dotc1z.C1File); ok {
+			now := time.Now()
+			rectified, err := c1zStore.RectifyGrantSources(ctx)
+			if err != nil {
+				l.Error("SyncGrantExpansion: error rectifying grant sources", zap.Error(err))
+				return fmt.Errorf("SyncGrantExpansion: error rectifying grant sources: %w", err)
+			}
+			if rectified > 0 {
+				l.Info("SyncGrantExpansion: rectified grant sources",
+					zap.Int64("rectified", rectified),
+					zap.Duration("elapsed", time.Since(now)),
+				)
+			}
+		}
+		s.state.FinishAction(ctx)
+		return nil
+	}
+
+	entitlementGraph.Depth++
 
 	return nil
 }
@@ -2870,7 +2872,7 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	// The data blobs are reconstructed during RectifyGrantSources at the end of expansion
 	verify := false
 	if !verify {
-		inserted, updated, err := c1zStore.ExpandGrantsSingleLevel(
+		inserted, updated, err := c1zStore.ExpandGrantsSingleEdge(
 			ctx,
 			action.SourceEntitlementID,
 			action.DescendantEntitlementID,
@@ -3287,26 +3289,15 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	}
 
 	// Find the next unexpanded edge and expand it
-	for _, sourceEntitlementID := range graph.GetEntitlements() {
-		if graph.IsEntitlementExpanded(sourceEntitlementID) {
-			continue
-		}
-		if graph.HasUnexpandedAncestors(sourceEntitlementID) {
-			continue
-		}
-
-		for descendantEntitlementID, grantInfo := range graph.GetDescendantEntitlements(sourceEntitlementID) {
-			if grantInfo.IsExpanded {
-				continue
-			}
-
+	for sourceEntitlementID := range graph.YieldEntitlementsForExpansion() {
+		for descendantEntitlementID, edge := range graph.YieldDescendantEntitlements(sourceEntitlementID) {
 			// Expand this single edge using SQL with normalized sources table
-			inserted, updated, err := c1zStore.ExpandGrantsSingleLevel(
+			inserted, updated, err := c1zStore.ExpandGrantsSingleEdge(
 				ctx,
 				sourceEntitlementID,
 				descendantEntitlementID,
-				grantInfo.ResourceTypeIDs,
-				grantInfo.IsShallow,
+				edge.ResourceTypeIDs,
+				edge.IsShallow,
 			)
 			if err != nil {
 				l.Error("expandGrantsForEntitlements: error expanding edge",
@@ -3324,15 +3315,9 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 					zap.Int64("updated", updated),
 				)
 			}
-
 			graph.MarkEdgeExpanded(sourceEntitlementID, descendantEntitlementID)
-			// Return to allow checkpointing and yield to other work
-			return nil
 		}
 	}
-
-	// No unexpanded edges found - this shouldn't happen as SyncGrantExpansion
-	// checks IsExpanded() before calling us
 	return nil
 }
 

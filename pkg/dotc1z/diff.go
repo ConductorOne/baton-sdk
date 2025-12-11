@@ -83,7 +83,7 @@ func (c *C1File) diffTableQuery(table tableDescriptor, baseSyncID, appliedSyncID
 		// entitlement_edges is derived data populated from the graph; skip diffs.
 		return "", nil, nil
 	case strings.Contains(tableName, resourcesTableName):
-		columns = append(columns, "resource_type_id", "parent_resource_type_id", "parent_resource_id")
+		columns = append(columns, "resource_type_id", "resource_id", "parent_resource_type_id", "parent_resource_id")
 	case strings.Contains(tableName, resourceTypesTableName):
 		// Nothing new to add here
 	case strings.Contains(tableName, grantsTableName):

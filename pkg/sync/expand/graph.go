@@ -2,6 +2,7 @@ package expand
 
 import (
 	"context"
+	"iter"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand/scc"
@@ -149,6 +150,38 @@ func (g *EntitlementGraph) GetDescendantEntitlements(entitlementID string) map[s
 	return entitlementsToEdges
 }
 
+// YieldDescendantEntitlements iterates over descendant entitlements without allocating a map.
+// It yields each (entitlementID, edge) pair.
+func (g *EntitlementGraph) YieldDescendantEntitlements(entitlementID string) iter.Seq2[string, *Edge] {
+	return func(yield func(string, *Edge) bool) {
+		node := g.GetNode(entitlementID)
+		if node == nil {
+			return
+		}
+		destinations, ok := g.SourcesToDestinations[node.Id]
+		if !ok {
+			return
+		}
+		for destinationID, edgeID := range destinations {
+			destination, ok := g.Nodes[destinationID]
+			if !ok {
+				continue
+			}
+			edge, ok := g.Edges[edgeID]
+			if !ok {
+				continue
+			}
+			if edge.IsExpanded {
+				continue
+			}
+			for _, descEntitlementID := range destination.EntitlementIDs {
+				if !yield(descEntitlementID, &edge) {
+					return
+				}
+			}
+		}
+	}
+}
 func (g *EntitlementGraph) HasEntitlement(entitlementID string) bool {
 	return g.GetNode(entitlementID) != nil
 }
@@ -183,6 +216,24 @@ func (g *EntitlementGraph) GetEntitlements() []string {
 		entitlements = append(entitlements, node.EntitlementIDs...)
 	}
 	return entitlements
+}
+
+func (g *EntitlementGraph) YieldEntitlementsForExpansion() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for _, node := range g.Nodes {
+			for _, entitlementID := range node.EntitlementIDs {
+				if g.IsEntitlementExpanded(entitlementID) {
+					continue
+				}
+				if g.HasUnexpandedAncestors(entitlementID) {
+					continue
+				}
+				if !yield(entitlementID) {
+					return
+				}
+			}
+		}
+	}
 }
 
 // MarkEdgeExpanded given source and destination entitlements, mark the edge

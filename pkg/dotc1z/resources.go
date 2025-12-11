@@ -19,6 +19,7 @@ create table if not exists %s (
     id integer primary key,
     resource_type_id text not null,
     external_id text not null,
+    resource_id text,
 	parent_resource_type_id text,
 	parent_resource_id text,
     data blob not null,
@@ -27,7 +28,8 @@ create table if not exists %s (
 );
 create index if not exists %s on %s (resource_type_id);
 create index if not exists %s on %s (parent_resource_type_id, parent_resource_id);
-create unique index if not exists %s on %s (external_id, sync_id);`
+create unique index if not exists %s on %s (external_id, sync_id);
+create index if not exists %s on %s (resource_type_id, resource_id, sync_id);`
 
 var resources = (*resourcesTable)(nil)
 
@@ -46,14 +48,46 @@ func (r *resourcesTable) Schema() (string, []interface{}) {
 		r.Name(),
 		fmt.Sprintf("idx_resources_resource_type_id_v%s", r.Version()),
 		r.Name(),
+		fmt.Sprintf("idx_resources_parent_resource_id_v%s", r.Version()),
+		r.Name(),
 		fmt.Sprintf("idx_resources_external_sync_v%s", r.Version()),
 		r.Name(),
-		fmt.Sprintf("idx_resources_parent_resource_id_v%s", r.Version()),
+		fmt.Sprintf("idx_resources_type_res_sync_v%s", r.Version()),
 		r.Name(),
 	}
 }
 
 func (r *resourcesTable) Migrations(ctx context.Context, db *goqu.Database) error {
+	// Check if resource_id column exists
+	var resourceIdExists int
+	err := db.QueryRowContext(ctx, fmt.Sprintf("SELECT count(*) FROM pragma_table_info('%s') WHERE name='resource_id'", r.Name())).Scan(&resourceIdExists)
+	if err != nil {
+		return err
+	}
+	if resourceIdExists == 0 {
+		// For existing tables, we can't add a GENERATED column.
+		// Add a regular column and populate it. New tables will use the GENERATED version from the schema.
+		_, err = db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN resource_id TEXT", r.Name()))
+		if err != nil {
+			return err
+		}
+		// Populate from external_id (format: "type:id" -> extract "id" part)
+		_, err = db.ExecContext(ctx, fmt.Sprintf(
+			"UPDATE %s SET resource_id = substr(external_id, instr(external_id, ':') + 1)",
+			r.Name(),
+		))
+		if err != nil {
+			return err
+		}
+		// Create index for efficient joins
+		_, err = db.ExecContext(ctx, fmt.Sprintf(
+			"CREATE INDEX IF NOT EXISTS idx_resources_type_res_sync_v%s ON %s (resource_type_id, resource_id, sync_id)",
+			r.Version(), r.Name(),
+		))
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -113,6 +147,7 @@ func (c *C1File) putResourcesInternal(ctx context.Context, f resourcePutFunc, re
 		func(resource *v2.Resource) (goqu.Record, error) {
 			fields := goqu.Record{
 				"resource_type_id": resource.GetId().GetResourceType(),
+				"resource_id":      resource.GetId().GetResource(),
 				"external_id":      fmt.Sprintf("%s:%s", resource.GetId().GetResourceType(), resource.GetId().GetResource()),
 			}
 
