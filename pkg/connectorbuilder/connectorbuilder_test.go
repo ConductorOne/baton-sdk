@@ -1206,11 +1206,11 @@ func TestGetCapabilities(t *testing.T) {
 		}))
 		require.NoError(t, err)
 
-		// Get the builder to call getCapabilities
+		// Get the builder to call GetCapabilities
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, caps)
 
@@ -1229,7 +1229,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have SYNC and TARGETED_SYNC capabilities
@@ -1248,7 +1248,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have SYNC and PROVISION capabilities
@@ -1267,7 +1267,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have SYNC and ACCOUNT_PROVISIONING capabilities
@@ -1286,7 +1286,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have SYNC and CREDENTIAL_ROTATION capabilities
@@ -1305,7 +1305,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have SYNC, RESOURCE_CREATE, and RESOURCE_DELETE capabilities
@@ -1326,7 +1326,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have SYNC and RESOURCE_DELETE capabilities (but not RESOURCE_CREATE)
@@ -1345,7 +1345,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have EVENT_FEED_V2 capability (but not SYNC since no resource syncers)
@@ -1360,7 +1360,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have TICKETING capability (but not SYNC since no resource syncers)
@@ -1375,7 +1375,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have ACTIONS capability (but not SYNC since no resource syncers)
@@ -1394,7 +1394,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have capabilities from all resource types
@@ -1416,7 +1416,7 @@ func TestGetCapabilities(t *testing.T) {
 		builder, ok := connector.(*builder)
 		require.True(t, ok)
 
-		caps, err := builder.getCapabilities(ctx)
+		caps, err := builder.GetCapabilities(ctx)
 		require.NoError(t, err)
 
 		// Should have no capabilities
