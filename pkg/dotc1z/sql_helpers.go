@@ -354,14 +354,7 @@ func prepareConnectorObjectRowsSerial[T proto.Message](
 
 // Use worker pool to limit goroutines.
 var numWorkers = min(max(runtime.GOMAXPROCS(0), 1), 4)
-
-var protoMarshallers = make([]proto.MarshalOptions, numWorkers)
-
-func init() {
-	for i := range numWorkers {
-		protoMarshallers[i] = proto.MarshalOptions{Deterministic: false}
-	}
-}
+var protoMarshallers []proto.MarshalOptions
 
 // prepareConnectorObjectRowsParallel prepares rows for bulk insertion using parallel processing.
 // For batches smaller than parallelThreshold, it falls back to sequential processing.
@@ -372,6 +365,14 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 ) ([]*goqu.Record, error) {
 	if len(msgs) == 0 {
 		return nil, nil
+	}
+
+	if protoMarshallers == nil {
+		protoMarshallers = make([]proto.MarshalOptions, numWorkers)
+		for i := range numWorkers {
+			// Don't enable deterministic marshaling, as it sorts keys in lexicographical order which hurts performance.
+			protoMarshallers[i] = proto.MarshalOptions{}
+		}
 	}
 
 	rows := make([]*goqu.Record, len(msgs))
