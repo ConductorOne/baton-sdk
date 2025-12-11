@@ -94,6 +94,9 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 		return err
 	}
 
+	// zstd.WithEncoderConcurrency does not work the same as WithDecoderConcurrency.
+	// WithDecoderConcurrency uses GOMAXPROCS if set to 0.
+	// WithEncoderConcurrency errors if set to 0 (but defaults to GOMAXPROCS).
 	if encoderConcurrency == 0 {
 		encoderConcurrency = runtime.GOMAXPROCS(0)
 	}
