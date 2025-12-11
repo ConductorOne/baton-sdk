@@ -22,7 +22,12 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+const bulkPutParallelThreshold = 100
+const insertChunkSize = 200
 const maxPageSize = 10000
+
+// Use worker pool to limit goroutines.
+var numWorkers = min(max(runtime.GOMAXPROCS(0), 1), 4)
 
 var allTableDescriptors = []tableDescriptor{
 	resourceTypes,
@@ -285,8 +290,6 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 
 var protoMarshaler = proto.MarshalOptions{Deterministic: false}
 
-const parallelThreshold = 100
-
 // prepareSingleConnectorObjectRow processes a single message and returns the prepared record.
 func prepareSingleConnectorObjectRow[T proto.Message](
 	c *C1File,
@@ -337,12 +340,8 @@ func prepareConnectorObjectRowsSerial[T proto.Message](
 	return rows, nil
 }
 
-// Use worker pool to limit goroutines.
-var numWorkers = min(max(runtime.GOMAXPROCS(0), 1), 4)
-var protoMarshallers []proto.MarshalOptions
-
 // prepareConnectorObjectRowsParallel prepares rows for bulk insertion using parallel processing.
-// For batches smaller than parallelThreshold, it falls back to sequential processing.
+// For batches smaller than bulkPutParallelThreshold, it falls back to sequential processing.
 func prepareConnectorObjectRowsParallel[T proto.Message](
 	c *C1File,
 	msgs []T,
@@ -352,12 +351,10 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 		return nil, nil
 	}
 
-	if protoMarshallers == nil {
-		protoMarshallers = make([]proto.MarshalOptions, numWorkers)
-		for i := range numWorkers {
-			// Don't enable deterministic marshaling, as it sorts keys in lexicographical order which hurts performance.
-			protoMarshallers[i] = proto.MarshalOptions{}
-		}
+	protoMarshallers := make([]proto.MarshalOptions, numWorkers)
+	for i := range numWorkers {
+		// Don't enable deterministic marshaling, as it sorts keys in lexicographical order which hurts performance.
+		protoMarshallers[i] = proto.MarshalOptions{}
 	}
 
 	rows := make([]*goqu.Record, len(msgs))
@@ -428,13 +425,13 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 }
 
 // prepareConnectorObjectRows prepares the rows for bulk insertion.
-// It uses parallel processing if the row count is greater than 100.
+// It uses parallel processing if the row count is greater than bulkPutParallelThreshold.
 func prepareConnectorObjectRows[T proto.Message](
 	c *C1File,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
 ) ([]*goqu.Record, error) {
-	if len(msgs) > parallelThreshold {
+	if len(msgs) > bulkPutParallelThreshold {
 		return prepareConnectorObjectRowsParallel(c, msgs, extractFields)
 	}
 	return prepareConnectorObjectRowsSerial(c, msgs, extractFields)
@@ -448,7 +445,7 @@ func executeChunkedInsert(
 	rows []*goqu.Record,
 	buildQueryFn func(*goqu.InsertDataset, []*goqu.Record) (*goqu.InsertDataset, error),
 ) error {
-	chunkSize := 200
+	chunkSize := insertChunkSize
 	chunks := len(rows) / chunkSize
 	if len(rows)%chunkSize != 0 {
 		chunks++
