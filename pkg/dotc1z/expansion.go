@@ -36,7 +36,7 @@ func (c *C1File) ExpandGrantsRecursive(ctx context.Context, maxDepth int) (int64
 			depth,
 			path
 		) AS (
-			-- Base case: direct grants (depth 0)
+			-- Base case: grants on entitlements that are sources in the edge graph
 			SELECT 
 				g.id,
 				g.entitlement_id,
@@ -47,6 +47,12 @@ func (c *C1File) ExpandGrantsRecursive(ctx context.Context, maxDepth int) (int64
 				g.entitlement_id
 			FROM `+gTable+` g
 			WHERE g.sync_id = ?
+			  -- Only start from entitlements that have outgoing edges
+			  AND EXISTS (
+			      SELECT 1 FROM `+edgeTable+` e 
+			      WHERE e.source_entitlement_id = g.entitlement_id 
+			        AND e.sync_id = g.sync_id
+			  )
 			
 			UNION ALL
 			
@@ -148,7 +154,7 @@ func (c *C1File) ExpandGrantsRecursive(ctx context.Context, maxDepth int) (int64
 			depth,
 			path
 		) AS (
-			-- Base case: direct grants contribute themselves as source
+			-- Base case: grants on entitlements that are sources in the edge graph
 			SELECT 
 				g.id,
 				g.entitlement_id,
@@ -159,6 +165,12 @@ func (c *C1File) ExpandGrantsRecursive(ctx context.Context, maxDepth int) (int64
 				g.entitlement_id
 			FROM `+gTable+` g
 			WHERE g.sync_id = ?
+			  -- Only start from entitlements that have outgoing edges
+			  AND EXISTS (
+			      SELECT 1 FROM `+edgeTable+` e 
+			      WHERE e.source_entitlement_id = g.entitlement_id 
+			        AND e.sync_id = g.sync_id
+			  )
 			
 			UNION ALL
 			
