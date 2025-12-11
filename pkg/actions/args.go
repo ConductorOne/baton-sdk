@@ -272,26 +272,50 @@ func GetResourceFieldArg(args *structpb.Struct, key string) (*v2.Resource, bool)
 }
 
 func resourceToBasicResource(resource *v2.Resource) *config.Resource {
-	return &config.Resource{
-		ResourceId: &config.ResourceIdField{
+	var resourceId *config.ResourceIdField
+	if resource.Id != nil {
+		resourceId = &config.ResourceIdField{
 			ResourceTypeId: resource.Id.ResourceType,
 			ResourceId:     resource.Id.Resource,
-		},
-		DisplayName: resource.DisplayName,
-		Description: resource.Description,
-		Annotations: resource.Annotations,
+		}
+	}
+	var parentResourceId *config.ResourceIdField
+	if resource.ParentResourceId != nil {
+		parentResourceId = &config.ResourceIdField{
+			ResourceTypeId: resource.ParentResourceId.ResourceType,
+			ResourceId:     resource.ParentResourceId.Resource,
+		}
+	}
+	return &config.Resource{
+		ResourceId:       resourceId,
+		ParentResourceId: parentResourceId,
+		DisplayName:      resource.DisplayName,
+		Description:      resource.Description,
+		Annotations:      resource.Annotations,
 	}
 }
 
 func basicResourceToResource(basicResource *config.Resource) *v2.Resource {
-	return &v2.Resource{
-		Id: &v2.ResourceId{
+	var resourceId *v2.ResourceId
+	if basicResource.ResourceId != nil {
+		resourceId = &v2.ResourceId{
 			ResourceType: basicResource.ResourceId.ResourceTypeId,
 			Resource:     basicResource.ResourceId.ResourceId,
-		},
-		DisplayName: basicResource.DisplayName,
-		Description: basicResource.Description,
-		Annotations: basicResource.Annotations,
+		}
+	}
+	var parentResourceId *v2.ResourceId
+	if basicResource.ParentResourceId != nil {
+		parentResourceId = &v2.ResourceId{
+			ResourceType: basicResource.ParentResourceId.ResourceTypeId,
+			Resource:     basicResource.ParentResourceId.ResourceId,
+		}
+	}
+	return &v2.Resource{
+		Id:               resourceId,
+		ParentResourceId: parentResourceId,
+		DisplayName:      basicResource.DisplayName,
+		Description:      basicResource.Description,
+		Annotations:      basicResource.Annotations,
 	}
 }
 
