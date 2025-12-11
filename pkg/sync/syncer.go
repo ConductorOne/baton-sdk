@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	stdsync "sync"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
@@ -43,42 +42,6 @@ import (
 )
 
 var tracer = otel.Tracer("baton-sdk/sync")
-
-// GrantPool manages a pool of v2.Grant objects for reuse during grant expansion.
-// It tracks allocated grants and can release them all at once.
-type GrantPool struct {
-	pool stdsync.Pool
-}
-
-// NewGrantPool creates a new GrantPool.
-func NewGrantPool() *GrantPool {
-	return &GrantPool{
-		pool: stdsync.Pool{
-			New: func() any {
-				return &v2.Grant{}
-			},
-		},
-	}
-}
-
-// Acquire gets a grant from the pool.
-func (p *GrantPool) Acquire() *v2.Grant {
-	return p.pool.Get().(*v2.Grant)
-}
-
-// Release returns the given grants to the pool after resetting them.
-func (p *GrantPool) Release(grants []*v2.Grant) {
-	for _, g := range grants {
-		if g != nil {
-			g.Annotations = nil
-			g.Entitlement = nil
-			g.Principal = nil
-			g.Sources = nil
-			g.Id = ""
-			p.pool.Put(g)
-		}
-	}
-}
 
 const defaultMaxDepth int64 = 20
 
@@ -2807,7 +2770,7 @@ func (s *syncer) putGrantsInChunks(ctx context.Context, grants []*v2.Grant, minC
 
 // Create a pool of grants for reuse during this operation.
 // This significantly reduces allocations when processing large numbers of grants.
-var grantPool = NewGrantPool()
+var grantPool = dotc1z.NewGrantPool()
 
 func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.runGrantExpandActions")
@@ -2851,18 +2814,12 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("runGrantExpandActions: store is not a C1File")
 	}
 
-	sourceEntitlementIDs := []string{}
-	if action.Shallow {
-		sourceEntitlementIDs = []string{action.SourceEntitlementID}
-	}
-
 	// Fetch a page of source grants
 	sourceGrants, err := s.store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 		Entitlement: sourceEntitlement.GetEntitlement(),
 		PageToken:   action.PageToken,
 		// Skip this grant if it is not for a resource type we care about
 		PrincipalResourceTypeIds: action.ResourceTypeIDs,
-		SourceEntitlementIds:     sourceEntitlementIDs,
 	}.Build())
 	if err != nil {
 		l.Error("runGrantExpandActions: error fetching source grants", zap.Error(err))
@@ -2873,6 +2830,17 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 
 	var newGrants = make([]*v2.Grant, 0)
 	for _, sourceGrant := range sourceGrants.GetList() {
+		// If this is a shallow action, then we only want to expand grants that have no sources which indicates that it was directly assigned.
+		if action.Shallow {
+			if len(sourceGrant.GetSources().GetSources()) == 0 {
+				// If we have no sources, this is a direct grant
+				continue
+			}
+			if sourceGrant.GetSources().GetSources()[action.SourceEntitlementID] == nil {
+				// This is not a direct grant, so skip it since we are a shallow action.
+				continue
+			}
+		}
 		// Unroll all grants for the principal on the descendant entitlement. This should, on average, be... 1.
 		pageToken := ""
 		for {

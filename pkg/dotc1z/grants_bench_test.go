@@ -1,11 +1,9 @@
 package dotc1z
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -14,51 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// grantPool manages a pool of v2.Grant objects for reuse.
-type grantPool struct {
-	pool      sync.Pool
-	allocated []*v2.Grant
-}
-
-func newGrantPool() *grantPool {
-	return &grantPool{
-		pool: sync.Pool{
-			New: func() any {
-				return &v2.Grant{}
-			},
-		},
-		allocated: make([]*v2.Grant, 0, 1024),
-	}
-}
-
-func (p *grantPool) Acquire() *v2.Grant {
-	g := p.pool.Get().(*v2.Grant)
-	p.allocated = append(p.allocated, g)
-	return g
-}
-
-func (p *grantPool) ReleaseAll() {
-	for _, g := range p.allocated {
-		if g != nil {
-			g.Reset()
-			p.pool.Put(g)
-		}
-	}
-	p.allocated = p.allocated[:0]
-}
+var grantCounts = []int{100, 1000, 10000, 100000}
 
 // setupBenchmarkDB creates a test database with the specified number of grants.
 func setupBenchmarkDB(b *testing.B, numGrants int) (*C1File, string, func()) {
 	b.Helper()
 
-	ctx := context.Background()
+	ctx := b.Context()
 	tempDir, err := os.MkdirTemp("", "grants-bench-*")
 	require.NoError(b, err)
 
 	testFilePath := filepath.Join(tempDir, "bench.c1z")
 
-	var opts []C1ZOption
-	opts = append(opts, WithPragma("journal_mode", "WAL"))
+	opts := []C1ZOption{
+		WithTmpDir(tempDir),
+		WithEncoderConcurrency(0),
+		WithDecoderOptions(WithDecoderConcurrency(0)),
+	}
 
 	f, err := NewC1ZFile(ctx, testFilePath, opts...)
 	require.NoError(b, err)
@@ -96,7 +66,7 @@ func setupBenchmarkDB(b *testing.B, numGrants int) (*C1File, string, func()) {
 
 	// Create grants
 	grants := make([]*v2.Grant, numGrants)
-	for i := 0; i < numGrants; i++ {
+	for i := range numGrants {
 		grants[i] = &v2.Grant{
 			Id:          fmt.Sprintf("grant-%d", i),
 			Entitlement: testEntitlement,
@@ -113,10 +83,7 @@ func setupBenchmarkDB(b *testing.B, numGrants int) (*C1File, string, func()) {
 	// Insert grants in batches
 	batchSize := 1000
 	for i := 0; i < len(grants); i += batchSize {
-		end := i + batchSize
-		if end > len(grants) {
-			end = len(grants)
-		}
+		end := min(i+batchSize, len(grants))
 		err = f.PutGrants(ctx, grants[i:end]...)
 		require.NoError(b, err)
 	}
@@ -131,14 +98,12 @@ func setupBenchmarkDB(b *testing.B, numGrants int) (*C1File, string, func()) {
 
 // BenchmarkListGrantsForEntitlement benchmarks the non-pooled version.
 func BenchmarkListGrantsForEntitlement(b *testing.B) {
-	grantCounts := []int{100, 1000, 10000}
-
 	for _, numGrants := range grantCounts {
 		b.Run(fmt.Sprintf("grants=%d", numGrants), func(b *testing.B) {
 			f, entitlementID, cleanup := setupBenchmarkDB(b, numGrants)
 			defer cleanup()
 
-			ctx := context.Background()
+			ctx := b.Context()
 
 			// Get the entitlement for the request
 			entResp, err := f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
@@ -178,14 +143,12 @@ func BenchmarkListGrantsForEntitlement(b *testing.B) {
 
 // BenchmarkListGrantsForEntitlementPooled benchmarks the pooled version.
 func BenchmarkListGrantsForEntitlementPooled(b *testing.B) {
-	grantCounts := []int{100, 1000, 10000}
-
 	for _, numGrants := range grantCounts {
 		b.Run(fmt.Sprintf("grants=%d", numGrants), func(b *testing.B) {
 			f, entitlementID, cleanup := setupBenchmarkDB(b, numGrants)
 			defer cleanup()
 
-			ctx := context.Background()
+			ctx := b.Context()
 
 			// Get the entitlement for the request
 			entResp, err := f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
@@ -202,10 +165,11 @@ func BenchmarkListGrantsForEntitlementPooled(b *testing.B) {
 
 			grants := make([]*v2.Grant, 0, 10000)
 			for b.Loop() {
-				pool := newGrantPool()
+				pool := NewGrantPool()
 				pageToken := ""
 				totalGrants := 0
 				for {
+					grants = grants[:0]
 					req.SetPageToken(pageToken)
 					grants, nextPageToken, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire, grants)
 					if err != nil {
@@ -221,7 +185,7 @@ func BenchmarkListGrantsForEntitlementPooled(b *testing.B) {
 					}
 
 					// Release after processing each page
-					pool.ReleaseAll()
+					pool.Release(grants)
 
 					pageToken = nextPageToken
 					if pageToken == "" {
@@ -243,7 +207,7 @@ func BenchmarkListGrantsComparison(b *testing.B) {
 	f, entitlementID, cleanup := setupBenchmarkDB(b, numGrants)
 	defer cleanup()
 
-	ctx := context.Background()
+	ctx := b.Context()
 
 	entResp, err := f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: entitlementID,
@@ -256,7 +220,7 @@ func BenchmarkListGrantsComparison(b *testing.B) {
 
 	b.Run("NonPooled", func(b *testing.B) {
 		b.ReportAllocs()
-		for i := 0; i < b.N; i++ {
+		for b.Loop() {
 			pageToken := ""
 			for {
 				req.SetPageToken(pageToken)
@@ -278,10 +242,11 @@ func BenchmarkListGrantsComparison(b *testing.B) {
 	b.Run("Pooled", func(b *testing.B) {
 		b.ReportAllocs()
 		grants := make([]*v2.Grant, 0, 10000)
-		for i := 0; i < b.N; i++ {
-			pool := newGrantPool()
+		for b.Loop() {
+			pool := NewGrantPool()
 			pageToken := ""
 			for {
+				grants = grants[:0]
 				req.SetPageToken(pageToken)
 				grants, nextPageToken, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire, grants)
 				if err != nil {
@@ -290,7 +255,7 @@ func BenchmarkListGrantsComparison(b *testing.B) {
 				for _, g := range grants {
 					_ = g.GetId()
 				}
-				pool.ReleaseAll()
+				pool.Release(grants)
 				pageToken = nextPageToken
 				if pageToken == "" {
 					break
@@ -309,7 +274,7 @@ func BenchmarkPooledMultipleIterations(b *testing.B) {
 	f, entitlementID, cleanup := setupBenchmarkDB(b, numGrants)
 	defer cleanup()
 
-	ctx := context.Background()
+	ctx := b.Context()
 
 	entResp, err := f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: entitlementID,
@@ -340,8 +305,9 @@ func BenchmarkPooledMultipleIterations(b *testing.B) {
 		b.ReportAllocs()
 		grants := make([]*v2.Grant, 0, 10000)
 		for b.Loop() {
-			pool := newGrantPool()
+			pool := NewGrantPool()
 			for range iterations {
+				grants = grants[:0]
 				req.SetPageToken("")
 				grants, _, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire, grants)
 				if err != nil {
@@ -350,7 +316,7 @@ func BenchmarkPooledMultipleIterations(b *testing.B) {
 				for _, g := range grants {
 					_ = g.GetId()
 				}
-				pool.ReleaseAll()
+				pool.Release(grants)
 			}
 		}
 	})

@@ -78,11 +78,6 @@ type hasPrincipalResourceTypeIDsListRequest interface {
 	GetPrincipalResourceTypeIds() []string
 }
 
-type hasSourceEntitlementIDsListRequest interface {
-	listRequest
-	GetSourceEntitlementIds() []string
-}
-
 type protoHasID interface {
 	proto.Message
 	GetId() string
@@ -191,17 +186,6 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		p := principalResourceTypeIDsReq.GetPrincipalResourceTypeIds()
 		if len(p) > 0 {
 			q = q.Where(goqu.C("principal_resource_type_id").In(p))
-		}
-	}
-
-	if sourceEntitlementIDsReq, ok := req.(hasSourceEntitlementIDsListRequest); ok {
-		s := sourceEntitlementIDsReq.GetSourceEntitlementIds()
-		if len(s) > 0 {
-			conditions := make([]goqu.Expression, 0, len(s))
-			for _, entitlementId := range s {
-				conditions = append(conditions, goqu.L(`json_type(sources, '$."' || ? || '"') IS NOT NULL`, entitlementId))
-			}
-			q = q.Where(goqu.Or(conditions...))
 		}
 	}
 

@@ -171,7 +171,6 @@ type GrantsReaderServiceListGrantsForEntitlementRequest struct {
 	xxx_hidden_Entitlement              *v2.Entitlement        `protobuf:"bytes,1,opt,name=entitlement,proto3"`
 	xxx_hidden_PrincipalId              *v2.ResourceId         `protobuf:"bytes,5,opt,name=principal_id,json=principalId,proto3"`
 	xxx_hidden_PrincipalResourceTypeIds []string               `protobuf:"bytes,6,rep,name=principal_resource_type_ids,json=principalResourceTypeIds,proto3"`
-	xxx_hidden_SourceEntitlementIds     []string               `protobuf:"bytes,7,rep,name=source_entitlement_ids,json=sourceEntitlementIds,proto3"`
 	xxx_hidden_PageSize                 uint32                 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3"`
 	xxx_hidden_PageToken                string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3"`
 	xxx_hidden_Annotations              *[]*anypb.Any          `protobuf:"bytes,4,rep,name=annotations,proto3"`
@@ -225,13 +224,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPrincipalResourc
 	return nil
 }
 
-func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetSourceEntitlementIds() []string {
-	if x != nil {
-		return x.xxx_hidden_SourceEntitlementIds
-	}
-	return nil
-}
-
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) GetPageSize() uint32 {
 	if x != nil {
 		return x.xxx_hidden_PageSize
@@ -265,10 +257,6 @@ func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetPrincipalId(v *v
 
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetPrincipalResourceTypeIds(v []string) {
 	x.xxx_hidden_PrincipalResourceTypeIds = v
-}
-
-func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetSourceEntitlementIds(v []string) {
-	x.xxx_hidden_SourceEntitlementIds = v
 }
 
 func (x *GrantsReaderServiceListGrantsForEntitlementRequest) SetPageSize(v uint32) {
@@ -311,7 +299,6 @@ type GrantsReaderServiceListGrantsForEntitlementRequest_builder struct {
 	Entitlement              *v2.Entitlement
 	PrincipalId              *v2.ResourceId
 	PrincipalResourceTypeIds []string
-	SourceEntitlementIds     []string
 	PageSize                 uint32
 	PageToken                string
 	Annotations              []*anypb.Any
@@ -324,7 +311,6 @@ func (b0 GrantsReaderServiceListGrantsForEntitlementRequest_builder) Build() *Gr
 	x.xxx_hidden_Entitlement = b.Entitlement
 	x.xxx_hidden_PrincipalId = b.PrincipalId
 	x.xxx_hidden_PrincipalResourceTypeIds = b.PrincipalResourceTypeIds
-	x.xxx_hidden_SourceEntitlementIds = b.SourceEntitlementIds
 	x.xxx_hidden_PageSize = b.PageSize
 	x.xxx_hidden_PageToken = b.PageToken
 	x.xxx_hidden_Annotations = &b.Annotations
@@ -588,12 +574,11 @@ const file_c1_reader_v2_grant_proto_rawDesc = "" +
 	"\xfaB\ar\x05 \x01(\x80\bR\agrantId\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"S\n" +
 	"#GrantsReaderServiceGetGrantResponse\x12,\n" +
-	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\xcc\x03\n" +
+	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\"\x96\x03\n" +
 	"2GrantsReaderServiceListGrantsForEntitlementRequest\x12H\n" +
 	"\ventitlement\x18\x01 \x01(\v2\x1c.c1.connector.v2.EntitlementB\b\xfaB\x05\x8a\x01\x02\x10\x01R\ventitlement\x12H\n" +
 	"\fprincipal_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x00R\vprincipalId\x12=\n" +
-	"\x1bprincipal_resource_type_ids\x18\x06 \x03(\tR\x18principalResourceTypeIds\x124\n" +
-	"\x16source_entitlement_ids\x18\a \x03(\tR\x14sourceEntitlementIds\x12'\n" +
+	"\x1bprincipal_resource_type_ids\x18\x06 \x03(\tR\x18principalResourceTypeIds\x12'\n" +
 	"\tpage_size\x18\x02 \x01(\rB\n" +
 	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12,\n" +
 	"\n" +

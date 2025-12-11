@@ -2,8 +2,8 @@ package dotc1z
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/doug-martin/goqu/v9"
 
@@ -25,8 +25,7 @@ create table if not exists %s (
     external_id text not null,
     data blob not null,
     sync_id text not null,
-    discovered_at datetime not null,
-    sources text not null default '{}'
+    discovered_at datetime not null
 );
 create index if not exists %s on %s (resource_type_id, resource_id);
 create index if not exists %s on %s (principal_resource_type_id, principal_resource_id);
@@ -62,21 +61,6 @@ func (r *grantsTable) Schema() (string, []any) {
 }
 
 func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
-	// Check if sources column exists
-	var sourcesExists int
-	err := db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='sources'", r.Name())).Scan(&sourcesExists)
-	if err != nil {
-		return err
-	}
-	if sourcesExists == 0 {
-		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column sources text not null default '{}'", r.Name()))
-		if err != nil {
-			return err
-		}
-
-		//TODO: Grab grant sources from each row and update sources column.
-	}
-
 	return nil
 }
 
@@ -237,21 +221,12 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 
 	err := f(ctx, c, grants.Name(),
 		func(grant *v2.Grant) (goqu.Record, error) {
-			sources := grant.GetSources().GetSources()
-			if sources == nil {
-				sources = make(map[string]*v2.GrantSources_GrantSource)
-			}
-			sourcesJSON, err := json.Marshal(sources)
-			if err != nil {
-				return goqu.Record{}, err
-			}
 			return goqu.Record{
 				"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
 				"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
 				"entitlement_id":             grant.GetEntitlement().GetId(),
 				"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
 				"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-				"sources":                    sourcesJSON,
 			}, nil
 		},
 		bulkGrants...,
@@ -288,4 +263,40 @@ func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
 	}
 
 	return nil
+}
+
+// GrantPool manages a pool of v2.Grant objects for reuse during grant expansion.
+// It tracks allocated grants and can release them all at once.
+type GrantPool struct {
+	pool sync.Pool
+}
+
+// NewGrantPool creates a new GrantPool.
+func NewGrantPool() *GrantPool {
+	return &GrantPool{
+		pool: sync.Pool{
+			New: func() any {
+				return &v2.Grant{}
+			},
+		},
+	}
+}
+
+// Acquire gets a grant from the pool.
+func (p *GrantPool) Acquire() *v2.Grant {
+	return p.pool.Get().(*v2.Grant)
+}
+
+// Release returns the given grants to the pool after resetting them.
+func (p *GrantPool) Release(grants []*v2.Grant) {
+	for _, g := range grants {
+		if g != nil {
+			g.Annotations = nil
+			g.Entitlement = nil
+			g.Principal = nil
+			g.Sources = nil
+			g.Id = ""
+			p.pool.Put(g)
+		}
+	}
 }

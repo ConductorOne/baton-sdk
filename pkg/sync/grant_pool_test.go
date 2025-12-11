@@ -5,11 +5,12 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGrantPool_AcquireReturnsValidGrant(t *testing.T) {
-	pool := NewGrantPool()
+	pool := dotc1z.NewGrantPool()
 
 	g := pool.Acquire()
 	require.NotNil(t, g)
@@ -21,7 +22,7 @@ func TestGrantPool_AcquireReturnsValidGrant(t *testing.T) {
 }
 
 func TestGrantPool_AcquiredGrantsCanBePopulated(t *testing.T) {
-	pool := NewGrantPool()
+	pool := dotc1z.NewGrantPool()
 
 	g := pool.Acquire()
 
@@ -50,7 +51,7 @@ func TestGrantPool_AcquiredGrantsCanBePopulated(t *testing.T) {
 }
 
 func TestGrantPool_ReleaseResetsGrants(t *testing.T) {
-	pool := NewGrantPool()
+	pool := dotc1z.NewGrantPool()
 
 	// Acquire and populate a grant
 	g := pool.Acquire()
@@ -72,7 +73,7 @@ func TestGrantPool_ReleaseResetsGrants(t *testing.T) {
 }
 
 func TestGrantPool_ReleaseMultipleGrants(t *testing.T) {
-	pool := NewGrantPool()
+	pool := dotc1z.NewGrantPool()
 
 	grants := make([]*v2.Grant, 100)
 	for i := 0; i < 100; i++ {
@@ -108,7 +109,7 @@ func TestGrantPool_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 
 			// Each goroutine uses its own pool (realistic usage pattern)
-			localPool := NewGrantPool()
+			localPool := dotc1z.NewGrantPool()
 			localGrants := make([]*v2.Grant, 0, grantsPerGoroutine)
 
 			for j := 0; j < grantsPerGoroutine; j++ {
@@ -130,7 +131,7 @@ func TestGrantPool_ConcurrentAccess(t *testing.T) {
 }
 
 func TestGrantPool_NoDataLeakageBetweenReleaseAndAcquire(t *testing.T) {
-	pool := NewGrantPool()
+	pool := dotc1z.NewGrantPool()
 
 	// First cycle: populate with sensitive data
 	g1 := pool.Acquire()
@@ -159,7 +160,7 @@ func TestGrantPool_NoDataLeakageBetweenReleaseAndAcquire(t *testing.T) {
 }
 
 func TestGrantPool_LargeScale(t *testing.T) {
-	pool := NewGrantPool()
+	pool := dotc1z.NewGrantPool()
 	const numGrants = 10000
 
 	// Simulate real-world usage: acquire many grants
@@ -190,7 +191,7 @@ func TestGrantPool_LargeScale(t *testing.T) {
 }
 
 func TestGrantPool_RepeatedCycles(t *testing.T) {
-	pool := NewGrantPool()
+	pool := dotc1z.NewGrantPool()
 	const cycles = 5
 	const grantsPerCycle = 100
 
@@ -214,7 +215,7 @@ func TestGrantPool_RepeatedCycles(t *testing.T) {
 }
 
 func TestGrantPool_NilHandling(t *testing.T) {
-	pool := NewGrantPool()
+	pool := dotc1z.NewGrantPool()
 
 	// Create a slice with some nil values
 	grants := make([]*v2.Grant, 10)
@@ -237,7 +238,7 @@ func TestGrantPool_NilHandling(t *testing.T) {
 }
 
 func TestGrantPool_ReleaseEmptySlice(t *testing.T) {
-	pool := NewGrantPool()
+	pool := dotc1z.NewGrantPool()
 
 	// Releasing an empty slice should not panic
 	require.NotPanics(t, func() {
@@ -249,7 +250,7 @@ func TestGrantPool_ReleaseEmptySlice(t *testing.T) {
 func TestGrantPool_CallerManagesTracking(t *testing.T) {
 	// This test demonstrates the expected usage pattern where the caller
 	// tracks which grants came from the pool and releases them explicitly.
-	pool := NewGrantPool()
+	pool := dotc1z.NewGrantPool()
 
 	// Simulate processing multiple pages of grants
 	for page := 0; page < 3; page++ {
