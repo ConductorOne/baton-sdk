@@ -1727,8 +1727,22 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		return nil
 	}
 
-	// Already expanded - nothing to do
+	// Already expanded - rectify protobufs and finish
 	if entitlementGraph.IsExpanded() {
+		if c1zStore, ok := s.store.(*dotc1z.C1File); ok {
+			now := time.Now()
+			rectified, err := c1zStore.RectifyGrantSources(ctx)
+			if err != nil {
+				l.Error("SyncGrantExpansion: error rectifying grant sources", zap.Error(err))
+				return fmt.Errorf("SyncGrantExpansion: error rectifying grant sources: %w", err)
+			}
+			if rectified > 0 {
+				l.Info("SyncGrantExpansion: rectified grant sources",
+					zap.Int64("rectified", rectified),
+					zap.Duration("elapsed", time.Since(now)),
+				)
+			}
+		}
 		s.state.FinishAction(ctx)
 		return nil
 	}
@@ -3246,8 +3260,8 @@ func (s *syncer) newExpandedGrant(_ context.Context, descEntitlement *v2.Entitle
 	return grant, nil
 }
 
-// expandGrantsForEntitlements expands grants using a single recursive SQL query.
-// The entitlement_edges table is populated during SyncGrantExpansion after the graph is loaded.
+// expandGrantsForEntitlements expands grants one edge at a time using SQL.
+// Uses the normalized grant_sources table instead of JSON operations.
 func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.expandGrantsForEntitlements")
 	defer span.End()
@@ -3272,37 +3286,66 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		return fmt.Errorf("expandGrantsForEntitlements: store is not a C1File")
 	}
 
-	// Determine max depth
-	depth := maxDepth
-	if depth == 0 {
-		depth = defaultMaxDepth
+	// Find the next unexpanded edge and expand it
+	for _, sourceEntitlementID := range graph.GetEntitlements() {
+		if graph.IsEntitlementExpanded(sourceEntitlementID) {
+			continue
+		}
+		if graph.HasUnexpandedAncestors(sourceEntitlementID) {
+			continue
+		}
+
+		for descendantEntitlementID, grantInfo := range graph.GetDescendantEntitlements(sourceEntitlementID) {
+			if grantInfo.IsExpanded {
+				continue
+			}
+
+			// Expand this single edge using SQL with normalized sources table
+			inserted, updated, err := c1zStore.ExpandGrantsSingleLevel(
+				ctx,
+				sourceEntitlementID,
+				descendantEntitlementID,
+				grantInfo.ResourceTypeIDs,
+				grantInfo.IsShallow,
+			)
+			if err != nil {
+				l.Error("expandGrantsForEntitlements: error expanding edge",
+					zap.String("source", sourceEntitlementID),
+					zap.String("descendant", descendantEntitlementID),
+					zap.Error(err))
+				return fmt.Errorf("expandGrantsForEntitlements: error expanding edge: %w", err)
+			}
+
+			if inserted > 0 || updated > 0 {
+				l.Debug("expandGrantsForEntitlements: expanded edge",
+					zap.String("source", sourceEntitlementID),
+					zap.String("descendant", descendantEntitlementID),
+					zap.Int64("inserted", inserted),
+					zap.Int64("updated", updated),
+				)
+			}
+
+			graph.MarkEdgeExpanded(sourceEntitlementID, descendantEntitlementID)
+			// Return to allow checkpointing and yield to other work
+			return nil
+		}
 	}
 
-	// Single recursive SQL query expands all grants across all depths
-	now := time.Now()
-	inserted, err := c1zStore.ExpandGrantsRecursive(ctx, int(depth))
-	if err != nil {
-		l.Error("expandGrantsForEntitlements: error in recursive expansion", zap.Error(err))
-		return fmt.Errorf("expandGrantsForEntitlements: error in recursive expansion: %w", err)
+	// All edges expanded - rectify protobufs
+	if graph.IsExpanded() {
+		now := time.Now()
+		rectified, err := c1zStore.RectifyGrantSources(ctx)
+		if err != nil {
+			l.Error("expandGrantsForEntitlements: error rectifying grant sources", zap.Error(err))
+			return fmt.Errorf("expandGrantsForEntitlements: error rectifying grant sources: %w", err)
+		}
+		l.Info("expandGrantsForEntitlements: rectified grant sources",
+			zap.Int64("rectified", rectified),
+			zap.Duration("elapsed", time.Since(now)),
+		)
+		s.state.FinishAction(ctx)
 	}
-	l.Info("expandGrantsForEntitlements: recursive expansion complete",
-		zap.Int64("grants_inserted", inserted),
-		zap.Duration("elapsed", time.Since(now)),
-	)
 
-	// Rectify grant protobufs (reconstruct data blobs from normalized sources)
-	now = time.Now()
-	rectified, err := c1zStore.RectifyGrantSources(ctx)
-	if err != nil {
-		l.Error("expandGrantsForEntitlements: error rectifying grant sources", zap.Error(err))
-		return fmt.Errorf("expandGrantsForEntitlements: error rectifying grant sources: %w", err)
-	}
-	l.Info("expandGrantsForEntitlements: rectified grant sources",
-		zap.Int64("rectified", rectified),
-		zap.Duration("elapsed", time.Since(now)),
-	)
-
-	s.state.FinishAction(ctx)
 	return nil
 }
 
