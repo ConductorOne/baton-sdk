@@ -188,6 +188,10 @@ func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) 
 type grantPutFunc func(context.Context, *C1File, string, func(m *v2.Grant) (goqu.Record, error), ...*v2.Grant) error
 
 func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGrants ...*v2.Grant) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+
 	err := f(ctx, c, grants.Name(),
 		func(grant *v2.Grant) (goqu.Record, error) {
 			return goqu.Record{

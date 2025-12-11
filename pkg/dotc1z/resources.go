@@ -108,6 +108,10 @@ func (c *C1File) PutResourcesIfNewer(ctx context.Context, resourceObjs ...*v2.Re
 type resourcePutFunc func(context.Context, *C1File, string, func(m *v2.Resource) (goqu.Record, error), ...*v2.Resource) error
 
 func (c *C1File) putResourcesInternal(ctx context.Context, f resourcePutFunc, resourceObjs ...*v2.Resource) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+
 	err := f(ctx, c, resources.Name(),
 		func(resource *v2.Resource) (goqu.Record, error) {
 			fields := goqu.Record{

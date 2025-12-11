@@ -194,9 +194,10 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	if options.readOnly {
 		c1fopts = append(c1fopts, WithC1FReadOnly(true))
 	}
-	if options.encoderConcurrency >= 0 {
-		c1fopts = append(c1fopts, WithC1FEncoderConcurrency(options.encoderConcurrency))
+	if options.encoderConcurrency < 0 {
+		return nil, fmt.Errorf("encoder concurrency must be greater than 0")
 	}
+	c1fopts = append(c1fopts, WithC1FEncoderConcurrency(options.encoderConcurrency))
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)
 	if err != nil {

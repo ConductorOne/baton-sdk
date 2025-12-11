@@ -522,17 +522,16 @@ func TestC1ZReadOnlyMode(t *testing.T) {
 	f, err = NewC1ZFile(ctx, testFilePath, WithReadOnly(true))
 	require.NoError(t, err)
 
-	// Make a modification - start a new sync (this should set dbUpdated to true)
+	// Make a modification - start a new sync
 	_, err = f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-
-	// Try to put a resource type (this also sets dbUpdated to true)
-	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "another-resource-type"}.Build())
-	require.NoError(t, err)
-
-	// Closing should fail with ErrReadOnly because we made modifications
-	err = f.Close()
 	require.ErrorIs(t, err, ErrReadOnly)
+
+	// Try to put a resource type
+	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "another-resource-type"}.Build())
+	require.ErrorIs(t, err, ErrReadOnly)
+
+	err = f.Close()
+	require.NoError(t, err)
 
 	fileInfo1, err := os.Stat(testFilePath)
 	require.NoError(t, err)

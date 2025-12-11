@@ -359,6 +359,10 @@ func (c *C1File) CheckpointSync(ctx context.Context, syncToken string) error {
 	ctx, span := tracer.Start(ctx, "C1File.CheckpointSync")
 	defer span.End()
 
+	if c.readOnly {
+		return ErrReadOnly
+	}
+
 	err := c.validateSyncDb(ctx)
 	if err != nil {
 		return err
@@ -511,6 +515,10 @@ func (c *C1File) StartNewSync(ctx context.Context, syncType connectorstore.SyncT
 }
 
 func (c *C1File) insertSyncRun(ctx context.Context, syncID string, syncType connectorstore.SyncType, parentSyncID string) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+
 	q := c.db.Insert(syncRuns.Name())
 	q = q.Rows(goqu.Record{
 		"sync_id":        syncID,
