@@ -112,12 +112,16 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 
 	// Step 3: Page through grants on graph nodes using cursor-based pagination
 	gTable := grants.Name()
+	entTable := entitlements.Name()
 
 	// Per-principal state (persists across pages)
 	var currentPrincipalType, currentPrincipalID string
 	var currentPrincipalResource *v2.Resource
 	hasGrantOn := make(map[string]bool)
 	existingGrantID := make(map[string]int64)
+
+	// Entitlement cache - only for current principal (cleared when moving to next principal)
+	entitlementCache := make(map[string]*v2.Entitlement)
 
 	// Cursor state for pagination
 	var cursorPrincipalType, cursorPrincipalID string
@@ -137,6 +141,7 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 			existingGrantID,
 			descendants,
 			graph,
+			entitlementCache,
 		)
 		if err != nil {
 			return err
@@ -170,14 +175,16 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 					g.principal_resource_id,
 					g.entitlement_id,
 					g.id,
+					ent.data,
 					t.rowid
 				FROM ` + gTable + ` g
 				JOIN ` + dfsExpansionTempTable + ` t ON g.entitlement_id = t.entitlement_id
+				LEFT JOIN ` + entTable + ` ent ON ent.external_id = g.entitlement_id AND ent.sync_id = ?
 				WHERE g.sync_id = ?
 				ORDER BY g.principal_resource_type_id, g.principal_resource_id, t.rowid
 				LIMIT ?
 			`
-			args = []interface{}{c.currentSyncID, dfsPageSize}
+			args = []interface{}{c.currentSyncID, c.currentSyncID, dfsPageSize}
 			firstPage = false
 		} else {
 			// Subsequent pages: use cursor-based pagination
@@ -188,15 +195,17 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 					g.principal_resource_id,
 					g.entitlement_id,
 					g.id,
+					ent.data,
 					t.rowid
 				FROM ` + gTable + ` g
 				JOIN ` + dfsExpansionTempTable + ` t ON g.entitlement_id = t.entitlement_id
+				LEFT JOIN ` + entTable + ` ent ON ent.external_id = g.entitlement_id AND ent.sync_id = ?
 				WHERE g.sync_id = ?
 				  AND (g.principal_resource_type_id, g.principal_resource_id, t.rowid) > (?, ?, ?)
 				ORDER BY g.principal_resource_type_id, g.principal_resource_id, t.rowid
 				LIMIT ?
 			`
-			args = []interface{}{c.currentSyncID, cursorPrincipalType, cursorPrincipalID, cursorRowID, dfsPageSize}
+			args = []interface{}{c.currentSyncID, c.currentSyncID, cursorPrincipalType, cursorPrincipalID, cursorRowID, dfsPageSize}
 		}
 
 		rows, err := c.db.QueryContext(ctx, query, args...)
@@ -208,13 +217,24 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 		for rows.Next() {
 			var principalType, principalID, entitlementID string
 			var grantID, rowID int64
+			var entitlementData []byte
 
-			if err := rows.Scan(&principalType, &principalID, &entitlementID, &grantID, &rowID); err != nil {
+			if err := rows.Scan(&principalType, &principalID, &entitlementID, &grantID, &entitlementData, &rowID); err != nil {
 				rows.Close()
 				return nil, fmt.Errorf("error scanning row: %w", err)
 			}
 
 			rowCount++
+
+			// Unmarshal entitlement if not already cached
+			if _, ok := entitlementCache[entitlementID]; !ok && entitlementData != nil {
+				ent := &v2.Entitlement{}
+				if err := proto.Unmarshal(entitlementData, ent); err != nil {
+					rows.Close()
+					return nil, fmt.Errorf("error unmarshaling entitlement %s: %w", entitlementID, err)
+				}
+				entitlementCache[entitlementID] = ent
+			}
 
 			// Update cursor for next page
 			cursorPrincipalType = principalType
@@ -234,6 +254,7 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 				currentPrincipalID = principalID
 				clear(hasGrantOn)
 				clear(existingGrantID)
+				clear(entitlementCache) // Clear cache for new principal
 
 				// Load the principal's Resource proto
 				currentPrincipalResource, err = c.loadResource(ctx, principalType, principalID)
@@ -256,13 +277,12 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 
 		// If we got fewer rows than the page size, we've reached the end
 		if rowCount < dfsPageSize {
+			// Flush final principal
+			if err := flushPrincipal(); err != nil {
+				return nil, err
+			}
 			break
 		}
-	}
-
-	// Flush final principal
-	if err := flushPrincipal(); err != nil {
-		return nil, err
 	}
 
 	l.Info("ExpandGrantsDFS: complete",
@@ -282,6 +302,7 @@ func (c *C1File) processPrincipalExpansion(
 	existingGrantID map[string]int64,
 	descendants expand.TransitiveDescendants,
 	graph *expand.EntitlementGraph,
+	entitlementCache map[string]*v2.Entitlement,
 ) (int64, int64, error) {
 	// Compute pending grants
 	pendingGrants := make(map[string]*pendingGrant)
@@ -345,7 +366,7 @@ func (c *C1File) processPrincipalExpansion(
 
 	// Handle new grants
 	if len(newGrants) > 0 {
-		n, err := c.insertNewExpandedGrants(ctx, principal, newGrants, graph)
+		n, err := c.insertNewExpandedGrants(ctx, principal, newGrants, entitlementCache)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -383,23 +404,72 @@ func (c *C1File) insertNewExpandedGrants(
 	ctx context.Context,
 	principal *v2.Resource,
 	newGrants []*pendingGrant,
-	graph *expand.EntitlementGraph,
+	entitlementCache map[string]*v2.Entitlement,
 ) (int64, error) {
 	if len(newGrants) == 0 {
 		return 0, nil
 	}
 
+	l := ctxzap.Extract(ctx)
+
+	// Collect entitlement IDs that aren't in cache
+	missingEntitlementIDs := make([]string, 0)
+	for _, pg := range newGrants {
+		if _, ok := entitlementCache[pg.entitlementID]; !ok {
+			missingEntitlementIDs = append(missingEntitlementIDs, pg.entitlementID)
+		}
+	}
+
+	// Batch fetch missing entitlements
+	if len(missingEntitlementIDs) > 0 {
+		entTable := entitlements.Name()
+		placeholders := make([]string, len(missingEntitlementIDs))
+		args := make([]interface{}, len(missingEntitlementIDs)+1)
+		for i, eid := range missingEntitlementIDs {
+			placeholders[i] = "?"
+			args[i] = eid
+		}
+		args[len(missingEntitlementIDs)] = c.currentSyncID
+
+		query := `SELECT external_id, data FROM ` + entTable + ` WHERE external_id IN (` + strings.Join(placeholders, ",") + `) AND sync_id = ?`
+		rows, err := c.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return 0, fmt.Errorf("error batch fetching entitlements: %w", err)
+		}
+
+		for rows.Next() {
+			var entitlementID string
+			var data []byte
+			if err := rows.Scan(&entitlementID, &data); err != nil {
+				rows.Close()
+				return 0, fmt.Errorf("error scanning entitlement: %w", err)
+			}
+			ent := &v2.Entitlement{}
+			if err := proto.Unmarshal(data, ent); err != nil {
+				rows.Close()
+				return 0, fmt.Errorf("error unmarshaling entitlement %s: %w", entitlementID, err)
+			}
+			entitlementCache[entitlementID] = ent
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("error iterating entitlements: %w", err)
+		}
+		rows.Close()
+	}
+
 	grantsToInsert := make([]*v2.Grant, 0, len(newGrants))
 
 	for _, pg := range newGrants {
-		// Load entitlement
-		entResp, err := c.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-			EntitlementId: pg.entitlementID,
-		}.Build())
-		if err != nil {
-			return 0, fmt.Errorf("error loading entitlement %s: %w", pg.entitlementID, err)
+		// Look up entitlement from cache (now includes batch-fetched entitlements)
+		entitlement, ok := entitlementCache[pg.entitlementID]
+		if !ok {
+			// Skip if still not found after batch fetch (entitlement doesn't exist)
+			l.Warn("insertNewExpandedGrants: skipping missing entitlement",
+				zap.String("entitlement_id", pg.entitlementID),
+			)
+			continue
 		}
-		entitlement := entResp.GetEntitlement()
 
 		// Build sources map
 		sourcesMap := make(map[string]*v2.GrantSources_GrantSource, len(pg.sources))

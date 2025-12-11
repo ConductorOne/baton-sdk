@@ -37,53 +37,57 @@ var userResourceType = v2.ResourceType_builder{
 }.Build()
 
 func TestExpandGrants(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	for _, useDFS := range []bool{false, true} {
+		t.Run(fmt.Sprintf("DFS=%v", useDFS), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-	// 2500 * 4 = 10K - used to cause an infinite loop on pagition
-	usersPerLayer := 2500
-	groupCount := 5
+			// 2500 * 4 = 10K - used to cause an infinite loop on pagition
+			usersPerLayer := 2500
+			groupCount := 5
 
-	mc := newMockConnector()
+			mc := newMockConnector()
 
-	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
-	type asdf struct {
-		r *v2.Resource
-		e *v2.Entitlement
-	}
-	groups := make([]*asdf, 0)
-	for i := 0; i < groupCount; i++ {
-		groupId := "group_" + strconv.Itoa(i)
-		group, groupEnt, err := mc.AddGroup(ctx, groupId)
-		for _, g := range groups {
-			_ = mc.AddGroupMember(ctx, g.r, group, groupEnt)
-		}
-		groups = append(groups, &asdf{
-			r: group,
-			e: groupEnt,
-		})
-		require.NoError(t, err)
+			mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+			type asdf struct {
+				r *v2.Resource
+				e *v2.Entitlement
+			}
+			groups := make([]*asdf, 0)
+			for i := 0; i < groupCount; i++ {
+				groupId := "group_" + strconv.Itoa(i)
+				group, groupEnt, err := mc.AddGroup(ctx, groupId)
+				for _, g := range groups {
+					_ = mc.AddGroupMember(ctx, g.r, group, groupEnt)
+				}
+				groups = append(groups, &asdf{
+					r: group,
+					e: groupEnt,
+				})
+				require.NoError(t, err)
 
-		for j := 0; j < usersPerLayer; j++ {
-			pid := fmt.Sprintf("user_%d_%d_%d", i, usersPerLayer, j)
-			principal, err := mc.AddUser(ctx, pid)
+				for j := 0; j < usersPerLayer; j++ {
+					pid := fmt.Sprintf("user_%d_%d_%d", i, usersPerLayer, j)
+					principal, err := mc.AddUser(ctx, pid)
+					require.NoError(t, err)
+
+					_ = mc.AddGroupMember(ctx, group, principal)
+				}
+			}
+
+			tempDir, err := os.MkdirTemp("", "baton-benchmark-expand-grants")
 			require.NoError(t, err)
-
-			_ = mc.AddGroupMember(ctx, group, principal)
-		}
+			defer os.RemoveAll(tempDir)
+			c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
+			syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir), WithDFSExpansion(useDFS))
+			require.NoError(t, err)
+			err = syncer.Sync(ctx)
+			require.NoError(t, err)
+			err = syncer.Close(ctx)
+			require.NoError(t, err)
+			_ = os.Remove(c1zpath)
+		})
 	}
-
-	tempDir, err := os.MkdirTemp("", "baton-benchmark-expand-grants")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-	c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
-	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir))
-	require.NoError(t, err)
-	err = syncer.Sync(ctx)
-	require.NoError(t, err)
-	err = syncer.Close(ctx)
-	require.NoError(t, err)
-	_ = os.Remove(c1zpath)
 }
 
 func TestInvalidResourceTypeFilter(t *testing.T) {
@@ -143,292 +147,304 @@ func TestResourceTypeFilter(t *testing.T) {
 }
 
 func TestExpandGrantBadEntitlement(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	for _, useDFS := range []bool{false, true} {
+		t.Run(fmt.Sprintf("DFS=%v", useDFS), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-	ctx, err := logging.Init(ctx)
-	require.NoError(t, err)
+			ctx, err := logging.Init(ctx)
+			require.NoError(t, err)
 
-	mc := newMockConnector()
+			mc := newMockConnector()
 
-	var badResourceType = v2.ResourceType_builder{
-		Id:          "bad",
-		DisplayName: "Bad",
-		Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
-	}.Build()
-	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType, badResourceType)
+			var badResourceType = v2.ResourceType_builder{
+				Id:          "bad",
+				DisplayName: "Bad",
+				Traits:      []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP},
+			}.Build()
+			mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType, badResourceType)
 
-	group1, _, err := mc.AddGroup(ctx, "test_group_1")
-	require.NoError(t, err)
-	group2, group2Ent, err := mc.AddGroup(ctx, "test_group_2")
-	require.NoError(t, err)
+			group1, _, err := mc.AddGroup(ctx, "test_group_1")
+			require.NoError(t, err)
+			group2, group2Ent, err := mc.AddGroup(ctx, "test_group_2")
+			require.NoError(t, err)
 
-	user1, err := mc.AddUser(ctx, "user_1")
-	require.NoError(t, err)
-	user2, err := mc.AddUser(ctx, "user_2")
-	require.NoError(t, err)
+			user1, err := mc.AddUser(ctx, "user_1")
+			require.NoError(t, err)
+			user2, err := mc.AddUser(ctx, "user_2")
+			require.NoError(t, err)
 
-	// Add all users to group 2
-	_ = mc.AddGroupMember(ctx, group2, user1)
-	_ = mc.AddGroupMember(ctx, group2, user2)
+			// Add all users to group 2
+			_ = mc.AddGroupMember(ctx, group2, user1)
+			_ = mc.AddGroupMember(ctx, group2, user2)
 
-	// Add group 2 to group 1 with an incorrect entitlement id
-	badEntResource, err := rs.NewGroupResource(
-		"bad_group",
-		badResourceType,
-		"bad_group",
-		[]rs.GroupTraitOption{},
-	)
-	require.NoError(t, err)
-	mc.AddResource(ctx, badEntResource)
-	badEnt := et.NewAssignmentEntitlement(
-		badEntResource,
-		"bad_member",
-		et.WithGrantableTo(groupResourceType, userResourceType, badResourceType),
-	)
-	grantOpts := gt.WithAnnotation(v2.GrantExpandable_builder{
-		EntitlementIds: []string{
-			group2Ent.GetId(),
-		},
-	}.Build())
+			// Add group 2 to group 1 with an incorrect entitlement id
+			badEntResource, err := rs.NewGroupResource(
+				"bad_group",
+				badResourceType,
+				"bad_group",
+				[]rs.GroupTraitOption{},
+			)
+			require.NoError(t, err)
+			mc.AddResource(ctx, badEntResource)
+			badEnt := et.NewAssignmentEntitlement(
+				badEntResource,
+				"bad_member",
+				et.WithGrantableTo(groupResourceType, userResourceType, badResourceType),
+			)
+			grantOpts := gt.WithAnnotation(v2.GrantExpandable_builder{
+				EntitlementIds: []string{
+					group2Ent.GetId(),
+				},
+			}.Build())
 
-	badGrant := gt.NewGrant(
-		badEntResource,
-		"bad_member",
-		group2,
-		grantOpts,
-	)
-	mc.grantDB[badEntResource.GetId().GetResource()] = append(mc.grantDB[badEntResource.GetId().GetResource()], badGrant)
-	// _ = mc.AddGroupMember(ctx, group2, badEntResource)
+			badGrant := gt.NewGrant(
+				badEntResource,
+				"bad_member",
+				group2,
+				grantOpts,
+			)
+			mc.grantDB[badEntResource.GetId().GetResource()] = append(mc.grantDB[badEntResource.GetId().GetResource()], badGrant)
+			// _ = mc.AddGroupMember(ctx, group2, badEntResource)
 
-	_ = mc.AddGroupMember(ctx, group1, group2, badEnt)
+			_ = mc.AddGroupMember(ctx, group1, group2, badEnt)
 
-	tempDir, err := os.MkdirTemp("", "baton-expand-grant-bad-entitlement")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-	c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
-	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir))
-	require.NoError(t, err)
-	err = syncer.Sync(ctx)
-	require.NoError(t, err)
-	err = syncer.Close(ctx)
-	require.NoError(t, err)
+			tempDir, err := os.MkdirTemp("", "baton-expand-grant-bad-entitlement")
+			require.NoError(t, err)
+			defer os.RemoveAll(tempDir)
+			c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
+			syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir), WithDFSExpansion(useDFS))
+			require.NoError(t, err)
+			err = syncer.Sync(ctx)
+			require.NoError(t, err)
+			err = syncer.Close(ctx)
+			require.NoError(t, err)
 
-	_ = os.Remove(c1zpath)
+			_ = os.Remove(c1zpath)
+		})
+	}
 }
 
 func TestExpandGrantImmutable(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	for _, useDFS := range []bool{false, true} {
+		t.Run(fmt.Sprintf("DFS=%v", useDFS), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-	mc := newMockConnector()
+			mc := newMockConnector()
 
-	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+			mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
 
-	group1, group1Ent, err := mc.AddGroup(ctx, "test_group_1")
-	require.NoError(t, err)
-	group2, group2Ent, err := mc.AddGroup(ctx, "test_group_2")
-	require.NoError(t, err)
+			group1, group1Ent, err := mc.AddGroup(ctx, "test_group_1")
+			require.NoError(t, err)
+			group2, group2Ent, err := mc.AddGroup(ctx, "test_group_2")
+			require.NoError(t, err)
 
-	user1, err := mc.AddUser(ctx, "user_1")
-	require.NoError(t, err)
-	user2, err := mc.AddUser(ctx, "user_2")
-	require.NoError(t, err)
+			user1, err := mc.AddUser(ctx, "user_1")
+			require.NoError(t, err)
+			user2, err := mc.AddUser(ctx, "user_2")
+			require.NoError(t, err)
 
-	// Add all users to group 2
-	_ = mc.AddGroupMember(ctx, group2, user1)
-	_ = mc.AddGroupMember(ctx, group2, user2)
+			// Add all users to group 2
+			_ = mc.AddGroupMember(ctx, group2, user1)
+			_ = mc.AddGroupMember(ctx, group2, user2)
 
-	// Add group 2 to group 1
-	_ = mc.AddGroupMember(ctx, group1, group2, group2Ent)
+			// Add group 2 to group 1
+			_ = mc.AddGroupMember(ctx, group1, group2, group2Ent)
 
-	// Directly add user 1 to group 1 (this grant should not be immutable after expansion)
-	_ = mc.AddGroupMember(ctx, group1, user1)
+			// Directly add user 1 to group 1 (this grant should not be immutable after expansion)
+			_ = mc.AddGroupMember(ctx, group1, user1)
 
-	tempDir, err := os.MkdirTemp("", "baton-expand-grant-immutable")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-	c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
-	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir))
-	require.NoError(t, err)
-	err = syncer.Sync(ctx)
-	require.NoError(t, err)
-	err = syncer.Close(ctx)
-	require.NoError(t, err)
+			tempDir, err := os.MkdirTemp("", "baton-expand-grant-immutable")
+			require.NoError(t, err)
+			defer os.RemoveAll(tempDir)
+			c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
+			syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir), WithDFSExpansion(useDFS))
+			require.NoError(t, err)
+			err = syncer.Sync(ctx)
+			require.NoError(t, err)
+			err = syncer.Close(ctx)
+			require.NoError(t, err)
 
-	c1zManager, err := manager.New(ctx, c1zpath)
-	require.NoError(t, err)
+			c1zManager, err := manager.New(ctx, c1zpath)
+			require.NoError(t, err)
 
-	store, err := c1zManager.LoadC1Z(ctx)
-	require.NoError(t, err)
+			store, err := c1zManager.LoadC1Z(ctx)
+			require.NoError(t, err)
 
-	allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
-	allGrants, err := store.ListGrants(ctx, allGrantsReq)
-	require.NoError(t, err)
-	require.Len(t, allGrants.GetList(), 5)
+			allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
+			allGrants, err := store.ListGrants(ctx, allGrantsReq)
+			require.NoError(t, err)
+			require.Len(t, allGrants.GetList(), 5)
 
-	req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: group1Ent,
-		PageToken:   "",
-		Annotations: nil,
-	}.Build()
-	resp, err := store.ListGrantsForEntitlement(ctx, req)
-	require.NoError(t, err)
-	require.Len(t, resp.GetList(), 3) // both users and group2 should have group1 membership
+			req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				Entitlement: group1Ent,
+				PageToken:   "",
+				Annotations: nil,
+			}.Build()
+			resp, err := store.ListGrantsForEntitlement(ctx, req)
+			require.NoError(t, err)
+			require.Len(t, resp.GetList(), 3) // both users and group2 should have group1 membership
 
-	req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: group1Ent,
-		PrincipalId: user1.GetId(),
-		PageToken:   "",
-		Annotations: nil,
-	}.Build()
-	resp, err = store.ListGrantsForEntitlement(ctx, req)
-	require.NoError(t, err)
-	require.Len(t, resp.GetList(), 1)
+			req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				Entitlement: group1Ent,
+				PrincipalId: user1.GetId(),
+				PageToken:   "",
+				Annotations: nil,
+			}.Build()
+			resp, err = store.ListGrantsForEntitlement(ctx, req)
+			require.NoError(t, err)
+			require.Len(t, resp.GetList(), 1)
 
-	grant := resp.GetList()[0]
+			grant := resp.GetList()[0]
 
-	annos := annotations.Annotations(grant.GetAnnotations())
-	immutable := &v2.GrantImmutable{}
-	hasImmutable, err := annos.Pick(immutable)
-	require.NoError(t, err)
+			annos := annotations.Annotations(grant.GetAnnotations())
+			immutable := &v2.GrantImmutable{}
+			hasImmutable, err := annos.Pick(immutable)
+			require.NoError(t, err)
 
-	require.False(t, hasImmutable) // Direct grant should not be immutable
+			require.False(t, hasImmutable) // Direct grant should not be immutable
 
-	req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: group1Ent,
-		PrincipalId: user2.GetId(),
-		PageToken:   "",
-		Annotations: nil,
-	}.Build()
-	resp, err = store.ListGrantsForEntitlement(ctx, req)
-	require.NoError(t, err)
-	require.Len(t, resp.GetList(), 1)
+			req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				Entitlement: group1Ent,
+				PrincipalId: user2.GetId(),
+				PageToken:   "",
+				Annotations: nil,
+			}.Build()
+			resp, err = store.ListGrantsForEntitlement(ctx, req)
+			require.NoError(t, err)
+			require.Len(t, resp.GetList(), 1)
 
-	grant = resp.GetList()[0]
+			grant = resp.GetList()[0]
 
-	annos = annotations.Annotations(grant.GetAnnotations())
-	immutable = &v2.GrantImmutable{}
-	hasImmutable, err = annos.Pick(immutable)
-	require.NoError(t, err)
+			annos = annotations.Annotations(grant.GetAnnotations())
+			immutable = &v2.GrantImmutable{}
+			hasImmutable, err = annos.Pick(immutable)
+			require.NoError(t, err)
 
-	require.True(t, hasImmutable) // Expanded indirect grant should be immutable
+			require.True(t, hasImmutable) // Expanded indirect grant should be immutable
 
-	_ = os.Remove(c1zpath)
+			_ = os.Remove(c1zpath)
+		})
+	}
 }
 
 func TestExpandGrantImmutableCycle(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	for _, useDFS := range []bool{false, true} {
+		t.Run(fmt.Sprintf("DFS=%v", useDFS), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-	mc := newMockConnector()
+			mc := newMockConnector()
 
-	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+			mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
 
-	group1, group1Ent, err := mc.AddGroup(ctx, "test_group_1")
-	require.NoError(t, err)
-	group2, group2Ent, err := mc.AddGroup(ctx, "test_group_2")
-	require.NoError(t, err)
-	group3, group3Ent, err := mc.AddGroup(ctx, "test_group_3")
-	require.NoError(t, err)
+			group1, group1Ent, err := mc.AddGroup(ctx, "test_group_1")
+			require.NoError(t, err)
+			group2, group2Ent, err := mc.AddGroup(ctx, "test_group_2")
+			require.NoError(t, err)
+			group3, group3Ent, err := mc.AddGroup(ctx, "test_group_3")
+			require.NoError(t, err)
 
-	user1, err := mc.AddUser(ctx, "user_1")
-	require.NoError(t, err)
-	user2, err := mc.AddUser(ctx, "user_2")
-	require.NoError(t, err)
+			user1, err := mc.AddUser(ctx, "user_1")
+			require.NoError(t, err)
+			user2, err := mc.AddUser(ctx, "user_2")
+			require.NoError(t, err)
 
-	// Add all users to group 2
-	_ = mc.AddGroupMember(ctx, group2, user1)
-	_ = mc.AddGroupMember(ctx, group2, user2)
+			// Add all users to group 2
+			_ = mc.AddGroupMember(ctx, group2, user1)
+			_ = mc.AddGroupMember(ctx, group2, user2)
 
-	// Add group 2 to group 1
-	_ = mc.AddGroupMember(ctx, group1, group2, group2Ent)
-	// Add group 3 to group 2
-	_ = mc.AddGroupMember(ctx, group2, group3, group3Ent)
-	// Add group 1 to group 3
-	_ = mc.AddGroupMember(ctx, group3, group1, group1Ent)
+			// Add group 2 to group 1
+			_ = mc.AddGroupMember(ctx, group1, group2, group2Ent)
+			// Add group 3 to group 2
+			_ = mc.AddGroupMember(ctx, group2, group3, group3Ent)
+			// Add group 1 to group 3
+			_ = mc.AddGroupMember(ctx, group3, group1, group1Ent)
 
-	// Directly add user 1 to group 1 (this grant should not be immutable after expansion)
-	_ = mc.AddGroupMember(ctx, group1, user1)
+			// Directly add user 1 to group 1 (this grant should not be immutable after expansion)
+			_ = mc.AddGroupMember(ctx, group1, user1)
 
-	tempDir, err := os.MkdirTemp("", "baton-expand-grant-immutable-cycle")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-	c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
-	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir))
-	require.NoError(t, err)
-	err = syncer.Sync(ctx)
-	require.NoError(t, err)
-	err = syncer.Close(ctx)
-	require.NoError(t, err)
+			tempDir, err := os.MkdirTemp("", "baton-expand-grant-immutable-cycle")
+			require.NoError(t, err)
+			defer os.RemoveAll(tempDir)
+			c1zpath := filepath.Join(tempDir, "expand-grants.c1z")
+			syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir), WithDFSExpansion(useDFS))
+			require.NoError(t, err)
+			err = syncer.Sync(ctx)
+			require.NoError(t, err)
+			err = syncer.Close(ctx)
+			require.NoError(t, err)
 
-	c1zManager, err := manager.New(ctx, c1zpath)
-	require.NoError(t, err)
+			c1zManager, err := manager.New(ctx, c1zpath)
+			require.NoError(t, err)
 
-	store, err := c1zManager.LoadC1Z(ctx)
-	require.NoError(t, err)
+			store, err := c1zManager.LoadC1Z(ctx)
+			require.NoError(t, err)
 
-	allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
-	allGrants, err := store.ListGrants(ctx, allGrantsReq)
-	require.NoError(t, err)
-	require.Len(t, allGrants.GetList(), 6)
+			allGrantsReq := &v2.GrantsServiceListGrantsRequest{}
+			allGrants, err := store.ListGrants(ctx, allGrantsReq)
+			require.NoError(t, err)
+			require.Len(t, allGrants.GetList(), 6)
 
-	req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: group1Ent,
-		PageToken:   "",
-		Annotations: nil,
-	}.Build()
-	resp, err := store.ListGrantsForEntitlement(ctx, req)
-	require.NoError(t, err)
-	require.Len(t, resp.GetList(), 2) // both users and group2 should have group1 membership
+			req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				Entitlement: group1Ent,
+				PageToken:   "",
+				Annotations: nil,
+			}.Build()
+			resp, err := store.ListGrantsForEntitlement(ctx, req)
+			require.NoError(t, err)
+			require.Len(t, resp.GetList(), 2) // both users and group2 should have group1 membership
 
-	req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		// Entitlement: group1Ent,
-		PrincipalId: user1.GetId(),
-		PageToken:   "",
-		Annotations: nil,
-	}.Build()
-	resp, err = store.ListGrantsForPrincipal(ctx, req)
-	require.NoError(t, err)
-	require.Len(t, resp.GetList(), 2)
+			req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				// Entitlement: group1Ent,
+				PrincipalId: user1.GetId(),
+				PageToken:   "",
+				Annotations: nil,
+			}.Build()
+			resp, err = store.ListGrantsForPrincipal(ctx, req)
+			require.NoError(t, err)
+			require.Len(t, resp.GetList(), 2)
 
-	grant := resp.GetList()[0]
-	for _, g := range resp.GetList() {
-		if g.GetEntitlement().GetId() == group1Ent.GetId() {
-			grant = g
-			break
-		}
+			grant := resp.GetList()[0]
+			for _, g := range resp.GetList() {
+				if g.GetEntitlement().GetId() == group1Ent.GetId() {
+					grant = g
+					break
+				}
+			}
+			require.Equal(t, grant.GetEntitlement().GetId(), group1Ent.GetId())
+
+			annos := annotations.Annotations(grant.GetAnnotations())
+			immutable := &v2.GrantImmutable{}
+			hasImmutable, err := annos.Pick(immutable)
+			require.NoError(t, err)
+
+			require.False(t, hasImmutable) // Direct grant should not be immutable
+
+			req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+				PrincipalId: user2.GetId(),
+				PageToken:   "",
+				Annotations: nil,
+			}.Build()
+			resp, err = store.ListGrantsForPrincipal(ctx, req)
+			require.NoError(t, err)
+			require.Len(t, resp.GetList(), 1)
+
+			grant = resp.GetList()[0]
+
+			annos = annotations.Annotations(grant.GetAnnotations())
+			immutable = &v2.GrantImmutable{}
+			hasImmutable, err = annos.Pick(immutable)
+			require.NoError(t, err)
+
+			// TODO: Make this pass. It would require modifying an existing grant after fixing the cycle
+			// require.True(t, hasImmutable) // Expanded indirect grant should be immutable
+			require.False(t, hasImmutable) // TODO: delete this and fix the code so the above line passes
+
+			_ = os.Remove(c1zpath)
+		})
 	}
-	require.Equal(t, grant.GetEntitlement().GetId(), group1Ent.GetId())
-
-	annos := annotations.Annotations(grant.GetAnnotations())
-	immutable := &v2.GrantImmutable{}
-	hasImmutable, err := annos.Pick(immutable)
-	require.NoError(t, err)
-
-	require.False(t, hasImmutable) // Direct grant should not be immutable
-
-	req = reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		PrincipalId: user2.GetId(),
-		PageToken:   "",
-		Annotations: nil,
-	}.Build()
-	resp, err = store.ListGrantsForPrincipal(ctx, req)
-	require.NoError(t, err)
-	require.Len(t, resp.GetList(), 1)
-
-	grant = resp.GetList()[0]
-
-	annos = annotations.Annotations(grant.GetAnnotations())
-	immutable = &v2.GrantImmutable{}
-	hasImmutable, err = annos.Pick(immutable)
-	require.NoError(t, err)
-
-	// TODO: Make this pass. It would require modifying an existing grant after fixing the cycle
-	// require.True(t, hasImmutable) // Expanded indirect grant should be immutable
-	require.False(t, hasImmutable) // TODO: delete this and fix the code so the above line passes
-
-	_ = os.Remove(c1zpath)
 }
 func BenchmarkExpandCircle(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
