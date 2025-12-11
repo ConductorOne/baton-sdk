@@ -130,11 +130,6 @@ func WithSecurityInsightTrait(opts ...SecurityInsightTraitOption) ResourceOption
 	}
 }
 
-// NewSecurityInsightResourceType creates a new ResourceType with the TRAIT_SECURITY_INSIGHT trait.
-func NewSecurityInsightResourceType(name string) *v2.ResourceType {
-	return NewResourceType(name, []v2.ResourceType_Trait{v2.ResourceType_TRAIT_SECURITY_INSIGHT})
-}
-
 // NewUserSecurityInsightResource creates a security insight resource targeting a user by email.
 // Use this when the insight should be resolved to a C1 User by Uplift.
 func NewUserSecurityInsightResource(

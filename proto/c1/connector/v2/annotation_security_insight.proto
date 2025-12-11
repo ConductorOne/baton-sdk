@@ -36,7 +36,7 @@ message SecurityInsightTrait {
     // For binding to a C1 User by email address
     UserTarget user = 5;
     // For direct reference to a resource the connector knows about
-    c1.connector.v2.ResourceId resource = 6;
+    c1.connector.v2.ResourceId resource_id = 6;
     // For binding to an AppResource by external ID
     ExternalResourceTarget external_resource = 7;
   }
