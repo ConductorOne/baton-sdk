@@ -107,7 +107,7 @@ var unmarshalerOptions = proto.UnmarshalOptions{
 
 // listConnectorObjects uses a connector list request to fetch the corresponding data from the local db.
 // It returns a slice of typed proto messages constructed via the provided factory function.
-func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T, ret []T) ([]T, string, error) {
+func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T) ([]T, string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.listConnectorObjects")
 	defer span.End()
 
@@ -255,6 +255,7 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	var count uint32 = 0
 	lastRow := 0
 	var data sql.RawBytes
+	var ret []T
 	for rows.Next() {
 		count++
 		if count > pageSize {

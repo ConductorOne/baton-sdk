@@ -90,8 +90,7 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 	ctx, span := tracer.Start(ctx, "C1File.ListGrants")
 	defer span.End()
 
-	grantRows := make([]*v2.Grant, 0, 10000)
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, grantRows)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants: %w", err)
 	}
@@ -121,34 +120,13 @@ func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderSe
 	}.Build(), nil
 }
 
-// ListGrantsForEntitlementPooled lists grants using a caller-provided factory function.
-// This allows the caller to manage a pool of Grant objects for reuse.
-// The caller is responsible for resetting/releasing grants after use.
-func (c *C1File) ListGrantsForEntitlementPooled(
-	ctx context.Context,
-	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
-	acquireGrant func() *v2.Grant,
-	grantRows []*v2.Grant,
-) ([]*v2.Grant, string, error) {
-	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlementPooled")
-	defer span.End()
-
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, acquireGrant, grantRows)
-	if err != nil {
-		return nil, "", fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
-	}
-
-	return ret, nextPageToken, nil
-}
-
 func (c *C1File) ListGrantsForEntitlement(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlement")
 	defer span.End()
-	grantRows := make([]*v2.Grant, 0, 10000)
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, grantRows)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
 	}
@@ -166,8 +144,7 @@ func (c *C1File) ListGrantsForPrincipal(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForPrincipal")
 	defer span.End()
 
-	grantRows := make([]*v2.Grant, 0, 10000)
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, grantRows)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err)
 	}
@@ -185,8 +162,7 @@ func (c *C1File) ListGrantsForResourceType(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForResourceType")
 	defer span.End()
 
-	grantRows := make([]*v2.Grant, 0, 10000)
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, grantRows)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for resource type '%s': %w", request.GetResourceTypeId(), err)
 	}

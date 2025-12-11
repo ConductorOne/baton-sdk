@@ -51,8 +51,7 @@ func (c *C1File) ListResourceTypes(ctx context.Context, request *v2.ResourceType
 	ctx, span := tracer.Start(ctx, "C1File.ListResourceTypes")
 	defer span.End()
 
-	resourceTypeRows := make([]*v2.ResourceType, 0, 10000)
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, resourceTypes.Name(), request, func() *v2.ResourceType { return &v2.ResourceType{} }, resourceTypeRows)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, resourceTypes.Name(), request, func() *v2.ResourceType { return &v2.ResourceType{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing resource types: %w", err)
 	}
