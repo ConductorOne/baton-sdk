@@ -126,6 +126,7 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 	// Cursor state for pagination
 	var cursorPrincipalType, cursorPrincipalID string
 	var cursorRowID int64
+	var cursorEntitlementID string
 	firstPage := true
 
 	// Process function for end of principal
@@ -169,43 +170,47 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 
 		if firstPage {
 			// First page: no cursor filter
+			// Start from temp table (t) to ensure we get all expandable entitlements
+			// JOIN entitlements (ent) on temp table to always get entitlement data
+			// LEFT JOIN grants (g) - only sometimes have grants
+			// Filter to only process rows where grants exist (we're iterating through grants)
 			query = `
 				SELECT 
 					g.principal_resource_type_id,
 					g.principal_resource_id,
-					g.entitlement_id,
+					t.entitlement_id,
 					g.id,
 					ent.data,
 					t.rowid
-				FROM ` + gTable + ` g
-				JOIN ` + dfsExpansionTempTable + ` t ON g.entitlement_id = t.entitlement_id
-				LEFT JOIN ` + entTable + ` ent ON ent.external_id = g.entitlement_id AND ent.sync_id = ?
-				WHERE g.sync_id = ?
-				ORDER BY g.principal_resource_type_id, g.principal_resource_id, t.rowid
+				FROM ` + dfsExpansionTempTable + ` t
+				JOIN ` + entTable + ` ent ON ent.external_id = t.entitlement_id AND ent.sync_id = ?
+				LEFT JOIN ` + gTable + ` g ON g.entitlement_id = t.entitlement_id AND g.sync_id = ?
+				WHERE g.id IS NOT NULL
+				ORDER BY g.principal_resource_type_id, g.principal_resource_id, t.rowid, t.entitlement_id
 				LIMIT ?
 			`
 			args = []interface{}{c.currentSyncID, c.currentSyncID, dfsPageSize}
 			firstPage = false
 		} else {
 			// Subsequent pages: use cursor-based pagination
-			// The cursor is (principal_type, principal_id, rowid)
+			// The cursor is (principal_type, principal_id, rowid, entitlement_id)
 			query = `
 				SELECT 
 					g.principal_resource_type_id,
 					g.principal_resource_id,
-					g.entitlement_id,
+					t.entitlement_id,
 					g.id,
 					ent.data,
 					t.rowid
-				FROM ` + gTable + ` g
-				JOIN ` + dfsExpansionTempTable + ` t ON g.entitlement_id = t.entitlement_id
-				LEFT JOIN ` + entTable + ` ent ON ent.external_id = g.entitlement_id AND ent.sync_id = ?
-				WHERE g.sync_id = ?
-				  AND (g.principal_resource_type_id, g.principal_resource_id, t.rowid) > (?, ?, ?)
-				ORDER BY g.principal_resource_type_id, g.principal_resource_id, t.rowid
+				FROM ` + dfsExpansionTempTable + ` t
+				JOIN ` + entTable + ` ent ON ent.external_id = t.entitlement_id AND ent.sync_id = ?
+				LEFT JOIN ` + gTable + ` g ON g.entitlement_id = t.entitlement_id AND g.sync_id = ?
+				WHERE g.id IS NOT NULL
+				  AND (g.principal_resource_type_id, g.principal_resource_id, t.rowid, t.entitlement_id) > (?, ?, ?, ?)
+				ORDER BY g.principal_resource_type_id, g.principal_resource_id, t.rowid, t.entitlement_id
 				LIMIT ?
 			`
-			args = []interface{}{c.currentSyncID, c.currentSyncID, cursorPrincipalType, cursorPrincipalID, cursorRowID, dfsPageSize}
+			args = []interface{}{c.currentSyncID, c.currentSyncID, cursorPrincipalType, cursorPrincipalID, cursorRowID, cursorEntitlementID, dfsPageSize}
 		}
 
 		rows, err := c.db.QueryContext(ctx, query, args...)
@@ -226,8 +231,13 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 
 			rowCount++
 
+			// Entitlement data is always present (we JOIN entitlements on temp table)
 			// Unmarshal entitlement if not already cached
-			if _, ok := entitlementCache[entitlementID]; !ok && entitlementData != nil {
+			if _, ok := entitlementCache[entitlementID]; !ok {
+				if entitlementData == nil {
+					rows.Close()
+					return nil, fmt.Errorf("entitlement data is NULL for entitlement %s (should never happen)", entitlementID)
+				}
 				ent := &v2.Entitlement{}
 				if err := proto.Unmarshal(entitlementData, ent); err != nil {
 					rows.Close()
@@ -236,10 +246,17 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 				entitlementCache[entitlementID] = ent
 			}
 
+			// Grant ID should always be present (we filter WHERE g.id IS NOT NULL)
+			if grantID == 0 {
+				rows.Close()
+				return nil, fmt.Errorf("grant ID is NULL for entitlement %s (should never happen)", entitlementID)
+			}
+
 			// Update cursor for next page
 			cursorPrincipalType = principalType
 			cursorPrincipalID = principalID
 			cursorRowID = rowID
+			cursorEntitlementID = entitlementID
 
 			// Check if we've moved to a new principal
 			if principalType != currentPrincipalType || principalID != currentPrincipalID {
@@ -410,65 +427,13 @@ func (c *C1File) insertNewExpandedGrants(
 		return 0, nil
 	}
 
-	l := ctxzap.Extract(ctx)
-
-	// Collect entitlement IDs that aren't in cache
-	missingEntitlementIDs := make([]string, 0)
-	for _, pg := range newGrants {
-		if _, ok := entitlementCache[pg.entitlementID]; !ok {
-			missingEntitlementIDs = append(missingEntitlementIDs, pg.entitlementID)
-		}
-	}
-
-	// Batch fetch missing entitlements
-	if len(missingEntitlementIDs) > 0 {
-		entTable := entitlements.Name()
-		placeholders := make([]string, len(missingEntitlementIDs))
-		args := make([]interface{}, len(missingEntitlementIDs)+1)
-		for i, eid := range missingEntitlementIDs {
-			placeholders[i] = "?"
-			args[i] = eid
-		}
-		args[len(missingEntitlementIDs)] = c.currentSyncID
-
-		query := `SELECT external_id, data FROM ` + entTable + ` WHERE external_id IN (` + strings.Join(placeholders, ",") + `) AND sync_id = ?`
-		rows, err := c.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			return 0, fmt.Errorf("error batch fetching entitlements: %w", err)
-		}
-
-		for rows.Next() {
-			var entitlementID string
-			var data []byte
-			if err := rows.Scan(&entitlementID, &data); err != nil {
-				rows.Close()
-				return 0, fmt.Errorf("error scanning entitlement: %w", err)
-			}
-			ent := &v2.Entitlement{}
-			if err := proto.Unmarshal(data, ent); err != nil {
-				rows.Close()
-				return 0, fmt.Errorf("error unmarshaling entitlement %s: %w", entitlementID, err)
-			}
-			entitlementCache[entitlementID] = ent
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return 0, fmt.Errorf("error iterating entitlements: %w", err)
-		}
-		rows.Close()
-	}
-
 	grantsToInsert := make([]*v2.Grant, 0, len(newGrants))
 
 	for _, pg := range newGrants {
-		// Look up entitlement from cache (now includes batch-fetched entitlements)
+		// Entitlement should always be in cache (we JOIN entitlements on temp table in the query)
 		entitlement, ok := entitlementCache[pg.entitlementID]
 		if !ok {
-			// Skip if still not found after batch fetch (entitlement doesn't exist)
-			l.Warn("insertNewExpandedGrants: skipping missing entitlement",
-				zap.String("entitlement_id", pg.entitlementID),
-			)
-			continue
+			return 0, fmt.Errorf("entitlement %s not found in cache (should never happen)", pg.entitlementID)
 		}
 
 		// Build sources map

@@ -508,6 +508,239 @@ func BenchmarkExpandCircle(b *testing.B) {
 	}
 }
 
+// BenchmarkExpansionBFSvsDFS compares BFS and DFS grant expansion algorithms.
+// Tests nested and cyclic group structures with 10K groups and 10K users.
+// Run with: go test -bench=BenchmarkExpansionBFSvsDFS -benchtime=3x -benchmem ./pkg/sync/...
+func BenchmarkExpansionBFSvsDFS(b *testing.B) {
+	// Test configuration
+	numGroups := 10000
+	totalUsers := 10000
+	numLevels := 10
+	cycleSize := 3 // create cycles of this size
+
+	setupConnector := func() *mockConnector {
+		ctx := context.Background()
+		mc := newMockConnector()
+		mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+
+		type groupInfo struct {
+			r *v2.Resource
+			e *v2.Entitlement
+		}
+		groups := make([]*groupInfo, numGroups)
+
+		// Create all groups
+		for i := 0; i < numGroups; i++ {
+			groupId := fmt.Sprintf("group_%d", i)
+			group, groupEnt, _ := mc.AddGroup(ctx, groupId)
+			groups[i] = &groupInfo{r: group, e: groupEnt}
+		}
+
+		// Create hierarchical structure: 10 levels deep
+		// Distribute groups across levels (more groups at deeper levels)
+		groupsPerLevel := make([]int, numLevels)
+		groupsPerLevel[0] = 1 // root level has 1 group
+		remainingGroups := numGroups - 1
+		for level := 1; level < numLevels; level++ {
+			// Distribute remaining groups across levels (more at deeper levels)
+			groupsPerLevel[level] = remainingGroups / (numLevels - level)
+			remainingGroups -= groupsPerLevel[level]
+		}
+		groupsPerLevel[numLevels-1] += remainingGroups // put remainder in last level
+
+		// Build hierarchy: each level's groups are children of previous level's groups
+		groupIdx := 1 // start after root
+		for level := 1; level < numLevels; level++ {
+			parentStartIdx := 0
+			for prevLevel := 0; prevLevel < level; prevLevel++ {
+				parentStartIdx += groupsPerLevel[prevLevel]
+			}
+			parentEndIdx := parentStartIdx + groupsPerLevel[level-1]
+
+			for i := 0; i < groupsPerLevel[level] && groupIdx < numGroups; i++ {
+				parentIdx := parentStartIdx + (i % (parentEndIdx - parentStartIdx))
+				_ = mc.AddGroupMember(ctx, groups[parentIdx].r, groups[groupIdx].r, groups[groupIdx].e)
+				groupIdx++
+			}
+		}
+
+		// Create cycles: every cycleSize groups form a cycle (within same level)
+		for level := 0; level < numLevels; level++ {
+			levelStartIdx := 0
+			for prevLevel := 0; prevLevel < level; prevLevel++ {
+				levelStartIdx += groupsPerLevel[prevLevel]
+			}
+			levelEndIdx := levelStartIdx + groupsPerLevel[level]
+
+			for i := levelStartIdx; i < levelEndIdx-cycleSize; i += cycleSize {
+				// Create cycle: group_i -> group_i+1 -> group_i+2 -> group_i
+				_ = mc.AddGroupMember(ctx, groups[i].r, groups[i+1].r, groups[i+1].e)
+				_ = mc.AddGroupMember(ctx, groups[i+1].r, groups[i+2].r, groups[i+2].e)
+				_ = mc.AddGroupMember(ctx, groups[i+2].r, groups[i].r, groups[i].e)
+			}
+		}
+
+		// Add users to leaf groups (last level) - distribute totalUsers across leaf groups
+		leafStartIdx := 0
+		for level := 0; level < numLevels-1; level++ {
+			leafStartIdx += groupsPerLevel[level]
+		}
+		leafGroupCount := groupsPerLevel[numLevels-1]
+		usersPerLeafGroup := totalUsers / leafGroupCount
+		if usersPerLeafGroup == 0 {
+			usersPerLeafGroup = 1
+		}
+
+		userIdx := 0
+		for i := 0; i < leafGroupCount && (leafStartIdx+i) < numGroups && userIdx < totalUsers; i++ {
+			leafGroup := groups[leafStartIdx+i]
+			usersForThisGroup := usersPerLeafGroup
+			if i == leafGroupCount-1 {
+				// Last group gets remaining users
+				usersForThisGroup = totalUsers - userIdx
+			}
+			for j := 0; j < usersForThisGroup && userIdx < totalUsers; j++ {
+				pid := fmt.Sprintf("user_%d", userIdx)
+				principal, _ := mc.AddUser(ctx, pid)
+				_ = mc.AddGroupMember(ctx, leafGroup.r, principal)
+				userIdx++
+			}
+		}
+
+		return mc
+	}
+
+	b.Run("BFS", func(b *testing.B) {
+		mc := setupConnector()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		tempDir, _ := os.MkdirTemp("", "baton-bench-bfs")
+		defer os.RemoveAll(tempDir)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			c1zpath := filepath.Join(tempDir, fmt.Sprintf("bench-bfs-%d.c1z", i))
+			syncer, _ := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir), WithDFSExpansion(false))
+			_ = syncer.Sync(ctx)
+			_ = syncer.Close(ctx)
+			_ = os.Remove(c1zpath)
+		}
+	})
+
+	b.Run("DFS", func(b *testing.B) {
+		mc := setupConnector()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		tempDir, _ := os.MkdirTemp("", "baton-bench-dfs")
+		defer os.RemoveAll(tempDir)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			c1zpath := filepath.Join(tempDir, fmt.Sprintf("bench-dfs-%d.c1z", i))
+			syncer, _ := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir), WithDFSExpansion(true))
+			_ = syncer.Sync(ctx)
+			_ = syncer.Close(ctx)
+			_ = os.Remove(c1zpath)
+		}
+	})
+}
+
+// BenchmarkExpansionWideGraph tests a wide graph (many groups at same level) with cycles.
+// This scenario has more grants needing source updates.
+// Run with: go test -bench=BenchmarkExpansionWideGraph -benchtime=3x -benchmem ./pkg/sync/...
+func BenchmarkExpansionWideGraph(b *testing.B) {
+	usersPerGroup := 100
+	numChildGroups := 20 // many child groups all feeding into one parent
+
+	setupConnector := func() *mockConnector {
+		ctx := context.Background()
+		mc := newMockConnector()
+		mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+
+		// Create parent group
+		parentGroup, _, _ := mc.AddGroup(ctx, "parent")
+
+		// Create child groups, each with users
+		childGroups := make([]struct {
+			r *v2.Resource
+			e *v2.Entitlement
+		}, numChildGroups)
+
+		for i := 0; i < numChildGroups; i++ {
+			childId := fmt.Sprintf("child_%d", i)
+			childGroup, childEnt, _ := mc.AddGroup(ctx, childId)
+			childGroups[i] = struct {
+				r *v2.Resource
+				e *v2.Entitlement
+			}{r: childGroup, e: childEnt}
+
+			// Add child to parent
+			_ = mc.AddGroupMember(ctx, parentGroup, childGroup, childEnt)
+
+			// Add users to child
+			for j := 0; j < usersPerGroup; j++ {
+				pid := fmt.Sprintf("user_%d_%d", i, j)
+				principal, _ := mc.AddUser(ctx, pid)
+				_ = mc.AddGroupMember(ctx, childGroup, principal)
+			}
+		}
+
+		// Create cycles between child groups (every 3 groups form a cycle)
+		for i := 0; i < numChildGroups-2; i += 3 {
+			// Create cycle: child_i -> child_i+1 -> child_i+2 -> child_i
+			_ = mc.AddGroupMember(ctx, childGroups[i].r, childGroups[i+1].r, childGroups[i+1].e)
+			_ = mc.AddGroupMember(ctx, childGroups[i+1].r, childGroups[i+2].r, childGroups[i+2].e)
+			_ = mc.AddGroupMember(ctx, childGroups[i+2].r, childGroups[i].r, childGroups[i].e)
+		}
+
+		// Create nested structure: some child groups contain other child groups
+		for i := 0; i < numChildGroups-1; i += 2 {
+			// child_i contains child_i+1
+			_ = mc.AddGroupMember(ctx, childGroups[i].r, childGroups[i+1].r, childGroups[i+1].e)
+		}
+
+		return mc
+	}
+
+	b.Run("BFS", func(b *testing.B) {
+		mc := setupConnector()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		tempDir, _ := os.MkdirTemp("", "baton-bench-wide-bfs")
+		defer os.RemoveAll(tempDir)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			c1zpath := filepath.Join(tempDir, fmt.Sprintf("bench-wide-bfs-%d.c1z", i))
+			syncer, _ := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir), WithDFSExpansion(false))
+			_ = syncer.Sync(ctx)
+			_ = syncer.Close(ctx)
+			_ = os.Remove(c1zpath)
+		}
+	})
+
+	b.Run("DFS", func(b *testing.B) {
+		mc := setupConnector()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		tempDir, _ := os.MkdirTemp("", "baton-bench-wide-dfs")
+		defer os.RemoveAll(tempDir)
+
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			c1zpath := filepath.Join(tempDir, fmt.Sprintf("bench-wide-dfs-%d.c1z", i))
+			syncer, _ := NewSyncer(ctx, mc, WithC1ZPath(c1zpath), WithTmpDir(tempDir), WithDFSExpansion(true))
+			_ = syncer.Sync(ctx)
+			_ = syncer.Close(ctx)
+			_ = os.Remove(c1zpath)
+		}
+	})
+}
+
 func TestExternalResourcePath(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
