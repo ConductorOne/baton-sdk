@@ -3331,21 +3331,8 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		}
 	}
 
-	// All edges expanded - rectify protobufs
-	if graph.IsExpanded() {
-		now := time.Now()
-		rectified, err := c1zStore.RectifyGrantSources(ctx)
-		if err != nil {
-			l.Error("expandGrantsForEntitlements: error rectifying grant sources", zap.Error(err))
-			return fmt.Errorf("expandGrantsForEntitlements: error rectifying grant sources: %w", err)
-		}
-		l.Info("expandGrantsForEntitlements: rectified grant sources",
-			zap.Int64("rectified", rectified),
-			zap.Duration("elapsed", time.Since(now)),
-		)
-		s.state.FinishAction(ctx)
-	}
-
+	// No unexpanded edges found - this shouldn't happen as SyncGrantExpansion
+	// checks IsExpanded() before calling us
 	return nil
 }
 
