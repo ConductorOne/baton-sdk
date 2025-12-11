@@ -57,12 +57,15 @@ var _ connectorstore.Writer = (*C1File)(nil)
 
 type C1FOption func(*C1File)
 
+// WithC1FTmpDir sets the temporary directory to use when cloning a sync.
+// If not provided, os.TempDir() will be used.
 func WithC1FTmpDir(tempDir string) C1FOption {
 	return func(o *C1File) {
 		o.tempDir = tempDir
 	}
 }
 
+// WithC1FPragma sets a sqlite pragma for the c1z file.
 func WithC1FPragma(name string, value string) C1FOption {
 	return func(o *C1File) {
 		o.pragmas = append(o.pragmas, pragma{name, value})
@@ -130,12 +133,15 @@ type c1zOptions struct {
 }
 type C1ZOption func(*c1zOptions)
 
+// WithTmpDir sets the temporary directory to extract the c1z file to.
+// If not provided, os.TempDir() will be used.
 func WithTmpDir(tmpDir string) C1ZOption {
 	return func(o *c1zOptions) {
 		o.tmpDir = tmpDir
 	}
 }
 
+// WithPragma sets a sqlite pragma for the c1z file.
 func WithPragma(name string, value string) C1ZOption {
 	return func(o *c1zOptions) {
 		o.pragmas = append(o.pragmas, pragma{name, value})

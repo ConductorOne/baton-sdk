@@ -533,4 +533,15 @@ func TestC1ZReadOnlyMode(t *testing.T) {
 	// Closing should fail with ErrReadOnly because we made modifications
 	err = f.Close()
 	require.ErrorIs(t, err, ErrReadOnly)
+
+	fileInfo1, err := os.Stat(testFilePath)
+	require.NoError(t, err)
+	// Reopen to verify no corruption
+	f2, err := NewC1ZFile(ctx, testFilePath, WithReadOnly(true))
+	require.NoError(t, err)
+	err = f2.Close()
+	require.NoError(t, err)
+	fileInfo2, err := os.Stat(testFilePath)
+	require.NoError(t, err)
+	require.Equal(t, fileInfo1.ModTime(), fileInfo2.ModTime())
 }
