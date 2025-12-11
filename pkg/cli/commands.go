@@ -607,7 +607,6 @@ func MakeCapabilitiesCommand[T field.Configurable](
 	v *viper.Viper,
 	confschema field.Configuration,
 	getconnector GetConnectorFunc2[T],
-	options ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		// NOTE(shackra): bind all the flags (persistent and
