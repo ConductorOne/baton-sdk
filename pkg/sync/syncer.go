@@ -1727,7 +1727,14 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 		return nil
 	}
 
-	if entitlementGraph.Loaded {
+	// Already expanded - nothing to do
+	if entitlementGraph.IsExpanded() {
+		s.state.FinishAction(ctx)
+		return nil
+	}
+
+	// First time after loading: fix cycles and populate edges table
+	if !entitlementGraph.HasNoCycles {
 		comps, sccMetrics := entitlementGraph.ComputeCyclicComponents(ctx)
 		if len(comps) > 0 {
 			// Log a sample cycle
@@ -1751,6 +1758,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 				return err
 			}
 		}
+		entitlementGraph.HasNoCycles = true
 
 		// Populate the entitlement_edges table for SQL-based expansion
 		if c1zStore, ok := s.store.(*dotc1z.C1File); ok {
@@ -3238,103 +3246,63 @@ func (s *syncer) newExpandedGrant(_ context.Context, descEntitlement *v2.Entitle
 	return grant, nil
 }
 
-// expandGrantsForEntitlements expands grants for the given entitlement.
+// expandGrantsForEntitlements expands grants using a single recursive SQL query.
+// The entitlement_edges table is populated during SyncGrantExpansion after the graph is loaded.
 func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.expandGrantsForEntitlements")
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
-	defer func(t time.Time) {
-		elapsed := time.Since(t)
-		l.Info("expandGrantsForEntitlements: elapsed", zap.Duration("elapsed", elapsed))
-	}(time.Now())
+	startTime := time.Now()
+	defer func() {
+		l.Info("expandGrantsForEntitlements: elapsed", zap.Duration("elapsed", time.Since(startTime)))
+	}()
+
 	graph := s.state.EntitlementGraph(ctx)
-	l = l.With(zap.Int("depth", graph.Depth))
 
-	s.counts.LogExpandProgress(ctx, graph.Actions)
+	// No edges to expand
+	if len(graph.Edges) == 0 {
+		l.Debug("expandGrantsForEntitlements: no edges to expand")
+		s.state.FinishAction(ctx)
+		return nil
+	}
 
-	actionsDone, err := s.runGrantExpandActions(ctx)
+	c1zStore, ok := s.store.(*dotc1z.C1File)
+	if !ok {
+		return fmt.Errorf("expandGrantsForEntitlements: store is not a C1File")
+	}
+
+	// Determine max depth
+	depth := maxDepth
+	if depth == 0 {
+		depth = defaultMaxDepth
+	}
+
+	// Single recursive SQL query expands all grants across all depths
+	now := time.Now()
+	inserted, err := c1zStore.ExpandGrantsRecursive(ctx, int(depth))
 	if err != nil {
-		erroredAction := graph.Actions[0]
-		l.Error("expandGrantsForEntitlements: error running graph action", zap.Error(err), zap.Any("action", erroredAction))
-		_ = graph.DeleteEdge(ctx, erroredAction.SourceEntitlementID, erroredAction.DescendantEntitlementID)
-		if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		// Skip action and delete the edge that caused the error.
-		graph.Actions = graph.Actions[1:]
-		if len(graph.Actions) == 0 {
-			actionsDone = true
-		}
-		// TODO: Return a warning? The connector gave a bad entitlement ID to expand.
+		l.Error("expandGrantsForEntitlements: error in recursive expansion", zap.Error(err))
+		return fmt.Errorf("expandGrantsForEntitlements: error in recursive expansion: %w", err)
 	}
-	if !actionsDone {
-		return nil
+	l.Info("expandGrantsForEntitlements: recursive expansion complete",
+		zap.Int64("grants_inserted", inserted),
+		zap.Duration("elapsed", time.Since(now)),
+	)
+
+	// Rectify grant protobufs (reconstruct data blobs from normalized sources)
+	now = time.Now()
+	rectified, err := c1zStore.RectifyGrantSources(ctx)
+	if err != nil {
+		l.Error("expandGrantsForEntitlements: error rectifying grant sources", zap.Error(err))
+		return fmt.Errorf("expandGrantsForEntitlements: error rectifying grant sources: %w", err)
 	}
+	l.Info("expandGrantsForEntitlements: rectified grant sources",
+		zap.Int64("rectified", rectified),
+		zap.Duration("elapsed", time.Since(now)),
+	)
 
-	if maxDepth == 0 {
-		maxDepth = defaultMaxDepth
-	}
-
-	if int64(graph.Depth) > maxDepth {
-		l.Error(
-			"expandGrantsForEntitlements: exceeded max depth",
-			// zap.Any("graph", graph),
-			zap.Int64("max_depth", maxDepth),
-		)
-		s.state.FinishAction(ctx)
-		return fmt.Errorf("expandGrantsForEntitlements: exceeded max depth (%d)", maxDepth)
-	}
-
-	// TODO(morgabra) Yield here after some amount of work?
-	// traverse edges or call some sort of getEntitlements
-	for _, sourceEntitlementID := range graph.GetEntitlements() {
-		// We've already expanded this entitlement, so skip it.
-		if graph.IsEntitlementExpanded(sourceEntitlementID) {
-			continue
-		}
-
-		// We have ancestors who have not been expanded yet, so we can't expand ourselves.
-		if graph.HasUnexpandedAncestors(sourceEntitlementID) {
-			l.Debug("expandGrantsForEntitlements: skipping source entitlement because it has unexpanded ancestors", zap.String("source_entitlement_id", sourceEntitlementID))
-			continue
-		}
-
-		for descendantEntitlementID, grantInfo := range graph.GetDescendantEntitlements(sourceEntitlementID) {
-			if grantInfo.IsExpanded {
-				continue
-			}
-			graph.Actions = append(graph.Actions, &expand.EntitlementGraphAction{
-				SourceEntitlementID:     sourceEntitlementID,
-				DescendantEntitlementID: descendantEntitlementID,
-				PageToken:               "",
-				Shallow:                 grantInfo.IsShallow,
-				ResourceTypeIDs:         grantInfo.ResourceTypeIDs,
-			})
-		}
-	}
-
-	if graph.IsExpanded() {
-		l.Debug("expandGrantsForEntitlements: graph is expanded") // zap.Any("graph", graph)
-
-		// Rectify grant protobufs to match the sources column after SQL-based updates
-		c1zStore, ok := s.store.(*dotc1z.C1File)
-		if ok {
-			now := time.Now()
-			rectified, err := c1zStore.RectifyGrantSources(ctx)
-			if err != nil {
-				l.Error("expandGrantsForEntitlements: error rectifying grant sources", zap.Error(err))
-				return fmt.Errorf("expandGrantsForEntitlements: error rectifying grant sources: %w", err)
-			}
-			elapsed := time.Since(now)
-			l.Info("expandGrantsForEntitlements: rectified grant sources", zap.Int64("rectified", rectified), zap.Duration("elapsed", elapsed))
-		}
-		s.state.FinishAction(ctx)
-		return nil
-	}
-
-	graph.Depth++
-	l.Debug("expandGrantsForEntitlements: graph is not expanded") // zap.Any("graph", graph)
+	s.state.FinishAction(ctx)
 	return nil
 }
 
