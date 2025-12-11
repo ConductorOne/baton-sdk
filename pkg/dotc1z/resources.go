@@ -28,8 +28,7 @@ create table if not exists %s (
 );
 create index if not exists %s on %s (resource_type_id);
 create index if not exists %s on %s (parent_resource_type_id, parent_resource_id);
-create unique index if not exists %s on %s (external_id, sync_id);
-create index if not exists %s on %s (resource_type_id, resource_id, sync_id);`
+create unique index if not exists %s on %s (external_id, sync_id);`
 
 var resources = (*resourcesTable)(nil)
 
@@ -52,8 +51,6 @@ func (r *resourcesTable) Schema() (string, []interface{}) {
 		r.Name(),
 		fmt.Sprintf("idx_resources_external_sync_v%s", r.Version()),
 		r.Name(),
-		fmt.Sprintf("idx_resources_type_res_sync_v%s", r.Version()),
-		r.Name(),
 	}
 }
 
@@ -65,13 +62,12 @@ func (r *resourcesTable) Migrations(ctx context.Context, db *goqu.Database) erro
 		return err
 	}
 	if resourceIdExists == 0 {
-		// For existing tables, we can't add a GENERATED column.
-		// Add a regular column and populate it. New tables will use the GENERATED version from the schema.
+		// Add resource_id column for existing tables (new tables get it from the schema).
+		// Populate it by extracting from external_id (format: "type:id" -> "id").
 		_, err = db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN resource_id TEXT", r.Name()))
 		if err != nil {
 			return err
 		}
-		// Populate from external_id (format: "type:id" -> extract "id" part)
 		_, err = db.ExecContext(ctx, fmt.Sprintf(
 			"UPDATE %s SET resource_id = substr(external_id, instr(external_id, ':') + 1)",
 			r.Name(),
@@ -79,15 +75,19 @@ func (r *resourcesTable) Migrations(ctx context.Context, db *goqu.Database) erro
 		if err != nil {
 			return err
 		}
-		// Create index for efficient joins
-		_, err = db.ExecContext(ctx, fmt.Sprintf(
-			"CREATE INDEX IF NOT EXISTS idx_resources_type_res_sync_v%s ON %s (resource_type_id, resource_id, sync_id)",
-			r.Version(), r.Name(),
-		))
-		if err != nil {
-			return err
-		}
 	}
+
+	// Always ensure the composite index exists (runs after column is guaranteed to exist).
+	// This index is created here instead of in Schema() because Schema() runs before Migrations(),
+	// and for old tables the column wouldn't exist yet when Schema() tries to create the index.
+	_, err = db.ExecContext(ctx, fmt.Sprintf(
+		"CREATE INDEX IF NOT EXISTS idx_resources_type_res_sync_v%s ON %s (resource_type_id, resource_id, sync_id)",
+		r.Version(), r.Name(),
+	))
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
