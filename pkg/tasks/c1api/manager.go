@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
@@ -52,7 +53,7 @@ type c1ApiTaskManager struct {
 	runnerShouldDebug                   bool
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
-	targetedSyncResourceIDs             []string
+	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
 }
 
@@ -248,7 +249,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 			c.skipFullSync,
 			c.externalResourceC1Z,
 			c.externalResourceEntitlementIdFilter,
-			c.targetedSyncResourceIDs,
+			c.targetedSyncResources,
 			c.syncResourceTypeIDs,
 		)
 	case taskTypes.HelloType:
@@ -300,7 +301,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 
 func NewC1TaskManager(
 	ctx context.Context, clientID string, clientSecret string, tempDir string, skipFullSync bool,
-	externalC1Z string, externalResourceEntitlementIdFilter string, targetedSyncResourceIDs []string,
+	externalC1Z string, externalResourceEntitlementIdFilter string, targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
 ) (tasks.Manager, error) {
 	serviceClient, err := newServiceClient(ctx, clientID, clientSecret)
@@ -314,7 +315,7 @@ func NewC1TaskManager(
 		skipFullSync:                        skipFullSync,
 		externalResourceC1Z:                 externalC1Z,
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
-		targetedSyncResourceIDs:             targetedSyncResourceIDs,
+		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
 	}, nil
 }
