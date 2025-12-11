@@ -1187,7 +1187,7 @@ func newTestGlobalActionProvider() *testGlobalActionProvider {
 	return &testGlobalActionProvider{newTestConnector([]ResourceSyncer{})}
 }
 
-func (t *testGlobalActionProvider) GlobalActions(ctx context.Context, registry ActionRegistry) error {
+func (t *testGlobalActionProvider) GlobalActions(ctx context.Context, registry actions.ActionRegistry) error {
 	schema := v2.BatonActionSchema_builder{
 		Name:        "global-test-action",
 		DisplayName: "Global Test Action",
@@ -1270,7 +1270,7 @@ func (t *testResourceActionProviderSyncer) Grants(ctx context.Context, resource 
 	return nil, "", nil, nil
 }
 
-func (t *testResourceActionProviderSyncer) ResourceActions(ctx context.Context, registry ActionRegistry) error {
+func (t *testResourceActionProviderSyncer) ResourceActions(ctx context.Context, registry actions.ActionRegistry) error {
 	schema := v2.BatonActionSchema_builder{
 		Name:        "resource-test-action",
 		DisplayName: "Resource Test Action",
