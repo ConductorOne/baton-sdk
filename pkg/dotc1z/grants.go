@@ -3,7 +3,6 @@ package dotc1z
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/doug-martin/goqu/v9"
 
@@ -263,40 +262,4 @@ func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
 	}
 
 	return nil
-}
-
-// GrantPool manages a pool of v2.Grant objects for reuse during grant expansion.
-// It tracks allocated grants and can release them all at once.
-type GrantPool struct {
-	pool sync.Pool
-}
-
-// NewGrantPool creates a new GrantPool.
-func NewGrantPool() *GrantPool {
-	return &GrantPool{
-		pool: sync.Pool{
-			New: func() any {
-				return &v2.Grant{}
-			},
-		},
-	}
-}
-
-// Acquire gets a grant from the pool.
-func (p *GrantPool) Acquire() *v2.Grant {
-	return p.pool.Get().(*v2.Grant)
-}
-
-// Release returns the given grants to the pool after resetting them.
-func (p *GrantPool) Release(grants []*v2.Grant) {
-	for _, g := range grants {
-		if g != nil {
-			g.Annotations = nil
-			g.Entitlement = nil
-			g.Principal = nil
-			g.Sources = nil
-			g.Id = ""
-			p.pool.Put(g)
-		}
-	}
 }

@@ -96,7 +96,7 @@ func setupBenchmarkDB(b *testing.B, numGrants int) (*C1File, string, func()) {
 	return f, testEntitlement.Id, cleanup
 }
 
-// BenchmarkListGrantsForEntitlement benchmarks the non-pooled version.
+// BenchmarkListGrantsForEntitlement benchmarks ListGrantsForEntitlement filtered by an entitlement.
 func BenchmarkListGrantsForEntitlement(b *testing.B) {
 	for _, numGrants := range grantCounts {
 		b.Run(fmt.Sprintf("grants=%d", numGrants), func(b *testing.B) {
@@ -115,10 +115,9 @@ func BenchmarkListGrantsForEntitlement(b *testing.B) {
 				Entitlement: entResp.GetEntitlement(),
 			}.Build()
 
-			b.ResetTimer()
 			b.ReportAllocs()
 
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				pageToken := ""
 				totalGrants := 0
 				for {
@@ -139,185 +138,4 @@ func BenchmarkListGrantsForEntitlement(b *testing.B) {
 			}
 		})
 	}
-}
-
-// BenchmarkListGrantsForEntitlementPooled benchmarks the pooled version.
-func BenchmarkListGrantsForEntitlementPooled(b *testing.B) {
-	for _, numGrants := range grantCounts {
-		b.Run(fmt.Sprintf("grants=%d", numGrants), func(b *testing.B) {
-			f, entitlementID, cleanup := setupBenchmarkDB(b, numGrants)
-			defer cleanup()
-
-			ctx := b.Context()
-
-			// Get the entitlement for the request
-			entResp, err := f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-				EntitlementId: entitlementID,
-			}.Build())
-			require.NoError(b, err)
-
-			req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-				Entitlement: entResp.GetEntitlement(),
-			}.Build()
-
-			b.ResetTimer()
-			b.ReportAllocs()
-
-			grants := make([]*v2.Grant, 0, 10000)
-			for b.Loop() {
-				pool := NewGrantPool()
-				pageToken := ""
-				totalGrants := 0
-				for {
-					grants = grants[:0]
-					req.SetPageToken(pageToken)
-					grants, nextPageToken, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire, grants)
-					if err != nil {
-						b.Fatal(err)
-					}
-					totalGrants += len(grants)
-
-					// Simulate processing grants (like in runGrantExpandActions)
-					for _, g := range grants {
-						_ = g.GetId()
-						_ = g.GetEntitlement()
-						_ = g.GetPrincipal()
-					}
-
-					// Release after processing each page
-					pool.Release(grants)
-
-					pageToken = nextPageToken
-					if pageToken == "" {
-						break
-					}
-				}
-				if totalGrants != numGrants {
-					b.Fatalf("expected %d grants, got %d", numGrants, totalGrants)
-				}
-			}
-		})
-	}
-}
-
-// BenchmarkListGrantsComparison runs both benchmarks side by side for easy comparison.
-func BenchmarkListGrantsComparison(b *testing.B) {
-	numGrants := 1000
-
-	f, entitlementID, cleanup := setupBenchmarkDB(b, numGrants)
-	defer cleanup()
-
-	ctx := b.Context()
-
-	entResp, err := f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-		EntitlementId: entitlementID,
-	}.Build())
-	require.NoError(b, err)
-
-	req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: entResp.GetEntitlement(),
-	}.Build()
-
-	b.Run("NonPooled", func(b *testing.B) {
-		b.ReportAllocs()
-		for b.Loop() {
-			pageToken := ""
-			for {
-				req.SetPageToken(pageToken)
-				resp, err := f.ListGrantsForEntitlement(ctx, req)
-				if err != nil {
-					b.Fatal(err)
-				}
-				for _, g := range resp.GetList() {
-					_ = g.GetId()
-				}
-				pageToken = resp.GetNextPageToken()
-				if pageToken == "" {
-					break
-				}
-			}
-		}
-	})
-
-	b.Run("Pooled", func(b *testing.B) {
-		b.ReportAllocs()
-		grants := make([]*v2.Grant, 0, 10000)
-		for b.Loop() {
-			pool := NewGrantPool()
-			pageToken := ""
-			for {
-				grants = grants[:0]
-				req.SetPageToken(pageToken)
-				grants, nextPageToken, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire, grants)
-				if err != nil {
-					b.Fatal(err)
-				}
-				for _, g := range grants {
-					_ = g.GetId()
-				}
-				pool.Release(grants)
-				pageToken = nextPageToken
-				if pageToken == "" {
-					break
-				}
-			}
-		}
-	})
-}
-
-// BenchmarkPooledMultipleIterations simulates real-world usage where the pool
-// is reused across many iterations (like processing millions of grants).
-func BenchmarkPooledMultipleIterations(b *testing.B) {
-	numGrants := 1000
-	iterations := 100 // Simulate processing 100 pages
-
-	f, entitlementID, cleanup := setupBenchmarkDB(b, numGrants)
-	defer cleanup()
-
-	ctx := b.Context()
-
-	entResp, err := f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-		EntitlementId: entitlementID,
-	}.Build())
-	require.NoError(b, err)
-
-	req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-		Entitlement: entResp.GetEntitlement(),
-	}.Build()
-
-	b.Run("NonPooled", func(b *testing.B) {
-		b.ReportAllocs()
-		for b.Loop() {
-			for range iterations {
-				req.SetPageToken("")
-				resp, err := f.ListGrantsForEntitlement(ctx, req)
-				if err != nil {
-					b.Fatal(err)
-				}
-				for _, g := range resp.GetList() {
-					_ = g.GetId()
-				}
-			}
-		}
-	})
-
-	b.Run("Pooled", func(b *testing.B) {
-		b.ReportAllocs()
-		grants := make([]*v2.Grant, 0, 10000)
-		for b.Loop() {
-			pool := NewGrantPool()
-			for range iterations {
-				grants = grants[:0]
-				req.SetPageToken("")
-				grants, _, err := f.ListGrantsForEntitlementPooled(ctx, req, pool.Acquire, grants)
-				if err != nil {
-					b.Fatal(err)
-				}
-				for _, g := range grants {
-					_ = g.GetId()
-				}
-				pool.Release(grants)
-			}
-		}
-	})
 }
