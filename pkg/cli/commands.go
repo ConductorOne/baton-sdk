@@ -323,7 +323,7 @@ func MakeMainCommand[T field.Configurable](
 			default:
 				if len(v.GetStringSlice("sync-resources")) > 0 {
 					opts = append(opts,
-						connectorrunner.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")))
+						connectorrunner.WithTargetedSyncResources(v.GetStringSlice("sync-resources")))
 				}
 				if len(v.GetStringSlice("sync-resource-types")) > 0 {
 					opts = append(opts,
@@ -550,7 +550,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 		}
 
 		if len(v.GetStringSlice("sync-resources")) > 0 {
-			copts = append(copts, connector.WithTargetedSyncResourceIDs(v.GetStringSlice("sync-resources")))
+			copts = append(copts, connector.WithTargetedSyncResources(v.GetStringSlice("sync-resources")))
 		}
 
 		if len(v.GetStringSlice("sync-resource-types")) > 0 {

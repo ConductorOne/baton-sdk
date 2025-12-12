@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -19,6 +20,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/protobuf/types/known/durationpb"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	ratelimitV1 "github.com/conductorone/baton-sdk/pb/c1/ratelimit/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
@@ -552,7 +554,7 @@ func WithFullSyncDisabled() Option {
 	}
 }
 
-func WithTargetedSyncResourceIDs(resourceIDs []string) Option {
+func WithTargetedSyncResources(resourceIDs []string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.targetedSyncResourceIDs = resourceIDs
 		return nil
@@ -720,7 +722,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	}
 
 	if len(cfg.targetedSyncResourceIDs) > 0 {
-		wrapperOpts = append(wrapperOpts, connector.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs))
+		wrapperOpts = append(wrapperOpts, connector.WithTargetedSyncResources(cfg.targetedSyncResourceIDs))
 	}
 
 	if cfg.sessionStoreEnabled {
@@ -734,6 +736,15 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {
 		return nil, err
+	}
+
+	resources := make([]*v2.Resource, 0, len(cfg.targetedSyncResourceIDs))
+	for _, resourceId := range cfg.targetedSyncResourceIDs {
+		r, err := bid.ParseResourceBid(resourceId)
+		if err != nil {
+			return nil, err
+		}
+		resources = append(resources, r)
 	}
 
 	runner.cw = cw
@@ -799,7 +810,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithTmpDir(cfg.tempDir),
 				local.WithExternalResourceC1Z(cfg.externalResourceC1Z),
 				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
-				local.WithTargetedSyncResourceIDs(cfg.targetedSyncResourceIDs),
+				local.WithTargetedSyncResources(resources),
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
 				local.WithSkipGrants(cfg.skipGrants),
 				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
@@ -822,7 +833,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.skipFullSync,
 		cfg.externalResourceC1Z,
 		cfg.externalResourceEntitlementIdFilter,
-		cfg.targetedSyncResourceIDs,
+		resources,
 		cfg.syncResourceTypeIDs,
 	)
 	if err != nil {

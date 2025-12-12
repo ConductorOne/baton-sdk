@@ -210,7 +210,7 @@ type syncer struct {
 	skipFullSync                        bool
 	lastCheckPointTime                  time.Time
 	counts                              *ProgressCounts
-	targetedSyncResourceIDs             []string
+	targetedSyncResources               []*v2.Resource
 	onlyExpandGrants                    bool
 	dontExpandGrants                    bool
 	syncID                              string
@@ -277,9 +277,9 @@ func isWarning(ctx context.Context, err error) bool {
 func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	// Sync resuming logic:
 	// If we know our sync ID, set it as the current sync and return (resuming that sync).
-	// If targetedSyncResourceIDs is not set, find the most recent unfinished sync of our desired sync type & resume it (regardless of partial or full).
+	// If targetedSyncResources is not set, find the most recent unfinished sync of our desired sync type & resume it (regardless of partial or full).
 	//   If there are no unfinished syncs of our desired sync type, start a new sync.
-	// If targetedSyncResourceIDs is set, start a new partial sync. Use the most recent completed sync as the parent sync ID (if it exists).
+	// If targetedSyncResources is set, start a new partial sync. Use the most recent completed sync as the parent sync ID (if it exists).
 
 	if s.syncID != "" {
 		err := s.store.SetCurrentSync(ctx, s.syncID)
@@ -292,7 +292,7 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	var syncID string
 	var newSync bool
 	var err error
-	if len(s.targetedSyncResourceIDs) == 0 {
+	if len(s.targetedSyncResources) == 0 {
 		syncID, newSync, err = s.store.StartOrResumeSync(ctx, s.syncType, "")
 		if err != nil {
 			return "", false, err
@@ -383,11 +383,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	// Validate any targeted resource IDs before starting a sync.
 	targetedResources := []*v2.Resource{}
-	for _, resourceID := range s.targetedSyncResourceIDs {
-		r, err := bid.ParseResourceBid(resourceID)
-		if err != nil {
-			return fmt.Errorf("error parsing resource id %s: %w", resourceID, err)
-		}
+	for _, r := range s.targetedSyncResources {
 		if len(s.syncResourceTypes) > 0 {
 			if _, ok := syncResourceTypeMap[r.GetId().GetResourceType()]; !ok {
 				continue
@@ -3156,10 +3152,10 @@ func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
 	}
 }
 
-func WithTargetedSyncResourceIDs(resourceIDs []string) SyncOpt {
+func WithTargetedSyncResources(resources []*v2.Resource) SyncOpt {
 	return func(s *syncer) {
-		s.targetedSyncResourceIDs = resourceIDs
-		if len(resourceIDs) > 0 {
+		s.targetedSyncResources = resources
+		if len(resources) > 0 {
 			s.syncType = connectorstore.SyncTypePartial
 			return
 		}
