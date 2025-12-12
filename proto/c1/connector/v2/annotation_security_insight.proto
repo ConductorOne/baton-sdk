@@ -3,7 +3,6 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "c1/connector/v2/resource.proto";
-import "google/protobuf/struct.proto";
 import "google/protobuf/timestamp.proto";
 import "validate/validate.proto";
 
