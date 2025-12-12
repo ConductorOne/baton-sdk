@@ -151,7 +151,7 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 					t.entitlement_id,
 					g.id,
 					ent.data,
-					g.data
+					g.data,
 					t.rowid
 				FROM ` + dfsExpansionTempTable + ` t
 				JOIN ` + entTable + ` ent ON ent.external_id = t.entitlement_id AND ent.sync_id = ?
@@ -306,7 +306,10 @@ func (c *C1File) processPrincipalExpansion(
 			if err := proto.Unmarshal(grantBlob, grant); err != nil {
 				return 0, 0, fmt.Errorf("error unmarshaling grant: %w", err)
 			}
-			sourcesMap = grant.GetSources().GetSources()
+			sm := grant.GetSources().GetSources()
+			if sm != nil {
+				sourcesMap = sm
+			}
 			updated++
 		} else {
 			grant = &v2.Grant{

@@ -1776,20 +1776,23 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 
 	// Already expanded - rectify protobufs and finish
 	if entitlementGraph.IsExpanded() {
-		if c1zStore, ok := s.store.(*dotc1z.C1File); ok {
-			now := time.Now()
-			rectified, err := c1zStore.RectifyGrantSources(ctx)
-			if err != nil {
-				l.Error("SyncGrantExpansion: error rectifying grant sources", zap.Error(err))
-				return fmt.Errorf("SyncGrantExpansion: error rectifying grant sources: %w", err)
-			}
-			if rectified > 0 {
-				l.Info("SyncGrantExpansion: rectified grant sources",
-					zap.Int64("rectified", rectified),
-					zap.Duration("elapsed", time.Since(now)),
-				)
-			}
+		c1zStore, ok := s.store.(*dotc1z.C1File)
+		if !ok {
+			panic("store is not a C1File")
 		}
+		now := time.Now()
+		rectified, err := c1zStore.RectifyGrantSources(ctx)
+		if err != nil {
+			l.Error("SyncGrantExpansion: error rectifying grant sources", zap.Error(err))
+			return fmt.Errorf("SyncGrantExpansion: error rectifying grant sources: %w", err)
+		}
+		if rectified > 0 {
+			l.Info("SyncGrantExpansion: rectified grant sources",
+				zap.Int64("rectified", rectified),
+				zap.Duration("elapsed", time.Since(now)),
+			)
+		}
+		fmt.Printf("🌮🌮🌮🌮🌮🌮🌮🌮🌮")
 		s.state.FinishAction(ctx)
 		return nil
 	}
