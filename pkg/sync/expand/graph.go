@@ -2,6 +2,7 @@ package expand
 
 import (
 	"context"
+	"iter"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand/scc"
@@ -138,15 +139,40 @@ func (g *EntitlementGraph) GetDescendantEntitlements(entitlementID string) map[s
 	if destinations, ok := g.SourcesToDestinations[node.Id]; ok {
 		for destinationID, edgeID := range destinations {
 			if destination, ok := g.Nodes[destinationID]; ok {
-				for _, entitlementID := range destination.EntitlementIDs {
+				for _, e := range destination.EntitlementIDs {
 					if edge, ok := g.Edges[edgeID]; ok {
-						entitlementsToEdges[entitlementID] = &edge
+						entitlementsToEdges[e] = &edge
 					}
 				}
 			}
 		}
 	}
 	return entitlementsToEdges
+}
+
+func (g *EntitlementGraph) GetExpandableDescendantEntitlements(ctx context.Context, entitlementID string) iter.Seq2[string, *Edge] {
+	return func(yield func(string, *Edge) bool) {
+		node := g.GetNode(entitlementID)
+		if node == nil {
+			return
+		}
+		if destinations, ok := g.SourcesToDestinations[node.Id]; ok {
+			for destinationID, edgeID := range destinations {
+				if destination, ok := g.Nodes[destinationID]; ok {
+					for _, e := range destination.EntitlementIDs {
+						if edge, ok := g.Edges[edgeID]; ok {
+							if edge.IsExpanded {
+								continue
+							}
+							if !yield(e, &edge) {
+								return
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 }
 
 func (g *EntitlementGraph) HasEntitlement(entitlementID string) bool {
@@ -183,6 +209,28 @@ func (g *EntitlementGraph) GetEntitlements() []string {
 		entitlements = append(entitlements, node.EntitlementIDs...)
 	}
 	return entitlements
+}
+
+func (g *EntitlementGraph) GetExpandableEntitlements(ctx context.Context) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		l := ctxzap.Extract(ctx)
+		for _, node := range g.Nodes {
+			for _, entitlementID := range node.EntitlementIDs {
+				// We've already expanded this entitlement, so skip it.
+				if g.IsEntitlementExpanded(entitlementID) {
+					continue
+				}
+				// We have ancestors who have not been expanded yet, so we can't expand ourselves.
+				if g.HasUnexpandedAncestors(entitlementID) {
+					l.Debug("expandGrantsForEntitlements: skipping source entitlement because it has unexpanded ancestors", zap.String("source_entitlement_id", entitlementID))
+					continue
+				}
+				if !yield(entitlementID) {
+					return
+				}
+			}
+		}
+	}
 }
 
 // MarkEdgeExpanded given source and destination entitlements, mark the edge

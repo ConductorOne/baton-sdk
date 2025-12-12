@@ -3002,24 +3002,9 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 		return fmt.Errorf("expandGrantsForEntitlements: exceeded max depth (%d)", maxDepth)
 	}
 
-	// TODO(morgabra) Yield here after some amount of work?
 	// traverse edges or call some sort of getEntitlements
-	for _, sourceEntitlementID := range graph.GetEntitlements() {
-		// We've already expanded this entitlement, so skip it.
-		if graph.IsEntitlementExpanded(sourceEntitlementID) {
-			continue
-		}
-
-		// We have ancestors who have not been expanded yet, so we can't expand ourselves.
-		if graph.HasUnexpandedAncestors(sourceEntitlementID) {
-			l.Debug("expandGrantsForEntitlements: skipping source entitlement because it has unexpanded ancestors", zap.String("source_entitlement_id", sourceEntitlementID))
-			continue
-		}
-
-		for descendantEntitlementID, grantInfo := range graph.GetDescendantEntitlements(sourceEntitlementID) {
-			if grantInfo.IsExpanded {
-				continue
-			}
+	for sourceEntitlementID := range graph.GetExpandableEntitlements(ctx) {
+		for descendantEntitlementID, grantInfo := range graph.GetExpandableDescendantEntitlements(ctx, sourceEntitlementID) {
 			graph.Actions = append(graph.Actions, &expand.EntitlementGraphAction{
 				SourceEntitlementID:     sourceEntitlementID,
 				DescendantEntitlementID: descendantEntitlementID,
