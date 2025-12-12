@@ -30,6 +30,7 @@ message SecurityInsightTrait {
 
   // The target entity this insight should be bound to
   oneof target {
+    option (validate.required) = true;
     // For binding to a C1 User by email address
     UserTarget user = 4;
     // For direct reference to a resource the connector knows about

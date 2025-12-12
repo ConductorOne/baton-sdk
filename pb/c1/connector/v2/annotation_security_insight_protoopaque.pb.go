@@ -12,7 +12,6 @@ import (
 	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	_ "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	unsafe "unsafe"
@@ -444,7 +443,7 @@ var File_c1_connector_v2_annotation_security_insight_proto protoreflect.FileDesc
 
 const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 	"\n" +
-	"1c1/connector/v2/annotation_security_insight.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xc4\x04\n" +
+	"1c1/connector/v2/annotation_security_insight.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xc9\x04\n" +
 	"\x14SecurityInsightTrait\x12-\n" +
 	"\finsight_type\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\vinsightType\x12 \n" +
@@ -463,8 +462,8 @@ const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 	"\vexternal_id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80 R\n" +
 	"externalId\x12&\n" +
-	"\bapp_hint\x18\x02 \x01(\tB\v\xfaB\br\x06(\x80\b\xd0\x01\x01R\aappHintB\b\n" +
-	"\x06targetB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	"\bapp_hint\x18\x02 \x01(\tB\v\xfaB\br\x06(\x80\b\xd0\x01\x01R\aappHintB\r\n" +
+	"\x06target\x12\x03\xf8B\x01B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_security_insight_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_c1_connector_v2_annotation_security_insight_proto_goTypes = []any{

@@ -108,6 +108,7 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 		}
 	}
 
+	oneofTargetPresent := false
 	switch v := m.Target.(type) {
 	case *SecurityInsightTrait_User:
 		if v == nil {
@@ -120,6 +121,7 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 			}
 			errors = append(errors, err)
 		}
+		oneofTargetPresent = true
 
 		if all {
 			switch v := interface{}(m.GetUser()).(type) {
@@ -161,6 +163,7 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 			}
 			errors = append(errors, err)
 		}
+		oneofTargetPresent = true
 
 		if all {
 			switch v := interface{}(m.GetResourceId()).(type) {
@@ -202,6 +205,7 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 			}
 			errors = append(errors, err)
 		}
+		oneofTargetPresent = true
 
 		if all {
 			switch v := interface{}(m.GetExternalResource()).(type) {
@@ -234,6 +238,16 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 
 	default:
 		_ = v // ensures v is used
+	}
+	if !oneofTargetPresent {
+		err := SecurityInsightTraitValidationError{
+			field:  "Target",
+			reason: "value is required",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
 	}
 
 	if len(errors) > 0 {
