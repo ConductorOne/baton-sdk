@@ -500,6 +500,8 @@ func (m *Field) validate(all bool) error {
 
 	// no validation rules for IsSecret
 
+	// no validation rules for Order
+
 	switch v := m.Field.(type) {
 	case *Field_StringField:
 		if v == nil {
