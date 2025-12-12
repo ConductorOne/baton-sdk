@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -20,7 +22,12 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
+const bulkPutParallelThreshold = 100
+const insertChunkSize = 200
 const maxPageSize = 10000
+
+// Use worker pool to limit goroutines.
+var numWorkers = min(max(runtime.GOMAXPROCS(0), 1), 4)
 
 var allTableDescriptors = []tableDescriptor{
 	resourceTypes,
@@ -34,7 +41,7 @@ var allTableDescriptors = []tableDescriptor{
 
 type tableDescriptor interface {
 	Name() string
-	Schema() (string, []interface{})
+	Schema() (string, []any)
 	Version() string
 	Migrations(ctx context.Context, db *goqu.Database) error
 }
@@ -69,6 +76,11 @@ type hasEntitlementListRequest interface {
 type hasPrincipalIdListRequest interface {
 	listRequest
 	GetPrincipalId() *v2.ResourceId
+}
+
+type hasPrincipalResourceTypeIDsListRequest interface {
+	listRequest
+	GetPrincipalResourceTypeIds() []string
 }
 
 type protoHasID interface {
@@ -170,6 +182,13 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		}
 	}
 
+	if principalResourceTypeIDsReq, ok := req.(hasPrincipalResourceTypeIDsListRequest); ok {
+		p := principalResourceTypeIDsReq.GetPrincipalResourceTypeIds()
+		if len(p) > 0 {
+			q = q.Where(goqu.C("principal_resource_type_id").In(p))
+		}
+	}
+
 	// If a sync is running, be sure we only select from the current values
 	switch {
 	case reqSyncID != "":
@@ -233,27 +252,28 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		c.throttledWarnSlowQuery(ctx, query, queryDuration)
 	}
 
-	ret := make([]T, 0, pageSize)
-
+	var unmarshalerOptions = proto.UnmarshalOptions{
+		Merge:          true,
+		DiscardUnknown: true,
+	}
 	var count uint32 = 0
 	lastRow := 0
 	var data sql.RawBytes
+	var ret []T
 	for rows.Next() {
 		count++
 		if count > pageSize {
 			break
 		}
-		rowId := 0
-		err := rows.Scan(&rowId, &data)
+		err := rows.Scan(&lastRow, &data)
 		if err != nil {
 			return nil, "", err
 		}
 		t := factory()
-		err = proto.Unmarshal(data, t)
+		err = unmarshalerOptions.Unmarshal(data, t)
 		if err != nil {
 			return nil, "", err
 		}
-		lastRow = rowId
 		ret = append(ret, t)
 	}
 	if rows.Err() != nil {
@@ -267,42 +287,153 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	return ret, nextPageToken, nil
 }
 
-var protoMarshaler = proto.MarshalOptions{Deterministic: true}
+var protoMarshaler = proto.MarshalOptions{Deterministic: false}
 
-// prepareConnectorObjectRows prepares the rows for bulk insertion.
-func prepareConnectorObjectRows[T proto.Message](
+// prepareSingleConnectorObjectRow processes a single message and returns the prepared record.
+func prepareSingleConnectorObjectRow[T proto.Message](
+	c *C1File,
+	msg T,
+	extractFields func(m T) (goqu.Record, error),
+) (*goqu.Record, error) {
+	messageBlob, err := protoMarshaler.Marshal(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	fields, err := extractFields(msg)
+	if err != nil {
+		return nil, err
+	}
+	if fields == nil {
+		fields = goqu.Record{}
+	}
+
+	if _, idSet := fields["external_id"]; !idSet {
+		idGetter, ok := any(msg).(protoHasID)
+		if !ok {
+			return nil, fmt.Errorf("unable to get ID for object")
+		}
+		fields["external_id"] = idGetter.GetId()
+	}
+	fields["data"] = messageBlob
+	fields["sync_id"] = c.currentSyncID
+	fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
+
+	return &fields, nil
+}
+
+// prepareConnectorObjectRowsSerial prepares rows sequentially for bulk insertion.
+func prepareConnectorObjectRowsSerial[T proto.Message](
 	c *C1File,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
 ) ([]*goqu.Record, error) {
 	rows := make([]*goqu.Record, len(msgs))
 	for i, m := range msgs {
-		messageBlob, err := protoMarshaler.Marshal(m)
+		row, err := prepareSingleConnectorObjectRow(c, m, extractFields)
 		if err != nil {
 			return nil, err
 		}
-
-		fields, err := extractFields(m)
-		if err != nil {
-			return nil, err
-		}
-		if fields == nil {
-			fields = goqu.Record{}
-		}
-
-		if _, idSet := fields["external_id"]; !idSet {
-			idGetter, ok := any(m).(protoHasID)
-			if !ok {
-				return nil, fmt.Errorf("unable to get ID for object")
-			}
-			fields["external_id"] = idGetter.GetId()
-		}
-		fields["data"] = messageBlob
-		fields["sync_id"] = c.currentSyncID
-		fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
-		rows[i] = &fields
+		rows[i] = row
 	}
 	return rows, nil
+}
+
+// prepareConnectorObjectRowsParallel prepares rows for bulk insertion using parallel processing.
+// For batches smaller than bulkPutParallelThreshold, it falls back to sequential processing.
+func prepareConnectorObjectRowsParallel[T proto.Message](
+	c *C1File,
+	msgs []T,
+	extractFields func(m T) (goqu.Record, error),
+) ([]*goqu.Record, error) {
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+
+	protoMarshallers := make([]proto.MarshalOptions, numWorkers)
+	for i := range numWorkers {
+		// Don't enable deterministic marshaling, as it sorts keys in lexicographical order which hurts performance.
+		protoMarshallers[i] = proto.MarshalOptions{}
+	}
+
+	rows := make([]*goqu.Record, len(msgs))
+	errs := make([]error, len(msgs))
+
+	// Capture values that are the same for all rows (avoid repeated access)
+	syncID := c.currentSyncID
+	discoveredAt := time.Now().Format("2006-01-02 15:04:05.999999999")
+
+	chunkSize := (len(msgs) + numWorkers - 1) / numWorkers
+
+	var wg sync.WaitGroup
+
+	for w := range numWorkers {
+		start := w * chunkSize
+		end := min(start+chunkSize, len(msgs))
+		if start >= len(msgs) {
+			break
+		}
+
+		wg.Add(1)
+		go func(start, end int, worker int) {
+			defer wg.Done()
+			for i := start; i < end; i++ {
+				m := msgs[i]
+
+				messageBlob, err := protoMarshallers[worker].Marshal(m)
+				if err != nil {
+					errs[i] = err
+					continue
+				}
+
+				fields, err := extractFields(m)
+				if err != nil {
+					errs[i] = err
+					continue
+				}
+				if fields == nil {
+					fields = goqu.Record{}
+				}
+
+				if _, idSet := fields["external_id"]; !idSet {
+					idGetter, ok := any(m).(protoHasID)
+					if !ok {
+						errs[i] = fmt.Errorf("unable to get ID for object at index %d", i)
+						continue
+					}
+					fields["external_id"] = idGetter.GetId()
+				}
+				fields["data"] = messageBlob
+				fields["sync_id"] = syncID
+				fields["discovered_at"] = discoveredAt
+				rows[i] = &fields
+			}
+		}(start, end, w)
+	}
+
+	wg.Wait()
+
+	// Check for errors (return first error encountered)
+	for i, err := range errs {
+		if err != nil {
+			return nil, fmt.Errorf("error preparing row %d: %w", i, err)
+		}
+	}
+
+	return rows, nil
+}
+
+// prepareConnectorObjectRows prepares the rows for bulk insertion.
+// It uses parallel processing if the row count is greater than bulkPutParallelThreshold.
+func prepareConnectorObjectRows[T proto.Message](
+	c *C1File,
+	msgs []T,
+	extractFields func(m T) (goqu.Record, error),
+) ([]*goqu.Record, error) {
+	if len(msgs) > bulkPutParallelThreshold {
+		return prepareConnectorObjectRowsParallel(c, msgs, extractFields)
+	}
+	return prepareConnectorObjectRowsSerial(c, msgs, extractFields)
 }
 
 // executeChunkedInsert executes the insert query in chunks.
@@ -313,7 +444,7 @@ func executeChunkedInsert(
 	rows []*goqu.Record,
 	buildQueryFn func(*goqu.InsertDataset, []*goqu.Record) (*goqu.InsertDataset, error),
 ) error {
-	chunkSize := 100
+	chunkSize := insertChunkSize
 	chunks := len(rows) / chunkSize
 	if len(rows)%chunkSize != 0 {
 		chunks++

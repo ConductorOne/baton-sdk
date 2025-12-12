@@ -33,6 +33,8 @@ create unique index if not exists %s on %s (external_id, sync_id);`
 
 var grants = (*grantsTable)(nil)
 
+var _ tableDescriptor = (*grantsTable)(nil)
+
 type grantsTable struct{}
 
 func (r *grantsTable) Version() string {
@@ -43,8 +45,8 @@ func (r *grantsTable) Name() string {
 	return fmt.Sprintf("v%s_%s", r.Version(), grantsTableName)
 }
 
-func (r *grantsTable) Schema() (string, []interface{}) {
-	return grantsTableSchema, []interface{}{
+func (r *grantsTable) Schema() (string, []any) {
+	return grantsTableSchema, []any{
 		r.Name(),
 		fmt.Sprintf("idx_grants_resource_type_id_resource_id_v%s", r.Version()),
 		r.Name(),
