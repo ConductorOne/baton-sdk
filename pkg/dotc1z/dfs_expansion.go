@@ -7,7 +7,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -78,14 +77,23 @@ func (c *C1File) CreateDFSTempTable(ctx context.Context, graph *expand.Entitleme
 }
 
 // pendingGrant tracks a grant that needs to be created or updated.
-type pendingGrant struct {
-	entitlementID string
-	sources       []string
-	existingID    int64 // 0 if new grant
+type grantToUpdate struct {
+	sources   []string
+	grantData *v2.Grant
 }
 
 // dfsPageSize is the number of rows to fetch per page during DFS expansion.
 const dfsPageSize = 10000
+
+type row struct {
+	principalType   string
+	principalID     string
+	entitlementID   string
+	grantID         int64
+	grantData       []byte
+	entitlementData []byte
+	rowID           int64
+}
 
 // ExpandGrantsDFS performs grant expansion using the DFS (per-principal) approach.
 // This touches each grant exactly once, eliminating the need for rectification.
@@ -115,53 +123,15 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 	entTable := entitlements.Name()
 
 	// Per-principal state (persists across pages)
-	var currentPrincipalType, currentPrincipalID string
 	var currentPrincipalResource *v2.Resource
-	hasGrantOn := make(map[string]bool)
-	existingGrantID := make(map[string]int64)
 
-	// Entitlement cache - only for current principal (cleared when moving to next principal)
+	// Entitlement cache - only for current principal per page
 	entitlementCache := make(map[string]*v2.Entitlement)
 
 	// Cursor state for pagination
 	var cursorPrincipalType, cursorPrincipalID string
 	var cursorRowID int64
-	var cursorEntitlementID string
 	firstPage := true
-
-	// Process function for end of principal
-	flushPrincipal := func() error {
-		if currentPrincipalType == "" {
-			return nil
-		}
-
-		inserted, updated, err := c.processPrincipalExpansion(
-			ctx,
-			currentPrincipalResource,
-			hasGrantOn,
-			existingGrantID,
-			descendants,
-			graph,
-			entitlementCache,
-		)
-		if err != nil {
-			return err
-		}
-
-		stats.PrincipalsProcessed++
-		stats.GrantsInserted += inserted
-		stats.GrantsUpdated += updated
-
-		if stats.PrincipalsProcessed%10000 == 0 {
-			l.Debug("ExpandGrantsDFS: progress",
-				zap.Int64("principals", stats.PrincipalsProcessed),
-				zap.Int64("inserted", stats.GrantsInserted),
-				zap.Int64("updated", stats.GrantsUpdated),
-			)
-		}
-
-		return nil
-	}
 
 	// Page through results
 	for {
@@ -181,12 +151,13 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 					t.entitlement_id,
 					g.id,
 					ent.data,
+					g.data
 					t.rowid
 				FROM ` + dfsExpansionTempTable + ` t
 				JOIN ` + entTable + ` ent ON ent.external_id = t.entitlement_id AND ent.sync_id = ?
 				LEFT JOIN ` + gTable + ` g ON g.entitlement_id = t.entitlement_id AND g.sync_id = ?
 				WHERE g.id IS NOT NULL
-				ORDER BY g.principal_resource_type_id, g.principal_resource_id, t.rowid, t.entitlement_id
+				ORDER BY g.principal_resource_type_id, g.principal_resource_id, t.rowid
 				LIMIT ?
 			`
 			args = []interface{}{c.currentSyncID, c.currentSyncID, dfsPageSize}
@@ -201,16 +172,17 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 					t.entitlement_id,
 					g.id,
 					ent.data,
+					g.data,
 					t.rowid
 				FROM ` + dfsExpansionTempTable + ` t
 				JOIN ` + entTable + ` ent ON ent.external_id = t.entitlement_id AND ent.sync_id = ?
 				LEFT JOIN ` + gTable + ` g ON g.entitlement_id = t.entitlement_id AND g.sync_id = ?
 				WHERE g.id IS NOT NULL
-				  AND (g.principal_resource_type_id, g.principal_resource_id, t.rowid, t.entitlement_id) > (?, ?, ?, ?)
-				ORDER BY g.principal_resource_type_id, g.principal_resource_id, t.rowid, t.entitlement_id
+				  AND (g.principal_resource_type_id, g.principal_resource_id, t.rowid) > (?, ?, ?)
+				ORDER BY g.principal_resource_type_id, g.principal_resource_id, t.rowid
 				LIMIT ?
 			`
-			args = []interface{}{c.currentSyncID, c.currentSyncID, cursorPrincipalType, cursorPrincipalID, cursorRowID, cursorEntitlementID, dfsPageSize}
+			args = []interface{}{c.currentSyncID, c.currentSyncID, cursorPrincipalType, cursorPrincipalID, cursorRowID, dfsPageSize}
 		}
 
 		rows, err := c.db.QueryContext(ctx, query, args...)
@@ -219,71 +191,76 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 		}
 
 		rowCount := 0
+		rowsData := make(map[string][]row)
 		for rows.Next() {
-			var principalType, principalID, entitlementID string
-			var grantID, rowID int64
-			var entitlementData []byte
-
-			if err := rows.Scan(&principalType, &principalID, &entitlementID, &grantID, &entitlementData, &rowID); err != nil {
+			var r row
+			if err := rows.Scan(&r.principalType, &r.principalID, &r.entitlementID, &r.grantID, &r.entitlementData, &r.grantData, &r.rowID); err != nil {
 				rows.Close()
 				return nil, fmt.Errorf("error scanning row: %w", err)
 			}
-
-			rowCount++
+			rowsData[r.principalID] = append(rowsData[r.principalID], r)
 
 			// Entitlement data is always present (we JOIN entitlements on temp table)
 			// Unmarshal entitlement if not already cached
-			if _, ok := entitlementCache[entitlementID]; !ok {
-				if entitlementData == nil {
+			if _, ok := entitlementCache[r.entitlementID]; !ok {
+				if r.entitlementData == nil {
 					rows.Close()
-					return nil, fmt.Errorf("entitlement data is NULL for entitlement %s (should never happen)", entitlementID)
+					return nil, fmt.Errorf("entitlement data is NULL for entitlement %s (should never happen)", r.entitlementID)
 				}
 				ent := &v2.Entitlement{}
-				if err := proto.Unmarshal(entitlementData, ent); err != nil {
+				if err := proto.Unmarshal(r.entitlementData, ent); err != nil {
 					rows.Close()
-					return nil, fmt.Errorf("error unmarshaling entitlement %s: %w", entitlementID, err)
+					return nil, fmt.Errorf("error unmarshaling entitlement %s: %w", r.entitlementID, err)
 				}
-				entitlementCache[entitlementID] = ent
+				entitlementCache[r.entitlementID] = ent
 			}
+			rowCount++
+			cursorPrincipalType = r.principalType
+			cursorPrincipalID = r.principalID
+			cursorRowID = r.rowID
+		}
+		rows.Close()
 
-			// Grant ID should always be present (we filter WHERE g.id IS NOT NULL)
-			if grantID == 0 {
-				rows.Close()
-				return nil, fmt.Errorf("grant ID is NULL for entitlement %s (should never happen)", entitlementID)
-			}
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("error iterating rows: %w", err)
+		}
 
-			// Update cursor for next page
-			cursorPrincipalType = principalType
-			cursorPrincipalID = principalID
-			cursorRowID = rowID
-			cursorEntitlementID = entitlementID
-
-			// Check if we've moved to a new principal
-			if principalType != currentPrincipalType || principalID != currentPrincipalID {
-				// Flush previous principal
-				if err := flushPrincipal(); err != nil {
-					rows.Close()
-					return nil, err
+		for principalID, rows := range rowsData {
+			if currentPrincipalResource.GetId().GetResource() != principalID {
+				if len(rows) == 0 {
+					l.Warn("ExpandGrantsDFS: no rows for principal", zap.String("principalID", principalID))
+					continue
 				}
-
-				// Reset state for new principal
-				currentPrincipalType = principalType
-				currentPrincipalID = principalID
-				clear(hasGrantOn)
-				clear(existingGrantID)
-				clear(entitlementCache) // Clear cache for new principal
-
-				// Load the principal's Resource proto
+				principalType := rows[0].principalType
+				l.Debug("ExpandGrantsDFS: loading principal resource", zap.String("principalType", principalType), zap.String("principalID", principalID))
 				currentPrincipalResource, err = c.loadResource(ctx, principalType, principalID)
 				if err != nil {
-					rows.Close()
 					return nil, fmt.Errorf("error loading principal resource: %w", err)
 				}
+				stats.PrincipalsProcessed++
+
 			}
 
-			// Track this grant
-			hasGrantOn[entitlementID] = true
-			existingGrantID[entitlementID] = grantID
+			inserted, updated, err := c.processPrincipalExpansion(
+				ctx,
+				currentPrincipalResource,
+				rows,
+				descendants,
+				entitlementCache,
+			)
+
+			if err != nil {
+				return nil, fmt.Errorf("error processing principal expansion: %w", err)
+			}
+			stats.GrantsInserted += inserted
+			stats.GrantsUpdated += updated
+			if stats.PrincipalsProcessed%10000 == 0 {
+				l.Debug("ExpandGrantsDFS: progress",
+					zap.Int64("principals", stats.PrincipalsProcessed),
+					zap.Int64("inserted", stats.GrantsInserted),
+					zap.Int64("updated", stats.GrantsUpdated),
+				)
+			}
 		}
 
 		if err := rows.Err(); err != nil {
@@ -291,13 +268,7 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 			return nil, fmt.Errorf("error iterating rows: %w", err)
 		}
 		rows.Close()
-
-		// If we got fewer rows than the page size, we've reached the end
 		if rowCount < dfsPageSize {
-			// Flush final principal
-			if err := flushPrincipal(); err != nil {
-				return nil, err
-			}
 			break
 		}
 	}
@@ -315,91 +286,48 @@ func (c *C1File) ExpandGrantsDFS(ctx context.Context, graph *expand.EntitlementG
 func (c *C1File) processPrincipalExpansion(
 	ctx context.Context,
 	principal *v2.Resource,
-	hasGrantOn map[string]bool,
-	existingGrantID map[string]int64,
+	rows []row,
 	descendants expand.TransitiveDescendants,
-	graph *expand.EntitlementGraph,
 	entitlementCache map[string]*v2.Entitlement,
 ) (int64, int64, error) {
+
+	created := int64(0)
+	updated := int64(0)
 	// Compute pending grants
-	pendingGrants := make(map[string]*pendingGrant)
+	grantsToUpdate := make([]*v2.Grant, 0)
 
-	for entitlementID := range hasGrantOn {
-		// Get all transitive descendants
-		for _, descendantID := range descendants[entitlementID] {
-			pg, ok := pendingGrants[descendantID]
-			if !ok {
-				pg = &pendingGrant{
-					entitlementID: descendantID,
-					sources:       make([]string, 0),
-					existingID:    existingGrantID[descendantID],
-				}
-				pendingGrants[descendantID] = pg
+	for _, row := range rows {
+		entitlementID := row.entitlementID
+		grantBlob := row.grantData
+		grant := &v2.Grant{}
+		sourcesMap := make(map[string]*v2.GrantSources_GrantSource)
+
+		if grantBlob != nil {
+			if err := proto.Unmarshal(grantBlob, grant); err != nil {
+				return 0, 0, fmt.Errorf("error unmarshaling grant: %w", err)
 			}
-			pg.sources = append(pg.sources, entitlementID)
-		}
-	}
-
-	if len(pendingGrants) == 0 {
-		return 0, 0, nil
-	}
-
-	// Separate into new grants and updates
-	var newGrants []*pendingGrant
-	var updateGrants []*pendingGrant
-
-	for _, pg := range pendingGrants {
-		// Skip if this is already a direct grant (sources come from edges pointing TO it)
-		// The sources should only include entitlements that the principal has a grant on
-		// AND that have an edge to this descendant
-		filteredSources := make([]string, 0, len(pg.sources))
-		sourceEntitlements := graph.GetSourceEntitlements(pg.entitlementID)
-		sourceSet := make(map[string]bool, len(sourceEntitlements))
-		for _, s := range sourceEntitlements {
-			sourceSet[s] = true
-		}
-
-		for _, src := range pg.sources {
-			// Only include if there's actually an edge from src to this entitlement
-			// AND the principal has a grant on src
-			if sourceSet[src] && hasGrantOn[src] {
-				filteredSources = append(filteredSources, src)
-			}
-		}
-
-		if len(filteredSources) == 0 {
-			continue // No valid sources, skip
-		}
-		pg.sources = filteredSources
-
-		if pg.existingID == 0 {
-			newGrants = append(newGrants, pg)
+			sourcesMap = grant.GetSources().GetSources()
+			updated++
 		} else {
-			updateGrants = append(updateGrants, pg)
+			grant = &v2.Grant{
+				Entitlement: entitlementCache[entitlementID],
+				Principal:   principal,
+			}
+			created++
 		}
+
+		for _, src := range descendants[entitlementID] {
+			sourcesMap[src] = &v2.GrantSources_GrantSource{}
+		}
+		grant.Sources = &v2.GrantSources{Sources: sourcesMap}
+		grantsToUpdate = append(grantsToUpdate, grant)
 	}
 
-	var inserted, updated int64
-
-	// Handle new grants
-	if len(newGrants) > 0 {
-		n, err := c.insertNewExpandedGrants(ctx, principal, newGrants, entitlementCache)
-		if err != nil {
-			return 0, 0, err
-		}
-		inserted = n
+	if err := c.PutGrants(ctx, grantsToUpdate...); err != nil {
+		return 0, 0, fmt.Errorf("error inserting grants: %w", err)
 	}
 
-	// Handle updates
-	if len(updateGrants) > 0 {
-		n, err := c.updateExistingGrantSources(ctx, updateGrants)
-		if err != nil {
-			return inserted, 0, err
-		}
-		updated = n
-	}
-
-	return inserted, updated, nil
+	return created, updated, nil
 }
 
 // loadResource loads a Resource proto by type and ID.
@@ -416,138 +344,138 @@ func (c *C1File) loadResource(ctx context.Context, resourceType, resourceID stri
 	return resp.GetResource(), nil
 }
 
-// insertNewExpandedGrants creates new expanded grants for a principal.
-func (c *C1File) insertNewExpandedGrants(
-	ctx context.Context,
-	principal *v2.Resource,
-	newGrants []*pendingGrant,
-	entitlementCache map[string]*v2.Entitlement,
-) (int64, error) {
-	if len(newGrants) == 0 {
-		return 0, nil
-	}
+// // insertNewExpandedGrants creates new expanded grants for a principal.
+// func (c *C1File) insertNewExpandedGrants(
+// 	ctx context.Context,
+// 	principal *v2.Resource,
+// 	newGrants []*pendingGrant,
+// 	entitlementCache map[string]*v2.Entitlement,
+// ) (int64, error) {
+// 	if len(newGrants) == 0 {
+// 		return 0, nil
+// 	}
 
-	grantsToInsert := make([]*v2.Grant, 0, len(newGrants))
+// 	grantsToInsert := make([]*v2.Grant, 0, len(newGrants))
 
-	for _, pg := range newGrants {
-		// Entitlement should always be in cache (we JOIN entitlements on temp table in the query)
-		entitlement, ok := entitlementCache[pg.entitlementID]
-		if !ok {
-			return 0, fmt.Errorf("entitlement %s not found in cache (should never happen)", pg.entitlementID)
-		}
+// 	for _, pg := range newGrants {
+// 		// Entitlement should always be in cache (we JOIN entitlements on temp table in the query)
+// 		entitlement, ok := entitlementCache[pg.entitlementID]
+// 		if !ok {
+// 			return 0, fmt.Errorf("entitlement %s not found in cache (should never happen)", pg.entitlementID)
+// 		}
 
-		// Build sources map
-		sourcesMap := make(map[string]*v2.GrantSources_GrantSource, len(pg.sources))
-		for _, src := range pg.sources {
-			sourcesMap[src] = &v2.GrantSources_GrantSource{}
-		}
+// 		// Build sources map
+// 		sourcesMap := make(map[string]*v2.GrantSources_GrantSource, len(pg.sources))
+// 		for _, src := range pg.sources {
+// 			sourcesMap[src] = &v2.GrantSources_GrantSource{}
+// 		}
 
-		// Build grant with immutable annotation
-		var annos annotations.Annotations
-		annos.Update(&v2.GrantImmutable{})
+// 		// Build grant with immutable annotation
+// 		var annos annotations.Annotations
+// 		annos.Update(&v2.GrantImmutable{})
 
-		grant := v2.Grant_builder{
-			Id:          fmt.Sprintf("%s:%s:%s", pg.entitlementID, principal.GetId().GetResourceType(), principal.GetId().GetResource()),
-			Entitlement: entitlement,
-			Principal:   principal,
-			Sources:     &v2.GrantSources{Sources: sourcesMap},
-			Annotations: annos,
-		}.Build()
+// 		grant := v2.Grant_builder{
+// 			Id:          fmt.Sprintf("%s:%s:%s", pg.entitlementID, principal.GetId().GetResourceType(), principal.GetId().GetResource()),
+// 			Entitlement: entitlement,
+// 			Principal:   principal,
+// 			Sources:     &v2.GrantSources{Sources: sourcesMap},
+// 			Annotations: annos,
+// 		}.Build()
 
-		grantsToInsert = append(grantsToInsert, grant)
-	}
+// 		grantsToInsert = append(grantsToInsert, grant)
+// 	}
 
-	if err := c.PutGrants(ctx, grantsToInsert...); err != nil {
-		return 0, fmt.Errorf("error inserting grants: %w", err)
-	}
+// 	if err := c.PutGrants(ctx, grantsToInsert...); err != nil {
+// 		return 0, fmt.Errorf("error inserting grants: %w", err)
+// 	}
 
-	return int64(len(grantsToInsert)), nil
-}
+// 	return int64(len(grantsToInsert)), nil
+// }
 
-// updateExistingGrantSources updates sources on existing grants.
-func (c *C1File) updateExistingGrantSources(
-	ctx context.Context,
-	updateGrants []*pendingGrant,
-) (int64, error) {
-	if len(updateGrants) == 0 {
-		return 0, nil
-	}
+// // updateExistingGrantSources updates sources on existing grants.
+// func (c *C1File) updateExistingGrantSources(
+// 	ctx context.Context,
+// 	updateGrants []*pendingGrant,
+// ) (int64, error) {
+// 	if len(updateGrants) == 0 {
+// 		return 0, nil
+// 	}
 
-	// Batch fetch existing grants
-	grantIDs := make([]int64, len(updateGrants))
-	grantIDToUpdate := make(map[int64]*pendingGrant, len(updateGrants))
-	for i, pg := range updateGrants {
-		grantIDs[i] = pg.existingID
-		grantIDToUpdate[pg.existingID] = pg
-	}
+// 	// Batch fetch existing grants
+// 	grantIDs := make([]int64, len(updateGrants))
+// 	grantIDToUpdate := make(map[int64]*pendingGrant, len(updateGrants))
+// 	for i, pg := range updateGrants {
+// 		grantIDs[i] = pg.existingID
+// 		grantIDToUpdate[pg.existingID] = pg
+// 	}
 
-	// Build query to fetch grant data
-	placeholders := make([]string, len(grantIDs))
-	args := make([]interface{}, len(grantIDs))
-	for i, id := range grantIDs {
-		placeholders[i] = "?"
-		args[i] = id
-	}
+// 	// Build query to fetch grant data
+// 	placeholders := make([]string, len(grantIDs))
+// 	args := make([]interface{}, len(grantIDs))
+// 	for i, id := range grantIDs {
+// 		placeholders[i] = "?"
+// 		args[i] = id
+// 	}
 
-	query := `SELECT id, data FROM ` + grants.Name() + ` WHERE id IN (` + strings.Join(placeholders, ",") + `)`
-	rows, err := c.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return 0, fmt.Errorf("error fetching grants for update: %w", err)
-	}
-	defer rows.Close()
+// 	query := `SELECT id, data FROM ` + grants.Name() + ` WHERE id IN (` + strings.Join(placeholders, ",") + `)`
+// 	rows, err := c.db.QueryContext(ctx, query, args...)
+// 	if err != nil {
+// 		return 0, fmt.Errorf("error fetching grants for update: %w", err)
+// 	}
+// 	defer rows.Close()
 
-	grantsToUpdate := make([]*v2.Grant, 0, len(updateGrants))
+// 	grantsToUpdate := make([]*v2.Grant, 0, len(updateGrants))
 
-	for rows.Next() {
-		var id int64
-		var data []byte
-		if err := rows.Scan(&id, &data); err != nil {
-			return 0, fmt.Errorf("error scanning grant: %w", err)
-		}
+// 	for rows.Next() {
+// 		var id int64
+// 		var data []byte
+// 		if err := rows.Scan(&id, &data); err != nil {
+// 			return 0, fmt.Errorf("error scanning grant: %w", err)
+// 		}
 
-		pg := grantIDToUpdate[id]
-		if pg == nil {
-			continue
-		}
+// 		pg := grantIDToUpdate[id]
+// 		if pg == nil {
+// 			continue
+// 		}
 
-		// Unmarshal existing grant
-		grant := &v2.Grant{}
-		if err := proto.Unmarshal(data, grant); err != nil {
-			return 0, fmt.Errorf("error unmarshaling grant: %w", err)
-		}
+// 		// Unmarshal existing grant
+// 		grant := &v2.Grant{}
+// 		if err := proto.Unmarshal(data, grant); err != nil {
+// 			return 0, fmt.Errorf("error unmarshaling grant: %w", err)
+// 		}
 
-		// Merge sources
-		existingSources := grant.GetSources().GetSources()
-		if existingSources == nil {
-			existingSources = make(map[string]*v2.GrantSources_GrantSource)
-		}
+// 		// Merge sources
+// 		existingSources := grant.GetSources().GetSources()
+// 		if existingSources == nil {
+// 			existingSources = make(map[string]*v2.GrantSources_GrantSource)
+// 		}
 
-		needsUpdate := false
-		for _, src := range pg.sources {
-			if existingSources[src] == nil {
-				existingSources[src] = &v2.GrantSources_GrantSource{}
-				needsUpdate = true
-			}
-		}
+// 		needsUpdate := false
+// 		for _, src := range pg.sources {
+// 			if existingSources[src] == nil {
+// 				existingSources[src] = &v2.GrantSources_GrantSource{}
+// 				needsUpdate = true
+// 			}
+// 		}
 
-		if needsUpdate {
-			grant.SetSources(&v2.GrantSources{Sources: existingSources})
-			grantsToUpdate = append(grantsToUpdate, grant)
-		}
-	}
+// 		if needsUpdate {
+// 			grant.SetSources(&v2.GrantSources{Sources: existingSources})
+// 			grantsToUpdate = append(grantsToUpdate, grant)
+// 		}
+// 	}
 
-	if err := rows.Err(); err != nil {
-		return 0, fmt.Errorf("error iterating grants: %w", err)
-	}
+// 	if err := rows.Err(); err != nil {
+// 		return 0, fmt.Errorf("error iterating grants: %w", err)
+// 	}
 
-	if len(grantsToUpdate) > 0 {
-		if err := c.PutGrants(ctx, grantsToUpdate...); err != nil {
-			return 0, fmt.Errorf("error updating grants: %w", err)
-		}
-	}
+// 	if len(grantsToUpdate) > 0 {
+// 		if err := c.PutGrants(ctx, grantsToUpdate...); err != nil {
+// 			return 0, fmt.Errorf("error updating grants: %w", err)
+// 		}
+// 	}
 
-	return int64(len(grantsToUpdate)), nil
-}
+// 	return int64(len(grantsToUpdate)), nil
+// }
 
 // DropDFSTempTable drops the temporary table used for DFS expansion.
 func (c *C1File) DropDFSTempTable(ctx context.Context) error {
