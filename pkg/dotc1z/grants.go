@@ -531,3 +531,62 @@ func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
 
 	return nil
 }
+
+// UpdateGrantSourcesProto updates the sources field in both the JSON column and protobuf blob
+// for a specific grant without unmarshalling the full protobuf record.
+// This is more efficient than RectifyGrantSources for individual updates.
+func (c *C1File) UpdateGrantSourcesProto(ctx context.Context, grantID int64, sourcesJSON []byte) error {
+	ctx, span := tracer.Start(ctx, "C1File.UpdateGrantSourcesProto")
+	defer span.End()
+
+	gTable := grants.Name()
+
+	// Update both sources JSON column and data blob using the SQLite function
+	_, err := c.db.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE %s
+		SET sources = ?,
+		    data = update_grant_sources_proto(data, ?)
+		WHERE id = ? AND sync_id = ?
+	`, gTable), sourcesJSON, string(sourcesJSON), grantID, c.currentSyncID)
+	if err != nil {
+		return fmt.Errorf("error updating grant sources: %w", err)
+	}
+
+	c.dbUpdated = true
+	return nil
+}
+
+// UpdateGrantSourcesProtoBatch updates sources for multiple grants in a single transaction.
+// This is more efficient than calling UpdateGrantSourcesProto multiple times.
+func (c *C1File) UpdateGrantSourcesProtoBatch(ctx context.Context, updates map[int64][]byte) error {
+	ctx, span := tracer.Start(ctx, "C1File.UpdateGrantSourcesProtoBatch")
+	defer span.End()
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	gTable := grants.Name()
+
+	// Use a prepared statement for better performance
+	stmt, err := c.rawDb.PrepareContext(ctx, fmt.Sprintf(`
+		UPDATE %s
+		SET sources = ?,
+		    data = update_grant_sources_proto(data, ?)
+		WHERE id = ? AND sync_id = ?
+	`, gTable))
+	if err != nil {
+		return fmt.Errorf("error preparing update statement: %w", err)
+	}
+	defer stmt.Close()
+
+	for grantID, sourcesJSON := range updates {
+		_, err = stmt.ExecContext(ctx, sourcesJSON, string(sourcesJSON), grantID, c.currentSyncID)
+		if err != nil {
+			return fmt.Errorf("error updating grant %d: %w", grantID, err)
+		}
+	}
+
+	c.dbUpdated = true
+	return nil
+}
