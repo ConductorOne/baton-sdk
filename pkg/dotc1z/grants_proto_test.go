@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -369,4 +370,39 @@ func TestExpandGrantsSingleEdgeWithProto(t *testing.T) {
 		// This might happen if the grant was created but grant_sources insertion didn't match
 		t.Logf("Note: grant_sources table has %d entries, but sources are in protobuf blob", sourceCount)
 	}
+
+	// Verify that all grants can be unmarshalled (ensures protobuf blobs are valid)
+	rows, err := f.rawDb.QueryContext(ctx, `
+		SELECT id, external_id, data FROM v1_grants WHERE sync_id = ?
+	`, syncID)
+	require.NoError(t, err)
+	defer rows.Close()
+
+	var checkGrantID int64
+	var externalID string
+	var dataBlob []byte
+	grantCount := 0
+
+	for rows.Next() {
+		err := rows.Scan(&checkGrantID, &externalID, &dataBlob)
+		require.NoError(t, err, "Failed to scan grant row")
+
+		// Verify the data blob is not empty
+		require.NotEmpty(t, dataBlob, "Grant %s (ID: %d) should have non-empty data blob", externalID, checkGrantID)
+
+		// Verify the data blob can be unmarshalled
+		grant := &v2.Grant{}
+		err = proto.Unmarshal(dataBlob, grant)
+		require.NoError(t, err, "Failed to unmarshal grant %s (ID: %d)", externalID, checkGrantID)
+
+		// Verify basic fields are present
+		require.NotEmpty(t, grant.GetId(), "Grant %s (ID: %d) should have an ID", externalID, checkGrantID)
+		require.NotNil(t, grant.GetEntitlement(), "Grant %s (ID: %d) should have an entitlement", externalID, checkGrantID)
+		require.NotNil(t, grant.GetPrincipal(), "Grant %s (ID: %d) should have a principal", externalID, checkGrantID)
+
+		grantCount++
+	}
+	require.NoError(t, rows.Err())
+	require.Greater(t, grantCount, 0, "Should have at least one grant to verify")
+	t.Logf("Successfully verified %d grants can be unmarshalled", grantCount)
 }
