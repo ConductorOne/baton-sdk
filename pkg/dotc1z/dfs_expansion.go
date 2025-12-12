@@ -318,12 +318,18 @@ func (c *C1File) processPrincipalExpansion(
 			}
 			created++
 		}
-
+		needsUpdate := false
 		for _, src := range descendants[entitlementID] {
+			if _, ok := sourcesMap[src]; ok {
+				continue
+			}
+			needsUpdate = true
 			sourcesMap[src] = &v2.GrantSources_GrantSource{}
 		}
-		grant.Sources = &v2.GrantSources{Sources: sourcesMap}
-		grantsToUpdate = append(grantsToUpdate, grant)
+		if needsUpdate || row.grantData == nil {
+			grant.Sources = &v2.GrantSources{Sources: sourcesMap}
+			grantsToUpdate = append(grantsToUpdate, grant)
+		}
 	}
 
 	if err := c.PutGrants(ctx, grantsToUpdate...); err != nil {
