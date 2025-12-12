@@ -105,11 +105,6 @@ func (c *C1File) throttledWarnSlowQuery(ctx context.Context, query string, durat
 	}
 }
 
-var unmarshalerOptions = proto.UnmarshalOptions{
-	Merge:          true,
-	DiscardUnknown: true,
-}
-
 // listConnectorObjects uses a connector list request to fetch the corresponding data from the local db.
 // It returns a slice of typed proto messages constructed via the provided factory function.
 func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T) ([]T, string, error) {
@@ -257,6 +252,10 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		c.throttledWarnSlowQuery(ctx, query, queryDuration)
 	}
 
+	var unmarshalerOptions = proto.UnmarshalOptions{
+		Merge:          true,
+		DiscardUnknown: true,
+	}
 	var count uint32 = 0
 	lastRow := 0
 	var data sql.RawBytes
