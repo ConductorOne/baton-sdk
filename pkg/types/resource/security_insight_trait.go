@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -13,6 +12,18 @@ import (
 
 // SecurityInsightTraitOption is a functional option for configuring a SecurityInsightTrait.
 type SecurityInsightTraitOption func(*v2.SecurityInsightTrait) error
+
+// WithInsightType sets the insight type. This is typically set via NewSecurityInsightTrait,
+// but can be used to override or update the type on an existing trait.
+func WithInsightType(insightType string) SecurityInsightTraitOption {
+	return func(t *v2.SecurityInsightTrait) error {
+		if insightType == "" {
+			return fmt.Errorf("insight type cannot be empty")
+		}
+		t.SetInsightType(insightType)
+		return nil
+	}
+}
 
 // WithInsightValue sets the value of the security insight.
 func WithInsightValue(value string) SecurityInsightTraitOption {
@@ -26,18 +37,6 @@ func WithInsightValue(value string) SecurityInsightTraitOption {
 func WithInsightObservedAt(observedAt time.Time) SecurityInsightTraitOption {
 	return func(t *v2.SecurityInsightTrait) error {
 		t.SetObservedAt(timestamppb.New(observedAt))
-		return nil
-	}
-}
-
-// WithInsightContext sets additional context for the insight (deep links, remediation, etc.).
-func WithInsightContext(ctx map[string]interface{}) SecurityInsightTraitOption {
-	return func(t *v2.SecurityInsightTrait) error {
-		s, err := structpb.NewStruct(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to create context struct: %w", err)
-		}
-		t.SetContext(s)
 		return nil
 	}
 }
@@ -57,7 +56,7 @@ func WithInsightUserTarget(email string) SecurityInsightTraitOption {
 // Use this when the connector knows the actual resource (synced by this connector).
 func WithInsightResourceTarget(resourceId *v2.ResourceId) SecurityInsightTraitOption {
 	return func(t *v2.SecurityInsightTrait) error {
-		t.SetResource(resourceId)
+		t.SetResourceId(resourceId)
 		return nil
 	}
 }
@@ -76,6 +75,10 @@ func WithInsightExternalResourceTarget(externalId string, appHint string) Securi
 
 // NewSecurityInsightTrait creates a new SecurityInsightTrait with the given insight type and options.
 func NewSecurityInsightTrait(insightType string, opts ...SecurityInsightTraitOption) (*v2.SecurityInsightTrait, error) {
+	if insightType == "" {
+		return nil, fmt.Errorf("insight type cannot be empty")
+	}
+
 	trait := v2.SecurityInsightTrait_builder{
 		InsightType: insightType,
 		ObservedAt:  timestamppb.Now(),
@@ -105,20 +108,33 @@ func GetSecurityInsightTrait(resource *v2.Resource) (*v2.SecurityInsightTrait, e
 	return ret, nil
 }
 
-// WithSecurityInsightTrait adds a SecurityInsightTrait annotation to a resource.
-func WithSecurityInsightTrait(opts ...SecurityInsightTraitOption) ResourceOption {
+// WithSecurityInsightTrait adds or updates a SecurityInsightTrait annotation on a resource.
+// The insightType parameter is required to ensure the trait is always valid.
+// If the resource already has a SecurityInsightTrait, it will be updated with the provided options.
+// If not, a new trait will be created with the given insightType.
+func WithSecurityInsightTrait(insightType string, opts ...SecurityInsightTraitOption) ResourceOption {
 	return func(r *v2.Resource) error {
 		t := &v2.SecurityInsightTrait{}
-
 		annos := annotations.Annotations(r.GetAnnotations())
-		_, err := annos.Pick(t)
+		existing, err := annos.Pick(t)
 		if err != nil {
 			return err
 		}
 
+		if !existing {
+			// Creating a new trait - insightType is required
+			if insightType == "" {
+				return fmt.Errorf("insight type is required when creating a new security insight trait")
+			}
+			t.SetInsightType(insightType)
+		} else if insightType != "" {
+			// Updating existing trait with a new type
+			t.SetInsightType(insightType)
+		}
+		// If existing and insightType is empty, keep the existing type
+
 		for _, o := range opts {
-			err := o(t)
-			if err != nil {
+			if err := o(t); err != nil {
 				return err
 			}
 		}
@@ -231,7 +247,7 @@ func IsUserTarget(trait *v2.SecurityInsightTrait) bool {
 
 // IsResourceTarget returns true if the insight has a direct resource reference.
 func IsResourceTarget(trait *v2.SecurityInsightTrait) bool {
-	return trait.GetResource() != nil
+	return trait.GetResourceId() != nil
 }
 
 // IsExternalResourceTarget returns true if the insight targets an external resource.
@@ -251,7 +267,7 @@ func GetUserTargetEmail(trait *v2.SecurityInsightTrait) string {
 
 // GetResourceTarget returns the ResourceId from a SecurityInsightTrait, or nil if not a resource target.
 func GetResourceTarget(trait *v2.SecurityInsightTrait) *v2.ResourceId {
-	return trait.GetResource()
+	return trait.GetResourceId()
 }
 
 // GetExternalResourceTargetId returns the external ID from a SecurityInsightTrait, or empty string if not an external resource target.

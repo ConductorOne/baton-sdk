@@ -28,17 +28,15 @@ message SecurityInsightTrait {
   // When this insight was observed/captured from the source system
   google.protobuf.Timestamp observed_at = 3;
 
-  // Additional structured context (deep links, remediation steps, etc.)
-  google.protobuf.Struct context = 4;
 
   // The target entity this insight should be bound to
   oneof target {
     // For binding to a C1 User by email address
-    UserTarget user = 5;
+    UserTarget user = 4;
     // For direct reference to a resource the connector knows about
-    c1.connector.v2.ResourceId resource_id = 6;
+    c1.connector.v2.ResourceId resource_id = 5;
     // For binding to an AppResource by external ID
-    ExternalResourceTarget external_resource = 7;
+    ExternalResourceTarget external_resource = 6;
   }
 
   // UserTarget identifies a user by email for resolution to a C1 User

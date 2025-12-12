@@ -108,35 +108,6 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 		}
 	}
 
-	if all {
-		switch v := interface{}(m.GetContext()).(type) {
-		case interface{ ValidateAll() error }:
-			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, SecurityInsightTraitValidationError{
-					field:  "Context",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		case interface{ Validate() error }:
-			if err := v.Validate(); err != nil {
-				errors = append(errors, SecurityInsightTraitValidationError{
-					field:  "Context",
-					reason: "embedded message failed validation",
-					cause:  err,
-				})
-			}
-		}
-	} else if v, ok := interface{}(m.GetContext()).(interface{ Validate() error }); ok {
-		if err := v.Validate(); err != nil {
-			return SecurityInsightTraitValidationError{
-				field:  "Context",
-				reason: "embedded message failed validation",
-				cause:  err,
-			}
-		}
-	}
-
 	switch v := m.Target.(type) {
 	case *SecurityInsightTrait_User:
 		if v == nil {
@@ -179,7 +150,7 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 			}
 		}
 
-	case *SecurityInsightTrait_Resource:
+	case *SecurityInsightTrait_ResourceId:
 		if v == nil {
 			err := SecurityInsightTraitValidationError{
 				field:  "Target",
@@ -192,11 +163,11 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 		}
 
 		if all {
-			switch v := interface{}(m.GetResource()).(type) {
+			switch v := interface{}(m.GetResourceId()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
 					errors = append(errors, SecurityInsightTraitValidationError{
-						field:  "Resource",
+						field:  "ResourceId",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -204,16 +175,16 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
 					errors = append(errors, SecurityInsightTraitValidationError{
-						field:  "Resource",
+						field:  "ResourceId",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
 				}
 			}
-		} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+		} else if v, ok := interface{}(m.GetResourceId()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
 				return SecurityInsightTraitValidationError{
-					field:  "Resource",
+					field:  "ResourceId",
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
