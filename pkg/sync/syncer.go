@@ -2816,15 +2816,20 @@ func (s *syncer) runGrantExpandActions(ctx context.Context) (bool, error) {
 	for _, sourceGrant := range sourceGrants.GetList() {
 		// If this is a shallow action, then we only want to expand grants that have no sources which indicates that it was directly assigned.
 		if action.Shallow {
-			if len(sourceGrant.GetSources().GetSources()) == 0 {
-				// If we have no sources, this is a direct grant
-				continue
+			sourcesMap := sourceGrant.GetSources().GetSources()
+			// If we have no sources, this is a direct grant
+			foundDirectGrant := len(sourcesMap) == 0
+			// If the source grant has sources, then we need to see if any of them are the source entitlement itself
+			if sourcesMap[action.SourceEntitlementID] != nil {
+				foundDirectGrant = true
 			}
-			if sourceGrant.GetSources().GetSources()[action.SourceEntitlementID] == nil {
-				// This is not a direct grant, so skip it since we are a shallow action.
+
+			// This is not a direct grant, so skip it since we are a shallow action
+			if !foundDirectGrant {
 				continue
 			}
 		}
+
 		// Unroll all grants for the principal on the descendant entitlement. This should, on average, be... 1.
 		pageToken := ""
 		for {
