@@ -172,6 +172,52 @@ var (
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone),
 	)
+	invokeActionResourceTypeField = StringField("invoke-action-resource-type",
+		WithHidden(true),
+		WithDescription("The resource type ID for resource-scoped actions"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
+	listActionSchemasField = BoolField("list-action-schemas",
+		WithHidden(true),
+		WithDescription("List available action schemas"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	listActionSchemasResourceTypeField = StringField("list-action-schemas-resource-type",
+		WithHidden(true),
+		WithDescription("Filter action schemas by resource type ID"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
+	listResourceActionsField = StringField("list-resource-actions",
+		WithDescription("The resource type ID to list actions for"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+
+	invokeResourceActionField = StringField("invoke-resource-action",
+		WithDescription("The name of the action to invoke"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	invokeResourceActionTypeField = StringField("invoke-resource-action-resource-type",
+		WithDescription("The resource type of the action to invoke"),
+		WithHidden(true),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
+	invokeResourceActionArgsField = StringField("invoke-resource-action-args",
+		WithHidden(true),
+		WithDescription("JSON-formatted object of map keys and values like '{ 'key': 'value' }'"),
+		WithDefaultValue("{}"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone),
+	)
 
 	otelCollectorEndpoint = StringField(OtelCollectorEndpointFieldName,
 		WithDescription("The endpoint of the OpenTelemetry collector to send observability data to (used for both tracing and logging if specific endpoints are not provided)"),
@@ -303,6 +349,13 @@ var DefaultFields = []SchemaField{
 	compactSyncsField,
 	invokeActionField,
 	invokeActionArgsField,
+	invokeActionResourceTypeField,
+	listActionSchemasField,
+	listActionSchemasResourceTypeField,
+	listResourceActionsField,
+	invokeResourceActionField,
+	invokeResourceActionTypeField,
+	invokeResourceActionArgsField,
 	ServerSessionStoreMaximumSizeField,
 
 	otelCollectorEndpoint,
