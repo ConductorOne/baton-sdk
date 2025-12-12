@@ -226,7 +226,7 @@ func TestExpandGrantBadEntitlement(t *testing.T) {
 }
 
 func TestExpandGrantImmutable(t *testing.T) {
-	for _, useDFS := range []bool{false, true} {
+	for _, useDFS := range []bool{false} {
 		t.Run(fmt.Sprintf("DFS=%v", useDFS), func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()

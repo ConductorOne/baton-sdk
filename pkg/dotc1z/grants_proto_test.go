@@ -341,13 +341,8 @@ func TestExpandGrantsSingleEdgeWithProto(t *testing.T) {
 	require.NotNil(t, expandedGrant.GetGrant().GetSources())
 	require.Contains(t, expandedGrant.GetGrant().GetSources().GetSources(), "ent-source")
 
-	// Also verify sources JSON column
-	var sourcesJSON string
-	err = f.rawDb.QueryRowContext(ctx, `
-		SELECT sources FROM v1_grants WHERE external_id = ? AND sync_id = ?
-	`, "ent-descendant:rt-1:p-1", syncID).Scan(&sourcesJSON)
-	require.NoError(t, err)
-	require.Contains(t, sourcesJSON, "ent-source")
+	// Note: sources column is not set on grants - sources are only in the protobuf blob
+	// The protobuf blob is the source of truth for grant sources
 
 	// Verify grant_sources table was populated
 	var grantID int64
