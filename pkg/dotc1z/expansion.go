@@ -460,3 +460,240 @@ func (c *C1File) ExpandGrantsSingleEdge(
 
 	return inserted, updated, nil
 }
+
+// ExpandGrantsSingleEdgeWithProto expands grants for a single edge and creates them with complete
+// protobuf data directly in SQL, eliminating the need for RectifyGrantSources.
+// This function handles both new grants (using construct_grant_proto) and existing grants
+// (using update_grant_sources_proto).
+func (c *C1File) ExpandGrantsSingleEdgeWithProto(
+	ctx context.Context,
+	sourceEntitlementID string,
+	descendantEntitlementID string,
+	resourceTypeIDs []string,
+	shallow bool,
+) (inserted int64, updated int64, err error) {
+	ctx, span := tracer.Start(ctx, "C1File.ExpandGrantsSingleEdgeWithProto")
+	defer span.End()
+
+	gTable := grants.Name()
+	entTable := entitlements.Name()
+	rTable := resources.Name()
+	// gsTable := grantSources.Name()
+
+	// Build resource type filter
+	var rtFilter string
+	var rtArgs []interface{}
+	if len(resourceTypeIDs) > 0 {
+		rtFilter = "AND src.principal_resource_type_id IN ("
+		for i, rtID := range resourceTypeIDs {
+			if i > 0 {
+				rtFilter += ", "
+			}
+			rtFilter += "?"
+			rtArgs = append(rtArgs, rtID)
+		}
+		rtFilter += ")"
+	}
+
+	// Build shallow filter
+	shallowFilter := ""
+	if shallow {
+		// KANS: TODO
+		// shallowFilter = `
+		// 	AND EXISTS (
+		// 		SELECT 1 FROM ` + gsTable + ` gs
+		// 		WHERE gs.grant_id = src.id
+		// 		  AND gs.source_entitlement_id = ?
+		// 	)
+		// `
+	}
+
+	// Phase 1: Update existing grants with new sources (before attempting inserts to avoid wasted protobuf creation)
+	updateArgs := []interface{}{
+		sourceEntitlementID,                      // For add_grant_source_proto
+		descendantEntitlementID, c.currentSyncID, // WHERE clause
+		sourceEntitlementID, c.currentSyncID, // Subquery
+	}
+	updateArgs = append(updateArgs, rtArgs...)
+	if shallow {
+		updateArgs = append(updateArgs, sourceEntitlementID)
+	}
+
+	updateResult, err := c.db.ExecContext(ctx, `
+		UPDATE `+gTable+`
+		SET data = add_grant_source_proto(data, ?)
+		WHERE entitlement_id = ?
+		  AND sync_id = ?
+		  AND length(data) > 0  -- Only existing grants with data
+		  AND (principal_resource_type_id, principal_resource_id) IN (
+			  SELECT src.principal_resource_type_id, src.principal_resource_id
+			  FROM `+gTable+` src
+			  WHERE src.entitlement_id = ?
+			    AND src.sync_id = ?
+			    `+rtFilter+`
+			    `+shallowFilter+`
+		  )
+	`, updateArgs...)
+	if err != nil {
+		return 0, 0, fmt.Errorf("error updating existing grants: %w", err)
+	}
+
+	updated, _ = updateResult.RowsAffected()
+
+	// Phase 2: Insert new grants with complete protobuf data using construct_grant_proto
+	// For new grants, the source will be sourceEntitlementID
+	sourcesJSON := fmt.Sprintf(`{"%s":{}}`, sourceEntitlementID)
+	insertArgs := []interface{}{
+		descendantEntitlementID,                  // SELECT entitlement_id (position 0)
+		descendantEntitlementID,                  // external_id prefix (position 1)
+		descendantEntitlementID,                  // external_id in construct_grant_proto (position 2)
+		sourcesJSON,                              // sources_json for construct_grant_proto (position 3)
+		c.currentSyncID,                          // sync_id (position 4)
+		descendantEntitlementID, c.currentSyncID, // JOIN entitlements (positions 5-6)
+		c.currentSyncID,                      // JOIN resources sync_id (position 7)
+		sourceEntitlementID, c.currentSyncID, // src.entitlement_id (positions 8-9)
+	}
+	insertArgs = append(insertArgs, rtArgs...)
+	if shallow {
+		insertArgs = append(insertArgs, sourceEntitlementID)
+	}
+	insertArgs = append(insertArgs, descendantEntitlementID, c.currentSyncID) // NOT EXISTS check
+
+	insertResult, err := c.db.ExecContext(ctx, `
+		INSERT INTO `+gTable+` (
+			resource_type_id,
+			resource_id,
+			entitlement_id,
+			principal_resource_type_id,
+			principal_resource_id,
+			external_id,
+			data,
+			sync_id,
+			discovered_at
+		)
+		SELECT
+			e.resource_type_id,
+			e.resource_id,
+			?,
+			src.principal_resource_type_id,
+			src.principal_resource_id,
+			? || ':' || src.principal_resource_type_id || ':' || src.principal_resource_id AS external_id,
+			construct_grant_proto(
+				e.data,  -- entitlement_data
+				r.data,  -- principal_data
+				? || ':' || src.principal_resource_type_id || ':' || src.principal_resource_id,  -- external_id (reuse the same expression)
+				?  -- sources_json (just the new source for now)
+			),
+			?,
+			datetime('now')
+		FROM `+gTable+` src
+		JOIN `+entTable+` e ON e.external_id = ? AND e.sync_id = ?
+		JOIN `+rTable+` r ON r.resource_type_id = src.principal_resource_type_id 
+		                  AND r.resource_id = src.principal_resource_id
+		                  AND r.sync_id = ?
+		WHERE src.entitlement_id = ?
+		  AND src.sync_id = ?
+		  `+rtFilter+`
+		  `+shallowFilter+`
+		  AND NOT EXISTS (
+			  SELECT 1 FROM `+gTable+` dest
+			  WHERE dest.entitlement_id = ?
+			    AND dest.sync_id = ?
+			    AND dest.principal_resource_type_id = src.principal_resource_type_id
+			    AND dest.principal_resource_id = src.principal_resource_id
+		  )
+	`, insertArgs...)
+	if err != nil {
+		return updated, 0, fmt.Errorf("error inserting expanded grants: %w", err)
+	}
+
+	inserted, _ = insertResult.RowsAffected()
+
+	// Phase 2: Insert into grant_sources table for new grants
+	// Match grants by (entitlement_id, principal) pairs from source grants
+	sourceArgs := []interface{}{
+		sourceEntitlementID,
+		c.currentSyncID,
+		descendantEntitlementID, c.currentSyncID,
+		sourceEntitlementID, c.currentSyncID,
+	}
+	sourceArgs = append(sourceArgs, rtArgs...)
+	if shallow {
+		sourceArgs = append(sourceArgs, sourceEntitlementID)
+	}
+
+	// sourceRowsResult, err := c.db.ExecContext(ctx, `
+	// 	INSERT OR IGNORE INTO `+gsTable+` (grant_id, source_entitlement_id, sync_id)
+	// 	SELECT
+	// 		dest.id,
+	// 		?,
+	// 		dest.sync_id
+	// 	FROM `+gTable+` dest
+	// 	WHERE dest.entitlement_id = ?
+	// 	  AND dest.sync_id = ?
+	// 	  AND (dest.principal_resource_type_id, dest.principal_resource_id) IN (
+	// 		  SELECT src.principal_resource_type_id, src.principal_resource_id
+	// 		  FROM `+gTable+` src
+	// 		  WHERE src.entitlement_id = ?
+	// 		    AND src.sync_id = ?
+	// 		    `+rtFilter+`
+	// 		    `+shallowFilter+`
+	// 	  )
+	// `, append([]interface{}{sourceEntitlementID}, sourceArgs...)...)
+	// if err != nil {
+	// 	return inserted, 0, fmt.Errorf("error adding grant sources: %w", err)
+	// }
+
+	// sourceRowsAffected, _ := sourceRowsResult.RowsAffected()
+	// if sourceRowsAffected > 0 {
+	// 	fmt.Printf("🌮 sourceRowsAffected: %+v\n", sourceRowsAffected)
+	// }
+
+	// // Phase 4: Update existing grants with new sources using update_grant_sources_proto
+	// updateArgs := []interface{}{
+	// 	sourceEntitlementID, sourceEntitlementID, // For json_set
+	// 	sourceEntitlementID, sourceEntitlementID, // For update_grant_sources_proto
+	// 	descendantEntitlementID, c.currentSyncID, // WHERE clause
+	// 	sourceEntitlementID, c.currentSyncID, // Subquery
+	// }
+	// updateArgs = append(updateArgs, rtArgs...)
+	// if shallow {
+	// 	updateArgs = append(updateArgs, sourceEntitlementID)
+	// }
+
+	// // -- AND length(data) > 0  -- Only existing grants with data
+	// // -- AND json_type(sources, '$."' || ? || '"') IS NULL  -- Only if source not already present
+	// updateResult, err := c.db.ExecContext(ctx, `
+	// 	UPDATE `+gTable+`
+	// 	SET sources = json_set(
+	// 		COALESCE(sources, '{}'),
+	// 		'$."' || ? || '"',
+	// 		json('{}')
+	// 	),
+	// 	data = update_grant_sources_proto(
+	// 		data,
+	// 		json_set(
+	// 			COALESCE(sources, '{}'),
+	// 			'$."' || ? || '"',
+	// 			json('{}')
+	// 		)
+	// 	)
+	// 	WHERE entitlement_id = ?
+	// 	  AND sync_id = ?
+	// 	  AND (principal_resource_type_id, principal_resource_id) IN (
+	// 		  SELECT src.principal_resource_type_id, src.principal_resource_id
+	// 		  FROM `+gTable+` src
+	// 		  WHERE src.entitlement_id = ?
+	// 		    AND src.sync_id = ?
+	// 		    `+rtFilter+`
+	// 		    `+shallowFilter+`
+	// 	  )
+	// `, append(updateArgs, sourceEntitlementID)...)
+	// if err != nil {
+	// 	return inserted, 0, fmt.Errorf("error updating existing grants: %w", err)
+	// }
+
+	// updated, _ = updateResult.RowsAffected()
+
+	return inserted, updated, nil
+}

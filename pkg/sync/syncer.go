@@ -1776,22 +1776,22 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 
 	// Already expanded - rectify protobufs and finish
 	if entitlementGraph.IsExpanded() {
-		c1zStore, ok := s.store.(*dotc1z.C1File)
-		if !ok {
-			panic("store is not a C1File")
-		}
-		now := time.Now()
-		rectified, err := c1zStore.RectifyGrantSources(ctx)
-		if err != nil {
-			l.Error("SyncGrantExpansion: error rectifying grant sources", zap.Error(err))
-			return fmt.Errorf("SyncGrantExpansion: error rectifying grant sources: %w", err)
-		}
-		if rectified > 0 {
-			l.Info("SyncGrantExpansion: rectified grant sources",
-				zap.Int64("rectified", rectified),
-				zap.Duration("elapsed", time.Since(now)),
-			)
-		}
+		// c1zStore, ok := s.store.(*dotc1z.C1File)
+		// if !ok {
+		// 	panic("store is not a C1File")
+		// }
+		// now := time.Now()
+		// rectified, err := c1zStore.RectifyGrantSources(ctx)
+		// if err != nil {
+		// 	l.Error("SyncGrantExpansion: error rectifying grant sources", zap.Error(err))
+		// 	return fmt.Errorf("SyncGrantExpansion: error rectifying grant sources: %w", err)
+		// }
+		// if rectified > 0 {
+		// 	l.Info("SyncGrantExpansion: rectified grant sources",
+		// 		zap.Int64("rectified", rectified),
+		// 		zap.Duration("elapsed", time.Since(now)),
+		// 	)
+		// }
 		fmt.Printf("🌮🌮🌮🌮🌮🌮🌮🌮🌮")
 		s.state.FinishAction(ctx)
 		return nil
@@ -3346,7 +3346,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	for sourceEntitlementID := range graph.YieldEntitlementsForExpansion() {
 		for descendantEntitlementID, edge := range graph.YieldDescendantEntitlements(sourceEntitlementID) {
 			// Expand this single edge using SQL with normalized sources table
-			inserted, updated, err := c1zStore.ExpandGrantsSingleEdge(
+			inserted, updated, err := c1zStore.ExpandGrantsSingleEdgeWithProto(
 				ctx,
 				sourceEntitlementID,
 				descendantEntitlementID,
@@ -3362,7 +3362,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 			}
 
 			if inserted > 0 || updated > 0 {
-				l.Debug("expandGrantsForEntitlements: expanded edge",
+				l.Info("expandGrantsForEntitlements: expanded edge",
 					zap.String("source", sourceEntitlementID),
 					zap.String("descendant", descendantEntitlementID),
 					zap.Int64("inserted", inserted),

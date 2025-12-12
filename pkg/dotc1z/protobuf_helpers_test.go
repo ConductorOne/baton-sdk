@@ -173,11 +173,11 @@ func TestUpdateProtobufField_RemoveField(t *testing.T) {
 
 func TestJsonSourcesToProtobuf(t *testing.T) {
 	tests := []struct {
-		name           string
-		jsonSources    string
-		expectEmpty    bool
-		expectedCount  int
-		expectedKeys   []string
+		name          string
+		jsonSources   string
+		expectEmpty   bool
+		expectedCount int
+		expectedKeys  []string
 	}{
 		{
 			name:          "valid sources",
@@ -305,4 +305,100 @@ func TestUpdateProtobufField_EmptyBlob(t *testing.T) {
 	err = proto.Unmarshal(updatedBlob, grant)
 	require.NoError(t, err)
 	require.NotNil(t, grant.GetSources())
+}
+
+func TestConstructGrantProto(t *testing.T) {
+	// Create test entitlement
+	entitlement := &v2.Entitlement{
+		Id: "ent-1",
+		Resource: &v2.Resource{
+			Id: &v2.ResourceId{
+				ResourceType: "rt-1",
+				Resource:     "r-1",
+			},
+		},
+		DisplayName: "Test Entitlement",
+	}
+	entitlementData, err := proto.Marshal(entitlement)
+	require.NoError(t, err)
+
+	// Create test principal
+	principal := &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: "rt-2",
+			Resource:     "r-2",
+		},
+		DisplayName: "Test Principal",
+	}
+	principalData, err := proto.Marshal(principal)
+	require.NoError(t, err)
+
+	// Test with sources
+	sourcesJSON := `{"source-1":{},"source-2":{}}`
+	grantBlob, err := constructGrantProto(entitlementData, principalData, "grant-1", sourcesJSON)
+	require.NoError(t, err)
+	require.NotEmpty(t, grantBlob)
+
+	// Verify we can unmarshal
+	grant := &v2.Grant{}
+	err = proto.Unmarshal(grantBlob, grant)
+	require.NoError(t, err)
+
+	// Verify all fields
+	require.Equal(t, "grant-1", grant.GetId())
+	require.Equal(t, entitlement.GetId(), grant.GetEntitlement().GetId())
+	require.Equal(t, principal.GetId().GetResourceType(), grant.GetPrincipal().GetId().GetResourceType())
+	require.NotNil(t, grant.GetSources())
+	require.Len(t, grant.GetSources().GetSources(), 2)
+	require.Contains(t, grant.GetSources().GetSources(), "source-1")
+	require.Contains(t, grant.GetSources().GetSources(), "source-2")
+
+	// Verify annotations contain GrantImmutable
+	require.NotEmpty(t, grant.GetAnnotations())
+	hasImmutable := false
+	for _, ann := range grant.GetAnnotations() {
+		if ann.MessageIs(&v2.GrantImmutable{}) {
+			hasImmutable = true
+			break
+		}
+	}
+	require.True(t, hasImmutable, "Grant should have GrantImmutable annotation")
+}
+
+func TestConstructGrantProto_EmptySources(t *testing.T) {
+	entitlement := &v2.Entitlement{
+		Id: "ent-1",
+		Resource: &v2.Resource{
+			Id: &v2.ResourceId{
+				ResourceType: "rt-1",
+				Resource:     "r-1",
+			},
+		},
+	}
+	entitlementData, err := proto.Marshal(entitlement)
+	require.NoError(t, err)
+
+	principal := &v2.Resource{
+		Id: &v2.ResourceId{
+			ResourceType: "rt-2",
+			Resource:     "r-2",
+		},
+	}
+	principalData, err := proto.Marshal(principal)
+	require.NoError(t, err)
+
+	// Test with empty sources
+	grantBlob, err := constructGrantProto(entitlementData, principalData, "grant-1", "{}")
+	require.NoError(t, err)
+	require.NotEmpty(t, grantBlob)
+
+	grant := &v2.Grant{}
+	err = proto.Unmarshal(grantBlob, grant)
+	require.NoError(t, err)
+
+	require.Equal(t, "grant-1", grant.GetId())
+	// Sources can be nil or empty
+	if grant.GetSources() != nil {
+		require.Empty(t, grant.GetSources().GetSources())
+	}
 }

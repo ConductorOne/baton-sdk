@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 )
 
 const grantSourcesFieldNumber = 5
@@ -132,6 +133,149 @@ func updateGrantSourcesProto(ctx *sqlite.FunctionContext, args []driver.Value) (
 	return updatedBlob, nil
 }
 
+// constructGrantProto constructs a full Grant protobuf blob from its components
+func constructGrantProto(entitlementData []byte, principalData []byte, externalID string, sourcesJSON string) ([]byte, error) {
+	// Unmarshal entitlement
+	entitlement := &v2.Entitlement{}
+	if err := proto.Unmarshal(entitlementData, entitlement); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal entitlement: %w", err)
+	}
+
+	// Unmarshal principal
+	principal := &v2.Resource{}
+	if err := proto.Unmarshal(principalData, principal); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal principal: %w", err)
+	}
+
+	// Parse sources JSON
+	var sources *v2.GrantSources
+	if sourcesJSON != "" && sourcesJSON != "{}" && sourcesJSON != "null" {
+		var sourcesMap map[string]*v2.GrantSources_GrantSource
+		if err := json.Unmarshal([]byte(sourcesJSON), &sourcesMap); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal sources JSON: %w", err)
+		}
+		if len(sourcesMap) > 0 {
+			sources = &v2.GrantSources{Sources: sourcesMap}
+		}
+	}
+
+	// Build annotations with GrantImmutable (expanded grants are immutable)
+	var annos annotations.Annotations
+	annos.Update(&v2.GrantImmutable{})
+
+	// Construct Grant using builder
+	grant := v2.Grant_builder{
+		Id:          externalID,
+		Entitlement: entitlement,
+		Principal:   principal,
+		Sources:     sources,
+		Annotations: annos,
+	}.Build()
+
+	// Marshal Grant to protobuf blob
+	grantBlob, err := proto.Marshal(grant)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal grant: %w", err)
+	}
+
+	return grantBlob, nil
+}
+
+// constructGrantProtoSQLite is the SQLite function that constructs a Grant protobuf blob
+func constructGrantProtoSQLite(ctx *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if len(args) != 4 {
+		return nil, fmt.Errorf("construct_grant_proto expects 4 arguments: (entitlement_data, principal_data, external_id, sources_json)")
+	}
+
+	entitlementData, ok := args[0].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("first argument must be a blob (entitlement_data)")
+	}
+
+	principalData, ok := args[1].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("second argument must be a blob (principal_data)")
+	}
+
+	externalID, ok := args[2].(string)
+	if !ok {
+		return nil, fmt.Errorf("third argument must be a string (external_id)")
+	}
+
+	sourcesJSON, ok := args[3].(string)
+	if !ok {
+		return nil, fmt.Errorf("fourth argument must be a string (sources_json)")
+	}
+
+	grantBlob, err := constructGrantProto(entitlementData, principalData, externalID, sourcesJSON)
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct grant proto: %w", err)
+	}
+
+	return grantBlob, nil
+}
+
+// addGrantSourceProto adds a source entitlement ID to a grant's sources field
+// It takes the grant blob and the source entitlement ID, and returns the updated blob
+func addGrantSourceProto(grantBlob []byte, sourceEntitlementID string) ([]byte, error) {
+	if len(grantBlob) == 0 {
+		return nil, fmt.Errorf("grant blob is empty")
+	}
+
+	// Unmarshal the grant
+	grant := &v2.Grant{}
+	if err := proto.Unmarshal(grantBlob, grant); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal grant: %w", err)
+	}
+
+	// Initialize sources if nil
+	if grant.Sources == nil {
+		grant.Sources = &v2.GrantSources{
+			Sources: make(map[string]*v2.GrantSources_GrantSource),
+		}
+	}
+
+	// Add the new source if it doesn't already exist
+	if grant.Sources.Sources == nil {
+		grant.Sources.Sources = make(map[string]*v2.GrantSources_GrantSource)
+	}
+	if _, exists := grant.Sources.Sources[sourceEntitlementID]; !exists {
+		grant.Sources.Sources[sourceEntitlementID] = &v2.GrantSources_GrantSource{}
+	}
+
+	// Marshal the updated grant back
+	updatedBlob, err := proto.Marshal(grant)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal updated grant: %w", err)
+	}
+
+	return updatedBlob, nil
+}
+
+// addGrantSourceProtoSQLite is the SQLite function that adds a source entitlement ID to a grant's sources
+func addGrantSourceProtoSQLite(ctx *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if len(args) != 2 {
+		return nil, fmt.Errorf("add_grant_source_proto expects 2 arguments: (grant_blob, source_entitlement_id)")
+	}
+
+	grantBlob, ok := args[0].([]byte)
+	if !ok {
+		return nil, fmt.Errorf("first argument must be a blob (grant_blob)")
+	}
+
+	sourceEntitlementID, ok := args[1].(string)
+	if !ok {
+		return nil, fmt.Errorf("second argument must be a string (source_entitlement_id)")
+	}
+
+	updatedBlob, err := addGrantSourceProto(grantBlob, sourceEntitlementID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to add grant source: %w", err)
+	}
+
+	return updatedBlob, nil
+}
+
 func init() {
 	// Register the SQLite function for updating grant sources in protobuf blobs
 	err := sqlite.RegisterScalarFunction(
@@ -141,5 +285,25 @@ func init() {
 	)
 	if err != nil {
 		panic(fmt.Sprintf("failed to register update_grant_sources_proto function: %v", err))
+	}
+
+	// Register the SQLite function for constructing grant protobuf blobs
+	err = sqlite.RegisterScalarFunction(
+		"construct_grant_proto",
+		4, // Four arguments: entitlement_data, principal_data, external_id, sources_json
+		constructGrantProtoSQLite,
+	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to register construct_grant_proto function: %v", err))
+	}
+
+	// Register the SQLite function for adding a source entitlement ID to a grant's sources
+	err = sqlite.RegisterScalarFunction(
+		"add_grant_source_proto",
+		2, // Two arguments: grant_blob and source_entitlement_id
+		addGrantSourceProtoSQLite,
+	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to register add_grant_source_proto function: %v", err))
 	}
 }

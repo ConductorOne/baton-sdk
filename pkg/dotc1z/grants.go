@@ -287,6 +287,10 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 // This handles two cases:
 // 1. Grants with empty data blobs (newly inserted via SQL) - fully reconstruct the protobuf.
 // 2. Grants with valid data but outdated sources - just update the sources field.
+//
+// Deprecated: This function is no longer needed when using ExpandGrantsSingleEdgeWithProto,
+// which creates grants with complete protobuf data directly in SQL. This function is kept
+// for backward compatibility but should not be used for new code.
 func (c *C1File) RectifyGrantSources(ctx context.Context) (int64, error) {
 	ctx, span := tracer.Start(ctx, "C1File.RectifyGrantSources")
 	defer span.End()
