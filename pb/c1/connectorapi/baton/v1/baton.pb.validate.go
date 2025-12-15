@@ -3617,6 +3617,8 @@ func (m *Task_EventFeedTask) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for EventFeedId
+
 	if len(errors) > 0 {
 		return Task_EventFeedTaskMultiError(errors)
 	}

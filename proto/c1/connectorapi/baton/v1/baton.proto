@@ -55,6 +55,7 @@ message Task {
   message EventFeedTask {
     repeated google.protobuf.Any annotations = 1;
     google.protobuf.Timestamp start_at = 2;
+    string event_feed_id = 3;
   }
 
   message GrantTask {
