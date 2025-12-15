@@ -63,16 +63,22 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 
 	status := resp.GetStatus()
 
-	for status == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING {
-		time.Sleep(100 * time.Millisecond)
-		r, err := cc.GetActionStatus(ctx, &v2.GetActionStatusRequest{
-			Id: resp.GetId(),
-		})
-		if err != nil {
-			break
-		}
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
-		status = r.GetStatus()
+	for status == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			r, err := cc.GetActionStatus(ctx, &v2.GetActionStatusRequest{
+				Id: resp.GetId(),
+			})
+			if err != nil {
+				return fmt.Errorf("failed to poll action status: %w", err)
+			}
+			status = r.GetStatus()
+		}
 	}
 
 	l.Info("ActionInvoke response", zap.Any("resp", resp))
