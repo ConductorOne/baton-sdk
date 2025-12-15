@@ -61,9 +61,23 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 		return err
 	}
 
+	status := resp.GetStatus()
+
+	for status == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING {
+		time.Sleep(100 * time.Millisecond)
+		r, err := cc.GetActionStatus(ctx, &v2.GetActionStatusRequest{
+			Id: resp.GetId(),
+		})
+		if err != nil {
+			break
+		}
+
+		status = r.GetStatus()
+	}
+
 	l.Info("ActionInvoke response", zap.Any("resp", resp))
 
-	if resp.GetStatus() == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
+	if status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
 		return fmt.Errorf("action invoke failed: %v", resp.GetResponse())
 	}
 
