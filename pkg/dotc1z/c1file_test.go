@@ -563,12 +563,16 @@ func TestC1FileMmapSizeEnvVar(t *testing.T) {
 		// Ensure env var is not set
 		os.Unsetenv(sqliteMmapSizeEnvVar)
 
-		testFilePath := filepath.Join(c1zTests.workingDir, "test-mmap-unset.db")
-		defer os.Remove(testFilePath)
+		tmpDir := t.TempDir()
+		testFilePath := filepath.Join(tmpDir, "test-mmap-unset.db")
 
 		f, err := NewC1File(ctx, testFilePath)
 		require.NoError(t, err)
-		defer f.Close()
+		defer func() {
+			if f != nil {
+				f.Close()
+			}
+		}()
 
 		// Check that no mmap_size pragma was added
 		hasMmapPragma := false
@@ -584,12 +588,16 @@ func TestC1FileMmapSizeEnvVar(t *testing.T) {
 		// Set env var to 1 MB (minimal value for testing)
 		os.Setenv(sqliteMmapSizeEnvVar, "1")
 
-		testFilePath := filepath.Join(c1zTests.workingDir, "test-mmap-1.db")
-		defer os.Remove(testFilePath)
+		tmpDir := t.TempDir()
+		testFilePath := filepath.Join(tmpDir, "test-mmap-1.db")
 
 		f, err := NewC1File(ctx, testFilePath)
 		require.NoError(t, err)
-		defer f.Close()
+		defer func() {
+			if f != nil {
+				f.Close()
+			}
+		}()
 
 		// Check that mmap_size pragma was added with correct value
 		var mmapValue string
@@ -609,12 +617,16 @@ func TestC1FileMmapSizeEnvVar(t *testing.T) {
 		// Set env var to 0 (explicitly disabled)
 		os.Setenv(sqliteMmapSizeEnvVar, "0")
 
-		testFilePath := filepath.Join(c1zTests.workingDir, "test-mmap-zero.db")
-		defer os.Remove(testFilePath)
+		tmpDir := t.TempDir()
+		testFilePath := filepath.Join(tmpDir, "test-mmap-zero.db")
 
 		f, err := NewC1File(ctx, testFilePath)
 		require.NoError(t, err)
-		defer f.Close()
+		defer func() {
+			if f != nil {
+				f.Close()
+			}
+		}()
 
 		// Check that no mmap_size pragma was added
 		hasMmapPragma := false
@@ -630,12 +642,16 @@ func TestC1FileMmapSizeEnvVar(t *testing.T) {
 		// Set env var to invalid value
 		os.Setenv(sqliteMmapSizeEnvVar, "not-a-number")
 
-		testFilePath := filepath.Join(c1zTests.workingDir, "test-mmap-invalid.db")
-		defer os.Remove(testFilePath)
+		tmpDir := t.TempDir()
+		testFilePath := filepath.Join(tmpDir, "test-mmap-invalid.db")
 
 		f, err := NewC1File(ctx, testFilePath)
 		require.NoError(t, err)
-		defer f.Close()
+		defer func() {
+			if f != nil {
+				f.Close()
+			}
+		}()
 
 		// Check that no mmap_size pragma was added (fails safely)
 		hasMmapPragma := false
