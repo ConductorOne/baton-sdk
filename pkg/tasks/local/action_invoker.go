@@ -62,6 +62,7 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 	}
 
 	status := resp.GetStatus()
+	finalResp := resp.GetResponse()
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -78,13 +79,14 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 				return fmt.Errorf("failed to poll action status: %w", err)
 			}
 			status = r.GetStatus()
+			finalResp = r.GetResponse()
 		}
 	}
 
 	l.Info("ActionInvoke response", zap.Any("resp", resp))
 
 	if status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
-		return fmt.Errorf("action invoke failed: %v", resp.GetResponse())
+		return fmt.Errorf("action invoke failed: %v", finalResp)
 	}
 
 	return nil
