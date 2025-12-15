@@ -547,6 +547,7 @@ func TestC1ZReadOnlyMode(t *testing.T) {
 
 func TestC1FileMmapSizeEnvVar(t *testing.T) {
 	ctx := context.Background()
+	const mmapSizePragmaName = "mmap_size"
 
 	// Save and restore original env var state
 	originalValue := os.Getenv(sqliteMmapSizeEnvVar)
@@ -572,7 +573,7 @@ func TestC1FileMmapSizeEnvVar(t *testing.T) {
 		// Check that no mmap_size pragma was added
 		hasMmapPragma := false
 		for _, p := range f.pragmas {
-			if p.name == "mmap_size" {
+			if p.name == mmapSizePragmaName {
 				hasMmapPragma = true
 			}
 		}
@@ -594,7 +595,7 @@ func TestC1FileMmapSizeEnvVar(t *testing.T) {
 		var mmapValue string
 		hasMmapPragma := false
 		for _, p := range f.pragmas {
-			if p.name == "mmap_size" {
+			if p.name == mmapSizePragmaName {
 				hasMmapPragma = true
 				mmapValue = p.value
 			}
@@ -618,7 +619,7 @@ func TestC1FileMmapSizeEnvVar(t *testing.T) {
 		// Check that no mmap_size pragma was added
 		hasMmapPragma := false
 		for _, p := range f.pragmas {
-			if p.name == "mmap_size" {
+			if p.name == mmapSizePragmaName {
 				hasMmapPragma = true
 			}
 		}
@@ -639,7 +640,7 @@ func TestC1FileMmapSizeEnvVar(t *testing.T) {
 		// Check that no mmap_size pragma was added (fails safely)
 		hasMmapPragma := false
 		for _, p := range f.pragmas {
-			if p.name == "mmap_size" {
+			if p.name == mmapSizePragmaName {
 				hasMmapPragma = true
 			}
 		}
