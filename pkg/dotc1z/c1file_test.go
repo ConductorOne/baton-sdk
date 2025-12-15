@@ -544,3 +544,105 @@ func TestC1ZReadOnlyMode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, fileInfo1.ModTime(), fileInfo2.ModTime())
 }
+
+func TestC1FileMmapSizeEnvVar(t *testing.T) {
+	ctx := context.Background()
+
+	// Save and restore original env var state
+	originalValue := os.Getenv(sqliteMmapSizeEnvVar)
+	defer func() {
+		if originalValue != "" {
+			os.Setenv(sqliteMmapSizeEnvVar, originalValue)
+		} else {
+			os.Unsetenv(sqliteMmapSizeEnvVar)
+		}
+	}()
+
+	t.Run("without env var - no mmap pragma added", func(t *testing.T) {
+		// Ensure env var is not set
+		os.Unsetenv(sqliteMmapSizeEnvVar)
+
+		testFilePath := filepath.Join(c1zTests.workingDir, "test-mmap-unset.db")
+		defer os.Remove(testFilePath)
+
+		f, err := NewC1File(ctx, testFilePath)
+		require.NoError(t, err)
+		defer f.Close()
+
+		// Check that no mmap_size pragma was added
+		hasMmapPragma := false
+		for _, p := range f.pragmas {
+			if p.name == "mmap_size" {
+				hasMmapPragma = true
+			}
+		}
+		require.False(t, hasMmapPragma, "mmap_size pragma should not be added when env var is unset")
+	})
+
+	t.Run("with env var set to 64 - mmap pragma added", func(t *testing.T) {
+		// Set env var to 64 MB (small value for testing)
+		os.Setenv(sqliteMmapSizeEnvVar, "64")
+
+		testFilePath := filepath.Join(c1zTests.workingDir, "test-mmap-64.db")
+		defer os.Remove(testFilePath)
+
+		f, err := NewC1File(ctx, testFilePath)
+		require.NoError(t, err)
+		defer f.Close()
+
+		// Check that mmap_size pragma was added with correct value
+		var mmapValue string
+		hasMmapPragma := false
+		for _, p := range f.pragmas {
+			if p.name == "mmap_size" {
+				hasMmapPragma = true
+				mmapValue = p.value
+			}
+		}
+		require.True(t, hasMmapPragma, "mmap_size pragma should be added when env var is set")
+		expectedBytes := int64(64 * 1024 * 1024)
+		require.Equal(t, fmt.Sprintf("%d", expectedBytes), mmapValue, "mmap_size should be 64 MB in bytes")
+	})
+
+	t.Run("with env var set to 0 - no mmap pragma added", func(t *testing.T) {
+		// Set env var to 0 (explicitly disabled)
+		os.Setenv(sqliteMmapSizeEnvVar, "0")
+
+		testFilePath := filepath.Join(c1zTests.workingDir, "test-mmap-zero.db")
+		defer os.Remove(testFilePath)
+
+		f, err := NewC1File(ctx, testFilePath)
+		require.NoError(t, err)
+		defer f.Close()
+
+		// Check that no mmap_size pragma was added
+		hasMmapPragma := false
+		for _, p := range f.pragmas {
+			if p.name == "mmap_size" {
+				hasMmapPragma = true
+			}
+		}
+		require.False(t, hasMmapPragma, "mmap_size pragma should not be added when env var is 0")
+	})
+
+	t.Run("with invalid env var - no mmap pragma added", func(t *testing.T) {
+		// Set env var to invalid value
+		os.Setenv(sqliteMmapSizeEnvVar, "not-a-number")
+
+		testFilePath := filepath.Join(c1zTests.workingDir, "test-mmap-invalid.db")
+		defer os.Remove(testFilePath)
+
+		f, err := NewC1File(ctx, testFilePath)
+		require.NoError(t, err)
+		defer f.Close()
+
+		// Check that no mmap_size pragma was added (fails safely)
+		hasMmapPragma := false
+		for _, p := range f.pragmas {
+			if p.name == "mmap_size" {
+				hasMmapPragma = true
+			}
+		}
+		require.False(t, hasMmapPragma, "mmap_size pragma should not be added when env var is invalid")
+	})
+}

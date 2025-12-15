@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -32,6 +33,14 @@ type pragma struct {
 	name  string
 	value string
 }
+
+const (
+	// sqliteMmapSizeEnvVar allows configuring SQLite memory-mapped I/O size via environment variable.
+	// Value is in megabytes. Setting to 0 disables mmap mode (default).
+	// Memory-mapped I/O reduces system calls by mapping database files directly into process memory.
+	// Recommended values: 3072 (3GB) to match max C1Z file size, or 8192 (8GB) for headroom.
+	sqliteMmapSizeEnvVar = "BATON_SQLITE_MMAP_SIZE_MB"
+)
 
 type C1File struct {
 	rawDb              *sql.DB
@@ -109,6 +118,20 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 
 	for _, opt := range opts {
 		opt(c1File)
+	}
+
+	// Apply environment variable configuration for mmap_size.
+	// This allows operators to enable memory-mapped I/O globally without code changes.
+	// Environment variable takes precedence to allow runtime configuration.
+	if mmapSizeVar := os.Getenv(sqliteMmapSizeEnvVar); mmapSizeVar != "" {
+		mmapSizeMB, err := strconv.ParseInt(mmapSizeVar, 10, 64)
+		if err == nil && mmapSizeMB > 0 {
+			mmapSizeBytes := mmapSizeMB * 1024 * 1024
+			c1File.pragmas = append(c1File.pragmas, pragma{
+				name:  "mmap_size",
+				value: strconv.FormatInt(mmapSizeBytes, 10),
+			})
+		}
 	}
 
 	err = c1File.validateDb(ctx)
