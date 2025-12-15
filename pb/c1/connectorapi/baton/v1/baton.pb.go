@@ -9,6 +9,9 @@
 package v1
 
 import (
+	reflect "reflect"
+	unsafe "unsafe"
+
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	status "google.golang.org/genproto/googleapis/rpc/status"
@@ -18,8 +21,6 @@ import (
 	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	structpb "google.golang.org/protobuf/types/known/structpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
-	reflect "reflect"
-	unsafe "unsafe"
 )
 
 const (
@@ -4935,12 +4936,8 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\fSyncFullTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12,\n" +
 	"\x12skip_expand_grants\x18\x02 \x01(\bR\x10skipExpandGrants\x12?\n" +
-<<<<<<< HEAD
 	"\x1cskip_entitlements_and_grants\x18\x03 \x01(\bR\x19skipEntitlementsAndGrants\x12Q\n" +
-	"\x17targeted_sync_resources\x18\x04 \x03(\v2\x19.c1.connector.v2.ResourceR\x15targetedSyncResources\x1a~\n" +
-=======
-	"\x1cskip_entitlements_and_grants\x18\x03 \x01(\bR\x19skipEntitlementsAndGrants\x1a\xa2\x01\n" +
->>>>>>> bd3cf854 ([DUCT-13790] support listing events)
+	"\x17targeted_sync_resources\x18\x04 \x03(\v2\x19.c1.connector.v2.ResourceR\x15targetedSyncResources\x1a\xa2\x01\n" +
 	"\rEventFeedTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x125\n" +
 	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x12\"\n" +
