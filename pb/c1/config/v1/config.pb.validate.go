@@ -747,7 +747,7 @@ func (m *Field) validate(all bool) error {
 			}
 		}
 
-	case *Field_ResourceIdListField:
+	case *Field_ResourceIdSliceField:
 		if v == nil {
 			err := FieldValidationError{
 				field:  "Field",
@@ -760,11 +760,11 @@ func (m *Field) validate(all bool) error {
 		}
 
 		if all {
-			switch v := interface{}(m.GetResourceIdListField()).(type) {
+			switch v := interface{}(m.GetResourceIdSliceField()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
 					errors = append(errors, FieldValidationError{
-						field:  "ResourceIdListField",
+						field:  "ResourceIdSliceField",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -772,16 +772,16 @@ func (m *Field) validate(all bool) error {
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
 					errors = append(errors, FieldValidationError{
-						field:  "ResourceIdListField",
+						field:  "ResourceIdSliceField",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
 				}
 			}
-		} else if v, ok := interface{}(m.GetResourceIdListField()).(interface{ Validate() error }); ok {
+		} else if v, ok := interface{}(m.GetResourceIdSliceField()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
 				return FieldValidationError{
-					field:  "ResourceIdListField",
+					field:  "ResourceIdSliceField",
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
@@ -829,7 +829,7 @@ func (m *Field) validate(all bool) error {
 			}
 		}
 
-	case *Field_ResourceListField:
+	case *Field_ResourceSliceField:
 		if v == nil {
 			err := FieldValidationError{
 				field:  "Field",
@@ -842,11 +842,11 @@ func (m *Field) validate(all bool) error {
 		}
 
 		if all {
-			switch v := interface{}(m.GetResourceListField()).(type) {
+			switch v := interface{}(m.GetResourceSliceField()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
 					errors = append(errors, FieldValidationError{
-						field:  "ResourceListField",
+						field:  "ResourceSliceField",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -854,16 +854,16 @@ func (m *Field) validate(all bool) error {
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
 					errors = append(errors, FieldValidationError{
-						field:  "ResourceListField",
+						field:  "ResourceSliceField",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
 				}
 			}
-		} else if v, ok := interface{}(m.GetResourceListField()).(interface{ Validate() error }); ok {
+		} else if v, ok := interface{}(m.GetResourceSliceField()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
 				return FieldValidationError{
-					field:  "ResourceListField",
+					field:  "ResourceSliceField",
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
@@ -1146,6 +1146,109 @@ var _ interface {
 	ErrorName() string
 } = ResourceValidationError{}
 
+// Validate checks the field values on ResourceId with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *ResourceId) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ResourceId with the rules defined in
+// the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in ResourceIdMultiError, or
+// nil if none found.
+func (m *ResourceId) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ResourceId) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for ResourceTypeId
+
+	// no validation rules for ResourceId
+
+	if len(errors) > 0 {
+		return ResourceIdMultiError(errors)
+	}
+
+	return nil
+}
+
+// ResourceIdMultiError is an error wrapping multiple validation errors
+// returned by ResourceId.ValidateAll() if the designated constraints aren't met.
+type ResourceIdMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ResourceIdMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ResourceIdMultiError) AllErrors() []error { return m }
+
+// ResourceIdValidationError is the validation error returned by
+// ResourceId.Validate if the designated constraints aren't met.
+type ResourceIdValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ResourceIdValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ResourceIdValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ResourceIdValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ResourceIdValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ResourceIdValidationError) ErrorName() string { return "ResourceIdValidationError" }
+
+// Error satisfies the builtin error interface
+func (e ResourceIdValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sResourceId.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ResourceIdValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ResourceIdValidationError{}
+
 // Validate checks the field values on ResourceField with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
@@ -1169,11 +1272,11 @@ func (m *ResourceField) validate(all bool) error {
 	var errors []error
 
 	if all {
-		switch v := interface{}(m.GetResource()).(type) {
+		switch v := interface{}(m.GetDefaultValue()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
 				errors = append(errors, ResourceFieldValidationError{
-					field:  "Resource",
+					field:  "DefaultValue",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
@@ -1181,16 +1284,16 @@ func (m *ResourceField) validate(all bool) error {
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
 				errors = append(errors, ResourceFieldValidationError{
-					field:  "Resource",
+					field:  "DefaultValue",
 					reason: "embedded message failed validation",
 					cause:  err,
 				})
 			}
 		}
-	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+	} else if v, ok := interface{}(m.GetDefaultValue()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
 			return ResourceFieldValidationError{
-				field:  "Resource",
+				field:  "DefaultValue",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -1275,45 +1378,45 @@ var _ interface {
 	ErrorName() string
 } = ResourceFieldValidationError{}
 
-// Validate checks the field values on ResourceListField with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// first error encountered is returned, or nil if there are no violations.
-func (m *ResourceListField) Validate() error {
+// Validate checks the field values on ResourceSliceField with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ResourceSliceField) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on ResourceListField with the rules
+// ValidateAll checks the field values on ResourceSliceField with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the result is a list of violation errors wrapped in
-// ResourceListFieldMultiError, or nil if none found.
-func (m *ResourceListField) ValidateAll() error {
+// ResourceSliceFieldMultiError, or nil if none found.
+func (m *ResourceSliceField) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *ResourceListField) validate(all bool) error {
+func (m *ResourceSliceField) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	for idx, item := range m.GetList() {
+	for idx, item := range m.GetDefaultValue() {
 		_, _ = idx, item
 
 		if all {
 			switch v := interface{}(item).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ResourceListFieldValidationError{
-						field:  fmt.Sprintf("List[%v]", idx),
+					errors = append(errors, ResourceSliceFieldValidationError{
+						field:  fmt.Sprintf("DefaultValue[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, ResourceListFieldValidationError{
-						field:  fmt.Sprintf("List[%v]", idx),
+					errors = append(errors, ResourceSliceFieldValidationError{
+						field:  fmt.Sprintf("DefaultValue[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -1321,8 +1424,8 @@ func (m *ResourceListField) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return ResourceListFieldValidationError{
-					field:  fmt.Sprintf("List[%v]", idx),
+				return ResourceSliceFieldValidationError{
+					field:  fmt.Sprintf("DefaultValue[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
@@ -1332,19 +1435,19 @@ func (m *ResourceListField) validate(all bool) error {
 	}
 
 	if len(errors) > 0 {
-		return ResourceListFieldMultiError(errors)
+		return ResourceSliceFieldMultiError(errors)
 	}
 
 	return nil
 }
 
-// ResourceListFieldMultiError is an error wrapping multiple validation errors
-// returned by ResourceListField.ValidateAll() if the designated constraints
+// ResourceSliceFieldMultiError is an error wrapping multiple validation errors
+// returned by ResourceSliceField.ValidateAll() if the designated constraints
 // aren't met.
-type ResourceListFieldMultiError []error
+type ResourceSliceFieldMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m ResourceListFieldMultiError) Error() string {
+func (m ResourceSliceFieldMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -1353,11 +1456,11 @@ func (m ResourceListFieldMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m ResourceListFieldMultiError) AllErrors() []error { return m }
+func (m ResourceSliceFieldMultiError) AllErrors() []error { return m }
 
-// ResourceListFieldValidationError is the validation error returned by
-// ResourceListField.Validate if the designated constraints aren't met.
-type ResourceListFieldValidationError struct {
+// ResourceSliceFieldValidationError is the validation error returned by
+// ResourceSliceField.Validate if the designated constraints aren't met.
+type ResourceSliceFieldValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -1365,24 +1468,24 @@ type ResourceListFieldValidationError struct {
 }
 
 // Field function returns field value.
-func (e ResourceListFieldValidationError) Field() string { return e.field }
+func (e ResourceSliceFieldValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e ResourceListFieldValidationError) Reason() string { return e.reason }
+func (e ResourceSliceFieldValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e ResourceListFieldValidationError) Cause() error { return e.cause }
+func (e ResourceSliceFieldValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e ResourceListFieldValidationError) Key() bool { return e.key }
+func (e ResourceSliceFieldValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e ResourceListFieldValidationError) ErrorName() string {
-	return "ResourceListFieldValidationError"
+func (e ResourceSliceFieldValidationError) ErrorName() string {
+	return "ResourceSliceFieldValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e ResourceListFieldValidationError) Error() string {
+func (e ResourceSliceFieldValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -1394,14 +1497,14 @@ func (e ResourceListFieldValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sResourceListField.%s: %s%s",
+		"invalid %sResourceSliceField.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = ResourceListFieldValidationError{}
+var _ error = ResourceSliceFieldValidationError{}
 
 var _ interface {
 	Field() string
@@ -1409,7 +1512,7 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = ResourceListFieldValidationError{}
+} = ResourceSliceFieldValidationError{}
 
 // Validate checks the field values on ResourceIdField with the rules defined
 // in the proto definition for this message. If any rules are violated, the
@@ -1433,9 +1536,67 @@ func (m *ResourceIdField) validate(all bool) error {
 
 	var errors []error
 
-	// no validation rules for ResourceTypeId
+	if all {
+		switch v := interface{}(m.GetDefaultValue()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, ResourceIdFieldValidationError{
+					field:  "DefaultValue",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, ResourceIdFieldValidationError{
+					field:  "DefaultValue",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetDefaultValue()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return ResourceIdFieldValidationError{
+				field:  "DefaultValue",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
 
-	// no validation rules for ResourceId
+	if m.Rules != nil {
+
+		if all {
+			switch v := interface{}(m.GetRules()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ResourceIdFieldValidationError{
+						field:  "Rules",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ResourceIdFieldValidationError{
+						field:  "Rules",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetRules()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ResourceIdFieldValidationError{
+					field:  "Rules",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
 
 	if len(errors) > 0 {
 		return ResourceIdFieldMultiError(errors)
@@ -1515,45 +1676,45 @@ var _ interface {
 	ErrorName() string
 } = ResourceIdFieldValidationError{}
 
-// Validate checks the field values on ResourceIdListField with the rules
+// Validate checks the field values on ResourceIdSliceField with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
-func (m *ResourceIdListField) Validate() error {
+func (m *ResourceIdSliceField) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on ResourceIdListField with the rules
+// ValidateAll checks the field values on ResourceIdSliceField with the rules
 // defined in the proto definition for this message. If any rules are
 // violated, the result is a list of violation errors wrapped in
-// ResourceIdListFieldMultiError, or nil if none found.
-func (m *ResourceIdListField) ValidateAll() error {
+// ResourceIdSliceFieldMultiError, or nil if none found.
+func (m *ResourceIdSliceField) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *ResourceIdListField) validate(all bool) error {
+func (m *ResourceIdSliceField) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
 
 	var errors []error
 
-	for idx, item := range m.GetList() {
+	for idx, item := range m.GetDefaultValue() {
 		_, _ = idx, item
 
 		if all {
 			switch v := interface{}(item).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, ResourceIdListFieldValidationError{
-						field:  fmt.Sprintf("List[%v]", idx),
+					errors = append(errors, ResourceIdSliceFieldValidationError{
+						field:  fmt.Sprintf("DefaultValue[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, ResourceIdListFieldValidationError{
-						field:  fmt.Sprintf("List[%v]", idx),
+					errors = append(errors, ResourceIdSliceFieldValidationError{
+						field:  fmt.Sprintf("DefaultValue[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -1561,8 +1722,8 @@ func (m *ResourceIdListField) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return ResourceIdListFieldValidationError{
-					field:  fmt.Sprintf("List[%v]", idx),
+				return ResourceIdSliceFieldValidationError{
+					field:  fmt.Sprintf("DefaultValue[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
@@ -1571,22 +1732,53 @@ func (m *ResourceIdListField) validate(all bool) error {
 
 	}
 
-	// no validation rules for ResourceTypeId
+	if m.Rules != nil {
+
+		if all {
+			switch v := interface{}(m.GetRules()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ResourceIdSliceFieldValidationError{
+						field:  "Rules",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ResourceIdSliceFieldValidationError{
+						field:  "Rules",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetRules()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ResourceIdSliceFieldValidationError{
+					field:  "Rules",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
 
 	if len(errors) > 0 {
-		return ResourceIdListFieldMultiError(errors)
+		return ResourceIdSliceFieldMultiError(errors)
 	}
 
 	return nil
 }
 
-// ResourceIdListFieldMultiError is an error wrapping multiple validation
-// errors returned by ResourceIdListField.ValidateAll() if the designated
+// ResourceIdSliceFieldMultiError is an error wrapping multiple validation
+// errors returned by ResourceIdSliceField.ValidateAll() if the designated
 // constraints aren't met.
-type ResourceIdListFieldMultiError []error
+type ResourceIdSliceFieldMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m ResourceIdListFieldMultiError) Error() string {
+func (m ResourceIdSliceFieldMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -1595,11 +1787,11 @@ func (m ResourceIdListFieldMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m ResourceIdListFieldMultiError) AllErrors() []error { return m }
+func (m ResourceIdSliceFieldMultiError) AllErrors() []error { return m }
 
-// ResourceIdListFieldValidationError is the validation error returned by
-// ResourceIdListField.Validate if the designated constraints aren't met.
-type ResourceIdListFieldValidationError struct {
+// ResourceIdSliceFieldValidationError is the validation error returned by
+// ResourceIdSliceField.Validate if the designated constraints aren't met.
+type ResourceIdSliceFieldValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -1607,24 +1799,24 @@ type ResourceIdListFieldValidationError struct {
 }
 
 // Field function returns field value.
-func (e ResourceIdListFieldValidationError) Field() string { return e.field }
+func (e ResourceIdSliceFieldValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e ResourceIdListFieldValidationError) Reason() string { return e.reason }
+func (e ResourceIdSliceFieldValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e ResourceIdListFieldValidationError) Cause() error { return e.cause }
+func (e ResourceIdSliceFieldValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e ResourceIdListFieldValidationError) Key() bool { return e.key }
+func (e ResourceIdSliceFieldValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e ResourceIdListFieldValidationError) ErrorName() string {
-	return "ResourceIdListFieldValidationError"
+func (e ResourceIdSliceFieldValidationError) ErrorName() string {
+	return "ResourceIdSliceFieldValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e ResourceIdListFieldValidationError) Error() string {
+func (e ResourceIdSliceFieldValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -1636,14 +1828,14 @@ func (e ResourceIdListFieldValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sResourceIdListField.%s: %s%s",
+		"invalid %sResourceIdSliceField.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = ResourceIdListFieldValidationError{}
+var _ error = ResourceIdSliceFieldValidationError{}
 
 var _ interface {
 	Field() string
@@ -1651,7 +1843,7 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = ResourceIdListFieldValidationError{}
+} = ResourceIdSliceFieldValidationError{}
 
 // Validate checks the field values on IntField with the rules defined in the
 // proto definition for this message. If any rules are violated, the first

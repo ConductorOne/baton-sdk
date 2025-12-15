@@ -272,50 +272,50 @@ func GetResourceFieldArg(args *structpb.Struct, key string) (*v2.Resource, bool)
 }
 
 func resourceToBasicResource(resource *v2.Resource) *config.Resource {
-	var resourceId *config.ResourceIdField
+	var resourceId *config.ResourceId
 	if resource.Id != nil {
-		resourceId = &config.ResourceIdField{
+		resourceId = config.ResourceId_builder{
 			ResourceTypeId: resource.Id.ResourceType,
 			ResourceId:     resource.Id.Resource,
-		}
+		}.Build()
 	}
-	var parentResourceId *config.ResourceIdField
+	var parentResourceId *config.ResourceId
 	if resource.ParentResourceId != nil {
-		parentResourceId = &config.ResourceIdField{
+		parentResourceId = config.ResourceId_builder{
 			ResourceTypeId: resource.ParentResourceId.ResourceType,
 			ResourceId:     resource.ParentResourceId.Resource,
-		}
+		}.Build()
 	}
-	return &config.Resource{
+	return config.Resource_builder{
 		ResourceId:       resourceId,
 		ParentResourceId: parentResourceId,
 		DisplayName:      resource.DisplayName,
 		Description:      resource.Description,
 		Annotations:      resource.Annotations,
-	}
+	}.Build()
 }
 
 func basicResourceToResource(basicResource *config.Resource) *v2.Resource {
 	var resourceId *v2.ResourceId
-	if basicResource.ResourceId != nil {
+	if basicResource.GetResourceId() != nil {
 		resourceId = &v2.ResourceId{
-			ResourceType: basicResource.ResourceId.ResourceTypeId,
-			Resource:     basicResource.ResourceId.ResourceId,
+			ResourceType: basicResource.GetResourceId().GetResourceTypeId(),
+			Resource:     basicResource.GetResourceId().GetResourceId(),
 		}
 	}
 	var parentResourceId *v2.ResourceId
-	if basicResource.ParentResourceId != nil {
+	if basicResource.GetParentResourceId() != nil {
 		parentResourceId = &v2.ResourceId{
-			ResourceType: basicResource.ParentResourceId.ResourceTypeId,
-			Resource:     basicResource.ParentResourceId.ResourceId,
+			ResourceType: basicResource.GetParentResourceId().GetResourceTypeId(),
+			Resource:     basicResource.GetParentResourceId().GetResourceId(),
 		}
 	}
 	return &v2.Resource{
 		Id:               resourceId,
 		ParentResourceId: parentResourceId,
-		DisplayName:      basicResource.DisplayName,
-		Description:      basicResource.Description,
-		Annotations:      basicResource.Annotations,
+		DisplayName:      basicResource.GetDisplayName(),
+		Description:      basicResource.GetDescription(),
+		Annotations:      basicResource.GetAnnotations(),
 	}
 }
 
@@ -431,10 +431,10 @@ func NewResourceReturnField(key string, resource *v2.Resource) (ReturnField, err
 
 // NewResourceIdReturnField creates a return field with a ResourceId proto value.
 func NewResourceIdReturnField(key string, resourceId *v2.ResourceId) (ReturnField, error) {
-	basicResourceId := &config.ResourceIdField{
+	basicResourceId := config.ResourceId_builder{
 		ResourceTypeId: resourceId.ResourceType,
 		ResourceId:     resourceId.Resource,
-	}
+	}.Build()
 	jsonBytes, err := protojson.Marshal(basicResourceId)
 	if err != nil {
 		return ReturnField{}, fmt.Errorf("failed to marshal resource id: %w", err)

@@ -1147,10 +1147,10 @@ func TestResourceConversionHelpers(t *testing.T) {
 
 		basic := resourceToBasicResource(original)
 		require.NotNil(t, basic)
-		require.Equal(t, "user", basic.ResourceId.ResourceTypeId)
-		require.Equal(t, "test-123", basic.ResourceId.ResourceId)
-		require.Equal(t, "Test User", basic.DisplayName)
-		require.Equal(t, "A test user description", basic.Description)
+		require.Equal(t, "user", basic.GetResourceId().GetResourceTypeId())
+		require.Equal(t, "test-123", basic.GetResourceId().GetResourceId())
+		require.Equal(t, "Test User", basic.GetDisplayName())
+		require.Equal(t, "A test user description", basic.GetDescription())
 
 		converted := basicResourceToResource(basic)
 		require.NotNil(t, converted)

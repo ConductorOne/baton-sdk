@@ -62,40 +62,45 @@ message Field {
     StringSliceField string_slice_field = 103;
     StringMapField string_map_field = 104;
     ResourceIdField resource_id_field = 105;
-    ResourceIdListField resource_id_list_field = 106;
+    ResourceIdSliceField resource_id_slice_field = 106;
 
     // These are meant to serve as return types for actions.
     ResourceField resource_field = 107;
-    ResourceListField resource_list_field = 108;
+    ResourceSliceField resource_slice_field = 108;
   }
 }
 
 // These are partially duplicate with the Resource proto in the connector package.
 // This is to avoid import cycles
 message Resource {
-  ResourceIdField resource_id = 1;
-  ResourceIdField parent_resource_id = 2;
+  ResourceId resource_id = 1;
+  ResourceId parent_resource_id = 2;
   string display_name = 3;
   string description = 4;
   repeated google.protobuf.Any annotations = 5;
 }
 
-message ResourceField {
-  Resource resource = 1;
-}
-
-message ResourceListField {
-  repeated Resource list = 1;
-}
-
-message ResourceIdField {
+message ResourceId {
   string resource_type_id = 1;
   string resource_id = 2;
 }
 
-message ResourceIdListField {
-  repeated ResourceIdField list = 1;
-  string resource_type_id = 2;
+message ResourceField {
+  Resource default_value = 1;
+}
+
+message ResourceSliceField {
+  repeated Resource default_value = 1;
+}
+
+message ResourceIdField {
+  ResourceId default_value = 1;
+  optional ResourceIDRules rules = 3;
+}
+
+message ResourceIdSliceField {
+  repeated ResourceIdField default_value = 1;
+  optional RepeatedResourceIdRules rules = 2;
 }
 
 message IntField {
