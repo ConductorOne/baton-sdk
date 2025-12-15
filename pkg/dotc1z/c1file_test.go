@@ -580,11 +580,11 @@ func TestC1FileMmapSizeEnvVar(t *testing.T) {
 		require.False(t, hasMmapPragma, "mmap_size pragma should not be added when env var is unset")
 	})
 
-	t.Run("with env var set to 64 - mmap pragma added", func(t *testing.T) {
-		// Set env var to 64 MB (small value for testing)
-		os.Setenv(sqliteMmapSizeEnvVar, "64")
+	t.Run("with env var set to 4 - mmap pragma added", func(t *testing.T) {
+		// Set env var to 4 MB (small value for testing)
+		os.Setenv(sqliteMmapSizeEnvVar, "4")
 
-		testFilePath := filepath.Join(c1zTests.workingDir, "test-mmap-64.db")
+		testFilePath := filepath.Join(c1zTests.workingDir, "test-mmap-4.db")
 		defer os.Remove(testFilePath)
 
 		f, err := NewC1File(ctx, testFilePath)
@@ -601,8 +601,8 @@ func TestC1FileMmapSizeEnvVar(t *testing.T) {
 			}
 		}
 		require.True(t, hasMmapPragma, "mmap_size pragma should be added when env var is set")
-		expectedBytes := int64(64 * 1024 * 1024)
-		require.Equal(t, fmt.Sprintf("%d", expectedBytes), mmapValue, "mmap_size should be 64 MB in bytes")
+		expectedBytes := int64(4 * 1024 * 1024)
+		require.Equal(t, fmt.Sprintf("%d", expectedBytes), mmapValue, "mmap_size should be 4 MB in bytes")
 	})
 
 	t.Run("with env var set to 0 - no mmap pragma added", func(t *testing.T) {
