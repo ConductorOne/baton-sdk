@@ -67,7 +67,7 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	for status == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING {
+	for status == v2.BatonActionStatus_BATON_ACTION_STATUS_PENDING || status == v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -83,7 +83,7 @@ func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc type
 		}
 	}
 
-	l.Info("ActionInvoke response", zap.Any("resp", resp))
+	l.Info("ActionInvoke response", zap.Any("resp", finalResp))
 
 	if status == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
 		return fmt.Errorf("action invoke failed: %v", finalResp)
