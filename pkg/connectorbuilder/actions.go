@@ -122,7 +122,7 @@ func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSche
 	actionSchema, annos, err := b.actionManager.GetActionSchema(ctx, request.GetName())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: action schema %s not found", request.GetName())
+		return nil, fmt.Errorf("error: action schema %s not found: %w", request.GetName(), err)
 	}
 
 	rv := v2.GetActionSchemaResponse_builder{
@@ -170,7 +170,7 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 	actionStatus, name, rv, annos, err := b.actionManager.GetActionStatus(ctx, request.GetId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, fmt.Errorf("error: action status for id %s not found", request.GetId())
+		return nil, fmt.Errorf("error: action status for id %s not found: %w", request.GetId(), err)
 	}
 
 	resp := v2.GetActionStatusResponse_builder{
