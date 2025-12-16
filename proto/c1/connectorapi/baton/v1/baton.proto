@@ -54,8 +54,18 @@ message Task {
 
   message EventFeedTask {
     repeated google.protobuf.Any annotations = 1;
+    google.protobuf.Timestamp start_at = 2; 
+  }
+
+  message ListEventsTask {
+    repeated google.protobuf.Any annotations = 1;
     google.protobuf.Timestamp start_at = 2;
     string event_feed_id = 3;
+    uint32 page_size = 4;
+  }
+
+  message ListEventFeedsTask {
+    repeated google.protobuf.Any annotations = 1;
   }
 
   message GrantTask {
@@ -185,6 +195,8 @@ message Task {
     ActionStatusTask action_status = 118;
     CreateSyncDiffTask create_sync_diff = 119;
     CompactSyncs compact_syncs = 120;
+    ListEventFeedsTask list_event_feeds = 121;
+    ListEventsTask list_events = 122;
   }
   bool debug = 3;
 }

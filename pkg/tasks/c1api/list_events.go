@@ -14,24 +14,24 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
-type listEventHelpers interface {
+type listEventsHelpers interface {
 	ConnectorClient() types.ConnectorClient
 	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
 }
 
-type listEventHandler struct {
+type listEventsHandler struct {
 	task    *v1.Task
-	helpers listEventHelpers
+	helpers listEventsHelpers
 }
 
-func (c *listEventHandler) HandleTask(ctx context.Context) error {
+func (c *listEventsHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "listEventHandler.HandleTask")
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
 	cc := c.helpers.ConnectorClient()
 
-	t := c.task.GetEventFeed()
+	t := c.task.GetListEvents()
 	if t == nil {
 		l.Error("get list event task was nil", zap.Any("get_list_event_task", t))
 		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed get list event task"), ErrTaskNonRetryable))
@@ -47,7 +47,7 @@ func (c *listEventHandler) HandleTask(ctx context.Context) error {
 			EventFeedId: t.GetEventFeedId(),
 			StartAt:     t.GetStartAt(),
 			Cursor:      pageToken,
-			PageSize:    100,
+			PageSize:    t.GetPageSize(),
 		}.Build())
 		if err != nil {
 			return err
@@ -66,8 +66,8 @@ func (c *listEventHandler) HandleTask(ctx context.Context) error {
 	return c.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
 }
 
-func NewListEventHandler(task *v1.Task, helpers listEventHelpers) *listEventHandler {
-	return &listEventHandler{
+func NewListEventsHandler(task *v1.Task, helpers listEventsHelpers) *listEventsHandler {
+	return &listEventsHandler{
 		task:    task,
 		helpers: helpers,
 	}
