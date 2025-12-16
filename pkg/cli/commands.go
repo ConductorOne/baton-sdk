@@ -9,7 +9,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
@@ -639,13 +638,6 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 		var c types.ConnectorServer
-
-		if defaultV, ok := any(t).(field.ConfigurableDefault); ok {
-			c, err = connectorbuilder.NewConnector(ctx, defaultV.DefaultBuilder())
-			if err != nil {
-				return err
-			}
-		}
 
 		if c == nil {
 			c, err = getconnector(runCtx, t, RunTimeOpts{})
