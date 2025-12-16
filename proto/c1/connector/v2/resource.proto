@@ -229,10 +229,15 @@ message CreateAccountResponse {
     Resource resource = 1;
     bool is_create_account_result = 2;
   }
+  message InProgressResult {
+    Resource resource = 1; // Optional.
+    bool is_create_account_result = 2;
+  }
   oneof result {
     SuccessResult success = 100;
     ActionRequiredResult action_required = 101;
     AlreadyExistsResult already_exists = 102;
+    InProgressResult in_progress = 103;
   }
   repeated EncryptedData encrypted_data = 2;
   repeated google.protobuf.Any annotations = 3;

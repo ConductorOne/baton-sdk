@@ -108,6 +108,8 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		rv.SetActionRequired(proto.ValueOrDefault(r))
 	case *v2.CreateAccountResponse_AlreadyExistsResult:
 		rv.SetAlreadyExists(proto.ValueOrDefault(r))
+	case *v2.CreateAccountResponse_InProgressResult:
+		rv.SetInProgress(proto.ValueOrDefault(r))
 	default:
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("unknown result type: %T", result))
