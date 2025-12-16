@@ -1986,6 +1986,8 @@ type CreateAccountResponse struct {
 	//
 	//	*CreateAccountResponse_Success
 	//	*CreateAccountResponse_ActionRequired
+	//	*CreateAccountResponse_AlreadyExists
+	//	*CreateAccountResponse_InProgress
 	Result        isCreateAccountResponse_Result `protobuf_oneof:"result"`
 	EncryptedData []*EncryptedData               `protobuf:"bytes,2,rep,name=encrypted_data,json=encryptedData,proto3" json:"encrypted_data,omitempty"`
 	Annotations   []*anypb.Any                   `protobuf:"bytes,3,rep,name=annotations,proto3" json:"annotations,omitempty"`
@@ -2043,6 +2045,24 @@ func (x *CreateAccountResponse) GetActionRequired() *CreateAccountResponse_Actio
 	return nil
 }
 
+func (x *CreateAccountResponse) GetAlreadyExists() *CreateAccountResponse_AlreadyExistsResult {
+	if x != nil {
+		if x, ok := x.Result.(*CreateAccountResponse_AlreadyExists); ok {
+			return x.AlreadyExists
+		}
+	}
+	return nil
+}
+
+func (x *CreateAccountResponse) GetInProgress() *CreateAccountResponse_InProgressResult {
+	if x != nil {
+		if x, ok := x.Result.(*CreateAccountResponse_InProgress); ok {
+			return x.InProgress
+		}
+	}
+	return nil
+}
+
 func (x *CreateAccountResponse) GetEncryptedData() []*EncryptedData {
 	if x != nil {
 		return x.EncryptedData
@@ -2071,6 +2091,22 @@ func (x *CreateAccountResponse) SetActionRequired(v *CreateAccountResponse_Actio
 		return
 	}
 	x.Result = &CreateAccountResponse_ActionRequired{v}
+}
+
+func (x *CreateAccountResponse) SetAlreadyExists(v *CreateAccountResponse_AlreadyExistsResult) {
+	if v == nil {
+		x.Result = nil
+		return
+	}
+	x.Result = &CreateAccountResponse_AlreadyExists{v}
+}
+
+func (x *CreateAccountResponse) SetInProgress(v *CreateAccountResponse_InProgressResult) {
+	if v == nil {
+		x.Result = nil
+		return
+	}
+	x.Result = &CreateAccountResponse_InProgress{v}
 }
 
 func (x *CreateAccountResponse) SetEncryptedData(v []*EncryptedData) {
@@ -2104,6 +2140,22 @@ func (x *CreateAccountResponse) HasActionRequired() bool {
 	return ok
 }
 
+func (x *CreateAccountResponse) HasAlreadyExists() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Result.(*CreateAccountResponse_AlreadyExists)
+	return ok
+}
+
+func (x *CreateAccountResponse) HasInProgress() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Result.(*CreateAccountResponse_InProgress)
+	return ok
+}
+
 func (x *CreateAccountResponse) ClearResult() {
 	x.Result = nil
 }
@@ -2120,9 +2172,23 @@ func (x *CreateAccountResponse) ClearActionRequired() {
 	}
 }
 
+func (x *CreateAccountResponse) ClearAlreadyExists() {
+	if _, ok := x.Result.(*CreateAccountResponse_AlreadyExists); ok {
+		x.Result = nil
+	}
+}
+
+func (x *CreateAccountResponse) ClearInProgress() {
+	if _, ok := x.Result.(*CreateAccountResponse_InProgress); ok {
+		x.Result = nil
+	}
+}
+
 const CreateAccountResponse_Result_not_set_case case_CreateAccountResponse_Result = 0
 const CreateAccountResponse_Success_case case_CreateAccountResponse_Result = 100
 const CreateAccountResponse_ActionRequired_case case_CreateAccountResponse_Result = 101
+const CreateAccountResponse_AlreadyExists_case case_CreateAccountResponse_Result = 102
+const CreateAccountResponse_InProgress_case case_CreateAccountResponse_Result = 103
 
 func (x *CreateAccountResponse) WhichResult() case_CreateAccountResponse_Result {
 	if x == nil {
@@ -2133,6 +2199,10 @@ func (x *CreateAccountResponse) WhichResult() case_CreateAccountResponse_Result 
 		return CreateAccountResponse_Success_case
 	case *CreateAccountResponse_ActionRequired:
 		return CreateAccountResponse_ActionRequired_case
+	case *CreateAccountResponse_AlreadyExists:
+		return CreateAccountResponse_AlreadyExists_case
+	case *CreateAccountResponse_InProgress:
+		return CreateAccountResponse_InProgress_case
 	default:
 		return CreateAccountResponse_Result_not_set_case
 	}
@@ -2144,6 +2214,8 @@ type CreateAccountResponse_builder struct {
 	// Fields of oneof Result:
 	Success        *CreateAccountResponse_SuccessResult
 	ActionRequired *CreateAccountResponse_ActionRequiredResult
+	AlreadyExists  *CreateAccountResponse_AlreadyExistsResult
+	InProgress     *CreateAccountResponse_InProgressResult
 	// -- end of Result
 	EncryptedData []*EncryptedData
 	Annotations   []*anypb.Any
@@ -2158,6 +2230,12 @@ func (b0 CreateAccountResponse_builder) Build() *CreateAccountResponse {
 	}
 	if b.ActionRequired != nil {
 		x.Result = &CreateAccountResponse_ActionRequired{b.ActionRequired}
+	}
+	if b.AlreadyExists != nil {
+		x.Result = &CreateAccountResponse_AlreadyExists{b.AlreadyExists}
+	}
+	if b.InProgress != nil {
+		x.Result = &CreateAccountResponse_InProgress{b.InProgress}
 	}
 	x.EncryptedData = b.EncryptedData
 	x.Annotations = b.Annotations
@@ -2186,9 +2264,21 @@ type CreateAccountResponse_ActionRequired struct {
 	ActionRequired *CreateAccountResponse_ActionRequiredResult `protobuf:"bytes,101,opt,name=action_required,json=actionRequired,proto3,oneof"`
 }
 
+type CreateAccountResponse_AlreadyExists struct {
+	AlreadyExists *CreateAccountResponse_AlreadyExistsResult `protobuf:"bytes,102,opt,name=already_exists,json=alreadyExists,proto3,oneof"`
+}
+
+type CreateAccountResponse_InProgress struct {
+	InProgress *CreateAccountResponse_InProgressResult `protobuf:"bytes,103,opt,name=in_progress,json=inProgress,proto3,oneof"`
+}
+
 func (*CreateAccountResponse_Success) isCreateAccountResponse_Result() {}
 
 func (*CreateAccountResponse_ActionRequired) isCreateAccountResponse_Result() {}
+
+func (*CreateAccountResponse_AlreadyExists) isCreateAccountResponse_Result() {}
+
+func (*CreateAccountResponse_InProgress) isCreateAccountResponse_Result() {}
 
 type EncryptedData struct {
 	state    protoimpl.MessageState `protogen:"hybrid.v1"`
@@ -4121,6 +4211,170 @@ func (b0 CreateAccountResponse_ActionRequiredResult_builder) Build() *CreateAcco
 	return m0
 }
 
+type CreateAccountResponse_AlreadyExistsResult struct {
+	state                 protoimpl.MessageState `protogen:"hybrid.v1"`
+	Resource              *Resource              `protobuf:"bytes,1,opt,name=resource,proto3" json:"resource,omitempty"`
+	IsCreateAccountResult bool                   `protobuf:"varint,2,opt,name=is_create_account_result,json=isCreateAccountResult,proto3" json:"is_create_account_result,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *CreateAccountResponse_AlreadyExistsResult) Reset() {
+	*x = CreateAccountResponse_AlreadyExistsResult{}
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAccountResponse_AlreadyExistsResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAccountResponse_AlreadyExistsResult) ProtoMessage() {}
+
+func (x *CreateAccountResponse_AlreadyExistsResult) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CreateAccountResponse_AlreadyExistsResult) GetResource() *Resource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+func (x *CreateAccountResponse_AlreadyExistsResult) GetIsCreateAccountResult() bool {
+	if x != nil {
+		return x.IsCreateAccountResult
+	}
+	return false
+}
+
+func (x *CreateAccountResponse_AlreadyExistsResult) SetResource(v *Resource) {
+	x.Resource = v
+}
+
+func (x *CreateAccountResponse_AlreadyExistsResult) SetIsCreateAccountResult(v bool) {
+	x.IsCreateAccountResult = v
+}
+
+func (x *CreateAccountResponse_AlreadyExistsResult) HasResource() bool {
+	if x == nil {
+		return false
+	}
+	return x.Resource != nil
+}
+
+func (x *CreateAccountResponse_AlreadyExistsResult) ClearResource() {
+	x.Resource = nil
+}
+
+type CreateAccountResponse_AlreadyExistsResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Resource              *Resource
+	IsCreateAccountResult bool
+}
+
+func (b0 CreateAccountResponse_AlreadyExistsResult_builder) Build() *CreateAccountResponse_AlreadyExistsResult {
+	m0 := &CreateAccountResponse_AlreadyExistsResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Resource = b.Resource
+	x.IsCreateAccountResult = b.IsCreateAccountResult
+	return m0
+}
+
+type CreateAccountResponse_InProgressResult struct {
+	state                 protoimpl.MessageState `protogen:"hybrid.v1"`
+	Resource              *Resource              `protobuf:"bytes,1,opt,name=resource,proto3" json:"resource,omitempty"` // Optional.
+	IsCreateAccountResult bool                   `protobuf:"varint,2,opt,name=is_create_account_result,json=isCreateAccountResult,proto3" json:"is_create_account_result,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *CreateAccountResponse_InProgressResult) Reset() {
+	*x = CreateAccountResponse_InProgressResult{}
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateAccountResponse_InProgressResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateAccountResponse_InProgressResult) ProtoMessage() {}
+
+func (x *CreateAccountResponse_InProgressResult) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CreateAccountResponse_InProgressResult) GetResource() *Resource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+func (x *CreateAccountResponse_InProgressResult) GetIsCreateAccountResult() bool {
+	if x != nil {
+		return x.IsCreateAccountResult
+	}
+	return false
+}
+
+func (x *CreateAccountResponse_InProgressResult) SetResource(v *Resource) {
+	x.Resource = v
+}
+
+func (x *CreateAccountResponse_InProgressResult) SetIsCreateAccountResult(v bool) {
+	x.IsCreateAccountResult = v
+}
+
+func (x *CreateAccountResponse_InProgressResult) HasResource() bool {
+	if x == nil {
+		return false
+	}
+	return x.Resource != nil
+}
+
+func (x *CreateAccountResponse_InProgressResult) ClearResource() {
+	x.Resource = nil
+}
+
+type CreateAccountResponse_InProgressResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Resource              *Resource
+	IsCreateAccountResult bool
+}
+
+func (b0 CreateAccountResponse_InProgressResult_builder) Build() *CreateAccountResponse_InProgressResult {
+	m0 := &CreateAccountResponse_InProgressResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Resource = b.Resource
+	x.IsCreateAccountResult = b.IsCreateAccountResult
+	return m0
+}
+
 type EncryptionConfig_JWKPublicKeyConfig struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	PubKey        []byte                 `protobuf:"bytes,1,opt,name=pub_key,json=pubKey,proto3" json:"pub_key,omitempty"`
@@ -4130,7 +4384,7 @@ type EncryptionConfig_JWKPublicKeyConfig struct {
 
 func (x *EncryptionConfig_JWKPublicKeyConfig) Reset() {
 	*x = EncryptionConfig_JWKPublicKeyConfig{}
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[38]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4142,7 +4396,7 @@ func (x *EncryptionConfig_JWKPublicKeyConfig) String() string {
 func (*EncryptionConfig_JWKPublicKeyConfig) ProtoMessage() {}
 
 func (x *EncryptionConfig_JWKPublicKeyConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_resource_proto_msgTypes[38]
+	mi := &file_c1_connector_v2_resource_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4295,10 +4549,13 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x14CreateAccountRequest\x12?\n" +
 	"\faccount_info\x18\x01 \x01(\v2\x1c.c1.connector.v2.AccountInfoR\vaccountInfo\x12Q\n" +
 	"\x12credential_options\x18\x02 \x01(\v2\".c1.connector.v2.CredentialOptionsR\x11credentialOptions\x12P\n" +
-	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\"\xfe\x04\n" +
+	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\"\xcc\b\n" +
 	"\x15CreateAccountResponse\x12P\n" +
 	"\asuccess\x18d \x01(\v24.c1.connector.v2.CreateAccountResponse.SuccessResultH\x00R\asuccess\x12f\n" +
-	"\x0faction_required\x18e \x01(\v2;.c1.connector.v2.CreateAccountResponse.ActionRequiredResultH\x00R\x0eactionRequired\x12E\n" +
+	"\x0faction_required\x18e \x01(\v2;.c1.connector.v2.CreateAccountResponse.ActionRequiredResultH\x00R\x0eactionRequired\x12c\n" +
+	"\x0ealready_exists\x18f \x01(\v2:.c1.connector.v2.CreateAccountResponse.AlreadyExistsResultH\x00R\ralreadyExists\x12Z\n" +
+	"\vin_progress\x18g \x01(\v27.c1.connector.v2.CreateAccountResponse.InProgressResultH\x00R\n" +
+	"inProgress\x12E\n" +
 	"\x0eencrypted_data\x18\x02 \x03(\v2\x1e.c1.connector.v2.EncryptedDataR\rencryptedData\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\x7f\n" +
 	"\rSuccessResult\x125\n" +
@@ -4307,7 +4564,13 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\x14ActionRequiredResult\x125\n" +
 	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x127\n" +
-	"\x18is_create_account_result\x18\x03 \x01(\bR\x15isCreateAccountResultB\b\n" +
+	"\x18is_create_account_result\x18\x03 \x01(\bR\x15isCreateAccountResult\x1a\x85\x01\n" +
+	"\x13AlreadyExistsResult\x125\n" +
+	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x127\n" +
+	"\x18is_create_account_result\x18\x02 \x01(\bR\x15isCreateAccountResult\x1a\x82\x01\n" +
+	"\x10InProgressResult\x125\n" +
+	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x127\n" +
+	"\x18is_create_account_result\x18\x02 \x01(\bR\x15isCreateAccountResultB\b\n" +
 	"\x06result\"\xd6\x01\n" +
 	"\rEncryptedData\x12\x1a\n" +
 	"\bprovider\x18\x01 \x01(\tR\bprovider\x12\x19\n" +
@@ -4400,7 +4663,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\rCreateAccount\x12%.c1.connector.v2.CreateAccountRequest\x1a&.c1.connector.v2.CreateAccountResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_resource_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_c1_connector_v2_resource_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
+var file_c1_connector_v2_resource_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_c1_connector_v2_resource_proto_goTypes = []any{
 	(ResourceType_Trait)(0),                               // 0: c1.connector.v2.ResourceType.Trait
 	(Resource_CreationSource)(0),                          // 1: c1.connector.v2.Resource.CreationSource
@@ -4442,34 +4705,36 @@ var file_c1_connector_v2_resource_proto_goTypes = []any{
 	(*LocalCredentialOptions_PlaintextPassword)(nil),      // 37: c1.connector.v2.LocalCredentialOptions.PlaintextPassword
 	(*CreateAccountResponse_SuccessResult)(nil),           // 38: c1.connector.v2.CreateAccountResponse.SuccessResult
 	(*CreateAccountResponse_ActionRequiredResult)(nil),    // 39: c1.connector.v2.CreateAccountResponse.ActionRequiredResult
-	(*EncryptionConfig_JWKPublicKeyConfig)(nil),           // 40: c1.connector.v2.EncryptionConfig.JWKPublicKeyConfig
-	(*anypb.Any)(nil),                                     // 41: google.protobuf.Any
-	(*structpb.Struct)(nil),                               // 42: google.protobuf.Struct
+	(*CreateAccountResponse_AlreadyExistsResult)(nil),     // 40: c1.connector.v2.CreateAccountResponse.AlreadyExistsResult
+	(*CreateAccountResponse_InProgressResult)(nil),        // 41: c1.connector.v2.CreateAccountResponse.InProgressResult
+	(*EncryptionConfig_JWKPublicKeyConfig)(nil),           // 42: c1.connector.v2.EncryptionConfig.JWKPublicKeyConfig
+	(*anypb.Any)(nil),                                     // 43: google.protobuf.Any
+	(*structpb.Struct)(nil),                               // 44: google.protobuf.Struct
 }
 var file_c1_connector_v2_resource_proto_depIdxs = []int32{
 	0,  // 0: c1.connector.v2.ResourceType.traits:type_name -> c1.connector.v2.ResourceType.Trait
-	41, // 1: c1.connector.v2.ResourceType.annotations:type_name -> google.protobuf.Any
+	43, // 1: c1.connector.v2.ResourceType.annotations:type_name -> google.protobuf.Any
 	23, // 2: c1.connector.v2.ResourceTypesServiceListResourceTypesRequest.parent:type_name -> c1.connector.v2.Resource
-	41, // 3: c1.connector.v2.ResourceTypesServiceListResourceTypesRequest.annotations:type_name -> google.protobuf.Any
+	43, // 3: c1.connector.v2.ResourceTypesServiceListResourceTypesRequest.annotations:type_name -> google.protobuf.Any
 	2,  // 4: c1.connector.v2.ResourceTypesServiceListResourceTypesResponse.list:type_name -> c1.connector.v2.ResourceType
-	41, // 5: c1.connector.v2.ResourceTypesServiceListResourceTypesResponse.annotations:type_name -> google.protobuf.Any
+	43, // 5: c1.connector.v2.ResourceTypesServiceListResourceTypesResponse.annotations:type_name -> google.protobuf.Any
 	23, // 6: c1.connector.v2.CreateResourceRequest.resource:type_name -> c1.connector.v2.Resource
 	23, // 7: c1.connector.v2.CreateResourceResponse.created:type_name -> c1.connector.v2.Resource
-	41, // 8: c1.connector.v2.CreateResourceResponse.annotations:type_name -> google.protobuf.Any
+	43, // 8: c1.connector.v2.CreateResourceResponse.annotations:type_name -> google.protobuf.Any
 	22, // 9: c1.connector.v2.DeleteResourceRequest.resource_id:type_name -> c1.connector.v2.ResourceId
 	22, // 10: c1.connector.v2.DeleteResourceRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	41, // 11: c1.connector.v2.DeleteResourceResponse.annotations:type_name -> google.protobuf.Any
+	43, // 11: c1.connector.v2.DeleteResourceResponse.annotations:type_name -> google.protobuf.Any
 	22, // 12: c1.connector.v2.DeleteResourceV2Request.resource_id:type_name -> c1.connector.v2.ResourceId
 	22, // 13: c1.connector.v2.DeleteResourceV2Request.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	41, // 14: c1.connector.v2.DeleteResourceV2Response.annotations:type_name -> google.protobuf.Any
+	43, // 14: c1.connector.v2.DeleteResourceV2Response.annotations:type_name -> google.protobuf.Any
 	22, // 15: c1.connector.v2.RotateCredentialRequest.resource_id:type_name -> c1.connector.v2.ResourceId
 	14, // 16: c1.connector.v2.RotateCredentialRequest.credential_options:type_name -> c1.connector.v2.CredentialOptions
 	21, // 17: c1.connector.v2.RotateCredentialRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
 	19, // 18: c1.connector.v2.RotateCredentialResponse.encrypted_data:type_name -> c1.connector.v2.EncryptedData
 	22, // 19: c1.connector.v2.RotateCredentialResponse.resource_id:type_name -> c1.connector.v2.ResourceId
-	41, // 20: c1.connector.v2.RotateCredentialResponse.annotations:type_name -> google.protobuf.Any
+	43, // 20: c1.connector.v2.RotateCredentialResponse.annotations:type_name -> google.protobuf.Any
 	29, // 21: c1.connector.v2.AccountInfo.emails:type_name -> c1.connector.v2.AccountInfo.Email
-	42, // 22: c1.connector.v2.AccountInfo.profile:type_name -> google.protobuf.Struct
+	44, // 22: c1.connector.v2.AccountInfo.profile:type_name -> google.protobuf.Struct
 	30, // 23: c1.connector.v2.CredentialOptions.random_password:type_name -> c1.connector.v2.CredentialOptions.RandomPassword
 	31, // 24: c1.connector.v2.CredentialOptions.no_password:type_name -> c1.connector.v2.CredentialOptions.NoPassword
 	32, // 25: c1.connector.v2.CredentialOptions.sso:type_name -> c1.connector.v2.CredentialOptions.SSO
@@ -4483,50 +4748,54 @@ var file_c1_connector_v2_resource_proto_depIdxs = []int32{
 	21, // 33: c1.connector.v2.CreateAccountRequest.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
 	38, // 34: c1.connector.v2.CreateAccountResponse.success:type_name -> c1.connector.v2.CreateAccountResponse.SuccessResult
 	39, // 35: c1.connector.v2.CreateAccountResponse.action_required:type_name -> c1.connector.v2.CreateAccountResponse.ActionRequiredResult
-	19, // 36: c1.connector.v2.CreateAccountResponse.encrypted_data:type_name -> c1.connector.v2.EncryptedData
-	41, // 37: c1.connector.v2.CreateAccountResponse.annotations:type_name -> google.protobuf.Any
-	23, // 38: c1.connector.v2.EncryptionConfig.principal:type_name -> c1.connector.v2.Resource
-	40, // 39: c1.connector.v2.EncryptionConfig.jwk_public_key_config:type_name -> c1.connector.v2.EncryptionConfig.JWKPublicKeyConfig
-	22, // 40: c1.connector.v2.Resource.id:type_name -> c1.connector.v2.ResourceId
-	22, // 41: c1.connector.v2.Resource.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	41, // 42: c1.connector.v2.Resource.annotations:type_name -> google.protobuf.Any
-	28, // 43: c1.connector.v2.Resource.external_id:type_name -> c1.connector.v2.ExternalId
-	1,  // 44: c1.connector.v2.Resource.creation_source:type_name -> c1.connector.v2.Resource.CreationSource
-	22, // 45: c1.connector.v2.ResourcesServiceListResourcesRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	41, // 46: c1.connector.v2.ResourcesServiceListResourcesRequest.annotations:type_name -> google.protobuf.Any
-	23, // 47: c1.connector.v2.ResourcesServiceListResourcesResponse.list:type_name -> c1.connector.v2.Resource
-	41, // 48: c1.connector.v2.ResourcesServiceListResourcesResponse.annotations:type_name -> google.protobuf.Any
-	22, // 49: c1.connector.v2.ResourceGetterServiceGetResourceRequest.resource_id:type_name -> c1.connector.v2.ResourceId
-	22, // 50: c1.connector.v2.ResourceGetterServiceGetResourceRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	41, // 51: c1.connector.v2.ResourceGetterServiceGetResourceRequest.annotations:type_name -> google.protobuf.Any
-	23, // 52: c1.connector.v2.ResourceGetterServiceGetResourceResponse.resource:type_name -> c1.connector.v2.Resource
-	41, // 53: c1.connector.v2.ResourceGetterServiceGetResourceResponse.annotations:type_name -> google.protobuf.Any
-	16, // 54: c1.connector.v2.CredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
-	19, // 55: c1.connector.v2.CredentialOptions.EncryptedPassword.encrypted_passwords:type_name -> c1.connector.v2.EncryptedData
-	16, // 56: c1.connector.v2.LocalCredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
-	23, // 57: c1.connector.v2.CreateAccountResponse.SuccessResult.resource:type_name -> c1.connector.v2.Resource
-	23, // 58: c1.connector.v2.CreateAccountResponse.ActionRequiredResult.resource:type_name -> c1.connector.v2.Resource
-	3,  // 59: c1.connector.v2.ResourceTypesService.ListResourceTypes:input_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesRequest
-	24, // 60: c1.connector.v2.ResourcesService.ListResources:input_type -> c1.connector.v2.ResourcesServiceListResourcesRequest
-	26, // 61: c1.connector.v2.ResourceGetterService.GetResource:input_type -> c1.connector.v2.ResourceGetterServiceGetResourceRequest
-	5,  // 62: c1.connector.v2.ResourceManagerService.CreateResource:input_type -> c1.connector.v2.CreateResourceRequest
-	7,  // 63: c1.connector.v2.ResourceManagerService.DeleteResource:input_type -> c1.connector.v2.DeleteResourceRequest
-	9,  // 64: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:input_type -> c1.connector.v2.DeleteResourceV2Request
-	11, // 65: c1.connector.v2.CredentialManagerService.RotateCredential:input_type -> c1.connector.v2.RotateCredentialRequest
-	17, // 66: c1.connector.v2.AccountManagerService.CreateAccount:input_type -> c1.connector.v2.CreateAccountRequest
-	4,  // 67: c1.connector.v2.ResourceTypesService.ListResourceTypes:output_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesResponse
-	25, // 68: c1.connector.v2.ResourcesService.ListResources:output_type -> c1.connector.v2.ResourcesServiceListResourcesResponse
-	27, // 69: c1.connector.v2.ResourceGetterService.GetResource:output_type -> c1.connector.v2.ResourceGetterServiceGetResourceResponse
-	6,  // 70: c1.connector.v2.ResourceManagerService.CreateResource:output_type -> c1.connector.v2.CreateResourceResponse
-	8,  // 71: c1.connector.v2.ResourceManagerService.DeleteResource:output_type -> c1.connector.v2.DeleteResourceResponse
-	10, // 72: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:output_type -> c1.connector.v2.DeleteResourceV2Response
-	12, // 73: c1.connector.v2.CredentialManagerService.RotateCredential:output_type -> c1.connector.v2.RotateCredentialResponse
-	18, // 74: c1.connector.v2.AccountManagerService.CreateAccount:output_type -> c1.connector.v2.CreateAccountResponse
-	67, // [67:75] is the sub-list for method output_type
-	59, // [59:67] is the sub-list for method input_type
-	59, // [59:59] is the sub-list for extension type_name
-	59, // [59:59] is the sub-list for extension extendee
-	0,  // [0:59] is the sub-list for field type_name
+	40, // 36: c1.connector.v2.CreateAccountResponse.already_exists:type_name -> c1.connector.v2.CreateAccountResponse.AlreadyExistsResult
+	41, // 37: c1.connector.v2.CreateAccountResponse.in_progress:type_name -> c1.connector.v2.CreateAccountResponse.InProgressResult
+	19, // 38: c1.connector.v2.CreateAccountResponse.encrypted_data:type_name -> c1.connector.v2.EncryptedData
+	43, // 39: c1.connector.v2.CreateAccountResponse.annotations:type_name -> google.protobuf.Any
+	23, // 40: c1.connector.v2.EncryptionConfig.principal:type_name -> c1.connector.v2.Resource
+	42, // 41: c1.connector.v2.EncryptionConfig.jwk_public_key_config:type_name -> c1.connector.v2.EncryptionConfig.JWKPublicKeyConfig
+	22, // 42: c1.connector.v2.Resource.id:type_name -> c1.connector.v2.ResourceId
+	22, // 43: c1.connector.v2.Resource.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	43, // 44: c1.connector.v2.Resource.annotations:type_name -> google.protobuf.Any
+	28, // 45: c1.connector.v2.Resource.external_id:type_name -> c1.connector.v2.ExternalId
+	1,  // 46: c1.connector.v2.Resource.creation_source:type_name -> c1.connector.v2.Resource.CreationSource
+	22, // 47: c1.connector.v2.ResourcesServiceListResourcesRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	43, // 48: c1.connector.v2.ResourcesServiceListResourcesRequest.annotations:type_name -> google.protobuf.Any
+	23, // 49: c1.connector.v2.ResourcesServiceListResourcesResponse.list:type_name -> c1.connector.v2.Resource
+	43, // 50: c1.connector.v2.ResourcesServiceListResourcesResponse.annotations:type_name -> google.protobuf.Any
+	22, // 51: c1.connector.v2.ResourceGetterServiceGetResourceRequest.resource_id:type_name -> c1.connector.v2.ResourceId
+	22, // 52: c1.connector.v2.ResourceGetterServiceGetResourceRequest.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	43, // 53: c1.connector.v2.ResourceGetterServiceGetResourceRequest.annotations:type_name -> google.protobuf.Any
+	23, // 54: c1.connector.v2.ResourceGetterServiceGetResourceResponse.resource:type_name -> c1.connector.v2.Resource
+	43, // 55: c1.connector.v2.ResourceGetterServiceGetResourceResponse.annotations:type_name -> google.protobuf.Any
+	16, // 56: c1.connector.v2.CredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
+	19, // 57: c1.connector.v2.CredentialOptions.EncryptedPassword.encrypted_passwords:type_name -> c1.connector.v2.EncryptedData
+	16, // 58: c1.connector.v2.LocalCredentialOptions.RandomPassword.constraints:type_name -> c1.connector.v2.PasswordConstraint
+	23, // 59: c1.connector.v2.CreateAccountResponse.SuccessResult.resource:type_name -> c1.connector.v2.Resource
+	23, // 60: c1.connector.v2.CreateAccountResponse.ActionRequiredResult.resource:type_name -> c1.connector.v2.Resource
+	23, // 61: c1.connector.v2.CreateAccountResponse.AlreadyExistsResult.resource:type_name -> c1.connector.v2.Resource
+	23, // 62: c1.connector.v2.CreateAccountResponse.InProgressResult.resource:type_name -> c1.connector.v2.Resource
+	3,  // 63: c1.connector.v2.ResourceTypesService.ListResourceTypes:input_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesRequest
+	24, // 64: c1.connector.v2.ResourcesService.ListResources:input_type -> c1.connector.v2.ResourcesServiceListResourcesRequest
+	26, // 65: c1.connector.v2.ResourceGetterService.GetResource:input_type -> c1.connector.v2.ResourceGetterServiceGetResourceRequest
+	5,  // 66: c1.connector.v2.ResourceManagerService.CreateResource:input_type -> c1.connector.v2.CreateResourceRequest
+	7,  // 67: c1.connector.v2.ResourceManagerService.DeleteResource:input_type -> c1.connector.v2.DeleteResourceRequest
+	9,  // 68: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:input_type -> c1.connector.v2.DeleteResourceV2Request
+	11, // 69: c1.connector.v2.CredentialManagerService.RotateCredential:input_type -> c1.connector.v2.RotateCredentialRequest
+	17, // 70: c1.connector.v2.AccountManagerService.CreateAccount:input_type -> c1.connector.v2.CreateAccountRequest
+	4,  // 71: c1.connector.v2.ResourceTypesService.ListResourceTypes:output_type -> c1.connector.v2.ResourceTypesServiceListResourceTypesResponse
+	25, // 72: c1.connector.v2.ResourcesService.ListResources:output_type -> c1.connector.v2.ResourcesServiceListResourcesResponse
+	27, // 73: c1.connector.v2.ResourceGetterService.GetResource:output_type -> c1.connector.v2.ResourceGetterServiceGetResourceResponse
+	6,  // 74: c1.connector.v2.ResourceManagerService.CreateResource:output_type -> c1.connector.v2.CreateResourceResponse
+	8,  // 75: c1.connector.v2.ResourceManagerService.DeleteResource:output_type -> c1.connector.v2.DeleteResourceResponse
+	10, // 76: c1.connector.v2.ResourceDeleterService.DeleteResourceV2:output_type -> c1.connector.v2.DeleteResourceV2Response
+	12, // 77: c1.connector.v2.CredentialManagerService.RotateCredential:output_type -> c1.connector.v2.RotateCredentialResponse
+	18, // 78: c1.connector.v2.AccountManagerService.CreateAccount:output_type -> c1.connector.v2.CreateAccountResponse
+	71, // [71:79] is the sub-list for method output_type
+	63, // [63:71] is the sub-list for method input_type
+	63, // [63:63] is the sub-list for extension type_name
+	63, // [63:63] is the sub-list for extension extendee
+	0,  // [0:63] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_resource_proto_init() }
@@ -4549,6 +4818,8 @@ func file_c1_connector_v2_resource_proto_init() {
 	file_c1_connector_v2_resource_proto_msgTypes[16].OneofWrappers = []any{
 		(*CreateAccountResponse_Success)(nil),
 		(*CreateAccountResponse_ActionRequired)(nil),
+		(*CreateAccountResponse_AlreadyExists)(nil),
+		(*CreateAccountResponse_InProgress)(nil),
 	}
 	file_c1_connector_v2_resource_proto_msgTypes[19].OneofWrappers = []any{
 		(*EncryptionConfig_JwkPublicKeyConfig)(nil),
@@ -4559,7 +4830,7 @@ func file_c1_connector_v2_resource_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_resource_proto_rawDesc), len(file_c1_connector_v2_resource_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   39,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   7,
 		},

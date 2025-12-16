@@ -3113,6 +3113,88 @@ func (m *CreateAccountResponse) validate(all bool) error {
 			}
 		}
 
+	case *CreateAccountResponse_AlreadyExists:
+		if v == nil {
+			err := CreateAccountResponseValidationError{
+				field:  "Result",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetAlreadyExists()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CreateAccountResponseValidationError{
+						field:  "AlreadyExists",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CreateAccountResponseValidationError{
+						field:  "AlreadyExists",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetAlreadyExists()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CreateAccountResponseValidationError{
+					field:  "AlreadyExists",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *CreateAccountResponse_InProgress:
+		if v == nil {
+			err := CreateAccountResponseValidationError{
+				field:  "Result",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetInProgress()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, CreateAccountResponseValidationError{
+						field:  "InProgress",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, CreateAccountResponseValidationError{
+						field:  "InProgress",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetInProgress()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return CreateAccountResponseValidationError{
+					field:  "InProgress",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -6286,6 +6368,280 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = CreateAccountResponse_ActionRequiredResultValidationError{}
+
+// Validate checks the field values on
+// CreateAccountResponse_AlreadyExistsResult with the rules defined in the
+// proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *CreateAccountResponse_AlreadyExistsResult) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// CreateAccountResponse_AlreadyExistsResult with the rules defined in the
+// proto definition for this message. If any rules are violated, the result is
+// a list of violation errors wrapped in
+// CreateAccountResponse_AlreadyExistsResultMultiError, or nil if none found.
+func (m *CreateAccountResponse_AlreadyExistsResult) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CreateAccountResponse_AlreadyExistsResult) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetResource()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CreateAccountResponse_AlreadyExistsResultValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CreateAccountResponse_AlreadyExistsResultValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CreateAccountResponse_AlreadyExistsResultValidationError{
+				field:  "Resource",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for IsCreateAccountResult
+
+	if len(errors) > 0 {
+		return CreateAccountResponse_AlreadyExistsResultMultiError(errors)
+	}
+
+	return nil
+}
+
+// CreateAccountResponse_AlreadyExistsResultMultiError is an error wrapping
+// multiple validation errors returned by
+// CreateAccountResponse_AlreadyExistsResult.ValidateAll() if the designated
+// constraints aren't met.
+type CreateAccountResponse_AlreadyExistsResultMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CreateAccountResponse_AlreadyExistsResultMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CreateAccountResponse_AlreadyExistsResultMultiError) AllErrors() []error { return m }
+
+// CreateAccountResponse_AlreadyExistsResultValidationError is the validation
+// error returned by CreateAccountResponse_AlreadyExistsResult.Validate if the
+// designated constraints aren't met.
+type CreateAccountResponse_AlreadyExistsResultValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CreateAccountResponse_AlreadyExistsResultValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CreateAccountResponse_AlreadyExistsResultValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CreateAccountResponse_AlreadyExistsResultValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CreateAccountResponse_AlreadyExistsResultValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CreateAccountResponse_AlreadyExistsResultValidationError) ErrorName() string {
+	return "CreateAccountResponse_AlreadyExistsResultValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CreateAccountResponse_AlreadyExistsResultValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCreateAccountResponse_AlreadyExistsResult.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CreateAccountResponse_AlreadyExistsResultValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CreateAccountResponse_AlreadyExistsResultValidationError{}
+
+// Validate checks the field values on CreateAccountResponse_InProgressResult
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the first error encountered is returned, or nil if
+// there are no violations.
+func (m *CreateAccountResponse_InProgressResult) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// CreateAccountResponse_InProgressResult with the rules defined in the proto
+// definition for this message. If any rules are violated, the result is a
+// list of violation errors wrapped in
+// CreateAccountResponse_InProgressResultMultiError, or nil if none found.
+func (m *CreateAccountResponse_InProgressResult) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *CreateAccountResponse_InProgressResult) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetResource()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, CreateAccountResponse_InProgressResultValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, CreateAccountResponse_InProgressResultValidationError{
+					field:  "Resource",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetResource()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return CreateAccountResponse_InProgressResultValidationError{
+				field:  "Resource",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for IsCreateAccountResult
+
+	if len(errors) > 0 {
+		return CreateAccountResponse_InProgressResultMultiError(errors)
+	}
+
+	return nil
+}
+
+// CreateAccountResponse_InProgressResultMultiError is an error wrapping
+// multiple validation errors returned by
+// CreateAccountResponse_InProgressResult.ValidateAll() if the designated
+// constraints aren't met.
+type CreateAccountResponse_InProgressResultMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m CreateAccountResponse_InProgressResultMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m CreateAccountResponse_InProgressResultMultiError) AllErrors() []error { return m }
+
+// CreateAccountResponse_InProgressResultValidationError is the validation
+// error returned by CreateAccountResponse_InProgressResult.Validate if the
+// designated constraints aren't met.
+type CreateAccountResponse_InProgressResultValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e CreateAccountResponse_InProgressResultValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e CreateAccountResponse_InProgressResultValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e CreateAccountResponse_InProgressResultValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e CreateAccountResponse_InProgressResultValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e CreateAccountResponse_InProgressResultValidationError) ErrorName() string {
+	return "CreateAccountResponse_InProgressResultValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e CreateAccountResponse_InProgressResultValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sCreateAccountResponse_InProgressResult.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = CreateAccountResponse_InProgressResultValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = CreateAccountResponse_InProgressResultValidationError{}
 
 // Validate checks the field values on EncryptionConfig_JWKPublicKeyConfig with
 // the rules defined in the proto definition for this message. If any rules
