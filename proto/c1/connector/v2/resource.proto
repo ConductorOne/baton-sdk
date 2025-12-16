@@ -225,9 +225,14 @@ message CreateAccountResponse {
     string message = 2;
     bool is_create_account_result = 3;
   }
+  message AlreadyExistsResult {
+    Resource resource = 1;
+    bool is_create_account_result = 2;
+  }
   oneof result {
     SuccessResult success = 100;
     ActionRequiredResult action_required = 101;
+    AlreadyExistsResult already_exists = 102;
   }
   repeated EncryptedData encrypted_data = 2;
   repeated google.protobuf.Any annotations = 3;
