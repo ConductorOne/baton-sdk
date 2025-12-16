@@ -9,9 +9,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 )
 
-const MaxKeysPerRequest = 100
-const MaxSessionStoreSizeLimit = 4163584
-
 func Chunk[T any](items []T, chunkSize int) iter.Seq[[]T] {
 	return func(yield func([]T) bool) {
 		for i := 0; i < len(items); i += chunkSize {
@@ -34,7 +31,7 @@ func UnrollGetMany[T any](ctx context.Context, ss GetManyable[T], keys []string,
 	}
 
 	// TODO(Kans): parallelize this?
-	for keyChunk := range Chunk(keys, MaxKeysPerRequest) {
+	for keyChunk := range Chunk(keys, sessions.MaxKeysPerRequest) {
 		// For each chunk, unroll any unprocessed keys until all are processed
 		remainingKeys := keyChunk
 		for {
@@ -100,7 +97,7 @@ func UnrollSetMany[T any](ctx context.Context, ss SetManyable[T], items iter.Seq
 		}
 
 		// Flush if adding this item would exceed either limit
-		if len(currentChunk) >= MaxKeysPerRequest || (currentSize+item.Size >= MaxSessionStoreSizeLimit && len(currentChunk) > 0) {
+		if len(currentChunk) >= sessions.MaxKeysPerRequest || (currentSize+item.Size >= sessions.MaxSessionStoreSizeLimit && len(currentChunk) > 0) {
 			if err := flush(); err != nil {
 				return err
 			}

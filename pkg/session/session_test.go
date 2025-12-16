@@ -794,8 +794,8 @@ func TestUnrollSetMany(t *testing.T) {
 
 		// Verify no chunk exceeds the size limit (except possibly the first item if it's larger than limit)
 		for i, size := range chunkSizes {
-			require.Less(t, size, MaxSessionStoreSizeLimit,
-				"chunk %d size %d exceeds MaxSessionStoreSizeLimit %d", i, size, MaxSessionStoreSizeLimit)
+			require.Less(t, size, sessions.MaxSessionStoreSizeLimit,
+				"chunk %d size %d exceeds MaxSessionStoreSizeLimit %d", i, size, sessions.MaxSessionStoreSizeLimit)
 		}
 	})
 
@@ -835,7 +835,7 @@ func TestUnrollSetMany(t *testing.T) {
 
 		// Each chunk should have < 100 keys (since size limit is hit first)
 		for i, count := range chunkKeyCounts {
-			require.Less(t, count, MaxKeysPerRequest,
+			require.Less(t, count, sessions.MaxKeysPerRequest,
 				"chunk %d has %d keys, but size limit should have triggered first", i, count)
 		}
 	})
