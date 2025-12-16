@@ -136,7 +136,7 @@ func TestActionHandler(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, testActionSchema, schema)
 
-	_, status, returnArgs, _, err := m.InvokeAction(ctx, "lock_account", "", testInput, nil)
+	_, status, returnArgs, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
 	require.NoError(t, err)
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, status)
 	require.NotNil(t, returnArgs)
@@ -146,7 +146,7 @@ func TestActionHandler(t *testing.T) {
 
 	_, status, rv, _, err := m.InvokeAction(ctx, "lock_account", "", &structpb.Struct{
 		Fields: map[string]*structpb.Value{},
-	}, nil)
+	})
 	expectedRv := &structpb.Struct{
 		Fields: map[string]*structpb.Value{
 			"error": {
@@ -176,7 +176,7 @@ func TestAsyncActionHandler(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, testActionSchema, schema)
 
-	actionId, status, rv, _, err := m.InvokeAction(ctx, "lock_account", "", testInput, nil)
+	actionId, status, rv, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
 	require.NoError(t, err)
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, status)
 	require.Nil(t, rv)
@@ -211,7 +211,7 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		// Get initial goroutine count
 		initialCount := runtime.NumGoroutine()
 
-		actionId, status, _, _, err := m.InvokeAction(ctx, "lock_account", "", testInput, nil)
+		actionId, status, _, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
 		require.NoError(t, err)
 		require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING, status)
 
@@ -244,7 +244,7 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		// Get initial goroutine count
 		initialCount := runtime.NumGoroutine()
 
-		_, status, rv, _, err := m.InvokeAction(ctx, "lock_account", "", testInput, nil)
+		_, status, rv, _, err := m.InvokeAction(ctx, "lock_account", "", testInput)
 		require.NoError(t, err)
 		require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, status)
 

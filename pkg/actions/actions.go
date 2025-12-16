@@ -2,23 +2,19 @@ package actions
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"sync"
 	"time"
 
-	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -403,163 +399,6 @@ func (a *ActionManager) GetActionStatus(_ context.Context, actionId string) (v2.
 	return oa.Status, oa.Name, oa.Rv, oa.Annos, nil
 }
 
-// decryptSecretFields decrypts secret fields in the args struct based on the schema.
-func (a *ActionManager) decryptSecretFields(
-	ctx context.Context,
-	schema []*config.Field,
-	args *structpb.Struct,
-	encryptionConfigs []*v2.EncryptionConfig,
-) (*structpb.Struct, error) {
-	if args == nil || len(encryptionConfigs) == 0 {
-		return args, nil
-	}
-
-	l := ctxzap.Extract(ctx)
-	// Create a copy of the struct
-	result := proto.Clone(args).(*structpb.Struct)
-
-	// Build a map of secret field names
-	secretFields := make(map[string]bool)
-	for _, field := range schema {
-		if field.GetIsSecret() {
-			secretFields[field.GetName()] = true
-		}
-	}
-
-	if len(secretFields) == 0 {
-		return result, nil
-	}
-
-	// Decrypt secret fields
-	for fieldName := range secretFields {
-		fieldValue, ok := result.Fields[fieldName]
-		if !ok {
-			continue
-		}
-
-		// The field value should be an EncryptedData message encoded as a struct
-		encryptedDataStruct, ok := fieldValue.GetKind().(*structpb.Value_StructValue)
-		if !ok {
-			l.Warn("secret field is not a struct, skipping decryption", zap.String("field", fieldName))
-			continue
-		}
-
-		// Convert struct to EncryptedData
-		encryptedDataBytes, err := encryptedDataStruct.StructValue.MarshalJSON()
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal encrypted data for field %s: %w", fieldName, err)
-		}
-
-		var encryptedData v2.EncryptedData
-		if err := json.Unmarshal(encryptedDataBytes, &encryptedData); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal encrypted data for field %s: %w", fieldName, err)
-		}
-
-		// For decryption, we need the private key which should be available from context
-		// or from the encryption config. For now, we'll try to get it from context.
-		// If decryption is not possible, we'll pass through the encrypted value.
-		// The handler can decide how to handle it, or we can enhance this later.
-
-		// Try to get private key from context (similar to how accounts.go does it)
-		// For now, if we can't decrypt, we'll skip and let the handler deal with it
-		// In a full implementation, you'd extract the key ID from encryptedData and
-		// match it with a private key from context or config
-		l.Debug("skipping decryption for secret field - decryption from encryption configs not yet implemented", zap.String("field", fieldName))
-		// For now, pass through the encrypted value as-is
-		// TODO: Implement proper decryption using private key from context or config
-	}
-
-	return result, nil
-}
-
-// encryptSecretFields encrypts secret fields in the response struct based on the schema.
-func (a *ActionManager) encryptSecretFields(
-	ctx context.Context,
-	schema []*config.Field,
-	response *structpb.Struct,
-	encryptionConfigs []*v2.EncryptionConfig,
-) (*structpb.Struct, error) {
-	if response == nil || len(encryptionConfigs) == 0 {
-		return response, nil
-	}
-
-	l := ctxzap.Extract(ctx)
-	// Create a copy of the struct
-	result := proto.Clone(response).(*structpb.Struct)
-
-	// Build a map of secret field names
-	secretFields := make(map[string]bool)
-	for _, field := range schema {
-		if field.GetIsSecret() {
-			secretFields[field.GetName()] = true
-		}
-	}
-
-	if len(secretFields) == 0 {
-		return result, nil
-	}
-
-	// Create encryption manager
-	em, err := crypto.NewEncryptionManager(nil, encryptionConfigs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create encryption manager: %w", err)
-	}
-
-	// Encrypt secret fields
-	for fieldName := range secretFields {
-		fieldValue, ok := result.Fields[fieldName]
-		if !ok {
-			continue
-		}
-
-		// Get the plaintext string value
-		stringValue, ok := fieldValue.GetKind().(*structpb.Value_StringValue)
-		if !ok {
-			l.Warn("secret field is not a string, skipping encryption", zap.String("field", fieldName))
-			continue
-		}
-
-		// Create PlaintextData
-		plaintextData := &v2.PlaintextData{
-			Name:        fieldName,
-			Description: fmt.Sprintf("Secret field %s", fieldName),
-			Schema:      "string",
-			Bytes:       []byte(stringValue.StringValue),
-		}
-
-		// Encrypt
-		encryptedDatas, err := em.Encrypt(ctx, plaintextData)
-		if err != nil {
-			return nil, fmt.Errorf("failed to encrypt field %s: %w", fieldName, err)
-		}
-
-		if len(encryptedDatas) == 0 {
-			return nil, fmt.Errorf("no encrypted data returned for field %s", fieldName)
-		}
-
-		// Convert first encrypted data to struct
-		encryptedDataBytes, err := json.Marshal(encryptedDatas[0])
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal encrypted data for field %s: %w", fieldName, err)
-		}
-
-		var encryptedDataStruct map[string]interface{}
-		if err := json.Unmarshal(encryptedDataBytes, &encryptedDataStruct); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal encrypted data struct for field %s: %w", fieldName, err)
-		}
-
-		encryptedStruct, err := structpb.NewStruct(encryptedDataStruct)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create struct for encrypted data for field %s: %w", fieldName, err)
-		}
-
-		// Replace the plaintext value with encrypted struct
-		result.Fields[fieldName] = structpb.NewStructValue(encryptedStruct)
-	}
-
-	return result, nil
-}
-
 // InvokeAction invokes an action. If resourceTypeID is set, it invokes a resource-scoped action.
 // Otherwise, it invokes a global action.
 func (a *ActionManager) InvokeAction(
@@ -567,10 +406,9 @@ func (a *ActionManager) InvokeAction(
 	name string,
 	resourceTypeID string,
 	args *structpb.Struct,
-	encryptionConfigs []*v2.EncryptionConfig,
 ) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	if resourceTypeID != "" {
-		return a.invokeResourceAction(ctx, resourceTypeID, name, args, encryptionConfigs)
+		return a.invokeResourceAction(ctx, resourceTypeID, name, args)
 	}
 
 	return a.invokeGlobalAction(ctx, name, args)
@@ -624,7 +462,6 @@ func (a *ActionManager) invokeResourceAction(
 	resourceTypeID string,
 	actionName string,
 	args *structpb.Struct,
-	encryptionConfigs []*v2.EncryptionConfig,
 ) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	if resourceTypeID == "" {
 		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "resource type ID is required")
@@ -649,25 +486,7 @@ func (a *ActionManager) invokeResourceAction(
 			nil,
 			status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found for resource type %s", actionName, resourceTypeID))
 	}
-
-	schemas, ok := a.resourceSchemas[resourceTypeID]
-	if !ok {
-		a.mu.RUnlock()
-		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.Internal, fmt.Sprintf("schemas not found for resource type %s", resourceTypeID))
-	}
-
-	schema, ok := schemas[actionName]
-	if !ok {
-		a.mu.RUnlock()
-		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.Internal, fmt.Sprintf("schema not found for action %s", actionName))
-	}
 	a.mu.RUnlock()
-
-	// Decrypt secret input fields
-	decryptedArgs, err := a.decryptSecretFields(ctx, schema.GetArguments(), args, encryptionConfigs)
-	if err != nil {
-		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, fmt.Errorf("failed to decrypt secret fields: %w", err)
-	}
 
 	oa := a.GetNewAction(actionName)
 	done := make(chan struct{})
@@ -678,7 +497,7 @@ func (a *ActionManager) invokeResourceAction(
 		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
 		var oaErr error
-		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, decryptedArgs)
+		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, args)
 		if oaErr == nil {
 			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
 		} else {
@@ -690,12 +509,7 @@ func (a *ActionManager) invokeResourceAction(
 	// Wait for completion or timeout
 	select {
 	case <-done:
-		// Encrypt secret output fields
-		encryptedResponse, err := a.encryptSecretFields(ctx, schema.GetReturnTypes(), oa.Rv, encryptionConfigs)
-		if err != nil {
-			return oa.Id, oa.Status, oa.Rv, oa.Annos, fmt.Errorf("failed to encrypt secret fields: %w", err)
-		}
-		return oa.Id, oa.Status, encryptedResponse, oa.Annos, nil
+		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
 	case <-time.After(1 * time.Second):
 		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
 	case <-ctx.Done():

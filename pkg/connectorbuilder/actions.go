@@ -29,7 +29,6 @@ type ActionManager interface {
 		name string,
 		resourceTypeID string,
 		args *structpb.Struct,
-		encryptionConfigs []*v2.EncryptionConfig,
 	) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
 
 	// GetActionStatus returns the status of an outstanding action.
@@ -70,7 +69,6 @@ type CustomActionManager interface {
 		name string,
 		resourceTypeID string,
 		args *structpb.Struct,
-		encryptionConfigs []*v2.EncryptionConfig,
 	) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error)
 
 	// GetActionStatus returns the status of an outstanding action.
@@ -143,9 +141,8 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 	tt := tasks.ActionInvokeType
 
 	resourceTypeID := request.GetResourceTypeId()
-	encryptionConfigs := request.GetEncryptionConfigs()
 
-	id, actionStatus, resp, annos, err := b.actionManager.InvokeAction(ctx, request.GetName(), resourceTypeID, request.GetArgs(), encryptionConfigs)
+	id, actionStatus, resp, annos, err := b.actionManager.InvokeAction(ctx, request.GetName(), resourceTypeID, request.GetArgs())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, fmt.Errorf("error: invoking action failed: %w", err)
@@ -190,7 +187,7 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 // registerLegacyAction wraps a legacy CustomActionManager action as an ActionHandler and registers it.
 func registerLegacyAction(ctx context.Context, registry actions.ActionRegistry, schema *v2.BatonActionSchema, legacyManager CustomActionManager) error {
 	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
-		_, _, resp, annos, err := legacyManager.InvokeAction(ctx, schema.GetName(), "", args, nil)
+		_, _, resp, annos, err := legacyManager.InvokeAction(ctx, schema.GetName(), "", args)
 		return resp, annos, err
 	}
 	return registry.Register(ctx, schema, handler)

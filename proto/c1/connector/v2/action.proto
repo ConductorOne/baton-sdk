@@ -92,8 +92,6 @@ message InvokeActionRequest {
   repeated google.protobuf.Any annotations = 3;
   // Optional: if set, invokes a resource-scoped action
   string resource_type_id = 4;
-  // Optional: encryption configs for secret fields
-  repeated c1.connector.v2.EncryptionConfig encryption_configs = 5;
 }
 
 message InvokeActionResponse {

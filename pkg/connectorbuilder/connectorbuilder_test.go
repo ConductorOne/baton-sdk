@@ -508,7 +508,6 @@ func (t *testCustomActionManager) InvokeAction(
 	name string,
 	resourceTypeID string,
 	args *structpb.Struct,
-	encryptionConfigs []*v2.EncryptionConfig,
 ) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	return "action-id-123", v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, &structpb.Struct{}, annotations.Annotations{}, nil
 }
