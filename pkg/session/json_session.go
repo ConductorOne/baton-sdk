@@ -30,17 +30,25 @@ func GetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, keys []st
 }
 
 func SetManyJSON[T any](ctx context.Context, ss sessions.SessionStore, items map[string]T, opt ...sessions.SessionStoreOption) error {
-	bytesMap := make(map[string][]byte)
-
-	for key, item := range items {
-		bytes, err := json.Marshal(item)
-		if err != nil {
-			return fmt.Errorf("failed to marshal item for key %s: %w", key, err)
+	// Lazy iterator that marshals items on demand, yielding (item, error) pairs
+	sizedItems := func(yield func(SizedItem[[]byte], error) bool) {
+		for key, item := range items {
+			bytes, err := json.Marshal(item)
+			if err != nil {
+				yield(SizedItem[[]byte]{}, fmt.Errorf("failed to marshal item for key %s: %w", key, err))
+				return
+			}
+			if !yield(SizedItem[[]byte]{
+				Key:   key,
+				Value: bytes,
+				Size:  len(key) + len(bytes) + 20,
+			}, nil) {
+				return
+			}
 		}
-		bytesMap[key] = bytes
 	}
 
-	return UnrollSetMany(ctx, ss, bytesMap, opt...)
+	return UnrollSetMany(ctx, ss, sizedItems, opt...)
 }
 
 func GetJSON[T any](ctx context.Context, ss sessions.SessionStore, key string, opt ...sessions.SessionStoreOption) (T, bool, error) {

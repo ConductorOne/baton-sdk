@@ -225,10 +225,10 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 		require.Empty(t, unprocessedKeys)
 	})
 
-	// Test 1: Size limit enforcement - values exceed 4163584 bytes
+	// Test 1: Size limit enforcement - values exceed MaxSessionStoreSizeLimit
 	t.Run("GetMany size limit enforcement", func(t *testing.T) {
-		// Create values that total more than 4163584 bytes
-		// Each value is ~1MB, so 5 values = ~5MB > 4163584 bytes
+		// Create values that total more than MaxSessionStoreSizeLimit
+		// Each value is ~1MB, so 5 values = ~5MB > MaxSessionStoreSizeLimit
 		keys := []string{"size-limit-key1", "size-limit-key2", "size-limit-key3", "size-limit-key4", "size-limit-key5"}
 		for i, key := range keys {
 			// Each value is approximately 1MB (1048576 bytes)
@@ -244,12 +244,12 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 		require.NotEmpty(t, result, "should have some results")
 		require.NotEmpty(t, unprocessedKeys, "should have some unprocessed keys")
 
-		// Verify total size of result is <= 4163584
+		// Verify total size of result is <= MaxSessionStoreSizeLimit
 		totalSize := 0
 		for _, value := range result {
 			totalSize += len(value)
 		}
-		require.LessOrEqual(t, totalSize, sessionStoreSizeLimit, "result size should be within limit")
+		require.LessOrEqual(t, totalSize, sessions.MaxSessionStoreSizeLimit, "result size should be within limit")
 
 		// Verify all requested keys are either in result or unprocessedKeys
 		allKeys := make(map[string]bool)
@@ -310,11 +310,11 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 		require.True(t, hasLargeUnprocessed, "at least one large key should be unprocessed")
 	})
 
-	// Test 4: Exact boundary at 4163584 bytes
+	// Test 4: Exact boundary at MaxSessionStoreSizeLimit
 	t.Run("GetMany exact boundary at limit", func(t *testing.T) {
-		// Create values that sum to exactly 4163584 bytes
+		// Create values that sum to exactly MaxSessionStoreSizeLimit
 		keys := []string{"1", "2", "3", "4"}
-		valueSize := (sessionStoreSizeLimit - 4 - (20 * 4)) / 4 // 1040896 bytes each - (4) bytes for key and 20 bytes for value
+		valueSize := (sessions.MaxSessionStoreSizeLimit - 4 - (20 * 4)) / 4 // 1040896 bytes each - (4) bytes for key and 20 bytes for value
 
 		for i, key := range keys {
 			value := bytes.Repeat([]byte{byte(i)}, valueSize)
@@ -330,7 +330,7 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 		for _, value := range result {
 			totalSize += len(value)
 		}
-		require.LessOrEqual(t, totalSize, sessionStoreSizeLimit, "total size should be within limit")
+		require.LessOrEqual(t, totalSize, sessions.MaxSessionStoreSizeLimit, "total size should be within limit")
 		require.Empty(t, unprocessedKeys, "all keys should fit at exact boundary")
 		require.Len(t, result, len(keys), "all keys should be in result")
 	})
@@ -370,7 +370,7 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 		keys := make([]string, numKeys)
 		for i := range numKeys {
 			keys[i] = fmt.Sprintf("completeness-key-%d", i)
-			// Each value is ~500KB, so 10 values = ~5MB > 4163584 bytes
+			// Each value is ~500KB, so 10 values = ~5MB > MaxSessionStoreSizeLimit
 			value := bytes.Repeat([]byte{byte(i)}, 500000)
 			err := c1zFile.Set(ctx, keys[i], value, sessions.WithSyncID(syncID))
 			require.NoError(t, err)
@@ -449,7 +449,7 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 		for _, value := range result {
 			totalSize += len(value)
 		}
-		require.LessOrEqual(t, totalSize, sessionStoreSizeLimit, "result size should be within limit")
+		require.LessOrEqual(t, totalSize, sessions.MaxSessionStoreSizeLimit, "result size should be within limit")
 
 		// Large values should be in unprocessedKeys (or at least some)
 		require.NotEmpty(t, unprocessedKeys, "should have unprocessed keys for large values")
@@ -802,7 +802,7 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 		require.NoError(t, err)
 
 		// Create items that will exceed size limit
-		// Each value is ~500KB, so 10 items = ~5MB > 4163584 bytes
+		// Each value is ~500KB, so 10 items = ~5MB > MaxSessionStoreSizeLimit
 		for i := range 10 {
 			key := fmt.Sprintf("size-limit-key-%d", i)
 			value := bytes.Repeat([]byte{byte(i)}, 500000)
@@ -826,7 +826,7 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 			for _, value := range result {
 				pageSize += len(value)
 			}
-			require.LessOrEqual(t, pageSize, sessionStoreSizeLimit, "page size should be within limit")
+			require.LessOrEqual(t, pageSize, sessions.MaxSessionStoreSizeLimit, "page size should be within limit")
 
 			maps.Copy(all, result)
 
@@ -1168,7 +1168,7 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 			for _, value := range result {
 				pageSize += len(value)
 			}
-			require.LessOrEqual(t, pageSize, sessionStoreSizeLimit, "each page should be within size limit")
+			require.LessOrEqual(t, pageSize, sessions.MaxSessionStoreSizeLimit, "each page should be within size limit")
 
 			maps.Copy(all, result)
 
@@ -1401,7 +1401,7 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 			for _, value := range result {
 				pageSize += len(value)
 			}
-			require.LessOrEqual(t, pageSize, sessionStoreSizeLimit, "page size should be within limit")
+			require.LessOrEqual(t, pageSize, sessions.MaxSessionStoreSizeLimit, "page size should be within limit")
 
 			maps.Copy(all, result)
 
@@ -1501,7 +1501,7 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 			for _, value := range result {
 				pageSize += len(value)
 			}
-			require.LessOrEqual(t, pageSize, sessionStoreSizeLimit, "chunk should respect size limit")
+			require.LessOrEqual(t, pageSize, sessions.MaxSessionStoreSizeLimit, "chunk should respect size limit")
 			// With 500KB items, should have ~8 items per chunk, not 100
 			if len(result) > 0 {
 				require.Less(t, len(result), 100, "chunk should be limited by size, not item count")
@@ -1529,7 +1529,7 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 
 		// Create scenario where size limit and empty pageToken could both apply
 		// Create items that will exactly fill the size limit
-		itemSize := sessionStoreSizeLimit / 5 // ~832KB per item, 5 items = ~4MB
+		itemSize := sessions.MaxSessionStoreSizeLimit / 5 // ~832KB per item, 5 items = ~4MB
 		for i := range 5 {
 			key := fmt.Sprintf("terminate-key-%d", i)
 			value := bytes.Repeat([]byte{byte(i)}, itemSize)
@@ -1811,7 +1811,7 @@ func TestC1FileSessionStore_Performance(t *testing.T) {
 			for _, value := range items {
 				itemsSize += len(value)
 			}
-			require.Less(t, itemsSize, sessionStoreSizeLimit)
+			require.Less(t, itemsSize, sessions.MaxSessionStoreSizeLimit)
 			maps.Copy(all, items)
 
 			log.Printf("itemsSize: %d, items: %d, nextPageToken: %s, pageToken: %s", itemsSize, len(items), nextPageToken, pageToken)

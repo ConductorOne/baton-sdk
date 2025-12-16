@@ -9,8 +9,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 )
 
-const MaxKeysPerRequest = 100
-
 func Chunk[T any](items []T, chunkSize int) iter.Seq[[]T] {
 	return func(yield func([]T) bool) {
 		for i := 0; i < len(items); i += chunkSize {
@@ -33,7 +31,7 @@ func UnrollGetMany[T any](ctx context.Context, ss GetManyable[T], keys []string,
 	}
 
 	// TODO(Kans): parallelize this?
-	for keyChunk := range Chunk(keys, MaxKeysPerRequest) {
+	for keyChunk := range Chunk(keys, sessions.MaxKeysPerRequest) {
 		// For each chunk, unroll any unprocessed keys until all are processed
 		remainingKeys := keyChunk
 		for {
@@ -66,31 +64,50 @@ type SetManyable[T any] interface {
 	SetMany(ctx context.Context, values map[string]T, opt ...sessions.SessionStoreOption) error
 }
 
-func UnrollSetMany[T any](ctx context.Context, ss SetManyable[T], items map[string]T, opt ...sessions.SessionStoreOption) error {
-	if len(items) == 0 {
-		return nil
-	}
-	if len(items) <= MaxKeysPerRequest {
-		return ss.SetMany(ctx, items, opt...)
-	}
+// SizedItem represents a key-value pair with its size in bytes.
+type SizedItem[T any] struct {
+	Key   string
+	Value T
+	Size  int // size in bytes of key + value
+}
 
-	keys := make([]string, 0, len(items))
-	for key := range items {
-		keys = append(keys, key)
-	}
+// UnrollSetMany takes an iterator of sized items and batches them into SetMany calls,
+// respecting both MaxKeysPerRequest and MaxSessionStoreSizeLimit.
+// The iterator yields (item, error) pairs; iteration stops on the first error.
+func UnrollSetMany[T any](ctx context.Context, ss SetManyable[T], items iter.Seq2[SizedItem[T], error], opt ...sessions.SessionStoreOption) error {
+	currentChunk := make(map[string]T)
+	currentSize := 0
 
-	// TODO(Kans): parallelize this?
-	for keyChunk := range Chunk(keys, MaxKeysPerRequest) {
-		some := make(map[string]T)
-		for _, key := range keyChunk {
-			some[key] = items[key]
+	flush := func() error {
+		if len(currentChunk) == 0 {
+			return nil
 		}
-		err := ss.SetMany(ctx, some, opt...)
+		err := ss.SetMany(ctx, currentChunk, opt...)
 		if err != nil {
 			return err
 		}
+		currentChunk = make(map[string]T)
+		currentSize = 0
+		return nil
 	}
-	return nil
+
+	for item, err := range items {
+		if err != nil {
+			return err
+		}
+
+		// Flush if adding this item would exceed either limit
+		if len(currentChunk) >= sessions.MaxKeysPerRequest || (currentSize+item.Size >= sessions.MaxSessionStoreSizeLimit && len(currentChunk) > 0) {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+
+		currentChunk[item.Key] = item.Value
+		currentSize += item.Size
+	}
+
+	return flush()
 }
 
 type GetAllable[T any] interface {
