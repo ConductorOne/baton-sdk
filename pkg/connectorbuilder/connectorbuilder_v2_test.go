@@ -21,6 +21,7 @@ func TestConnectorBuilderV2_FullCapabilities(t *testing.T) {
 		resourceSyncers: []ResourceSyncerV2{
 			newTestResourceSyncerV2WithProvisioner("resource-1"),
 			newTestResourceSyncerV2WithManager("resource-2"),
+			newTestResourceSyncerV2WithAccountProvisioner("user-1"),
 		},
 		hasActionManager: true,
 		hasEventProvider: true,
@@ -155,6 +156,12 @@ func (t *testConnectorBuilderV2Full) ListEvents(
 	}, &pagination.StreamState{}, annotations.Annotations{}, nil
 }
 
+func newTestResourceSyncerV2WithAccountProvisioner(resourceType string) ResourceSyncerV2 {
+	return &testResourceSyncerV2WithAccountProvisioner{
+		testResourceSyncerV2Simple: testResourceSyncerV2Simple{resourceType: resourceType},
+	}
+}
+
 func newTestResourceSyncerV2WithProvisioner(resourceType string) ResourceSyncerV2 {
 	return &testResourceSyncerV2WithProvisioner{
 		testResourceSyncerV2Simple: testResourceSyncerV2Simple{resourceType: resourceType},
@@ -222,6 +229,24 @@ func (t *testResourceSyncerV2Simple) Grants(
 			Id: "grant-1",
 		}.Build(),
 	}, nil, nil
+}
+
+var _ AccountManagerV2 = &testResourceSyncerV2WithAccountProvisioner{}
+
+type testResourceSyncerV2WithAccountProvisioner struct {
+	testResourceSyncerV2Simple
+}
+
+func (t *testResourceSyncerV2WithAccountProvisioner) CreateAccount(
+	ctx context.Context,
+	accountInfo *v2.AccountInfo,
+	credentialOptions *v2.LocalCredentialOptions,
+) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error) {
+	return nil, nil, annotations.Annotations{}, nil
+}
+
+func (t *testResourceSyncerV2WithAccountProvisioner) CreateAccountCapabilityDetails(ctx context.Context) (*v2.CredentialDetailsAccountProvisioning, annotations.Annotations, error) {
+	return nil, annotations.Annotations{}, nil
 }
 
 type testResourceSyncerV2WithProvisioner struct {

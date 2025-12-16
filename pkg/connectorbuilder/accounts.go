@@ -33,6 +33,11 @@ type AccountManager interface {
 	AccountManagerLimited
 }
 
+type AccountManagerV2 interface {
+	ResourceSyncerV2
+	AccountManagerLimited
+}
+
 type AccountManagerLimited interface {
 	CreateAccount(ctx context.Context,
 		accountInfo *v2.AccountInfo,
