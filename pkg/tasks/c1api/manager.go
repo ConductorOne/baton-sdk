@@ -287,7 +287,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	case taskTypes.ActionStatusType:
 		handler = newActionStatusTaskHandler(task, tHelpers)
 	case taskTypes.EventFeedType:
-		handler = NewEventFeedHandler(task, tHelpers)
+		handler = NewListEventHandler(task, tHelpers)
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
 	}
