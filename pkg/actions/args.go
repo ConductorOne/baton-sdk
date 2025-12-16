@@ -415,6 +415,9 @@ func NewNumberReturnField(key string, value float64) ReturnField {
 
 // NewResourceReturnField creates a return field with a Resource proto value.
 func NewResourceReturnField(key string, resource *v2.Resource) (ReturnField, error) {
+	if resource == nil {
+		return ReturnField{}, fmt.Errorf("resource cannot be nil")
+	}
 	basicResource := resourceToBasicResource(resource)
 	jsonBytes, err := protojson.Marshal(basicResource)
 	if err != nil {
@@ -431,6 +434,9 @@ func NewResourceReturnField(key string, resource *v2.Resource) (ReturnField, err
 
 // NewResourceIdReturnField creates a return field with a ResourceId proto value.
 func NewResourceIdReturnField(key string, resourceId *v2.ResourceId) (ReturnField, error) {
+	if resourceId == nil {
+		return ReturnField{}, fmt.Errorf("resource ID cannot be nil")
+	}
 	basicResourceId := config.ResourceId_builder{
 		ResourceTypeId: resourceId.ResourceType,
 		ResourceId:     resourceId.Resource,
@@ -470,6 +476,9 @@ func NewNumberListReturnField(key string, values []float64) ReturnField {
 func NewResourceListReturnField(key string, resources []*v2.Resource) (ReturnField, error) {
 	listValues := make([]*structpb.Value, len(resources))
 	for i, resource := range resources {
+		if resource == nil {
+			return ReturnField{}, fmt.Errorf("resource at index %d cannot be nil", i)
+		}
 		basicResource := resourceToBasicResource(resource)
 		jsonBytes, err := protojson.Marshal(basicResource)
 		if err != nil {
@@ -490,6 +499,9 @@ func NewResourceListReturnField(key string, resources []*v2.Resource) (ReturnFie
 func NewResourceIdListReturnField(key string, resourceIDs []*v2.ResourceId) (ReturnField, error) {
 	listValues := make([]*structpb.Value, len(resourceIDs))
 	for i, resourceId := range resourceIDs {
+		if resourceId == nil {
+			return ReturnField{}, fmt.Errorf("resource id at index %d cannot be nil", i)
+		}
 		jsonBytes, err := protojson.Marshal(resourceId)
 		if err != nil {
 			return ReturnField{}, fmt.Errorf("failed to marshal resource id: %w", err)
