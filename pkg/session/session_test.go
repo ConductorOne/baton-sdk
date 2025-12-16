@@ -646,6 +646,21 @@ func TestUnrollGetMany(t *testing.T) {
 	})
 }
 
+// mapToSizedIter converts a map to a sized item iterator for testing.
+func mapToSizedIter(values map[string][]byte) func(yield func(SizedItem[[]byte], error) bool) {
+	return func(yield func(SizedItem[[]byte], error) bool) {
+		for key, value := range values {
+			if !yield(SizedItem[[]byte]{
+				Key:   key,
+				Value: value,
+				Size:  len(key) + len(value),
+			}, nil) {
+				return
+			}
+		}
+	}
+}
+
 func TestUnrollSetMany(t *testing.T) {
 	t.Run("small number of values - no chunking needed", func(t *testing.T) {
 		callCount := 0
@@ -664,7 +679,7 @@ func TestUnrollSetMany(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		err := UnrollSetMany(ctx, mockStore, values)
+		err := UnrollSetMany(ctx, mockStore, mapToSizedIter(values))
 		require.NoError(t, err)
 		require.Equal(t, 1, callCount)
 	})
@@ -686,12 +701,12 @@ func TestUnrollSetMany(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		err := UnrollSetMany(ctx, mockStore, values)
+		err := UnrollSetMany(ctx, mockStore, mapToSizedIter(values))
 		require.NoError(t, err)
 		require.Equal(t, 3, callCount)
 	})
 
-	t.Run("error handling", func(t *testing.T) {
+	t.Run("error handling - SetMany fails", func(t *testing.T) {
 		mockStore := &MockSessionStore{
 			setManyFunc: func(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
 				return fmt.Errorf("mock error")
@@ -700,9 +715,27 @@ func TestUnrollSetMany(t *testing.T) {
 
 		values := map[string][]byte{"key1": []byte("value1")}
 		ctx := context.Background()
-		err := UnrollSetMany(ctx, mockStore, values)
+		err := UnrollSetMany(ctx, mockStore, mapToSizedIter(values))
 		require.Error(t, err)
 		require.Equal(t, "mock error", err.Error())
+	})
+
+	t.Run("error handling - iterator error", func(t *testing.T) {
+		mockStore := &MockSessionStore{
+			setManyFunc: func(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
+				return nil
+			},
+		}
+
+		// Iterator that yields an error
+		errorIter := func(yield func(SizedItem[[]byte], error) bool) {
+			yield(SizedItem[[]byte]{}, fmt.Errorf("iterator error"))
+		}
+
+		ctx := context.Background()
+		err := UnrollSetMany(ctx, mockStore, errorIter)
+		require.Error(t, err)
+		require.Equal(t, "iterator error", err.Error())
 	})
 
 	t.Run("empty values", func(t *testing.T) {
@@ -715,9 +748,96 @@ func TestUnrollSetMany(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		err := UnrollSetMany(ctx, mockStore, make(map[string][]byte))
+		err := UnrollSetMany(ctx, mockStore, mapToSizedIter(make(map[string][]byte)))
 		require.NoError(t, err)
 		require.Equal(t, 0, callCount)
+	})
+
+	t.Run("size-based chunking respects limit", func(t *testing.T) {
+		callCount := 0
+		var chunkSizes []int
+		mockStore := &MockSessionStore{
+			setManyFunc: func(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
+				callCount++
+				// Calculate actual size of this chunk
+				totalSize := 0
+				for k, v := range values {
+					totalSize += len(k) + len(v)
+				}
+				chunkSizes = append(chunkSizes, totalSize)
+				return nil
+			},
+		}
+
+		// Create items that will exceed MaxSessionStoreSizeLimit
+		// Each item is ~1MB, so 5 items should require multiple chunks with 4MB limit
+		largeValue := make([]byte, 1024*1024) // 1MB
+		sizedIter := func(yield func(SizedItem[[]byte], error) bool) {
+			for i := range 5 {
+				key := fmt.Sprintf("key-%d", i)
+				if !yield(SizedItem[[]byte]{
+					Key:   key,
+					Value: largeValue,
+					Size:  len(key) + len(largeValue),
+				}, nil) {
+					return
+				}
+			}
+		}
+
+		ctx := context.Background()
+		err := UnrollSetMany(ctx, mockStore, sizedIter)
+		require.NoError(t, err)
+
+		// Should have multiple chunks
+		require.Greater(t, callCount, 1, "expected multiple chunks due to size limit")
+
+		// Verify no chunk exceeds the size limit (except possibly the first item if it's larger than limit)
+		for i, size := range chunkSizes {
+			require.Less(t, size, MaxSessionStoreSizeLimit,
+				"chunk %d size %d exceeds MaxSessionStoreSizeLimit %d", i, size, MaxSessionStoreSizeLimit)
+		}
+	})
+
+	t.Run("size limit triggers before key limit", func(t *testing.T) {
+		callCount := 0
+		var chunkKeyCounts []int
+		mockStore := &MockSessionStore{
+			setManyFunc: func(ctx context.Context, values map[string][]byte, opt ...sessions.SessionStoreOption) error {
+				callCount++
+				chunkKeyCounts = append(chunkKeyCounts, len(values))
+				return nil
+			},
+		}
+
+		// Create 10 items, each ~500KB. Total ~5MB > 4MB limit.
+		// With 10 items < 100 key limit, chunking should happen due to size, not key count.
+		largeValue := make([]byte, 500*1024) // 500KB
+		sizedIter := func(yield func(SizedItem[[]byte], error) bool) {
+			for i := range 10 {
+				key := fmt.Sprintf("key-%d", i)
+				if !yield(SizedItem[[]byte]{
+					Key:   key,
+					Value: largeValue,
+					Size:  len(key) + len(largeValue),
+				}, nil) {
+					return
+				}
+			}
+		}
+
+		ctx := context.Background()
+		err := UnrollSetMany(ctx, mockStore, sizedIter)
+		require.NoError(t, err)
+
+		// Should have multiple chunks even though we have < 100 keys
+		require.Greater(t, callCount, 1, "expected size-based chunking with only 10 keys")
+
+		// Each chunk should have < 100 keys (since size limit is hit first)
+		for i, count := range chunkKeyCounts {
+			require.Less(t, count, MaxKeysPerRequest,
+				"chunk %d has %d keys, but size limit should have triggered first", i, count)
+		}
 	})
 }
 
