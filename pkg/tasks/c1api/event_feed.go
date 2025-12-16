@@ -14,18 +14,18 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
-type eventFeedHelpers interface {
+type listEventHelpers interface {
 	ConnectorClient() types.ConnectorClient
 	FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error
 }
 
-type eventFeedHandler struct {
+type listEventHandler struct {
 	task    *v1.Task
-	helpers eventFeedHelpers
+	helpers listEventHelpers
 }
 
-func (c *eventFeedHandler) HandleTask(ctx context.Context) error {
-	ctx, span := tracer.Start(ctx, "eventFeedHandler.HandleTask")
+func (c *listEventHandler) HandleTask(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "listEventHandler.HandleTask")
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
@@ -33,8 +33,8 @@ func (c *eventFeedHandler) HandleTask(ctx context.Context) error {
 
 	t := c.task.GetEventFeed()
 	if t == nil {
-		l.Error("get event feed task was nil", zap.Any("get_event_feed_task", t))
-		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed get event feed task"), ErrTaskNonRetryable))
+		l.Error("get list event task was nil", zap.Any("get_list_event_task", t))
+		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed get list event task"), ErrTaskNonRetryable))
 	}
 
 	var (
@@ -47,6 +47,7 @@ func (c *eventFeedHandler) HandleTask(ctx context.Context) error {
 			EventFeedId: t.GetEventFeedId(),
 			StartAt:     t.GetStartAt(),
 			Cursor:      pageToken,
+			PageSize:    100,
 		}.Build())
 		if err != nil {
 			return err
@@ -65,8 +66,8 @@ func (c *eventFeedHandler) HandleTask(ctx context.Context) error {
 	return c.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
 }
 
-func NewEventFeedHandler(task *v1.Task, helpers eventFeedHelpers) *eventFeedHandler {
-	return &eventFeedHandler{
+func NewListEventHandler(task *v1.Task, helpers listEventHelpers) *listEventHandler {
+	return &listEventHandler{
 		task:    task,
 		helpers: helpers,
 	}
