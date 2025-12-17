@@ -48,6 +48,14 @@ type GlobalActionProvider interface {
 	GlobalActions(ctx context.Context, registry actions.ActionRegistry) error
 }
 
+// ResourceActionProvider is an interface that resource builders can implement
+// to provide resource-scoped actions for their resource type.
+type ResourceActionProvider interface {
+	// ResourceActions returns the schemas and handlers for all resource actions
+	// supported by this resource type.
+	ResourceActions(ctx context.Context, registry actions.ActionRegistry) error
+}
+
 // Deprecated: CustomActionManager is deprecated. Implement GlobalActionProvider instead,
 // which registers actions directly into the SDK's ActionManager.
 //
