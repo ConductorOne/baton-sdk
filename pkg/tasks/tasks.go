@@ -119,6 +119,10 @@ func GetType(task *v1.Task) taskTypes.TaskType {
 		return taskTypes.ActionStatusType
 	case v1.Task_CreateSyncDiff_case:
 		return taskTypes.CreateSyncDiff
+	case v1.Task_ListEventFeeds_case:
+		return taskTypes.ListEventFeedsType
+	case v1.Task_ListEvents_case:
+		return taskTypes.ListEventsType
 	default:
 		return taskTypes.UnknownType
 	}
