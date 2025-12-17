@@ -777,7 +777,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			cfg.createTicketConfig == nil &&
 			cfg.listTicketSchemasConfig == nil &&
 			cfg.getTicketConfig == nil &&
-			cfg.bulkCreateTicketConfig == nil {
+			cfg.bulkCreateTicketConfig == nil &&
+			cfg.listActionSchemasConfig == nil {
 			return nil, errors.New("c1zPath must be set when in on-demand mode")
 		}
 
