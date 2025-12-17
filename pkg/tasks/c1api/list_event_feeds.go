@@ -31,7 +31,7 @@ func (c *listEventFeedsHandler) HandleTask(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 	cc := c.helpers.ConnectorClient()
 
-	t := c.task.GetEventFeed()
+	t := c.task.GetListEventFeeds()
 	if t == nil {
 		l.Error("get list event feeds task was nil", zap.Any("get_list_event_feeds_task", t))
 		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed get list event feeds task"), ErrTaskNonRetryable))
