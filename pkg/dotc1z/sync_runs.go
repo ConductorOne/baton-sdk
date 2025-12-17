@@ -472,6 +472,12 @@ func (c *C1File) StartOrResumeSync(ctx context.Context, syncType connectorstore.
 	return c.currentSyncID, true, nil
 }
 
+// SetSyncID sets the current sync ID. This is only intended for testing.
+func (c *C1File) SetSyncID(_ context.Context, syncID string) error {
+	c.currentSyncID = syncID
+	return nil
+}
+
 func (c *C1File) StartNewSync(ctx context.Context, syncType connectorstore.SyncType, parentSyncID string) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.StartNewSync")
 	defer span.End()
