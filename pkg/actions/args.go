@@ -502,7 +502,11 @@ func NewResourceIdListReturnField(key string, resourceIDs []*v2.ResourceId) (Ret
 		if resourceId == nil {
 			return ReturnField{}, fmt.Errorf("resource id at index %d cannot be nil", i)
 		}
-		jsonBytes, err := protojson.Marshal(resourceId)
+		basicResourceId := config.ResourceId_builder{
+			ResourceTypeId: resourceId.ResourceType,
+			ResourceId:     resourceId.Resource,
+		}.Build()
+		jsonBytes, err := protojson.Marshal(basicResourceId)
 		if err != nil {
 			return ReturnField{}, fmt.Errorf("failed to marshal resource id: %w", err)
 		}
