@@ -286,7 +286,7 @@ func (a *ActionManager) RegisterResourceAction(
 	a.resourceSchemas[resourceTypeID][actionName] = schema
 	a.resourceHandlers[resourceTypeID][actionName] = handler
 
-	ctxzap.Extract(ctx).Info("registered resource action", zap.String("resource_type", resourceTypeID), zap.String("action_name", actionName))
+	ctxzap.Extract(ctx).Debug("registered resource action", zap.String("resource_type", resourceTypeID), zap.String("action_name", actionName))
 
 	return nil
 }
