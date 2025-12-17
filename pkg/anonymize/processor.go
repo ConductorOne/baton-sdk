@@ -75,7 +75,7 @@ func (a *Anonymizer) processC1File(ctx context.Context, input *dotc1z.C1File, ou
 	// pageToken := ""
 	// for {
 	latestSync, err := input.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
-		SyncType: string(connectorstore.SyncTypeFull),
+		SyncType: string(connectorstore.SyncTypeAny),
 	}.Build())
 	if err != nil {
 		return fmt.Errorf("failed to get latest finished sync: %w", err)
