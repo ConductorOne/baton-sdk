@@ -63,6 +63,13 @@ func (l *localManager) copyFileToTmp(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+
+		// CRITICAL: Sync to ensure all data is written before file is used.
+		// This is especially important on ZFS ARC where writes may be cached
+		// and reads can happen before buffers are flushed to disk.
+		if err := tmp.Sync(); err != nil {
+			return fmt.Errorf("failed to sync temp file: %w", err)
+		}
 	}
 
 	return nil
@@ -145,6 +152,12 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	size, err := io.Copy(dstFile, tmpFile)
 	if err != nil {
 		return err
+	}
+
+	// CRITICAL: Sync to ensure data is written before function returns.
+	// This is especially important on ZFS ARC where writes may be cached.
+	if err := dstFile.Sync(); err != nil {
+		return fmt.Errorf("failed to sync destination file: %w", err)
 	}
 
 	log.Debug(
