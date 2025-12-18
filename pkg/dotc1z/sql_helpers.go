@@ -39,6 +39,17 @@ var allTableDescriptors = []tableDescriptor{
 	sessionStore,
 }
 
+// AllTableNames returns the names of all tables in the c1z database schema.
+// This is the single source of truth for table names, used by tests to ensure
+// all tables are properly handled during anonymization.
+func AllTableNames() []string {
+	names := make([]string, len(allTableDescriptors))
+	for i, t := range allTableDescriptors {
+		names[i] = t.Name()
+	}
+	return names
+}
+
 type tableDescriptor interface {
 	Name() string
 	Schema() (string, []any)
