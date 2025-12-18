@@ -17,7 +17,6 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	batonGrant "github.com/conductorone/baton-sdk/pkg/types/grant"
@@ -38,6 +37,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
+	"github.com/conductorone/baton-sdk/pkg/sync/progresslog"
 	"github.com/conductorone/baton-sdk/pkg/types"
 )
 
@@ -52,146 +52,8 @@ type Syncer interface {
 	Close(context.Context) error
 }
 
-type ProgressCounts struct {
-	ResourceTypes        int
-	Resources            map[string]int
-	EntitlementsProgress map[string]int
-	LastEntitlementLog   map[string]time.Time
-	GrantsProgress       map[string]int
-	LastGrantLog         map[string]time.Time
-	LastActionLog        time.Time
-}
-
-const maxLogFrequency = 10 * time.Second
-
-// TODO: use a mutex or a syncmap for when this code becomes parallel
-func NewProgressCounts() *ProgressCounts {
-	return &ProgressCounts{
-		Resources:            make(map[string]int),
-		EntitlementsProgress: make(map[string]int),
-		LastEntitlementLog:   make(map[string]time.Time),
-		GrantsProgress:       make(map[string]int),
-		LastGrantLog:         make(map[string]time.Time),
-		LastActionLog:        time.Time{},
-	}
-}
-
-func (p *ProgressCounts) LogResourceTypesProgress(ctx context.Context) {
-	l := ctxzap.Extract(ctx)
-	l.Info("Synced resource types", zap.Int("count", p.ResourceTypes))
-}
-
-func (p *ProgressCounts) LogResourcesProgress(ctx context.Context, resourceType string) {
-	l := ctxzap.Extract(ctx)
-	resources := p.Resources[resourceType]
-	l.Info("Synced resources", zap.String("resource_type_id", resourceType), zap.Int("count", resources))
-}
-
-func (p *ProgressCounts) LogEntitlementsProgress(ctx context.Context, resourceType string) {
-	entitlementsProgress := p.EntitlementsProgress[resourceType]
-	resources := p.Resources[resourceType]
-
-	l := ctxzap.Extract(ctx)
-	if resources == 0 {
-		// if resuming sync, resource counts will be zero, so don't calculate percentage. just log every 10 seconds.
-		if time.Since(p.LastEntitlementLog[resourceType]) > maxLogFrequency {
-			l.Info("Syncing entitlements",
-				zap.String("resource_type_id", resourceType),
-				zap.Int("synced", entitlementsProgress),
-			)
-			p.LastEntitlementLog[resourceType] = time.Now()
-		}
-		return
-	}
-
-	percentComplete := (entitlementsProgress * 100) / resources
-
-	switch {
-	case percentComplete == 100:
-		l.Info("Synced entitlements",
-			zap.String("resource_type_id", resourceType),
-			zap.Int("count", entitlementsProgress),
-			zap.Int("total", resources),
-		)
-		p.LastEntitlementLog[resourceType] = time.Time{}
-	case time.Since(p.LastEntitlementLog[resourceType]) > maxLogFrequency:
-		if entitlementsProgress > resources {
-			l.Warn("more entitlement resources than resources",
-				zap.String("resource_type_id", resourceType),
-				zap.Int("synced", entitlementsProgress),
-				zap.Int("total", resources),
-			)
-		} else {
-			l.Info("Syncing entitlements",
-				zap.String("resource_type_id", resourceType),
-				zap.Int("synced", entitlementsProgress),
-				zap.Int("total", resources),
-				zap.Int("percent_complete", percentComplete),
-			)
-		}
-		p.LastEntitlementLog[resourceType] = time.Now()
-	}
-}
-
-func (p *ProgressCounts) LogGrantsProgress(ctx context.Context, resourceType string) {
-	grantsProgress := p.GrantsProgress[resourceType]
-	resources := p.Resources[resourceType]
-
-	l := ctxzap.Extract(ctx)
-	if resources == 0 {
-		// if resuming sync, resource counts will be zero, so don't calculate percentage. just log every 10 seconds.
-		if time.Since(p.LastGrantLog[resourceType]) > maxLogFrequency {
-			l.Info("Syncing grants",
-				zap.String("resource_type_id", resourceType),
-				zap.Int("synced", grantsProgress),
-			)
-			p.LastGrantLog[resourceType] = time.Now()
-		}
-		return
-	}
-
-	percentComplete := (grantsProgress * 100) / resources
-
-	switch {
-	case percentComplete == 100:
-		l.Info("Synced grants",
-			zap.String("resource_type_id", resourceType),
-			zap.Int("count", grantsProgress),
-			zap.Int("total", resources),
-		)
-		p.LastGrantLog[resourceType] = time.Time{}
-	case time.Since(p.LastGrantLog[resourceType]) > maxLogFrequency:
-		if grantsProgress > resources {
-			l.Warn("more grant resources than resources",
-				zap.String("resource_type_id", resourceType),
-				zap.Int("synced", grantsProgress),
-				zap.Int("total", resources),
-			)
-		} else {
-			l.Info("Syncing grants",
-				zap.String("resource_type_id", resourceType),
-				zap.Int("synced", grantsProgress),
-				zap.Int("total", resources),
-				zap.Int("percent_complete", percentComplete),
-			)
-		}
-		p.LastGrantLog[resourceType] = time.Now()
-	}
-}
-
-func (p *ProgressCounts) LogExpandProgress(ctx context.Context, actions []*expand.EntitlementGraphAction) {
-	actionsLen := len(actions)
-	if time.Since(p.LastActionLog) < maxLogFrequency {
-		return
-	}
-	p.LastActionLog = time.Now()
-
-	l := ctxzap.Extract(ctx)
-	l.Info("Expanding grants", zap.Int("actions_remaining", actionsLen))
-}
-
-// syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
-type syncer struct {
+// SequentialSyncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
+type SequentialSyncer struct {
 	c1zManager                          manager.Manager
 	c1zPath                             string
 	externalResourceC1ZPath             string
@@ -206,7 +68,7 @@ type syncer struct {
 	tmpDir                              string
 	skipFullSync                        bool
 	lastCheckPointTime                  time.Time
-	counts                              *ProgressCounts
+	counts                              *progresslog.ProgressLog
 	targetedSyncResources               []*v2.Resource
 	onlyExpandGrants                    bool
 	dontExpandGrants                    bool
@@ -220,12 +82,15 @@ type syncer struct {
 	injectSyncIDAnnotation              bool
 	setSessionStore                     sessions.SetSessionStore
 	syncResourceTypes                   []string
+	workerCount                         int // If 0, sequential sync is used. If > 0, parallel sync is used.
 }
+
+var _ Syncer = (*SequentialSyncer)(nil)
 
 const minCheckpointInterval = 10 * time.Second
 
 // Checkpoint marshals the current state and stores it.
-func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
+func (s *SequentialSyncer) Checkpoint(ctx context.Context, force bool) error {
 	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < minCheckpointInterval {
 		return nil
 	}
@@ -245,13 +110,13 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	return nil
 }
 
-func (s *syncer) handleInitialActionForStep(ctx context.Context, a Action) {
+func (s *SequentialSyncer) handleInitialActionForStep(ctx context.Context, a Action) {
 	if s.transitionHandler != nil {
 		s.transitionHandler(a)
 	}
 }
 
-func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
+func (s *SequentialSyncer) handleProgress(ctx context.Context, a *Action, c int) {
 	if s.progressHandler != nil {
 		//nolint:gosec // No risk of overflow because `c` is a slice length.
 		count := uint32(c)
@@ -271,7 +136,7 @@ func isWarning(ctx context.Context, err error) bool {
 	return false
 }
 
-func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
+func (s *SequentialSyncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	// Sync resuming logic:
 	// If we know our sync ID, set it as the current sync and return (resuming that sync).
 	// If targetedSyncResources is not set, find the most recent unfinished sync of our desired sync type & resume it (regardless of partial or full).
@@ -318,7 +183,7 @@ func (s *syncer) startOrResumeSync(ctx context.Context) (string, bool, error) {
 	return syncID, newSync, nil
 }
 
-func (s *syncer) getActiveSyncID() string {
+func (s *SequentialSyncer) getActiveSyncID() string {
 	if s.injectSyncIDAnnotation {
 		return s.syncID
 	}
@@ -329,7 +194,7 @@ func (s *syncer) getActiveSyncID() string {
 // For each page of data that is required to be fetched from the connector, a new action is pushed on to the stack. Once
 // an action is completed, it is popped off of the queue. Before processing each action, we checkpoint the state object
 // into the datasource. This allows for graceful resumes if a sync is interrupted.
-func (s *syncer) Sync(ctx context.Context) error {
+func (s *SequentialSyncer) Sync(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.Sync")
 	defer span.End()
 
@@ -453,206 +318,20 @@ func (s *syncer) Sync(ctx context.Context) error {
 			zap.Int("graph_actions", len(entitlementGraph.Actions)),
 			zap.Int("graph_edges", len(entitlementGraph.Edges)),
 			zap.Int("graph_nodes", len(entitlementGraph.Nodes)),
+			zap.Uint64("completed_actions", s.state.GetCompletedActionsCount()),
 		)
 	}
 
-	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
-		MaxAttempts:  0,
-		InitialDelay: 1 * time.Second,
-		MaxDelay:     0,
-	})
-
 	var warnings []error
-	for s.state.Current() != nil {
-		err = s.Checkpoint(ctx, false)
+	if s.workerCount == 0 {
+		warnings, err = s.sequentialSync(ctx, runCtx, targetedResources)
 		if err != nil {
 			return err
 		}
-
-		// If we have more than 10 warnings and more than 10% of actions ended in a warning, exit the sync.
-		if len(warnings) > 10 {
-			completedActionsCount := s.state.GetCompletedActionsCount()
-			if completedActionsCount > 0 && float64(len(warnings))/float64(completedActionsCount) > 0.1 {
-				return fmt.Errorf("too many warnings, exiting sync. warnings: %v completed actions: %d", warnings, completedActionsCount)
-			}
-		}
-		select {
-		case <-runCtx.Done():
-			err = context.Cause(runCtx)
-			switch {
-			case errors.Is(err, context.DeadlineExceeded):
-				l.Info("sync run duration has expired, exiting sync early", zap.String("sync_id", syncID))
-				// It would be nice to remove this once we're more confident in the checkpointing logic.
-				checkpointErr := s.Checkpoint(ctx, true)
-				if checkpointErr != nil {
-					l.Error("error checkpointing before exiting sync", zap.Error(checkpointErr))
-				}
-				return errors.Join(checkpointErr, ErrSyncNotComplete)
-			default:
-				l.Error("sync context cancelled", zap.String("sync_id", syncID), zap.Error(err))
-				return err
-			}
-		default:
-		}
-
-		stateAction := s.state.Current()
-
-		switch stateAction.Op {
-		case InitOp:
-			s.state.FinishAction(ctx)
-
-			if s.skipEntitlementsAndGrants {
-				s.state.SetShouldSkipEntitlementsAndGrants()
-			}
-			if s.skipGrants {
-				s.state.SetShouldSkipGrants()
-			}
-			if len(targetedResources) > 0 {
-				for _, r := range targetedResources {
-					s.state.PushAction(ctx, Action{
-						Op:                   SyncTargetedResourceOp,
-						ResourceID:           r.GetId().GetResource(),
-						ResourceTypeID:       r.GetId().GetResourceType(),
-						ParentResourceID:     r.GetParentResourceId().GetResource(),
-						ParentResourceTypeID: r.GetParentResourceId().GetResourceType(),
-					})
-				}
-				s.state.SetShouldFetchRelatedResources()
-				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
-				err = s.Checkpoint(ctx, true)
-				if err != nil {
-					return err
-				}
-				// Don't do grant expansion or external resources in partial syncs, as we likely lack related resources/entitlements/grants
-				continue
-			}
-
-			// FIXME(jirwin): Disabling syncing assets for now
-			// s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
-			if !s.state.ShouldSkipEntitlementsAndGrants() {
-				s.state.PushAction(ctx, Action{Op: SyncGrantExpansionOp})
-			}
-			if s.externalResourceReader != nil {
-				s.state.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
-			}
-			if s.onlyExpandGrants {
-				s.state.SetNeedsExpansion()
-				err = s.Checkpoint(ctx, true)
-				if err != nil {
-					return err
-				}
-				continue
-			}
-			if !s.state.ShouldSkipEntitlementsAndGrants() {
-				if !s.state.ShouldSkipGrants() {
-					s.state.PushAction(ctx, Action{Op: SyncGrantsOp})
-				}
-
-				s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp})
-
-				s.state.PushAction(ctx, Action{Op: SyncStaticEntitlementsOp})
-			}
-			s.state.PushAction(ctx, Action{Op: SyncResourcesOp})
-			s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
-
-			err = s.Checkpoint(ctx, true)
-			if err != nil {
-				return err
-			}
-			continue
-
-		case SyncResourceTypesOp:
-			err = s.SyncResourceTypes(ctx)
-			if !retryer.ShouldWaitAndRetry(ctx, err) {
-				return err
-			}
-			continue
-
-		case SyncResourcesOp:
-			err = s.SyncResources(ctx)
-			if !retryer.ShouldWaitAndRetry(ctx, err) {
-				return err
-			}
-			continue
-
-		case SyncTargetedResourceOp:
-			err = s.SyncTargetedResource(ctx)
-			if isWarning(ctx, err) {
-				l.Warn("skipping sync targeted resource action", zap.Any("stateAction", stateAction), zap.Error(err))
-				warnings = append(warnings, err)
-				s.state.FinishAction(ctx)
-				continue
-			}
-			if !retryer.ShouldWaitAndRetry(ctx, err) {
-				return err
-			}
-			continue
-
-		case SyncStaticEntitlementsOp:
-			err = s.SyncStaticEntitlements(ctx)
-			if isWarning(ctx, err) {
-				l.Warn("skipping sync static entitlements action", zap.Any("stateAction", stateAction), zap.Error(err))
-				warnings = append(warnings, err)
-				s.state.FinishAction(ctx)
-				continue
-			}
-			if !retryer.ShouldWaitAndRetry(ctx, err) {
-				return err
-			}
-			continue
-		case SyncEntitlementsOp:
-			err = s.SyncEntitlements(ctx)
-			if isWarning(ctx, err) {
-				l.Warn("skipping sync entitlement action", zap.Any("stateAction", stateAction), zap.Error(err))
-				warnings = append(warnings, err)
-				s.state.FinishAction(ctx)
-				continue
-			}
-			if !retryer.ShouldWaitAndRetry(ctx, err) {
-				return err
-			}
-			continue
-
-		case SyncGrantsOp:
-			err = s.SyncGrants(ctx)
-			if isWarning(ctx, err) {
-				l.Warn("skipping sync grant action", zap.Any("stateAction", stateAction), zap.Error(err))
-				warnings = append(warnings, err)
-				s.state.FinishAction(ctx)
-				continue
-			}
-			if !retryer.ShouldWaitAndRetry(ctx, err) {
-				return err
-			}
-			continue
-
-		case SyncExternalResourcesOp:
-			err = s.SyncExternalResources(ctx)
-			if !retryer.ShouldWaitAndRetry(ctx, err) {
-				return err
-			}
-			continue
-		case SyncAssetsOp:
-			err = s.SyncAssets(ctx)
-			if !retryer.ShouldWaitAndRetry(ctx, err) {
-				return err
-			}
-			continue
-
-		case SyncGrantExpansionOp:
-			if s.dontExpandGrants || !s.state.NeedsExpansion() {
-				l.Debug("skipping grant expansion, no grants to expand")
-				s.state.FinishAction(ctx)
-				continue
-			}
-
-			err = s.SyncGrantExpansion(ctx)
-			if !retryer.ShouldWaitAndRetry(ctx, err) {
-				return err
-			}
-			continue
-		default:
-			return fmt.Errorf("unexpected sync step")
+	} else {
+		warnings, err = s.parallelSync(ctx, runCtx, targetedResources)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -689,7 +368,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	return nil
 }
 
-func (s *syncer) SkipSync(ctx context.Context) error {
+func (s *SequentialSyncer) SkipSync(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SkipSync")
 	defer span.End()
 
@@ -733,7 +412,7 @@ func (s *syncer) SkipSync(ctx context.Context) error {
 	return nil
 }
 
-func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.ResourceType, error] {
+func (s *SequentialSyncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.ResourceType, error] {
 	return func(yield func([]*v2.ResourceType, error) bool) {
 		pageToken := ""
 		for {
@@ -757,7 +436,7 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 }
 
 // SyncResourceTypes calls the ListResourceType() connector endpoint and persists the results in to the datasource.
-func (s *syncer) SyncResourceTypes(ctx context.Context) error {
+func (s *SequentialSyncer) SyncResourceTypes(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncResourceTypes")
 	defer span.End()
 
@@ -801,7 +480,7 @@ func (s *syncer) SyncResourceTypes(ctx context.Context) error {
 		return err
 	}
 
-	s.counts.ResourceTypes += len(resourceTypes)
+	s.counts.AddResourceTypes(len(resourceTypes))
 	s.handleProgress(ctx, s.state.Current(), len(resourceTypes))
 
 	if resp.GetNextPageToken() == "" {
@@ -844,7 +523,7 @@ func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResource
 }
 
 // getSubResources fetches the sub resource types from a resources' annotations.
-func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
+func (s *SequentialSyncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "syncer.getSubResources")
 	defer span.End()
 
@@ -869,7 +548,7 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error
 	return nil
 }
 
-func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
+func (s *SequentialSyncer) getResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	ctx, span := tracer.Start(ctx, "syncer.getResource")
 	defer span.End()
 
@@ -895,7 +574,7 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 	return nil, err
 }
 
-func (s *syncer) SyncTargetedResource(ctx context.Context) error {
+func (s *SequentialSyncer) SyncTargetedResource(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncTargetedResource")
 	defer span.End()
 
@@ -973,7 +652,7 @@ func (s *syncer) SyncTargetedResource(ctx context.Context) error {
 
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
-func (s *syncer) SyncResources(ctx context.Context) error {
+func (s *SequentialSyncer) SyncResources(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncResources")
 	defer span.End()
 
@@ -1017,7 +696,7 @@ func (s *syncer) SyncResources(ctx context.Context) error {
 }
 
 // syncResources fetches a given resource from the connector, and returns a slice of new child resources to fetch.
-func (s *syncer) syncResources(ctx context.Context) error {
+func (s *SequentialSyncer) syncResources(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncResources")
 	defer span.End()
 
@@ -1041,7 +720,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 	s.handleProgress(ctx, s.state.Current(), len(resp.GetList()))
 
 	resourceTypeId := s.state.ResourceTypeID(ctx)
-	s.counts.Resources[resourceTypeId] += len(resp.GetList())
+	s.counts.AddResources(resourceTypeId, len(resp.GetList()))
 
 	if resp.GetNextPageToken() == "" {
 		s.counts.LogResourcesProgress(ctx, resourceTypeId)
@@ -1093,7 +772,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 	return nil
 }
 
-func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) error {
+func (s *SequentialSyncer) validateResourceTraits(ctx context.Context, r *v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "syncer.validateResourceTraits")
 	defer span.End()
 
@@ -1144,7 +823,7 @@ func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) err
 
 // shouldSkipEntitlementsAndGrants determines if we should sync entitlements for a given resource. We cache the
 // result of this function for each resource type to avoid constant lookups in the database.
-func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Resource) (bool, error) {
+func (s *SequentialSyncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Resource) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlementsAndGrants")
 	defer span.End()
 
@@ -1177,7 +856,7 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 	return skipEntitlements, nil
 }
 
-func (s *syncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, error) {
+func (s *SequentialSyncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, error) {
 	annos := annotations.Annotations(r.GetAnnotations())
 	if annos.Contains(&v2.SkipGrants{}) {
 		return true, nil
@@ -1190,7 +869,7 @@ func (s *syncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, er
 	return s.shouldSkipEntitlementsAndGrants(ctx, r)
 }
 
-func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bool, error) {
+func (s *SequentialSyncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlements")
 	defer span.End()
 
@@ -1229,7 +908,7 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 
 // SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
 // and pushes an action to fetch the entitlements for each resource.
-func (s *syncer) SyncEntitlements(ctx context.Context) error {
+func (s *SequentialSyncer) SyncEntitlements(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncEntitlements")
 	defer span.End()
 
@@ -1282,7 +961,7 @@ func (s *syncer) SyncEntitlements(ctx context.Context) error {
 }
 
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
-func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
+func (s *SequentialSyncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncEntitlementsForResource")
 	defer span.End()
 
@@ -1318,7 +997,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 			return err
 		}
 	} else {
-		s.counts.EntitlementsProgress[resourceID.GetResourceType()] += 1
+		s.counts.AddEntitlementsProgress(resourceID.ResourceType, 1)
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
 
 		s.state.FinishAction(ctx)
@@ -1327,7 +1006,7 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 	return nil
 }
 
-func (s *syncer) SyncStaticEntitlements(ctx context.Context) error {
+func (s *SequentialSyncer) SyncStaticEntitlements(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncStaticEntitlements")
 	defer span.End()
 
@@ -1352,7 +1031,7 @@ func (s *syncer) SyncStaticEntitlements(ctx context.Context) error {
 	return nil
 }
 
-func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, resourceTypeID string) error {
+func (s *SequentialSyncer) syncStaticEntitlementsForResourceType(ctx context.Context, resourceTypeID string) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncStaticEntitlementsForResource")
 	defer span.End()
 
@@ -1433,7 +1112,7 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, reso
 // syncAssetsForResource looks up a resource given the input ID. From there it looks to see if there are any traits that
 // include references to an asset. For each AssetRef, we then call GetAsset on the connector and stream the asset from the connector.
 // Once we have the entire asset, we put it in the database.
-func (s *syncer) syncAssetsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
+func (s *SequentialSyncer) syncAssetsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncAssetsForResource")
 	defer span.End()
 
@@ -1541,7 +1220,7 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, resourceID *v2.Resou
 }
 
 // SyncAssets iterates each resource in the data store, and adds an action to fetch all of the assets for that resource.
-func (s *syncer) SyncAssets(ctx context.Context) error {
+func (s *SequentialSyncer) SyncAssets(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncAssets")
 	defer span.End()
 
@@ -1589,7 +1268,7 @@ func (s *syncer) SyncAssets(ctx context.Context) error {
 
 // SyncGrantExpansion handles the grant expansion phase of sync.
 // It first loads the entitlement graph from grants, fixes any cycles, then runs expansion.
-func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
+func (s *SequentialSyncer) SyncGrantExpansion(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncGrantExpansion")
 	defer span.End()
 
@@ -1623,7 +1302,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 
 // loadEntitlementGraph loads one page of grants and adds expandable relationships to the graph.
 // This method handles pagination via the syncer's state machine.
-func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.EntitlementGraph) error {
+func (s *SequentialSyncer) loadEntitlementGraph(ctx context.Context, graph *expand.EntitlementGraph) error {
 	l := ctxzap.Extract(ctx)
 	pageToken := s.state.PageToken(ctx)
 
@@ -1663,7 +1342,7 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 }
 
 // processGrantForGraph examines a grant for expandable annotations and adds edges to the graph.
-func (s *syncer) processGrantForGraph(ctx context.Context, grant *v2.Grant, graph *expand.EntitlementGraph) error {
+func (s *SequentialSyncer) processGrantForGraph(ctx context.Context, grant *v2.Grant, graph *expand.EntitlementGraph) error {
 	l := ctxzap.Extract(ctx)
 
 	annos := annotations.Annotations(grant.GetAnnotations())
@@ -1732,7 +1411,7 @@ func (s *syncer) processGrantForGraph(ctx context.Context, grant *v2.Grant, grap
 }
 
 // fixEntitlementGraphCycles detects and fixes cycles in the entitlement graph.
-func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.EntitlementGraph) error {
+func (s *SequentialSyncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.EntitlementGraph) error {
 	l := ctxzap.Extract(ctx)
 
 	comps, sccMetrics := graph.ComputeCyclicComponents(ctx)
@@ -1760,7 +1439,7 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 
 // SyncGrants fetches the grants for each resource from the connector. It iterates each resource
 // from the datastore, and pushes a new action to sync the grants for each individual resource.
-func (s *syncer) SyncGrants(ctx context.Context) error {
+func (s *SequentialSyncer) SyncGrants(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncGrants")
 	defer span.End()
 
@@ -1816,7 +1495,7 @@ type latestSyncFetcher interface {
 	LatestFinishedSync(ctx context.Context, syncType connectorstore.SyncType) (string, error)
 }
 
-func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v2.ResourceId) (string, *v2.ETag, error) {
+func (s *SequentialSyncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v2.ResourceId) (string, *v2.ETag, error) {
 	ctx, span := tracer.Start(ctx, "syncer.fetchResourceForPreviousSync")
 	defer span.End()
 
@@ -1870,7 +1549,7 @@ func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v
 	return previousSyncID, nil, nil
 }
 
-func (s *syncer) fetchEtaggedGrantsForResource(
+func (s *SequentialSyncer) fetchEtaggedGrantsForResource(
 	ctx context.Context,
 	resource *v2.Resource,
 	prevEtag *v2.ETag,
@@ -1937,7 +1616,7 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 }
 
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
-func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
+func (s *SequentialSyncer) syncGrantsForResource(ctx context.Context, resourceID *v2.ResourceId) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncGrantsForResource")
 	defer span.End()
 
@@ -2090,14 +1769,14 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		return nil
 	}
 
-	s.counts.GrantsProgress[resourceID.GetResourceType()] += 1
+	s.counts.AddGrantsProgress(resourceID.GetResourceType(), 1)
 	s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
 	s.state.FinishAction(ctx)
 
 	return nil
 }
 
-func (s *syncer) SyncExternalResources(ctx context.Context) error {
+func (s *SequentialSyncer) SyncExternalResources(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncExternalResources")
 	defer span.End()
 
@@ -2111,7 +1790,7 @@ func (s *syncer) SyncExternalResources(ctx context.Context) error {
 	}
 }
 
-func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context, entitlementId string) error {
+func (s *SequentialSyncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context, entitlementId string) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncExternalResourcesWithGrantToEntitlement")
 	defer span.End()
 
@@ -2248,7 +1927,7 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	return nil
 }
 
-func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error {
+func (s *SequentialSyncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncExternalResourcesUsersAndGroups")
 	defer span.End()
 
@@ -2362,7 +2041,7 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 	return nil
 }
 
-func (s *syncer) listExternalResourcesForResourceType(ctx context.Context, resourceTypeId string) ([]*v2.Resource, error) {
+func (s *SequentialSyncer) listExternalResourcesForResourceType(ctx context.Context, resourceTypeId string) ([]*v2.Resource, error) {
 	resources := make([]*v2.Resource, 0)
 	pageToken := ""
 	for {
@@ -2382,7 +2061,7 @@ func (s *syncer) listExternalResourcesForResourceType(ctx context.Context, resou
 	return resources, nil
 }
 
-func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resource *v2.Resource) ([]*v2.Entitlement, error) {
+func (s *SequentialSyncer) listExternalEntitlementsForResource(ctx context.Context, resource *v2.Resource) ([]*v2.Entitlement, error) {
 	ents := make([]*v2.Entitlement, 0)
 	entitlementToken := ""
 
@@ -2403,7 +2082,7 @@ func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resour
 	return ents, nil
 }
 
-func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.Entitlement) iter.Seq2[[]*v2.Grant, error] {
+func (s *SequentialSyncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.Entitlement) iter.Seq2[[]*v2.Grant, error] {
 	return func(yield func([]*v2.Grant, error) bool) {
 		pageToken := ""
 		for {
@@ -2429,7 +2108,7 @@ func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.E
 	}
 }
 
-func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceType, error) {
+func (s *SequentialSyncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceType, error) {
 	resourceTypes := make([]*v2.ResourceType, 0)
 	rtPageToken := ""
 	for {
@@ -2448,7 +2127,7 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 	return resourceTypes, nil
 }
 
-func (s *syncer) listAllGrants(ctx context.Context) iter.Seq2[[]*v2.Grant, error] {
+func (s *SequentialSyncer) listAllGrants(ctx context.Context) iter.Seq2[[]*v2.Grant, error] {
 	return func(yield func([]*v2.Grant, error) bool) {
 		pageToken := ""
 		for {
@@ -2473,7 +2152,7 @@ func (s *syncer) listAllGrants(ctx context.Context) iter.Seq2[[]*v2.Grant, error
 	}
 }
 
-func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
+func (s *SequentialSyncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
 	defer span.End()
 
@@ -2782,7 +2461,7 @@ func GetExpandableAnnotation(annos annotations.Annotations) (*v2.GrantExpandable
 
 // expandGrantsForEntitlements expands grants for the given entitlement.
 // This method delegates to the expand.Expander for the actual expansion logic.
-func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
+func (s *SequentialSyncer) expandGrantsForEntitlements(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.expandGrantsForEntitlements")
 	defer span.End()
 
@@ -2812,7 +2491,7 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 	return nil
 }
 
-func (s *syncer) loadStore(ctx context.Context) error {
+func (s *SequentialSyncer) loadStore(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.loadStore")
 	defer span.End()
 
@@ -2821,7 +2500,8 @@ func (s *syncer) loadStore(ctx context.Context) error {
 	}
 
 	if s.c1zManager == nil {
-		m, err := manager.New(ctx, s.c1zPath, manager.WithTmpDir(s.tmpDir))
+		opts := []manager.ManagerOption{manager.WithTmpDir(s.tmpDir)}
+		m, err := manager.New(ctx, s.c1zPath, opts...)
 		if err != nil {
 			return err
 		}
@@ -2842,7 +2522,7 @@ func (s *syncer) loadStore(ctx context.Context) error {
 }
 
 // Close closes the datastorage to ensure it is updated on disk.
-func (s *syncer) Close(ctx context.Context) error {
+func (s *SequentialSyncer) Close(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.Close")
 	defer span.End()
 
@@ -2876,12 +2556,12 @@ func (s *syncer) Close(ctx context.Context) error {
 	return nil
 }
 
-type SyncOpt func(s *syncer)
+type SyncOpt func(s *SequentialSyncer)
 
 // WithRunDuration sets a `time.Duration` for `NewSyncer` Options.
 // `d` represents a duration. The elapsed time between two instants as an int64 nanosecond count.
 func WithRunDuration(d time.Duration) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		if d > 0 {
 			s.runDuration = d
 		}
@@ -2890,7 +2570,7 @@ func WithRunDuration(d time.Duration) SyncOpt {
 
 // WithTransitionHandler sets a `transitionHandler` for `NewSyncer` Options.
 func WithTransitionHandler(f func(s Action)) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		if f != nil {
 			s.transitionHandler = f
 		}
@@ -2899,7 +2579,7 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 
 // WithProgress sets a `progressHandler` for `NewSyncer` Options.
 func WithProgressHandler(f func(s *Progress)) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		if f != nil {
 			s.progressHandler = f
 		}
@@ -2907,43 +2587,43 @@ func WithProgressHandler(f func(s *Progress)) SyncOpt {
 }
 
 func WithConnectorStore(store connectorstore.Writer) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.store = store
 	}
 }
 
 func WithC1ZPath(path string) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.c1zPath = path
 	}
 }
 
 func WithTmpDir(path string) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.tmpDir = path
 	}
 }
 
 func WithSkipFullSync() SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.skipFullSync = true
 	}
 }
 
 func WithExternalResourceC1ZPath(path string) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.externalResourceC1ZPath = path
 	}
 }
 
 func WithExternalResourceEntitlementIdFilter(entitlementId string) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.externalResourceEntitlementIdFilter = entitlementId
 	}
 }
 
 func WithTargetedSyncResources(resources []*v2.Resource) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.targetedSyncResources = resources
 		if len(resources) > 0 {
 			s.syncType = connectorstore.SyncTypePartial
@@ -2955,36 +2635,36 @@ func WithTargetedSyncResources(resources []*v2.Resource) SyncOpt {
 }
 
 func WithSessionStore(sessionStore sessions.SetSessionStore) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.setSessionStore = sessionStore
 	}
 }
 
 func WithSyncResourceTypes(resourceTypeIDs []string) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.syncResourceTypes = resourceTypeIDs
 	}
 }
 
 func WithOnlyExpandGrants() SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.onlyExpandGrants = true
 	}
 }
 
 func WithDontExpandGrants() SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.dontExpandGrants = true
 	}
 }
 func WithSyncID(syncID string) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.syncID = syncID
 	}
 }
 
 func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.skipEntitlementsAndGrants = skip
 		// Partial syncs can skip entitlements and grants, so don't update the sync type in that case.
 		if s.syncType == connectorstore.SyncTypePartial {
@@ -2999,19 +2679,25 @@ func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 }
 
 func WithSkipGrants(skip bool) SyncOpt {
-	return func(s *syncer) {
+	return func(s *SequentialSyncer) {
 		s.skipGrants = skip
 	}
 }
 
+func WithWorkerCount(count int) SyncOpt {
+	return func(s *SequentialSyncer) {
+		s.workerCount = count
+	}
+}
+
 // NewSyncer returns a new syncer object.
-func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
-	s := &syncer{
+func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (*SequentialSyncer, error) {
+	s := &SequentialSyncer{
 		connector:                       c,
 		skipEGForResourceType:           make(map[string]bool),
 		skipEntitlementsForResourceType: make(map[string]bool),
 		resourceTypeTraits:              make(map[string][]v2.ResourceType_Trait),
-		counts:                          NewProgressCounts(),
+		counts:                          progresslog.NewProgressCounts(ctx),
 		syncType:                        connectorstore.SyncTypeFull,
 	}
 
