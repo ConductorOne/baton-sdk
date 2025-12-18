@@ -11,6 +11,8 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func loadC1z(filePath string, tmpDir string, opts ...DecoderOption) (string, error) {
@@ -59,7 +61,7 @@ func loadC1z(filePath string, tmpDir string, opts ...DecoderOption) (string, err
 
 func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) error {
 	if outputFilePath == "" {
-		return errors.New("c1z: output file path not configured")
+		return status.Errorf(codes.InvalidArgument, "c1z: output file path not configured")
 	}
 
 	dbFile, err := os.Open(dbFilePath)

@@ -71,7 +71,7 @@ func teardown() error {
 }
 
 func TestC1Z(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test.c1z")
 
 	var opts []C1ZOption
@@ -159,7 +159,7 @@ func TestC1Z(t *testing.T) {
 }
 
 func TestC1ZDecoder(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-decoder.c1z")
 
 	// Open file
@@ -243,7 +243,7 @@ func TestC1ZDecoder(t *testing.T) {
 	b.Reset()
 
 	// Test context cancel
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	d, err = NewDecoder(c1zf, WithContext(ctx))
 	require.NoError(t, err)
 	_, err = io.Copy(b, d)
@@ -263,7 +263,7 @@ func TestC1ZDecoder(t *testing.T) {
 }
 
 func TestC1ZInvalidFile(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-invalid-file.c1z")
 
 	f, err := os.Create(testFilePath)
@@ -280,7 +280,7 @@ func TestC1ZInvalidFile(t *testing.T) {
 }
 
 func TestC1ZStats(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-stats.c1z")
 
 	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
@@ -331,7 +331,7 @@ func TestC1ZStats(t *testing.T) {
 }
 
 func TestC1ZStatsPartialSync(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-stats-partial-sync.c1z")
 
 	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
@@ -371,7 +371,7 @@ func TestC1ZStatsPartialSync(t *testing.T) {
 }
 
 func TestC1ZStatsResourcesOnlySync(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-stats-resources-only-sync.c1z")
 
 	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
@@ -426,7 +426,7 @@ func equalStats(t *testing.T, expectedStats map[string]int64, stats map[string]i
 }
 
 func TestC1ZGrantStatsSync(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-grant-stats-sync.c1z")
 
@@ -486,7 +486,7 @@ func TestC1ZGrantStatsSync(t *testing.T) {
 }
 
 func TestC1ZReadOnlyMode(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-readonly.c1z")
 
 	// First, create a c1z file with some data
