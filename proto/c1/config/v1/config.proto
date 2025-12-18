@@ -64,9 +64,7 @@ message Field {
     ResourceIdField resource_id_field = 105;
     ResourceIdSliceField resource_id_slice_field = 106;
 
-    // These are meant to serve as return types for actions.
-    ResourceField resource_field = 107;
-    ResourceSliceField resource_slice_field = 108;
+    // TODO: Add return types for resources.
   }
 }
 
@@ -83,14 +81,6 @@ message Resource {
 message ResourceId {
   string resource_type_id = 1;
   string resource_id = 2;
-}
-
-message ResourceField {
-  Resource default_value = 1;
-}
-
-message ResourceSliceField {
-  repeated Resource default_value = 1;
 }
 
 message ResourceIdField {

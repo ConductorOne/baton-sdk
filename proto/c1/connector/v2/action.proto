@@ -51,9 +51,6 @@ enum ActionType {
 
   // Generic resource actions
   ACTION_TYPE_RESOURCE_CREATE = 6;
-  ACTION_TYPE_RESOURCE_DELETE = 7;
-  ACTION_TYPE_RESOURCE_ENABLE = 8;
-  ACTION_TYPE_RESOURCE_DISABLE = 9;
 }
 
 message InvokeActionRequest {
