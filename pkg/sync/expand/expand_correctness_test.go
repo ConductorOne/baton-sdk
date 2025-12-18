@@ -67,8 +67,6 @@ func loadAllGrants(ctx context.Context, c1f *dotc1z.C1File) (map[string]*grantIn
 	return grants, nil
 }
 
-// TestExpandCorrectness runs expansion on an unexpanded c1z and compares against a reference (baton-sdk v0.5.25).
-// This test takes ~60 seconds to run. Use: go test -timeout 2m -run TestExpandCorrectness.
 func TestExpandCorrectness(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow expansion correctness test in short mode")
@@ -80,7 +78,7 @@ func TestExpandCorrectness(t *testing.T) {
 	}{
 		{
 			name:   "Small",
-			syncID: "36zGvJw3uxU1QMJKU2yPVQ1hBOC",
+			syncID: "36zfOAoWMxQdISbixanQCRBiX7E",
 		},
 		// {
 		// 	name:   "SmallMedium",
