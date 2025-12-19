@@ -286,6 +286,8 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		handler = newActionInvokeTaskHandler(task, tHelpers)
 	case taskTypes.ActionStatusType:
 		handler = newActionStatusTaskHandler(task, tHelpers)
+	case taskTypes.SyncResourceTypedType:
+		handler = newResourceTypedSyncTaskHandler(task, tHelpers)
 	default:
 		return c.finishTask(ctx, task, nil, nil, errors.New("unsupported task type"))
 	}
