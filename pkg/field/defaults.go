@@ -114,6 +114,10 @@ var (
 		WithDescription("The resource type IDs to sync"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
+	resourceTypedSyncField = StringField("sync-resource-type",
+		WithDescription("Sync all resources of a single resource type (incremental sync)"),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 	diffSyncsField = BoolField(
 		"diff-syncs",
 		WithDescription("Create a new partial SyncID from a base and applied sync."),
@@ -290,6 +294,7 @@ var DefaultFields = []SchemaField{
 	skipFullSync,
 	targetedSyncResourceIDs,
 	syncResourceTypeIDs,
+	resourceTypedSyncField,
 	skipEntitlementsAndGrants,
 	skipGrants,
 	externalResourceC1ZField,

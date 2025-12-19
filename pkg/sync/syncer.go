@@ -220,6 +220,7 @@ type syncer struct {
 	injectSyncIDAnnotation              bool
 	setSessionStore                     sessions.SetSessionStore
 	syncResourceTypes                   []string
+	resourceTypedSyncID                 string
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -527,6 +528,25 @@ func (s *syncer) Sync(ctx context.Context) error {
 				continue
 			}
 
+			// Resource-typed sync: sync all resources of a single resource type
+			// SetupResourceTypedSyncOp will discover parent types and queue the appropriate sync actions
+			if s.resourceTypedSyncID != "" {
+				if !s.state.ShouldSkipEntitlementsAndGrants() {
+					if !s.state.ShouldSkipGrants() {
+						s.state.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: s.resourceTypedSyncID})
+					}
+					s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceTypeID: s.resourceTypedSyncID})
+				}
+				// SetupResourceTypedSyncOp runs after SyncResourceTypesOp to discover parent relationships
+				s.state.PushAction(ctx, Action{Op: SetupResourceTypedSyncOp, ResourceTypeID: s.resourceTypedSyncID})
+				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
+				err = s.Checkpoint(ctx, true)
+				if err != nil {
+					return err
+				}
+				continue
+			}
+
 			// FIXME(jirwin): Disabling syncing assets for now
 			// s.state.PushAction(ctx, Action{Op: SyncAssetsOp})
 			if !s.state.ShouldSkipEntitlementsAndGrants() {
@@ -651,6 +671,21 @@ func (s *syncer) Sync(ctx context.Context) error {
 				return err
 			}
 			continue
+
+		case SyncResourceTypedOp:
+			err = s.SyncResourceTyped(ctx)
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
+				return err
+			}
+			continue
+
+		case SetupResourceTypedSyncOp:
+			err = s.SetupResourceTypedSync(ctx)
+			if !retryer.ShouldWaitAndRetry(ctx, err) {
+				return err
+			}
+			continue
+
 		default:
 			return fmt.Errorf("unexpected sync step")
 		}
@@ -1093,6 +1128,244 @@ func (s *syncer) syncResources(ctx context.Context) error {
 	return nil
 }
 
+// SyncResourceTyped syncs all resources of a specific resource type.
+// This is used for resource-typed incremental syncs.
+func (s *syncer) SyncResourceTyped(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "syncer.SyncResourceTyped")
+	defer span.End()
+
+	resourceTypeID := s.state.ResourceTypeID(ctx)
+	if resourceTypeID == "" {
+		return errors.New("resource type ID is required for resource-typed sync")
+	}
+
+	pageToken := s.state.PageToken(ctx)
+
+	if pageToken == "" {
+		ctxzap.Extract(ctx).Info("Syncing resources for type...", zap.String("resource_type_id", resourceTypeID))
+		s.handleInitialActionForStep(ctx, *s.state.Current())
+	}
+
+	req := v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+		PageToken:      pageToken,
+		ActiveSyncId:   s.getActiveSyncID(),
+	}.Build()
+	if s.state.ParentResourceTypeID(ctx) != "" && s.state.ParentResourceID(ctx) != "" {
+		req.SetParentResourceId(v2.ResourceId_builder{
+			ResourceType: s.state.ParentResourceTypeID(ctx),
+			Resource:     s.state.ParentResourceID(ctx),
+		}.Build())
+	}
+
+	resp, err := s.connector.ListResources(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	s.handleProgress(ctx, s.state.Current(), len(resp.GetList()))
+
+	s.counts.Resources[resourceTypeID] += len(resp.GetList())
+
+	if resp.GetNextPageToken() == "" {
+		s.counts.LogResourcesProgress(ctx, resourceTypeID)
+		s.state.FinishAction(ctx)
+	} else {
+		err = s.state.NextPage(ctx, resp.GetNextPageToken())
+		if err != nil {
+			return err
+		}
+	}
+
+	bulkPutResources := []*v2.Resource{}
+	for _, r := range resp.GetList() {
+		// Check if we've already synced this resource, skip it if we have
+		_, err = s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+			ResourceId: v2.ResourceId_builder{ResourceType: r.GetId().GetResourceType(), Resource: r.GetId().GetResource()}.Build(),
+		}.Build())
+		if err == nil {
+			continue
+		}
+
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+
+		err = s.validateResourceTraits(ctx, r)
+		if err != nil {
+			return err
+		}
+
+		// Set the resource creation source
+		r.SetCreationSource(v2.Resource_CREATION_SOURCE_CONNECTOR_LIST_RESOURCES)
+
+		bulkPutResources = append(bulkPutResources, r)
+
+		// Only follow child annotations that match our target resource type
+		err = s.getSubResourcesForType(ctx, r, s.resourceTypedSyncID)
+		if err != nil {
+			return err
+		}
+	}
+
+	if len(bulkPutResources) > 0 {
+		err = s.store.PutResources(ctx, bulkPutResources...)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// getSubResourcesForType fetches sub-resources that match the target resource type.
+// This is used for resource-typed syncs to only follow child annotations of the same type.
+func (s *syncer) getSubResourcesForType(ctx context.Context, parent *v2.Resource, targetResourceTypeID string) error {
+	ctx, span := tracer.Start(ctx, "syncer.getSubResourcesForType")
+	defer span.End()
+
+	for _, a := range parent.GetAnnotations() {
+		if a.MessageIs((*v2.ChildResourceType)(nil)) {
+			crt := &v2.ChildResourceType{}
+			err := a.UnmarshalTo(crt)
+			if err != nil {
+				return err
+			}
+
+			// Only follow child annotations that match our target type
+			if crt.GetResourceTypeId() != targetResourceTypeID {
+				continue
+			}
+
+			childAction := Action{
+				Op:                   SyncResourceTypedOp,
+				ResourceTypeID:       crt.GetResourceTypeId(),
+				ParentResourceID:     parent.GetId().GetResource(),
+				ParentResourceTypeID: parent.GetId().GetResourceType(),
+			}
+			s.state.PushAction(ctx, childAction)
+		}
+	}
+
+	return nil
+}
+
+// SetupResourceTypedSync discovers the resource hierarchy and queues appropriate sync actions.
+// For child resource types (like users under orgs), it discovers parent types first.
+func (s *syncer) SetupResourceTypedSync(ctx context.Context) error {
+	ctx, span := tracer.Start(ctx, "syncer.SetupResourceTypedSync")
+	defer span.End()
+
+	l := ctxzap.Extract(ctx)
+	targetTypeID := s.state.ResourceTypeID(ctx)
+	if targetTypeID == "" {
+		return errors.New("resource type ID is required for SetupResourceTypedSync")
+	}
+
+	l.Info("Setting up resource-typed sync, discovering parent types...", zap.String("target_type", targetTypeID))
+
+	// First, try to find parent types by sampling resources from each type
+	// and checking their ChildResourceType annotations
+	parentTypes := []string{}
+
+	resp, err := s.store.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
+	if err != nil {
+		return err
+	}
+
+	for _, rt := range resp.GetList() {
+		// Skip the target type itself
+		if rt.GetId() == targetTypeID {
+			continue
+		}
+
+		// Try to get a sample resource of this type to check annotations
+		hasTargetAsChild, err := s.resourceTypeHasChildType(ctx, rt.GetId(), targetTypeID)
+		if err != nil {
+			l.Debug("error checking if resource type has child type",
+				zap.String("parent_type", rt.GetId()),
+				zap.String("target_type", targetTypeID),
+				zap.Error(err))
+			continue
+		}
+
+		if hasTargetAsChild {
+			parentTypes = append(parentTypes, rt.GetId())
+			l.Debug("found parent type for target",
+				zap.String("parent_type", rt.GetId()),
+				zap.String("target_type", targetTypeID))
+		}
+	}
+
+	s.state.FinishAction(ctx)
+
+	if len(parentTypes) > 0 {
+		// We found parent types - queue syncing them first
+		// When they sync, getSubResourcesForType will queue syncing children
+		l.Info("Discovered parent types for target, syncing parents first",
+			zap.String("target_type", targetTypeID),
+			zap.Strings("parent_types", parentTypes))
+
+		for _, parentType := range parentTypes {
+			s.state.PushAction(ctx, Action{
+				Op:             SyncResourceTypedOp,
+				ResourceTypeID: parentType,
+			})
+		}
+	} else {
+		// No parents found - target is a root-level type, sync directly
+		l.Info("No parent types found, syncing target type directly",
+			zap.String("target_type", targetTypeID))
+
+		s.state.PushAction(ctx, Action{
+			Op:             SyncResourceTypedOp,
+			ResourceTypeID: targetTypeID,
+		})
+	}
+
+	return nil
+}
+
+// resourceTypeHasChildType checks if a resource type has the target type as a child
+// by sampling a resource and checking its ChildResourceType annotations.
+func (s *syncer) resourceTypeHasChildType(ctx context.Context, resourceTypeID string, targetTypeID string) (bool, error) {
+	ctx, span := tracer.Start(ctx, "syncer.resourceTypeHasChildType")
+	defer span.End()
+
+	// Try to get a sample resource of this type from the connector
+	resp, err := s.connector.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+		ActiveSyncId:   s.getActiveSyncID(),
+	}.Build())
+	if err != nil {
+		return false, err
+	}
+
+	// Check the first resource's annotations for ChildResourceType matching our target
+	// All resources of the same type should have the same child type annotations
+	resources := resp.GetList()
+	if len(resources) == 0 {
+		return false, nil
+	}
+
+	r := resources[0]
+	for _, a := range r.GetAnnotations() {
+		if a.MessageIs((*v2.ChildResourceType)(nil)) {
+			crt := &v2.ChildResourceType{}
+			err := a.UnmarshalTo(crt)
+			if err != nil {
+				return false, err
+			}
+
+			if crt.GetResourceTypeId() == targetTypeID {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
 func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "syncer.validateResourceTraits")
 	defer span.End()
@@ -1233,6 +1506,12 @@ func (s *syncer) SyncEntitlements(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncEntitlements")
 	defer span.End()
 
+	// If ResourceTypeID is set but ResourceID is not, we're doing a resource-typed sync
+	// and should only sync entitlements for resources of that type
+	if s.state.ResourceTypeID(ctx) != "" && s.state.ResourceID(ctx) == "" {
+		return s.syncEntitlementsForResourceType(ctx, s.state.ResourceTypeID(ctx))
+	}
+
 	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
 		pageToken := s.state.PageToken(ctx)
 
@@ -1322,6 +1601,51 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, resourceID *v2
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
 
 		s.state.FinishAction(ctx)
+	}
+
+	return nil
+}
+
+// syncEntitlementsForResourceType syncs entitlements for all resources of a specific type.
+// This is used for resource-typed incremental syncs.
+func (s *syncer) syncEntitlementsForResourceType(ctx context.Context, resourceTypeID string) error {
+	ctx, span := tracer.Start(ctx, "syncer.syncEntitlementsForResourceType")
+	defer span.End()
+
+	pageToken := s.state.PageToken(ctx)
+
+	if pageToken == "" {
+		ctxzap.Extract(ctx).Info("Syncing entitlements for resource type...", zap.String("resource_type_id", resourceTypeID))
+		s.handleInitialActionForStep(ctx, *s.state.Current())
+	}
+
+	resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+		PageToken:      pageToken,
+	}.Build())
+	if err != nil {
+		return err
+	}
+
+	// We want to take action on the next page before we push any new actions
+	if resp.GetNextPageToken() != "" {
+		err = s.state.NextPage(ctx, resp.GetNextPageToken())
+		if err != nil {
+			return err
+		}
+	} else {
+		s.state.FinishAction(ctx)
+	}
+
+	for _, r := range resp.GetList() {
+		shouldSkipEntitlements, err := s.shouldSkipEntitlements(ctx, r)
+		if err != nil {
+			return err
+		}
+		if shouldSkipEntitlements {
+			continue
+		}
+		s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 	}
 
 	return nil
@@ -1764,6 +2088,12 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncGrants")
 	defer span.End()
 
+	// If ResourceTypeID is set but ResourceID is not, we're doing a resource-typed sync
+	// and should only sync grants for resources of that type
+	if s.state.ResourceTypeID(ctx) != "" && s.state.ResourceID(ctx) == "" {
+		return s.syncGrantsForResourceType(ctx, s.state.ResourceTypeID(ctx))
+	}
+
 	if s.state.ResourceTypeID(ctx) == "" && s.state.ResourceID(ctx) == "" {
 		pageToken := s.state.PageToken(ctx)
 
@@ -1807,6 +2137,52 @@ func (s *syncer) SyncGrants(ctx context.Context) error {
 	}.Build())
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// syncGrantsForResourceType syncs grants for all resources of a specific type.
+// This is used for resource-typed incremental syncs.
+func (s *syncer) syncGrantsForResourceType(ctx context.Context, resourceTypeID string) error {
+	ctx, span := tracer.Start(ctx, "syncer.syncGrantsForResourceType")
+	defer span.End()
+
+	pageToken := s.state.PageToken(ctx)
+
+	if pageToken == "" {
+		ctxzap.Extract(ctx).Info("Syncing grants for resource type...", zap.String("resource_type_id", resourceTypeID))
+		s.handleInitialActionForStep(ctx, *s.state.Current())
+	}
+
+	resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+		PageToken:      pageToken,
+	}.Build())
+	if err != nil {
+		return err
+	}
+
+	// We want to take action on the next page before we push any new actions
+	if resp.GetNextPageToken() != "" {
+		err = s.state.NextPage(ctx, resp.GetNextPageToken())
+		if err != nil {
+			return err
+		}
+	} else {
+		s.state.FinishAction(ctx)
+	}
+
+	for _, r := range resp.GetList() {
+		shouldSkip, err := s.shouldSkipGrants(ctx, r)
+		if err != nil {
+			return err
+		}
+
+		if shouldSkip {
+			continue
+		}
+		s.state.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 	}
 
 	return nil
@@ -3001,6 +3377,13 @@ func WithSkipEntitlementsAndGrants(skip bool) SyncOpt {
 func WithSkipGrants(skip bool) SyncOpt {
 	return func(s *syncer) {
 		s.skipGrants = skip
+	}
+}
+
+func WithResourceTypedSync(resourceTypeID string) SyncOpt {
+	return func(s *syncer) {
+		s.resourceTypedSyncID = resourceTypeID
+		s.syncType = connectorstore.SyncTypePartial
 	}
 }
 

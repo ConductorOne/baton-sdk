@@ -350,6 +350,7 @@ type runnerConfig struct {
 	skipGrants                          bool
 	sessionStoreEnabled                 bool
 	syncResourceTypeIDs                 []string
+	resourceTypedSyncID                 string
 }
 
 func WithSessionStoreEnabled() Option {
@@ -564,6 +565,13 @@ func WithTargetedSyncResources(resourceIDs []string) Option {
 func WithSyncResourceTypeIDs(resourceTypeIDs []string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.syncResourceTypeIDs = resourceTypeIDs
+		return nil
+	}
+}
+
+func WithResourceTypedSync(resourceTypeID string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.resourceTypedSyncID = resourceTypeID
 		return nil
 	}
 }
@@ -806,15 +814,23 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			}
 			tm = local.NewLocalCompactor(ctx, cfg.syncCompactorConfig.outputPath, configs)
 		default:
-			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
-				local.WithTmpDir(cfg.tempDir),
-				local.WithExternalResourceC1Z(cfg.externalResourceC1Z),
-				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
-				local.WithTargetedSyncResources(resources),
-				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
-				local.WithSkipGrants(cfg.skipGrants),
-				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
-			)
+			if cfg.resourceTypedSyncID != "" {
+				tm, err = local.NewResourceTypedSyncer(ctx, cfg.c1zPath, cfg.resourceTypedSyncID,
+					local.ResourceTypedWithTmpDir(cfg.tempDir),
+					local.ResourceTypedWithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
+					local.ResourceTypedWithSkipGrants(cfg.skipGrants),
+				)
+			} else {
+				tm, err = local.NewSyncer(ctx, cfg.c1zPath,
+					local.WithTmpDir(cfg.tempDir),
+					local.WithExternalResourceC1Z(cfg.externalResourceC1Z),
+					local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
+					local.WithTargetedSyncResources(resources),
+					local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
+					local.WithSkipGrants(cfg.skipGrants),
+					local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
+				)
+			}
 			if err != nil {
 				return nil, err
 			}

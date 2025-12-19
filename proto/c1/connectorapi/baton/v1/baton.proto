@@ -52,6 +52,12 @@ message Task {
     repeated connector.v2.Resource targeted_sync_resources = 4;
   }
 
+  message SyncResourceTypedTask {
+    repeated google.protobuf.Any annotations = 1;
+    string resource_type_id = 2;
+    bool skip_entitlements_and_grants = 3;
+  }
+
   message EventFeedTask {
     repeated google.protobuf.Any annotations = 1;
     google.protobuf.Timestamp start_at = 2;
@@ -175,6 +181,7 @@ message Task {
     ActionStatusTask action_status = 118;
     CreateSyncDiffTask create_sync_diff = 119;
     CompactSyncs compact_syncs = 120;
+    SyncResourceTypedTask sync_resource_typed = 121;
   }
   bool debug = 3;
 }
