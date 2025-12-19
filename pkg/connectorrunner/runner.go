@@ -350,7 +350,7 @@ type runnerConfig struct {
 	skipGrants                          bool
 	sessionStoreEnabled                 bool
 	syncResourceTypeIDs                 []string
-	resourceTypedSyncID                 string
+	partialSyncResourceTypeID           string
 }
 
 func WithSessionStoreEnabled() Option {
@@ -569,9 +569,9 @@ func WithSyncResourceTypeIDs(resourceTypeIDs []string) Option {
 	}
 }
 
-func WithResourceTypedSync(resourceTypeID string) Option {
+func WithPartialSyncResourceType(resourceTypeID string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.resourceTypedSyncID = resourceTypeID
+		cfg.partialSyncResourceTypeID = resourceTypeID
 		return nil
 	}
 }
@@ -814,11 +814,9 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			}
 			tm = local.NewLocalCompactor(ctx, cfg.syncCompactorConfig.outputPath, configs)
 		default:
-			if cfg.resourceTypedSyncID != "" {
-				tm, err = local.NewResourceTypedSyncer(ctx, cfg.c1zPath, cfg.resourceTypedSyncID,
-					local.ResourceTypedWithTmpDir(cfg.tempDir),
-					local.ResourceTypedWithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
-					local.ResourceTypedWithSkipGrants(cfg.skipGrants),
+			if cfg.partialSyncResourceTypeID != "" {
+				tm, err = local.NewPartialSyncResourceType(ctx, cfg.c1zPath, cfg.partialSyncResourceTypeID,
+					local.PartialSyncWithTmpDir(cfg.tempDir),
 				)
 			} else {
 				tm, err = local.NewSyncer(ctx, cfg.c1zPath,

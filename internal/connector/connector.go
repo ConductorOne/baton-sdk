@@ -92,7 +92,7 @@ type wrapper struct {
 	targetedSyncResources []*connectorV2.Resource
 	sessionStoreEnabled   bool
 	syncResourceTypeIDs   []string
-	resourceTypedSyncID   string
+	partialSyncResourceTypeID string
 
 	rateLimiter   ratelimitV1.RateLimiterServiceServer
 	rlCfg         *ratelimitV1.RateLimiterConfig
@@ -177,9 +177,9 @@ func WithSyncResourceTypeIDs(resourceTypeIDs []string) Option {
 	}
 }
 
-func WithResourceTypedSync(resourceTypeID string) Option {
+func WithPartialSyncResourceType(resourceTypeID string) Option {
 	return func(ctx context.Context, w *wrapper) error {
-		w.resourceTypedSyncID = resourceTypeID
+		w.partialSyncResourceTypeID = resourceTypeID
 		return nil
 	}
 }

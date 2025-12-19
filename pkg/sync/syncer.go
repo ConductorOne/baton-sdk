@@ -530,16 +530,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 				continue
 			}
 
-			// Resource-typed sync: sync all resources of a single resource type
+			// Partial sync for a single resource type: only sync resources, never entitlements/grants
 			// SetupResourceTypedSyncOp will discover parent types and queue the appropriate sync actions
 			if s.resourceTypedSyncID != "" {
-				if !s.state.ShouldSkipEntitlementsAndGrants() {
-					if !s.state.ShouldSkipGrants() {
-						s.state.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceTypeID: s.resourceTypedSyncID})
-					}
-					s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceTypeID: s.resourceTypedSyncID})
-				}
-				// SetupResourceTypedSyncOp runs after SyncResourceTypesOp to discover parent relationships
 				s.state.PushAction(ctx, Action{Op: SetupResourceTypedSyncOp, ResourceTypeID: s.resourceTypedSyncID})
 				s.state.PushAction(ctx, Action{Op: SyncResourceTypesOp})
 				err = s.Checkpoint(ctx, true)
@@ -3384,7 +3377,7 @@ func WithSkipGrants(skip bool) SyncOpt {
 	}
 }
 
-func WithResourceTypedSync(resourceTypeID string) SyncOpt {
+func WithPartialSyncResourceType(resourceTypeID string) SyncOpt {
 	return func(s *syncer) {
 		s.resourceTypedSyncID = resourceTypeID
 		s.syncType = connectorstore.SyncTypePartial

@@ -30,14 +30,11 @@ func (c *resourceTypedSyncTaskHandler) sync(ctx context.Context, c1zPath string)
 		return errors.New("task is not a resource-typed sync task")
 	}
 
+	// Partial syncs only sync resources - entitlements and grants are never synced
 	syncOpts := []sdkSync.SyncOpt{
 		sdkSync.WithC1ZPath(c1zPath),
 		sdkSync.WithTmpDir(c.helpers.TempDir()),
-		sdkSync.WithResourceTypedSync(syncTask.GetResourceTypeId()),
-	}
-
-	if syncTask.GetSkipEntitlementsAndGrants() {
-		syncOpts = append(syncOpts, sdkSync.WithSkipEntitlementsAndGrants(true))
+		sdkSync.WithPartialSyncResourceType(syncTask.GetResourceTypeId()),
 	}
 
 	cc := c.helpers.ConnectorClient()
@@ -140,4 +137,3 @@ func newResourceTypedSyncTaskHandler(task *v1.Task, helpers fullSyncHelpers) tas
 		helpers: helpers,
 	}
 }
-
