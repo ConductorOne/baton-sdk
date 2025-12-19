@@ -529,6 +529,7 @@ func TestWrapper_RedactSensitiveHeaders(t *testing.T) {
 		"X-Auth-Token":        {"1234567890"},
 		"X-Api-Key":           {"1234567890"},
 		"Proxy-Authorization": {"Basic 1234567890"},
+		"Custom-Api-Key":      {"1234567890"},
 	}
 	redactedHeaders := RedactSensitiveHeaders(headers)
 	require.Equal(t, http.Header{
@@ -540,5 +541,6 @@ func TestWrapper_RedactSensitiveHeaders(t *testing.T) {
 		"X-Auth-Token":        {"REDACTED"},
 		"X-Api-Key":           {"REDACTED"},
 		"Proxy-Authorization": {"REDACTED"},
+		"Custom-Api-Key":      {"REDACTED"},
 	}, redactedHeaders)
 }

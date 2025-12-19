@@ -476,6 +476,16 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	return resp, errors.Join(optErrs...)
 }
 
+var sensitiveStrings = []string{
+	"api-key",
+	"auth",
+	"cookie",
+	"proxy-authorization",
+	"set-cookie",
+	"x-forwarded-for",
+	"x-forwarded-proto",
+}
+
 func RedactSensitiveHeaders(h http.Header) http.Header {
 	if h == nil {
 		return nil
@@ -484,12 +494,10 @@ func RedactSensitiveHeaders(h http.Header) http.Header {
 	for k, v := range h {
 		sensitive := false
 		headerKey := strings.ToLower(k)
-		if strings.HasPrefix(headerKey, "auth") {
-			sensitive = true
-		} else {
-			switch headerKey {
-			case "set-cookie", "cookie", "x-auth-token", "x-api-key", "x-auth-user", "proxy-authorization":
+		for _, sensitiveString := range sensitiveStrings {
+			if strings.Contains(headerKey, sensitiveString) {
 				sensitive = true
+				break
 			}
 		}
 
