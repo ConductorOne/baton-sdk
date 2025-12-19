@@ -142,8 +142,8 @@ const (
 	SyncGrantExpansionOp
 	SyncTargetedResourceOp
 	SyncStaticEntitlementsOp
-	SyncResourceTypedOp
-	SetupResourceTypedSyncOp
+	SyncResourceTypedOp       // Syncs resources of a specific type (incremental sync)
+	SetupResourceTypedSyncOp  // Discovers parent types and queues appropriate SyncResourceTypedOp actions
 )
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.

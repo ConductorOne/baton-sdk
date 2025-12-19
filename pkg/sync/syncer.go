@@ -220,7 +220,9 @@ type syncer struct {
 	injectSyncIDAnnotation              bool
 	setSessionStore                     sessions.SetSessionStore
 	syncResourceTypes                   []string
-	resourceTypedSyncID                 string
+	// resourceTypedSyncID is the target resource type for resource-typed incremental sync.
+	// Used both as the sync configuration and as the filter for child resource discovery.
+	resourceTypedSyncID string
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -1332,9 +1334,12 @@ func (s *syncer) resourceTypeHasChildType(ctx context.Context, resourceTypeID st
 	ctx, span := tracer.Start(ctx, "syncer.resourceTypeHasChildType")
 	defer span.End()
 
-	// Try to get a sample resource of this type from the connector
+	// Try to get a single sample resource of this type from the connector
+	// We only need one resource to check annotations since all resources of the same type
+	// should have the same child type annotations
 	resp, err := s.connector.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: resourceTypeID,
+		PageSize:       1,
 		ActiveSyncId:   s.getActiveSyncID(),
 	}.Build())
 	if err != nil {
@@ -1342,7 +1347,6 @@ func (s *syncer) resourceTypeHasChildType(ctx context.Context, resourceTypeID st
 	}
 
 	// Check the first resource's annotations for ChildResourceType matching our target
-	// All resources of the same type should have the same child type annotations
 	resources := resp.GetList()
 	if len(resources) == 0 {
 		return false, nil
