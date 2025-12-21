@@ -120,7 +120,7 @@ type C1File struct {
 	pragmas            []pragma
 	readOnly           bool
 	encoderConcurrency int
-	sqliteTuning        *SQLiteTuning
+	sqliteTuning       *SQLiteTuning
 
 	// Slow query tracking
 	slowQueryLogTimes     map[string]time.Time
