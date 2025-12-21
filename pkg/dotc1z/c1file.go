@@ -49,7 +49,7 @@ type SQLiteTuning struct {
 	MaxIdleConns int
 
 	// CacheSize sets SQLite's page cache size in KB (negative = KB, positive = pages).
-	// Default: -32768 (32MB) - knee point that balances performance and memory
+	// Default: -2000 (2MB) - original production value, conservative for memory usage
 	// Can be overridden via BATON_SQLITE_CACHE_SIZE_KB environment variable.
 	CacheSizeKB int
 
@@ -68,13 +68,14 @@ func defaultSQLiteTuning() SQLiteTuning {
 	tuning := SQLiteTuning{
 		MaxOpenConns: 1,
 		MaxIdleConns: 1,
-		CacheSizeKB:  -32768, // 32MB - knee point from benchmarks
-		MMapSizeMB:   0,      // Disabled by default (can be enabled per-service)
+		CacheSizeKB:  -2000, // 2MB - original production value, conservative for memory usage
+		MMapSizeMB:   0,     // Disabled by default (can be enabled per-service)
 	}
 
 	// Override from environment variables if set
+	// Note: MaxOpenConns=0 means unlimited (for testing/benchmarking only, not recommended for production)
 	if val := os.Getenv("BATON_SQLITE_MAX_OPEN_CONNS"); val != "" {
-		if n, err := strconv.Atoi(val); err == nil && n > 0 {
+		if n, err := strconv.Atoi(val); err == nil && n >= 0 {
 			tuning.MaxOpenConns = n
 		}
 	}
@@ -226,8 +227,15 @@ func applySQLiteTuning(c1File *C1File, tuning *SQLiteTuning) {
 	}
 
 	// Apply connection pool settings
+	// Note: MaxOpenConns=0 means unlimited in Go's sql.DB.
+	// This is intended for experimentation/benchmarking, not recommended for production use.
+	// Production should use explicit limits (e.g., MaxOpenConns=1) to prevent connection pool bloat.
 	if tuning.MaxOpenConns > 0 {
 		c1File.rawDb.SetMaxOpenConns(tuning.MaxOpenConns)
+	} else if tuning.MaxOpenConns == 0 {
+		// Explicitly set to 0 (unlimited) if tuning was provided with 0
+		// This allows overriding defaults to unlimited
+		c1File.rawDb.SetMaxOpenConns(0)
 	}
 	if tuning.MaxIdleConns > 0 {
 		c1File.rawDb.SetMaxIdleConns(tuning.MaxIdleConns)
@@ -359,6 +367,38 @@ func cleanupDbDir(dbFilePath string, err error) error {
 }
 
 var ErrReadOnly = errors.New("c1z: read only mode")
+
+// ConnectionPoolStats represents connection pool statistics from sql.DB
+type ConnectionPoolStats struct {
+	OpenConnections    int           // Current number of open connections
+	InUse              int           // Connections currently in use
+	Idle               int           // Idle connections
+	WaitCount          int64         // Total number of connections waited for
+	WaitDuration       time.Duration // Total time waited for a free connection
+	MaxIdleClosed      int64         // Total number of connections closed due to MaxIdleConns limit
+	MaxIdleTimeClosed  int64         // Total number of connections closed due to MaxIdleTime limit
+	MaxLifetimeClosed  int64         // Total number of connections closed due to MaxLifetime limit
+}
+
+// GetConnectionPoolStats returns current connection pool statistics.
+// Returns nil if the database connection is not available.
+func (c *C1File) GetConnectionPoolStats() *ConnectionPoolStats {
+	if c.rawDb == nil {
+		return nil
+	}
+
+	stats := c.rawDb.Stats()
+	return &ConnectionPoolStats{
+		OpenConnections:   stats.OpenConnections,
+		InUse:             stats.InUse,
+		Idle:              stats.Idle,
+		WaitCount:         stats.WaitCount,
+		WaitDuration:      stats.WaitDuration,
+		MaxIdleClosed:     stats.MaxIdleClosed,
+		MaxIdleTimeClosed: stats.MaxIdleTimeClosed,
+		MaxLifetimeClosed: stats.MaxLifetimeClosed,
+	}
+}
 
 // Close ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
 // with our changes.
