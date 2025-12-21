@@ -370,14 +370,14 @@ var ErrReadOnly = errors.New("c1z: read only mode")
 
 // ConnectionPoolStats represents connection pool statistics from sql.DB
 type ConnectionPoolStats struct {
-	OpenConnections    int           // Current number of open connections
-	InUse              int           // Connections currently in use
-	Idle               int           // Idle connections
-	WaitCount          int64         // Total number of connections waited for
-	WaitDuration       time.Duration // Total time waited for a free connection
-	MaxIdleClosed      int64         // Total number of connections closed due to MaxIdleConns limit
-	MaxIdleTimeClosed  int64         // Total number of connections closed due to MaxIdleTime limit
-	MaxLifetimeClosed  int64         // Total number of connections closed due to MaxLifetime limit
+	OpenConnections   int           // Current number of open connections
+	InUse             int           // Connections currently in use
+	Idle              int           // Idle connections
+	WaitCount         int64         // Total number of connections waited for
+	WaitDuration      time.Duration // Total time waited for a free connection
+	MaxIdleClosed     int64         // Total number of connections closed due to MaxIdleConns limit
+	MaxIdleTimeClosed int64         // Total number of connections closed due to MaxIdleTime limit
+	MaxLifetimeClosed int64         // Total number of connections closed due to MaxLifetime limit
 }
 
 // GetConnectionPoolStats returns current connection pool statistics.
