@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -33,6 +34,80 @@ type pragma struct {
 	value string
 }
 
+// SQLiteTuning holds SQLite performance tuning settings.
+// These are applied as safe defaults but can be overridden via environment variables
+// or WithC1FSQLiteTuning option.
+type SQLiteTuning struct {
+	// MaxOpenConns limits the maximum number of open connections to the database.
+	// Default: 1 (conservative, avoids lock contention)
+	// Can be overridden via BATON_SQLITE_MAX_OPEN_CONNS environment variable.
+	MaxOpenConns int
+
+	// MaxIdleConns limits the maximum number of idle connections.
+	// Default: same as MaxOpenConns
+	// Can be overridden via BATON_SQLITE_MAX_IDLE_CONNS environment variable.
+	MaxIdleConns int
+
+	// CacheSize sets SQLite's page cache size in KB (negative = KB, positive = pages).
+	// Default: -32768 (32MB) - knee point that balances performance and memory
+	// Can be overridden via BATON_SQLITE_CACHE_SIZE_KB environment variable.
+	CacheSizeKB int
+
+	// MMapSize sets SQLite's memory-mapped I/O size in bytes.
+	// Default: 0 (disabled) - can be enabled for specific workloads
+	// Can be overridden via BATON_SQLITE_MMAP_SIZE_MB environment variable.
+	// Note: Large values (e.g., 1GB) can help in some environments but may cause
+	// issues in memory-constrained containers or with certain filesystems.
+	MMapSizeMB int
+}
+
+// defaultSQLiteTuning returns safe default SQLite tuning settings.
+// These defaults are based on benchmarking and are conservative to work
+// well across different environments.
+func defaultSQLiteTuning() SQLiteTuning {
+	tuning := SQLiteTuning{
+		MaxOpenConns: 1,
+		MaxIdleConns: 1,
+		CacheSizeKB:  -32768, // 32MB - knee point from benchmarks
+		MMapSizeMB:   0,      // Disabled by default (can be enabled per-service)
+	}
+
+	// Override from environment variables if set
+	if val := os.Getenv("BATON_SQLITE_MAX_OPEN_CONNS"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n > 0 {
+			tuning.MaxOpenConns = n
+		}
+	}
+
+	if val := os.Getenv("BATON_SQLITE_MAX_IDLE_CONNS"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n > 0 {
+			tuning.MaxIdleConns = n
+		}
+	} else {
+		// Default MaxIdleConns to MaxOpenConns if not explicitly set
+		tuning.MaxIdleConns = tuning.MaxOpenConns
+	}
+
+	// Safety: Ensure MaxIdleConns doesn't exceed MaxOpenConns
+	if tuning.MaxIdleConns > tuning.MaxOpenConns {
+		tuning.MaxIdleConns = tuning.MaxOpenConns
+	}
+
+	if val := os.Getenv("BATON_SQLITE_CACHE_SIZE_KB"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil {
+			tuning.CacheSizeKB = n
+		}
+	}
+
+	if val := os.Getenv("BATON_SQLITE_MMAP_SIZE_MB"); val != "" {
+		if n, err := strconv.Atoi(val); err == nil && n >= 0 {
+			tuning.MMapSizeMB = n
+		}
+	}
+
+	return tuning
+}
+
 type C1File struct {
 	rawDb              *sql.DB
 	db                 *goqu.Database
@@ -45,6 +120,7 @@ type C1File struct {
 	pragmas            []pragma
 	readOnly           bool
 	encoderConcurrency int
+	sqliteTuning        *SQLiteTuning
 
 	// Slow query tracking
 	slowQueryLogTimes     map[string]time.Time
@@ -84,6 +160,17 @@ func WithC1FEncoderConcurrency(concurrency int) C1FOption {
 	}
 }
 
+// WithC1FSQLiteTuning sets custom SQLite tuning options.
+// If not provided, safe defaults are used (see SQLiteTuning).
+// Environment variables can override defaults (see defaultSQLiteTuning).
+func WithC1FSQLiteTuning(tuning SQLiteTuning) C1FOption {
+	return func(o *C1File) {
+		// Store tuning for later application
+		// We'll apply it after the DB is opened
+		o.sqliteTuning = &tuning
+	}
+}
+
 // Returns a C1File instance for the given db filepath.
 func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1File")
@@ -96,6 +183,9 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 
 	db := goqu.New("sqlite3", rawDB)
 
+	// Get SQLite tuning settings (defaults + env overrides)
+	tuning := defaultSQLiteTuning()
+
 	c1File := &C1File{
 		rawDb:                 rawDB,
 		db:                    db,
@@ -105,11 +195,16 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		slowQueryThreshold:    5 * time.Second,
 		slowQueryLogFrequency: 1 * time.Minute,
 		encoderConcurrency:    1,
+		sqliteTuning:          &tuning,
 	}
 
+	// Apply options (may override tuning)
 	for _, opt := range opts {
 		opt(c1File)
 	}
+
+	// Apply SQLite tuning settings
+	applySQLiteTuning(c1File, c1File.sqliteTuning)
 
 	err = c1File.validateDb(ctx)
 	if err != nil {
@@ -122,6 +217,52 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 	}
 
 	return c1File, nil
+}
+
+// applySQLiteTuning applies SQLite tuning settings to the database connection.
+func applySQLiteTuning(c1File *C1File, tuning *SQLiteTuning) {
+	if tuning == nil {
+		return
+	}
+
+	// Apply connection pool settings
+	if tuning.MaxOpenConns > 0 {
+		c1File.rawDb.SetMaxOpenConns(tuning.MaxOpenConns)
+	}
+	if tuning.MaxIdleConns > 0 {
+		c1File.rawDb.SetMaxIdleConns(tuning.MaxIdleConns)
+	}
+
+	// Apply cache_size pragma (if not already set via WithC1FPragma)
+	hasCacheSize := false
+	for _, p := range c1File.pragmas {
+		if p.name == "cache_size" {
+			hasCacheSize = true
+			break
+		}
+	}
+	if !hasCacheSize && tuning.CacheSizeKB != 0 {
+		c1File.pragmas = append(c1File.pragmas, pragma{
+			name:  "cache_size",
+			value: strconv.Itoa(tuning.CacheSizeKB),
+		})
+	}
+
+	// Apply mmap_size pragma (if not already set via WithC1FPragma)
+	hasMMapSize := false
+	for _, p := range c1File.pragmas {
+		if p.name == "mmap_size" {
+			hasMMapSize = true
+			break
+		}
+	}
+	if !hasMMapSize && tuning.MMapSizeMB > 0 {
+		mmapSizeBytes := tuning.MMapSizeMB * 1024 * 1024
+		c1File.pragmas = append(c1File.pragmas, pragma{
+			name:  "mmap_size",
+			value: strconv.Itoa(mmapSizeBytes),
+		})
+	}
 }
 
 type c1zOptions struct {
