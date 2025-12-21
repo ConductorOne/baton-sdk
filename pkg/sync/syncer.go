@@ -669,7 +669,33 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return err
 	}
 
-	l.Info("Sync complete.")
+	// Log connection pool stats if available.
+	// Use interface assertion to support wrapped implementations and avoid concrete type coupling.
+	// Using a local interface avoids expanding the public API.
+	type poolStatsProvider interface {
+		GetConnectionPoolStats() *dotc1z.ConnectionPoolStats
+	}
+
+	var poolStatsFields []zap.Field
+	if statsProvider, ok := s.store.(poolStatsProvider); ok {
+		if stats := statsProvider.GetConnectionPoolStats(); stats != nil {
+			// Always log all pool stats fields to provide cumulative contention evidence.
+			// Zero values are meaningful (e.g., WaitCount=0 proves no contention occurred).
+			poolStatsFields = []zap.Field{
+				zap.Int("db_open_connections", stats.OpenConnections),
+				zap.Int("db_in_use", stats.InUse),
+				zap.Int("db_idle", stats.Idle),
+				zap.Int64("db_wait_count", stats.WaitCount),
+				zap.Duration("db_wait_duration", stats.WaitDuration),
+			}
+		}
+	}
+
+	if len(poolStatsFields) > 0 {
+		l.Info("Sync complete.", poolStatsFields...)
+	} else {
+		l.Info("Sync complete.")
+	}
 
 	err = s.store.Cleanup(ctx)
 	if err != nil {
