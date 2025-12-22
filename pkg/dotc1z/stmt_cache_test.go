@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"database/sql"
+	"os"
 	"testing"
 )
 
@@ -413,6 +414,7 @@ func TestGetCacheStats_NoCache(t *testing.T) {
 
 func TestCacheStats_HitRate(t *testing.T) {
 	stats := &CacheStatsSnapshot{
+		MaxEntries: 100,
 		Hits:   90,
 		Misses: 10,
 	}
@@ -447,4 +449,60 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	}
 
 	return db, cleanup
+}
+
+func TestCacheEviction_MaxEntries(t *testing.T) {
+	// Set a small max entries for testing
+	oldMax := os.Getenv("BATON_STMT_CACHE_MAX_ENTRIES")
+	defer func() {
+		if oldMax != "" {
+			os.Setenv("BATON_STMT_CACHE_MAX_ENTRIES", oldMax)
+		} else {
+			os.Unsetenv("BATON_STMT_CACHE_MAX_ENTRIES")
+		}
+	}()
+	os.Setenv("BATON_STMT_CACHE_MAX_ENTRIES", "3")
+
+	ctx := context.Background()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	// Create 4 queries (exceeds max of 3)
+	queries := []string{"SELECT 1", "SELECT 2", "SELECT 3", "SELECT 4"}
+
+	for _, query := range queries {
+		stmt, err := GetPreparedStmt(ctx, db, query)
+		if err != nil {
+			t.Fatalf("GetPreparedStmt() error = %v", err)
+		}
+		_ = stmt
+	}
+
+	// Check cache stats
+	stats := GetCacheStats(db)
+	if stats == nil {
+		t.Fatal("GetCacheStats() returned nil")
+	}
+
+	// Cache should be at max entries (3)
+	if stats.CacheSize != 3 {
+		t.Errorf("Expected cache size 3, got %d", stats.CacheSize)
+	}
+
+	// Should have evicted 1 entry (4th query evicted the 1st)
+	if stats.Evictions != 1 {
+		t.Errorf("Expected 1 eviction, got %d", stats.Evictions)
+	}
+
+	// Verify the first query was evicted (not in cache)
+	_, err := GetPreparedStmt(ctx, db, queries[0])
+	if err != nil {
+		t.Fatalf("GetPreparedStmt() for evicted query should recreate it, got error = %v", err)
+	}
+
+	// Now we should have evicted another entry
+	stats2 := GetCacheStats(db)
+	if stats2.Evictions < stats.Evictions {
+		t.Error("Eviction count should increase when evicting again")
+	}
 }

@@ -4,24 +4,48 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unsafe"
 )
 
+const (
+	// defaultMaxCacheEntries is the default maximum number of prepared statements
+	// to cache per database connection. This prevents unbounded memory growth.
+	defaultMaxCacheEntries = 100
+)
+
+// getMaxCacheEntries returns the maximum number of cache entries per DB.
+// Can be overridden via BATON_STMT_CACHE_MAX_ENTRIES environment variable.
+func getMaxCacheEntries() int {
+	val := os.Getenv("BATON_STMT_CACHE_MAX_ENTRIES")
+	if val == "" {
+		return defaultMaxCacheEntries
+	}
+	max, err := strconv.Atoi(val)
+	if err != nil || max <= 0 {
+		return defaultMaxCacheEntries
+	}
+	return max
+}
+
 // stmtCacheEntry holds a prepared statement and metadata for a single query pattern.
 type stmtCacheEntry struct {
 	stmt  *sql.Stmt
 	query string // normalized query string
-	// Future: could add lastUsed time for LRU eviction
 }
 
 // dbStmtCache holds all cached statements for a single *sql.DB instance.
 type dbStmtCache struct {
-	mu    sync.RWMutex
-	cache map[string]*stmtCacheEntry
-	stats *cacheStats
+	mu         sync.RWMutex
+	cache      map[string]*stmtCacheEntry
+	stats      *cacheStats
+	maxEntries int
+	// evictionOrder tracks insertion order for FIFO eviction
+	evictionOrder []string
 }
 
 // cacheStats tracks cache performance metrics.
@@ -31,13 +55,20 @@ type cacheStats struct {
 	misses   int64
 	prepares int64
 	errors   int64
+	evictions int64 // number of entries evicted due to cache size limit
 }
 
 // getStats returns a snapshot of cache statistics.
-func (s *cacheStats) getStats() (int64, int64, int64, int64) {
+func (s *cacheStats) getStats() (int64, int64, int64, int64, int64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.hits, s.misses, s.prepares, s.errors
+	return s.hits, s.misses, s.prepares, s.errors, s.evictions
+}
+
+func (s *cacheStats) recordEviction() {
+	s.mu.Lock()
+	s.evictions++
+	s.mu.Unlock()
 }
 
 func (s *cacheStats) recordHit() {
@@ -80,8 +111,10 @@ func getDBCache(db *sql.DB) *dbStmtCache {
 
 	// Create new cache for this DB instance
 	newCache := &dbStmtCache{
-		cache: make(map[string]*stmtCacheEntry),
-		stats: &cacheStats{},
+		cache:         make(map[string]*stmtCacheEntry),
+		stats:         &cacheStats{},
+		maxEntries:    getMaxCacheEntries(),
+		evictionOrder: make([]string, 0, getMaxCacheEntries()),
 	}
 
 	// Use LoadOrStore to handle race condition where multiple goroutines
@@ -136,6 +169,17 @@ func GetPreparedStmt(ctx context.Context, db *sql.DB, query string) (*sql.Stmt, 
 	// Double-check after acquiring write lock (another goroutine might have created it)
 	entry, exists = dbCache.cache[normalized]
 	if exists && entry != nil && entry.stmt != nil {
+		// Move to end of eviction order (most recently used)
+		// This helps keep frequently used statements in cache longer
+		for i, key := range dbCache.evictionOrder {
+			if key == normalized {
+				// Remove from current position
+				dbCache.evictionOrder = append(dbCache.evictionOrder[:i], dbCache.evictionOrder[i+1:]...)
+				// Add to end
+				dbCache.evictionOrder = append(dbCache.evictionOrder, normalized)
+				break
+			}
+		}
 		dbCache.mu.Unlock()
 		dbCache.stats.recordHit()
 		return entry.stmt, nil
@@ -151,11 +195,29 @@ func GetPreparedStmt(ctx context.Context, db *sql.DB, query string) (*sql.Stmt, 
 
 	dbCache.stats.recordPrepare()
 
+	// Check if cache is at capacity and evict if necessary
+	if len(dbCache.cache) >= dbCache.maxEntries {
+		// Evict oldest entry (FIFO)
+		if len(dbCache.evictionOrder) > 0 {
+			oldestKey := dbCache.evictionOrder[0]
+			// Remove from eviction order
+			dbCache.evictionOrder = dbCache.evictionOrder[1:]
+			// Close and remove from cache
+			if oldEntry, exists := dbCache.cache[oldestKey]; exists && oldEntry != nil && oldEntry.stmt != nil {
+				_ = oldEntry.stmt.Close() // Ignore close errors during eviction
+			}
+			delete(dbCache.cache, oldestKey)
+			dbCache.stats.recordEviction()
+		}
+	}
+
 	// Cache the statement
 	dbCache.cache[normalized] = &stmtCacheEntry{
 		stmt:  stmt,
 		query: normalized,
 	}
+	// Add to eviction order (append to end)
+	dbCache.evictionOrder = append(dbCache.evictionOrder, normalized)
 
 	dbCache.mu.Unlock()
 
@@ -227,6 +289,7 @@ func ClosePreparedStatements(db *sql.DB) error {
 
 	// Clear the cache
 	dbCache.cache = make(map[string]*stmtCacheEntry)
+	dbCache.evictionOrder = make([]string, 0, dbCache.maxEntries)
 
 	return firstErr
 }
@@ -245,28 +308,33 @@ func GetCacheStats(db *sql.DB) *CacheStatsSnapshot {
 	}
 
 	dbCache := cacheInterface.(*dbStmtCache)
-	hits, misses, prepares, errors := dbCache.stats.getStats()
+	hits, misses, prepares, errors, evictions := dbCache.stats.getStats()
 
 	dbCache.mu.RLock()
 	cacheSize := len(dbCache.cache)
+	maxEntries := dbCache.maxEntries
 	dbCache.mu.RUnlock()
 
 	return &CacheStatsSnapshot{
-		CacheSize: cacheSize,
-		Hits:      hits,
-		Misses:    misses,
-		Prepares:  prepares,
-		Errors:    errors,
+		CacheSize:  cacheSize,
+		Hits:       hits,
+		Misses:     misses,
+		Prepares:   prepares,
+		Errors:     errors,
+		Evictions:  evictions,
+		MaxEntries: maxEntries,
 	}
 }
 
 // CacheStatsSnapshot is a snapshot of cache statistics at a point in time.
 type CacheStatsSnapshot struct {
-	CacheSize int   // Number of statements currently cached
-	Hits      int64 // Number of cache hits
-	Misses    int64 // Number of cache misses
-	Prepares  int64 // Number of statements prepared
-	Errors    int64 // Number of preparation errors
+	CacheSize  int   // Number of statements currently cached
+	Hits       int64 // Number of cache hits
+	Misses     int64 // Number of cache misses
+	Prepares   int64 // Number of statements prepared
+	Errors     int64 // Number of preparation errors
+	Evictions  int64 // Number of entries evicted due to cache size limit
+	MaxEntries int   // Maximum number of entries allowed in cache
 }
 
 // HitRate returns the cache hit rate as a percentage (0-100).
