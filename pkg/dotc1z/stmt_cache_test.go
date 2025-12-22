@@ -446,4 +446,3 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 
 	return db, cleanup
 }
-
