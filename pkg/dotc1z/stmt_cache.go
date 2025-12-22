@@ -50,7 +50,7 @@ type cacheStats struct {
 }
 
 // getStats returns a snapshot of cache statistics.
-func (s *cacheStats) getStats() (hits, misses, prepares, errors int64) {
+func (s *cacheStats) getStats() (int64, int64, int64, int64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.hits, s.misses, s.prepares, s.errors
@@ -336,7 +336,7 @@ func GetQueryStats(db *sql.DB) []QueryStats {
 		if entry == nil {
 			continue
 		}
-		
+
 		var hitRate float64
 		if entry.execCount > 0 {
 			hitRate = float64(entry.hitCount) / float64(entry.execCount) * 100.0

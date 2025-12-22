@@ -6,6 +6,8 @@ import (
 	"testing"
 )
 
+const testQuerySelect1 = "SELECT 1"
+
 func TestNormalizeQuery(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -64,7 +66,7 @@ func TestGetPreparedStmt_CacheHit(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	query := "SELECT 1"
+	query := testQuerySelect1
 
 	// First call - should be a cache miss
 	stmt1, err := GetPreparedStmt(ctx, db, query)
@@ -109,7 +111,7 @@ func TestGetPreparedStmt_CacheHitRate(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	query := "SELECT 1"
+	query := testQuerySelect1
 
 	// Call 10 times - first should miss, rest should hit
 	for i := 0; i < 10; i++ {
@@ -146,7 +148,7 @@ func TestGetPreparedStmt_DifferentQueries(t *testing.T) {
 	defer cleanup()
 
 	queries := []string{
-		"SELECT 1",
+		testQuerySelect1,
 		"SELECT 2",
 		"SELECT * FROM table WHERE id = ?",
 	}
@@ -175,7 +177,7 @@ func TestGetPreparedStmt_DifferentQueries(t *testing.T) {
 func TestGetPreparedStmt_NilDB(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := GetPreparedStmt(ctx, nil, "SELECT 1")
+	_, err := GetPreparedStmt(ctx, nil, testQuerySelect1)
 	if err == nil {
 		t.Error("GetPreparedStmt() with nil DB should return error")
 	}
@@ -211,7 +213,7 @@ func TestGetPreparedStmt_ConcurrentAccess(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	query := "SELECT 1"
+	query := testQuerySelect1
 
 	// Concurrently prepare the same query
 	done := make(chan bool, 10)
@@ -349,7 +351,7 @@ func TestClosePreparedStatements(t *testing.T) {
 	defer cleanup()
 
 	// Prepare some statements
-	queries := []string{"SELECT 1", "SELECT 2", "SELECT 3"}
+	queries := []string{testQuerySelect1, "SELECT 2", "SELECT 3"}
 	for _, query := range queries {
 		stmt, err := GetPreparedStmt(ctx, db, query)
 		if err != nil {
@@ -394,7 +396,7 @@ func TestGetCacheStats_NoCache(t *testing.T) {
 	}
 
 	// Create a cache entry by preparing a statement
-	_, err := GetPreparedStmt(context.Background(), db, "SELECT 1")
+	_, err := GetPreparedStmt(context.Background(), db, testQuerySelect1)
 	if err != nil {
 		t.Fatalf("GetPreparedStmt() failed: %v", err)
 	}
@@ -432,7 +434,7 @@ func TestCacheStats_HitRate(t *testing.T) {
 	}
 }
 
-// setupTestDB creates a temporary in-memory SQLite database for testing
+// setupTestDB creates a temporary in-memory SQLite database for testing.
 func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -440,8 +442,8 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	}
 
 	cleanup := func() {
-		ClosePreparedStatements(db)
-		db.Close()
+		_ = ClosePreparedStatements(db)
+		_ = db.Close()
 	}
 
 	return db, cleanup
@@ -453,7 +455,7 @@ func TestQueryStats_DisabledByDefault(t *testing.T) {
 	defer cleanup()
 
 	// Execute some queries
-	query := "SELECT 1"
+	query := testQuerySelect1
 	_, err := GetPreparedStmt(ctx, db, query)
 	if err != nil {
 		t.Fatalf("GetPreparedStmt() error = %v", err)
@@ -477,7 +479,7 @@ func TestQueryStats_CanBeEnabled(t *testing.T) {
 	defer cleanup()
 
 	// Execute queries multiple times
-	query := "SELECT 1"
+	query := testQuerySelect1
 	for i := 0; i < 3; i++ {
 		stmt, err := GetPreparedStmt(ctx, db, query)
 		if err != nil {
@@ -495,4 +497,3 @@ func TestQueryStats_CanBeEnabled(t *testing.T) {
 	// The actual behavior depends on whether BATON_ENABLE_QUERY_STATS was set
 	// when the package was loaded. This test just verifies the function doesn't crash.
 }
-

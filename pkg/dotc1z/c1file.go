@@ -229,7 +229,7 @@ func (c *C1File) Close() error {
 		if closeErr := ClosePreparedStatements(c.rawDb); closeErr != nil {
 			err = errors.Join(err, closeErr)
 		}
-		
+
 		closeErr := c.rawDb.Close()
 		if closeErr != nil {
 			err = errors.Join(err, closeErr)
