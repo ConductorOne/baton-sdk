@@ -122,7 +122,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 		return nil, err
 	}
 
-	row := c.db.QueryRowContext(ctx, query, args...)
+	row := QueryRowContextWithCache(ctx, c.rawDb, query, args...)
 
 	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID)
 	if err != nil {
@@ -168,7 +168,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 		return nil, err
 	}
 
-	row := c.db.QueryRowContext(ctx, query, args...)
+	row := QueryRowContextWithCache(ctx, c.rawDb, query, args...)
 
 	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID)
 	if err != nil {

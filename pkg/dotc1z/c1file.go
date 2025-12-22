@@ -225,9 +225,17 @@ func (c *C1File) Close() error {
 	var err error
 
 	if c.rawDb != nil {
-		err = c.rawDb.Close()
-		if err != nil {
-			return cleanupDbDir(c.dbFilePath, err)
+		// Close all cached prepared statements before closing the database
+		if closeErr := ClosePreparedStatements(c.rawDb); closeErr != nil {
+			err = errors.Join(err, closeErr)
+		}
+		
+		closeErr := c.rawDb.Close()
+		if closeErr != nil {
+			err = errors.Join(err, closeErr)
+			if err != nil {
+				return cleanupDbDir(c.dbFilePath, err)
+			}
 		}
 	}
 	c.rawDb = nil
