@@ -3493,6 +3493,8 @@ func (m *Task_SyncFullTask) validate(all bool) error {
 
 	}
 
+	// no validation rules for PartialSyncResourceTypeId
+
 	if len(errors) > 0 {
 		return Task_SyncFullTaskMultiError(errors)
 	}
@@ -3630,8 +3632,6 @@ func (m *Task_SyncResourceTypedTask) validate(all bool) error {
 	}
 
 	// no validation rules for ResourceTypeId
-
-	// no validation rules for SkipEntitlementsAndGrants
 
 	if len(errors) > 0 {
 		return Task_SyncResourceTypedTaskMultiError(errors)

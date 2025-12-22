@@ -36,6 +36,7 @@ type fullSyncTaskHandler struct {
 	externalResourceEntitlementIdFilter string
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
+	partialSyncResourceTypeID           string
 }
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
@@ -86,6 +87,16 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 
 	if len(c.syncResourceTypeIDs) > 0 {
 		syncOpts = append(syncOpts, sdkSync.WithSyncResourceTypes(c.syncResourceTypeIDs))
+	}
+
+	// Check for partial sync resource type from task or CLI
+	partialSyncResourceTypeID := c.task.GetSyncFull().GetPartialSyncResourceTypeId()
+	if partialSyncResourceTypeID == "" {
+		partialSyncResourceTypeID = c.partialSyncResourceTypeID
+	}
+	if partialSyncResourceTypeID != "" {
+		l.Info("Running partial sync for resource type", zap.String("resource_type_id", partialSyncResourceTypeID))
+		syncOpts = append(syncOpts, sdkSync.WithPartialSyncResourceType(partialSyncResourceTypeID))
 	}
 
 	if setSessionStore, ok := cc.(session.SetSessionStore); ok {
@@ -199,6 +210,7 @@ func newFullSyncTaskHandler(
 	externalResourceEntitlementIdFilter string,
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
+	partialSyncResourceTypeID string,
 ) tasks.TaskHandler {
 	return &fullSyncTaskHandler{
 		task:                                task,
@@ -208,6 +220,7 @@ func newFullSyncTaskHandler(
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
+		partialSyncResourceTypeID:           partialSyncResourceTypeID,
 	}
 }
 

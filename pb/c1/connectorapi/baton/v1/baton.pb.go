@@ -2587,6 +2587,10 @@ type Task_SyncFullTask struct {
 	SkipExpandGrants          bool                   `protobuf:"varint,2,opt,name=skip_expand_grants,json=skipExpandGrants,proto3" json:"skip_expand_grants,omitempty"`
 	SkipEntitlementsAndGrants bool                   `protobuf:"varint,3,opt,name=skip_entitlements_and_grants,json=skipEntitlementsAndGrants,proto3" json:"skip_entitlements_and_grants,omitempty"`
 	TargetedSyncResources     []*v2.Resource         `protobuf:"bytes,4,rep,name=targeted_sync_resources,json=targetedSyncResources,proto3" json:"targeted_sync_resources,omitempty"`
+	// partial_sync_resource_type_id triggers a partial sync for a single resource type.
+	// When set, only resources of this type are synced (with parent discovery).
+	// Entitlements and grants are never synced for partial syncs.
+	PartialSyncResourceTypeId string `protobuf:"bytes,5,opt,name=partial_sync_resource_type_id,json=partialSyncResourceTypeId,proto3" json:"partial_sync_resource_type_id,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -2644,6 +2648,13 @@ func (x *Task_SyncFullTask) GetTargetedSyncResources() []*v2.Resource {
 	return nil
 }
 
+func (x *Task_SyncFullTask) GetPartialSyncResourceTypeId() string {
+	if x != nil {
+		return x.PartialSyncResourceTypeId
+	}
+	return ""
+}
+
 func (x *Task_SyncFullTask) SetAnnotations(v []*anypb.Any) {
 	x.Annotations = v
 }
@@ -2660,6 +2671,10 @@ func (x *Task_SyncFullTask) SetTargetedSyncResources(v []*v2.Resource) {
 	x.TargetedSyncResources = v
 }
 
+func (x *Task_SyncFullTask) SetPartialSyncResourceTypeId(v string) {
+	x.PartialSyncResourceTypeId = v
+}
+
 type Task_SyncFullTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -2667,6 +2682,10 @@ type Task_SyncFullTask_builder struct {
 	SkipExpandGrants          bool
 	SkipEntitlementsAndGrants bool
 	TargetedSyncResources     []*v2.Resource
+	// partial_sync_resource_type_id triggers a partial sync for a single resource type.
+	// When set, only resources of this type are synced (with parent discovery).
+	// Entitlements and grants are never synced for partial syncs.
+	PartialSyncResourceTypeId string
 }
 
 func (b0 Task_SyncFullTask_builder) Build() *Task_SyncFullTask {
@@ -2677,16 +2696,17 @@ func (b0 Task_SyncFullTask_builder) Build() *Task_SyncFullTask {
 	x.SkipExpandGrants = b.SkipExpandGrants
 	x.SkipEntitlementsAndGrants = b.SkipEntitlementsAndGrants
 	x.TargetedSyncResources = b.TargetedSyncResources
+	x.PartialSyncResourceTypeId = b.PartialSyncResourceTypeId
 	return m0
 }
 
+// Deprecated: Use SyncFullTask.partial_sync_resource_type_id instead.
 type Task_SyncResourceTypedTask struct {
-	state                     protoimpl.MessageState `protogen:"hybrid.v1"`
-	Annotations               []*anypb.Any           `protobuf:"bytes,1,rep,name=annotations,proto3" json:"annotations,omitempty"`
-	ResourceTypeId            string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"`
-	SkipEntitlementsAndGrants bool                   `protobuf:"varint,3,opt,name=skip_entitlements_and_grants,json=skipEntitlementsAndGrants,proto3" json:"skip_entitlements_and_grants,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state          protoimpl.MessageState `protogen:"hybrid.v1"`
+	Annotations    []*anypb.Any           `protobuf:"bytes,1,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	ResourceTypeId string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Task_SyncResourceTypedTask) Reset() {
@@ -2728,13 +2748,6 @@ func (x *Task_SyncResourceTypedTask) GetResourceTypeId() string {
 	return ""
 }
 
-func (x *Task_SyncResourceTypedTask) GetSkipEntitlementsAndGrants() bool {
-	if x != nil {
-		return x.SkipEntitlementsAndGrants
-	}
-	return false
-}
-
 func (x *Task_SyncResourceTypedTask) SetAnnotations(v []*anypb.Any) {
 	x.Annotations = v
 }
@@ -2743,16 +2756,11 @@ func (x *Task_SyncResourceTypedTask) SetResourceTypeId(v string) {
 	x.ResourceTypeId = v
 }
 
-func (x *Task_SyncResourceTypedTask) SetSkipEntitlementsAndGrants(v bool) {
-	x.SkipEntitlementsAndGrants = v
-}
-
 type Task_SyncResourceTypedTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Annotations               []*anypb.Any
-	ResourceTypeId            string
-	SkipEntitlementsAndGrants bool
+	Annotations    []*anypb.Any
+	ResourceTypeId string
 }
 
 func (b0 Task_SyncResourceTypedTask_builder) Build() *Task_SyncResourceTypedTask {
@@ -2761,7 +2769,6 @@ func (b0 Task_SyncResourceTypedTask_builder) Build() *Task_SyncResourceTypedTask
 	_, _ = b, x
 	x.Annotations = b.Annotations
 	x.ResourceTypeId = b.ResourceTypeId
-	x.SkipEntitlementsAndGrants = b.SkipEntitlementsAndGrants
 	return m0
 }
 
@@ -5002,16 +5009,16 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\bNoneTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1aC\n" +
 	"\tHelloTask\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\x88\x02\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\xca\x02\n" +
 	"\fSyncFullTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12,\n" +
 	"\x12skip_expand_grants\x18\x02 \x01(\bR\x10skipExpandGrants\x12?\n" +
 	"\x1cskip_entitlements_and_grants\x18\x03 \x01(\bR\x19skipEntitlementsAndGrants\x12Q\n" +
-	"\x17targeted_sync_resources\x18\x04 \x03(\v2\x19.c1.connector.v2.ResourceR\x15targetedSyncResources\x1a\xba\x01\n" +
+	"\x17targeted_sync_resources\x18\x04 \x03(\v2\x19.c1.connector.v2.ResourceR\x15targetedSyncResources\x12@\n" +
+	"\x1dpartial_sync_resource_type_id\x18\x05 \x01(\tR\x19partialSyncResourceTypeId\x1ay\n" +
 	"\x15SyncResourceTypedTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
-	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x12?\n" +
-	"\x1cskip_entitlements_and_grants\x18\x03 \x01(\bR\x19skipEntitlementsAndGrants\x1a~\n" +
+	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x1a~\n" +
 	"\rEventFeedTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x125\n" +
 	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x1a\xf3\x01\n" +

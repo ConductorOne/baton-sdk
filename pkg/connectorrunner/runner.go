@@ -849,6 +849,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.externalResourceEntitlementIdFilter,
 		resources,
 		cfg.syncResourceTypeIDs,
+		cfg.partialSyncResourceTypeID,
 	)
 	if err != nil {
 		return nil, err
