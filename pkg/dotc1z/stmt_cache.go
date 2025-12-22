@@ -25,11 +25,11 @@ func getMaxCacheEntries() int {
 	if val == "" {
 		return defaultMaxCacheEntries
 	}
-	max, err := strconv.Atoi(val)
-	if err != nil || max <= 0 {
+	maxEntries, err := strconv.Atoi(val)
+	if err != nil || maxEntries <= 0 {
 		return defaultMaxCacheEntries
 	}
-	return max
+	return maxEntries
 }
 
 // stmtCacheEntry holds a prepared statement and metadata for a single query pattern.
@@ -50,11 +50,11 @@ type dbStmtCache struct {
 
 // cacheStats tracks cache performance metrics.
 type cacheStats struct {
-	mu       sync.RWMutex
-	hits     int64
-	misses   int64
-	prepares int64
-	errors   int64
+	mu        sync.RWMutex
+	hits      int64
+	misses    int64
+	prepares  int64
+	errors    int64
 	evictions int64 // number of entries evicted due to cache size limit
 }
 

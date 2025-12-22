@@ -415,8 +415,8 @@ func TestGetCacheStats_NoCache(t *testing.T) {
 func TestCacheStats_HitRate(t *testing.T) {
 	stats := &CacheStatsSnapshot{
 		MaxEntries: 100,
-		Hits:   90,
-		Misses: 10,
+		Hits:      90,
+		Misses:    10,
 	}
 
 	hitRate := stats.HitRate()
