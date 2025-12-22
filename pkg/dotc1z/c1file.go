@@ -255,6 +255,12 @@ func (c *C1File) Close() error {
 	return cleanupDbDir(c.dbFilePath, err)
 }
 
+// RawDB returns the underlying *sql.DB instance.
+// This is useful for accessing cache statistics and other low-level operations.
+func (c *C1File) RawDB() *sql.DB {
+	return c.rawDb
+}
+
 // init ensures that the database has all of the required schema.
 func (c *C1File) init(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.init")

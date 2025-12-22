@@ -237,8 +237,8 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	// Start timing the query execution
 	queryStartTime := time.Now()
 
-	// Execute the query
-	rows, err := c.db.QueryContext(ctx, query, args...)
+	// Execute the query using cached prepared statement
+	rows, err := QueryContextWithCache(ctx, c.rawDb, query, args...)
 	if err != nil {
 		return nil, "", err
 	}
@@ -624,7 +624,7 @@ func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceI
 	}
 
 	data := make([]byte, 0)
-	row := c.db.QueryRowContext(ctx, query, args...)
+	row := QueryRowContextWithCache(ctx, c.rawDb, query, args...)
 	err = row.Scan(&data)
 	if err != nil {
 		return err
@@ -684,7 +684,7 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	}
 
 	data := make([]byte, 0)
-	row := c.db.QueryRowContext(ctx, query, args...)
+	row := QueryRowContextWithCache(ctx, c.rawDb, query, args...)
 	err = row.Scan(&data)
 	if err != nil {
 		return err

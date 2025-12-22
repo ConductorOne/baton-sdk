@@ -4,15 +4,32 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unsafe"
 )
 
+// queryStatsEnabled controls whether detailed per-query statistics are tracked.
+// This is controlled by the BATON_ENABLE_QUERY_STATS environment variable.
+// Defaults to false (disabled) to avoid overhead in production.
+var queryStatsEnabled = func() bool {
+	val := os.Getenv("BATON_ENABLE_QUERY_STATS")
+	if val == "" {
+		return false // Default: disabled
+	}
+	enabled, _ := strconv.ParseBool(val)
+	return enabled
+}()
+
 // stmtCacheEntry holds a prepared statement and metadata for a single query pattern.
 type stmtCacheEntry struct {
-	stmt *sql.Stmt
+	stmt      *sql.Stmt
+	query     string // normalized query string
+	execCount int64  // number of times this query was executed
+	hitCount  int64  // number of cache hits for this query
 	// Future: could add lastUsed time for LRU eviction
 }
 
@@ -125,6 +142,11 @@ func GetPreparedStmt(ctx context.Context, db *sql.DB, query string) (*sql.Stmt, 
 
 	if exists && entry != nil && entry.stmt != nil {
 		dbCache.stats.recordHit()
+		// Track per-query stats only if enabled
+		if queryStatsEnabled {
+			entry.hitCount++
+			entry.execCount++
+		}
 		return entry.stmt, nil
 	}
 
@@ -137,6 +159,10 @@ func GetPreparedStmt(ctx context.Context, db *sql.DB, query string) (*sql.Stmt, 
 	if exists && entry != nil && entry.stmt != nil {
 		dbCache.mu.Unlock()
 		dbCache.stats.recordHit()
+		if queryStatsEnabled {
+			entry.hitCount++
+			entry.execCount++
+		}
 		return entry.stmt, nil
 	}
 
@@ -151,9 +177,16 @@ func GetPreparedStmt(ctx context.Context, db *sql.DB, query string) (*sql.Stmt, 
 	dbCache.stats.recordPrepare()
 
 	// Cache the statement
-	dbCache.cache[normalized] = &stmtCacheEntry{
-		stmt: stmt,
+	newEntry := &stmtCacheEntry{
+		stmt:  stmt,
+		query: normalized,
 	}
+	// Track per-query stats only if enabled
+	if queryStatsEnabled {
+		newEntry.execCount = 1 // First execution
+		newEntry.hitCount = 0  // This was a miss, not a hit
+	}
+	dbCache.cache[normalized] = newEntry
 
 	dbCache.mu.Unlock()
 
@@ -265,6 +298,59 @@ type CacheStatsSnapshot struct {
 	Misses    int64 // Number of cache misses
 	Prepares  int64 // Number of statements prepared
 	Errors    int64 // Number of preparation errors
+}
+
+// QueryStats represents execution statistics for a single cached query.
+type QueryStats struct {
+	Query     string  // Normalized query string
+	ExecCount int64   // Total number of executions
+	HitCount  int64   // Number of cache hits
+	HitRate   float64 // Hit rate as percentage (0-100)
+}
+
+// GetQueryStats returns per-query execution statistics.
+// This helps identify which queries are executed most frequently and benefit from caching.
+// Returns an empty slice if query stats tracking is disabled (BATON_ENABLE_QUERY_STATS=false).
+func GetQueryStats(db *sql.DB) []QueryStats {
+	if db == nil {
+		return nil
+	}
+
+	// If stats tracking is disabled, return empty slice
+	if !queryStatsEnabled {
+		return []QueryStats{}
+	}
+
+	dbPtr := uintptr(unsafe.Pointer(db))
+	cacheInterface, ok := globalStmtCaches.Load(dbPtr)
+	if !ok {
+		return nil
+	}
+
+	dbCache := cacheInterface.(*dbStmtCache)
+	dbCache.mu.RLock()
+	defer dbCache.mu.RUnlock()
+
+	stats := make([]QueryStats, 0, len(dbCache.cache))
+	for normalized, entry := range dbCache.cache {
+		if entry == nil {
+			continue
+		}
+		
+		var hitRate float64
+		if entry.execCount > 0 {
+			hitRate = float64(entry.hitCount) / float64(entry.execCount) * 100.0
+		}
+		
+		stats = append(stats, QueryStats{
+			Query:     normalized,
+			ExecCount: entry.execCount,
+			HitCount:  entry.hitCount,
+			HitRate:   hitRate,
+		})
+	}
+
+	return stats
 }
 
 // HitRate returns the cache hit rate as a percentage (0-100).
