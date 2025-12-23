@@ -99,6 +99,9 @@ type syncRun struct {
 // This avoids N+1 queries when paginating through listConnectorObjects.
 // The result is computed once and cached for the lifetime of the C1File.
 func (c *C1File) getCachedViewSyncRun(ctx context.Context) (*syncRun, error) {
+	ctx, span := tracer.Start(ctx, "C1File.getCachedViewSyncRun")
+	defer span.End()
+
 	c.cachedViewSyncOnce.Do(func() {
 		// First try to get a finished full sync
 		c.cachedViewSyncRun, c.cachedViewSyncErr = c.getFinishedSync(ctx, 0, connectorstore.SyncTypeFull)
