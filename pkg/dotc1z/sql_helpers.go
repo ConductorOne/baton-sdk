@@ -194,18 +194,10 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	case reqSyncID != "":
 		q = q.Where(goqu.C("sync_id").Eq(reqSyncID))
 	default:
-		var latestSyncRun *syncRun
-		var err error
-		latestSyncRun, err = c.getFinishedSync(ctx, 0, connectorstore.SyncTypeFull)
+		// Use cached sync run to avoid N+1 queries during pagination
+		latestSyncRun, err := c.getCachedViewSyncRun(ctx)
 		if err != nil {
 			return nil, "", err
-		}
-
-		if latestSyncRun == nil {
-			latestSyncRun, err = c.getLatestUnfinishedSync(ctx, connectorstore.SyncTypeAny)
-			if err != nil {
-				return nil, "", err
-			}
 		}
 
 		if latestSyncRun != nil {
