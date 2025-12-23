@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -238,9 +239,15 @@ func (c *C1File) Close() error {
 		if c.dbUpdated && !c.readOnly {
 			_, err = c.rawDb.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 			if err != nil {
-				// Log but don't fail - the close will still checkpoint
-				// This is a best-effort to ensure durability
-				_ = err
+				// Checkpoint failed - log and continue. The subsequent Close()
+				// will attempt a passive checkpoint. If that also fails, we'll
+				// get an error from Close() or saveC1z() will read stale data.
+				// We log here for debugging but don't fail because:
+				// 1. Close() will still attempt its own checkpoint
+				// 2. The error might be transient (busy)
+				zap.L().Warn("WAL checkpoint failed before close",
+					zap.Error(err),
+					zap.String("db_path", c.dbFilePath))
 			}
 		}
 
