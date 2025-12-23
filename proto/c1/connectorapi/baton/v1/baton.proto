@@ -52,6 +52,24 @@ message Task {
     repeated connector.v2.Resource targeted_sync_resources = 4;
   }
 
+  // SyncPartialTask is a partial sync task that syncs either targeted resources or a single resource type.
+  // When using targeted_resources, entitlements and grants are included.
+  // When using resource_type_id, only resources are synced (entitlements and grants are skipped).
+  message SyncPartialTask {
+    message TargetedResources {
+      repeated connector.v2.Resource resources = 1;
+    }
+
+    repeated google.protobuf.Any annotations = 1;
+
+    oneof sync_mode {
+      // Targeted resources to sync - includes entitlements and grants
+      TargetedResources targeted_resources = 2;
+      // Single resource type to sync - skips entitlements and grants
+      string resource_type_id = 3;
+    }
+  }
+
   message EventFeedTask {
     repeated google.protobuf.Any annotations = 1;
     google.protobuf.Timestamp start_at = 2;
@@ -175,6 +193,7 @@ message Task {
     ActionStatusTask action_status = 118;
     CreateSyncDiffTask create_sync_diff = 119;
     CompactSyncs compact_syncs = 120;
+    SyncPartialTask sync_partial = 121;
   }
   bool debug = 3;
 }

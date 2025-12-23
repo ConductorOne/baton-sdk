@@ -67,6 +67,10 @@ func (s ActionOp) String() string {
 		return "targeted-resource-sync"
 	case SyncStaticEntitlementsOp:
 		return "list-static-entitlements"
+	case SyncResourceTypedOp:
+		return "sync-resource-typed"
+	case SetupResourceTypedSyncOp:
+		return "setup-resource-typed-sync"
 	default:
 		return "unknown"
 	}
@@ -114,6 +118,10 @@ func newActionOp(str string) ActionOp {
 		return SyncStaticEntitlementsOp
 	case ListResourcesForEntitlementsOp.String():
 		return ListResourcesForEntitlementsOp
+	case SyncResourceTypedOp.String():
+		return SyncResourceTypedOp
+	case SetupResourceTypedSyncOp.String():
+		return SetupResourceTypedSyncOp
 	default:
 		return UnknownOp
 	}
@@ -134,6 +142,8 @@ const (
 	SyncGrantExpansionOp
 	SyncTargetedResourceOp
 	SyncStaticEntitlementsOp
+	SyncResourceTypedOp       // Syncs resources of a specific type (incremental sync)
+	SetupResourceTypedSyncOp  // Discovers parent types and queues appropriate SyncResourceTypedOp actions
 )
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
