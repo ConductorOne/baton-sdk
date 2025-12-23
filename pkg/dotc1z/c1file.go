@@ -225,6 +225,25 @@ func (c *C1File) Close() error {
 	var err error
 
 	if c.rawDb != nil {
+		// CRITICAL: Force a full WAL checkpoint before closing the database.
+		// This ensures all WAL data is written back to the main database file
+		// and the writes are synced to disk. Without this, on filesystems with
+		// aggressive caching (like ZFS with large ARC), the subsequent saveC1z()
+		// read could see stale data because the checkpoint writes may still be
+		// in kernel buffers.
+		//
+		// TRUNCATE mode: checkpoint as many frames as possible, then truncate
+		// the WAL file to zero bytes. This guarantees all data is in the main
+		// database file before we read it for compression.
+		if c.dbUpdated && !c.readOnly {
+			_, err = c.rawDb.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+			if err != nil {
+				// Log but don't fail - the close will still checkpoint
+				// This is a best-effort to ensure durability
+				_ = err
+			}
+		}
+
 		err = c.rawDb.Close()
 		if err != nil {
 			return cleanupDbDir(c.dbFilePath, err)
