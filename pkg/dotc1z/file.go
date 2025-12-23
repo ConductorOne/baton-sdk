@@ -106,37 +106,32 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 	}
 	defer func() {
 		if dbFile != nil {
-			err = dbFile.Close()
-			if err != nil {
-				zap.L().Error("failed to close db file", zap.Error(err))
+			if closeErr := dbFile.Close(); closeErr != nil {
+				zap.L().Error("failed to close db file", zap.Error(closeErr))
 			}
 		}
 	}()
 
-	// Write to a temporary file first to ensure atomic writes.
-	// This prevents file corruption if the process crashes mid-write,
-	// since the original file remains intact until the rename succeeds.
-	tmpPath := outputFilePath + ".tmp"
-	outFile, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	// Write to temp file first, then atomic rename on success.
+	// This ensures outputFilePath never contains partial/corrupt data.
+	// Use CreateTemp for unique filename to prevent concurrent writer races.
+	outputDir := filepath.Dir(outputFilePath)
+	outputBase := filepath.Base(outputFilePath)
+	outFile, err := os.CreateTemp(outputDir, outputBase+".tmp-*")
 	if err != nil {
 		return err
 	}
+	tmpPath := outFile.Name()
 
-	// Track whether we successfully completed the write
-	success := false
+	// Clean up temp file on any failure
 	defer func() {
 		if outFile != nil {
-			err = outFile.Close()
-			if err != nil {
-				zap.L().Error("failed to close out file", zap.Error(err))
+			if closeErr := outFile.Close(); closeErr != nil {
+				zap.L().Error("failed to close temp file", zap.Error(closeErr))
 			}
 		}
-		// Clean up temp file if we didn't successfully rename it
-		if !success {
-			if removeErr := os.Remove(tmpPath); removeErr != nil && !os.IsNotExist(removeErr) {
-				zap.L().Error("failed to remove temp file", zap.Error(removeErr))
-			}
-		}
+		// Remove temp file if it exists (no-op if rename succeeded)
+		_ = os.Remove(tmpPath)
 	}()
 
 	// Write the magic file header
@@ -174,20 +169,26 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 
 	err = outFile.Sync()
 	if err != nil {
-		return fmt.Errorf("failed to sync out file: %w", err)
+		return fmt.Errorf("failed to sync temp file: %w", err)
 	}
 
 	err = outFile.Close()
 	if err != nil {
-		return fmt.Errorf("failed to close out file: %w", err)
+		return fmt.Errorf("failed to close temp file: %w", err)
 	}
-	outFile = nil
+	outFile = nil // Prevent double-close in defer
 
 	err = dbFile.Close()
 	if err != nil {
 		return fmt.Errorf("failed to close db file: %w", err)
 	}
-	dbFile = nil
+	dbFile = nil // Prevent double-close in defer
+
+	// Atomic rename: outputFilePath now has complete, valid data
+	// This is the only point where outputFilePath is modified
+	if err = os.Rename(tmpPath, outputFilePath); err != nil {
+		return fmt.Errorf("failed to rename temp file to output: %w", err)
+	}
 
 	// Atomically replace the original file with the temp file.
 	// This ensures the original file remains intact if there was any
@@ -196,7 +197,6 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 	if err != nil {
 		return fmt.Errorf("failed to rename temp file to output file: %w", err)
 	}
-	success = true
 
 	return nil
 }
