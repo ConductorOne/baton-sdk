@@ -76,13 +76,12 @@ func TestSaveC1z(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, testData, decodedData)
 	})
-
 }
 
 // TestSaveC1zAtomicWrite verifies that saveC1z uses atomic writes:
-// 1. Output file is never partially written (either old data or new data, never corrupt)
-// 2. Temp files are cleaned up on failure
-// 3. Existing output file is preserved if saveC1z fails
+// 1. Output file is never partially written (either old data or new data, never corrupt).
+// 2. Temp files are cleaned up on failure.
+// 3. Existing output file is preserved if saveC1z fails.
 func TestSaveC1zAtomicWrite(t *testing.T) {
 	tmpDir := t.TempDir()
 
