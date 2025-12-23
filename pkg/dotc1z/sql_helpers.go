@@ -259,7 +259,8 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	var count uint32 = 0
 	lastRow := 0
 	var data sql.RawBytes
-	var ret []T
+	// Pre-allocate slice to avoid repeated allocations during append
+	ret := make([]T, 0, pageSize)
 	for rows.Next() {
 		count++
 		if count > pageSize {
