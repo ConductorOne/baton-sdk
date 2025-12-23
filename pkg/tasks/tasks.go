@@ -68,8 +68,8 @@ func Is(task *v1.Task, target taskTypes.TaskType) bool {
 		return actualType == v1.Task_ActionStatus_case
 	case taskTypes.CreateSyncDiff:
 		return actualType == v1.Task_CreateSyncDiff_case
-	case taskTypes.SyncResourceTypedType:
-		return actualType == v1.Task_SyncResourceTyped_case
+	case taskTypes.PartialSyncType:
+		return actualType == v1.Task_SyncPartial_case
 	default:
 		return false
 	}
@@ -121,8 +121,8 @@ func GetType(task *v1.Task) taskTypes.TaskType {
 		return taskTypes.ActionStatusType
 	case v1.Task_CreateSyncDiff_case:
 		return taskTypes.CreateSyncDiff
-	case v1.Task_SyncResourceTyped_case:
-		return taskTypes.SyncResourceTypedType
+	case v1.Task_SyncPartial_case:
+		return taskTypes.PartialSyncType
 	default:
 		return taskTypes.UnknownType
 	}
