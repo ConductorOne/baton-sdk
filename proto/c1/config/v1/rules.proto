@@ -194,3 +194,11 @@ message StringMapRules {
   bool validate_empty = 1;
   bool is_required = 2;
 }
+
+message ResourceIDRules {
+  repeated string allowed_resource_type_ids = 1;
+}
+
+message RepeatedResourceIdRules {
+  repeated string allowed_resource_type_ids = 1;
+}

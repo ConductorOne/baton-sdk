@@ -1464,6 +1464,120 @@ func (b0 StringMapRules_builder) Build() *StringMapRules {
 	return m0
 }
 
+type ResourceIDRules struct {
+	state                             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_AllowedResourceTypeIds []string               `protobuf:"bytes,1,rep,name=allowed_resource_type_ids,json=allowedResourceTypeIds,proto3"`
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
+}
+
+func (x *ResourceIDRules) Reset() {
+	*x = ResourceIDRules{}
+	mi := &file_c1_config_v1_rules_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceIDRules) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceIDRules) ProtoMessage() {}
+
+func (x *ResourceIDRules) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_config_v1_rules_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResourceIDRules) GetAllowedResourceTypeIds() []string {
+	if x != nil {
+		return x.xxx_hidden_AllowedResourceTypeIds
+	}
+	return nil
+}
+
+func (x *ResourceIDRules) SetAllowedResourceTypeIds(v []string) {
+	x.xxx_hidden_AllowedResourceTypeIds = v
+}
+
+type ResourceIDRules_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	AllowedResourceTypeIds []string
+}
+
+func (b0 ResourceIDRules_builder) Build() *ResourceIDRules {
+	m0 := &ResourceIDRules{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_AllowedResourceTypeIds = b.AllowedResourceTypeIds
+	return m0
+}
+
+type RepeatedResourceIdRules struct {
+	state                             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_AllowedResourceTypeIds []string               `protobuf:"bytes,1,rep,name=allowed_resource_type_ids,json=allowedResourceTypeIds,proto3"`
+	unknownFields                     protoimpl.UnknownFields
+	sizeCache                         protoimpl.SizeCache
+}
+
+func (x *RepeatedResourceIdRules) Reset() {
+	*x = RepeatedResourceIdRules{}
+	mi := &file_c1_config_v1_rules_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RepeatedResourceIdRules) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RepeatedResourceIdRules) ProtoMessage() {}
+
+func (x *RepeatedResourceIdRules) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_config_v1_rules_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RepeatedResourceIdRules) GetAllowedResourceTypeIds() []string {
+	if x != nil {
+		return x.xxx_hidden_AllowedResourceTypeIds
+	}
+	return nil
+}
+
+func (x *RepeatedResourceIdRules) SetAllowedResourceTypeIds(v []string) {
+	x.xxx_hidden_AllowedResourceTypeIds = v
+}
+
+type RepeatedResourceIdRules_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	AllowedResourceTypeIds []string
+}
+
+func (b0 RepeatedResourceIdRules_builder) Build() *RepeatedResourceIdRules {
+	m0 := &RepeatedResourceIdRules{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_AllowedResourceTypeIds = b.AllowedResourceTypeIds
+	return m0
+}
+
 var File_c1_config_v1_rules_proto protoreflect.FileDescriptor
 
 const file_c1_config_v1_rules_proto_rawDesc = "" +
@@ -1551,7 +1665,11 @@ const file_c1_config_v1_rules_proto_rawDesc = "" +
 	"\x0eStringMapRules\x12%\n" +
 	"\x0evalidate_empty\x18\x01 \x01(\bR\rvalidateEmpty\x12\x1f\n" +
 	"\vis_required\x18\x02 \x01(\bR\n" +
-	"isRequired*\x99\x02\n" +
+	"isRequired\"L\n" +
+	"\x0fResourceIDRules\x129\n" +
+	"\x19allowed_resource_type_ids\x18\x01 \x03(\tR\x16allowedResourceTypeIds\"T\n" +
+	"\x17RepeatedResourceIdRules\x129\n" +
+	"\x19allowed_resource_type_ids\x18\x01 \x03(\tR\x16allowedResourceTypeIds*\x99\x02\n" +
 	"\x0fWellKnownString\x12!\n" +
 	"\x1dWELL_KNOWN_STRING_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17WELL_KNOWN_STRING_EMAIL\x10\x01\x12\x1e\n" +
@@ -1564,15 +1682,17 @@ const file_c1_config_v1_rules_proto_rawDesc = "" +
 	"\x16WELL_KNOWN_STRING_UUID\x10\bB3Z1github.com/conductorone/baton-sdk/pb/c1/config/v1b\x06proto3"
 
 var file_c1_config_v1_rules_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_config_v1_rules_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_c1_config_v1_rules_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_c1_config_v1_rules_proto_goTypes = []any{
-	(WellKnownString)(0),        // 0: c1.config.v1.WellKnownString
-	(*Int64Rules)(nil),          // 1: c1.config.v1.Int64Rules
-	(*BoolRules)(nil),           // 2: c1.config.v1.BoolRules
-	(*RepeatedRules)(nil),       // 3: c1.config.v1.RepeatedRules
-	(*RepeatedStringRules)(nil), // 4: c1.config.v1.RepeatedStringRules
-	(*StringRules)(nil),         // 5: c1.config.v1.StringRules
-	(*StringMapRules)(nil),      // 6: c1.config.v1.StringMapRules
+	(WellKnownString)(0),            // 0: c1.config.v1.WellKnownString
+	(*Int64Rules)(nil),              // 1: c1.config.v1.Int64Rules
+	(*BoolRules)(nil),               // 2: c1.config.v1.BoolRules
+	(*RepeatedRules)(nil),           // 3: c1.config.v1.RepeatedRules
+	(*RepeatedStringRules)(nil),     // 4: c1.config.v1.RepeatedStringRules
+	(*StringRules)(nil),             // 5: c1.config.v1.StringRules
+	(*StringMapRules)(nil),          // 6: c1.config.v1.StringMapRules
+	(*ResourceIDRules)(nil),         // 7: c1.config.v1.ResourceIDRules
+	(*RepeatedResourceIdRules)(nil), // 8: c1.config.v1.RepeatedResourceIdRules
 }
 var file_c1_config_v1_rules_proto_depIdxs = []int32{
 	1, // 0: c1.config.v1.RepeatedRules.int64:type_name -> c1.config.v1.Int64Rules
@@ -1607,7 +1727,7 @@ func file_c1_config_v1_rules_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_config_v1_rules_proto_rawDesc), len(file_c1_config_v1_rules_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   6,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

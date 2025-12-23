@@ -270,7 +270,15 @@ func MakeMainCommand[T field.Configurable](
 					connectorrunner.WithOnDemandInvokeAction(
 						v.GetString("file"),
 						v.GetString("invoke-action"),
+						v.GetString("invoke-action-resource-type"), // Optional resource type for resource-scoped actions
 						invokeActionArgsStruct,
+					))
+			case v.GetBool("list-action-schemas"):
+				opts = append(opts,
+					connectorrunner.WithActionsEnabled(),
+					connectorrunner.WithOnDemandListActionSchemas(
+						v.GetString("file"),
+						v.GetString("list-action-schemas-resource-type"), // Optional resource type filter
 					))
 			case v.GetString("delete-resource") != "":
 				opts = append(opts,

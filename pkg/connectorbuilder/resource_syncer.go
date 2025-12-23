@@ -368,7 +368,7 @@ func (b *builder) addTargetedSyncer(_ context.Context, typeId string, in any) er
 	return nil
 }
 
-func (b *builder) addResourceSyncers(_ context.Context, typeId string, in any) error {
+func (b *builder) addResourceSyncers(ctx context.Context, typeId string, in any) error {
 	// no duplicates
 	if _, ok := b.resourceSyncers[typeId]; ok {
 		return fmt.Errorf("error: duplicate resource type found for resource builder %s", typeId)
@@ -385,6 +385,18 @@ func (b *builder) addResourceSyncers(_ context.Context, typeId string, in any) e
 	// A resource syncer is required
 	if _, ok := b.resourceSyncers[typeId]; !ok {
 		return fmt.Errorf("error: the resource syncer interface must be implemented for all types (%s)", typeId)
+	}
+
+	// Check for resource actions
+	if actionProvider, ok := in.(ResourceActionProvider); ok {
+		registry, err := b.actionManager.GetTypeRegistry(ctx, typeId)
+		if err != nil {
+			return fmt.Errorf("error getting resource type action registry for %s: %w", typeId, err)
+		}
+		err = actionProvider.ResourceActions(ctx, registry)
+		if err != nil {
+			return fmt.Errorf("error getting resource actions for %s: %w", typeId, err)
+		}
 	}
 
 	return nil

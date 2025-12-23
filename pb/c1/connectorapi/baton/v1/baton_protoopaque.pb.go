@@ -3645,10 +3645,11 @@ func (b0 Task_GetTicketTask_builder) Build() *Task_GetTicketTask {
 }
 
 type Task_ActionListSchemasTask struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Annotations *[]*anypb.Any          `protobuf:"bytes,1,rep,name=annotations,proto3"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Annotations    *[]*anypb.Any          `protobuf:"bytes,1,rep,name=annotations,proto3"`
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *Task_ActionListSchemasTask) Reset() {
@@ -3685,14 +3686,27 @@ func (x *Task_ActionListSchemasTask) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+func (x *Task_ActionListSchemasTask) GetResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeId
+	}
+	return ""
+}
+
 func (x *Task_ActionListSchemasTask) SetAnnotations(v []*anypb.Any) {
 	x.xxx_hidden_Annotations = &v
+}
+
+func (x *Task_ActionListSchemasTask) SetResourceTypeId(v string) {
+	x.xxx_hidden_ResourceTypeId = v
 }
 
 type Task_ActionListSchemasTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Annotations []*anypb.Any
+	// Optional: filter to only return actions for a specific resource type
+	ResourceTypeId string
 }
 
 func (b0 Task_ActionListSchemasTask_builder) Build() *Task_ActionListSchemasTask {
@@ -3700,6 +3714,7 @@ func (b0 Task_ActionListSchemasTask_builder) Build() *Task_ActionListSchemasTask
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Annotations = &b.Annotations
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -3777,12 +3792,13 @@ func (b0 Task_ActionGetSchemaTask_builder) Build() *Task_ActionGetSchemaTask {
 }
 
 type Task_ActionInvokeTask struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Name        string                 `protobuf:"bytes,1,opt,name=name,proto3"`
-	xxx_hidden_Args        *structpb.Struct       `protobuf:"bytes,2,opt,name=args,proto3"`
-	xxx_hidden_Annotations *[]*anypb.Any          `protobuf:"bytes,3,rep,name=annotations,proto3"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Name           string                 `protobuf:"bytes,1,opt,name=name,proto3"`
+	xxx_hidden_Args           *structpb.Struct       `protobuf:"bytes,2,opt,name=args,proto3"`
+	xxx_hidden_Annotations    *[]*anypb.Any          `protobuf:"bytes,3,rep,name=annotations,proto3"`
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,4,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *Task_ActionInvokeTask) Reset() {
@@ -3833,6 +3849,13 @@ func (x *Task_ActionInvokeTask) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+func (x *Task_ActionInvokeTask) GetResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeId
+	}
+	return ""
+}
+
 func (x *Task_ActionInvokeTask) SetName(v string) {
 	x.xxx_hidden_Name = v
 }
@@ -3843,6 +3866,10 @@ func (x *Task_ActionInvokeTask) SetArgs(v *structpb.Struct) {
 
 func (x *Task_ActionInvokeTask) SetAnnotations(v []*anypb.Any) {
 	x.xxx_hidden_Annotations = &v
+}
+
+func (x *Task_ActionInvokeTask) SetResourceTypeId(v string) {
+	x.xxx_hidden_ResourceTypeId = v
 }
 
 func (x *Task_ActionInvokeTask) HasArgs() bool {
@@ -3862,6 +3889,8 @@ type Task_ActionInvokeTask_builder struct {
 	Name        string
 	Args        *structpb.Struct
 	Annotations []*anypb.Any
+	// Optional: if set, invokes a resource-scoped action
+	ResourceTypeId string
 }
 
 func (b0 Task_ActionInvokeTask_builder) Build() *Task_ActionInvokeTask {
@@ -3871,6 +3900,7 @@ func (b0 Task_ActionInvokeTask_builder) Build() *Task_ActionInvokeTask {
 	x.xxx_hidden_Name = b.Name
 	x.xxx_hidden_Args = b.Args
 	x.xxx_hidden_Annotations = &b.Annotations
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -4847,7 +4877,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xac(\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\x80)\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -4923,16 +4953,18 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1ad\n" +
 	"\rGetTicketTask\x12\x1b\n" +
 	"\tticket_id\x18\x01 \x01(\tR\bticketId\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1aO\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1ay\n" +
 	"\x15ActionListSchemasTask\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1aa\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
+	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x1aa\n" +
 	"\x13ActionGetSchemaTask\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\x8b\x01\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\xb5\x01\n" +
 	"\x10ActionInvokeTask\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x04args\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x04args\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1an\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
+	"\x10resource_type_id\x18\x04 \x01(\tR\x0eresourceTypeId\x1an\n" +
 	"\x10ActionStatusTask\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x126\n" +

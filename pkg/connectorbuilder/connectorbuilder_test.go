@@ -7,6 +7,7 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
@@ -486,7 +487,7 @@ func newTestCustomActionManager() CustomActionManager {
 	return &testCustomActionManager{}
 }
 
-func (t *testCustomActionManager) ListActionSchemas(ctx context.Context) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
+func (t *testCustomActionManager) ListActionSchemas(ctx context.Context, resourceTypeID string) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
 	return []*v2.BatonActionSchema{
 		v2.BatonActionSchema_builder{
 			Name:        "test-action",
@@ -502,12 +503,21 @@ func (t *testCustomActionManager) GetActionSchema(ctx context.Context, name stri
 	}.Build(), annotations.Annotations{}, nil
 }
 
-func (t *testCustomActionManager) InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+func (t *testCustomActionManager) InvokeAction(
+	ctx context.Context,
+	name string,
+	resourceTypeID string,
+	args *structpb.Struct,
+) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	return "action-id-123", v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, &structpb.Struct{}, annotations.Annotations{}, nil
 }
 
 func (t *testCustomActionManager) GetActionStatus(ctx context.Context, id string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
 	return v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, "Action completed successfully", &structpb.Struct{}, annotations.Annotations{}, nil
+}
+
+func (t *testCustomActionManager) GetTypeRegistry(ctx context.Context, resourceTypeID string) (actions.ActionRegistry, error) {
+	return nil, nil
 }
 
 type testRegisterActionManager struct {
@@ -1155,16 +1165,211 @@ func TestCustomActionManager(t *testing.T) {
 		Args: &structpb.Struct{},
 	}.Build())
 	require.NoError(t, err)
-	require.Equal(t, "action-id-123", invokeResp.GetId())
+	require.NotEmpty(t, invokeResp.GetId())
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, invokeResp.GetStatus())
 
-	// Test GetActionStatus
+	// Test GetActionStatus using the ID returned from InvokeAction
 	statusResp, err := connector.GetActionStatus(ctx, v2.GetActionStatusRequest_builder{
-		Id: "action-id-123",
+		Id: invokeResp.GetId(),
 	}.Build())
 	require.NoError(t, err)
 	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, statusResp.GetStatus())
-	require.Equal(t, "Action completed successfully", statusResp.GetName())
+	require.Equal(t, "test-action", statusResp.GetName())
+}
+
+// testGlobalActionProvider implements GlobalActionProvider for testing.
+type testGlobalActionProvider struct {
+	ConnectorBuilder
+}
+
+func newTestGlobalActionProvider() *testGlobalActionProvider {
+	return &testGlobalActionProvider{newTestConnector([]ResourceSyncer{})}
+}
+
+func (t *testGlobalActionProvider) GlobalActions(ctx context.Context, registry actions.ActionRegistry) error {
+	schema := v2.BatonActionSchema_builder{
+		Name:        "global-test-action",
+		DisplayName: "Global Test Action",
+	}.Build()
+	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		return &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"result": structpb.NewStringValue("global-action-executed"),
+			},
+		}, nil, nil
+	}
+	return registry.Register(ctx, schema, handler)
+}
+
+func TestGlobalActionProvider(t *testing.T) {
+	ctx := context.Background()
+
+	provider := newTestGlobalActionProvider()
+	connector, err := NewConnector(ctx, provider)
+	require.NoError(t, err)
+
+	// Test ListActionSchemas
+	listSchemasResp, err := connector.ListActionSchemas(ctx, &v2.ListActionSchemasRequest{})
+	require.NoError(t, err)
+	require.Len(t, listSchemasResp.GetSchemas(), 1)
+	require.Equal(t, "global-test-action", listSchemasResp.GetSchemas()[0].GetName())
+
+	// Test GetActionSchema
+	getSchemaResp, err := connector.GetActionSchema(ctx, v2.GetActionSchemaRequest_builder{
+		Name: "global-test-action",
+	}.Build())
+	require.NoError(t, err)
+	require.Equal(t, "global-test-action", getSchemaResp.GetSchema().GetName())
+
+	// Test InvokeAction
+	invokeResp, err := connector.InvokeAction(ctx, v2.InvokeActionRequest_builder{
+		Name: "global-test-action",
+		Args: &structpb.Struct{},
+	}.Build())
+	require.NoError(t, err)
+	require.NotEmpty(t, invokeResp.GetId())
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, invokeResp.GetStatus())
+	require.Equal(t, "global-action-executed", invokeResp.GetResponse().GetFields()["result"].GetStringValue())
+
+	// Test GetActionStatus
+	statusResp, err := connector.GetActionStatus(ctx, v2.GetActionStatusRequest_builder{
+		Id: invokeResp.GetId(),
+	}.Build())
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, statusResp.GetStatus())
+}
+
+// testResourceActionProviderSyncer implements ResourceActionProvider for testing.
+type testResourceActionProviderSyncer struct {
+	resourceType *v2.ResourceType
+}
+
+func newTestResourceActionProviderSyncer(resourceType string) *testResourceActionProviderSyncer {
+	return &testResourceActionProviderSyncer{
+		resourceType: v2.ResourceType_builder{
+			Id:          resourceType,
+			DisplayName: "Test " + resourceType,
+		}.Build(),
+	}
+}
+
+func (t *testResourceActionProviderSyncer) ResourceType(ctx context.Context) *v2.ResourceType {
+	return t.resourceType
+}
+
+func (t *testResourceActionProviderSyncer) List(ctx context.Context, parentResourceID *v2.ResourceId, pToken *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+	return nil, "", nil, nil
+}
+
+func (t *testResourceActionProviderSyncer) Entitlements(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+	return nil, "", nil, nil
+}
+
+func (t *testResourceActionProviderSyncer) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+	return nil, "", nil, nil
+}
+
+func (t *testResourceActionProviderSyncer) ResourceActions(ctx context.Context, registry actions.ActionRegistry) error {
+	schema := v2.BatonActionSchema_builder{
+		Name:        "resource-test-action",
+		DisplayName: "Resource Test Action",
+	}.Build()
+	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		return &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"result": structpb.NewStringValue("resource-action-executed"),
+			},
+		}, nil, nil
+	}
+	return registry.Register(ctx, schema, handler)
+}
+
+func TestResourceActionProvider(t *testing.T) {
+	ctx := context.Background()
+
+	rsSyncer := newTestResourceActionProviderSyncer("test-resource")
+	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsSyncer}))
+	require.NoError(t, err)
+
+	// Test ListActionSchemas with resource type filter
+	listSchemasResp, err := connector.ListActionSchemas(ctx, v2.ListActionSchemasRequest_builder{
+		ResourceTypeId: "test-resource",
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, listSchemasResp.GetSchemas(), 1)
+	require.Equal(t, "resource-test-action", listSchemasResp.GetSchemas()[0].GetName())
+	require.Equal(t, "test-resource", listSchemasResp.GetSchemas()[0].GetResourceTypeId())
+
+	// Test ListActionSchemas without filter - should include all actions
+	listAllResp, err := connector.ListActionSchemas(ctx, &v2.ListActionSchemasRequest{})
+	require.NoError(t, err)
+	require.Len(t, listAllResp.GetSchemas(), 1)
+
+	// Test InvokeAction with resource type
+	invokeResp, err := connector.InvokeAction(ctx, v2.InvokeActionRequest_builder{
+		Name:           "resource-test-action",
+		ResourceTypeId: "test-resource",
+		Args:           &structpb.Struct{},
+	}.Build())
+	require.NoError(t, err)
+	require.NotEmpty(t, invokeResp.GetId())
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, invokeResp.GetStatus())
+	require.Equal(t, "resource-action-executed", invokeResp.GetResponse().GetFields()["result"].GetStringValue())
+}
+
+func TestHasActionsMethod(t *testing.T) {
+	ctx := context.Background()
+
+	// Test without any actions
+	m := actions.NewActionManager(ctx)
+	require.False(t, m.HasActions())
+
+	// Test with global action
+	schema := v2.BatonActionSchema_builder{Name: "test"}.Build()
+	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		return nil, nil, nil
+	}
+	err := m.Register(ctx, schema, handler)
+	require.NoError(t, err)
+	require.True(t, m.HasActions())
+
+	// Test with only resource-scoped action
+	m2 := actions.NewActionManager(ctx)
+	require.False(t, m2.HasActions())
+	err = m2.RegisterResourceAction(ctx, "resource-type", schema, handler)
+	require.NoError(t, err)
+	require.True(t, m2.HasActions())
+}
+
+func TestBackwardCompatibilityWrapper(t *testing.T) {
+	ctx := context.Background()
+
+	// Use the legacy RegisterActionManager interface
+	actionManager := newTestRegisterActionManager()
+	connector, err := NewConnector(ctx, actionManager)
+	require.NoError(t, err)
+
+	// Verify actions are registered through the wrapper
+	listSchemasResp, err := connector.ListActionSchemas(ctx, &v2.ListActionSchemasRequest{})
+	require.NoError(t, err)
+	require.Len(t, listSchemasResp.GetSchemas(), 1)
+	require.Equal(t, "test-action", listSchemasResp.GetSchemas()[0].GetName())
+
+	// Invoke action - should work through the wrapper
+	invokeResp, err := connector.InvokeAction(ctx, v2.InvokeActionRequest_builder{
+		Name: "test-action",
+		Args: &structpb.Struct{},
+	}.Build())
+	require.NoError(t, err)
+	require.NotEmpty(t, invokeResp.GetId())
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, invokeResp.GetStatus())
+
+	// Get status - should work with SDK-generated ID
+	statusResp, err := connector.GetActionStatus(ctx, v2.GetActionStatusRequest_builder{
+		Id: invokeResp.GetId(),
+	}.Build())
+	require.NoError(t, err)
+	require.Equal(t, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE, statusResp.GetStatus())
 }
 
 func TestDeleteResourceV2(t *testing.T) {

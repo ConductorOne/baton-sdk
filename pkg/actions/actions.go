@@ -82,17 +82,44 @@ func (oa *OutstandingAction) SetError(ctx context.Context, err error) {
 
 const maxOldActions = 1000
 
+// ActionRegistry provides methods for registering actions.
+// Used by both GlobalActionProvider (global actions) and ResourceActionProvider (resource-scoped actions).
+type ActionRegistry interface {
+	// Register registers an action using the name from the schema.
+	Register(ctx context.Context, schema *v2.BatonActionSchema, handler ActionHandler) error
+
+	// Deprecated: Use Register instead.
+	// RegisterAction registers an action.
+	RegisterAction(ctx context.Context, name string, schema *v2.BatonActionSchema, handler ActionHandler) error
+}
+
+// Deprecated: Use ActionRegistry instead.
+// ResourceTypeActionRegistry is an alias for ActionRegistry for backwards compatibility.
+type ResourceTypeActionRegistry = ActionRegistry
+
+// ActionManager manages both global actions and resource-scoped actions.
 type ActionManager struct {
-	schemas  map[string]*v2.BatonActionSchema // map of action name to schema
-	handlers map[string]ActionHandler
-	actions  map[string]*OutstandingAction // map of actions IDs
+	// Global actions (no resource type)
+	schemas  map[string]*v2.BatonActionSchema // actionName -> schema
+	handlers map[string]ActionHandler         // actionName -> handler
+
+	// Resource-scoped actions (keyed by resource type)
+	resourceSchemas  map[string]map[string]*v2.BatonActionSchema // resourceTypeID -> actionName -> schema
+	resourceHandlers map[string]map[string]ActionHandler         // resourceTypeID -> actionName -> handler
+
+	// Outstanding actions (shared across global and resource-scoped)
+	actions map[string]*OutstandingAction // actionID -> outstanding action
+
+	mu sync.RWMutex
 }
 
 func NewActionManager(_ context.Context) *ActionManager {
 	return &ActionManager{
-		schemas:  make(map[string]*v2.BatonActionSchema),
-		handlers: make(map[string]ActionHandler),
-		actions:  make(map[string]*OutstandingAction),
+		schemas:          make(map[string]*v2.BatonActionSchema),
+		handlers:         make(map[string]ActionHandler),
+		resourceSchemas:  make(map[string]map[string]*v2.BatonActionSchema),
+		resourceHandlers: make(map[string]map[string]ActionHandler),
+		actions:          make(map[string]*OutstandingAction),
 	}
 }
 
@@ -102,6 +129,8 @@ func (a *ActionManager) GetNewActionId() string {
 }
 
 func (a *ActionManager) GetNewAction(name string) *OutstandingAction {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	actionId := a.GetNewActionId()
 	oa := NewOutstandingAction(actionId, name)
 	a.actions[actionId] = oa
@@ -109,6 +138,9 @@ func (a *ActionManager) GetNewAction(name string) *OutstandingAction {
 }
 
 func (a *ActionManager) CleanupOldActions(ctx context.Context) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if len(a.actions) < maxOldActions {
 		return
 	}
@@ -138,7 +170,7 @@ func (a *ActionManager) CleanupOldActions(ctx context.Context) {
 	l.Debug("cleaned up old actions", zap.Int("count", count))
 }
 
-func (a *ActionManager) registerActionSchema(ctx context.Context, name string, schema *v2.BatonActionSchema) error {
+func (a *ActionManager) registerActionSchema(_ context.Context, name string, schema *v2.BatonActionSchema) error {
 	if name == "" {
 		return errors.New("action name cannot be empty")
 	}
@@ -152,7 +184,20 @@ func (a *ActionManager) registerActionSchema(ctx context.Context, name string, s
 	return nil
 }
 
+// Register registers a global action using the name from the schema.
+func (a *ActionManager) Register(ctx context.Context, schema *v2.BatonActionSchema, handler ActionHandler) error {
+	if schema == nil {
+		return errors.New("action schema cannot be nil")
+	}
+	return a.RegisterAction(ctx, schema.GetName(), schema, handler)
+}
+
+// Deprecated: Use Register instead.
+// RegisterAction registers a global action (not scoped to a resource type).
 func (a *ActionManager) RegisterAction(ctx context.Context, name string, schema *v2.BatonActionSchema, handler ActionHandler) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if handler == nil {
 		return errors.New("action handler cannot be nil")
 	}
@@ -172,7 +217,108 @@ func (a *ActionManager) RegisterAction(ctx context.Context, name string, schema 
 	return nil
 }
 
+func (a *ActionManager) HasActions() bool {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return len(a.schemas) > 0 || len(a.resourceSchemas) > 0
+}
+
+// RegisterResourceAction registers a resource-scoped action.
+func (a *ActionManager) RegisterResourceAction(
+	ctx context.Context,
+	resourceTypeID string,
+	schema *v2.BatonActionSchema,
+	handler ActionHandler,
+) error {
+	if resourceTypeID == "" {
+		return errors.New("resource type ID cannot be empty")
+	}
+	if schema == nil {
+		return errors.New("action schema cannot be nil")
+	}
+	if schema.GetName() == "" {
+		return errors.New("action schema name cannot be empty")
+	}
+	if handler == nil {
+		return fmt.Errorf("handler cannot be nil for action %s", schema.GetName())
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// Set the resource type ID on the schema
+	schema.SetResourceTypeId(resourceTypeID)
+
+	if a.resourceSchemas[resourceTypeID] == nil {
+		a.resourceSchemas[resourceTypeID] = make(map[string]*v2.BatonActionSchema)
+	}
+	if a.resourceHandlers[resourceTypeID] == nil {
+		a.resourceHandlers[resourceTypeID] = make(map[string]ActionHandler)
+	}
+
+	actionName := schema.GetName()
+
+	// Check for duplicate action names
+	if _, ok := a.resourceSchemas[resourceTypeID][actionName]; ok {
+		return fmt.Errorf("action schema %s already registered for resource type %s", actionName, resourceTypeID)
+	}
+
+	// Check for duplicate action types
+	if len(schema.GetActionType()) > 0 {
+		for existingName, existingSchema := range a.resourceSchemas[resourceTypeID] {
+			if existingSchema == nil || len(existingSchema.GetActionType()) == 0 {
+				continue
+			}
+			// Check if any ActionType in the new schema matches any in existing schemas
+			for _, newActionType := range schema.GetActionType() {
+				if newActionType == v2.ActionType_ACTION_TYPE_UNSPECIFIED || newActionType == v2.ActionType_ACTION_TYPE_DYNAMIC {
+					continue // Skip unspecified and dynamic types as they can overlap
+				}
+				for _, existingActionType := range existingSchema.GetActionType() {
+					if newActionType == existingActionType {
+						return fmt.Errorf("action type %s already registered for resource type %s (existing action: %s)", newActionType.String(), resourceTypeID, existingName)
+					}
+				}
+			}
+		}
+	}
+
+	a.resourceSchemas[resourceTypeID][actionName] = schema
+	a.resourceHandlers[resourceTypeID][actionName] = handler
+
+	ctxzap.Extract(ctx).Debug("registered resource action", zap.String("resource_type", resourceTypeID), zap.String("action_name", actionName))
+
+	return nil
+}
+
+// resourceTypeActionRegistry implements ResourceTypeActionRegistry for a specific resource type.
+type resourceTypeActionRegistry struct {
+	resourceTypeID string
+	actionManager  *ActionManager
+}
+
+func (r *resourceTypeActionRegistry) Register(ctx context.Context, schema *v2.BatonActionSchema, handler ActionHandler) error {
+	return r.actionManager.RegisterResourceAction(ctx, r.resourceTypeID, schema, handler)
+}
+
+// Deprecated: Use Register instead.
+// RegisterAction registers a resource-scoped action. The name parameter is ignored; the name from schema is used.
+func (r *resourceTypeActionRegistry) RegisterAction(ctx context.Context, name string, schema *v2.BatonActionSchema, handler ActionHandler) error {
+	return r.Register(ctx, schema, handler)
+}
+
+// GetTypeRegistry returns an ActionRegistry for registering actions scoped to a specific resource type.
+func (a *ActionManager) GetTypeRegistry(_ context.Context, resourceTypeID string) (ActionRegistry, error) {
+	if resourceTypeID == "" {
+		return nil, errors.New("resource type ID cannot be empty")
+	}
+	return &resourceTypeActionRegistry{resourceTypeID: resourceTypeID, actionManager: a}, nil
+}
+
 func (a *ActionManager) UnregisterAction(ctx context.Context, name string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
 	if _, ok := a.schemas[name]; !ok {
 		return fmt.Errorf("action %s not registered", name)
 	}
@@ -190,16 +336,48 @@ func (a *ActionManager) UnregisterAction(ctx context.Context, name string) error
 	return nil
 }
 
-func (a *ActionManager) ListActionSchemas(ctx context.Context) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
-	rv := make([]*v2.BatonActionSchema, 0, len(a.schemas))
-	for _, schema := range a.schemas {
-		rv = append(rv, schema)
+// ListActionSchemas returns all action schemas, optionally filtered by resource type.
+// If resourceTypeID is empty, returns all global actions plus all resource-scoped actions.
+// If resourceTypeID is set, returns only actions for that resource type.
+func (a *ActionManager) ListActionSchemas(_ context.Context, resourceTypeID string) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
+	var rv []*v2.BatonActionSchema
+
+	if resourceTypeID == "" {
+		// Return all global actions
+		rv = make([]*v2.BatonActionSchema, 0, len(a.schemas))
+		for _, schema := range a.schemas {
+			rv = append(rv, schema)
+		}
+
+		// Also return all resource-scoped actions
+		for _, schemas := range a.resourceSchemas {
+			for _, schema := range schemas {
+				rv = append(rv, schema)
+			}
+		}
+	} else {
+		// Return only actions for the specified resource type
+		schemas, ok := a.resourceSchemas[resourceTypeID]
+		if !ok {
+			return []*v2.BatonActionSchema{}, nil, nil
+		}
+
+		rv = make([]*v2.BatonActionSchema, 0, len(schemas))
+		for _, schema := range schemas {
+			rv = append(rv, schema)
+		}
 	}
 
 	return rv, nil, nil
 }
 
-func (a *ActionManager) GetActionSchema(ctx context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error) {
+func (a *ActionManager) GetActionSchema(_ context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
 	schema, ok := a.schemas[name]
 	if !ok {
 		return nil, nil, status.Error(codes.NotFound, fmt.Sprintf("action %s not found", name))
@@ -207,7 +385,10 @@ func (a *ActionManager) GetActionSchema(ctx context.Context, name string) (*v2.B
 	return schema, nil, nil
 }
 
-func (a *ActionManager) GetActionStatus(ctx context.Context, actionId string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
+func (a *ActionManager) GetActionStatus(_ context.Context, actionId string) (v2.BatonActionStatus, string, *structpb.Struct, annotations.Annotations, error) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+
 	oa := a.actions[actionId]
 	if oa == nil {
 		return v2.BatonActionStatus_BATON_ACTION_STATUS_UNKNOWN, "", nil, nil, status.Error(codes.NotFound, fmt.Sprintf("action id %s not found", actionId))
@@ -218,8 +399,27 @@ func (a *ActionManager) GetActionStatus(ctx context.Context, actionId string) (v
 	return oa.Status, oa.Name, oa.Rv, oa.Annos, nil
 }
 
-func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+// InvokeAction invokes an action. If resourceTypeID is set, it invokes a resource-scoped action.
+// Otherwise, it invokes a global action.
+func (a *ActionManager) InvokeAction(
+	ctx context.Context,
+	name string,
+	resourceTypeID string,
+	args *structpb.Struct,
+) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+	if resourceTypeID != "" {
+		return a.invokeResourceAction(ctx, resourceTypeID, name, args)
+	}
+
+	return a.invokeGlobalAction(ctx, name, args)
+}
+
+// invokeGlobalAction invokes a global (non-resource-scoped) action.
+func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+	a.mu.RLock()
 	handler, ok := a.handlers[name]
+	a.mu.RUnlock()
+
 	if !ok {
 		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found", name))
 	}
@@ -245,6 +445,68 @@ func (a *ActionManager) InvokeAction(ctx context.Context, name string, args *str
 		done <- struct{}{}
 	}()
 
+	select {
+	case <-done:
+		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
+	case <-time.After(1 * time.Second):
+		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil
+	case <-ctx.Done():
+		oa.SetError(ctx, ctx.Err())
+		return oa.Id, oa.Status, oa.Rv, oa.Annos, ctx.Err()
+	}
+}
+
+// invokeResourceAction invokes a resource-scoped action.
+func (a *ActionManager) invokeResourceAction(
+	ctx context.Context,
+	resourceTypeID string,
+	actionName string,
+	args *structpb.Struct,
+) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
+	if resourceTypeID == "" {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "resource type ID is required")
+	}
+	if actionName == "" {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, "action name is required")
+	}
+
+	a.mu.RLock()
+	handlers, ok := a.resourceHandlers[resourceTypeID]
+	if !ok {
+		a.mu.RUnlock()
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("no actions found for resource type %s", resourceTypeID))
+	}
+
+	handler, ok := handlers[actionName]
+	if !ok {
+		a.mu.RUnlock()
+		return "",
+			v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED,
+			nil,
+			nil,
+			status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found for resource type %s", actionName, resourceTypeID))
+	}
+	a.mu.RUnlock()
+
+	oa := a.GetNewAction(actionName)
+	done := make(chan struct{})
+
+	// Invoke handler in goroutine
+	go func() {
+		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
+		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
+		defer cancel()
+		var oaErr error
+		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, args)
+		if oaErr == nil {
+			oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_COMPLETE)
+		} else {
+			oa.SetError(ctx, oaErr)
+		}
+		done <- struct{}{}
+	}()
+
+	// Wait for completion or timeout
 	select {
 	case <-done:
 		return oa.Id, oa.Status, oa.Rv, oa.Annos, nil

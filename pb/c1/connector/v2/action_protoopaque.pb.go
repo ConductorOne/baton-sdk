@@ -88,6 +88,11 @@ const (
 	ActionType_ACTION_TYPE_ACCOUNT_UPDATE_PROFILE ActionType = 3
 	ActionType_ACTION_TYPE_ACCOUNT_DISABLE        ActionType = 4
 	ActionType_ACTION_TYPE_ACCOUNT_ENABLE         ActionType = 5
+	// Generic resource actions
+	ActionType_ACTION_TYPE_RESOURCE_CREATE  ActionType = 6
+	ActionType_ACTION_TYPE_RESOURCE_DELETE  ActionType = 7
+	ActionType_ACTION_TYPE_RESOURCE_ENABLE  ActionType = 8
+	ActionType_ACTION_TYPE_RESOURCE_DISABLE ActionType = 9
 )
 
 // Enum value maps for ActionType.
@@ -99,6 +104,10 @@ var (
 		3: "ACTION_TYPE_ACCOUNT_UPDATE_PROFILE",
 		4: "ACTION_TYPE_ACCOUNT_DISABLE",
 		5: "ACTION_TYPE_ACCOUNT_ENABLE",
+		6: "ACTION_TYPE_RESOURCE_CREATE",
+		7: "ACTION_TYPE_RESOURCE_DELETE",
+		8: "ACTION_TYPE_RESOURCE_ENABLE",
+		9: "ACTION_TYPE_RESOURCE_DISABLE",
 	}
 	ActionType_value = map[string]int32{
 		"ACTION_TYPE_UNSPECIFIED":            0,
@@ -107,6 +116,10 @@ var (
 		"ACTION_TYPE_ACCOUNT_UPDATE_PROFILE": 3,
 		"ACTION_TYPE_ACCOUNT_DISABLE":        4,
 		"ACTION_TYPE_ACCOUNT_ENABLE":         5,
+		"ACTION_TYPE_RESOURCE_CREATE":        6,
+		"ACTION_TYPE_RESOURCE_DELETE":        7,
+		"ACTION_TYPE_RESOURCE_ENABLE":        8,
+		"ACTION_TYPE_RESOURCE_DISABLE":       9,
 	}
 )
 
@@ -268,13 +281,14 @@ func (x *BatonActionSchema) SetResourceTypeId(v string) {
 type BatonActionSchema_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Name           string
-	Arguments      []*v1.Field
-	Constraints    []*v1.Constraint
-	ReturnTypes    []*v1.Field
-	DisplayName    string
-	Description    string
-	ActionType     []ActionType
+	Name        string
+	Arguments   []*v1.Field
+	Constraints []*v1.Constraint
+	ReturnTypes []*v1.Field
+	DisplayName string
+	Description string
+	ActionType  []ActionType
+	// Optional: if set, this action is scoped to a specific resource type
 	ResourceTypeId string
 }
 
@@ -294,12 +308,13 @@ func (b0 BatonActionSchema_builder) Build() *BatonActionSchema {
 }
 
 type InvokeActionRequest struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Name        string                 `protobuf:"bytes,1,opt,name=name,proto3"`
-	xxx_hidden_Args        *structpb.Struct       `protobuf:"bytes,2,opt,name=args,proto3"`
-	xxx_hidden_Annotations *[]*anypb.Any          `protobuf:"bytes,3,rep,name=annotations,proto3"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Name           string                 `protobuf:"bytes,1,opt,name=name,proto3"`
+	xxx_hidden_Args           *structpb.Struct       `protobuf:"bytes,2,opt,name=args,proto3"`
+	xxx_hidden_Annotations    *[]*anypb.Any          `protobuf:"bytes,3,rep,name=annotations,proto3"`
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,4,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *InvokeActionRequest) Reset() {
@@ -350,6 +365,13 @@ func (x *InvokeActionRequest) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+func (x *InvokeActionRequest) GetResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeId
+	}
+	return ""
+}
+
 func (x *InvokeActionRequest) SetName(v string) {
 	x.xxx_hidden_Name = v
 }
@@ -360,6 +382,10 @@ func (x *InvokeActionRequest) SetArgs(v *structpb.Struct) {
 
 func (x *InvokeActionRequest) SetAnnotations(v []*anypb.Any) {
 	x.xxx_hidden_Annotations = &v
+}
+
+func (x *InvokeActionRequest) SetResourceTypeId(v string) {
+	x.xxx_hidden_ResourceTypeId = v
 }
 
 func (x *InvokeActionRequest) HasArgs() bool {
@@ -379,6 +405,8 @@ type InvokeActionRequest_builder struct {
 	Name        string
 	Args        *structpb.Struct
 	Annotations []*anypb.Any
+	// Optional: if set, invokes a resource-scoped action
+	ResourceTypeId string
 }
 
 func (b0 InvokeActionRequest_builder) Build() *InvokeActionRequest {
@@ -388,6 +416,7 @@ func (b0 InvokeActionRequest_builder) Build() *InvokeActionRequest {
 	x.xxx_hidden_Name = b.Name
 	x.xxx_hidden_Args = b.Args
 	x.xxx_hidden_Annotations = &b.Annotations
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -891,10 +920,11 @@ func (b0 GetActionSchemaResponse_builder) Build() *GetActionSchemaResponse {
 }
 
 type ListActionSchemasRequest struct {
-	state                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Annotations *[]*anypb.Any          `protobuf:"bytes,1,rep,name=annotations,proto3"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Annotations    *[]*anypb.Any          `protobuf:"bytes,1,rep,name=annotations,proto3"`
+	xxx_hidden_ResourceTypeId string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *ListActionSchemasRequest) Reset() {
@@ -931,14 +961,27 @@ func (x *ListActionSchemasRequest) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+func (x *ListActionSchemasRequest) GetResourceTypeId() string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeId
+	}
+	return ""
+}
+
 func (x *ListActionSchemasRequest) SetAnnotations(v []*anypb.Any) {
 	x.xxx_hidden_Annotations = &v
+}
+
+func (x *ListActionSchemasRequest) SetResourceTypeId(v string) {
+	x.xxx_hidden_ResourceTypeId = v
 }
 
 type ListActionSchemasRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Annotations []*anypb.Any
+	// Optional: filter to only return actions for a specific resource type
+	ResourceTypeId string
 }
 
 func (b0 ListActionSchemasRequest_builder) Build() *ListActionSchemasRequest {
@@ -946,6 +989,7 @@ func (b0 ListActionSchemasRequest_builder) Build() *ListActionSchemasRequest {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Annotations = &b.Annotations
+	x.xxx_hidden_ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -1038,11 +1082,12 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x12<\n" +
 	"\vaction_type\x18\a \x03(\x0e2\x1b.c1.connector.v2.ActionTypeR\n" +
 	"actionType\x12(\n" +
-	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\x8e\x01\n" +
+	"\x10resource_type_id\x18\b \x01(\tR\x0eresourceTypeId\"\xb8\x01\n" +
 	"\x13InvokeActionRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12+\n" +
 	"\x04args\x18\x02 \x01(\v2\x17.google.protobuf.StructR\x04args\x126\n" +
-	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xe3\x01\n" +
+	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
+	"\x10resource_type_id\x18\x04 \x01(\tR\x0eresourceTypeId\"\xe3\x01\n" +
 	"\x14InvokeActionResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12:\n" +
 	"\x06status\x18\x02 \x01(\x0e2\".c1.connector.v2.BatonActionStatusR\x06status\x126\n" +
@@ -1064,9 +1109,10 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x8d\x01\n" +
 	"\x17GetActionSchemaResponse\x12:\n" +
 	"\x06schema\x18\x01 \x01(\v2\".c1.connector.v2.BatonActionSchemaR\x06schema\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"R\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"|\n" +
 	"\x18ListActionSchemasRequest\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x91\x01\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
+	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\"\x91\x01\n" +
 	"\x19ListActionSchemasResponse\x12<\n" +
 	"\aschemas\x18\x01 \x03(\v2\".c1.connector.v2.BatonActionSchemaR\aschemas\x126\n" +
 	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations*\xdd\x01\n" +
@@ -1076,7 +1122,7 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\x1bBATON_ACTION_STATUS_PENDING\x10\x02\x12\x1f\n" +
 	"\x1bBATON_ACTION_STATUS_RUNNING\x10\x03\x12 \n" +
 	"\x1cBATON_ACTION_STATUS_COMPLETE\x10\x04\x12\x1e\n" +
-	"\x1aBATON_ACTION_STATUS_FAILED\x10\x05*\xc4\x01\n" +
+	"\x1aBATON_ACTION_STATUS_FAILED\x10\x05*\xc9\x02\n" +
 	"\n" +
 	"ActionType\x12\x1b\n" +
 	"\x17ACTION_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
@@ -1084,7 +1130,11 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\x13ACTION_TYPE_ACCOUNT\x10\x02\x12&\n" +
 	"\"ACTION_TYPE_ACCOUNT_UPDATE_PROFILE\x10\x03\x12\x1f\n" +
 	"\x1bACTION_TYPE_ACCOUNT_DISABLE\x10\x04\x12\x1e\n" +
-	"\x1aACTION_TYPE_ACCOUNT_ENABLE\x10\x052\xa4\x03\n" +
+	"\x1aACTION_TYPE_ACCOUNT_ENABLE\x10\x05\x12\x1f\n" +
+	"\x1bACTION_TYPE_RESOURCE_CREATE\x10\x06\x12\x1f\n" +
+	"\x1bACTION_TYPE_RESOURCE_DELETE\x10\a\x12\x1f\n" +
+	"\x1bACTION_TYPE_RESOURCE_ENABLE\x10\b\x12 \n" +
+	"\x1cACTION_TYPE_RESOURCE_DISABLE\x10\t2\xa4\x03\n" +
 	"\rActionService\x12[\n" +
 	"\fInvokeAction\x12$.c1.connector.v2.InvokeActionRequest\x1a%.c1.connector.v2.InvokeActionResponse\x12d\n" +
 	"\x0fGetActionStatus\x12'.c1.connector.v2.GetActionStatusRequest\x1a(.c1.connector.v2.GetActionStatusResponse\x12d\n" +

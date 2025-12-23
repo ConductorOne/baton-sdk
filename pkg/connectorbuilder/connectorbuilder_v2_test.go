@@ -99,7 +99,7 @@ func TestConnectorBuilderV2_FullCapabilities(t *testing.T) {
 	require.NotNil(t, actionResp)
 	require.NotNil(t, actionResp.GetResponse())
 
-	require.Equal(t, "action-id-123", actionResp.GetId())
+	require.NotEmpty(t, actionResp.GetId())
 
 	// Test legacy event feed functionality
 	eventResp, err := connector.ListEventFeeds(ctx, &v2.ListEventFeedsRequest{})
