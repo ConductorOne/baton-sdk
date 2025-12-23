@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -48,9 +49,9 @@ type dbStmtCache struct {
 	evictionOrder []string
 }
 
-// cacheStats tracks cache performance metrics.
+// cacheStats tracks cache performance metrics using atomic operations
+// for lock-free updates on the hot path.
 type cacheStats struct {
-	mu        sync.RWMutex
 	hits      int64
 	misses    int64
 	prepares  int64
@@ -60,45 +61,41 @@ type cacheStats struct {
 
 // getStats returns a snapshot of cache statistics.
 func (s *cacheStats) getStats() (int64, int64, int64, int64, int64) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.hits, s.misses, s.prepares, s.errors, s.evictions
+	return atomic.LoadInt64(&s.hits),
+		atomic.LoadInt64(&s.misses),
+		atomic.LoadInt64(&s.prepares),
+		atomic.LoadInt64(&s.errors),
+		atomic.LoadInt64(&s.evictions)
 }
 
 func (s *cacheStats) recordEviction() {
-	s.mu.Lock()
-	s.evictions++
-	s.mu.Unlock()
+	atomic.AddInt64(&s.evictions, 1)
 }
 
 func (s *cacheStats) recordHit() {
-	s.mu.Lock()
-	s.hits++
-	s.mu.Unlock()
+	atomic.AddInt64(&s.hits, 1)
 }
 
 func (s *cacheStats) recordMiss() {
-	s.mu.Lock()
-	s.misses++
-	s.mu.Unlock()
+	atomic.AddInt64(&s.misses, 1)
 }
 
 func (s *cacheStats) recordPrepare() {
-	s.mu.Lock()
-	s.prepares++
-	s.mu.Unlock()
+	atomic.AddInt64(&s.prepares, 1)
 }
 
 func (s *cacheStats) recordError() {
-	s.mu.Lock()
-	s.errors++
-	s.mu.Unlock()
+	atomic.AddInt64(&s.errors, 1)
 }
 
 // globalStmtCaches maps *sql.DB instances to their statement caches.
 // Key is the pointer address of the *sql.DB (as uintptr).
 // This ensures statements are scoped to the correct database connection.
 var globalStmtCaches sync.Map // map[uintptr]*dbStmtCache
+
+// whitespaceRegex is pre-compiled for query normalization.
+// Compiled once at package init to avoid repeated compilation overhead.
+var whitespaceRegex = regexp.MustCompile(`\s+`)
 
 // getDBCache returns the statement cache for a specific *sql.DB instance.
 // Creates a new cache if one doesn't exist for this DB.
@@ -129,14 +126,7 @@ func getDBCache(db *sql.DB) *dbStmtCache {
 // - Trims leading/trailing whitespace
 // - Preserves the structure (SELECT, WHERE, etc.)
 func normalizeQuery(query string) string {
-	// Collapse multiple whitespace characters (spaces, tabs, newlines) into single space
-	whitespace := regexp.MustCompile(`\s+`)
-	normalized := whitespace.ReplaceAllString(query, " ")
-
-	// Trim leading and trailing whitespace
-	normalized = strings.TrimSpace(normalized)
-
-	return normalized
+	return strings.TrimSpace(whitespaceRegex.ReplaceAllString(query, " "))
 }
 
 // GetPreparedStmt returns a cached prepared statement for the given query, or creates
