@@ -66,8 +66,8 @@ func (tt TaskType) String() string {
 		return "action_status"
 	case CreateSyncDiff:
 		return "create_sync_diff"
-	case SyncResourceTypedType:
-		return "sync_resource_typed"
+	case PartialSyncType:
+		return "sync_partial"
 	default:
 		return "unknown"
 	}
@@ -106,5 +106,5 @@ const (
 	ActionStatusType
 	CreateSyncDiff
 	ListStaticEntitlementsType
-	SyncResourceTypedType
+	PartialSyncType
 )

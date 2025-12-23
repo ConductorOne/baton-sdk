@@ -106,7 +106,7 @@ type Task struct {
 	//	*Task_ActionStatus
 	//	*Task_CreateSyncDiff
 	//	*Task_CompactSyncs_
-	//	*Task_SyncResourceTyped
+	//	*Task_SyncPartial
 	TaskType      isTask_TaskType `protobuf_oneof:"task_type"`
 	Debug         bool            `protobuf:"varint,3,opt,name=debug,proto3" json:"debug,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -348,10 +348,10 @@ func (x *Task) GetCompactSyncs() *Task_CompactSyncs {
 	return nil
 }
 
-func (x *Task) GetSyncResourceTyped() *Task_SyncResourceTypedTask {
+func (x *Task) GetSyncPartial() *Task_SyncPartialTask {
 	if x != nil {
-		if x, ok := x.TaskType.(*Task_SyncResourceTyped); ok {
-			return x.SyncResourceTyped
+		if x, ok := x.TaskType.(*Task_SyncPartial); ok {
+			return x.SyncPartial
 		}
 	}
 	return nil
@@ -540,12 +540,12 @@ func (x *Task) SetCompactSyncs(v *Task_CompactSyncs) {
 	x.TaskType = &Task_CompactSyncs_{v}
 }
 
-func (x *Task) SetSyncResourceTyped(v *Task_SyncResourceTypedTask) {
+func (x *Task) SetSyncPartial(v *Task_SyncPartialTask) {
 	if v == nil {
 		x.TaskType = nil
 		return
 	}
-	x.TaskType = &Task_SyncResourceTyped{v}
+	x.TaskType = &Task_SyncPartial{v}
 }
 
 func (x *Task) SetDebug(v bool) {
@@ -727,11 +727,11 @@ func (x *Task) HasCompactSyncs() bool {
 	return ok
 }
 
-func (x *Task) HasSyncResourceTyped() bool {
+func (x *Task) HasSyncPartial() bool {
 	if x == nil {
 		return false
 	}
-	_, ok := x.TaskType.(*Task_SyncResourceTyped)
+	_, ok := x.TaskType.(*Task_SyncPartial)
 	return ok
 }
 
@@ -865,8 +865,8 @@ func (x *Task) ClearCompactSyncs() {
 	}
 }
 
-func (x *Task) ClearSyncResourceTyped() {
-	if _, ok := x.TaskType.(*Task_SyncResourceTyped); ok {
+func (x *Task) ClearSyncPartial() {
+	if _, ok := x.TaskType.(*Task_SyncPartial); ok {
 		x.TaskType = nil
 	}
 }
@@ -893,7 +893,7 @@ const Task_ActionInvoke_case case_Task_TaskType = 117
 const Task_ActionStatus_case case_Task_TaskType = 118
 const Task_CreateSyncDiff_case case_Task_TaskType = 119
 const Task_CompactSyncs_case case_Task_TaskType = 120
-const Task_SyncResourceTyped_case case_Task_TaskType = 121
+const Task_SyncPartial_case case_Task_TaskType = 121
 
 func (x *Task) WhichTaskType() case_Task_TaskType {
 	if x == nil {
@@ -942,8 +942,8 @@ func (x *Task) WhichTaskType() case_Task_TaskType {
 		return Task_CreateSyncDiff_case
 	case *Task_CompactSyncs_:
 		return Task_CompactSyncs_case
-	case *Task_SyncResourceTyped:
-		return Task_SyncResourceTyped_case
+	case *Task_SyncPartial:
+		return Task_SyncPartial_case
 	default:
 		return Task_TaskType_not_set_case
 	}
@@ -976,7 +976,7 @@ type Task_builder struct {
 	ActionStatus      *Task_ActionStatusTask
 	CreateSyncDiff    *Task_CreateSyncDiffTask
 	CompactSyncs      *Task_CompactSyncs
-	SyncResourceTyped *Task_SyncResourceTypedTask
+	SyncPartial       *Task_SyncPartialTask
 	// -- end of TaskType
 	Debug bool
 }
@@ -1050,8 +1050,8 @@ func (b0 Task_builder) Build() *Task {
 	if b.CompactSyncs != nil {
 		x.TaskType = &Task_CompactSyncs_{b.CompactSyncs}
 	}
-	if b.SyncResourceTyped != nil {
-		x.TaskType = &Task_SyncResourceTyped{b.SyncResourceTyped}
+	if b.SyncPartial != nil {
+		x.TaskType = &Task_SyncPartial{b.SyncPartial}
 	}
 	x.Debug = b.Debug
 	return m0
@@ -1155,8 +1155,8 @@ type Task_CompactSyncs_ struct {
 	CompactSyncs *Task_CompactSyncs `protobuf:"bytes,120,opt,name=compact_syncs,json=compactSyncs,proto3,oneof"`
 }
 
-type Task_SyncResourceTyped struct {
-	SyncResourceTyped *Task_SyncResourceTypedTask `protobuf:"bytes,121,opt,name=sync_resource_typed,json=syncResourceTyped,proto3,oneof"`
+type Task_SyncPartial struct {
+	SyncPartial *Task_SyncPartialTask `protobuf:"bytes,121,opt,name=sync_partial,json=syncPartial,proto3,oneof"`
 }
 
 func (*Task_None) isTask_TaskType() {}
@@ -1201,7 +1201,7 @@ func (*Task_CreateSyncDiff) isTask_TaskType() {}
 
 func (*Task_CompactSyncs_) isTask_TaskType() {}
 
-func (*Task_SyncResourceTyped) isTask_TaskType() {}
+func (*Task_SyncPartial) isTask_TaskType() {}
 
 type BatonServiceHelloRequest struct {
 	state             protoimpl.MessageState              `protogen:"hybrid.v1"`
@@ -2587,10 +2587,6 @@ type Task_SyncFullTask struct {
 	SkipExpandGrants          bool                   `protobuf:"varint,2,opt,name=skip_expand_grants,json=skipExpandGrants,proto3" json:"skip_expand_grants,omitempty"`
 	SkipEntitlementsAndGrants bool                   `protobuf:"varint,3,opt,name=skip_entitlements_and_grants,json=skipEntitlementsAndGrants,proto3" json:"skip_entitlements_and_grants,omitempty"`
 	TargetedSyncResources     []*v2.Resource         `protobuf:"bytes,4,rep,name=targeted_sync_resources,json=targetedSyncResources,proto3" json:"targeted_sync_resources,omitempty"`
-	// partial_sync_resource_type_id triggers a partial sync for a single resource type.
-	// When set, only resources of this type are synced (with parent discovery).
-	// Entitlements and grants are never synced for partial syncs.
-	PartialSyncResourceTypeId string `protobuf:"bytes,5,opt,name=partial_sync_resource_type_id,json=partialSyncResourceTypeId,proto3" json:"partial_sync_resource_type_id,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -2648,13 +2644,6 @@ func (x *Task_SyncFullTask) GetTargetedSyncResources() []*v2.Resource {
 	return nil
 }
 
-func (x *Task_SyncFullTask) GetPartialSyncResourceTypeId() string {
-	if x != nil {
-		return x.PartialSyncResourceTypeId
-	}
-	return ""
-}
-
 func (x *Task_SyncFullTask) SetAnnotations(v []*anypb.Any) {
 	x.Annotations = v
 }
@@ -2671,10 +2660,6 @@ func (x *Task_SyncFullTask) SetTargetedSyncResources(v []*v2.Resource) {
 	x.TargetedSyncResources = v
 }
 
-func (x *Task_SyncFullTask) SetPartialSyncResourceTypeId(v string) {
-	x.PartialSyncResourceTypeId = v
-}
-
 type Task_SyncFullTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -2682,10 +2667,6 @@ type Task_SyncFullTask_builder struct {
 	SkipExpandGrants          bool
 	SkipEntitlementsAndGrants bool
 	TargetedSyncResources     []*v2.Resource
-	// partial_sync_resource_type_id triggers a partial sync for a single resource type.
-	// When set, only resources of this type are synced (with parent discovery).
-	// Entitlements and grants are never synced for partial syncs.
-	PartialSyncResourceTypeId string
 }
 
 func (b0 Task_SyncFullTask_builder) Build() *Task_SyncFullTask {
@@ -2696,33 +2677,38 @@ func (b0 Task_SyncFullTask_builder) Build() *Task_SyncFullTask {
 	x.SkipExpandGrants = b.SkipExpandGrants
 	x.SkipEntitlementsAndGrants = b.SkipEntitlementsAndGrants
 	x.TargetedSyncResources = b.TargetedSyncResources
-	x.PartialSyncResourceTypeId = b.PartialSyncResourceTypeId
 	return m0
 }
 
-// Deprecated: Use SyncFullTask.partial_sync_resource_type_id instead.
-type Task_SyncResourceTypedTask struct {
-	state          protoimpl.MessageState `protogen:"hybrid.v1"`
-	Annotations    []*anypb.Any           `protobuf:"bytes,1,rep,name=annotations,proto3" json:"annotations,omitempty"`
-	ResourceTypeId string                 `protobuf:"bytes,2,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+// SyncPartialTask is a partial sync task that syncs either targeted resources or a single resource type.
+// When using targeted_resources, entitlements and grants are included.
+// When using resource_type_id, only resources are synced (entitlements and grants are skipped).
+type Task_SyncPartialTask struct {
+	state       protoimpl.MessageState `protogen:"hybrid.v1"`
+	Annotations []*anypb.Any           `protobuf:"bytes,1,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	// Types that are valid to be assigned to SyncMode:
+	//
+	//	*Task_SyncPartialTask_TargetedResources_
+	//	*Task_SyncPartialTask_ResourceTypeId
+	SyncMode      isTask_SyncPartialTask_SyncMode `protobuf_oneof:"sync_mode"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Task_SyncResourceTypedTask) Reset() {
-	*x = Task_SyncResourceTypedTask{}
+func (x *Task_SyncPartialTask) Reset() {
+	*x = Task_SyncPartialTask{}
 	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Task_SyncResourceTypedTask) String() string {
+func (x *Task_SyncPartialTask) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Task_SyncResourceTypedTask) ProtoMessage() {}
+func (*Task_SyncPartialTask) ProtoMessage() {}
 
-func (x *Task_SyncResourceTypedTask) ProtoReflect() protoreflect.Message {
+func (x *Task_SyncPartialTask) ProtoReflect() protoreflect.Message {
 	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -2734,43 +2720,164 @@ func (x *Task_SyncResourceTypedTask) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *Task_SyncResourceTypedTask) GetAnnotations() []*anypb.Any {
+func (x *Task_SyncPartialTask) GetAnnotations() []*anypb.Any {
 	if x != nil {
 		return x.Annotations
 	}
 	return nil
 }
 
-func (x *Task_SyncResourceTypedTask) GetResourceTypeId() string {
+func (x *Task_SyncPartialTask) GetSyncMode() isTask_SyncPartialTask_SyncMode {
 	if x != nil {
-		return x.ResourceTypeId
+		return x.SyncMode
+	}
+	return nil
+}
+
+func (x *Task_SyncPartialTask) GetTargetedResources() *Task_SyncPartialTask_TargetedResources {
+	if x != nil {
+		if x, ok := x.SyncMode.(*Task_SyncPartialTask_TargetedResources_); ok {
+			return x.TargetedResources
+		}
+	}
+	return nil
+}
+
+func (x *Task_SyncPartialTask) GetResourceTypeId() string {
+	if x != nil {
+		if x, ok := x.SyncMode.(*Task_SyncPartialTask_ResourceTypeId); ok {
+			return x.ResourceTypeId
+		}
 	}
 	return ""
 }
 
-func (x *Task_SyncResourceTypedTask) SetAnnotations(v []*anypb.Any) {
+func (x *Task_SyncPartialTask) SetAnnotations(v []*anypb.Any) {
 	x.Annotations = v
 }
 
-func (x *Task_SyncResourceTypedTask) SetResourceTypeId(v string) {
-	x.ResourceTypeId = v
+func (x *Task_SyncPartialTask) SetTargetedResources(v *Task_SyncPartialTask_TargetedResources) {
+	if v == nil {
+		x.SyncMode = nil
+		return
+	}
+	x.SyncMode = &Task_SyncPartialTask_TargetedResources_{v}
 }
 
-type Task_SyncResourceTypedTask_builder struct {
+func (x *Task_SyncPartialTask) SetResourceTypeId(v string) {
+	x.SyncMode = &Task_SyncPartialTask_ResourceTypeId{v}
+}
+
+func (x *Task_SyncPartialTask) HasSyncMode() bool {
+	if x == nil {
+		return false
+	}
+	return x.SyncMode != nil
+}
+
+func (x *Task_SyncPartialTask) HasTargetedResources() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.SyncMode.(*Task_SyncPartialTask_TargetedResources_)
+	return ok
+}
+
+func (x *Task_SyncPartialTask) HasResourceTypeId() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.SyncMode.(*Task_SyncPartialTask_ResourceTypeId)
+	return ok
+}
+
+func (x *Task_SyncPartialTask) ClearSyncMode() {
+	x.SyncMode = nil
+}
+
+func (x *Task_SyncPartialTask) ClearTargetedResources() {
+	if _, ok := x.SyncMode.(*Task_SyncPartialTask_TargetedResources_); ok {
+		x.SyncMode = nil
+	}
+}
+
+func (x *Task_SyncPartialTask) ClearResourceTypeId() {
+	if _, ok := x.SyncMode.(*Task_SyncPartialTask_ResourceTypeId); ok {
+		x.SyncMode = nil
+	}
+}
+
+const Task_SyncPartialTask_SyncMode_not_set_case case_Task_SyncPartialTask_SyncMode = 0
+const Task_SyncPartialTask_TargetedResources_case case_Task_SyncPartialTask_SyncMode = 2
+const Task_SyncPartialTask_ResourceTypeId_case case_Task_SyncPartialTask_SyncMode = 3
+
+func (x *Task_SyncPartialTask) WhichSyncMode() case_Task_SyncPartialTask_SyncMode {
+	if x == nil {
+		return Task_SyncPartialTask_SyncMode_not_set_case
+	}
+	switch x.SyncMode.(type) {
+	case *Task_SyncPartialTask_TargetedResources_:
+		return Task_SyncPartialTask_TargetedResources_case
+	case *Task_SyncPartialTask_ResourceTypeId:
+		return Task_SyncPartialTask_ResourceTypeId_case
+	default:
+		return Task_SyncPartialTask_SyncMode_not_set_case
+	}
+}
+
+type Task_SyncPartialTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Annotations    []*anypb.Any
-	ResourceTypeId string
+	Annotations []*anypb.Any
+	// Fields of oneof SyncMode:
+	// Targeted resources to sync - includes entitlements and grants
+	TargetedResources *Task_SyncPartialTask_TargetedResources
+	// Single resource type to sync - skips entitlements and grants
+	ResourceTypeId *string
+	// -- end of SyncMode
 }
 
-func (b0 Task_SyncResourceTypedTask_builder) Build() *Task_SyncResourceTypedTask {
-	m0 := &Task_SyncResourceTypedTask{}
+func (b0 Task_SyncPartialTask_builder) Build() *Task_SyncPartialTask {
+	m0 := &Task_SyncPartialTask{}
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Annotations = b.Annotations
-	x.ResourceTypeId = b.ResourceTypeId
+	if b.TargetedResources != nil {
+		x.SyncMode = &Task_SyncPartialTask_TargetedResources_{b.TargetedResources}
+	}
+	if b.ResourceTypeId != nil {
+		x.SyncMode = &Task_SyncPartialTask_ResourceTypeId{*b.ResourceTypeId}
+	}
 	return m0
 }
+
+type case_Task_SyncPartialTask_SyncMode protoreflect.FieldNumber
+
+func (x case_Task_SyncPartialTask_SyncMode) String() string {
+	md := file_c1_connectorapi_baton_v1_baton_proto_msgTypes[16].Descriptor()
+	if x == 0 {
+		return "not set"
+	}
+	return protoimpl.X.MessageFieldStringOf(md, protoreflect.FieldNumber(x))
+}
+
+type isTask_SyncPartialTask_SyncMode interface {
+	isTask_SyncPartialTask_SyncMode()
+}
+
+type Task_SyncPartialTask_TargetedResources_ struct {
+	// Targeted resources to sync - includes entitlements and grants
+	TargetedResources *Task_SyncPartialTask_TargetedResources `protobuf:"bytes,2,opt,name=targeted_resources,json=targetedResources,proto3,oneof"`
+}
+
+type Task_SyncPartialTask_ResourceTypeId struct {
+	// Single resource type to sync - skips entitlements and grants
+	ResourceTypeId string `protobuf:"bytes,3,opt,name=resource_type_id,json=resourceTypeId,proto3,oneof"`
+}
+
+func (*Task_SyncPartialTask_TargetedResources_) isTask_SyncPartialTask_SyncMode() {}
+
+func (*Task_SyncPartialTask_ResourceTypeId) isTask_SyncPartialTask_SyncMode() {}
 
 type Task_EventFeedTask struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
@@ -4259,6 +4366,63 @@ func (b0 Task_CompactSyncs_builder) Build() *Task_CompactSyncs {
 	return m0
 }
 
+type Task_SyncPartialTask_TargetedResources struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Resources     []*v2.Resource         `protobuf:"bytes,1,rep,name=resources,proto3" json:"resources,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Task_SyncPartialTask_TargetedResources) Reset() {
+	*x = Task_SyncPartialTask_TargetedResources{}
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Task_SyncPartialTask_TargetedResources) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Task_SyncPartialTask_TargetedResources) ProtoMessage() {}
+
+func (x *Task_SyncPartialTask_TargetedResources) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *Task_SyncPartialTask_TargetedResources) GetResources() []*v2.Resource {
+	if x != nil {
+		return x.Resources
+	}
+	return nil
+}
+
+func (x *Task_SyncPartialTask_TargetedResources) SetResources(v []*v2.Resource) {
+	x.Resources = v
+}
+
+type Task_SyncPartialTask_TargetedResources_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Resources []*v2.Resource
+}
+
+func (b0 Task_SyncPartialTask_TargetedResources_builder) Build() *Task_SyncPartialTask_TargetedResources {
+	m0 := &Task_SyncPartialTask_TargetedResources{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Resources = b.Resources
+	return m0
+}
+
 type Task_CompactSyncs_CompactableSync struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	FilePath      string                 `protobuf:"bytes,1,opt,name=file_path,json=filePath,proto3" json:"file_path,omitempty"`
@@ -4269,7 +4433,7 @@ type Task_CompactSyncs_CompactableSync struct {
 
 func (x *Task_CompactSyncs_CompactableSync) Reset() {
 	*x = Task_CompactSyncs_CompactableSync{}
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[35]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4281,7 +4445,7 @@ func (x *Task_CompactSyncs_CompactableSync) String() string {
 func (*Task_CompactSyncs_CompactableSync) ProtoMessage() {}
 
 func (x *Task_CompactSyncs_CompactableSync) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[35]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4341,7 +4505,7 @@ type BatonServiceHelloRequest_BuildInfo struct {
 
 func (x *BatonServiceHelloRequest_BuildInfo) Reset() {
 	*x = BatonServiceHelloRequest_BuildInfo{}
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[36]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4353,7 +4517,7 @@ func (x *BatonServiceHelloRequest_BuildInfo) String() string {
 func (*BatonServiceHelloRequest_BuildInfo) ProtoMessage() {}
 
 func (x *BatonServiceHelloRequest_BuildInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[36]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4431,7 +4595,7 @@ type BatonServiceHelloRequest_OSInfo struct {
 
 func (x *BatonServiceHelloRequest_OSInfo) Reset() {
 	*x = BatonServiceHelloRequest_OSInfo{}
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[37]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4443,7 +4607,7 @@ func (x *BatonServiceHelloRequest_OSInfo) String() string {
 func (*BatonServiceHelloRequest_OSInfo) ProtoMessage() {}
 
 func (x *BatonServiceHelloRequest_OSInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[37]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4581,7 +4745,7 @@ type BatonServiceUploadAssetRequest_UploadMetadata struct {
 
 func (x *BatonServiceUploadAssetRequest_UploadMetadata) Reset() {
 	*x = BatonServiceUploadAssetRequest_UploadMetadata{}
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[38]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4593,7 +4757,7 @@ func (x *BatonServiceUploadAssetRequest_UploadMetadata) String() string {
 func (*BatonServiceUploadAssetRequest_UploadMetadata) ProtoMessage() {}
 
 func (x *BatonServiceUploadAssetRequest_UploadMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[38]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4665,7 +4829,7 @@ type BatonServiceUploadAssetRequest_UploadData struct {
 
 func (x *BatonServiceUploadAssetRequest_UploadData) Reset() {
 	*x = BatonServiceUploadAssetRequest_UploadData{}
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[39]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4677,7 +4841,7 @@ func (x *BatonServiceUploadAssetRequest_UploadData) String() string {
 func (*BatonServiceUploadAssetRequest_UploadData) ProtoMessage() {}
 
 func (x *BatonServiceUploadAssetRequest_UploadData) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[39]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4727,7 +4891,7 @@ type BatonServiceUploadAssetRequest_UploadEOF struct {
 
 func (x *BatonServiceUploadAssetRequest_UploadEOF) Reset() {
 	*x = BatonServiceUploadAssetRequest_UploadEOF{}
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[40]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4739,7 +4903,7 @@ func (x *BatonServiceUploadAssetRequest_UploadEOF) String() string {
 func (*BatonServiceUploadAssetRequest_UploadEOF) ProtoMessage() {}
 
 func (x *BatonServiceUploadAssetRequest_UploadEOF) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[40]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4803,7 +4967,7 @@ type BatonServiceFinishTaskRequest_Error struct {
 
 func (x *BatonServiceFinishTaskRequest_Error) Reset() {
 	*x = BatonServiceFinishTaskRequest_Error{}
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[41]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4815,7 +4979,7 @@ func (x *BatonServiceFinishTaskRequest_Error) String() string {
 func (*BatonServiceFinishTaskRequest_Error) ProtoMessage() {}
 
 func (x *BatonServiceFinishTaskRequest_Error) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[41]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4900,7 +5064,7 @@ type BatonServiceFinishTaskRequest_Success struct {
 
 func (x *BatonServiceFinishTaskRequest_Success) Reset() {
 	*x = BatonServiceFinishTaskRequest_Success{}
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[42]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4912,7 +5076,7 @@ func (x *BatonServiceFinishTaskRequest_Success) String() string {
 func (*BatonServiceFinishTaskRequest_Success) ProtoMessage() {}
 
 func (x *BatonServiceFinishTaskRequest_Success) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[42]
+	mi := &file_c1_connectorapi_baton_v1_baton_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4977,7 +5141,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xd1*\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xc7+\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -5003,22 +5167,25 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\raction_invoke\x18u \x01(\v2/.c1.connectorapi.baton.v1.Task.ActionInvokeTaskH\x00R\factionInvoke\x12V\n" +
 	"\raction_status\x18v \x01(\v2/.c1.connectorapi.baton.v1.Task.ActionStatusTaskH\x00R\factionStatus\x12]\n" +
 	"\x10create_sync_diff\x18w \x01(\v21.c1.connectorapi.baton.v1.Task.CreateSyncDiffTaskH\x00R\x0ecreateSyncDiff\x12R\n" +
-	"\rcompact_syncs\x18x \x01(\v2+.c1.connectorapi.baton.v1.Task.CompactSyncsH\x00R\fcompactSyncs\x12f\n" +
-	"\x13sync_resource_typed\x18y \x01(\v24.c1.connectorapi.baton.v1.Task.SyncResourceTypedTaskH\x00R\x11syncResourceTyped\x12\x14\n" +
+	"\rcompact_syncs\x18x \x01(\v2+.c1.connectorapi.baton.v1.Task.CompactSyncsH\x00R\fcompactSyncs\x12S\n" +
+	"\fsync_partial\x18y \x01(\v2..c1.connectorapi.baton.v1.Task.SyncPartialTaskH\x00R\vsyncPartial\x12\x14\n" +
 	"\x05debug\x18\x03 \x01(\bR\x05debug\x1aB\n" +
 	"\bNoneTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1aC\n" +
 	"\tHelloTask\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\xca\x02\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\x88\x02\n" +
 	"\fSyncFullTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12,\n" +
 	"\x12skip_expand_grants\x18\x02 \x01(\bR\x10skipExpandGrants\x12?\n" +
 	"\x1cskip_entitlements_and_grants\x18\x03 \x01(\bR\x19skipEntitlementsAndGrants\x12Q\n" +
-	"\x17targeted_sync_resources\x18\x04 \x03(\v2\x19.c1.connector.v2.ResourceR\x15targetedSyncResources\x12@\n" +
-	"\x1dpartial_sync_resource_type_id\x18\x05 \x01(\tR\x19partialSyncResourceTypeId\x1ay\n" +
-	"\x15SyncResourceTypedTask\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12(\n" +
-	"\x10resource_type_id\x18\x02 \x01(\tR\x0eresourceTypeId\x1a~\n" +
+	"\x17targeted_sync_resources\x18\x04 \x03(\v2\x19.c1.connector.v2.ResourceR\x15targetedSyncResources\x1a\xc3\x02\n" +
+	"\x0fSyncPartialTask\x126\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12q\n" +
+	"\x12targeted_resources\x18\x02 \x01(\v2@.c1.connectorapi.baton.v1.Task.SyncPartialTask.TargetedResourcesH\x00R\x11targetedResources\x12*\n" +
+	"\x10resource_type_id\x18\x03 \x01(\tH\x00R\x0eresourceTypeId\x1aL\n" +
+	"\x11TargetedResources\x127\n" +
+	"\tresources\x18\x01 \x03(\v2\x19.c1.connector.v2.ResourceR\tresourcesB\v\n" +
+	"\tsync_mode\x1a~\n" +
 	"\rEventFeedTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x125\n" +
 	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x1a\xf3\x01\n" +
@@ -5192,7 +5359,7 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\x0eStartDebugging\x12/.c1.connectorapi.baton.v1.StartDebuggingRequest\x1a0.c1.connectorapi.baton.v1.StartDebuggingResponse\"\x00B7Z5gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1b\x06proto3"
 
 var file_c1_connectorapi_baton_v1_baton_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_connectorapi_baton_v1_baton_proto_msgTypes = make([]protoimpl.MessageInfo, 43)
+var file_c1_connectorapi_baton_v1_baton_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_c1_connectorapi_baton_v1_baton_proto_goTypes = []any{
 	(Task_Status)(0),                                      // 0: c1.connectorapi.baton.v1.Task.Status
 	(*Task)(nil),                                          // 1: c1.connectorapi.baton.v1.Task
@@ -5211,7 +5378,7 @@ var file_c1_connectorapi_baton_v1_baton_proto_goTypes = []any{
 	(*Task_NoneTask)(nil),                                 // 14: c1.connectorapi.baton.v1.Task.NoneTask
 	(*Task_HelloTask)(nil),                                // 15: c1.connectorapi.baton.v1.Task.HelloTask
 	(*Task_SyncFullTask)(nil),                             // 16: c1.connectorapi.baton.v1.Task.SyncFullTask
-	(*Task_SyncResourceTypedTask)(nil),                    // 17: c1.connectorapi.baton.v1.Task.SyncResourceTypedTask
+	(*Task_SyncPartialTask)(nil),                          // 17: c1.connectorapi.baton.v1.Task.SyncPartialTask
 	(*Task_EventFeedTask)(nil),                            // 18: c1.connectorapi.baton.v1.Task.EventFeedTask
 	(*Task_GrantTask)(nil),                                // 19: c1.connectorapi.baton.v1.Task.GrantTask
 	(*Task_RevokeTask)(nil),                               // 20: c1.connectorapi.baton.v1.Task.RevokeTask
@@ -5230,29 +5397,30 @@ var file_c1_connectorapi_baton_v1_baton_proto_goTypes = []any{
 	(*Task_ActionStatusTask)(nil),                         // 33: c1.connectorapi.baton.v1.Task.ActionStatusTask
 	(*Task_CreateSyncDiffTask)(nil),                       // 34: c1.connectorapi.baton.v1.Task.CreateSyncDiffTask
 	(*Task_CompactSyncs)(nil),                             // 35: c1.connectorapi.baton.v1.Task.CompactSyncs
-	(*Task_CompactSyncs_CompactableSync)(nil),             // 36: c1.connectorapi.baton.v1.Task.CompactSyncs.CompactableSync
-	(*BatonServiceHelloRequest_BuildInfo)(nil),            // 37: c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfo
-	(*BatonServiceHelloRequest_OSInfo)(nil),               // 38: c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfo
-	(*BatonServiceUploadAssetRequest_UploadMetadata)(nil), // 39: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata
-	(*BatonServiceUploadAssetRequest_UploadData)(nil),     // 40: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadData
-	(*BatonServiceUploadAssetRequest_UploadEOF)(nil),      // 41: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF
-	(*BatonServiceFinishTaskRequest_Error)(nil),           // 42: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error
-	(*BatonServiceFinishTaskRequest_Success)(nil),         // 43: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success
-	(*v2.ConnectorMetadata)(nil),                          // 44: c1.connector.v2.ConnectorMetadata
-	(*anypb.Any)(nil),                                     // 45: google.protobuf.Any
-	(*durationpb.Duration)(nil),                           // 46: google.protobuf.Duration
-	(*status.Status)(nil),                                 // 47: google.rpc.Status
-	(*v2.Resource)(nil),                                   // 48: c1.connector.v2.Resource
-	(*timestamppb.Timestamp)(nil),                         // 49: google.protobuf.Timestamp
-	(*v2.Entitlement)(nil),                                // 50: c1.connector.v2.Entitlement
-	(*v2.Grant)(nil),                                      // 51: c1.connector.v2.Grant
-	(*v2.AccountInfo)(nil),                                // 52: c1.connector.v2.AccountInfo
-	(*v2.CredentialOptions)(nil),                          // 53: c1.connector.v2.CredentialOptions
-	(*v2.EncryptionConfig)(nil),                           // 54: c1.connector.v2.EncryptionConfig
-	(*v2.ResourceId)(nil),                                 // 55: c1.connector.v2.ResourceId
-	(*v2.TicketRequest)(nil),                              // 56: c1.connector.v2.TicketRequest
-	(*v2.TicketSchema)(nil),                               // 57: c1.connector.v2.TicketSchema
-	(*structpb.Struct)(nil),                               // 58: google.protobuf.Struct
+	(*Task_SyncPartialTask_TargetedResources)(nil),        // 36: c1.connectorapi.baton.v1.Task.SyncPartialTask.TargetedResources
+	(*Task_CompactSyncs_CompactableSync)(nil),             // 37: c1.connectorapi.baton.v1.Task.CompactSyncs.CompactableSync
+	(*BatonServiceHelloRequest_BuildInfo)(nil),            // 38: c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfo
+	(*BatonServiceHelloRequest_OSInfo)(nil),               // 39: c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfo
+	(*BatonServiceUploadAssetRequest_UploadMetadata)(nil), // 40: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata
+	(*BatonServiceUploadAssetRequest_UploadData)(nil),     // 41: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadData
+	(*BatonServiceUploadAssetRequest_UploadEOF)(nil),      // 42: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF
+	(*BatonServiceFinishTaskRequest_Error)(nil),           // 43: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error
+	(*BatonServiceFinishTaskRequest_Success)(nil),         // 44: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success
+	(*v2.ConnectorMetadata)(nil),                          // 45: c1.connector.v2.ConnectorMetadata
+	(*anypb.Any)(nil),                                     // 46: google.protobuf.Any
+	(*durationpb.Duration)(nil),                           // 47: google.protobuf.Duration
+	(*status.Status)(nil),                                 // 48: google.rpc.Status
+	(*v2.Resource)(nil),                                   // 49: c1.connector.v2.Resource
+	(*timestamppb.Timestamp)(nil),                         // 50: google.protobuf.Timestamp
+	(*v2.Entitlement)(nil),                                // 51: c1.connector.v2.Entitlement
+	(*v2.Grant)(nil),                                      // 52: c1.connector.v2.Grant
+	(*v2.AccountInfo)(nil),                                // 53: c1.connector.v2.AccountInfo
+	(*v2.CredentialOptions)(nil),                          // 54: c1.connector.v2.CredentialOptions
+	(*v2.EncryptionConfig)(nil),                           // 55: c1.connector.v2.EncryptionConfig
+	(*v2.ResourceId)(nil),                                 // 56: c1.connector.v2.ResourceId
+	(*v2.TicketRequest)(nil),                              // 57: c1.connector.v2.TicketRequest
+	(*v2.TicketSchema)(nil),                               // 58: c1.connector.v2.TicketSchema
+	(*structpb.Struct)(nil),                               // 59: google.protobuf.Struct
 }
 var file_c1_connectorapi_baton_v1_baton_proto_depIdxs = []int32{
 	0,  // 0: c1.connectorapi.baton.v1.Task.status:type_name -> c1.connectorapi.baton.v1.Task.Status
@@ -5277,87 +5445,89 @@ var file_c1_connectorapi_baton_v1_baton_proto_depIdxs = []int32{
 	33, // 19: c1.connectorapi.baton.v1.Task.action_status:type_name -> c1.connectorapi.baton.v1.Task.ActionStatusTask
 	34, // 20: c1.connectorapi.baton.v1.Task.create_sync_diff:type_name -> c1.connectorapi.baton.v1.Task.CreateSyncDiffTask
 	35, // 21: c1.connectorapi.baton.v1.Task.compact_syncs:type_name -> c1.connectorapi.baton.v1.Task.CompactSyncs
-	17, // 22: c1.connectorapi.baton.v1.Task.sync_resource_typed:type_name -> c1.connectorapi.baton.v1.Task.SyncResourceTypedTask
-	37, // 23: c1.connectorapi.baton.v1.BatonServiceHelloRequest.build_info:type_name -> c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfo
-	38, // 24: c1.connectorapi.baton.v1.BatonServiceHelloRequest.os_info:type_name -> c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfo
-	44, // 25: c1.connectorapi.baton.v1.BatonServiceHelloRequest.connector_metadata:type_name -> c1.connector.v2.ConnectorMetadata
-	45, // 26: c1.connectorapi.baton.v1.BatonServiceHelloRequest.annotations:type_name -> google.protobuf.Any
-	45, // 27: c1.connectorapi.baton.v1.BatonServiceHelloResponse.annotations:type_name -> google.protobuf.Any
+	17, // 22: c1.connectorapi.baton.v1.Task.sync_partial:type_name -> c1.connectorapi.baton.v1.Task.SyncPartialTask
+	38, // 23: c1.connectorapi.baton.v1.BatonServiceHelloRequest.build_info:type_name -> c1.connectorapi.baton.v1.BatonServiceHelloRequest.BuildInfo
+	39, // 24: c1.connectorapi.baton.v1.BatonServiceHelloRequest.os_info:type_name -> c1.connectorapi.baton.v1.BatonServiceHelloRequest.OSInfo
+	45, // 25: c1.connectorapi.baton.v1.BatonServiceHelloRequest.connector_metadata:type_name -> c1.connector.v2.ConnectorMetadata
+	46, // 26: c1.connectorapi.baton.v1.BatonServiceHelloRequest.annotations:type_name -> google.protobuf.Any
+	46, // 27: c1.connectorapi.baton.v1.BatonServiceHelloResponse.annotations:type_name -> google.protobuf.Any
 	1,  // 28: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.task:type_name -> c1.connectorapi.baton.v1.Task
-	46, // 29: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.next_poll:type_name -> google.protobuf.Duration
-	46, // 30: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.next_heartbeat:type_name -> google.protobuf.Duration
-	45, // 31: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.annotations:type_name -> google.protobuf.Any
-	45, // 32: c1.connectorapi.baton.v1.BatonServiceHeartbeatRequest.annotations:type_name -> google.protobuf.Any
-	46, // 33: c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse.next_heartbeat:type_name -> google.protobuf.Duration
-	45, // 34: c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse.annotations:type_name -> google.protobuf.Any
-	39, // 35: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.metadata:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata
-	40, // 36: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.data:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadData
-	41, // 37: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.eof:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF
-	45, // 38: c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse.annotations:type_name -> google.protobuf.Any
-	47, // 39: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.status:type_name -> google.rpc.Status
-	42, // 40: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.error:type_name -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error
-	43, // 41: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.success:type_name -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success
-	45, // 42: c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse.annotations:type_name -> google.protobuf.Any
-	45, // 43: c1.connectorapi.baton.v1.Task.NoneTask.annotations:type_name -> google.protobuf.Any
-	45, // 44: c1.connectorapi.baton.v1.Task.HelloTask.annotations:type_name -> google.protobuf.Any
-	45, // 45: c1.connectorapi.baton.v1.Task.SyncFullTask.annotations:type_name -> google.protobuf.Any
-	48, // 46: c1.connectorapi.baton.v1.Task.SyncFullTask.targeted_sync_resources:type_name -> c1.connector.v2.Resource
-	45, // 47: c1.connectorapi.baton.v1.Task.SyncResourceTypedTask.annotations:type_name -> google.protobuf.Any
-	45, // 48: c1.connectorapi.baton.v1.Task.EventFeedTask.annotations:type_name -> google.protobuf.Any
-	49, // 49: c1.connectorapi.baton.v1.Task.EventFeedTask.start_at:type_name -> google.protobuf.Timestamp
-	50, // 50: c1.connectorapi.baton.v1.Task.GrantTask.entitlement:type_name -> c1.connector.v2.Entitlement
-	48, // 51: c1.connectorapi.baton.v1.Task.GrantTask.principal:type_name -> c1.connector.v2.Resource
-	45, // 52: c1.connectorapi.baton.v1.Task.GrantTask.annotations:type_name -> google.protobuf.Any
-	46, // 53: c1.connectorapi.baton.v1.Task.GrantTask.duration:type_name -> google.protobuf.Duration
-	51, // 54: c1.connectorapi.baton.v1.Task.RevokeTask.grant:type_name -> c1.connector.v2.Grant
-	45, // 55: c1.connectorapi.baton.v1.Task.RevokeTask.annotations:type_name -> google.protobuf.Any
-	52, // 56: c1.connectorapi.baton.v1.Task.CreateAccountTask.account_info:type_name -> c1.connector.v2.AccountInfo
-	53, // 57: c1.connectorapi.baton.v1.Task.CreateAccountTask.credential_options:type_name -> c1.connector.v2.CredentialOptions
-	54, // 58: c1.connectorapi.baton.v1.Task.CreateAccountTask.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
-	48, // 59: c1.connectorapi.baton.v1.Task.CreateResourceTask.resource:type_name -> c1.connector.v2.Resource
-	55, // 60: c1.connectorapi.baton.v1.Task.DeleteResourceTask.resource_id:type_name -> c1.connector.v2.ResourceId
-	55, // 61: c1.connectorapi.baton.v1.Task.DeleteResourceTask.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	55, // 62: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.resource_id:type_name -> c1.connector.v2.ResourceId
-	53, // 63: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.credential_options:type_name -> c1.connector.v2.CredentialOptions
-	54, // 64: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
-	56, // 65: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_request:type_name -> c1.connector.v2.TicketRequest
-	57, // 66: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_schema:type_name -> c1.connector.v2.TicketSchema
-	45, // 67: c1.connectorapi.baton.v1.Task.CreateTicketTask.annotations:type_name -> google.protobuf.Any
-	25, // 68: c1.connectorapi.baton.v1.Task.BulkCreateTicketsTask.ticket_requests:type_name -> c1.connectorapi.baton.v1.Task.CreateTicketTask
-	29, // 69: c1.connectorapi.baton.v1.Task.BulkGetTicketsTask.ticket_requests:type_name -> c1.connectorapi.baton.v1.Task.GetTicketTask
-	45, // 70: c1.connectorapi.baton.v1.Task.ListTicketSchemasTask.annotations:type_name -> google.protobuf.Any
-	45, // 71: c1.connectorapi.baton.v1.Task.GetTicketTask.annotations:type_name -> google.protobuf.Any
-	45, // 72: c1.connectorapi.baton.v1.Task.ActionListSchemasTask.annotations:type_name -> google.protobuf.Any
-	45, // 73: c1.connectorapi.baton.v1.Task.ActionGetSchemaTask.annotations:type_name -> google.protobuf.Any
-	58, // 74: c1.connectorapi.baton.v1.Task.ActionInvokeTask.args:type_name -> google.protobuf.Struct
-	45, // 75: c1.connectorapi.baton.v1.Task.ActionInvokeTask.annotations:type_name -> google.protobuf.Any
-	45, // 76: c1.connectorapi.baton.v1.Task.ActionStatusTask.annotations:type_name -> google.protobuf.Any
-	45, // 77: c1.connectorapi.baton.v1.Task.CreateSyncDiffTask.annotations:type_name -> google.protobuf.Any
-	36, // 78: c1.connectorapi.baton.v1.Task.CompactSyncs.compactable_syncs:type_name -> c1.connectorapi.baton.v1.Task.CompactSyncs.CompactableSync
-	45, // 79: c1.connectorapi.baton.v1.Task.CompactSyncs.annotations:type_name -> google.protobuf.Any
-	45, // 80: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata.annotations:type_name -> google.protobuf.Any
-	45, // 81: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF.annotations:type_name -> google.protobuf.Any
-	45, // 82: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.annotations:type_name -> google.protobuf.Any
-	45, // 83: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.response:type_name -> google.protobuf.Any
-	45, // 84: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.annotations:type_name -> google.protobuf.Any
-	45, // 85: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.response:type_name -> google.protobuf.Any
-	2,  // 86: c1.connectorapi.baton.v1.BatonService.Hello:input_type -> c1.connectorapi.baton.v1.BatonServiceHelloRequest
-	4,  // 87: c1.connectorapi.baton.v1.BatonService.GetTask:input_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskRequest
-	6,  // 88: c1.connectorapi.baton.v1.BatonService.Heartbeat:input_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatRequest
-	10, // 89: c1.connectorapi.baton.v1.BatonService.FinishTask:input_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest
-	8,  // 90: c1.connectorapi.baton.v1.BatonService.UploadAsset:input_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest
-	12, // 91: c1.connectorapi.baton.v1.BatonService.StartDebugging:input_type -> c1.connectorapi.baton.v1.StartDebuggingRequest
-	3,  // 92: c1.connectorapi.baton.v1.BatonService.Hello:output_type -> c1.connectorapi.baton.v1.BatonServiceHelloResponse
-	5,  // 93: c1.connectorapi.baton.v1.BatonService.GetTask:output_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskResponse
-	7,  // 94: c1.connectorapi.baton.v1.BatonService.Heartbeat:output_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse
-	11, // 95: c1.connectorapi.baton.v1.BatonService.FinishTask:output_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse
-	9,  // 96: c1.connectorapi.baton.v1.BatonService.UploadAsset:output_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse
-	13, // 97: c1.connectorapi.baton.v1.BatonService.StartDebugging:output_type -> c1.connectorapi.baton.v1.StartDebuggingResponse
-	92, // [92:98] is the sub-list for method output_type
-	86, // [86:92] is the sub-list for method input_type
-	86, // [86:86] is the sub-list for extension type_name
-	86, // [86:86] is the sub-list for extension extendee
-	0,  // [0:86] is the sub-list for field type_name
+	47, // 29: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.next_poll:type_name -> google.protobuf.Duration
+	47, // 30: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.next_heartbeat:type_name -> google.protobuf.Duration
+	46, // 31: c1.connectorapi.baton.v1.BatonServiceGetTaskResponse.annotations:type_name -> google.protobuf.Any
+	46, // 32: c1.connectorapi.baton.v1.BatonServiceHeartbeatRequest.annotations:type_name -> google.protobuf.Any
+	47, // 33: c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse.next_heartbeat:type_name -> google.protobuf.Duration
+	46, // 34: c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse.annotations:type_name -> google.protobuf.Any
+	40, // 35: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.metadata:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata
+	41, // 36: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.data:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadData
+	42, // 37: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.eof:type_name -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF
+	46, // 38: c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse.annotations:type_name -> google.protobuf.Any
+	48, // 39: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.status:type_name -> google.rpc.Status
+	43, // 40: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.error:type_name -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error
+	44, // 41: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.success:type_name -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success
+	46, // 42: c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse.annotations:type_name -> google.protobuf.Any
+	46, // 43: c1.connectorapi.baton.v1.Task.NoneTask.annotations:type_name -> google.protobuf.Any
+	46, // 44: c1.connectorapi.baton.v1.Task.HelloTask.annotations:type_name -> google.protobuf.Any
+	46, // 45: c1.connectorapi.baton.v1.Task.SyncFullTask.annotations:type_name -> google.protobuf.Any
+	49, // 46: c1.connectorapi.baton.v1.Task.SyncFullTask.targeted_sync_resources:type_name -> c1.connector.v2.Resource
+	46, // 47: c1.connectorapi.baton.v1.Task.SyncPartialTask.annotations:type_name -> google.protobuf.Any
+	36, // 48: c1.connectorapi.baton.v1.Task.SyncPartialTask.targeted_resources:type_name -> c1.connectorapi.baton.v1.Task.SyncPartialTask.TargetedResources
+	46, // 49: c1.connectorapi.baton.v1.Task.EventFeedTask.annotations:type_name -> google.protobuf.Any
+	50, // 50: c1.connectorapi.baton.v1.Task.EventFeedTask.start_at:type_name -> google.protobuf.Timestamp
+	51, // 51: c1.connectorapi.baton.v1.Task.GrantTask.entitlement:type_name -> c1.connector.v2.Entitlement
+	49, // 52: c1.connectorapi.baton.v1.Task.GrantTask.principal:type_name -> c1.connector.v2.Resource
+	46, // 53: c1.connectorapi.baton.v1.Task.GrantTask.annotations:type_name -> google.protobuf.Any
+	47, // 54: c1.connectorapi.baton.v1.Task.GrantTask.duration:type_name -> google.protobuf.Duration
+	52, // 55: c1.connectorapi.baton.v1.Task.RevokeTask.grant:type_name -> c1.connector.v2.Grant
+	46, // 56: c1.connectorapi.baton.v1.Task.RevokeTask.annotations:type_name -> google.protobuf.Any
+	53, // 57: c1.connectorapi.baton.v1.Task.CreateAccountTask.account_info:type_name -> c1.connector.v2.AccountInfo
+	54, // 58: c1.connectorapi.baton.v1.Task.CreateAccountTask.credential_options:type_name -> c1.connector.v2.CredentialOptions
+	55, // 59: c1.connectorapi.baton.v1.Task.CreateAccountTask.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
+	49, // 60: c1.connectorapi.baton.v1.Task.CreateResourceTask.resource:type_name -> c1.connector.v2.Resource
+	56, // 61: c1.connectorapi.baton.v1.Task.DeleteResourceTask.resource_id:type_name -> c1.connector.v2.ResourceId
+	56, // 62: c1.connectorapi.baton.v1.Task.DeleteResourceTask.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	56, // 63: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.resource_id:type_name -> c1.connector.v2.ResourceId
+	54, // 64: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.credential_options:type_name -> c1.connector.v2.CredentialOptions
+	55, // 65: c1.connectorapi.baton.v1.Task.RotateCredentialsTask.encryption_configs:type_name -> c1.connector.v2.EncryptionConfig
+	57, // 66: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_request:type_name -> c1.connector.v2.TicketRequest
+	58, // 67: c1.connectorapi.baton.v1.Task.CreateTicketTask.ticket_schema:type_name -> c1.connector.v2.TicketSchema
+	46, // 68: c1.connectorapi.baton.v1.Task.CreateTicketTask.annotations:type_name -> google.protobuf.Any
+	25, // 69: c1.connectorapi.baton.v1.Task.BulkCreateTicketsTask.ticket_requests:type_name -> c1.connectorapi.baton.v1.Task.CreateTicketTask
+	29, // 70: c1.connectorapi.baton.v1.Task.BulkGetTicketsTask.ticket_requests:type_name -> c1.connectorapi.baton.v1.Task.GetTicketTask
+	46, // 71: c1.connectorapi.baton.v1.Task.ListTicketSchemasTask.annotations:type_name -> google.protobuf.Any
+	46, // 72: c1.connectorapi.baton.v1.Task.GetTicketTask.annotations:type_name -> google.protobuf.Any
+	46, // 73: c1.connectorapi.baton.v1.Task.ActionListSchemasTask.annotations:type_name -> google.protobuf.Any
+	46, // 74: c1.connectorapi.baton.v1.Task.ActionGetSchemaTask.annotations:type_name -> google.protobuf.Any
+	59, // 75: c1.connectorapi.baton.v1.Task.ActionInvokeTask.args:type_name -> google.protobuf.Struct
+	46, // 76: c1.connectorapi.baton.v1.Task.ActionInvokeTask.annotations:type_name -> google.protobuf.Any
+	46, // 77: c1.connectorapi.baton.v1.Task.ActionStatusTask.annotations:type_name -> google.protobuf.Any
+	46, // 78: c1.connectorapi.baton.v1.Task.CreateSyncDiffTask.annotations:type_name -> google.protobuf.Any
+	37, // 79: c1.connectorapi.baton.v1.Task.CompactSyncs.compactable_syncs:type_name -> c1.connectorapi.baton.v1.Task.CompactSyncs.CompactableSync
+	46, // 80: c1.connectorapi.baton.v1.Task.CompactSyncs.annotations:type_name -> google.protobuf.Any
+	49, // 81: c1.connectorapi.baton.v1.Task.SyncPartialTask.TargetedResources.resources:type_name -> c1.connector.v2.Resource
+	46, // 82: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadMetadata.annotations:type_name -> google.protobuf.Any
+	46, // 83: c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest.UploadEOF.annotations:type_name -> google.protobuf.Any
+	46, // 84: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.annotations:type_name -> google.protobuf.Any
+	46, // 85: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Error.response:type_name -> google.protobuf.Any
+	46, // 86: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.annotations:type_name -> google.protobuf.Any
+	46, // 87: c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest.Success.response:type_name -> google.protobuf.Any
+	2,  // 88: c1.connectorapi.baton.v1.BatonService.Hello:input_type -> c1.connectorapi.baton.v1.BatonServiceHelloRequest
+	4,  // 89: c1.connectorapi.baton.v1.BatonService.GetTask:input_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskRequest
+	6,  // 90: c1.connectorapi.baton.v1.BatonService.Heartbeat:input_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatRequest
+	10, // 91: c1.connectorapi.baton.v1.BatonService.FinishTask:input_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskRequest
+	8,  // 92: c1.connectorapi.baton.v1.BatonService.UploadAsset:input_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetRequest
+	12, // 93: c1.connectorapi.baton.v1.BatonService.StartDebugging:input_type -> c1.connectorapi.baton.v1.StartDebuggingRequest
+	3,  // 94: c1.connectorapi.baton.v1.BatonService.Hello:output_type -> c1.connectorapi.baton.v1.BatonServiceHelloResponse
+	5,  // 95: c1.connectorapi.baton.v1.BatonService.GetTask:output_type -> c1.connectorapi.baton.v1.BatonServiceGetTaskResponse
+	7,  // 96: c1.connectorapi.baton.v1.BatonService.Heartbeat:output_type -> c1.connectorapi.baton.v1.BatonServiceHeartbeatResponse
+	11, // 97: c1.connectorapi.baton.v1.BatonService.FinishTask:output_type -> c1.connectorapi.baton.v1.BatonServiceFinishTaskResponse
+	9,  // 98: c1.connectorapi.baton.v1.BatonService.UploadAsset:output_type -> c1.connectorapi.baton.v1.BatonServiceUploadAssetResponse
+	13, // 99: c1.connectorapi.baton.v1.BatonService.StartDebugging:output_type -> c1.connectorapi.baton.v1.StartDebuggingResponse
+	94, // [94:100] is the sub-list for method output_type
+	88, // [88:94] is the sub-list for method input_type
+	88, // [88:88] is the sub-list for extension type_name
+	88, // [88:88] is the sub-list for extension extendee
+	0,  // [0:88] is the sub-list for field type_name
 }
 
 func init() { file_c1_connectorapi_baton_v1_baton_proto_init() }
@@ -5387,7 +5557,7 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 		(*Task_ActionStatus)(nil),
 		(*Task_CreateSyncDiff)(nil),
 		(*Task_CompactSyncs_)(nil),
-		(*Task_SyncResourceTyped)(nil),
+		(*Task_SyncPartial)(nil),
 	}
 	file_c1_connectorapi_baton_v1_baton_proto_msgTypes[7].OneofWrappers = []any{
 		(*BatonServiceUploadAssetRequest_Metadata)(nil),
@@ -5398,13 +5568,17 @@ func file_c1_connectorapi_baton_v1_baton_proto_init() {
 		(*BatonServiceFinishTaskRequest_Error_)(nil),
 		(*BatonServiceFinishTaskRequest_Success_)(nil),
 	}
+	file_c1_connectorapi_baton_v1_baton_proto_msgTypes[16].OneofWrappers = []any{
+		(*Task_SyncPartialTask_TargetedResources_)(nil),
+		(*Task_SyncPartialTask_ResourceTypeId)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connectorapi_baton_v1_baton_proto_rawDesc), len(file_c1_connectorapi_baton_v1_baton_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   43,
+			NumMessages:   44,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

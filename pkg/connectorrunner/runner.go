@@ -350,7 +350,6 @@ type runnerConfig struct {
 	skipGrants                          bool
 	sessionStoreEnabled                 bool
 	syncResourceTypeIDs                 []string
-	partialSyncResourceTypeID           string
 }
 
 func WithSessionStoreEnabled() Option {
@@ -565,13 +564,6 @@ func WithTargetedSyncResources(resourceIDs []string) Option {
 func WithSyncResourceTypeIDs(resourceTypeIDs []string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.syncResourceTypeIDs = resourceTypeIDs
-		return nil
-	}
-}
-
-func WithPartialSyncResourceType(resourceTypeID string) Option {
-	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.partialSyncResourceTypeID = resourceTypeID
 		return nil
 	}
 }
@@ -814,21 +806,15 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 			}
 			tm = local.NewLocalCompactor(ctx, cfg.syncCompactorConfig.outputPath, configs)
 		default:
-			if cfg.partialSyncResourceTypeID != "" {
-				tm, err = local.NewPartialSyncResourceType(ctx, cfg.c1zPath, cfg.partialSyncResourceTypeID,
-					local.PartialSyncWithTmpDir(cfg.tempDir),
-				)
-			} else {
-				tm, err = local.NewSyncer(ctx, cfg.c1zPath,
-					local.WithTmpDir(cfg.tempDir),
-					local.WithExternalResourceC1Z(cfg.externalResourceC1Z),
-					local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
-					local.WithTargetedSyncResources(resources),
-					local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
-					local.WithSkipGrants(cfg.skipGrants),
-					local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
-				)
-			}
+			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
+				local.WithTmpDir(cfg.tempDir),
+				local.WithExternalResourceC1Z(cfg.externalResourceC1Z),
+				local.WithExternalResourceEntitlementIdFilter(cfg.externalResourceEntitlementIdFilter),
+				local.WithTargetedSyncResources(resources),
+				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
+				local.WithSkipGrants(cfg.skipGrants),
+				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
+			)
 			if err != nil {
 				return nil, err
 			}
@@ -849,7 +835,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.externalResourceEntitlementIdFilter,
 		resources,
 		cfg.syncResourceTypeIDs,
-		cfg.partialSyncResourceTypeID,
 	)
 	if err != nil {
 		return nil, err

@@ -114,10 +114,6 @@ var (
 		WithDescription("The resource type IDs to sync"),
 		WithPersistent(true),
 		WithExportTarget(ExportTargetNone))
-	partialSyncResourceTypeField = StringField("partial-sync-resource-type",
-		WithDescription("Run a partial sync for a single resource type, automatically discovering parent resources"),
-		WithPersistent(true),
-		WithExportTarget(ExportTargetNone))
 	diffSyncsField = BoolField(
 		"diff-syncs",
 		WithDescription("Create a new partial SyncID from a base and applied sync."),
@@ -294,7 +290,6 @@ var DefaultFields = []SchemaField{
 	skipFullSync,
 	targetedSyncResourceIDs,
 	syncResourceTypeIDs,
-	partialSyncResourceTypeField,
 	skipEntitlementsAndGrants,
 	skipGrants,
 	externalResourceC1ZField,

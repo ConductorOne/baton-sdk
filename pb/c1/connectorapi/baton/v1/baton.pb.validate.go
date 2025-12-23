@@ -924,7 +924,7 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
-	case *Task_SyncResourceTyped:
+	case *Task_SyncPartial:
 		if v == nil {
 			err := TaskValidationError{
 				field:  "TaskType",
@@ -937,11 +937,11 @@ func (m *Task) validate(all bool) error {
 		}
 
 		if all {
-			switch v := interface{}(m.GetSyncResourceTyped()).(type) {
+			switch v := interface{}(m.GetSyncPartial()).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
 					errors = append(errors, TaskValidationError{
-						field:  "SyncResourceTyped",
+						field:  "SyncPartial",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
@@ -949,16 +949,16 @@ func (m *Task) validate(all bool) error {
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
 					errors = append(errors, TaskValidationError{
-						field:  "SyncResourceTyped",
+						field:  "SyncPartial",
 						reason: "embedded message failed validation",
 						cause:  err,
 					})
 				}
 			}
-		} else if v, ok := interface{}(m.GetSyncResourceTyped()).(interface{ Validate() error }); ok {
+		} else if v, ok := interface{}(m.GetSyncPartial()).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
 				return TaskValidationError{
-					field:  "SyncResourceTyped",
+					field:  "SyncPartial",
 					reason: "embedded message failed validation",
 					cause:  err,
 				}
@@ -3493,8 +3493,6 @@ func (m *Task_SyncFullTask) validate(all bool) error {
 
 	}
 
-	// no validation rules for PartialSyncResourceTypeId
-
 	if len(errors) > 0 {
 		return Task_SyncFullTaskMultiError(errors)
 	}
@@ -3575,22 +3573,22 @@ var _ interface {
 	ErrorName() string
 } = Task_SyncFullTaskValidationError{}
 
-// Validate checks the field values on Task_SyncResourceTypedTask with the
-// rules defined in the proto definition for this message. If any rules are
+// Validate checks the field values on Task_SyncPartialTask with the rules
+// defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
-func (m *Task_SyncResourceTypedTask) Validate() error {
+func (m *Task_SyncPartialTask) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on Task_SyncResourceTypedTask with the
-// rules defined in the proto definition for this message. If any rules are
+// ValidateAll checks the field values on Task_SyncPartialTask with the rules
+// defined in the proto definition for this message. If any rules are
 // violated, the result is a list of violation errors wrapped in
-// Task_SyncResourceTypedTaskMultiError, or nil if none found.
-func (m *Task_SyncResourceTypedTask) ValidateAll() error {
+// Task_SyncPartialTaskMultiError, or nil if none found.
+func (m *Task_SyncPartialTask) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *Task_SyncResourceTypedTask) validate(all bool) error {
+func (m *Task_SyncPartialTask) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -3604,7 +3602,7 @@ func (m *Task_SyncResourceTypedTask) validate(all bool) error {
 			switch v := interface{}(item).(type) {
 			case interface{ ValidateAll() error }:
 				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, Task_SyncResourceTypedTaskValidationError{
+					errors = append(errors, Task_SyncPartialTaskValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -3612,7 +3610,7 @@ func (m *Task_SyncResourceTypedTask) validate(all bool) error {
 				}
 			case interface{ Validate() error }:
 				if err := v.Validate(); err != nil {
-					errors = append(errors, Task_SyncResourceTypedTaskValidationError{
+					errors = append(errors, Task_SyncPartialTaskValidationError{
 						field:  fmt.Sprintf("Annotations[%v]", idx),
 						reason: "embedded message failed validation",
 						cause:  err,
@@ -3621,7 +3619,7 @@ func (m *Task_SyncResourceTypedTask) validate(all bool) error {
 			}
 		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
 			if err := v.Validate(); err != nil {
-				return Task_SyncResourceTypedTaskValidationError{
+				return Task_SyncPartialTaskValidationError{
 					field:  fmt.Sprintf("Annotations[%v]", idx),
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -3631,22 +3629,78 @@ func (m *Task_SyncResourceTypedTask) validate(all bool) error {
 
 	}
 
-	// no validation rules for ResourceTypeId
+	switch v := m.SyncMode.(type) {
+	case *Task_SyncPartialTask_TargetedResources_:
+		if v == nil {
+			err := Task_SyncPartialTaskValidationError{
+				field:  "SyncMode",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetTargetedResources()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_SyncPartialTaskValidationError{
+						field:  "TargetedResources",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_SyncPartialTaskValidationError{
+						field:  "TargetedResources",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetTargetedResources()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_SyncPartialTaskValidationError{
+					field:  "TargetedResources",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *Task_SyncPartialTask_ResourceTypeId:
+		if v == nil {
+			err := Task_SyncPartialTaskValidationError{
+				field:  "SyncMode",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+		// no validation rules for ResourceTypeId
+	default:
+		_ = v // ensures v is used
+	}
 
 	if len(errors) > 0 {
-		return Task_SyncResourceTypedTaskMultiError(errors)
+		return Task_SyncPartialTaskMultiError(errors)
 	}
 
 	return nil
 }
 
-// Task_SyncResourceTypedTaskMultiError is an error wrapping multiple
-// validation errors returned by Task_SyncResourceTypedTask.ValidateAll() if
-// the designated constraints aren't met.
-type Task_SyncResourceTypedTaskMultiError []error
+// Task_SyncPartialTaskMultiError is an error wrapping multiple validation
+// errors returned by Task_SyncPartialTask.ValidateAll() if the designated
+// constraints aren't met.
+type Task_SyncPartialTaskMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m Task_SyncResourceTypedTaskMultiError) Error() string {
+func (m Task_SyncPartialTaskMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -3655,11 +3709,11 @@ func (m Task_SyncResourceTypedTaskMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m Task_SyncResourceTypedTaskMultiError) AllErrors() []error { return m }
+func (m Task_SyncPartialTaskMultiError) AllErrors() []error { return m }
 
-// Task_SyncResourceTypedTaskValidationError is the validation error returned
-// by Task_SyncResourceTypedTask.Validate if the designated constraints aren't met.
-type Task_SyncResourceTypedTaskValidationError struct {
+// Task_SyncPartialTaskValidationError is the validation error returned by
+// Task_SyncPartialTask.Validate if the designated constraints aren't met.
+type Task_SyncPartialTaskValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -3667,24 +3721,24 @@ type Task_SyncResourceTypedTaskValidationError struct {
 }
 
 // Field function returns field value.
-func (e Task_SyncResourceTypedTaskValidationError) Field() string { return e.field }
+func (e Task_SyncPartialTaskValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e Task_SyncResourceTypedTaskValidationError) Reason() string { return e.reason }
+func (e Task_SyncPartialTaskValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e Task_SyncResourceTypedTaskValidationError) Cause() error { return e.cause }
+func (e Task_SyncPartialTaskValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e Task_SyncResourceTypedTaskValidationError) Key() bool { return e.key }
+func (e Task_SyncPartialTaskValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e Task_SyncResourceTypedTaskValidationError) ErrorName() string {
-	return "Task_SyncResourceTypedTaskValidationError"
+func (e Task_SyncPartialTaskValidationError) ErrorName() string {
+	return "Task_SyncPartialTaskValidationError"
 }
 
 // Error satisfies the builtin error interface
-func (e Task_SyncResourceTypedTaskValidationError) Error() string {
+func (e Task_SyncPartialTaskValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -3696,14 +3750,14 @@ func (e Task_SyncResourceTypedTaskValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sTask_SyncResourceTypedTask.%s: %s%s",
+		"invalid %sTask_SyncPartialTask.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = Task_SyncResourceTypedTaskValidationError{}
+var _ error = Task_SyncPartialTaskValidationError{}
 
 var _ interface {
 	Field() string
@@ -3711,7 +3765,7 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = Task_SyncResourceTypedTaskValidationError{}
+} = Task_SyncPartialTaskValidationError{}
 
 // Validate checks the field values on Task_EventFeedTask with the rules
 // defined in the proto definition for this message. If any rules are
@@ -6571,6 +6625,146 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = Task_CompactSyncsValidationError{}
+
+// Validate checks the field values on Task_SyncPartialTask_TargetedResources
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the first error encountered is returned, or nil if
+// there are no violations.
+func (m *Task_SyncPartialTask_TargetedResources) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on
+// Task_SyncPartialTask_TargetedResources with the rules defined in the proto
+// definition for this message. If any rules are violated, the result is a
+// list of violation errors wrapped in
+// Task_SyncPartialTask_TargetedResourcesMultiError, or nil if none found.
+func (m *Task_SyncPartialTask_TargetedResources) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_SyncPartialTask_TargetedResources) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetResources() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_SyncPartialTask_TargetedResourcesValidationError{
+						field:  fmt.Sprintf("Resources[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_SyncPartialTask_TargetedResourcesValidationError{
+						field:  fmt.Sprintf("Resources[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_SyncPartialTask_TargetedResourcesValidationError{
+					field:  fmt.Sprintf("Resources[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return Task_SyncPartialTask_TargetedResourcesMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_SyncPartialTask_TargetedResourcesMultiError is an error wrapping
+// multiple validation errors returned by
+// Task_SyncPartialTask_TargetedResources.ValidateAll() if the designated
+// constraints aren't met.
+type Task_SyncPartialTask_TargetedResourcesMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_SyncPartialTask_TargetedResourcesMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_SyncPartialTask_TargetedResourcesMultiError) AllErrors() []error { return m }
+
+// Task_SyncPartialTask_TargetedResourcesValidationError is the validation
+// error returned by Task_SyncPartialTask_TargetedResources.Validate if the
+// designated constraints aren't met.
+type Task_SyncPartialTask_TargetedResourcesValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_SyncPartialTask_TargetedResourcesValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_SyncPartialTask_TargetedResourcesValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_SyncPartialTask_TargetedResourcesValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_SyncPartialTask_TargetedResourcesValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_SyncPartialTask_TargetedResourcesValidationError) ErrorName() string {
+	return "Task_SyncPartialTask_TargetedResourcesValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e Task_SyncPartialTask_TargetedResourcesValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_SyncPartialTask_TargetedResources.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_SyncPartialTask_TargetedResourcesValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_SyncPartialTask_TargetedResourcesValidationError{}
 
 // Validate checks the field values on Task_CompactSyncs_CompactableSync with
 // the rules defined in the proto definition for this message. If any rules

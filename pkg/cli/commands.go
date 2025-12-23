@@ -321,10 +321,6 @@ func MakeMainCommand[T field.Configurable](
 					),
 				)
 			default:
-				if v.GetString("partial-sync-resource-type") != "" {
-					opts = append(opts,
-						connectorrunner.WithPartialSyncResourceType(v.GetString("partial-sync-resource-type")))
-				}
 				if len(v.GetStringSlice("sync-resources")) > 0 {
 					opts = append(opts,
 						connectorrunner.WithTargetedSyncResources(v.GetStringSlice("sync-resources")))
