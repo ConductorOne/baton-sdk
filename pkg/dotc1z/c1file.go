@@ -221,8 +221,15 @@ func cleanupDbDir(dbFilePath string, err error) error {
 var ErrReadOnly = errors.New("c1z: read only mode")
 
 // Close ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
-// with our changes.
+// with our changes. It uses context.Background() for the WAL checkpoint operation.
+// Use CloseContext to pass a specific context.
 func (c *C1File) Close() error {
+	return c.CloseContext(context.Background())
+}
+
+// CloseContext ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
+// with our changes. The provided context is used for the WAL checkpoint operation.
+func (c *C1File) CloseContext(ctx context.Context) error {
 	var err error
 
 	if c.rawDb != nil {
@@ -237,7 +244,7 @@ func (c *C1File) Close() error {
 		// the WAL file to zero bytes. This guarantees all data is in the main
 		// database file before we read it for compression.
 		if c.dbUpdated && !c.readOnly {
-			_, err = c.rawDb.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)")
+			_, err = c.rawDb.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
 			if err != nil {
 				// Checkpoint failed - log and continue. The subsequent Close()
 				// will attempt a passive checkpoint. If that also fails, we'll
