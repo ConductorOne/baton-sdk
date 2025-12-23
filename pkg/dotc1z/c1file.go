@@ -237,7 +237,7 @@ func (c *C1File) Close() error {
 		// the WAL file to zero bytes. This guarantees all data is in the main
 		// database file before we read it for compression.
 		if c.dbUpdated && !c.readOnly {
-			_, err = c.rawDb.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+			_, err = c.rawDb.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)")
 			if err != nil {
 				// Checkpoint failed - log and continue. The subsequent Close()
 				// will attempt a passive checkpoint. If that also fails, we'll

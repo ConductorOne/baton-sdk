@@ -101,14 +101,14 @@ func TestSimulateWALRace(t *testing.T) {
 
 	// Write the "before" data to a file and compress it
 	beforeDB := filepath.Join(tmpDir, "before.db")
-	err = os.WriteFile(beforeDB, dbDataBeforeClose, 0644)
+	err = os.WriteFile(beforeDB, dbDataBeforeClose, 0600)
 	require.NoError(t, err)
 	err = saveC1z(beforeDB, beforeC1z, 1)
 	require.NoError(t, err)
 
 	// Write the "after" data to a file and compress it
 	afterDB := filepath.Join(tmpDir, "after.db")
-	err = os.WriteFile(afterDB, dbDataAfterClose, 0644)
+	err = os.WriteFile(afterDB, dbDataAfterClose, 0600)
 	require.NoError(t, err)
 	err = saveC1z(afterDB, afterC1z, 1)
 	require.NoError(t, err)
@@ -122,14 +122,14 @@ func TestSimulateWALRace(t *testing.T) {
 	} else {
 		t.Logf("Before c1z resource_types: %d", beforeStats["resource_types"])
 	}
-	beforeFile.Close()
+	require.NoError(t, beforeFile.Close())
 
 	afterFile, err := NewC1ZFile(ctx, afterC1z, WithPragma("journal_mode", "WAL"), WithReadOnly(true))
 	require.NoError(t, err)
 	afterStats, err := afterFile.Stats(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	t.Logf("After c1z resource_types: %d", afterStats["resource_types"])
-	afterFile.Close()
+	require.NoError(t, afterFile.Close())
 
 	// If before has fewer resource types than after, we've demonstrated the race
 	if beforeStats != nil && beforeStats["resource_types"] < afterStats["resource_types"] {
