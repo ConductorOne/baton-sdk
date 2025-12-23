@@ -95,6 +95,26 @@ type syncRun struct {
 	ParentSyncID string
 }
 
+// getCachedViewSyncRun returns the cached sync run for read operations.
+// This avoids N+1 queries when paginating through listConnectorObjects.
+// The result is computed once and cached for the lifetime of the C1File.
+func (c *C1File) getCachedViewSyncRun(ctx context.Context) (*syncRun, error) {
+	c.cachedViewSyncOnce.Do(func() {
+		// First try to get a finished full sync
+		c.cachedViewSyncRun, c.cachedViewSyncErr = c.getFinishedSync(ctx, 0, connectorstore.SyncTypeFull)
+		if c.cachedViewSyncErr != nil {
+			return
+		}
+
+		// If no finished sync, try to get an unfinished one
+		if c.cachedViewSyncRun == nil {
+			c.cachedViewSyncRun, c.cachedViewSyncErr = c.getLatestUnfinishedSync(ctx, connectorstore.SyncTypeAny)
+		}
+	})
+
+	return c.cachedViewSyncRun, c.cachedViewSyncErr
+}
+
 func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connectorstore.SyncType) (*syncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getLatestUnfinishedSync")
 	defer span.End()
