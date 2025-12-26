@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
@@ -162,21 +163,43 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	}
 	defer tmpFile.Close()
 
-	dstFile, err := os.Create(l.filePath)
+	// Write to temp file first, then atomic rename on success.
+	// This ensures filePath never contains partial/corrupt data.
+	dstDir := filepath.Dir(l.filePath)
+	dstBase := filepath.Base(l.filePath)
+	dstFile, err := os.CreateTemp(dstDir, dstBase+".tmp-*")
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	dstTmpPath := dstFile.Name()
+
+	// Clean up temp file on any failure
+	defer func() {
+		if dstFile != nil {
+			dstFile.Close()
+		}
+		_ = os.Remove(dstTmpPath)
+	}()
 
 	size, err := io.Copy(dstFile, tmpFile)
 	if err != nil {
 		return err
 	}
 
-	// CRITICAL: Sync to ensure data is written before function returns.
+	// CRITICAL: Sync to ensure data is written before rename.
 	// This is especially important on ZFS ARC where writes may be cached.
 	if err := dstFile.Sync(); err != nil {
 		return fmt.Errorf("failed to sync destination file: %w", err)
+	}
+
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("failed to close destination file: %w", err)
+	}
+	dstFile = nil // Prevent double-close in defer
+
+	// Atomic rename: filePath now has complete, valid data.
+	if err := os.Rename(dstTmpPath, l.filePath); err != nil {
+		return fmt.Errorf("failed to rename temp file to destination: %w", err)
 	}
 
 	log.Debug(
