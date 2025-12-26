@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
 	"github.com/spf13/cobra"
@@ -634,19 +635,43 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
 			return err
 		}
+		var c types.ConnectorServer
 
-		c, err := getconnector(runCtx, t, RunTimeOpts{})
-		if err != nil {
-			return err
+		if c == nil {
+			c, err = getconnector(runCtx, t, RunTimeOpts{})
+			if err != nil {
+				return err
+			}
 		}
 
-		md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
-		if err != nil {
-			return err
+		if c == nil {
+			return fmt.Errorf("could not create connector %w", err)
 		}
 
-		if !md.GetMetadata().HasCapabilities() {
-			return fmt.Errorf("connector does not support capabilities")
+		type getter interface {
+			GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilities, error)
+		}
+
+		var capabilities *v2.ConnectorCapabilities
+
+		if getCap, ok := c.(getter); ok {
+			capabilities, err = getCap.GetCapabilities(runCtx)
+			if err != nil {
+				return err
+			}
+		}
+
+		if capabilities == nil {
+			md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
+			if err != nil {
+				return err
+			}
+
+			if !md.GetMetadata().HasCapabilities() {
+				return fmt.Errorf("connector does not support capabilities")
+			}
+
+			capabilities = md.GetMetadata().GetCapabilities()
 		}
 
 		protoMarshaller := protojson.MarshalOptions{
@@ -655,7 +680,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		}
 
 		a := &anypb.Any{}
-		err = anypb.MarshalFrom(a, md.GetMetadata().GetCapabilities(), proto.MarshalOptions{Deterministic: true})
+		err = anypb.MarshalFrom(a, capabilities, proto.MarshalOptions{Deterministic: true})
 		if err != nil {
 			return err
 		}
