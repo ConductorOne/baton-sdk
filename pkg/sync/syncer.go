@@ -1658,11 +1658,40 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 	}
 
 	// Process grants and add edges to the graph
+	updatedGrants := make([]*v2.Grant, 0)
 	for _, grant := range resp.GetList() {
 		err := s.processGrantForGraph(ctx, grant, graph)
 		if err != nil {
 			return err
 		}
+
+		// Remove expandable annotation from descendant grant now that we've added it to the graph.
+		// That way if this sync is part of a compaction, expanding grants at the end of compaction won't redo work.
+		newAnnos := make(annotations.Annotations, 0)
+		updated := false
+		for _, anno := range grant.GetAnnotations() {
+			if anno.MessageIs(&v2.GrantExpandable{}) {
+				updated = true
+			} else {
+				newAnnos = append(newAnnos, anno)
+			}
+		}
+		if !updated {
+			continue
+		}
+
+		grant.SetAnnotations(newAnnos)
+		l.Debug("removed expandable annotation from grant", zap.String("grant_id", grant.GetId()))
+		updatedGrants = append(updatedGrants, grant)
+		updatedGrants, err = expand.PutGrantsInChunks(ctx, s.store, updatedGrants, 10000)
+		if err != nil {
+			return err
+		}
+	}
+
+	_, err = expand.PutGrantsInChunks(ctx, s.store, updatedGrants, 0)
+	if err != nil {
+		return err
 	}
 
 	if graph.Loaded {

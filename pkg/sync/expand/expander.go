@@ -218,7 +218,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 					return "", fmt.Errorf("runAction: error creating new grant: %w", err)
 				}
 				newGrants = append(newGrants, descendantGrant)
-				newGrants, err = e.putGrantsInChunks(ctx, newGrants, 10000)
+				newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000)
 				if err != nil {
 					l.Error("runAction: error updating descendant grants", zap.Error(err))
 					return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
@@ -255,7 +255,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 			}
 			newGrants = append(newGrants, grantsToUpdate...)
 
-			newGrants, err = e.putGrantsInChunks(ctx, newGrants, 10000)
+			newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000)
 			if err != nil {
 				l.Error("runAction: error updating descendant grants", zap.Error(err))
 				return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
@@ -268,7 +268,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		}
 	}
 
-	_, err = e.putGrantsInChunks(ctx, newGrants, 0)
+	_, err = PutGrantsInChunks(ctx, e.store, newGrants, 0)
 	if err != nil {
 		l.Error("runAction: error updating descendant grants", zap.Error(err))
 		return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
@@ -277,16 +277,16 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 	return sourceGrants.GetNextPageToken(), nil
 }
 
-// putGrantsInChunks accumulates grants until the buffer exceeds minChunkSize,
+// PutGrantsInChunks accumulates grants until the buffer exceeds minChunkSize,
 // then writes all grants to the store at once.
-func (e *Expander) putGrantsInChunks(ctx context.Context, grants []*v2.Grant, minChunkSize int) ([]*v2.Grant, error) {
+func PutGrantsInChunks(ctx context.Context, store ExpanderStore, grants []*v2.Grant, minChunkSize int) ([]*v2.Grant, error) {
 	if len(grants) < minChunkSize {
 		return grants, nil
 	}
 
-	err := e.store.PutGrants(ctx, grants...)
+	err := store.PutGrants(ctx, grants...)
 	if err != nil {
-		return nil, fmt.Errorf("putGrantsInChunks: error putting grants: %w", err)
+		return nil, fmt.Errorf("PutGrantsInChunks: error putting grants: %w", err)
 	}
 
 	return make([]*v2.Grant, 0), nil
