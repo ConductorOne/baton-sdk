@@ -213,6 +213,11 @@ message CreateAccountRequest {
   AccountInfo account_info = 1;
   CredentialOptions credential_options = 2;
   repeated EncryptionConfig encryption_configs = 3;
+  string resource_type_id = 4 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+    ignore_empty: true
+  }];
 }
 
 message CreateAccountResponse {

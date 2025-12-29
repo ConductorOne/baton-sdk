@@ -58,7 +58,7 @@ func (m *localResourceDeleter) Process(ctx context.Context, task *v1.Task, cc ty
 	return nil
 }
 
-// NewGranter returns a task manager that queues a sync task.
+// NewResourceDeleter returns a task manager that queues a delete resource task.
 func NewResourceDeleter(ctx context.Context, dbPath string, resourceId string, resourceType string) tasks.Manager {
 	return &localResourceDeleter{
 		dbPath:       dbPath,

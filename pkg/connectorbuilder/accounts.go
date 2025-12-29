@@ -59,10 +59,41 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 	start := b.nowFunc()
 	tt := tasks.CreateAccountType
 	l := ctxzap.Extract(ctx)
-	if b.accountManager == nil {
+
+	if len(b.accountManagers) == 0 {
 		l.Error("error: connector does not have account manager configured")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
 		return nil, status.Error(codes.Unimplemented, "connector does not have account manager configured")
+	}
+
+	var accountManager AccountManagerLimited
+	if request.GetResourceTypeId() == "" {
+		if len(b.accountManagers) == 1 {
+			// If there's only one account manager, use it.
+			for _, am := range b.accountManagers {
+				accountManager = am
+				break
+			}
+		} else {
+			// If there are multiple account managers, default to user resource type.
+			var ok bool
+			accountManager, ok = b.accountManagers["user"]
+			if !ok {
+				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+				return nil, status.Error(codes.Unimplemented, "connector has multiple account managers configured, but no resource type specified, and no default account manager configured")
+			}
+		}
+	}
+
+	// If resource type is specified, use the account manager for that resource type.
+	if accountManager == nil {
+		var ok bool
+		accountManager, ok = b.accountManagers[request.GetResourceTypeId()]
+		if !ok {
+			l.Error("error: connector does not have account manager configured")
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			return nil, status.Errorf(codes.Unimplemented, "connector does not have account manager configured for resource type: %s", request.GetResourceTypeId())
+		}
 	}
 
 	opts, err := crypto.ConvertCredentialOptions(ctx, b.clientSecret, request.GetCredentialOptions(), request.GetEncryptionConfigs())
@@ -72,7 +103,7 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
-	result, plaintexts, annos, err := b.accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
+	result, plaintexts, annos, err := accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
@@ -119,18 +150,16 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 	return rv, nil
 }
 
-func (b *builder) addAccountManager(_ context.Context, typeId string, in interface{}) error {
+func (b *builder) addAccountManager(_ context.Context, typeId string, in any) error {
 	if _, ok := in.(OldAccountManager); ok {
 		return fmt.Errorf("error: old account manager interface implemented for %s", typeId)
 	}
 
 	if accountManager, ok := in.(AccountManagerLimited); ok {
-		// NOTE(kans): currently unused - but these should probably be (resource) typed
-		b.accountManagers[typeId] = accountManager
-		if b.accountManager != nil {
+		if _, ok := b.accountManagers[typeId]; ok {
 			return fmt.Errorf("error: duplicate resource type found for account manager %s", typeId)
 		}
-		b.accountManager = accountManager
+		b.accountManagers[typeId] = accountManager
 	}
 	return nil
 }
