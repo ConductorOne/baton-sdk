@@ -11,7 +11,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
-	"github.com/conductorone/baton-sdk/pkg/synccompactor/naive"
 	"github.com/stretchr/testify/require"
 )
 
@@ -209,66 +208,6 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	return baseFile, baseSyncID, appliedFile, appliedSyncID
 }
 
-// benchmarkNaiveCompactor runs a benchmark using the naive compactor.
-func benchmarkNaiveCompactor(b *testing.B, dataset BenchmarkData) {
-	ctx := context.Background()
-
-	for b.Loop() {
-		b.StopTimer()
-
-		// Create temporary directories
-		tmpDir, err := os.MkdirTemp("", "benchmark-naive")
-		require.NoError(b, err)
-		defer os.RemoveAll(tmpDir)
-
-		outputDir, err := os.MkdirTemp("", "benchmark-output")
-		require.NoError(b, err)
-		defer os.RemoveAll(outputDir)
-
-		// Generate test data
-		baseFile, _, appliedFile, _ := generateTestData(ctx, b, tmpDir, dataset)
-
-		opts := []dotc1z.C1ZOption{
-			dotc1z.WithPragma("journal_mode", "WAL"),
-		}
-
-		// Use naive compactor
-		baseC1Z, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
-		require.NoError(b, err)
-		defer baseC1Z.Close()
-
-		appliedC1Z, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
-		require.NoError(b, err)
-		defer appliedC1Z.Close()
-
-		destFile := filepath.Join(tmpDir, "naive-dest.c1z")
-		destOpts := []dotc1z.C1ZOption{
-			dotc1z.WithTmpDir(tmpDir),
-		}
-		destOpts = append(destOpts, opts...)
-		destC1Z, err := dotc1z.NewC1ZFile(ctx, destFile, destOpts...)
-		require.NoError(b, err)
-		defer destC1Z.Close()
-
-		// Start a sync in the destination file
-		_, err = destC1Z.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-		require.NoError(b, err)
-
-		b.StartTimer()
-
-		// Benchmark the naive compaction
-		naiveCompactor := naive.NewNaiveCompactor(baseC1Z, appliedC1Z, destC1Z)
-		err = naiveCompactor.Compact(ctx)
-		require.NoError(b, err)
-
-		b.StopTimer()
-
-		// End the sync
-		err = destC1Z.EndSync(ctx)
-		require.NoError(b, err)
-	}
-}
-
 // benchmarkAttachedCompactor runs a benchmark using the attached compactor.
 func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 	ctx := context.Background()
@@ -328,24 +267,12 @@ func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 
 // Benchmark functions for different data sizes and approaches
 
-func BenchmarkNaiveCompactor_Small(b *testing.B) {
-	benchmarkNaiveCompactor(b, SmallDataset)
-}
-
 func BenchmarkAttachedCompactor_Small(b *testing.B) {
 	benchmarkAttachedCompactor(b, SmallDataset)
 }
 
-func BenchmarkNaiveCompactor_Medium(b *testing.B) {
-	benchmarkNaiveCompactor(b, MediumDataset)
-}
-
 func BenchmarkAttachedCompactor_Medium(b *testing.B) {
 	benchmarkAttachedCompactor(b, MediumDataset)
-}
-
-func BenchmarkNaiveCompactor_Large(b *testing.B) {
-	benchmarkNaiveCompactor(b, LargeDataset)
 }
 
 func BenchmarkAttachedCompactor_Large(b *testing.B) {

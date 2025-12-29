@@ -36,27 +36,6 @@ func TestAttachedCompactorWithTmpDir(t *testing.T) {
 	})
 }
 
-func TestNaiveCompactorWithTmpDir(t *testing.T) {
-	ctx := context.Background()
-
-	inputSyncsDir, err := os.MkdirTemp("", "compactor-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(inputSyncsDir)
-
-	outputDir, err := os.MkdirTemp("", "compactor-output")
-	require.NoError(t, err)
-	defer os.RemoveAll(outputDir)
-
-	// Create temporary directory for intermediate files
-	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	runCompactorTest(t, ctx, inputSyncsDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
-		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(CompactorTypeNaive))
-	})
-}
-
 func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, createCompactor func([]*CompactableSync) (*Compactor, func() error, error)) {
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
@@ -732,10 +711,6 @@ func TestSyncTypeUnion_AttachedCompactor(t *testing.T) {
 	runSyncTypeUnionTests(t, CompactorTypeAttached, getAllSyncTypeTestCases())
 }
 
-func TestSyncTypeUnion_NaiveCompactor(t *testing.T) {
-	runSyncTypeUnionTests(t, CompactorTypeNaive, getBasicSyncTypeTestCases())
-}
-
 // getAllSyncTypeTestCases returns comprehensive test cases for sync type union logic.
 func getAllSyncTypeTestCases() []syncTypeTestCase {
 	return []syncTypeTestCase{
@@ -812,32 +787,6 @@ func getAllSyncTypeTestCases() []syncTypeTestCase {
 		{
 			name:     "Partial + Full + ResourcesOnly + Partial = Full",
 			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypeFull,
-		},
-	}
-}
-
-// getBasicSyncTypeTestCases returns a subset of test cases for basic validation.
-func getBasicSyncTypeTestCases() []syncTypeTestCase {
-	return []syncTypeTestCase{
-		{
-			name:     "Full + Partial = Full",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypeFull,
-		},
-		{
-			name:     "ResourcesOnly + Partial = ResourcesOnly",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypeResourcesOnly,
-		},
-		{
-			name:     "Partial + Partial = Partial",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypePartial,
-		},
-		{
-			name:     "Full + ResourcesOnly + Partial = Full",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
 			expected: connectorstore.SyncTypeFull,
 		},
 	}

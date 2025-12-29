@@ -16,7 +16,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
-	"github.com/conductorone/baton-sdk/pkg/synccompactor/naive"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -330,13 +329,6 @@ func (c *Compactor) doOneCompaction(ctx context.Context, base *CompactableSync, 
 	}
 
 	switch c.compactorType {
-	case CompactorTypeNaive:
-		// TODO: Add support for syncID or remove naive compactor.
-		runner := naive.NewNaiveCompactor(baseFile, appliedFile, newFile)
-		if err := runner.Compact(ctx); err != nil {
-			l.Error("error running compaction", zap.Error(err))
-			return nil, err
-		}
 	case CompactorTypeAttached:
 		runner := attached.NewAttachedCompactor(baseFile, appliedFile, newFile)
 		if err := runner.CompactWithSyncID(ctx, newSyncId); err != nil {
