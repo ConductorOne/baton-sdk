@@ -26,7 +26,6 @@ var tracer = otel.Tracer("baton-sdk/pkg.synccompactor")
 type CompactorType string
 
 const (
-	CompactorTypeNaive    CompactorType = "naive"
 	CompactorTypeAttached CompactorType = "attached"
 )
 
