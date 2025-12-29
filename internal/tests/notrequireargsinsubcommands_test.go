@@ -20,17 +20,17 @@ func TestCallSubCommand(t *testing.T) {
 	)
 
 	t.Run("should run «help» sub-command successfully", func(t *testing.T) {
-		_, err := entrypoint(ctx, carrier, "help")
+		_, err := entrypoint(ctx, carrier, nil, "help")
 		require.NoError(t, err)
 	})
 
 	t.Run("should run «capabilities» sub-command without success", func(t *testing.T) {
-		_, err := entrypoint(ctx, carrier, "capabilities")
+		_, err := entrypoint(ctx, carrier, nil, "capabilities")
 		require.EqualError(t, err, "(Cobra) Execute failed: required flag(s) \"name\" not set")
 	})
 
 	t.Run("should run «completion zsh» sub-command successfully", func(t *testing.T) {
-		_, err := entrypoint(ctx, carrier, "completion", "zsh")
+		_, err := entrypoint(ctx, carrier, nil, "completion", "zsh")
 		require.NoError(t, err)
 	})
 }
