@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
@@ -606,6 +607,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 	v *viper.Viper,
 	confschema field.Configuration,
 	getconnector GetConnectorFunc2[T],
+	opts ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		// NOTE(shackra): bind all the flags (persistent and
@@ -627,19 +629,22 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 
-		readFromPath := true
-		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
-		t, err := MakeGenericConfiguration[T](v, decodeOpts)
-		if err != nil {
-			return fmt.Errorf("failed to make configuration: %w", err)
-		}
-		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
-			return err
-		}
 		var c types.ConnectorServer
 
-		if c == nil {
+		c, err = defaultConnectorBuilder(ctx, opts...)
+
+		if c == nil || err != nil {
+			readFromPath := true
+			decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+			t, err := MakeGenericConfiguration[T](v, decodeOpts)
+			if err != nil {
+				return fmt.Errorf("failed to make configuration: %w", err)
+			}
+			// validate required fields and relationship constraints
+			if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
+				return err
+			}
+
 			c, err = getconnector(runCtx, t, RunTimeOpts{})
 			if err != nil {
 				return err
@@ -720,4 +725,17 @@ func MakeConfigSchemaCommand[T field.Configurable](
 		}
 		return nil
 	}
+}
+
+func defaultConnectorBuilder(ctx context.Context, opts ...connectorrunner.Option) (types.ConnectorServer, error) {
+	defaultConnector, err := connectorrunner.ExtractDefaultConnector(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := connectorbuilder.NewConnector(ctx, defaultConnector)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
