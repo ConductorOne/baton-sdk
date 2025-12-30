@@ -96,7 +96,7 @@ func (c *Compactor) processRecords(ctx context.Context, attached *dotc1z.C1FileA
 
 	// Update the base sync type to the union of the base and applied sync types.
 	if err := attached.UpdateSync(ctx, baseSyncID, syncType); err != nil {
-		return fmt.Errorf("failed to compact resource types: %w", err)
+		return fmt.Errorf("failed to update sync %s to type %s: %w", baseSyncID, syncType, err)
 	}
 
 	// Compact all tables: copy base records and merge newer applied records using raw SQL
