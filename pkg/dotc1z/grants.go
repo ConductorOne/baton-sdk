@@ -74,7 +74,7 @@ func (c *C1File) DropGrantIndexes(ctx context.Context) error {
 		fmt.Sprintf("idx_grants_resource_type_id_resource_id_v%s", grants.Version()),
 		fmt.Sprintf("idx_grants_principal_id_v%s", grants.Version()),
 		fmt.Sprintf("idx_grants_entitlement_id_principal_id_v%s", grants.Version()),
-		fmt.Sprintf("idx_grants_external_sync_v%s", grants.Version()),
+		// Don't drop the external sync index. We need it to update instead of inserting rows where the external_id and sync_id are the same.
 	}
 
 	for _, index := range indexes {
