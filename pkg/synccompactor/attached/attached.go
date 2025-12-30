@@ -23,17 +23,6 @@ func NewAttachedCompactor(base *dotc1z.C1File, applied *dotc1z.C1File) *Compacto
 	}
 }
 
-func unionSyncTypes(a, b connectorstore.SyncType) connectorstore.SyncType {
-	switch {
-	case a == connectorstore.SyncTypeFull || b == connectorstore.SyncTypeFull:
-		return connectorstore.SyncTypeFull
-	case a == connectorstore.SyncTypeResourcesOnly || b == connectorstore.SyncTypeResourcesOnly:
-		return connectorstore.SyncTypeResourcesOnly
-	default:
-		return connectorstore.SyncTypePartial
-	}
-}
-
 func (c *Compactor) Compact(ctx context.Context) error {
 	baseSync, err := c.base.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
 		SyncType: string(connectorstore.SyncTypeAny),
@@ -89,14 +78,12 @@ func (c *Compactor) Compact(ctx context.Context) error {
 }
 
 func (c *Compactor) processRecords(ctx context.Context, attached *dotc1z.C1FileAttached, baseSync *reader_v2.SyncRun, appliedSync *reader_v2.SyncRun) error {
-	syncType := unionSyncTypes(connectorstore.SyncType(baseSync.GetSyncType()), connectorstore.SyncType(appliedSync.GetSyncType()))
-
 	baseSyncID := baseSync.GetId()
 	appliedSyncID := appliedSync.GetId()
 
 	// Update the base sync type to the union of the base and applied sync types.
-	if err := attached.UpdateSync(ctx, baseSyncID, syncType); err != nil {
-		return fmt.Errorf("failed to update sync %s to type %s: %w", baseSyncID, syncType, err)
+	if err := attached.UpdateSync(ctx, baseSync, appliedSync); err != nil {
+		return fmt.Errorf("failed to update sync %s: %w", baseSyncID, err)
 	}
 
 	// Compact all tables: copy base records and merge newer applied records using raw SQL
