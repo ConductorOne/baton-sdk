@@ -58,20 +58,8 @@ func (c *Compactor) Compact(ctx context.Context) error {
 		}
 	}()
 
-	// Drop grants indexes to improve performance.
-	err = c.base.DropGrantIndexes(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to drop grants indexes: %w", err)
-	}
-
 	if err := c.processRecords(ctx, attached, baseSync.GetSync(), appliedSync.GetSync()); err != nil {
 		return fmt.Errorf("failed to process records: %w", err)
-	}
-
-	// Re-create the destination database to re-create the grant indexes.
-	err = c.base.InitTables(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to re-create destination database: %w", err)
 	}
 
 	return nil
