@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -13,49 +14,51 @@ import (
 type Compactor struct {
 	base    *dotc1z.C1File
 	applied *dotc1z.C1File
-	dest    *dotc1z.C1File
 }
 
-func NewAttachedCompactor(base *dotc1z.C1File, applied *dotc1z.C1File, dest *dotc1z.C1File) *Compactor {
+func NewAttachedCompactor(base *dotc1z.C1File, applied *dotc1z.C1File) *Compactor {
 	return &Compactor{
 		base:    base,
 		applied: applied,
-		dest:    dest,
 	}
 }
 
-func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) error {
-	baseSyncID, err := c.base.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
-	if err != nil {
-		return fmt.Errorf("failed to get base sync ID: %w", err)
+func unionSyncTypes(a, b connectorstore.SyncType) connectorstore.SyncType {
+	switch {
+	case a == connectorstore.SyncTypeFull || b == connectorstore.SyncTypeFull:
+		return connectorstore.SyncTypeFull
+	case a == connectorstore.SyncTypeResourcesOnly || b == connectorstore.SyncTypeResourcesOnly:
+		return connectorstore.SyncTypeResourcesOnly
+	default:
+		return connectorstore.SyncTypePartial
 	}
-	if baseSyncID == "" {
+}
+
+func (c *Compactor) Compact(ctx context.Context) error {
+	baseSync, err := c.base.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
+		SyncType: string(connectorstore.SyncTypeAny),
+	}.Build())
+	if err != nil {
+		return fmt.Errorf("failed to get base sync: %w", err)
+	}
+	if baseSync == nil || baseSync.GetSync() == nil {
 		return fmt.Errorf("no finished sync found in base")
 	}
 
-	appliedSyncID, err := c.applied.LatestFinishedSyncID(ctx, connectorstore.SyncTypeAny)
+	appliedSync, err := c.applied.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
+		SyncType: string(connectorstore.SyncTypeAny),
+	}.Build())
 	if err != nil {
-		return fmt.Errorf("failed to get applied sync ID: %w", err)
+		return fmt.Errorf("failed to get applied sync: %w", err)
 	}
-	if appliedSyncID == "" {
+	if appliedSync == nil || appliedSync.GetSync() == nil {
 		return fmt.Errorf("no finished sync found in applied")
 	}
 
-	// Attach both the base and applied databases to the destination
-	base, err := c.dest.AttachFile(c.base, "base")
-	if err != nil {
-		return fmt.Errorf("failed to attach databases to destination: %w", err)
-	}
 	l := ctxzap.Extract(ctx)
-	defer func() {
-		_, err := base.DetachFile("base")
-		if err != nil {
-			l.Error("failed to detach file", zap.Error(err))
-		}
-	}()
 
 	// Attach both the base and applied databases to the destination
-	attached, err := c.dest.AttachFile(c.applied, "attached")
+	attached, err := c.base.AttachFile(c.applied, "attached")
 	if err != nil {
 		return fmt.Errorf("failed to attach databases to destination: %w", err)
 	}
@@ -67,17 +70,17 @@ func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) er
 	}()
 
 	// Drop grants indexes to improve performance.
-	err = c.dest.DropGrantIndexes(ctx)
+	err = c.base.DropGrantIndexes(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to drop grants indexes: %w", err)
 	}
 
-	if err := c.processRecords(ctx, attached, destSyncID, baseSyncID, appliedSyncID); err != nil {
+	if err := c.processRecords(ctx, attached, baseSync.GetSync(), appliedSync.GetSync()); err != nil {
 		return fmt.Errorf("failed to process records: %w", err)
 	}
 
 	// Re-create the destination database to re-create the grant indexes.
-	err = c.dest.InitTables(ctx)
+	err = c.base.InitTables(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to re-create destination database: %w", err)
 	}
@@ -85,21 +88,31 @@ func (c *Compactor) CompactWithSyncID(ctx context.Context, destSyncID string) er
 	return nil
 }
 
-func (c *Compactor) processRecords(ctx context.Context, attached *dotc1z.C1FileAttached, destSyncID string, baseSyncID string, appliedSyncID string) error {
-	// Compact all tables: copy base records and merge newer applied records using raw SQL
-	if err := attached.CompactResourceTypes(ctx, destSyncID, baseSyncID, appliedSyncID); err != nil {
+func (c *Compactor) processRecords(ctx context.Context, attached *dotc1z.C1FileAttached, baseSync *reader_v2.SyncRun, appliedSync *reader_v2.SyncRun) error {
+	syncType := unionSyncTypes(connectorstore.SyncType(baseSync.GetSyncType()), connectorstore.SyncType(appliedSync.GetSyncType()))
+
+	baseSyncID := baseSync.GetId()
+	appliedSyncID := appliedSync.GetId()
+
+	// Update the base sync type to the union of the base and applied sync types.
+	if err := attached.UpdateSync(ctx, baseSyncID, syncType); err != nil {
 		return fmt.Errorf("failed to compact resource types: %w", err)
 	}
 
-	if err := attached.CompactResources(ctx, destSyncID, baseSyncID, appliedSyncID); err != nil {
+	// Compact all tables: copy base records and merge newer applied records using raw SQL
+	if err := attached.CompactResourceTypes(ctx, baseSyncID, appliedSyncID); err != nil {
+		return fmt.Errorf("failed to compact resource types: %w", err)
+	}
+
+	if err := attached.CompactResources(ctx, baseSyncID, appliedSyncID); err != nil {
 		return fmt.Errorf("failed to compact resources: %w", err)
 	}
 
-	if err := attached.CompactEntitlements(ctx, destSyncID, baseSyncID, appliedSyncID); err != nil {
+	if err := attached.CompactEntitlements(ctx, baseSyncID, appliedSyncID); err != nil {
 		return fmt.Errorf("failed to compact entitlements: %w", err)
 	}
 
-	if err := attached.CompactGrants(ctx, destSyncID, baseSyncID, appliedSyncID); err != nil {
+	if err := attached.CompactGrants(ctx, baseSyncID, appliedSyncID); err != nil {
 		return fmt.Errorf("failed to compact grants: %w", err)
 	}
 

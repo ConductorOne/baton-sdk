@@ -708,99 +708,7 @@ func makeEmptySync(t *testing.T, ctx context.Context, inputSyncsDir string, opts
 
 // Test cases for sync type union logic.
 func TestSyncTypeUnion_AttachedCompactor(t *testing.T) {
-	runSyncTypeUnionTests(t, CompactorTypeAttached, getAllSyncTypeTestCases())
-}
-
-// getAllSyncTypeTestCases returns comprehensive test cases for sync type union logic.
-func getAllSyncTypeTestCases() []syncTypeTestCase {
-	return []syncTypeTestCase{
-		// Two-sync combinations
-		{
-			name:     "Full + Full = Full",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeFull},
-			expected: connectorstore.SyncTypeFull,
-		},
-		{
-			name:     "Full + Partial = Full",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypeFull,
-		},
-		{
-			name:     "Partial + Full = Full",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull},
-			expected: connectorstore.SyncTypeFull,
-		},
-		{
-			name:     "Full + ResourcesOnly = Full",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly},
-			expected: connectorstore.SyncTypeFull,
-		},
-		{
-			name:     "ResourcesOnly + Full = Full",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeFull},
-			expected: connectorstore.SyncTypeFull,
-		},
-		{
-			name:     "ResourcesOnly + ResourcesOnly = ResourcesOnly",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeResourcesOnly},
-			expected: connectorstore.SyncTypeResourcesOnly,
-		},
-		{
-			name:     "ResourcesOnly + Partial = ResourcesOnly",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypeResourcesOnly,
-		},
-		{
-			name:     "Partial + ResourcesOnly = ResourcesOnly",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly},
-			expected: connectorstore.SyncTypeResourcesOnly,
-		},
-		{
-			name:     "Partial + Partial = Partial",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypePartial,
-		},
-
-		// Three-sync combinations
-		{
-			name:     "Full + Partial + ResourcesOnly = Full",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly},
-			expected: connectorstore.SyncTypeFull,
-		},
-		{
-			name:     "Partial + ResourcesOnly + Partial = ResourcesOnly",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypeResourcesOnly,
-		},
-		{
-			name:     "Partial + Partial + Partial = Partial",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypePartial,
-		},
-
-		// Four-sync combinations
-		{
-			name:     "ResourcesOnly + Partial + Partial + Partial = ResourcesOnly",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypeResourcesOnly,
-		},
-		{
-			name:     "Partial + Full + ResourcesOnly + Partial = Full",
-			input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
-			expected: connectorstore.SyncTypeFull,
-		},
-	}
-}
-
-type syncTypeTestCase struct {
-	name     string
-	input    []connectorstore.SyncType
-	expected connectorstore.SyncType
-}
-
-// runSyncTypeUnionTests runs sync type union tests for a specific compactor type.
-func runSyncTypeUnionTests(t *testing.T, compactorType CompactorType, testCases []syncTypeTestCase) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	inputSyncsDir, err := os.MkdirTemp("", "compactor-sync-type-test")
 	require.NoError(t, err)
@@ -816,15 +724,100 @@ func runSyncTypeUnionTests(t *testing.T, compactorType CompactorType, testCases 
 	defer os.RemoveAll(tmpDir)
 
 	createCompactor := func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
-		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(compactorType))
+		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(CompactorTypeAttached))
 	}
 
 	// Run all test cases.
-	for _, tc := range testCases {
+	for _, tc := range allSyncTypeTestCases {
 		t.Run(tc.name, func(t *testing.T) {
 			runSyncTypeTest(t, ctx, inputSyncsDir, createCompactor, tc.input, tc.expected)
 		})
 	}
+}
+
+// getAllSyncTypeTestCases returns comprehensive test cases for sync type union logic.
+var allSyncTypeTestCases = []syncTypeTestCase{
+	// Two-sync combinations
+	{
+		name:     "Full + Full = Full",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeFull},
+		expected: connectorstore.SyncTypeFull,
+	},
+	{
+		name:     "Full + Partial = Full",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial},
+		expected: connectorstore.SyncTypeFull,
+	},
+	{
+		name:     "Partial + Full = Full",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull},
+		expected: connectorstore.SyncTypeFull,
+	},
+	{
+		name:     "Full + ResourcesOnly = Full",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly},
+		expected: connectorstore.SyncTypeFull,
+	},
+	{
+		name:     "ResourcesOnly + Full = Full",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeFull},
+		expected: connectorstore.SyncTypeFull,
+	},
+	{
+		name:     "ResourcesOnly + ResourcesOnly = ResourcesOnly",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypeResourcesOnly},
+		expected: connectorstore.SyncTypeResourcesOnly,
+	},
+	{
+		name:     "ResourcesOnly + Partial = ResourcesOnly",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+		expected: connectorstore.SyncTypeResourcesOnly,
+	},
+	{
+		name:     "Partial + ResourcesOnly = ResourcesOnly",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly},
+		expected: connectorstore.SyncTypeResourcesOnly,
+	},
+	{
+		name:     "Partial + Partial = Partial",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+		expected: connectorstore.SyncTypePartial,
+	},
+
+	// Three-sync combinations
+	{
+		name:     "Full + Partial + ResourcesOnly = Full",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypeFull, connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly},
+		expected: connectorstore.SyncTypeFull,
+	},
+	{
+		name:     "Partial + ResourcesOnly + Partial = ResourcesOnly",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+		expected: connectorstore.SyncTypeResourcesOnly,
+	},
+	{
+		name:     "Partial + Partial + Partial = Partial",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+		expected: connectorstore.SyncTypePartial,
+	},
+
+	// Four-sync combinations
+	{
+		name:     "ResourcesOnly + Partial + Partial + Partial = ResourcesOnly",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial, connectorstore.SyncTypePartial},
+		expected: connectorstore.SyncTypeResourcesOnly,
+	},
+	{
+		name:     "Partial + Full + ResourcesOnly + Partial = Full",
+		input:    []connectorstore.SyncType{connectorstore.SyncTypePartial, connectorstore.SyncTypeFull, connectorstore.SyncTypeResourcesOnly, connectorstore.SyncTypePartial},
+		expected: connectorstore.SyncTypeFull,
+	},
+}
+
+type syncTypeTestCase struct {
+	name     string
+	input    []connectorstore.SyncType
+	expected connectorstore.SyncType
 }
 
 func runSyncTypeTest(
@@ -942,6 +935,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	// The compacted file should have one partial sync.
 	syncRuns, _, err := compactedFile.ListSyncRuns(ctx, "", 10)
 	require.NoError(t, err)
+	require.Len(t, syncRuns, 1)
 	require.Equal(t, connectorstore.SyncTypePartial, syncRuns[0].Type)
 	require.Equal(t, compactedSync.SyncID, syncRuns[0].ID)
 	require.NotNil(t, syncRuns[0].EndedAt)

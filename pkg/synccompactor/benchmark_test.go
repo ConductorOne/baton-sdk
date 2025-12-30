@@ -240,27 +240,12 @@ func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 		require.NoError(b, err)
 		defer appliedC1Z.Close()
 
-		destFile := filepath.Join(tmpDir, "attached-dest.c1z")
-		destOpts := []dotc1z.C1ZOption{
-			dotc1z.WithTmpDir(tmpDir),
-		}
-		destOpts = append(destOpts, opts...)
-		destC1Z, err := dotc1z.NewC1ZFile(ctx, destFile, destOpts...)
-		require.NoError(b, err)
-		defer destC1Z.Close()
-
 		b.StartTimer()
 
 		// Start sync in destination
-		destSyncID, err := destC1Z.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-		require.NoError(b, err)
-
 		// Benchmark the attached compaction
-		attachedCompactor := attached.NewAttachedCompactor(baseC1Z, appliedC1Z, destC1Z)
-		err = attachedCompactor.CompactWithSyncID(ctx, destSyncID)
-		require.NoError(b, err)
-
-		err = destC1Z.EndSync(ctx)
+		attachedCompactor := attached.NewAttachedCompactor(baseC1Z, appliedC1Z)
+		err = attachedCompactor.Compact(ctx)
 		require.NoError(b, err)
 	}
 }

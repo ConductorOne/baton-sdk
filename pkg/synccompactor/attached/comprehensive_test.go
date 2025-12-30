@@ -25,7 +25,6 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseFile := filepath.Join(tmpDir, "base.c1z")
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
-	destFile := filepath.Join(tmpDir, "dest.c1z")
 
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
@@ -205,25 +204,11 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Note: Since applied sync is created after base sync,
 	// applied records will naturally have newer discovered_at timestamps
 
-	// ========= Create destination database and run compaction =========
-	destDB, err := dotc1z.NewC1ZFile(ctx, destFile, opts...)
-	require.NoError(t, err)
-	defer destDB.Close()
-
-	// Start a sync in destination and run compaction
-	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
-	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-	err = compactor.CompactWithSyncID(ctx, destSyncID)
-	require.NoError(t, err)
-
-	err = destDB.EndSync(ctx)
-	require.NoError(t, err)
-
-	// Verify we have the correct sync ID
-	require.NotEmpty(t, destSyncID)
-
+	destDB := baseDB
 	// ========= Verify Results =========
 
 	// Scenario 1: Data only in base - should exist with dest sync ID

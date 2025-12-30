@@ -17,7 +17,6 @@ func TestAttachedCompactor(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseFile := filepath.Join(tmpDir, "base.c1z")
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
-	destFile := filepath.Join(tmpDir, "dest.c1z")
 
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
@@ -48,20 +47,8 @@ func TestAttachedCompactor(t *testing.T) {
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
 
-	// Create destination database
-	destDB, err := dotc1z.NewC1ZFile(ctx, destFile, opts...)
-	require.NoError(t, err)
-	defer destDB.Close()
-
-	// Start a sync in destination and run compaction
-	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-
-	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-	err = compactor.CompactWithSyncID(ctx, destSyncID)
-	require.NoError(t, err)
-
-	err = destDB.EndSync(ctx)
+	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
 	// Verify that compaction completed without errors
@@ -76,7 +63,6 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseFile := filepath.Join(tmpDir, "base.c1z")
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
-	destFile := filepath.Join(tmpDir, "dest.c1z")
 
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
@@ -109,20 +95,8 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
 
-	// Create destination database
-	destDB, err := dotc1z.NewC1ZFile(ctx, destFile, opts...)
-	require.NoError(t, err)
-	defer destDB.Close()
-
-	// Start a sync in destination and run compaction
-	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-
-	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-	err = compactor.CompactWithSyncID(ctx, destSyncID)
-	require.NoError(t, err)
-
-	err = destDB.EndSync(ctx)
+	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
 	// Verify that compaction completed without errors
@@ -139,7 +113,6 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseFile := filepath.Join(tmpDir, "base.c1z")
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
-	destFile := filepath.Join(tmpDir, "dest.c1z")
 
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
@@ -179,20 +152,8 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
 
-	// Create destination database
-	destDB, err := dotc1z.NewC1ZFile(ctx, destFile, opts...)
-	require.NoError(t, err)
-	defer destDB.Close()
-
-	// Start a sync in destination and run compaction
-	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-
-	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-	err = compactor.CompactWithSyncID(ctx, destSyncID)
-	require.NoError(t, err)
-
-	err = destDB.EndSync(ctx)
+	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
 	// Verify that compaction completed without errors
