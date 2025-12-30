@@ -25,24 +25,24 @@ type BenchmarkData struct {
 var SmallDataset = BenchmarkData{
 	ResourceTypes: 5,
 	Resources:     100,
-	Entitlements:  50,
-	Grants:        100,
+	Entitlements:  250,
+	Grants:        1000,
 }
 
 // Medium dataset for realistic scenarios.
 var MediumDataset = BenchmarkData{
 	ResourceTypes: 10,
 	Resources:     1000,
-	Entitlements:  500,
-	Grants:        1000,
+	Entitlements:  2500,
+	Grants:        10000,
 }
 
 // Large dataset for stress testing.
 var LargeDataset = BenchmarkData{
 	ResourceTypes: 20,
 	Resources:     10000,
-	Entitlements:  5000,
-	Grants:        10000,
+	Entitlements:  25000,
+	Grants:        100000,
 }
 
 // generateTestData creates test databases with the specified amount of data.
