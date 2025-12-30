@@ -156,31 +156,29 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	fileName := fmt.Sprintf("compacted-%s.c1z", c.entries[0].SyncID)
 	destFilePath := path.Join(c.destDir, fileName)
 
-	// Copy the last entry into the destination file.
-	err = cpFile(c.entries[len(c.entries)-1].FilePath, destFilePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to copy file: %w", err)
-	}
 	c.compactedC1z, err = dotc1z.NewC1ZFile(ctx, destFilePath, opts...)
 	if err != nil {
 		l.Error("doOneCompaction failed: could not create c1z file", zap.Error(err))
 		return nil, err
 	}
 	defer func() { _ = c.compactedC1z.Close() }()
+	newSyncId, err := c.compactedC1z.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to start new sync: %w", err)
+	}
+	err = c.compactedC1z.EndSync(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to end sync: %w", err)
+	}
+	l.Debug("new empty partial sync created", zap.String("sync_id", newSyncId))
 
 	// Base sync is c.entries[0], so compact in reverse order. That way we compact the biggest sync last.
-	for i := len(c.entries) - 2; i >= 0; i-- {
+	for i := len(c.entries) - 1; i >= 0; i-- {
 		err = c.doOneCompaction(ctx, c.entries[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to compact sync %s: %w", c.entries[i].SyncID, err)
 		}
 	}
-
-	newSyncId, err := c.compactedC1z.LatestSyncID(ctx, connectorstore.SyncTypeAny)
-	if err != nil {
-		return nil, err
-	}
-	l.Debug("latest sync id", zap.String("sync_id", newSyncId))
 
 	// Grant expansion doesn't use the connector interface at all, so giving syncer an empty connector is safe... for now.
 	// If that ever changes, we should implement a file connector that is a wrapper around the reader.
