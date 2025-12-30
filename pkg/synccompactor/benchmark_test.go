@@ -243,15 +243,16 @@ func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 			WithCompactorType(CompactorTypeAttached),
 		)
 		require.NoError(b, err)
-		defer func() {
-			err := cleanup()
-			require.NoError(b, err)
-		}()
 
 		b.StartTimer()
 		compactedSync, err := compactor.Compact(ctx)
 		require.NoError(b, err)
 		require.NotNil(b, compactedSync)
+
+		b.StopTimer()
+		err = cleanup()
+		require.NoError(b, err)
+		b.StartTimer()
 	}
 }
 
