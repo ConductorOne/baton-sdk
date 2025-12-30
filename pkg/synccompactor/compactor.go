@@ -137,6 +137,8 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithTmpDir(c.tmpDir),
 		// Performance improvements:
+		// NOTE: We do not close this c1z after compaction, so syncer will have these pragmas when expanding grants.
+		// We should re-evaluate these pragmas when partial syncs sync grants.
 		// Disable journaling.
 		dotc1z.WithPragma("journal_mode", "OFF"),
 		// Disable synchronous writes
@@ -145,9 +147,8 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		dotc1z.WithPragma("main.locking_mode", "EXCLUSIVE"),
 		// Use memory for temporary storage.
 		dotc1z.WithPragma("temp_store", "MEMORY"),
-		// We close this c1z after compaction, so syncer won't have these pragmas when expanding grants.
 		// Use parallel decoding.
-		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(0)),
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 		// Use parallel encoding.
 		dotc1z.WithEncoderConcurrency(0),
 	}
@@ -279,19 +280,27 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		ctx,
 		cs.FilePath,
 		dotc1z.WithTmpDir(c.tmpDir),
-		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(0)),
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 		dotc1z.WithReadOnly(true),
 		// We're only reading, so it's safe to use these pragmas.
 		dotc1z.WithPragma("synchronous", "OFF"),
+		dotc1z.WithPragma("journal_mode", "OFF"),
+		dotc1z.WithPragma("locking_mode", "EXCLUSIVE"),
+		dotc1z.WithPragma("temp_store", "MEMORY"),
 	)
 	if err != nil {
 		return err
 	}
-	defer applyFile.Close()
+	defer func() {
+		err := applyFile.Close()
+		if err != nil {
+			l.Error("error closing apply file", zap.Error(err), zap.String("apply_file", cs.FilePath))
+		}
+	}()
 
 	runner := attached.NewAttachedCompactor(c.compactedC1z, applyFile)
 	if err := runner.Compact(ctx); err != nil {
-		l.Error("error running compaction", zap.Error(err))
+		l.Error("error running compaction", zap.Error(err), zap.String("apply_file", cs.FilePath))
 		return err
 	}
 
