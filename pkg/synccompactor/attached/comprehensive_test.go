@@ -208,13 +208,12 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
-	destDB := baseDB
 	// ========= Verify Results =========
 
 	// Scenario 1: Data only in base - should exist with dest sync ID
 	t.Run("Scenario1_BaseOnly", func(t *testing.T) {
 		// Resource
-		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		resp, err := baseDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: baseOnlyUser.GetId(),
 		}.Build())
 		require.NoError(t, err)
@@ -223,14 +222,14 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 		// Note: Sync ID verification is handled in the AllDataHasSameDestSyncID test
 
 		// Entitlement
-		entResp, err := destDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+		entResp, err := baseDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: "base-entitlement",
 		}.Build())
 		require.NoError(t, err)
 		require.Equal(t, "Base Entitlement", entResp.GetEntitlement().GetDisplayName())
 
 		// Grant
-		grantResp, err := destDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 			GrantId: "base-grant",
 		}.Build())
 		require.NoError(t, err)
@@ -240,7 +239,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Scenario 2: Data only in applied - should exist with dest sync ID
 	t.Run("Scenario2_AppliedOnly", func(t *testing.T) {
 		// Resource
-		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		resp, err := baseDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: appliedOnlyUser.GetId(),
 		}.Build())
 		require.NoError(t, err)
@@ -249,14 +248,14 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 		// Note: Sync ID verification is handled in the AllDataHasSameDestSyncID test
 
 		// Entitlement
-		entResp, err := destDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+		entResp, err := baseDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: "applied-entitlement",
 		}.Build())
 		require.NoError(t, err)
 		require.Equal(t, "Applied Entitlement", entResp.GetEntitlement().GetDisplayName())
 
 		// Grant
-		grantResp, err := destDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 			GrantId: "applied-grant",
 		}.Build())
 		require.NoError(t, err)
@@ -266,7 +265,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Scenario 3: Data in both, but since applied is naturally newer, applied should win
 	t.Run("Scenario3_OverlappingAppliedWins", func(t *testing.T) {
 		// Resource (applied should win due to newer timestamp)
-		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		resp, err := baseDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: baseNewerUser.GetId(),
 		}.Build())
 		require.NoError(t, err)
@@ -281,7 +280,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Scenario 4: Data in both, applied is newer - should have applied version with dest sync ID
 	t.Run("Scenario4_AppliedNewer", func(t *testing.T) {
 		// Resource
-		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		resp, err := baseDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: appliedNewerUser.GetId(),
 		}.Build())
 		require.NoError(t, err)
@@ -290,14 +289,14 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 		// Note: Sync ID verification is handled in the AllDataHasSameDestSyncID test
 
 		// Entitlement
-		entResp, err := destDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+		entResp, err := baseDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: "applied-newer-entitlement",
 		}.Build())
 		require.NoError(t, err)
 		require.Equal(t, "Applied Newer Entitlement", entResp.GetEntitlement().GetDisplayName())
 
 		// Grant
-		grantResp, err := destDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 			GrantId: "applied-newer-grant",
 		}.Build())
 		require.NoError(t, err)
