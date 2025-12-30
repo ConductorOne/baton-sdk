@@ -73,6 +73,11 @@ message Task {
     connector.v2.AccountInfo account_info = 1;
     connector.v2.CredentialOptions credential_options = 2;
     repeated connector.v2.EncryptionConfig encryption_configs = 3;
+    string resource_type_id = 4 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 1024
+      ignore_empty: true
+    }];
   }
 
   message CreateResourceTask {

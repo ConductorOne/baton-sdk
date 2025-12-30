@@ -234,6 +234,7 @@ func MakeMainCommand[T field.Configurable](
 						login,
 						email,
 						profile,
+						v.GetString("create-account-resource-type"),
 					))
 			case v.GetString("create-account-login") != "":
 				// should only be here if no create-account-profile is provided, so lets make one.
@@ -251,6 +252,7 @@ func MakeMainCommand[T field.Configurable](
 						v.GetString("create-account-login"),
 						v.GetString("create-account-email"),
 						profile,
+						v.GetString("create-account-resource-type"),
 					))
 			case v.GetString("invoke-action") != "":
 				invokeActionArgsStr := v.GetString("invoke-action-args")

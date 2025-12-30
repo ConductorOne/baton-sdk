@@ -2936,6 +2936,7 @@ type Task_CreateAccountTask struct {
 	AccountInfo       *v2.AccountInfo        `protobuf:"bytes,1,opt,name=account_info,json=accountInfo,proto3" json:"account_info,omitempty"`
 	CredentialOptions *v2.CredentialOptions  `protobuf:"bytes,2,opt,name=credential_options,json=credentialOptions,proto3" json:"credential_options,omitempty"`
 	EncryptionConfigs []*v2.EncryptionConfig `protobuf:"bytes,3,rep,name=encryption_configs,json=encryptionConfigs,proto3" json:"encryption_configs,omitempty"`
+	ResourceTypeId    string                 `protobuf:"bytes,4,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -2986,6 +2987,13 @@ func (x *Task_CreateAccountTask) GetEncryptionConfigs() []*v2.EncryptionConfig {
 	return nil
 }
 
+func (x *Task_CreateAccountTask) GetResourceTypeId() string {
+	if x != nil {
+		return x.ResourceTypeId
+	}
+	return ""
+}
+
 func (x *Task_CreateAccountTask) SetAccountInfo(v *v2.AccountInfo) {
 	x.AccountInfo = v
 }
@@ -2996,6 +3004,10 @@ func (x *Task_CreateAccountTask) SetCredentialOptions(v *v2.CredentialOptions) {
 
 func (x *Task_CreateAccountTask) SetEncryptionConfigs(v []*v2.EncryptionConfig) {
 	x.EncryptionConfigs = v
+}
+
+func (x *Task_CreateAccountTask) SetResourceTypeId(v string) {
+	x.ResourceTypeId = v
 }
 
 func (x *Task_CreateAccountTask) HasAccountInfo() bool {
@@ -3026,6 +3038,7 @@ type Task_CreateAccountTask_builder struct {
 	AccountInfo       *v2.AccountInfo
 	CredentialOptions *v2.CredentialOptions
 	EncryptionConfigs []*v2.EncryptionConfig
+	ResourceTypeId    string
 }
 
 func (b0 Task_CreateAccountTask_builder) Build() *Task_CreateAccountTask {
@@ -3035,6 +3048,7 @@ func (b0 Task_CreateAccountTask_builder) Build() *Task_CreateAccountTask {
 	x.AccountInfo = b.AccountInfo
 	x.CredentialOptions = b.CredentialOptions
 	x.EncryptionConfigs = b.EncryptionConfigs
+	x.ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -4872,7 +4886,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\x80)\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xb9)\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -4920,11 +4934,13 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
 	"RevokeTask\x12,\n" +
 	"\x05grant\x18\x01 \x01(\v2\x16.c1.connector.v2.GrantR\x05grant\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\xf9\x01\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\xb2\x02\n" +
 	"\x11CreateAccountTask\x12?\n" +
 	"\faccount_info\x18\x01 \x01(\v2\x1c.c1.connector.v2.AccountInfoR\vaccountInfo\x12Q\n" +
 	"\x12credential_options\x18\x02 \x01(\v2\".c1.connector.v2.CredentialOptionsR\x11credentialOptions\x12P\n" +
-	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\x1aK\n" +
+	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\x127\n" +
+	"\x10resource_type_id\x18\x04 \x01(\tB\r\xfaB\n" +
+	"r\b \x01(\x80\b\xd0\x01\x01R\x0eresourceTypeId\x1aK\n" +
 	"\x12CreateResourceTask\x125\n" +
 	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x1a\x9d\x01\n" +
 	"\x12DeleteResourceTask\x12<\n" +

@@ -34,9 +34,10 @@ type Provisioner struct {
 
 	revokeGrantID string
 
-	createAccountLogin   string
-	createAccountEmail   string
-	createAccountProfile *structpb.Struct
+	createAccountLogin        string
+	createAccountEmail        string
+	createAccountProfile      *structpb.Struct
+	createAccountResourceType string
 
 	deleteResourceID   string
 	deleteResourceType string
@@ -285,6 +286,7 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 	}
 
 	_, err = p.connector.CreateAccount(ctx, v2.CreateAccountRequest_builder{
+		ResourceTypeId: p.createAccountResourceType,
 		AccountInfo: v2.AccountInfo_builder{
 			Emails:  emails,
 			Login:   p.createAccountLogin,
@@ -297,7 +299,11 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 		return err
 	}
 
-	l.Debug("account created", zap.String("login", p.createAccountLogin), zap.String("email", p.createAccountEmail))
+	l.Debug("account created",
+		zap.String("login", p.createAccountLogin),
+		zap.String("email", p.createAccountEmail),
+		zap.String("resource_type", p.createAccountResourceType),
+	)
 
 	return nil
 }
@@ -373,13 +379,14 @@ func NewResourceDeleter(c types.ConnectorClient, dbPath string, resourceId strin
 	}
 }
 
-func NewCreateAccountManager(c types.ConnectorClient, dbPath string, login string, email string, profile *structpb.Struct) *Provisioner {
+func NewCreateAccountManager(c types.ConnectorClient, dbPath string, login string, email string, profile *structpb.Struct, resourceType string) *Provisioner {
 	return &Provisioner{
-		dbPath:               dbPath,
-		connector:            c,
-		createAccountLogin:   login,
-		createAccountEmail:   email,
-		createAccountProfile: profile,
+		dbPath:                    dbPath,
+		connector:                 c,
+		createAccountLogin:        login,
+		createAccountEmail:        email,
+		createAccountProfile:      profile,
+		createAccountResourceType: resourceType,
 	}
 }
 

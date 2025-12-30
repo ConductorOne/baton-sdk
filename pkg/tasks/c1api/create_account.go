@@ -45,6 +45,7 @@ func (g *createAccountTaskHandler) HandleTask(ctx context.Context) error {
 		AccountInfo:       t.GetAccountInfo(),
 		CredentialOptions: t.GetCredentialOptions(),
 		EncryptionConfigs: t.GetEncryptionConfigs(),
+		ResourceTypeId:    t.GetResourceTypeId(),
 	}.Build())
 	if err != nil {
 		l.Error("failed creating account", zap.Error(err))

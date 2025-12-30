@@ -1878,6 +1878,7 @@ type CreateAccountRequest struct {
 	AccountInfo       *AccountInfo           `protobuf:"bytes,1,opt,name=account_info,json=accountInfo,proto3" json:"account_info,omitempty"`
 	CredentialOptions *CredentialOptions     `protobuf:"bytes,2,opt,name=credential_options,json=credentialOptions,proto3" json:"credential_options,omitempty"`
 	EncryptionConfigs []*EncryptionConfig    `protobuf:"bytes,3,rep,name=encryption_configs,json=encryptionConfigs,proto3" json:"encryption_configs,omitempty"`
+	ResourceTypeId    string                 `protobuf:"bytes,4,opt,name=resource_type_id,json=resourceTypeId,proto3" json:"resource_type_id,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -1928,6 +1929,13 @@ func (x *CreateAccountRequest) GetEncryptionConfigs() []*EncryptionConfig {
 	return nil
 }
 
+func (x *CreateAccountRequest) GetResourceTypeId() string {
+	if x != nil {
+		return x.ResourceTypeId
+	}
+	return ""
+}
+
 func (x *CreateAccountRequest) SetAccountInfo(v *AccountInfo) {
 	x.AccountInfo = v
 }
@@ -1938,6 +1946,10 @@ func (x *CreateAccountRequest) SetCredentialOptions(v *CredentialOptions) {
 
 func (x *CreateAccountRequest) SetEncryptionConfigs(v []*EncryptionConfig) {
 	x.EncryptionConfigs = v
+}
+
+func (x *CreateAccountRequest) SetResourceTypeId(v string) {
+	x.ResourceTypeId = v
 }
 
 func (x *CreateAccountRequest) HasAccountInfo() bool {
@@ -1968,6 +1980,7 @@ type CreateAccountRequest_builder struct {
 	AccountInfo       *AccountInfo
 	CredentialOptions *CredentialOptions
 	EncryptionConfigs []*EncryptionConfig
+	ResourceTypeId    string
 }
 
 func (b0 CreateAccountRequest_builder) Build() *CreateAccountRequest {
@@ -1977,6 +1990,7 @@ func (b0 CreateAccountRequest_builder) Build() *CreateAccountRequest {
 	x.AccountInfo = b.AccountInfo
 	x.CredentialOptions = b.CredentialOptions
 	x.EncryptionConfigs = b.EncryptionConfigs
+	x.ResourceTypeId = b.ResourceTypeId
 	return m0
 }
 
@@ -4545,11 +4559,13 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\aoptions\"L\n" +
 	"\x12PasswordConstraint\x12\x19\n" +
 	"\bchar_set\x18\x01 \x01(\tR\acharSet\x12\x1b\n" +
-	"\tmin_count\x18\x02 \x01(\rR\bminCount\"\xfc\x01\n" +
+	"\tmin_count\x18\x02 \x01(\rR\bminCount\"\xb5\x02\n" +
 	"\x14CreateAccountRequest\x12?\n" +
 	"\faccount_info\x18\x01 \x01(\v2\x1c.c1.connector.v2.AccountInfoR\vaccountInfo\x12Q\n" +
 	"\x12credential_options\x18\x02 \x01(\v2\".c1.connector.v2.CredentialOptionsR\x11credentialOptions\x12P\n" +
-	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\"\xcc\b\n" +
+	"\x12encryption_configs\x18\x03 \x03(\v2!.c1.connector.v2.EncryptionConfigR\x11encryptionConfigs\x127\n" +
+	"\x10resource_type_id\x18\x04 \x01(\tB\r\xfaB\n" +
+	"r\b \x01(\x80\b\xd0\x01\x01R\x0eresourceTypeId\"\xcc\b\n" +
 	"\x15CreateAccountResponse\x12P\n" +
 	"\asuccess\x18d \x01(\v24.c1.connector.v2.CreateAccountResponse.SuccessResultH\x00R\asuccess\x12f\n" +
 	"\x0faction_required\x18e \x01(\v2;.c1.connector.v2.CreateAccountResponse.ActionRequiredResultH\x00R\x0eactionRequired\x12c\n" +
