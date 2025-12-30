@@ -153,7 +153,6 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		dotc1z.WithEncoderConcurrency(0),
 	}
 
-	// fileName := fmt.Sprintf("compacted-%s-%s.c1z", base.SyncID, applied.SyncID)
 	fileName := fmt.Sprintf("compacted-%s.c1z", c.entries[0].SyncID)
 	destFilePath := path.Join(c.destDir, fileName)
 
