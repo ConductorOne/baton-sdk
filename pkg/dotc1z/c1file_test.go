@@ -544,3 +544,65 @@ func TestC1ZReadOnlyMode(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, fileInfo1.ModTime(), fileInfo2.ModTime())
 }
+
+func TestC1ZCachedViewSyncRunInvalidation(t *testing.T) {
+	ctx := t.Context()
+	testFilePath := filepath.Join(c1zTests.workingDir, "test-cached-view-sync-invalidation.c1z")
+
+	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+
+	// Start first sync and add a resource
+	syncID1, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, syncID1)
+
+	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: testResourceType}.Build())
+	require.NoError(t, err)
+
+	err = f.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: testResourceType,
+			Resource:     "resource-1",
+		}.Build(),
+	}.Build())
+	require.NoError(t, err)
+
+	err = f.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Call ListResources to populate the cache with sync1
+	resp1, err := f.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, resp1.GetList(), 1)
+	require.Equal(t, "resource-1", resp1.GetList()[0].GetId().GetResource())
+
+	// Start a new sync and add a different resource
+	syncID2, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, syncID2)
+	require.NotEqual(t, syncID1, syncID2)
+
+	err = f.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: testResourceType,
+			Resource:     "resource-2",
+		}.Build(),
+	}.Build())
+	require.NoError(t, err)
+
+	// End the new sync
+	err = f.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Call ListResources again - it should return resource-2 from the new finished sync (sync2),
+	// but it will return resource-1 from the cached sync (sync1) instead because the cache wasn't invalidated
+	resp2, err := f.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{}.Build())
+	require.NoError(t, err)
+	// This assertion will fail because the cache wasn't invalidated when sync2 finished
+	require.Len(t, resp2.GetList(), 1, "should return resource from new sync")
+	require.Equal(t, "resource-2", resp2.GetList()[0].GetId().GetResource(), "should return resource-2 from the new finished sync (sync2), not resource-1 from cached sync (sync1)")
+
+	err = f.Close()
+	require.NoError(t, err)
+}

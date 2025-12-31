@@ -47,9 +47,10 @@ type C1File struct {
 	encoderConcurrency int
 
 	// Cached sync run for listConnectorObjects (avoids N+1 queries)
-	cachedViewSyncRun  *syncRun
-	cachedViewSyncOnce sync.Once
-	cachedViewSyncErr  error
+	cachedViewSyncRun   *syncRun
+	cachedViewSyncMu    sync.Mutex
+	cachedViewSyncValid bool
+	cachedViewSyncErr   error
 
 	// Slow query tracking
 	slowQueryLogTimes     map[string]time.Time
