@@ -154,7 +154,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	}
 
 	fileName := fmt.Sprintf("compacted-%s.c1z", c.entries[0].SyncID)
-	destFilePath := path.Join(c.destDir, fileName)
+	destFilePath := path.Join(c.tmpDir, fileName)
 
 	c.compactedC1z, err = dotc1z.NewC1ZFile(ctx, destFilePath, opts...)
 	if err != nil {
