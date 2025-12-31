@@ -23,7 +23,6 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		tmpDir := t.TempDir()
 		baseFile := filepath.Join(tmpDir, "base.c1z")
 		appliedFile := filepath.Join(tmpDir, "applied.c1z")
-		destFile := filepath.Join(tmpDir, "dest.c1z")
 
 		opts := []dotc1z.C1ZOption{
 			dotc1z.WithPragma("journal_mode", "WAL"),
@@ -84,23 +83,12 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		err = appliedDB.EndSync(ctx)
 		require.NoError(t, err)
 
-		// Create destination and compact
-		destDB, err := dotc1z.NewC1ZFile(ctx, destFile, opts...)
-		require.NoError(t, err)
-		defer destDB.Close()
-
-		destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-		require.NoError(t, err)
-
-		compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-		err = compactor.CompactWithSyncID(ctx, destSyncID)
-		require.NoError(t, err)
-
-		err = destDB.EndSync(ctx)
+		compactor := NewAttachedCompactor(baseDB, appliedDB)
+		err = compactor.Compact(ctx)
 		require.NoError(t, err)
 
 		// Verify applied version won
-		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		resp, err := baseDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: appliedResource.GetId(),
 		}.Build())
 		require.NoError(t, err)
@@ -112,7 +100,6 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		tmpDir := t.TempDir()
 		baseFile := filepath.Join(tmpDir, "base.c1z")
 		appliedFile := filepath.Join(tmpDir, "applied.c1z")
-		destFile := filepath.Join(tmpDir, "dest.c1z")
 
 		opts := []dotc1z.C1ZOption{
 			dotc1z.WithPragma("journal_mode", "WAL"),
@@ -173,23 +160,12 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		err = baseDB.EndSync(ctx)
 		require.NoError(t, err)
 
-		// Create destination and compact
-		destDB, err := dotc1z.NewC1ZFile(ctx, destFile, opts...)
-		require.NoError(t, err)
-		defer destDB.Close()
-
-		destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-		require.NoError(t, err)
-
-		compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-		err = compactor.CompactWithSyncID(ctx, destSyncID)
-		require.NoError(t, err)
-
-		err = destDB.EndSync(ctx)
+		compactor := NewAttachedCompactor(baseDB, appliedDB)
+		err = compactor.Compact(ctx)
 		require.NoError(t, err)
 
 		// Verify base version won (because it was created later and has newer discovered_at)
-		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		resp, err := baseDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: baseResource.GetId(),
 		}.Build())
 		require.NoError(t, err)

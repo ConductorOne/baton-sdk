@@ -10,7 +10,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
-	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
 	"github.com/stretchr/testify/require"
 )
 
@@ -26,33 +25,34 @@ type BenchmarkData struct {
 var SmallDataset = BenchmarkData{
 	ResourceTypes: 5,
 	Resources:     100,
-	Entitlements:  50,
-	Grants:        100,
+	Entitlements:  250,
+	Grants:        1000,
 }
 
 // Medium dataset for realistic scenarios.
 var MediumDataset = BenchmarkData{
 	ResourceTypes: 10,
 	Resources:     1000,
-	Entitlements:  500,
-	Grants:        1000,
+	Entitlements:  2500,
+	Grants:        10000,
 }
 
 // Large dataset for stress testing.
 var LargeDataset = BenchmarkData{
 	ResourceTypes: 20,
 	Resources:     10000,
-	Entitlements:  5000,
-	Grants:        10000,
+	Entitlements:  25000,
+	Grants:        100000,
 }
 
 // generateTestData creates test databases with the specified amount of data.
-func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset BenchmarkData) (string, string, string, string) {
+func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset BenchmarkData) []*CompactableSync {
 	baseFile := filepath.Join(tmpDir, "base.c1z")
-	appliedFile := filepath.Join(tmpDir, "applied.c1z")
 
 	opts := []dotc1z.C1ZOption{
-		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithPragma("journal_mode", "OFF"), // Speed up inserts. This is a test so it's OK to have unsafe writes.
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
+		dotc1z.WithEncoderConcurrency(0),
 		dotc1z.WithTmpDir(tmpDir),
 	}
 
@@ -123,98 +123,104 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 	err = baseSync.Close()
 	require.NoError(t, err)
 
-	// Create applied sync file
-	appliedSync, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
-	require.NoError(t, err)
-
-	appliedSyncID, err := appliedSync.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
-	require.NoError(t, err)
-
-	// Reuse same resource types
-	for _, rtId := range resourceTypeIDs {
-		err = appliedSync.PutResourceTypes(ctx, v2.ResourceType_builder{
-			Id:          rtId,
-			DisplayName: fmt.Sprintf("Resource Type %s", rtId),
-		}.Build())
-		require.NoError(t, err)
+	compactableSyncs := []*CompactableSync{
+		{FilePath: baseFile, SyncID: baseSyncID},
 	}
 
-	// Generate resources for applied sync (remaining 40% + some overlapping)
-	appliedResourceCount := dataset.Resources - baseResourceCount + int(float64(baseResourceCount)*0.2) // 20% overlap
-	appliedResources := make([]*v2.Resource, 0, appliedResourceCount)
-
-	// Add some overlapping resources from base
-	overlapCount := int(float64(baseResourceCount) * 0.2)
-	for i := range overlapCount {
-		resource := v2.Resource_builder{
-			Id: v2.ResourceId_builder{
-				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
-				Resource:     fmt.Sprintf("base-resource-%d", i), // Same ID as base
-			}.Build(),
-			DisplayName: fmt.Sprintf("Updated Base Resource %d", i), // Different display name
-		}.Build()
-		appliedResources = append(appliedResources, resource)
-		err = appliedSync.PutResources(ctx, resource)
+	// Create 10 applied syncs
+	for i := range 10 {
+		// Create applied sync file
+		appliedFile := filepath.Join(tmpDir, fmt.Sprintf("applied-%d.c1z", i))
+		appliedSync, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 		require.NoError(t, err)
+
+		appliedSyncID, err := appliedSync.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+		require.NoError(t, err)
+
+		// Reuse same resource types
+		for _, rtId := range resourceTypeIDs {
+			err = appliedSync.PutResourceTypes(ctx, v2.ResourceType_builder{
+				Id:          rtId,
+				DisplayName: fmt.Sprintf("Resource Type %s", rtId),
+			}.Build())
+			require.NoError(t, err)
+		}
+
+		// Generate resources for applied sync (remaining 40% + some overlapping)
+		appliedResourceCount := dataset.Resources - baseResourceCount + int(float64(baseResourceCount)*0.2) // 20% overlap
+		appliedResources := make([]*v2.Resource, 0, appliedResourceCount)
+
+		// Add some overlapping resources from base
+		overlapCount := int(float64(baseResourceCount) * 0.2)
+		for i := range overlapCount {
+			resource := v2.Resource_builder{
+				Id: v2.ResourceId_builder{
+					ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
+					Resource:     fmt.Sprintf("base-resource-%d", i), // Same ID as base
+				}.Build(),
+				DisplayName: fmt.Sprintf("Updated Base Resource %d", i), // Different display name
+			}.Build()
+			appliedResources = append(appliedResources, resource)
+			err = appliedSync.PutResources(ctx, resource)
+			require.NoError(t, err)
+		}
+
+		// Add new resources only in applied
+		newResourceCount := appliedResourceCount - overlapCount
+		for i := range newResourceCount {
+			resource := v2.Resource_builder{
+				Id: v2.ResourceId_builder{
+					ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
+					Resource:     fmt.Sprintf("applied-resource-%d", i),
+				}.Build(),
+				DisplayName: fmt.Sprintf("Applied Resource %d", i),
+			}.Build()
+			appliedResources = append(appliedResources, resource)
+			err = appliedSync.PutResources(ctx, resource)
+			require.NoError(t, err)
+		}
+
+		// Generate entitlements for applied sync
+		appliedEntitlementCount := dataset.Entitlements - baseEntitlementCount
+		appliedEntitlements := make([]*v2.Entitlement, appliedEntitlementCount)
+		for i := range appliedEntitlementCount {
+			entitlement := v2.Entitlement_builder{
+				Id:          fmt.Sprintf("applied-entitlement-%d", i),
+				DisplayName: fmt.Sprintf("Applied Entitlement %d", i),
+				Resource:    appliedResources[i%len(appliedResources)],
+				Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+			}.Build()
+			appliedEntitlements[i] = entitlement
+			err = appliedSync.PutEntitlements(ctx, entitlement)
+			require.NoError(t, err)
+		}
+
+		// Generate grants for applied sync
+		appliedGrantCount := dataset.Grants - baseGrantCount
+		for i := range appliedGrantCount {
+			grant := v2.Grant_builder{
+				Id:          fmt.Sprintf("applied-grant-%d", i),
+				Principal:   appliedResources[i%len(appliedResources)],
+				Entitlement: appliedEntitlements[i%len(appliedEntitlements)],
+			}.Build()
+			err = appliedSync.PutGrants(ctx, grant)
+			require.NoError(t, err)
+		}
+
+		err = appliedSync.EndSync(ctx)
+		require.NoError(t, err)
+		err = appliedSync.Close()
+		require.NoError(t, err)
+
+		compactableSyncs = append(compactableSyncs, &CompactableSync{FilePath: appliedFile, SyncID: appliedSyncID})
 	}
 
-	// Add new resources only in applied
-	newResourceCount := appliedResourceCount - overlapCount
-	for i := range newResourceCount {
-		resource := v2.Resource_builder{
-			Id: v2.ResourceId_builder{
-				ResourceType: resourceTypeIDs[i%len(resourceTypeIDs)],
-				Resource:     fmt.Sprintf("applied-resource-%d", i),
-			}.Build(),
-			DisplayName: fmt.Sprintf("Applied Resource %d", i),
-		}.Build()
-		appliedResources = append(appliedResources, resource)
-		err = appliedSync.PutResources(ctx, resource)
-		require.NoError(t, err)
-	}
-
-	// Generate entitlements for applied sync
-	appliedEntitlementCount := dataset.Entitlements - baseEntitlementCount
-	appliedEntitlements := make([]*v2.Entitlement, appliedEntitlementCount)
-	for i := range appliedEntitlementCount {
-		entitlement := v2.Entitlement_builder{
-			Id:          fmt.Sprintf("applied-entitlement-%d", i),
-			DisplayName: fmt.Sprintf("Applied Entitlement %d", i),
-			Resource:    appliedResources[i%len(appliedResources)],
-			Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
-		}.Build()
-		appliedEntitlements[i] = entitlement
-		err = appliedSync.PutEntitlements(ctx, entitlement)
-		require.NoError(t, err)
-	}
-
-	// Generate grants for applied sync
-	appliedGrantCount := dataset.Grants - baseGrantCount
-	for i := range appliedGrantCount {
-		grant := v2.Grant_builder{
-			Id:          fmt.Sprintf("applied-grant-%d", i),
-			Principal:   appliedResources[i%len(appliedResources)],
-			Entitlement: appliedEntitlements[i%len(appliedEntitlements)],
-		}.Build()
-		err = appliedSync.PutGrants(ctx, grant)
-		require.NoError(t, err)
-	}
-
-	err = appliedSync.EndSync(ctx)
-	require.NoError(t, err)
-	err = appliedSync.Close()
-	require.NoError(t, err)
-
-	return baseFile, baseSyncID, appliedFile, appliedSyncID
+	return compactableSyncs
 }
 
 // benchmarkAttachedCompactor runs a benchmark using the attached compactor.
 func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
-	ctx := context.Background()
-
-	opts := []dotc1z.C1ZOption{
-		dotc1z.WithPragma("journal_mode", "WAL"),
-	}
+	ctx := b.Context()
 
 	for b.Loop() {
 		b.StopTimer()
@@ -229,39 +235,24 @@ func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 		defer os.RemoveAll(outputDir)
 
 		// Generate test data
-		baseFile, _, appliedFile, _ := generateTestData(ctx, b, tmpDir, dataset)
+		compactableSyncs := generateTestData(ctx, b, tmpDir, dataset)
 
-		// Use attached compactor
-		baseC1Z, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
+		compactor, cleanup, err := NewCompactor(ctx, outputDir,
+			compactableSyncs,
+			WithTmpDir(tmpDir),
+			WithCompactorType(CompactorTypeAttached),
+		)
 		require.NoError(b, err)
-		defer baseC1Z.Close()
-
-		appliedC1Z, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
-		require.NoError(b, err)
-		defer appliedC1Z.Close()
-
-		destFile := filepath.Join(tmpDir, "attached-dest.c1z")
-		destOpts := []dotc1z.C1ZOption{
-			dotc1z.WithTmpDir(tmpDir),
-		}
-		destOpts = append(destOpts, opts...)
-		destC1Z, err := dotc1z.NewC1ZFile(ctx, destFile, destOpts...)
-		require.NoError(b, err)
-		defer destC1Z.Close()
 
 		b.StartTimer()
-
-		// Start sync in destination
-		destSyncID, err := destC1Z.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		compactedSync, err := compactor.Compact(ctx)
 		require.NoError(b, err)
+		require.NotNil(b, compactedSync)
 
-		// Benchmark the attached compaction
-		attachedCompactor := attached.NewAttachedCompactor(baseC1Z, appliedC1Z, destC1Z)
-		err = attachedCompactor.CompactWithSyncID(ctx, destSyncID)
+		b.StopTimer()
+		err = cleanup()
 		require.NoError(b, err)
-
-		err = destC1Z.EndSync(ctx)
-		require.NoError(b, err)
+		b.StartTimer()
 	}
 }
 

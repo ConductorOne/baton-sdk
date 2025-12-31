@@ -25,7 +25,6 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	tmpDir := t.TempDir()
 	baseFile := filepath.Join(tmpDir, "base.c1z")
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
-	destFile := filepath.Join(tmpDir, "dest.c1z")
 
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
@@ -205,31 +204,16 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Note: Since applied sync is created after base sync,
 	// applied records will naturally have newer discovered_at timestamps
 
-	// ========= Create destination database and run compaction =========
-	destDB, err := dotc1z.NewC1ZFile(ctx, destFile, opts...)
+	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	err = compactor.Compact(ctx)
 	require.NoError(t, err)
-	defer destDB.Close()
-
-	// Start a sync in destination and run compaction
-	destSyncID, err := destDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-
-	compactor := NewAttachedCompactor(baseDB, appliedDB, destDB)
-	err = compactor.CompactWithSyncID(ctx, destSyncID)
-	require.NoError(t, err)
-
-	err = destDB.EndSync(ctx)
-	require.NoError(t, err)
-
-	// Verify we have the correct sync ID
-	require.NotEmpty(t, destSyncID)
 
 	// ========= Verify Results =========
 
 	// Scenario 1: Data only in base - should exist with dest sync ID
 	t.Run("Scenario1_BaseOnly", func(t *testing.T) {
 		// Resource
-		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		resp, err := baseDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: baseOnlyUser.GetId(),
 		}.Build())
 		require.NoError(t, err)
@@ -238,14 +222,14 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 		// Note: Sync ID verification is handled in the AllDataHasSameDestSyncID test
 
 		// Entitlement
-		entResp, err := destDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+		entResp, err := baseDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: "base-entitlement",
 		}.Build())
 		require.NoError(t, err)
 		require.Equal(t, "Base Entitlement", entResp.GetEntitlement().GetDisplayName())
 
 		// Grant
-		grantResp, err := destDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 			GrantId: "base-grant",
 		}.Build())
 		require.NoError(t, err)
@@ -255,7 +239,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Scenario 2: Data only in applied - should exist with dest sync ID
 	t.Run("Scenario2_AppliedOnly", func(t *testing.T) {
 		// Resource
-		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		resp, err := baseDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: appliedOnlyUser.GetId(),
 		}.Build())
 		require.NoError(t, err)
@@ -264,14 +248,14 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 		// Note: Sync ID verification is handled in the AllDataHasSameDestSyncID test
 
 		// Entitlement
-		entResp, err := destDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+		entResp, err := baseDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: "applied-entitlement",
 		}.Build())
 		require.NoError(t, err)
 		require.Equal(t, "Applied Entitlement", entResp.GetEntitlement().GetDisplayName())
 
 		// Grant
-		grantResp, err := destDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 			GrantId: "applied-grant",
 		}.Build())
 		require.NoError(t, err)
@@ -281,7 +265,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Scenario 3: Data in both, but since applied is naturally newer, applied should win
 	t.Run("Scenario3_OverlappingAppliedWins", func(t *testing.T) {
 		// Resource (applied should win due to newer timestamp)
-		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		resp, err := baseDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: baseNewerUser.GetId(),
 		}.Build())
 		require.NoError(t, err)
@@ -296,7 +280,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Scenario 4: Data in both, applied is newer - should have applied version with dest sync ID
 	t.Run("Scenario4_AppliedNewer", func(t *testing.T) {
 		// Resource
-		resp, err := destDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
+		resp, err := baseDB.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: appliedNewerUser.GetId(),
 		}.Build())
 		require.NoError(t, err)
@@ -305,14 +289,14 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 		// Note: Sync ID verification is handled in the AllDataHasSameDestSyncID test
 
 		// Entitlement
-		entResp, err := destDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+		entResp, err := baseDB.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 			EntitlementId: "applied-newer-entitlement",
 		}.Build())
 		require.NoError(t, err)
 		require.Equal(t, "Applied Newer Entitlement", entResp.GetEntitlement().GetDisplayName())
 
 		// Grant
-		grantResp, err := destDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
 			GrantId: "applied-newer-grant",
 		}.Build())
 		require.NoError(t, err)
