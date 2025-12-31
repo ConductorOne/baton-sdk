@@ -267,6 +267,19 @@ func (c *C1File) init(ctx context.Context) error {
 		return err
 	}
 
+	if c.readOnly {
+		// Disable journaling in read only mode, since we're not writing to the database.
+		_, err = c.db.ExecContext(ctx, "PRAGMA journal_mode = OFF")
+		if err != nil {
+			return err
+		}
+		// Disable synchronous writes in read only mode, since we're not writing to the database.
+		_, err = c.db.ExecContext(ctx, "PRAGMA synchronous = OFF")
+		if err != nil {
+			return err
+		}
+	}
+
 	for _, pragma := range c.pragmas {
 		_, err := c.db.ExecContext(ctx, fmt.Sprintf("PRAGMA %s = %s", pragma.name, pragma.value))
 		if err != nil {
