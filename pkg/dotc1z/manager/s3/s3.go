@@ -161,6 +161,7 @@ func (s *s3Manager) SaveC1Z(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 
 	if s.client == nil {
 		return fmt.Errorf("attempting to save to s3 without a valid client")
