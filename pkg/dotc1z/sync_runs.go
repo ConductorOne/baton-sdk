@@ -105,7 +105,7 @@ func (c *C1File) getCachedViewSyncRun(ctx context.Context) (*syncRun, error) {
 	c.cachedViewSyncMu.Lock()
 	defer c.cachedViewSyncMu.Unlock()
 
-	if c.cachedViewSyncValid {
+	if c.cachedViewSyncRun != nil || c.cachedViewSyncErr != nil {
 		return c.cachedViewSyncRun, c.cachedViewSyncErr
 	}
 
@@ -120,7 +120,6 @@ func (c *C1File) getCachedViewSyncRun(ctx context.Context) (*syncRun, error) {
 		c.cachedViewSyncRun, c.cachedViewSyncErr = c.getLatestUnfinishedSync(ctx, connectorstore.SyncTypeAny)
 	}
 
-	c.cachedViewSyncValid = true
 	return c.cachedViewSyncRun, c.cachedViewSyncErr
 }
 
@@ -128,7 +127,6 @@ func (c *C1File) getCachedViewSyncRun(ctx context.Context) (*syncRun, error) {
 func (c *C1File) invalidateCachedViewSyncRun() {
 	c.cachedViewSyncMu.Lock()
 	defer c.cachedViewSyncMu.Unlock()
-	c.cachedViewSyncValid = false
 	c.cachedViewSyncRun = nil
 	c.cachedViewSyncErr = nil
 }
