@@ -145,8 +145,6 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		dotc1z.WithPragma("synchronous", "OFF"),
 		// Use exclusive locking.
 		dotc1z.WithPragma("main.locking_mode", "EXCLUSIVE"),
-		// Use memory for temporary storage.
-		dotc1z.WithPragma("temp_store", "MEMORY"),
 		// Use parallel decoding.
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 		// Use parallel encoding.
@@ -293,7 +291,6 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		dotc1z.WithPragma("synchronous", "OFF"),
 		dotc1z.WithPragma("journal_mode", "OFF"),
 		dotc1z.WithPragma("locking_mode", "EXCLUSIVE"),
-		dotc1z.WithPragma("temp_store", "MEMORY"),
 	)
 	if err != nil {
 		return err
