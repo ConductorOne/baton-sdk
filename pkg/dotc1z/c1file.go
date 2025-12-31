@@ -273,6 +273,11 @@ func (c *C1File) init(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		// Disable synchronous writes in read only mode, since we're not writing to the database.
+		_, err = c.db.ExecContext(ctx, "PRAGMA synchronous = OFF")
+		if err != nil {
+			return err
+		}
 	}
 
 	for _, pragma := range c.pragmas {
