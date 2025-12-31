@@ -229,7 +229,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 
 	// Move last compacted file to the destination dir
 	finalPath := path.Join(c.destDir, fmt.Sprintf("compacted-%s.c1z", newSyncId))
-	if err := cpFile(destFilePath, finalPath); err != nil {
+	if err := cpFile(ctx, destFilePath, finalPath); err != nil {
 		return nil, err
 	}
 
@@ -243,7 +243,15 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	return &CompactableSync{FilePath: finalPath, SyncID: newSyncId}, nil
 }
 
-func cpFile(sourcePath string, destPath string) error {
+func cpFile(ctx context.Context, sourcePath string, destPath string) error {
+	err := os.Rename(sourcePath, destPath)
+	if err == nil {
+		return nil
+	}
+
+	l := ctxzap.Extract(ctx)
+	l.Warn("compactor: failed to rename final compacted file, falling back to copy", zap.Error(err), zap.String("source_path", sourcePath), zap.String("dest_path", destPath))
+
 	source, err := os.Open(sourcePath)
 	if err != nil {
 		return fmt.Errorf("failed to open source file: %w", err)
