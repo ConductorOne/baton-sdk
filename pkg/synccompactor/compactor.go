@@ -177,7 +177,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		}
 		err := c.compactedC1z.Close(ctx)
 		if err != nil {
-			l.Error("error closing compacted c1z", zap.Error(err))
+			l.Error("compactor: error closing compacted c1z", zap.Error(err), zap.String("compacted_c1z_file", destFilePath))
 		}
 	}()
 	// Start new sync of type partial. If we compact syncs of other types, this sync type will be updated by attached.UpdateSync which is called by doOneCompaction().
@@ -294,10 +294,6 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		dotc1z.WithTmpDir(c.tmpDir),
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 		dotc1z.WithReadOnly(true),
-		// We're only reading, so it's safe to use these pragmas.
-		dotc1z.WithPragma("synchronous", "OFF"),
-		dotc1z.WithPragma("journal_mode", "OFF"),
-		dotc1z.WithPragma("locking_mode", "EXCLUSIVE"),
 	)
 	if err != nil {
 		return err

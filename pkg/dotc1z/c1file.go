@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -376,6 +377,21 @@ func (c *C1File) init(ctx context.Context) error {
 		}
 		// Disable synchronous writes in read only mode, since we're not writing to the database.
 		_, err = c.db.ExecContext(ctx, "PRAGMA synchronous = OFF")
+		if err != nil {
+			return err
+		}
+	}
+
+	hasLockingPragma := false
+	for _, pragma := range c.pragmas {
+		pragmaName := strings.ToLower(pragma.name)
+		if pragmaName == "main.locking_mode" || pragmaName == "locking_mode" {
+			hasLockingPragma = true
+			break
+		}
+	}
+	if !hasLockingPragma {
+		_, err = c.db.ExecContext(ctx, "PRAGMA main.locking_mode = EXCLUSIVE")
 		if err != nil {
 			return err
 		}

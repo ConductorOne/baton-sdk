@@ -2,12 +2,53 @@ package attached
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
 )
+
+func putTestData(ctx context.Context, t *testing.T, db *dotc1z.C1File) {
+	err := db.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build())
+	require.NoError(t, err)
+	err = db.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build())
+	require.NoError(t, err)
+	err = db.PutResources(ctx, v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "user1"}.Build(), DisplayName: "User1"}.Build())
+	require.NoError(t, err)
+	err = db.PutResources(ctx, v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "user2"}.Build(), DisplayName: "User2"}.Build())
+	require.NoError(t, err)
+	err = db.PutResources(ctx, v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "group1"}.Build(), DisplayName: "Group1"}.Build())
+	require.NoError(t, err)
+	err = db.PutEntitlements(ctx, v2.Entitlement_builder{Id: "group1:member", DisplayName: "Member"}.Build())
+	require.NoError(t, err)
+	err = db.PutGrants(ctx, v2.Grant_builder{
+		Id:          "group1:member:user1",
+		Principal:   v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "user1"}.Build()}.Build(),
+		Entitlement: v2.Entitlement_builder{Id: "group1:member", DisplayName: "Member"}.Build(),
+	}.Build())
+	require.NoError(t, err)
+	err = db.PutGrants(ctx, v2.Grant_builder{
+		Id: "group1:member:user2", Principal: v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "user2"}.Build()}.Build(),
+		Entitlement: v2.Entitlement_builder{Id: "group1:member", DisplayName: "Member"}.Build(),
+	}.Build())
+	require.NoError(t, err)
+}
+
+func verifyTestData(ctx context.Context, t *testing.T, db *dotc1z.C1File) {
+	usersResp, err := db.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: "user",
+	}.Build())
+	require.NoError(t, err)
+	require.NotNil(t, usersResp)
+	users := usersResp.GetList()
+	require.Equal(t, 2, len(users))
+	require.Equal(t, "user1", users[0].GetId().GetResource())
+	require.Equal(t, "user2", users[1].GetId().GetResource())
+}
 
 func TestAttachedCompactor(t *testing.T) {
 	ctx := t.Context()
@@ -18,7 +59,6 @@ func TestAttachedCompactor(t *testing.T) {
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
 
 	opts := []dotc1z.C1ZOption{
-		dotc1z.WithPragma("journal_mode", "WAL"),
 		dotc1z.WithTmpDir(tmpDir),
 	}
 
@@ -35,13 +75,16 @@ func TestAttachedCompactor(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create applied database with some test data
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+	appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 	require.NoError(t, err)
 	defer appliedDB.Close(ctx)
 
 	// Start sync and add some applied data
 	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
 	require.NoError(t, err)
+
+	putTestData(ctx, t, appliedDB)
 
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
@@ -50,9 +93,14 @@ func TestAttachedCompactor(t *testing.T) {
 	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
-	// Verify that compaction completed without errors
-	// The actual verification would depend on having test data,
-	// but this test verifies that the compaction workflow works
+	baseSync, err := baseDB.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
+		SyncType: string(connectorstore.SyncTypeAny),
+	}.Build())
+	require.NoError(t, err)
+	require.NotNil(t, baseSync)
+	require.Equal(t, connectorstore.SyncTypeFull, connectorstore.SyncType(baseSync.GetSync().GetSyncType()))
+
+	verifyTestData(ctx, t, baseDB)
 }
 
 func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
@@ -64,7 +112,6 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
 
 	opts := []dotc1z.C1ZOption{
-		dotc1z.WithPragma("journal_mode", "WAL"),
 		dotc1z.WithTmpDir(tmpDir),
 	}
 
@@ -82,7 +129,8 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create applied database with an incremental sync
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+	appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 	require.NoError(t, err)
 	defer appliedDB.Close(ctx)
 
@@ -91,6 +139,8 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, appliedSyncID)
 
+	putTestData(ctx, t, appliedDB)
+
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
 
@@ -98,11 +148,7 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
-	// Verify that compaction completed without errors
-	// This test specifically verifies that:
-	// - Base full sync was correctly identified
-	// - Applied incremental sync was correctly identified and used
-	// - The compaction worked with mixed sync types
+	verifyTestData(ctx, t, baseDB)
 }
 
 func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
@@ -114,7 +160,6 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
 
 	opts := []dotc1z.C1ZOption{
-		dotc1z.WithPragma("journal_mode", "WAL"),
 		dotc1z.WithTmpDir(tmpDir),
 	}
 
@@ -131,7 +176,8 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create applied database with multiple syncs of different types
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+	appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 	require.NoError(t, err)
 	defer appliedDB.Close(ctx)
 
@@ -139,6 +185,8 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	firstAppliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NotEmpty(t, firstAppliedSyncID)
+
+	putTestData(ctx, t, appliedDB)
 
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
@@ -148,12 +196,16 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, secondAppliedSyncID)
 
+	putTestData(ctx, t, appliedDB)
+
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
 
 	compactor := NewAttachedCompactor(baseDB, appliedDB)
 	err = compactor.Compact(ctx)
 	require.NoError(t, err)
+
+	verifyTestData(ctx, t, baseDB)
 
 	// Verify that compaction completed without errors
 	// This test verifies that the latest sync (incremental) was used from applied

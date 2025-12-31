@@ -1809,7 +1809,7 @@ func TestC1FileSessionStore_ConcurrentAccess(t *testing.T) {
 	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
-	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
+	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"), WithPragma("main.locking_mode", "NORMAL"))
 	require.NoError(t, err)
 	defer c1zFile.Close(ctx)
 
