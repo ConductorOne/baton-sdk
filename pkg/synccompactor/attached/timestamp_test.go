@@ -1,8 +1,8 @@
 package attached
 
 import (
-	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -16,7 +16,7 @@ import (
 // TestDiscoveredAtMergeLogic specifically tests the discovered_at timestamp comparison
 // by creating two separate scenarios with controlled timing.
 func TestDiscoveredAtMergeLogic(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test Case 1: Applied is newer (natural case)
 	t.Run("AppliedNewer", func(t *testing.T) {
@@ -59,7 +59,8 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// Create applied database (newer timestamps)
-		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+		appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
+		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 		require.NoError(t, err)
 		defer appliedDB.Close()
 
@@ -107,7 +108,8 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		}
 
 		// Create applied database first (will have older timestamps)
-		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+		appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
+		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 		require.NoError(t, err)
 		defer appliedDB.Close()
 

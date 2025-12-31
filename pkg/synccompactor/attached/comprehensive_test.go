@@ -1,8 +1,8 @@
 package attached
 
 import (
-	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -19,7 +19,7 @@ import (
 // 4. Overlapping data where applied is newer
 // It also verifies that all data ends up with the correct destination sync ID.
 func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create temporary files for base, applied, and dest databases
 	tmpDir := t.TempDir()
@@ -122,7 +122,8 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 
 	// ========= Create applied database =========
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+	appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 	require.NoError(t, err)
 	defer appliedDB.Close()
 

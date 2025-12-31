@@ -159,7 +159,12 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		l.Error("doOneCompaction failed: could not create c1z file", zap.Error(err))
 		return nil, err
 	}
-	defer func() { _ = c.compactedC1z.Close() }()
+	defer func() {
+		err := c.compactedC1z.Close()
+		if err != nil {
+			l.Error("compactor: error closing compacted c1z", zap.Error(err), zap.String("compacted_c1z_file", destFilePath))
+		}
+	}()
 	newSyncId, err := c.compactedC1z.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to start new sync: %w", err)
@@ -287,10 +292,6 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		dotc1z.WithTmpDir(c.tmpDir),
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 		dotc1z.WithReadOnly(true),
-		// We're only reading, so it's safe to use these pragmas.
-		dotc1z.WithPragma("synchronous", "OFF"),
-		dotc1z.WithPragma("journal_mode", "OFF"),
-		dotc1z.WithPragma("locking_mode", "EXCLUSIVE"),
 	)
 	if err != nil {
 		return err
