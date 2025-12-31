@@ -97,25 +97,38 @@ type syncRun struct {
 
 // getCachedViewSyncRun returns the cached sync run for read operations.
 // This avoids N+1 queries when paginating through listConnectorObjects.
-// The result is computed once and cached for the lifetime of the C1File.
+// The cache is invalidated when a sync starts or ends.
 func (c *C1File) getCachedViewSyncRun(ctx context.Context) (*syncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getCachedViewSyncRun")
 	defer span.End()
 
-	c.cachedViewSyncOnce.Do(func() {
-		// First try to get a finished full sync
-		c.cachedViewSyncRun, c.cachedViewSyncErr = c.getFinishedSync(ctx, 0, connectorstore.SyncTypeFull)
-		if c.cachedViewSyncErr != nil {
-			return
-		}
+	c.cachedViewSyncMu.Lock()
+	defer c.cachedViewSyncMu.Unlock()
 
-		// If no finished sync, try to get an unfinished one
-		if c.cachedViewSyncRun == nil {
-			c.cachedViewSyncRun, c.cachedViewSyncErr = c.getLatestUnfinishedSync(ctx, connectorstore.SyncTypeAny)
-		}
-	})
+	if c.cachedViewSyncRun != nil || c.cachedViewSyncErr != nil {
+		return c.cachedViewSyncRun, c.cachedViewSyncErr
+	}
+
+	// First try to get a finished full sync
+	c.cachedViewSyncRun, c.cachedViewSyncErr = c.getFinishedSync(ctx, 0, connectorstore.SyncTypeFull)
+	if c.cachedViewSyncErr != nil {
+		return c.cachedViewSyncRun, c.cachedViewSyncErr
+	}
+
+	// If no finished sync, try to get an unfinished one
+	if c.cachedViewSyncRun == nil {
+		c.cachedViewSyncRun, c.cachedViewSyncErr = c.getLatestUnfinishedSync(ctx, connectorstore.SyncTypeAny)
+	}
 
 	return c.cachedViewSyncRun, c.cachedViewSyncErr
+}
+
+// invalidateCachedViewSyncRun clears the cached sync run so it will be recomputed on next access.
+func (c *C1File) invalidateCachedViewSyncRun() {
+	c.cachedViewSyncMu.Lock()
+	defer c.cachedViewSyncMu.Unlock()
+	c.cachedViewSyncRun = nil
+	c.cachedViewSyncErr = nil
 }
 
 func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connectorstore.SyncType) (*syncRun, error) {
@@ -539,6 +552,7 @@ func (c *C1File) StartNewSync(ctx context.Context, syncType connectorstore.SyncT
 	}
 
 	c.currentSyncID = syncID
+	c.invalidateCachedViewSyncRun()
 
 	return c.currentSyncID, nil
 }
@@ -597,6 +611,7 @@ func (c *C1File) EndSync(ctx context.Context) error {
 	}
 
 	c.currentSyncID = ""
+	c.invalidateCachedViewSyncRun()
 
 	return nil
 }
