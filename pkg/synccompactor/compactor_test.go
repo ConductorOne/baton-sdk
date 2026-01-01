@@ -15,8 +15,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// requireTmpDirCleanedUp verifies that the temp directory has no compactor-related temp files remaining.
+// The compactor creates subdirectories prefixed with "baton-sync-compactor-" which should be removed after cleanup.
+func requireTmpDirCleanedUp(t *testing.T, tmpDir string) {
+	t.Helper()
+	entries, err := os.ReadDir(tmpDir)
+	require.NoError(t, err)
+	require.Len(t, entries, 0, "tmp directory %s should be empty after cleanup", tmpDir)
+}
+
 func TestAttachedCompactorWithTmpDir(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	inputSyncsDir, err := os.MkdirTemp("", "compactor-test")
 	require.NoError(t, err)
@@ -32,7 +41,15 @@ func TestAttachedCompactorWithTmpDir(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	runCompactorTest(t, ctx, inputSyncsDir, func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
-		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(CompactorTypeAttached))
+		compactor, cleanup, err := NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(CompactorTypeAttached))
+		require.NoError(t, err)
+		cleanupAndValidate := func() error {
+			err := cleanup()
+			require.NoError(t, err)
+			requireTmpDirCleanedUp(t, tmpDir)
+			return nil
+		}
+		return compactor, cleanupAndValidate, err
 	})
 }
 
@@ -724,7 +741,15 @@ func TestSyncTypeUnion_AttachedCompactor(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	createCompactor := func(compactableSyncs []*CompactableSync) (*Compactor, func() error, error) {
-		return NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(CompactorTypeAttached))
+		compactor, cleanup, err := NewCompactor(ctx, outputDir, compactableSyncs, WithTmpDir(tmpDir), WithCompactorType(CompactorTypeAttached))
+		require.NoError(t, err)
+		cleanupAndValidate := func() error {
+			err := cleanup()
+			require.NoError(t, err)
+			requireTmpDirCleanedUp(t, tmpDir)
+			return nil
+		}
+		return compactor, cleanupAndValidate, err
 	}
 
 	// Run all test cases.
@@ -866,11 +891,19 @@ func runSyncTypeTest(
 
 // The compacting two partial syncs should result in a partial sync.
 func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
-	tmpDir := t.TempDir()
-	baseFile := filepath.Join(tmpDir, "base.c1z")
-	appliedFile := filepath.Join(tmpDir, "applied.c1z")
+	outputDir, err := os.MkdirTemp("", "compactor-output")
+	require.NoError(t, err)
+	defer os.RemoveAll(outputDir)
+
+	// Create temporary directory for intermediate files.
+	tmpDir, err := os.MkdirTemp("", "compactor-tmp")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	baseFile := filepath.Join(outputDir, "base.c1z")
+	appliedFile := filepath.Join(outputDir, "applied.c1z")
 
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithPragma("journal_mode", "WAL"),
@@ -914,7 +947,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	compactableSyncs := []*CompactableSync{baseCompactableSync, appliedCompactableSync}
 	compactor, cleanup, err := NewCompactor(
 		ctx,
-		tmpDir,
+		outputDir,
 		compactableSyncs,
 		WithTmpDir(tmpDir),
 		WithCompactorType(CompactorTypeAttached))
@@ -922,6 +955,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 	defer func() {
 		err := cleanup()
 		require.NoError(t, err)
+		requireTmpDirCleanedUp(t, tmpDir)
 	}()
 
 	compactedSync, err := compactor.Compact(ctx)
