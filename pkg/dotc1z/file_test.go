@@ -12,35 +12,38 @@ import (
 )
 
 func TestLoadC1z(t *testing.T) {
-	tmpDir := t.TempDir()
-
 	t.Run("temp directory cleanup on error", func(t *testing.T) {
 		// Create a file that will cause an error during decoding
+		tmpDir := t.TempDir()
 		invalidFile := filepath.Join(tmpDir, "invalid2.c1z")
 		err := os.WriteFile(invalidFile, []byte("invalid"), 0600)
 		require.NoError(t, err)
 		defer os.Remove(invalidFile)
 
 		// Try to load it - should fail and clean up temp dir
-		dbPath, err := loadC1z(invalidFile, tmpDir)
+		dbPath, workingDir, err := decompressC1z(invalidFile, tmpDir)
 		require.Error(t, err)
 		require.Empty(t, dbPath)
+		// require that the working dir was cleaned up and has no entries
+		require.NoDirExists(t, workingDir)
 	})
 
 	t.Run("custom tmpDir", func(t *testing.T) {
+		tmpDir := t.TempDir()
 		customTmpDir := filepath.Join(tmpDir, "custom")
 		err := os.MkdirAll(customTmpDir, 0755)
 		require.NoError(t, err)
 		defer os.RemoveAll(customTmpDir)
 
 		nonExistentPath := filepath.Join(tmpDir, "nonexistent2.c1z")
-		dbPath, err := loadC1z(nonExistentPath, customTmpDir)
+		dbPath, workingDir, err := decompressC1z(nonExistentPath, customTmpDir)
 		require.NoError(t, err)
 		require.NotEmpty(t, dbPath)
 		require.FileExists(t, dbPath)
 
 		// Verify it was created in the custom tmpDir
 		require.Contains(t, dbPath, customTmpDir)
+		require.Contains(t, workingDir, customTmpDir)
 	})
 }
 
