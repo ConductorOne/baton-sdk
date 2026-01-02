@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -217,14 +218,26 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 
 	return compactableSyncs
 }
+func getRSS() uint64 {
+	var rusage syscall.Rusage
+	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &rusage); err != nil {
+		return 0
+	}
+	// On macOS, Maxrss is in bytes. On Linux, it's in KB.
+	// This code assumes macOS; adjust for Linux if needed.
+	return uint64(rusage.Maxrss)
+}
 
 // benchmarkAttachedCompactor runs a benchmark using the attached compactor.
 func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 	ctx := b.Context()
-
+	initialRSS := getRSS()
+	rssHistory := make([]uint64, 0)
 	for b.Loop() {
 		b.StopTimer()
-
+		iterRSS := getRSS()
+		rssHistory = append(rssHistory, iterRSS-initialRSS)
+		b.Logf("RSS (iteration %d) pre-compaction: %s ", b.N, formatBytes(iterRSS-initialRSS))
 		// Create temporary directories
 		tmpDir, err := os.MkdirTemp("", "benchmark-attached")
 		require.NoError(b, err)
@@ -241,6 +254,9 @@ func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 			compactableSyncs,
 			WithTmpDir(tmpDir),
 			WithCompactorType(CompactorTypeAttached),
+			// WithPragma("mmap_size", "0"),
+			// WithPragma("asdfasdf", "potatox"),
+			WithPragma("temp_store", "MEMORY"),
 		)
 		require.NoError(b, err)
 
@@ -248,11 +264,16 @@ func benchmarkAttachedCompactor(b *testing.B, dataset BenchmarkData) {
 		compactedSync, err := compactor.Compact(ctx)
 		require.NoError(b, err)
 		require.NotNil(b, compactedSync)
-
+		iterRSS = getRSS()
+		rssHistory = append(rssHistory, iterRSS-initialRSS)
+		b.Logf("RSS (iteration %d) post-compaction: %s ", b.N, formatBytes(iterRSS-initialRSS))
 		b.StopTimer()
 		err = cleanup()
 		require.NoError(b, err)
 		b.StartTimer()
+	}
+	for i, rss := range rssHistory {
+		b.Logf("RSS history %d: %s", i, formatBytes(rss))
 	}
 }
 

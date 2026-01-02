@@ -33,9 +33,10 @@ type Compactor struct {
 	entries       []*CompactableSync
 	compactedC1z  *dotc1z.C1File
 
-	tmpDir      string
-	destDir     string
-	runDuration time.Duration
+	tmpDir       string
+	destDir      string
+	runDuration  time.Duration
+	extraPragmas map[string]string
 }
 
 type CompactableSync struct {
@@ -64,6 +65,17 @@ func WithCompactorType(compactorType CompactorType) Option {
 func WithRunDuration(runDuration time.Duration) Option {
 	return func(c *Compactor) {
 		c.runDuration = runDuration
+	}
+}
+
+// WithPragma adds additional SQLite pragmas to be applied during compaction.
+// This can be used to tune SQLite behavior, e.g., WithPragma("mmap_size", "0").
+func WithPragma(key, value string) Option {
+	return func(c *Compactor) {
+		if c.extraPragmas == nil {
+			c.extraPragmas = make(map[string]string)
+		}
+		c.extraPragmas[key] = value
 	}
 }
 
@@ -146,11 +158,17 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		// Use exclusive locking.
 		dotc1z.WithPragma("main.locking_mode", "EXCLUSIVE"),
 		// Use memory for temporary storage.
-		dotc1z.WithPragma("temp_store", "MEMORY"),
+		// dotc1z.WithPragma("temp_store", "MEMORY"),
+		// dotc1z.WithPragma("mmap_size", "0"),
 		// Use parallel decoding.
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 		// Use parallel encoding.
 		dotc1z.WithEncoderConcurrency(0),
+	}
+
+	// Apply any extra pragmas passed via options (allows overriding defaults for testing)
+	for key, value := range c.extraPragmas {
+		opts = append(opts, dotc1z.WithPragma(key, value))
 	}
 
 	fileName := fmt.Sprintf("compacted-%s.c1z", c.entries[0].SyncID)
@@ -283,18 +301,18 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		zap.String("tmp_dir", c.tmpDir),
 	)
 
-	applyFile, err := dotc1z.NewC1ZFile(
-		ctx,
-		cs.FilePath,
+	opts := []dotc1z.C1ZOption{
 		dotc1z.WithTmpDir(c.tmpDir),
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 		dotc1z.WithReadOnly(true),
-		// We're only reading, so it's safe to use these pragmas.
 		dotc1z.WithPragma("synchronous", "OFF"),
 		dotc1z.WithPragma("journal_mode", "OFF"),
 		dotc1z.WithPragma("locking_mode", "EXCLUSIVE"),
-		dotc1z.WithPragma("temp_store", "MEMORY"),
-	)
+	}
+	for key, value := range c.extraPragmas {
+		opts = append(opts, dotc1z.WithPragma(key, value))
+	}
+	applyFile, err := dotc1z.NewC1ZFile(ctx, cs.FilePath, opts...)
 	if err != nil {
 		return err
 	}

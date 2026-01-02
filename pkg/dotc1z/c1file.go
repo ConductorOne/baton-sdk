@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -279,15 +282,43 @@ func (c *C1File) init(ctx context.Context) error {
 			return err
 		}
 	}
-
 	for _, pragma := range c.pragmas {
 		_, err := c.db.ExecContext(ctx, fmt.Sprintf("PRAGMA %s = %s", pragma.name, pragma.value))
 		if err != nil {
 			return err
 		}
+		// Check that pragma is set correctly
+		var value string
+		err = c.db.QueryRowContext(ctx, fmt.Sprintf("PRAGMA %s", pragma.name)).Scan(&value)
+		if err != nil {
+			return err
+		}
+		if !isPragmaEqual(pragma.value, value) {
+			l := ctxzap.Extract(ctx)
+			l.Warn("pragma %s is not set to %s", zap.String("pragma_name", pragma.name), zap.String("pragma_value", pragma.value))
+			// return fmt.Errorf("pragma %s is %s, not %s", pragma.name, value, pragma.value)
+		}
 	}
 
 	return nil
+}
+
+func isPragmaEqual(a, b string) bool {
+	if a == b {
+		return true
+	}
+	if strings.EqualFold(a, b) {
+		return true
+	}
+	a = strings.ToLower(a)
+	b = strings.ToLower(b)
+	if a == "off" && b == "0" {
+		return true
+	}
+	if a == "on" && b == "1" {
+		return true
+	}
+	return false
 }
 
 func (c *C1File) InitTables(ctx context.Context) error {
