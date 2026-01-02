@@ -207,15 +207,13 @@ func DefineConfigurationV2[T field.Configurable](
 		return nil, nil, err
 	}
 
-	_, err = cli.AddCommand(mainCMD, v, &schema, &cobra.Command{
+	// We don't want to use cli.AddCommand here because we don't want to validate config flags
+	// So we can call capabilities even with incomplete config
+	mainCMD.AddCommand(&cobra.Command{
 		Use:   "capabilities",
 		Short: "Get connector capabilities",
-		RunE:  cli.MakeCapabilitiesCommand(ctx, connectorName, v, confschema, connector),
+		RunE:  cli.MakeCapabilitiesCommand(ctx, connectorName, v, confschema, connector, options...),
 	})
-
-	if err != nil {
-		return nil, nil, err
-	}
 
 	_, err = cli.AddCommand(mainCMD, v, nil, &cobra.Command{
 		Use:   "config",

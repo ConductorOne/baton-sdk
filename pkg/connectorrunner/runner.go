@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -357,6 +358,8 @@ type runnerConfig struct {
 	skipGrants                          bool
 	sessionStoreEnabled                 bool
 	syncResourceTypeIDs                 []string
+	defaultConnectorBuilder             connectorbuilder.ConnectorBuilder
+	defaultConnectorBuilderV2           connectorbuilder.ConnectorBuilderV2
 }
 
 func WithSessionStoreEnabled() Option {
@@ -699,6 +702,45 @@ func WithSkipGrants(skip bool) Option {
 		cfg.skipGrants = skip
 		return nil
 	}
+}
+
+// WithDefaultConnectorBuilder sets the default connector builder for the runner
+// This is used by the "capabilities" sub-command to instantiate the connector.
+func WithDefaultConnectorBuilder(t connectorbuilder.ConnectorBuilder) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.defaultConnectorBuilder = t
+		return nil
+	}
+}
+
+// WithDefaultConnectorBuilderV2 sets the default connector builder for the runner
+// This is used by the "capabilities" sub-command to instantiate the connector.
+func WithDefaultConnectorBuilderV2(t connectorbuilder.ConnectorBuilderV2) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.defaultConnectorBuilderV2 = t
+		return nil
+	}
+}
+
+func ExtractDefaultConnector(ctx context.Context, options ...Option) (any, error) {
+	cfg := &runnerConfig{}
+
+	for _, o := range options {
+		err := o(ctx, cfg)
+		if err != nil {
+			return false, err
+		}
+	}
+
+	if cfg.defaultConnectorBuilder != nil {
+		return cfg.defaultConnectorBuilder, nil
+	}
+
+	if cfg.defaultConnectorBuilderV2 != nil {
+		return cfg.defaultConnectorBuilderV2, nil
+	}
+
+	return nil, nil
 }
 
 func IsSessionStoreEnabled(ctx context.Context, options ...Option) (bool, error) {
