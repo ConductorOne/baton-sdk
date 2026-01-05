@@ -56,6 +56,14 @@ func loadC1z(filePath string, tmpDir string, opts ...DecoderOption) (string, err
 		}
 	}
 
+	// CRITICAL: Sync the database file before returning to ensure all
+	// decompressed data is on disk. On filesystems with aggressive caching
+	// (like ZFS with large ARC), SQLite might otherwise open the file and
+	// see incomplete data still in kernel buffers.
+	if err = dbFile.Sync(); err != nil {
+		return "", fmt.Errorf("failed to sync db file: %w", err)
+	}
+
 	return dbFilePath, nil
 }
 
