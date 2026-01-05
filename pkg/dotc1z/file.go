@@ -15,56 +15,83 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func loadC1z(filePath string, tmpDir string, opts ...DecoderOption) (string, error) {
-	var err error
-	workingDir, err := os.MkdirTemp(tmpDir, "c1z")
+// Note(kans): decompressC1z is unfortunately called to load or create a c1z file so the error handling is rough.
+// It creates its own temporary directory so that it can also do its own cleanup.
+// It returns that directory for verification in tests.
+func decompressC1z(c1zPath string, workingDir string, opts ...DecoderOption) (string, string, error) {
+	tmpDir, err := os.MkdirTemp(workingDir, "c1z")
 	if err != nil {
-		return "", err
+		return "", tmpDir, err
 	}
-	defer func() {
-		if err != nil {
-			if removeErr := os.RemoveAll(workingDir); removeErr != nil {
-				err = errors.Join(err, removeErr)
+
+	var dbFile *os.File
+	var c1zFile *os.File
+	var decoder *decoder
+	cleanupDir := func(e error) error {
+		if decoder != nil {
+			err := decoder.Close()
+			if err != nil {
+				e = errors.Join(e, err)
 			}
 		}
-	}()
-	dbFilePath := filepath.Join(workingDir, "db")
-	dbFile, err := os.Create(dbFilePath)
-	if err != nil {
-		return "", err
+		if c1zFile != nil {
+			err := c1zFile.Close()
+			if err != nil {
+				e = errors.Join(e, err)
+			}
+		}
+		if dbFile != nil {
+			err := dbFile.Close()
+			if err != nil {
+				e = errors.Join(e, err)
+			}
+		}
+		if e != nil {
+			err := os.RemoveAll(tmpDir)
+			if err != nil {
+				e = errors.Join(e, err)
+			}
+		}
+		return e
 	}
-	defer dbFile.Close()
 
-	if stat, err := os.Stat(filePath); err == nil && stat.Size() != 0 {
-		c1zFile, err := os.Open(filePath)
-		if err != nil {
-			return "", err
-		}
-		defer c1zFile.Close()
+	dbFilePath := filepath.Join(tmpDir, "db")
+	dbFile, err = os.Create(dbFilePath)
+	if err != nil {
+		return "", tmpDir, cleanupDir(err)
+	}
 
-		r, err := NewDecoder(c1zFile, opts...)
-		if err != nil {
-			return "", err
-		}
-		_, err = io.Copy(dbFile, r)
-		if err != nil {
-			return "", err
-		}
-		err = r.Close()
-		if err != nil {
-			return "", err
-		}
+	stat, err := os.Stat(c1zPath)
+	if err != nil || stat.Size() == 0 {
+		// TODO(kans): it would be nice to know more about the error....
+		return dbFilePath, tmpDir, cleanupDir(nil)
+	}
+
+	c1zFile, err = os.Open(c1zPath)
+	if err != nil {
+		return "", tmpDir, cleanupDir(err)
+	}
+
+	decoder, err = NewDecoder(c1zFile, opts...)
+	if err != nil {
+		return "", tmpDir, cleanupDir(err)
+	}
+
+	_, err = io.Copy(dbFile, decoder)
+	if err != nil {
+		return "", tmpDir, cleanupDir(err)
 	}
 
 	// CRITICAL: Sync the database file before returning to ensure all
 	// decompressed data is on disk. On filesystems with aggressive caching
 	// (like ZFS with large ARC), SQLite might otherwise open the file and
 	// see incomplete data still in kernel buffers.
-	if err = dbFile.Sync(); err != nil {
-		return "", fmt.Errorf("failed to sync db file: %w", err)
+	err = dbFile.Sync()
+	if err != nil {
+		return "", tmpDir, cleanupDir(err)
 	}
 
-	return dbFilePath, nil
+	return dbFilePath, tmpDir, cleanupDir(nil)
 }
 
 func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) error {
