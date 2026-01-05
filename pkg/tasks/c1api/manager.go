@@ -242,7 +242,9 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	// Handlers may do their work in a goroutine allowing processing to move onto the next task
 	var handler tasks.TaskHandler
 	switch tasks.GetType(task) {
-	case taskTypes.FullSyncType:
+	// The incremental sync can reuse the full sync handler, as it already supports targetedSyncResources.
+	// In the future, we could implement a separate handler specifically for incremental sync.
+	case taskTypes.FullSyncType, taskTypes.IncrementalSyncType:
 		handler = newFullSyncTaskHandler(
 			task,
 			tHelpers,

@@ -119,6 +119,8 @@ func GetType(task *v1.Task) taskTypes.TaskType {
 		return taskTypes.ActionStatusType
 	case v1.Task_CreateSyncDiff_case:
 		return taskTypes.CreateSyncDiff
+	case v1.Task_IncrementalSync_case:
+		return taskTypes.IncrementalSyncType
 	default:
 		return taskTypes.UnknownType
 	}

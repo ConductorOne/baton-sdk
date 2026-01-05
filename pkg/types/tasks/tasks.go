@@ -104,4 +104,5 @@ const (
 	ActionStatusType
 	CreateSyncDiff
 	ListStaticEntitlementsType
+	IncrementalSyncType
 )

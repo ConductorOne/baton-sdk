@@ -44,8 +44,8 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
 
-	if c.task.GetSyncFull() == nil {
-		return errors.New("task is not a full sync task")
+	if c.task.GetSyncFull() == nil && c.task.GetIncrementalSync() == nil {
+		return errors.New("task is not a full sync or incremental sync task")
 	}
 
 	syncOpts := []sdkSync.SyncOpt{
@@ -58,7 +58,7 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithDontExpandGrants())
 	}
 
-	if resources := c.task.GetSyncFull().GetTargetedSyncResources(); len(resources) > 0 {
+	if resources := c.task.GetIncrementalSync().GetTargetedSyncResources(); len(resources) > 0 {
 		syncOpts = append(syncOpts, sdkSync.WithTargetedSyncResources(resources))
 	}
 
