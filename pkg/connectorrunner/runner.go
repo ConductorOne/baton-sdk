@@ -325,41 +325,41 @@ type syncCompactorConfig struct {
 }
 
 type runnerConfig struct {
-	rlCfg                               *ratelimitV1.RateLimiterConfig
-	rlDescriptors                       []*ratelimitV1.RateLimitDescriptors_Entry
-	onDemand                            bool
-	c1zPath                             string
-	clientAuth                          bool
-	clientID                            string
-	clientSecret                        string
-	provisioningEnabled                 bool
-	ticketingEnabled                    bool
-	actionsEnabled                      bool
-	grantConfig                         *grantConfig
-	revokeConfig                        *revokeConfig
-	eventFeedConfig                     *eventStreamConfig
-	tempDir                             string
-	createAccountConfig                 *createAccountConfig
-	invokeActionConfig                  *invokeActionConfig
-	listActionSchemasConfig             *listActionSchemasConfig
-	deleteResourceConfig                *deleteResourceConfig
-	rotateCredentialsConfig             *rotateCredentialsConfig
-	createTicketConfig                  *createTicketConfig
-	bulkCreateTicketConfig              *bulkCreateTicketConfig
-	listTicketSchemasConfig             *listTicketSchemasConfig
-	getTicketConfig                     *getTicketConfig
-	syncDifferConfig                    *syncDifferConfig
-	syncCompactorConfig                 *syncCompactorConfig
-	skipFullSync                        bool
-	targetedSyncResourceIDs             []string
-	externalResourceC1Z                 string
-	externalResourceEntitlementIdFilter string
-	skipEntitlementsAndGrants           bool
-	skipGrants                          bool
-	sessionStoreEnabled                 bool
-	syncResourceTypeIDs                 []string
-	defaultConnectorBuilder             connectorbuilder.ConnectorBuilder
-	defaultConnectorBuilderV2           connectorbuilder.ConnectorBuilderV2
+	rlCfg                                 *ratelimitV1.RateLimiterConfig
+	rlDescriptors                         []*ratelimitV1.RateLimitDescriptors_Entry
+	onDemand                              bool
+	c1zPath                               string
+	clientAuth                            bool
+	clientID                              string
+	clientSecret                          string
+	provisioningEnabled                   bool
+	ticketingEnabled                      bool
+	actionsEnabled                        bool
+	grantConfig                           *grantConfig
+	revokeConfig                          *revokeConfig
+	eventFeedConfig                       *eventStreamConfig
+	tempDir                               string
+	createAccountConfig                   *createAccountConfig
+	invokeActionConfig                    *invokeActionConfig
+	listActionSchemasConfig               *listActionSchemasConfig
+	deleteResourceConfig                  *deleteResourceConfig
+	rotateCredentialsConfig               *rotateCredentialsConfig
+	createTicketConfig                    *createTicketConfig
+	bulkCreateTicketConfig                *bulkCreateTicketConfig
+	listTicketSchemasConfig               *listTicketSchemasConfig
+	getTicketConfig                       *getTicketConfig
+	syncDifferConfig                      *syncDifferConfig
+	syncCompactorConfig                   *syncCompactorConfig
+	skipFullSync                          bool
+	targetedSyncResourceIDs               []string
+	externalResourceC1Z                   string
+	externalResourceEntitlementIdFilter   string
+	skipEntitlementsAndGrants             bool
+	skipGrants                            bool
+	sessionStoreEnabled                   bool
+	syncResourceTypeIDs                   []string
+	defaultCapabilitiesConnectorBuilder   connectorbuilder.ConnectorBuilder
+	defaultCapabilitiesConnectorBuilderV2 connectorbuilder.ConnectorBuilderV2
 }
 
 func WithSessionStoreEnabled() Option {
@@ -704,20 +704,20 @@ func WithSkipGrants(skip bool) Option {
 	}
 }
 
-// WithDefaultConnectorBuilder sets the default connector builder for the runner
+// WithDefaultCapabilitiesConnectorBuilder sets the default connector builder for the runner
 // This is used by the "capabilities" sub-command to instantiate the connector.
-func WithDefaultConnectorBuilder(t connectorbuilder.ConnectorBuilder) Option {
+func WithDefaultCapabilitiesConnectorBuilder(t connectorbuilder.ConnectorBuilder) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.defaultConnectorBuilder = t
+		cfg.defaultCapabilitiesConnectorBuilder = t
 		return nil
 	}
 }
 
-// WithDefaultConnectorBuilderV2 sets the default connector builder for the runner
+// WithDefaultCapabilitiesConnectorBuilderV2 sets the default connector builder for the runner
 // This is used by the "capabilities" sub-command to instantiate the connector.
-func WithDefaultConnectorBuilderV2(t connectorbuilder.ConnectorBuilderV2) Option {
+func WithDefaultCapabilitiesConnectorBuilderV2(t connectorbuilder.ConnectorBuilderV2) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.defaultConnectorBuilderV2 = t
+		cfg.defaultCapabilitiesConnectorBuilderV2 = t
 		return nil
 	}
 }
@@ -732,12 +732,12 @@ func ExtractDefaultConnector(ctx context.Context, options ...Option) (any, error
 		}
 	}
 
-	if cfg.defaultConnectorBuilder != nil {
-		return cfg.defaultConnectorBuilder, nil
+	if cfg.defaultCapabilitiesConnectorBuilder != nil {
+		return cfg.defaultCapabilitiesConnectorBuilder, nil
 	}
 
-	if cfg.defaultConnectorBuilderV2 != nil {
-		return cfg.defaultConnectorBuilderV2, nil
+	if cfg.defaultCapabilitiesConnectorBuilderV2 != nil {
+		return cfg.defaultCapabilitiesConnectorBuilderV2, nil
 	}
 
 	return nil, nil

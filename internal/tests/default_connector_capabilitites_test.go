@@ -20,7 +20,7 @@ func TestDefaultConnectorCapabilities(t *testing.T) {
 
 	t.Run("should run «capabilities» sub-command successfully", func(t *testing.T) {
 		_, err := entrypoint(ctx, carrier, []connectorrunner.Option{
-			connectorrunner.WithDefaultConnectorBuilder(&Dummy{}),
+			connectorrunner.WithDefaultCapabilitiesConnectorBuilder(&Dummy{}),
 		}, "capabilities")
 		require.NoError(t, err)
 	})
