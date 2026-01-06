@@ -67,6 +67,7 @@ enum Capability {
   CAPABILITY_ACTIONS = 10;
   CAPABILITY_TARGETED_SYNC = 11;
   CAPABILITY_EVENT_FEED_V2 = 12;
+  CAPABILITY_SERVICE_MODE_TARGETED_SYNC = 13; 
 }
 
 enum CapabilityDetailCredentialOption {
