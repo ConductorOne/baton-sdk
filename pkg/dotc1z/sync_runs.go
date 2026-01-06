@@ -240,7 +240,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 	q = q.Order(goqu.C("id").Asc())
 	q = q.Limit(uint(pageSize + 1))
 
-	var ret []*syncRun
+	ret := make([]*syncRun, 0, pageSize)
 
 	query, args, err := q.ToSQL()
 	if err != nil {
