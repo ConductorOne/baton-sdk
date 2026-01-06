@@ -179,9 +179,11 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		configStructMap := configStruct.AsMap()
 
 		var fieldOptions []field.Option
+		var fieldGroupMap map[string]field.SchemaField
 		if authMethod, ok := configStructMap["auth-method"]; ok {
 			if authMethodStr, ok := authMethod.(string); ok {
 				fieldOptions = append(fieldOptions, field.WithAuthMethod(authMethodStr))
+				fieldGroupMap = connectorSchema.FieldGroupFields(authMethodStr)
 			}
 		}
 
@@ -216,7 +218,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			}),
 		}
 
-		if hasOauthField(connectorSchema.Fields) {
+		if hasOauthField(fieldGroupMap) {
 			ops.TokenSource = &lambdaTokenSource{
 				ctx:    runCtx,
 				webKey: webKey,
@@ -307,7 +309,7 @@ func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
 	return &t, nil
 }
 
-func hasOauthField(fields []field.SchemaField) bool {
+func hasOauthField(fields map[string]field.SchemaField) bool {
 	for _, f := range fields {
 		if f.ConnectorConfig.FieldType == field.OAuth2 {
 			return true
