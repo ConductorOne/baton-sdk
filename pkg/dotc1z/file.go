@@ -137,25 +137,48 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 	if encoderConcurrency == 0 {
 		encoderConcurrency = runtime.GOMAXPROCS(0)
 	}
-	c1z, err := zstd.NewWriter(outFile,
-		zstd.WithEncoderConcurrency(encoderConcurrency),
-	)
-	if err != nil {
-		return err
+
+	// Try to use a pooled encoder if concurrency matches the pool's default.
+	// This reduces allocation overhead for the common case.
+	var c1z *zstd.Encoder
+	var fromPool bool
+	if encoderConcurrency == pooledEncoderConcurrency {
+		c1z, fromPool = getEncoder()
+	}
+	if c1z != nil {
+		c1z.Reset(outFile)
+	} else {
+		// Non-default concurrency or pool returned nil: create new encoder.
+		var err error
+		c1z, err = zstd.NewWriter(outFile,
+			zstd.WithEncoderConcurrency(encoderConcurrency),
+		)
+		if err != nil {
+			return err
+		}
 	}
 
 	_, err = io.Copy(c1z, dbFile)
 	if err != nil {
+		// Always close encoder to release resources. Don't return to pool - may be in bad state.
+		_ = c1z.Close()
 		return err
 	}
 
 	err = c1z.Flush()
 	if err != nil {
+		_ = c1z.Close()
 		return fmt.Errorf("failed to flush c1z: %w", err)
 	}
 	err = c1z.Close()
 	if err != nil {
+		// Close failed, don't return to pool.
 		return fmt.Errorf("failed to close c1z: %w", err)
+	}
+
+	// Successfully finished - return encoder to pool if it came from there.
+	if fromPool {
+		putEncoder(c1z)
 	}
 
 	err = outFile.Sync()
