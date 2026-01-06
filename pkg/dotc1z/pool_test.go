@@ -221,7 +221,7 @@ func TestPooledRoundTrip(t *testing.T) {
 }
 
 // BenchmarkEncoderPoolAllocs measures allocations with and without pooling.
-// Run with: go test -bench=BenchmarkEncoderPoolAllocs -benchmem
+// Run with: go test -bench=BenchmarkEncoderPoolAllocs -benchmem.
 func BenchmarkEncoderPoolAllocs(b *testing.B) {
 	testData := bytes.Repeat([]byte("benchmark data "), 1000)
 	tmpDir := b.TempDir()
