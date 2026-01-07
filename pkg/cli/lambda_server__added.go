@@ -178,10 +178,19 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 
 		configStructMap := configStruct.AsMap()
 
-		var fieldOptions []field.Option
+		var (
+			fieldOptions []field.Option
+			schemaFields = connectorSchema.Fields
+		)
 		if authMethod, ok := configStructMap["auth-method"]; ok {
 			if authMethodStr, ok := authMethod.(string); ok {
 				fieldOptions = append(fieldOptions, field.WithAuthMethod(authMethodStr))
+				for _, fg := range connectorSchema.FieldGroups {
+					if fg.Name == authMethodStr {
+						schemaFields = fg.Fields
+						break
+					}
+				}
 			}
 		}
 
@@ -216,7 +225,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			}),
 		}
 
-		if hasOauthField(connectorSchema.Fields) {
+		if hasOauthField(schemaFields) {
 			ops.TokenSource = &lambdaTokenSource{
 				ctx:    runCtx,
 				webKey: webKey,
