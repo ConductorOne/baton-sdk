@@ -60,10 +60,11 @@ Add one column and one new sync type to `pkg/dotc1z/sync_runs.go`:
 linked_sync_id text not null default ''   -- Points to paired sync (bidirectional)
 
 -- sync_type values (existing + new)
--- 'full'           -- existing
--- 'partial'        -- existing (used for upserts sync)
--- 'resources_only' -- existing
--- 'deletions'      -- NEW: negative partial sync
+-- 'full'              -- existing
+-- 'partial'           -- existing (regular incremental sync)
+-- 'resources_only'    -- existing
+-- 'partial_upserts'   -- NEW: diff sync for additions/modifications
+-- 'partial_deletions' -- NEW: diff sync for deletions
 ```
 
 Given one sync, find its pair directly:
@@ -78,8 +79,9 @@ SELECT * FROM sync_runs WHERE sync_id = (
 
 | Sync Type | Old Code Behavior | New Code Behavior |
 |-----------|-------------------|-------------------|
-| `partial` (upserts) | Works correctly - applies changes | Works correctly |
-| `deletions` | Fails safely - unknown sync type | Processes as deletions |
+| `partial` | Works correctly - regular incremental sync | Works correctly |
+| `partial_upserts` | Fails safely - unknown sync type | Processes as diff upserts |
+| `partial_deletions` | Fails safely - unknown sync type | Processes as diff deletions |
 
 ## Implementation
 
@@ -96,10 +98,10 @@ Current behavior: Creates one sync with additions only (compares by `external_id
 
 New behavior:
 
-- Create **upserts sync** with `sync_type: partial`
+- Create **upserts sync** with `sync_type: partial_upserts`
   - Items where `external_id` exists in applied but not in base (additions)
   - Items where `external_id` exists in both but `data` blob differs (modifications)
-- Create **deletions sync** with `sync_type: deletions`
+- Create **deletions sync** with `sync_type: partial_deletions`
   - Items where `external_id` exists in base but not in applied
 - Link them bidirectionally via `linked_sync_id`
 - Return both sync IDs
@@ -143,11 +145,12 @@ Add new sync type for deletions:
 
 ```go
 const (
-    SyncTypeFull          SyncType = "full"
-    SyncTypePartial       SyncType = "partial"
-    SyncTypeResourcesOnly SyncType = "resources_only"
-    SyncTypeDeletions     SyncType = "deletions"  // NEW: negative partial sync
-    SyncTypeAny           SyncType = ""
+    SyncTypeFull             SyncType = "full"
+    SyncTypePartial          SyncType = "partial"
+    SyncTypeResourcesOnly    SyncType = "resources_only"
+    SyncTypePartialUpserts   SyncType = "partial_upserts"   // NEW: diff additions/modifications
+    SyncTypePartialDeletions SyncType = "partial_deletions" // NEW: diff deletions
+    SyncTypeAny              SyncType = ""
 )
 ```
 
@@ -168,7 +171,8 @@ Base Sync (full)          Applied Sync (full)
       ▼                 ▼
  Upserts Sync      Deletions Sync
  id: ups-123       id: del-456
- type: partial     type: deletions  <-- NEW type (safe)
+ type:             type:
+ partial_upserts   partial_deletions
  parent: base      parent: base
  linked: del-456   linked: ups-123
       │                 │

@@ -10,63 +10,95 @@ import (
 	"github.com/segmentio/ksuid"
 )
 
-func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, appliedSyncID string) (string, error) {
+// GenerateSyncDiff compares two syncs and generates paired diff syncs:
+// - upsertsSyncID: a partial sync containing items added or modified in appliedSyncID
+// - deletionsSyncID: a deletions sync containing items that exist in baseSyncID but not in appliedSyncID
+// Both syncs are bidirectionally linked via linked_sync_id.
+func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, appliedSyncID string) (upsertsSyncID string, deletionsSyncID string, err error) {
 	if c.readOnly {
-		return "", ErrReadOnly
+		return "", "", ErrReadOnly
 	}
 
 	// Validate that both sync runs exist
 	baseSync, err := c.getSync(ctx, baseSyncID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if baseSync == nil {
-		return "", fmt.Errorf("generate-diff: base sync not found")
+		return "", "", fmt.Errorf("generate-diff: base sync not found")
 	}
 
 	newSync, err := c.getSync(ctx, appliedSyncID)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if newSync == nil {
-		return "", fmt.Errorf("generate-diff: new sync not found")
+		return "", "", fmt.Errorf("generate-diff: new sync not found")
 	}
 
-	// Generate a new unique ID for the diff sync
-	diffSyncID := ksuid.New().String()
+	// Generate unique IDs for both diff syncs
+	upsertsSyncID = ksuid.New().String()
+	deletionsSyncID = ksuid.New().String()
 
-	if err := c.insertSyncRun(ctx, diffSyncID, connectorstore.SyncTypePartial, baseSyncID); err != nil {
-		return "", err
+	// Create upserts sync (partial_upserts type) - will link to deletions sync
+	if err := c.insertSyncRunWithLink(ctx, upsertsSyncID, connectorstore.SyncTypePartialUpserts, baseSyncID, deletionsSyncID); err != nil {
+		return "", "", err
 	}
 
+	// Create deletions sync (partial_deletions type) - linked to upserts sync
+	if err := c.insertSyncRunWithLink(ctx, deletionsSyncID, connectorstore.SyncTypePartialDeletions, baseSyncID, upsertsSyncID); err != nil {
+		return "", "", err
+	}
+
+	// Generate diff data for each table
 	for _, t := range allTableDescriptors {
 		if strings.Contains(t.Name(), syncRunsTableName) {
 			continue
 		}
-
-		q, args, err := c.diffTableQuery(t, baseSyncID, appliedSyncID, diffSyncID)
-		if err != nil {
-			return "", err
-		}
-		if q == "" {
+		if strings.Contains(t.Name(), sessionStoreTableName) {
 			continue
 		}
-		_, err = c.db.ExecContext(ctx, q, args...)
+
+		// Generate upserts (additions + modifications)
+		upsertsQuery, upsertsArgs, err := c.diffTableUpsertsQuery(t, baseSyncID, appliedSyncID, upsertsSyncID)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		c.dbUpdated = true
+		if upsertsQuery != "" {
+			_, err = c.db.ExecContext(ctx, upsertsQuery, upsertsArgs...)
+			if err != nil {
+				return "", "", fmt.Errorf("error executing upserts query for table %s: %w", t.Name(), err)
+			}
+			c.dbUpdated = true
+		}
+
+		// Generate deletions
+		deletionsQuery, deletionsArgs, err := c.diffTableDeletionsQuery(t, baseSyncID, appliedSyncID, deletionsSyncID)
+		if err != nil {
+			return "", "", err
+		}
+		if deletionsQuery != "" {
+			_, err = c.db.ExecContext(ctx, deletionsQuery, deletionsArgs...)
+			if err != nil {
+				return "", "", fmt.Errorf("error executing deletions query for table %s: %w", t.Name(), err)
+			}
+			c.dbUpdated = true
+		}
 	}
 
-	if err := c.endSyncRun(ctx, diffSyncID); err != nil {
-		return "", err
+	// End both sync runs
+	if err := c.endSyncRun(ctx, upsertsSyncID); err != nil {
+		return "", "", err
+	}
+	if err := c.endSyncRun(ctx, deletionsSyncID); err != nil {
+		return "", "", err
 	}
 
-	return diffSyncID, nil
+	return upsertsSyncID, deletionsSyncID, nil
 }
 
-func (c *C1File) diffTableQuery(table tableDescriptor, baseSyncID, appliedSyncID, newSyncID string) (string, []any, error) {
-	// Define the columns to select based on the table name
+// getTableColumns returns the columns for a given table used in diff queries.
+func (c *C1File) getTableColumns(tableName string) []interface{} {
 	columns := []interface{}{
 		"external_id",
 		"data",
@@ -74,12 +106,7 @@ func (c *C1File) diffTableQuery(table tableDescriptor, baseSyncID, appliedSyncID
 		"discovered_at",
 	}
 
-	tableName := table.Name()
-	// Add table-specific columns
 	switch {
-	case strings.Contains(tableName, sessionStoreTableName):
-		// caching is not relevant to diffs.
-		return "", nil, nil
 	case strings.Contains(tableName, resourcesTableName):
 		columns = append(columns, "resource_type_id", "parent_resource_type_id", "parent_resource_id")
 	case strings.Contains(tableName, resourceTypesTableName):
@@ -92,11 +119,18 @@ func (c *C1File) diffTableQuery(table tableDescriptor, baseSyncID, appliedSyncID
 		columns = append(columns, "content_type")
 	}
 
-	// Build the subquery to find external_ids in the base sync
-	subquery := c.db.Select("external_id").
-		From(tableName).
-		Where(goqu.C("sync_id").Eq(baseSyncID))
+	return columns
+}
 
+// diffTableUpsertsQuery generates a query to find items that are:
+// - In appliedSyncID but not in baseSyncID (additions)
+// - In both syncs but with different data (modifications)
+
+func (c *C1File) diffTableUpsertsQuery(table tableDescriptor, baseSyncID, appliedSyncID, newSyncID string) (string, []any, error) {
+	tableName := table.Name()
+	columns := c.getTableColumns(tableName)
+
+	// Build query columns, replacing sync_id with the new sync ID
 	queryColumns := []interface{}{}
 	for _, col := range columns {
 		if col == "sync_id" {
@@ -106,19 +140,73 @@ func (c *C1File) diffTableQuery(table tableDescriptor, baseSyncID, appliedSyncID
 		queryColumns = append(queryColumns, col)
 	}
 
-	// Build the main query to select records from newSyncID that don't exist in baseSyncID
+	// Subquery to find external_ids in the base sync
+	baseExternalIDs := c.db.Select("external_id").
+		From(tableName).
+		Where(goqu.C("sync_id").Eq(baseSyncID))
+
+	// EXISTS subquery to check if data differs between syncs for items with same external_id
+	// This detects modifications
+	existsSQL := fmt.Sprintf(
+		// TODO(kans): encode a version stored at row level for proper comparisons. This is a POC solution.
+		"EXISTS (SELECT 1 FROM %s AS base WHERE base.sync_id = ? AND base.external_id = %s.external_id AND base.data != %s.data)",
+		tableName, tableName, tableName,
+	)
+
+	// Select items from applied sync that are either:
+	// 1. Not in base sync (additions)
+	// 2. In base sync but with different data (modifications)
+	selectQuery := c.db.Select(queryColumns...).
+		From(tableName).
+		Where(
+			goqu.C("sync_id").Eq(appliedSyncID),
+			goqu.Or(
+				goqu.C("external_id").NotIn(baseExternalIDs),
+				goqu.L(existsSQL, baseSyncID),
+			),
+		)
+
 	query := c.db.Insert(tableName).
 		Cols(columns...).
 		Prepared(true).
-		FromQuery(
-			c.db.Select(queryColumns...).
-				From(tableName).
-				Where(
-					goqu.C("sync_id").Eq(appliedSyncID),
-					goqu.C("external_id").NotIn(subquery),
-				),
+		FromQuery(selectQuery)
+
+	return query.ToSQL()
+}
+
+// diffTableDeletionsQuery generates a query to find items that are:
+// - In baseSyncID but not in appliedSyncID (deletions)
+func (c *C1File) diffTableDeletionsQuery(table tableDescriptor, baseSyncID, appliedSyncID, newSyncID string) (string, []any, error) {
+	tableName := table.Name()
+	columns := c.getTableColumns(tableName)
+
+	// Build query columns, replacing sync_id with the new sync ID
+	queryColumns := []interface{}{}
+	for _, col := range columns {
+		if col == "sync_id" {
+			queryColumns = append(queryColumns, goqu.L(fmt.Sprintf("'%s' as sync_id", newSyncID)))
+			continue
+		}
+		queryColumns = append(queryColumns, col)
+	}
+
+	// Subquery to find external_ids in the applied sync
+	appliedExternalIDs := c.db.Select("external_id").
+		From(tableName).
+		Where(goqu.C("sync_id").Eq(appliedSyncID))
+
+	// Select items from base sync that are not in applied sync (deletions)
+	selectQuery := c.db.Select(queryColumns...).
+		From(tableName).
+		Where(
+			goqu.C("sync_id").Eq(baseSyncID),
+			goqu.C("external_id").NotIn(appliedExternalIDs),
 		)
 
-	// Generate the SQL and args
+	query := c.db.Insert(tableName).
+		Cols(columns...).
+		Prepared(true).
+		FromQuery(selectQuery)
+
 	return query.ToSQL()
 }

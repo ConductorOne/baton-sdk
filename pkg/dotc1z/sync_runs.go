@@ -32,7 +32,8 @@ create table if not exists %s (
     ended_at datetime,
     sync_token text not null,
     sync_type text not null default 'full',
-    parent_sync_id text not null default ''
+    parent_sync_id text not null default '',
+    linked_sync_id text not null default ''
 );
 create unique index if not exists %s on %s (sync_id);`
 
@@ -83,6 +84,19 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) error
 		}
 	}
 
+	// Check if linked_sync_id column exists
+	var linkedSyncIDExists int
+	err = db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='linked_sync_id'", r.Name())).Scan(&linkedSyncIDExists)
+	if err != nil {
+		return err
+	}
+	if linkedSyncIDExists == 0 {
+		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column linked_sync_id text not null default ''", r.Name()))
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -93,6 +107,7 @@ type syncRun struct {
 	SyncToken    string
 	Type         connectorstore.SyncType
 	ParentSyncID string
+	LinkedSyncID string
 }
 
 // getCachedViewSyncRun returns the cached sync run for read operations.
@@ -144,7 +159,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 	oneWeekAgo := time.Now().AddDate(0, 0, -7)
 	ret := &syncRun{}
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id")
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id")
 	q = q.Where(goqu.C("ended_at").IsNull())
 	q = q.Where(goqu.C("started_at").Gte(oneWeekAgo))
 	q = q.Order(goqu.C("started_at").Desc())
@@ -160,7 +175,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 
 	row := c.db.QueryRowContext(ctx, query, args...)
 
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID)
+	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -187,7 +202,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 
 	ret := &syncRun{}
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id")
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id")
 	q = q.Where(goqu.C("ended_at").IsNotNull())
 	if syncType != connectorstore.SyncTypeAny {
 		q = q.Where(goqu.C("sync_type").Eq(syncType))
@@ -206,7 +221,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 
 	row := c.db.QueryRowContext(ctx, query, args...)
 
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID)
+	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -227,7 +242,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 	}
 
 	q := c.db.From(syncRuns.Name()).Prepared(true)
-	q = q.Select("id", "sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id")
+	q = q.Select("id", "sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id")
 
 	if pageToken != "" {
 		q = q.Where(goqu.C("id").Gte(pageToken))
@@ -262,7 +277,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 		}
 		rowId := 0
 		data := &syncRun{}
-		err := rows.Scan(&rowId, &data.ID, &data.StartedAt, &data.EndedAt, &data.SyncToken, &data.Type, &data.ParentSyncID)
+		err := rows.Scan(&rowId, &data.ID, &data.StartedAt, &data.EndedAt, &data.SyncToken, &data.Type, &data.ParentSyncID, &data.LinkedSyncID)
 		if err != nil {
 			return nil, "", err
 		}
@@ -351,7 +366,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*syncRun, error) {
 	ret := &syncRun{}
 
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id")
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id")
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 
 	query, args, err := q.ToSQL()
@@ -359,7 +374,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*syncRun, error) {
 		return nil, err
 	}
 	row := c.db.QueryRowContext(ctx, query, args...)
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID)
+	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID)
 	if err != nil {
 		return nil, err
 	}
@@ -558,6 +573,10 @@ func (c *C1File) StartNewSync(ctx context.Context, syncType connectorstore.SyncT
 }
 
 func (c *C1File) insertSyncRun(ctx context.Context, syncID string, syncType connectorstore.SyncType, parentSyncID string) error {
+	return c.insertSyncRunWithLink(ctx, syncID, syncType, parentSyncID, "")
+}
+
+func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncType connectorstore.SyncType, parentSyncID string, linkedSyncID string) error {
 	if c.readOnly {
 		return ErrReadOnly
 	}
@@ -569,6 +588,7 @@ func (c *C1File) insertSyncRun(ctx context.Context, syncID string, syncType conn
 		"sync_token":     "",
 		"sync_type":      syncType,
 		"parent_sync_id": parentSyncID,
+		"linked_sync_id": linkedSyncID,
 	})
 
 	query, args, err := q.ToSQL()
@@ -580,6 +600,29 @@ func (c *C1File) insertSyncRun(ctx context.Context, syncID string, syncType conn
 	if err != nil {
 		return err
 	}
+	c.dbUpdated = true
+	return nil
+}
+
+func (c *C1File) updateSyncRunLinkedSyncID(ctx context.Context, syncID string, linkedSyncID string) error {
+	if c.readOnly {
+		return ErrReadOnly
+	}
+
+	q := c.db.Update(syncRuns.Name())
+	q = q.Set(goqu.Record{"linked_sync_id": linkedSyncID})
+	q = q.Where(goqu.C("sync_id").Eq(syncID))
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return err
+	}
+
+	_, err = c.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+
 	c.dbUpdated = true
 	return nil
 }

@@ -59,7 +59,7 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		return err
 	}
 
-	newSyncID, err := file.GenerateSyncDiff(ctx, m.baseSyncID, m.appliedSyncID)
+	upsertsSyncID, deletionsSyncID, err := file.GenerateSyncDiff(ctx, m.baseSyncID, m.appliedSyncID)
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		return err
 	}
 
-	log.Info("generated diff of syncs", zap.String("new_sync_id", newSyncID))
+	log.Info("generated diff of syncs", zap.String("upserts_sync_id", upsertsSyncID), zap.String("deletions_sync_id", deletionsSyncID))
 
 	return nil
 }

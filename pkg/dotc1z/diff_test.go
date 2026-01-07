@@ -11,10 +11,10 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
-func TestGenerateSyncDiff(t *testing.T) {
+func TestGenerateSyncDiff_Additions(t *testing.T) {
 	ctx := context.Background()
 
-	filePath := filepath.Join(c1zTests.workingDir, "file.c1z")
+	filePath := filepath.Join(c1zTests.workingDir, "diff_additions.c1z")
 
 	// Create the base C1Z file
 	syncFile, err := NewC1ZFile(ctx, filePath, WithPragma("journal_mode", "WAL"))
@@ -78,15 +78,15 @@ func TestGenerateSyncDiff(t *testing.T) {
 	require.NoError(t, err)
 
 	// Generate a diff between the two files
-	diffSyncID, err := syncFile.GenerateSyncDiff(ctx, baseSyncID, newSyncID)
+	upsertsSyncID, deletionsSyncID, err := syncFile.GenerateSyncDiff(ctx, baseSyncID, newSyncID)
 	require.NoError(t, err)
-	require.NotEmpty(t, diffSyncID)
+	require.NotEmpty(t, upsertsSyncID)
+	require.NotEmpty(t, deletionsSyncID)
 
-	// Set the view sync ID to the diff sync ID
-	err = syncFile.ViewSync(ctx, diffSyncID)
+	// Verify upserts sync contains only the new resource
+	err = syncFile.ViewSync(ctx, upsertsSyncID)
 	require.NoError(t, err)
 
-	// Verify that the diff contains only the new resource
 	resourcesResp, err := syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
 		ResourceTypeId: resourceTypeID,
 	}.Build())
@@ -94,7 +94,410 @@ func TestGenerateSyncDiff(t *testing.T) {
 	require.Len(t, resourcesResp.GetList(), 1)
 	require.Equal(t, newResourceID, resourcesResp.GetList()[0].GetId().GetResource())
 
-	// Close the new file
-	err = syncFile.Close()
+	// Verify deletions sync is empty (nothing was deleted)
+	err = syncFile.ViewSync(ctx, deletionsSyncID)
 	require.NoError(t, err)
+
+	resourcesResp, err = syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resourcesResp.GetList(), 0)
+}
+
+func TestGenerateSyncDiff_Deletions(t *testing.T) {
+	ctx := context.Background()
+
+	filePath := filepath.Join(c1zTests.workingDir, "diff_deletions.c1z")
+
+	syncFile, err := NewC1ZFile(ctx, filePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+	defer syncFile.Close()
+
+	resourceTypeID := testResourceType
+
+	// Base sync with resources A, B, C
+	baseSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	for _, id := range []string{"resource-a", "resource-b", "resource-c"} {
+		err = syncFile.PutResources(ctx, v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: resourceTypeID,
+				Resource:     id,
+			}.Build(),
+		}.Build())
+		require.NoError(t, err)
+	}
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// New sync with only resources A, B (C deleted)
+	newSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	for _, id := range []string{"resource-a", "resource-b"} {
+		err = syncFile.PutResources(ctx, v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: resourceTypeID,
+				Resource:     id,
+			}.Build(),
+		}.Build())
+		require.NoError(t, err)
+	}
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Generate diff
+	upsertsSyncID, deletionsSyncID, err := syncFile.GenerateSyncDiff(ctx, baseSyncID, newSyncID)
+	require.NoError(t, err)
+
+	// Verify upserts sync is empty (nothing added)
+	err = syncFile.ViewSync(ctx, upsertsSyncID)
+	require.NoError(t, err)
+
+	resourcesResp, err := syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resourcesResp.GetList(), 0)
+
+	// Verify deletions sync contains resource-c
+	err = syncFile.ViewSync(ctx, deletionsSyncID)
+	require.NoError(t, err)
+
+	resourcesResp, err = syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resourcesResp.GetList(), 1)
+	require.Equal(t, "resource-c", resourcesResp.GetList()[0].GetId().GetResource())
+}
+
+func TestGenerateSyncDiff_Modifications(t *testing.T) {
+	ctx := context.Background()
+
+	filePath := filepath.Join(c1zTests.workingDir, "diff_modifications.c1z")
+
+	syncFile, err := NewC1ZFile(ctx, filePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+	defer syncFile.Close()
+
+	resourceTypeID := testResourceType
+
+	// Base sync with resource A (displayName: "Original")
+	baseSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource-a",
+		}.Build(),
+		DisplayName: "Original",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// New sync with resource A (displayName: "Modified")
+	newSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource-a",
+		}.Build(),
+		DisplayName: "Modified",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Generate diff
+	upsertsSyncID, deletionsSyncID, err := syncFile.GenerateSyncDiff(ctx, baseSyncID, newSyncID)
+	require.NoError(t, err)
+
+	// Verify upserts sync contains the modified resource
+	err = syncFile.ViewSync(ctx, upsertsSyncID)
+	require.NoError(t, err)
+
+	resourcesResp, err := syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resourcesResp.GetList(), 1)
+	require.Equal(t, "resource-a", resourcesResp.GetList()[0].GetId().GetResource())
+	require.Equal(t, "Modified", resourcesResp.GetList()[0].GetDisplayName())
+
+	// Verify deletions sync is empty
+	err = syncFile.ViewSync(ctx, deletionsSyncID)
+	require.NoError(t, err)
+
+	resourcesResp, err = syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resourcesResp.GetList(), 0)
+}
+
+func TestGenerateSyncDiff_LinkedSyncID(t *testing.T) {
+	ctx := context.Background()
+
+	filePath := filepath.Join(c1zTests.workingDir, "diff_linked.c1z")
+
+	syncFile, err := NewC1ZFile(ctx, filePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+	defer syncFile.Close()
+
+	resourceTypeID := testResourceType
+
+	// Create base sync
+	baseSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Create new sync
+	newSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Generate diff
+	upsertsSyncID, deletionsSyncID, err := syncFile.GenerateSyncDiff(ctx, baseSyncID, newSyncID)
+	require.NoError(t, err)
+
+	// Verify linked_sync_id is set correctly on both syncs
+	upsertsSync, err := syncFile.getSync(ctx, upsertsSyncID)
+	require.NoError(t, err)
+	require.Equal(t, deletionsSyncID, upsertsSync.LinkedSyncID)
+	require.Equal(t, connectorstore.SyncTypePartialUpserts, upsertsSync.Type)
+
+	deletionsSync, err := syncFile.getSync(ctx, deletionsSyncID)
+	require.NoError(t, err)
+	require.Equal(t, upsertsSyncID, deletionsSync.LinkedSyncID)
+	require.Equal(t, connectorstore.SyncTypePartialDeletions, deletionsSync.Type)
+
+	// Verify both have the same parent_sync_id (base sync)
+	require.Equal(t, baseSyncID, upsertsSync.ParentSyncID)
+	require.Equal(t, baseSyncID, deletionsSync.ParentSyncID)
+}
+
+func TestGenerateSyncDiff_Mixed(t *testing.T) {
+	ctx := context.Background()
+
+	filePath := filepath.Join(c1zTests.workingDir, "diff_mixed.c1z")
+
+	syncFile, err := NewC1ZFile(ctx, filePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+	defer syncFile.Close()
+
+	resourceTypeID := testResourceType
+
+	// Base sync with resources A, B, C
+	baseSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource-a",
+		}.Build(),
+		DisplayName: "A Original",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource-b",
+		}.Build(),
+		DisplayName: "B",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource-c",
+		}.Build(),
+		DisplayName: "C",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// New sync: A modified, B unchanged, C deleted, D added
+	newSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource-a",
+		}.Build(),
+		DisplayName: "A Modified",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource-b",
+		}.Build(),
+		DisplayName: "B",
+	}.Build())
+	require.NoError(t, err)
+
+	// resource-c not added (deleted)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource-d",
+		}.Build(),
+		DisplayName: "D",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Generate diff
+	upsertsSyncID, deletionsSyncID, err := syncFile.GenerateSyncDiff(ctx, baseSyncID, newSyncID)
+	require.NoError(t, err)
+
+	// Verify upserts contains A (modified) and D (added)
+	err = syncFile.ViewSync(ctx, upsertsSyncID)
+	require.NoError(t, err)
+
+	resourcesResp, err := syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resourcesResp.GetList(), 2)
+
+	resourceIDs := make(map[string]string)
+	for _, r := range resourcesResp.GetList() {
+		resourceIDs[r.GetId().GetResource()] = r.GetDisplayName()
+	}
+	require.Equal(t, "A Modified", resourceIDs["resource-a"])
+	require.Equal(t, "D", resourceIDs["resource-d"])
+
+	// Verify deletions contains C
+	err = syncFile.ViewSync(ctx, deletionsSyncID)
+	require.NoError(t, err)
+
+	resourcesResp, err = syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resourcesResp.GetList(), 1)
+	require.Equal(t, "resource-c", resourcesResp.GetList()[0].GetId().GetResource())
+}
+
+func TestGenerateSyncDiff_NoChanges(t *testing.T) {
+	ctx := context.Background()
+
+	filePath := filepath.Join(c1zTests.workingDir, "diff_nochanges.c1z")
+
+	syncFile, err := NewC1ZFile(ctx, filePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+	defer syncFile.Close()
+
+	resourceTypeID := testResourceType
+
+	// Base sync with resource A
+	baseSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource-a",
+		}.Build(),
+		DisplayName: "A",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// New sync with identical resource A
+	newSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource-a",
+		}.Build(),
+		DisplayName: "A",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Generate diff
+	upsertsSyncID, deletionsSyncID, err := syncFile.GenerateSyncDiff(ctx, baseSyncID, newSyncID)
+	require.NoError(t, err)
+
+	// Verify both syncs are empty
+	err = syncFile.ViewSync(ctx, upsertsSyncID)
+	require.NoError(t, err)
+
+	resourcesResp, err := syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resourcesResp.GetList(), 0)
+
+	err = syncFile.ViewSync(ctx, deletionsSyncID)
+	require.NoError(t, err)
+
+	resourcesResp, err = syncFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: resourceTypeID,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resourcesResp.GetList(), 0)
 }
