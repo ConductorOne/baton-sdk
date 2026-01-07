@@ -159,3 +159,55 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	// This test verifies that the latest sync (incremental) was used from applied
 	// even though there was an earlier full sync
 }
+
+func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithTmpDir(tmpDir),
+	}
+
+	// Base DB with a full sync
+	baseDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "base.c1z"), opts...)
+	require.NoError(t, err)
+	defer baseDB.Close(ctx)
+
+	_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, baseDB.EndSync(ctx))
+
+	// Old DB (used to generate diff syncs)
+	oldDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "old.c1z"), opts...)
+	require.NoError(t, err)
+	defer oldDB.Close(ctx)
+
+	oldSyncID, err := oldDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldDB.EndSync(ctx))
+
+	// Applied DB: create a full sync, then generate diff syncs, then delete the full sync.
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "applied.c1z"), opts...)
+	require.NoError(t, err)
+	defer appliedDB.Close(ctx)
+
+	appliedFullSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, appliedDB.EndSync(ctx))
+
+	attached, err := appliedDB.AttachFile(oldDB, "attached")
+	require.NoError(t, err)
+	_, _, err = attached.GenerateSyncDiffFromFile(ctx, oldSyncID, appliedFullSyncID)
+	require.NoError(t, err)
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	// Remove the only compactable sync from appliedDB; only diff syncs remain.
+	require.NoError(t, appliedDB.DeleteSyncRun(ctx, appliedFullSyncID))
+
+	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	err = compactor.Compact(ctx)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no finished compactable sync found in applied")
+}

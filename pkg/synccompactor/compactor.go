@@ -37,6 +37,7 @@ type Compactor struct {
 	tmpDir      string
 	destDir     string
 	runDuration time.Duration
+	syncLimit   int
 }
 
 type CompactableSync struct {
@@ -65,6 +66,13 @@ func WithCompactorType(compactorType CompactorType) Option {
 func WithRunDuration(runDuration time.Duration) Option {
 	return func(c *Compactor) {
 		c.runDuration = runDuration
+	}
+}
+
+// WithSyncLimit sets the number of syncs to keep after compaction cleanup.
+func WithSyncLimit(limit int) Option {
+	return func(c *Compactor) {
+		c.syncLimit = limit
 	}
 }
 
@@ -150,6 +158,9 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
 		// Use parallel encoding.
 		dotc1z.WithEncoderConcurrency(0),
+	}
+	if c.syncLimit > 0 {
+		opts = append(opts, dotc1z.WithSyncLimit(c.syncLimit))
 	}
 
 	fileName := fmt.Sprintf("compacted-%s.c1z", c.entries[0].SyncID)

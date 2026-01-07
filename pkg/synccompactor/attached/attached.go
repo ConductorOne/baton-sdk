@@ -23,25 +23,59 @@ func NewAttachedCompactor(base *dotc1z.C1File, applied *dotc1z.C1File) *Compacto
 	}
 }
 
+func latestFinishedCompactableSync(ctx context.Context, f *dotc1z.C1File) (*reader_v2.SyncRun, error) {
+	// Compaction must NOT operate on diff syncs (partial_upserts / partial_deletions).
+	// We want the latest finished "snapshot-like" sync.
+	candidates := []connectorstore.SyncType{
+		connectorstore.SyncTypeFull,
+		connectorstore.SyncTypeResourcesOnly,
+		connectorstore.SyncTypePartial,
+	}
+
+	var best *reader_v2.SyncRun
+	for _, st := range candidates {
+		resp, err := f.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
+			SyncType: string(st),
+		}.Build())
+		if err != nil {
+			return nil, err
+		}
+		s := resp.GetSync()
+		if s == nil {
+			continue
+		}
+
+		if best == nil || s.GetEndedAt().AsTime().After(best.GetEndedAt().AsTime()) {
+			best = s
+		}
+	}
+
+	return best, nil
+}
+
 func (c *Compactor) Compact(ctx context.Context) error {
-	baseSync, err := c.base.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
-		SyncType: string(connectorstore.SyncTypeAny),
-	}.Build())
+	baseSync, err := latestFinishedCompactableSync(ctx, c.base)
 	if err != nil {
 		return fmt.Errorf("failed to get base sync: %w", err)
 	}
-	if baseSync == nil || baseSync.GetSync() == nil {
-		return fmt.Errorf("no finished sync found in base")
+	if baseSync == nil {
+		return fmt.Errorf(
+			"no finished compactable sync found in base (diff sync types %q/%q are not compactable)",
+			string(connectorstore.SyncTypePartialUpserts),
+			string(connectorstore.SyncTypePartialDeletions),
+		)
 	}
 
-	appliedSync, err := c.applied.GetLatestFinishedSync(ctx, reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest_builder{
-		SyncType: string(connectorstore.SyncTypeAny),
-	}.Build())
+	appliedSync, err := latestFinishedCompactableSync(ctx, c.applied)
 	if err != nil {
 		return fmt.Errorf("failed to get applied sync: %w", err)
 	}
-	if appliedSync == nil || appliedSync.GetSync() == nil {
-		return fmt.Errorf("no finished sync found in applied")
+	if appliedSync == nil {
+		return fmt.Errorf(
+			"no finished compactable sync found in applied (diff sync types %q/%q are not compactable)",
+			string(connectorstore.SyncTypePartialUpserts),
+			string(connectorstore.SyncTypePartialDeletions),
+		)
 	}
 
 	l := ctxzap.Extract(ctx)
@@ -58,7 +92,7 @@ func (c *Compactor) Compact(ctx context.Context) error {
 		}
 	}()
 
-	if err := c.processRecords(ctx, attached, baseSync.GetSync(), appliedSync.GetSync()); err != nil {
+	if err := c.processRecords(ctx, attached, baseSync, appliedSync); err != nil {
 		return fmt.Errorf("failed to process records: %w", err)
 	}
 
