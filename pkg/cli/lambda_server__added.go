@@ -179,19 +179,22 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		configStructMap := configStruct.AsMap()
 
 		var (
-			fieldOptions []field.Option
-			schemaFields = connectorSchema.Fields
+			fieldOptions  []field.Option
+			schemaFields  []field.SchemaField
+			authMethodStr string
 		)
 		if authMethod, ok := configStructMap["auth-method"]; ok {
-			if authMethodStr, ok := authMethod.(string); ok {
+			if authMethodStr, ok = authMethod.(string); ok {
 				fieldOptions = append(fieldOptions, field.WithAuthMethod(authMethodStr))
-				for _, fg := range connectorSchema.FieldGroups {
-					if fg.Name == authMethodStr {
-						schemaFields = fg.Fields
-						break
-					}
-				}
 			}
+		}
+		schemaFieldsMap := connectorSchema.FieldGroupFields(authMethodStr)
+		for _, field := range schemaFieldsMap {
+			schemaFields = append(schemaFields, field)
+		}
+
+		if len(schemaFields) == 0 {
+			schemaFields = connectorSchema.Fields
 		}
 
 		if err := field.Validate(connectorSchema, t, fieldOptions...); err != nil {
