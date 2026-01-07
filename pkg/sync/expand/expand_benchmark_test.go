@@ -169,8 +169,9 @@ func benchmarkExpand(b *testing.B, syncID string) {
 			tmpFile, err := os.CreateTemp("", "bench-expand-*.c1z")
 			require.NoError(b, err)
 			tmpPath := tmpFile.Name()
-			tmpFile.Close()
 			defer os.Remove(tmpPath)
+			err = tmpFile.Close()
+			require.NoError(b, err)
 
 			// Copy original c1z to temp
 			srcData, err := os.ReadFile(c1zPath)

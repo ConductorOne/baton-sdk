@@ -12,6 +12,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	sdkLogging "github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/stretchr/testify/require"
 )
 
@@ -86,6 +87,16 @@ func TestExpandCorrectness(t *testing.T) {
 		// },
 	}
 
+	ctx := t.Context()
+
+	var err error
+	ctx, err = sdkLogging.Init(
+		ctx,
+		sdkLogging.WithLogFormat(sdkLogging.LogFormatConsole),
+		sdkLogging.WithLogLevel("info"),
+	)
+	require.NoError(t, err)
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			unexpandedPath := getTestdataPathWithSuffix(tc.syncID, "unexpanded")
@@ -98,7 +109,7 @@ func TestExpandCorrectness(t *testing.T) {
 				t.Skipf("expanded testdata file not found: %s", expectedPath)
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 			defer cancel()
 
 			// Copy unexpanded file to temp location

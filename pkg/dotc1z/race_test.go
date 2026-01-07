@@ -36,7 +36,7 @@ func TestWALCheckpointRace(t *testing.T) {
 	// Number of iterations - increase for more thorough testing
 	iterations := 100
 
-	for i := 0; i < iterations; i++ {
+	for i := range iterations {
 		t.Run(fmt.Sprintf("iteration_%d", i), func(t *testing.T) {
 			testFilePath := filepath.Join(tmpDir, fmt.Sprintf("wal_race_%d.c1z", i))
 
@@ -49,7 +49,7 @@ func TestWALCheckpointRace(t *testing.T) {
 
 			// Create multiple resource types to generate WAL activity
 			resourceTypeIDs := make([]string, 50)
-			for j := 0; j < 50; j++ {
+			for j := range 50 {
 				resourceTypeIDs[j] = fmt.Sprintf("resource-type-%d-%d", i, j)
 				err = f.PutResourceTypes(ctx, v2.ResourceType_builder{
 					Id:          resourceTypeIDs[j],
@@ -59,7 +59,7 @@ func TestWALCheckpointRace(t *testing.T) {
 				require.NoError(t, err)
 
 				// Add resources for each type
-				for k := 0; k < 10; k++ {
+				for k := range 10 {
 					err = f.PutResources(ctx, v2.Resource_builder{
 						Id: v2.ResourceId_builder{
 							ResourceType: resourceTypeIDs[j],
@@ -97,7 +97,7 @@ func TestWALCheckpointRace(t *testing.T) {
 				"resource type count mismatch on iteration %d: expected 50, got %d", i, stats["resource_types"])
 
 			// Verify each resource type and its resources
-			for j := 0; j < 50; j++ {
+			for j := range 50 {
 				rtID := fmt.Sprintf("resource-type-%d-%d", i, j)
 				count, ok := stats[rtID]
 				require.True(t, ok, "resource type %s not found in stats on iteration %d", rtID, i)
@@ -121,7 +121,7 @@ func TestC1ZIntegrity(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
 
-	for i := 0; i < 50; i++ {
+	for i := range 50 {
 		t.Run(fmt.Sprintf("iteration_%d", i), func(t *testing.T) {
 			testFilePath := filepath.Join(tmpDir, fmt.Sprintf("integrity_%d.c1z", i))
 
@@ -134,13 +134,13 @@ func TestC1ZIntegrity(t *testing.T) {
 
 			// Write random amount of data
 			numTypes := 10 + (i % 20)
-			for j := 0; j < numTypes; j++ {
+			for j := range numTypes {
 				rtID := fmt.Sprintf("rt-%d-%d", i, j)
 				err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: rtID}.Build())
 				require.NoError(t, err)
 
 				numResources := 5 + (j % 15)
-				for k := 0; k < numResources; k++ {
+				for k := range numResources {
 					err = f.PutResources(ctx, v2.Resource_builder{
 						Id: v2.ResourceId_builder{
 							ResourceType: rtID,
