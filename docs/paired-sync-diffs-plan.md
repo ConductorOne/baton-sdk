@@ -260,13 +260,54 @@ func TestGenerateSyncDiff_Mixed(t *testing.T) {
 }
 ```
 
-## Files to Modify
+## Cleanup / Compaction Behavior
+
+The cleanup logic in `pkg/dotc1z/sync_runs.go` has been updated to handle the new diff sync types:
+
+### Retained After Cleanup
+
+1. **Latest full sync** - The most recent completed full sync is always kept (configurable via `BATON_KEEP_SYNC_COUNT`, default is 1)
+2. **Most recent diff pair** - The latest `partial_upserts` and `partial_deletions` syncs are kept
+3. **Regular partial syncs** - Only kept if they ended after the earliest-kept full sync started
+
+### Cleanup Logic
+
+```
+After cleanup:
+├── Latest full sync (the compacted one)
+├── Most recent partial_upserts sync
+└── Most recent partial_deletions sync
+```
+
+Older diff sync pairs are deleted. This ensures that processing can always apply:
+1. The base full sync state
+2. The latest diff on top of it
+
+### Environment Variables
+
+- `BATON_SKIP_CLEANUP` - Set to `true` to skip cleanup entirely
+- `BATON_KEEP_SYNC_COUNT` - Number of full syncs to keep (default: 1)
+
+## Files Modified
 
 | File | Change |
 |------|--------|
-| `pkg/dotc1z/sync_runs.go` | Add `linked_sync_id` column, migration, struct field |
+| `pkg/dotc1z/sync_runs.go` | Add `linked_sync_id` column, migration, struct field, updated cleanup logic |
 | `pkg/dotc1z/diff.go` | Generate both upserts and deletions syncs with bidirectional links |
-| `pkg/dotc1z/diff_test.go` | Update existing test, add new test cases for deletions/modifications/linking |
-| `pkg/connectorstore/connectorstore.go` | Add `SyncTypeDeletions` constant |
-| `proto/c1/reader/v2/sync.proto` | Add `linked_sync_id` field (optional) |
+| `pkg/dotc1z/diff_test.go` | Added tests for additions, deletions, modifications, linking, and cleanup |
+| `pkg/connectorstore/connectorstore.go` | Add `SyncTypePartialUpserts` and `SyncTypePartialDeletions` constants |
+
+## Implementation Status
+
+✅ **Complete**
+
+All functionality has been implemented and tested:
+- [x] New sync types: `partial_upserts`, `partial_deletions`
+- [x] `linked_sync_id` field for bidirectional pairing
+- [x] Schema migration for existing databases
+- [x] `GenerateSyncDiff` returns both upsert and deletion sync IDs
+- [x] Upserts sync includes additions AND modifications (byte-level comparison)
+- [x] Deletions sync ordered before upserts (so upserts is "latest")
+- [x] Cleanup logic correctly handles diff syncs
+- [x] Comprehensive test coverage
 

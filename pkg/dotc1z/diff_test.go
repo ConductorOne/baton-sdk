@@ -2,6 +2,8 @@ package dotc1z
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -500,4 +502,145 @@ func TestGenerateSyncDiff_NoChanges(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 	require.Len(t, resourcesResp.GetList(), 0)
+}
+
+func TestCleanup_DiffSyncs(t *testing.T) {
+	ctx := context.Background()
+
+	dbPath := filepath.Join(c1zTests.workingDir, "diff_cleanup.c1z")
+	defer os.Remove(dbPath)
+
+	syncFile, err := NewC1ZFile(ctx, dbPath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+	defer syncFile.Close()
+
+	resourceTypeID := testResourceType
+
+	// Create the initial full sync with some resources
+	baseSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	for i := 0; i < 3; i++ {
+		err = syncFile.PutResources(ctx, v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: resourceTypeID,
+				Resource:     fmt.Sprintf("resource_%d", i),
+			}.Build(),
+			DisplayName: fmt.Sprintf("Resource %d", i),
+		}.Build())
+		require.NoError(t, err)
+	}
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Create a second sync with different resources
+	secondSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource_0",
+		}.Build(),
+		DisplayName: "Resource 0",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource_3",
+		}.Build(),
+		DisplayName: "Resource 3 (new)",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Generate first diff
+	upsertsSync1, deletionsSync1, err := syncFile.GenerateSyncDiff(ctx, baseSyncID, secondSyncID)
+	require.NoError(t, err)
+
+	// Create a third sync
+	thirdSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = syncFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: resourceTypeID}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: resourceTypeID,
+			Resource:     "resource_0",
+		}.Build(),
+		DisplayName: "Resource 0",
+	}.Build())
+	require.NoError(t, err)
+
+	err = syncFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Generate second diff
+	upsertsSync2, deletionsSync2, err := syncFile.GenerateSyncDiff(ctx, secondSyncID, thirdSyncID)
+	require.NoError(t, err)
+
+	// Verify we have 3 full syncs and 4 diff syncs before cleanup
+	runs, _, err := syncFile.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+
+	var fullCount, diffCount int
+	for _, r := range runs {
+		switch r.Type {
+		case connectorstore.SyncTypeFull:
+			fullCount++
+		case connectorstore.SyncTypePartialUpserts, connectorstore.SyncTypePartialDeletions:
+			diffCount++
+		}
+	}
+	require.Equal(t, 3, fullCount, "Expected 3 full syncs before cleanup")
+	require.Equal(t, 4, diffCount, "Expected 4 diff syncs before cleanup")
+
+	// Run cleanup
+	err = syncFile.Cleanup(ctx)
+	require.NoError(t, err)
+
+	// Verify we have 1 full sync and 2 diff syncs after cleanup
+	runs, _, err = syncFile.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+
+	var fullSyncs, upsertSyncs, deletionSyncs []string
+	for _, r := range runs {
+		switch r.Type {
+		case connectorstore.SyncTypeFull:
+			fullSyncs = append(fullSyncs, r.ID)
+		case connectorstore.SyncTypePartialUpserts:
+			upsertSyncs = append(upsertSyncs, r.ID)
+		case connectorstore.SyncTypePartialDeletions:
+			deletionSyncs = append(deletionSyncs, r.ID)
+		}
+	}
+
+	require.Len(t, fullSyncs, 1, "Expected 1 full sync after cleanup")
+	require.Equal(t, thirdSyncID, fullSyncs[0], "Expected the latest full sync to be kept")
+
+	require.Len(t, upsertSyncs, 1, "Expected 1 upserts sync after cleanup")
+	require.Equal(t, upsertsSync2, upsertSyncs[0], "Expected the latest upserts sync to be kept")
+
+	require.Len(t, deletionSyncs, 1, "Expected 1 deletions sync after cleanup")
+	require.Equal(t, deletionsSync2, deletionSyncs[0], "Expected the latest deletions sync to be kept")
+
+	// Verify the old diff syncs were deleted
+	_, err = syncFile.getSync(ctx, upsertsSync1)
+	require.Error(t, err, "Old upserts sync should be deleted")
+
+	_, err = syncFile.getSync(ctx, deletionsSync1)
+	require.Error(t, err, "Old deletions sync should be deleted")
 }

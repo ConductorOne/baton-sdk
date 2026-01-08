@@ -702,8 +702,9 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		return nil
 	}
 
-	var ret []*syncRun
+	var fullSyncs []*syncRun
 	var partials []*syncRun
+	var diffSyncs []*syncRun
 
 	pageToken := ""
 	for {
@@ -716,10 +717,13 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 			if sr.EndedAt == nil {
 				continue
 			}
-			if sr.Type == connectorstore.SyncTypePartial || sr.Type == connectorstore.SyncTypeResourcesOnly {
+			switch sr.Type {
+			case connectorstore.SyncTypePartial, connectorstore.SyncTypeResourcesOnly:
 				partials = append(partials, sr)
-			} else {
-				ret = append(ret, sr)
+			case connectorstore.SyncTypePartialUpserts, connectorstore.SyncTypePartialDeletions:
+				diffSyncs = append(diffSyncs, sr)
+			default:
+				fullSyncs = append(fullSyncs, sr)
 			}
 		}
 
@@ -729,28 +733,30 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		pageToken = nextPageToken
 	}
 
-	syncLimit := 2
+	syncLimit := 1
 	if customSyncLimit, err := strconv.ParseInt(os.Getenv("BATON_KEEP_SYNC_COUNT"), 10, 64); err == nil && customSyncLimit > 0 {
 		syncLimit = int(customSyncLimit)
 	}
 
-	l.Debug("found syncs", zap.Int("count", len(ret)), zap.Int("sync_limit", syncLimit))
-	if len(ret) <= syncLimit {
-		return nil
-	}
+	l.Debug("found syncs",
+		zap.Int("full_count", len(fullSyncs)),
+		zap.Int("partial_count", len(partials)),
+		zap.Int("diff_count", len(diffSyncs)),
+		zap.Int("sync_limit", syncLimit))
 
-	l.Info("Cleaning up old sync data...")
-	for i := 0; i < len(ret)-syncLimit; i++ {
-		err = c.DeleteSyncRun(ctx, ret[i].ID)
-		if err != nil {
-			return err
+	// Clean up old full syncs beyond the limit
+	if len(fullSyncs) > syncLimit {
+		l.Info("Cleaning up old sync data...")
+		for i := 0; i < len(fullSyncs)-syncLimit; i++ {
+			err = c.DeleteSyncRun(ctx, fullSyncs[i].ID)
+			if err != nil {
+				return err
+			}
+			l.Info("Removed old sync data.", zap.String("sync_date", fullSyncs[i].EndedAt.Format(time.RFC3339)), zap.String("sync_id", fullSyncs[i].ID))
 		}
-		l.Info("Removed old sync data.", zap.String("sync_date", ret[i].EndedAt.Format(time.RFC3339)), zap.String("sync_id", ret[i].ID))
-	}
 
-	// Delete non-full syncs that ended before the earliest-kept full sync started
-	if len(ret) > syncLimit {
-		earliestKeptSync := ret[len(ret)-syncLimit]
+		// Delete partial syncs that ended before the earliest-kept full sync started
+		earliestKeptSync := fullSyncs[len(fullSyncs)-syncLimit]
 		l.Debug("Earliest kept sync", zap.String("sync_id", earliestKeptSync.ID), zap.Time("started_at", *earliestKeptSync.StartedAt))
 
 		for _, partial := range partials {
@@ -764,6 +770,39 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 					zap.String("earliest_kept_sync_start", earliestKeptSync.StartedAt.Format(time.RFC3339)),
 					zap.String("sync_id", partial.ID))
 			}
+		}
+	}
+
+	// Clean up old diff syncs - keep only the most recent pair (partial_upserts + partial_deletions)
+	// Diff syncs are ordered by id (ascending), so we want to keep the last two (one of each type)
+	if len(diffSyncs) > 2 {
+		// Find the most recent partial_upserts and partial_deletions
+		var latestUpserts, latestDeletions *syncRun
+		for i := len(diffSyncs) - 1; i >= 0; i-- {
+			if diffSyncs[i].Type == connectorstore.SyncTypePartialUpserts && latestUpserts == nil {
+				latestUpserts = diffSyncs[i]
+			}
+			if diffSyncs[i].Type == connectorstore.SyncTypePartialDeletions && latestDeletions == nil {
+				latestDeletions = diffSyncs[i]
+			}
+			if latestUpserts != nil && latestDeletions != nil {
+				break
+			}
+		}
+
+		// Delete all diff syncs except the most recent pair
+		for _, ds := range diffSyncs {
+			if (latestUpserts != nil && ds.ID == latestUpserts.ID) ||
+				(latestDeletions != nil && ds.ID == latestDeletions.ID) {
+				continue
+			}
+			err = c.DeleteSyncRun(ctx, ds.ID)
+			if err != nil {
+				return err
+			}
+			l.Info("Removed old diff sync.",
+				zap.String("sync_type", string(ds.Type)),
+				zap.String("sync_id", ds.ID))
 		}
 	}
 
