@@ -72,6 +72,21 @@ func NewAssignmentEntitlement(resource *v2.Resource, name string, entitlementOpt
 	return entitlement
 }
 
+func NewOwnershipEntitlement(resource *v2.Resource, name string, entitlementOptions ...EntitlementOption) *v2.Entitlement {
+	entitlement := v2.Entitlement_builder{
+		Id:          NewEntitlementID(resource, name),
+		DisplayName: name,
+		Slug:        name,
+		Purpose:     v2.Entitlement_PURPOSE_VALUE_OWNERSHIP,
+		Resource:    resource,
+	}.Build()
+
+	for _, entitlementOption := range entitlementOptions {
+		entitlementOption(entitlement)
+	}
+	return entitlement
+}
+
 func NewEntitlement(resource *v2.Resource, name, purposeStr string, entitlementOptions ...EntitlementOption) *v2.Entitlement {
 	var purpose v2.Entitlement_PurposeValue
 	switch purposeStr {
@@ -79,6 +94,8 @@ func NewEntitlement(resource *v2.Resource, name, purposeStr string, entitlementO
 		purpose = v2.Entitlement_PURPOSE_VALUE_PERMISSION
 	case "assignment":
 		purpose = v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT
+	case "ownership":
+		purpose = v2.Entitlement_PURPOSE_VALUE_OWNERSHIP
 	default:
 		purpose = v2.Entitlement_PURPOSE_VALUE_UNSPECIFIED
 	}
