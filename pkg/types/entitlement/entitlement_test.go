@@ -72,3 +72,19 @@ func TestNewPermissionEntitlement(t *testing.T) {
 	require.Len(t, en.GetGrantableTo(), 1)
 	require.Equal(t, rt, en.GetGrantableTo()[0])
 }
+
+func TestNewOwnershipEntitlement(t *testing.T) {
+	rt := resource.NewResourceType("Group", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_GROUP})
+	ur, err := resource.NewResource("test-group", rt, 1234)
+	require.NoError(t, err)
+	require.NotNil(t, ur)
+
+	en := NewOwnershipEntitlement(ur, "admin", WithGrantableTo(rt))
+	require.NotNil(t, en)
+	require.Equal(t, v2.Entitlement_PURPOSE_VALUE_OWNERSHIP, en.GetPurpose())
+	require.Equal(t, ur, en.GetResource())
+	require.Equal(t, "admin", en.GetDisplayName())
+	require.Equal(t, "admin", en.GetSlug())
+	require.Len(t, en.GetGrantableTo(), 1)
+	require.Equal(t, rt, en.GetGrantableTo()[0])
+}
