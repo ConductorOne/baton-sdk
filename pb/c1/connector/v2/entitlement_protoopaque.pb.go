@@ -30,6 +30,7 @@ const (
 	Entitlement_PURPOSE_VALUE_UNSPECIFIED Entitlement_PurposeValue = 0
 	Entitlement_PURPOSE_VALUE_ASSIGNMENT  Entitlement_PurposeValue = 1
 	Entitlement_PURPOSE_VALUE_PERMISSION  Entitlement_PurposeValue = 2
+	Entitlement_PURPOSE_VALUE_OWNERSHIP   Entitlement_PurposeValue = 3
 )
 
 // Enum value maps for Entitlement_PurposeValue.
@@ -38,11 +39,13 @@ var (
 		0: "PURPOSE_VALUE_UNSPECIFIED",
 		1: "PURPOSE_VALUE_ASSIGNMENT",
 		2: "PURPOSE_VALUE_PERMISSION",
+		3: "PURPOSE_VALUE_OWNERSHIP",
 	}
 	Entitlement_PurposeValue_value = map[string]int32{
 		"PURPOSE_VALUE_UNSPECIFIED": 0,
 		"PURPOSE_VALUE_ASSIGNMENT":  1,
 		"PURPOSE_VALUE_PERMISSION":  2,
+		"PURPOSE_VALUE_OWNERSHIP":   3,
 	}
 )
 
@@ -661,7 +664,7 @@ var File_c1_connector_v2_entitlement_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_entitlement_proto_rawDesc = "" +
 	"\n" +
-	"!c1/connector/v2/entitlement.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x17validate/validate.proto\"\x95\x04\n" +
+	"!c1/connector/v2/entitlement.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x19google/protobuf/any.proto\x1a\x17validate/validate.proto\"\xb3\x04\n" +
 	"\vEntitlement\x12?\n" +
 	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\bresource\x12\x1a\n" +
 	"\x02id\x18\x02 \x01(\tB\n" +
@@ -673,11 +676,12 @@ const file_c1_connector_v2_entitlement_proto_rawDesc = "" +
 	"\fgrantable_to\x18\x05 \x03(\v2\x1d.c1.connector.v2.ResourceTypeR\vgrantableTo\x126\n" +
 	"\vannotations\x18\x06 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12M\n" +
 	"\apurpose\x18\a \x01(\x0e2).c1.connector.v2.Entitlement.PurposeValueB\b\xfaB\x05\x82\x01\x02\x10\x01R\apurpose\x12\x12\n" +
-	"\x04slug\x18\b \x01(\tR\x04slug\"i\n" +
+	"\x04slug\x18\b \x01(\tR\x04slug\"\x86\x01\n" +
 	"\fPurposeValue\x12\x1d\n" +
 	"\x19PURPOSE_VALUE_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18PURPOSE_VALUE_ASSIGNMENT\x10\x01\x12\x1c\n" +
-	"\x18PURPOSE_VALUE_PERMISSION\x10\x02\"\xa8\x02\n" +
+	"\x18PURPOSE_VALUE_PERMISSION\x10\x02\x12\x1b\n" +
+	"\x17PURPOSE_VALUE_OWNERSHIP\x10\x03\"\xa8\x02\n" +
 	"*EntitlementsServiceListEntitlementsRequest\x125\n" +
 	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x12'\n" +
 	"\tpage_size\x18\x02 \x01(\rB\n" +
