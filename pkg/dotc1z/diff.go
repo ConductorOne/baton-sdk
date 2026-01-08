@@ -40,13 +40,15 @@ func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, applie
 	upsertsSyncID = ksuid.New().String()
 	deletionsSyncID = ksuid.New().String()
 
-	// Create upserts sync (partial_upserts type) - will link to deletions sync
-	if err := c.insertSyncRunWithLink(ctx, upsertsSyncID, connectorstore.SyncTypePartialUpserts, baseSyncID, deletionsSyncID); err != nil {
+	// Create deletions sync first (partial_deletions type) - linked to upserts sync
+	// Note: Deletions sync is created first so that upserts sync is the "latest" sync
+	// for processing systems that iterate by sync order
+	if err := c.insertSyncRunWithLink(ctx, deletionsSyncID, connectorstore.SyncTypePartialDeletions, baseSyncID, upsertsSyncID); err != nil {
 		return "", "", err
 	}
 
-	// Create deletions sync (partial_deletions type) - linked to upserts sync
-	if err := c.insertSyncRunWithLink(ctx, deletionsSyncID, connectorstore.SyncTypePartialDeletions, baseSyncID, upsertsSyncID); err != nil {
+	// Create upserts sync second (partial_upserts type) - will be the "latest" sync
+	if err := c.insertSyncRunWithLink(ctx, upsertsSyncID, connectorstore.SyncTypePartialUpserts, baseSyncID, deletionsSyncID); err != nil {
 		return "", "", err
 	}
 
@@ -86,11 +88,11 @@ func (c *C1File) GenerateSyncDiff(ctx context.Context, baseSyncID string, applie
 		}
 	}
 
-	// End both sync runs
-	if err := c.endSyncRun(ctx, upsertsSyncID); err != nil {
+	// End both sync runs (deletions first, then upserts so upserts is the "latest" finished sync)
+	if err := c.endSyncRun(ctx, deletionsSyncID); err != nil {
 		return "", "", err
 	}
-	if err := c.endSyncRun(ctx, deletionsSyncID); err != nil {
+	if err := c.endSyncRun(ctx, upsertsSyncID); err != nil {
 		return "", "", err
 	}
 
