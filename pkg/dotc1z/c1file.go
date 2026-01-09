@@ -282,7 +282,8 @@ func (c *C1File) CloseContext(ctx context.Context) error {
 		// sqlite during Close() may still be in kernel buffers. Without this explicit
 		// fsync, saveC1z() could read stale/incomplete data, producing a truncated
 		// zstd stream that appears valid but is missing the end-of-stream marker.
-		dbFile, err := os.OpenFile(c.dbFilePath, os.O_RDONLY, 0)
+		// Note: O_RDWR is required because Sync() on read-only fd fails on Windows.
+		dbFile, err := os.OpenFile(c.dbFilePath, os.O_RDWR, 0)
 		if err != nil {
 			return cleanupDbDir(c.dbFilePath, fmt.Errorf("open db for sync: %w", err))
 		}
