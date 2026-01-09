@@ -276,6 +276,24 @@ func (c *C1File) CloseContext(ctx context.Context) error {
 		if c.readOnly {
 			return cleanupDbDir(c.dbFilePath, ErrReadOnly)
 		}
+
+		// CRITICAL: Ensure database file is synced to disk before reading for compression.
+		// On filesystems with aggressive caching (like ZFS with ARC), data written by
+		// sqlite during Close() may still be in kernel buffers. Without this explicit
+		// fsync, saveC1z() could read stale/incomplete data, producing a truncated
+		// zstd stream that appears valid but is missing the end-of-stream marker.
+		dbFile, err := os.OpenFile(c.dbFilePath, os.O_RDONLY, 0)
+		if err != nil {
+			return cleanupDbDir(c.dbFilePath, fmt.Errorf("open db for sync: %w", err))
+		}
+		if err := dbFile.Sync(); err != nil {
+			dbFile.Close()
+			return cleanupDbDir(c.dbFilePath, fmt.Errorf("sync db before compress: %w", err))
+		}
+		if err := dbFile.Close(); err != nil {
+			return cleanupDbDir(c.dbFilePath, fmt.Errorf("close db after sync: %w", err))
+		}
+
 		err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
 		if err != nil {
 			return cleanupDbDir(c.dbFilePath, err)
