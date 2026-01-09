@@ -198,6 +198,275 @@ func TestAsyncActionHandler(t *testing.T) {
 	require.True(t, success.BoolValue)
 }
 
+func TestConstraintValidation(t *testing.T) {
+	t.Run("RequiredTogether - both present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("RequiredTogether - one missing fails", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "fields required together")
+	})
+
+	t.Run("RequiredTogether - none present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("MutuallyExclusive - none present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("MutuallyExclusive - one present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("MutuallyExclusive - two present fails", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "mutually exclusive")
+	})
+
+	t.Run("AtLeastOne - none present fails", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "at least one required")
+	})
+
+	t.Run("AtLeastOne - one present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("DependentOn - primary present with secondary missing fails", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "depend on")
+	})
+
+	t.Run("DependentOn - both present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("DependentOn - primary not present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("null value is not considered present", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewNullValue(),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "fields required together")
+	})
+
+	t.Run("nil args passes with no constraints", func(t *testing.T) {
+		err := validateActionConstraints(nil, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("empty constraints passes", func(t *testing.T) {
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints([]*config.Constraint{}, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("duplicate field names are deduplicated - RequiredTogether", func(t *testing.T) {
+		// If field_a is listed twice and only field_a is present,
+		// without deduplication this would incorrectly pass (2 present == 2 in list)
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+				FieldNames: []string{"field_a", "field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "fields required together")
+	})
+
+	t.Run("duplicate field names are deduplicated - MutuallyExclusive", func(t *testing.T) {
+		// If field_a is listed twice and only field_a is present,
+		// without deduplication this would incorrectly fail (2 present > 1)
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE,
+				FieldNames: []string{"field_a", "field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("duplicate secondary field names are deduplicated - DependentOn", func(t *testing.T) {
+		// Secondary field names should also be deduplicated
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+}
+
 func TestActionHandlerGoroutineLeaks(t *testing.T) {
 	// Test case 1: Normal completion should not leak goroutines
 	t.Run("normal completion", func(t *testing.T) {
@@ -258,4 +527,96 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		finalCount := runtime.NumGoroutine()
 		require.LessOrEqual(t, finalCount, initialCount+1, "goroutine leak detected after context cancellation")
 	})
+}
+
+func TestNewUpdateProfileSchema(t *testing.T) {
+	t.Run("basic schema without custom attributes", func(t *testing.T) {
+		schema := NewUpdateProfileSchema(false, nil)
+
+		require.Equal(t, "update_profile", schema.GetName())
+		require.Equal(t, "Update Profile", schema.GetDisplayName())
+		require.Equal(t, "Update a user's profile attributes", schema.GetDescription())
+		require.Contains(t, schema.GetActionType(), v2.ActionType_ACTION_TYPE_ACCOUNT_UPDATE_PROFILE)
+
+		// Should have only user_id field
+		require.Len(t, schema.GetArguments(), 1)
+
+		userIdField := schema.GetArguments()[0]
+		require.Equal(t, "user_id", userIdField.GetName())
+		require.Equal(t, "User ID", userIdField.GetDisplayName())
+		require.True(t, userIdField.GetIsRequired())
+		require.NotNil(t, userIdField.GetResourceIdField())
+		require.Equal(t, []string{"user"}, userIdField.GetResourceIdField().GetRules().GetAllowedResourceTypeIds())
+	})
+
+	t.Run("schema with attribute names", func(t *testing.T) {
+		schema := NewUpdateProfileSchema(false, []string{"first_name", "last_name", "email"})
+
+		// Should have user_id + 3 attribute fields
+		require.Len(t, schema.GetArguments(), 4)
+
+		// Verify user_id is first
+		require.Equal(t, "user_id", schema.GetArguments()[0].GetName())
+
+		// Verify attribute fields
+		firstNameField := schema.GetArguments()[1]
+		require.Equal(t, "first_name", firstNameField.GetName())
+		require.Equal(t, "First Name", firstNameField.GetDisplayName())
+		require.NotNil(t, firstNameField.GetStringField())
+
+		lastNameField := schema.GetArguments()[2]
+		require.Equal(t, "last_name", lastNameField.GetName())
+		require.Equal(t, "Last Name", lastNameField.GetDisplayName())
+		require.NotNil(t, lastNameField.GetStringField())
+
+		emailField := schema.GetArguments()[3]
+		require.Equal(t, "email", emailField.GetName())
+		require.Equal(t, "Email", emailField.GetDisplayName())
+		require.NotNil(t, emailField.GetStringField())
+	})
+
+	t.Run("schema with custom attributes enabled", func(t *testing.T) {
+		schema := NewUpdateProfileSchema(true, []string{"first_name"})
+
+		// Should have user_id + first_name + custom_attributes
+		require.Len(t, schema.GetArguments(), 3)
+
+		customAttrsField := schema.GetArguments()[2]
+		require.Equal(t, "custom_attributes", customAttrsField.GetName())
+		require.Equal(t, "Custom Attributes", customAttrsField.GetDisplayName())
+		require.NotNil(t, customAttrsField.GetStringMapField())
+	})
+
+	t.Run("schema without custom attributes disabled", func(t *testing.T) {
+		schema := NewUpdateProfileSchema(false, []string{"first_name"})
+
+		// Should have user_id + first_name only
+		require.Len(t, schema.GetArguments(), 2)
+
+		// Verify no custom_attributes field
+		for _, field := range schema.GetArguments() {
+			require.NotEqual(t, "custom_attributes", field.GetName())
+		}
+	})
+}
+
+func TestToDisplayName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"first_name", "First Name"},
+		{"last_name", "Last Name"},
+		{"email", "Email"},
+		{"user_profile_picture_url", "User Profile Picture Url"},
+		{"id", "Id"},
+		{"", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			result := toDisplayName(tc.input)
+			require.Equal(t, tc.expected, result)
+		})
+	}
 }
