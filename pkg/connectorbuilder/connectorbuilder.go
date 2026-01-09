@@ -343,6 +343,7 @@ func (b *builder) getCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 
 		if _, exists := b.resourceTargetedSyncers[resourceTypeID]; exists {
 			caps = append(caps, v2.Capability_CAPABILITY_TARGETED_SYNC)
+			connectorCaps[v2.Capability_CAPABILITY_SERVICE_MODE_TARGETED_SYNC] = struct{}{}
 		}
 
 		if _, exists := b.resourceProvisioners[resourceTypeID]; exists {
