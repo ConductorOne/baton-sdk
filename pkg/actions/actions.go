@@ -604,6 +604,10 @@ func validateConstraint(c *config.Constraint, present map[string]bool) error {
 				}
 			}
 		}
+	case config.ConstraintKind_CONSTRAINT_KIND_UNSPECIFIED:
+		return nil
+	default:
+		return fmt.Errorf("unknown constraint kind: %v", c.GetKind())
 	}
 	return nil
 }
