@@ -124,6 +124,10 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 		Token: request.GetPageToken(),
 	}
 	opts := resource.SyncOpAttrs{SyncID: request.GetActiveSyncId(), PageToken: token, Session: WithSyncId(b.sessionStore, request.GetActiveSyncId())}
+	prid := request.GetParentResourceId()
+	if prid != nil {
+		fmt.Printf("resource type is %s, resource %s\n", prid.ResourceType, prid.Resource)
+	}
 	out, retOptions, err := rb.List(ctx, request.GetParentResourceId(), opts)
 	if retOptions == nil {
 		retOptions = &resource.SyncOpResults{}
