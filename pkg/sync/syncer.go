@@ -46,6 +46,39 @@ var tracer = otel.Tracer("baton-sdk/sync")
 var dontFixCycles, _ = strconv.ParseBool(os.Getenv("BATON_DONT_FIX_CYCLES"))
 
 var ErrSyncNotComplete = fmt.Errorf("sync exited without finishing")
+var ErrTooManyWarnings = fmt.Errorf("too many warnings, exiting sync")
+var ErrNoSyncIDFound = fmt.Errorf("no syncID found after starting or resuming sync")
+
+// IsSyncPreservable returns true if the error returned by Sync() means that the sync artifact is useful.
+// This either means that there was no error, or that the error is recoverable (we can resume the sync and possibly succeed next time).
+func IsSyncPreservable(err error) bool {
+	if err == nil {
+		return true
+	}
+	// ErrSyncNotComplete means we hit the run duration timeout.
+	// ErrTooManyWarnings means we hit too many warnings.
+	// Both are recoverable errors.
+	if errors.Is(err, ErrSyncNotComplete) || errors.Is(err, ErrTooManyWarnings) {
+		return true
+	}
+	statusErr, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	switch statusErr.Code() {
+	case codes.OK,
+		codes.NotFound,
+		codes.PermissionDenied,
+		codes.ResourceExhausted,
+		codes.FailedPrecondition,
+		codes.Aborted,
+		codes.Unavailable,
+		codes.Unauthenticated:
+		return true
+	default:
+		return false
+	}
+}
 
 type Syncer interface {
 	Sync(context.Context) error
@@ -398,7 +431,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	// Set the syncID on the wrapper after we have it
 	if syncID == "" {
-		err = errors.New("no syncID found after starting or resuming sync")
+		err = ErrNoSyncIDFound
 		l.Error("no syncID found after starting or resuming sync", zap.Error(err))
 		return err
 	}
@@ -473,7 +506,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 		if len(warnings) > 10 {
 			completedActionsCount := s.state.GetCompletedActionsCount()
 			if completedActionsCount > 0 && float64(len(warnings))/float64(completedActionsCount) > 0.1 {
-				return fmt.Errorf("too many warnings, exiting sync. warnings: %v completed actions: %d", warnings, completedActionsCount)
+				return fmt.Errorf("%w: warnings: %v completed actions: %d", ErrTooManyWarnings, warnings, completedActionsCount)
 			}
 		}
 		select {
