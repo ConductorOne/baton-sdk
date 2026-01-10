@@ -1130,7 +1130,7 @@ func (s *syncer) syncResources(ctx context.Context) error {
 			}
 		}
 
-		if !errors.Is(err, sql.ErrNoRows) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 
