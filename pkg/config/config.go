@@ -208,6 +208,17 @@ func DefineConfigurationV2[T field.Configurable](
 	}
 
 	_, err = cli.AddCommand(mainCMD, v, &schema, &cobra.Command{
+		Use:   "mcp",
+		Short: "Run as MCP server (stdio transport)",
+		Long:  "Run the connector as an MCP (Model Context Protocol) server using stdio transport. This allows AI assistants to interact with the connector.",
+		RunE:  cli.MakeMCPServerCommand(ctx, connectorName, v, confschema, connector),
+	})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, err = cli.AddCommand(mainCMD, v, &schema, &cobra.Command{
 		Use:   "capabilities",
 		Short: "Get connector capabilities",
 		RunE:  cli.MakeCapabilitiesCommand(ctx, connectorName, v, confschema, connector),
