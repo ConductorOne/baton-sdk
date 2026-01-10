@@ -876,6 +876,18 @@ func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResource
 	return nil
 }
 
+func (s *syncer) hasChildResources(parent *v2.Resource) bool {
+	fmt.Printf("in hasChildResources\n")
+	for _, a := range parent.GetAnnotations() {
+		if a.MessageIs((*v2.ChildResourceType)(nil)) {
+			fmt.Printf("returning true!!!!\n");
+			return true
+		}
+	}
+
+	return false
+}
+
 // getSubResources fetches the sub resource types from a resources' annotations.
 func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "syncer.getSubResources")
@@ -1097,21 +1109,36 @@ func (s *syncer) syncResources(ctx context.Context) error {
 
 	bulkPutResoruces := []*v2.Resource{}
 	for _, r := range resp.GetList() {
+		validatedResource := false
+
 		// Check if we've already synced this resource, skip it if we have
 		_, err = s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: v2.ResourceId_builder{ResourceType: r.GetId().GetResourceType(), Resource: r.GetId().GetResource()}.Build(),
 		}.Build())
 		if err == nil {
-			continue
+			err = s.validateResourceTraits(ctx, r)
+			if err != nil {
+				return err
+			}
+			validatedResource = true
+
+			// Must *ALSO* check if we have any child resources.
+			if !s.hasChildResources(r) {
+				// Since we only have the resource type IDs of child resources,
+				// we can't tell if we already have the child resources of this resource.
+				continue
+			}
 		}
 
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 
-		err = s.validateResourceTraits(ctx, r)
-		if err != nil {
-			return err
+		if !validatedResource {
+			err = s.validateResourceTraits(ctx, r)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Set the resource creation source
