@@ -8,6 +8,7 @@ import (
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/doug-martin/goqu/v9"
+	"github.com/segmentio/ksuid"
 )
 
 type C1FileAttached struct {
@@ -173,4 +174,141 @@ func (c *C1FileAttached) UpdateSync(ctx context.Context, baseSync *reader_v2.Syn
 	}
 
 	return nil
+}
+
+// GenerateSyncDiffFromFile compares the base sync (in main) with the applied sync (in attached)
+// and generates two new syncs in the main database:
+// - partial_upserts: items in attached that are new or modified compared to main
+// - partial_deletions: items in main that don't exist in attached
+// Returns (upsertsSyncID, deletionsSyncID, error)
+func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, baseSyncID string, appliedSyncID string) (string, string, error) {
+	if !c.safe {
+		return "", "", errors.New("database has been detached")
+	}
+
+	ctx, span := tracer.Start(ctx, "C1FileAttached.GenerateSyncDiffFromFile")
+	defer span.End()
+
+	// Generate unique IDs for the diff syncs
+	deletionsSyncID := ksuid.New().String()
+	upsertsSyncID := ksuid.New().String()
+
+	// Create the deletions sync first (so upserts is "latest")
+	if err := c.file.insertSyncRun(ctx, deletionsSyncID, connectorstore.SyncTypePartialDeletions, baseSyncID); err != nil {
+		return "", "", fmt.Errorf("failed to create deletions sync: %w", err)
+	}
+
+	// Create the upserts sync
+	if err := c.file.insertSyncRun(ctx, upsertsSyncID, connectorstore.SyncTypePartialUpserts, baseSyncID); err != nil {
+		return "", "", fmt.Errorf("failed to create upserts sync: %w", err)
+	}
+
+	// Process each table
+	tables := []string{"v1_resource_types", "v1_resources", "v1_entitlements", "v1_grants"}
+	for _, tableName := range tables {
+		if err := c.diffTableUpserts(ctx, tableName, baseSyncID, appliedSyncID, upsertsSyncID); err != nil {
+			return "", "", fmt.Errorf("failed to generate upserts for %s: %w", tableName, err)
+		}
+		if err := c.diffTableDeletions(ctx, tableName, baseSyncID, appliedSyncID, deletionsSyncID); err != nil {
+			return "", "", fmt.Errorf("failed to generate deletions for %s: %w", tableName, err)
+		}
+	}
+
+	// End the syncs (deletions first, then upserts)
+	if err := c.file.endSyncRun(ctx, deletionsSyncID); err != nil {
+		return "", "", fmt.Errorf("failed to end deletions sync: %w", err)
+	}
+	if err := c.file.endSyncRun(ctx, upsertsSyncID); err != nil {
+		return "", "", fmt.Errorf("failed to end upserts sync: %w", err)
+	}
+
+	return upsertsSyncID, deletionsSyncID, nil
+}
+
+// diffTableUpserts finds items in attached that are new or modified compared to main.
+func (c *C1FileAttached) diffTableUpserts(ctx context.Context, tableName string, baseSyncID string, appliedSyncID string, upsertsSyncID string) error {
+	columns, err := c.getTableColumns(ctx, tableName)
+	if err != nil {
+		return err
+	}
+
+	// Build column lists
+	columnList := ""
+	selectList := ""
+	for i, col := range columns {
+		if i > 0 {
+			columnList += ", "
+			selectList += ", "
+		}
+		columnList += col
+		if col == "sync_id" {
+			selectList += "? as sync_id"
+		} else {
+			selectList += col
+		}
+	}
+
+	// Insert items from attached that are:
+	// 1. Not in main (additions)
+	// 2. In main but with different data (modifications)
+	query := fmt.Sprintf(`
+		INSERT INTO main.%s (%s)
+		SELECT %s
+		FROM attached.%s AS a
+		WHERE a.sync_id = ?
+		  AND (
+		    NOT EXISTS (
+		      SELECT 1 FROM main.%s AS m 
+		      WHERE m.external_id = a.external_id AND m.sync_id = ?
+		    )
+		    OR EXISTS (
+		      SELECT 1 FROM main.%s AS m 
+		      WHERE m.external_id = a.external_id 
+		        AND m.sync_id = ?
+		        AND m.data != a.data
+		    )
+		  )
+	`, tableName, columnList, selectList, tableName, tableName, tableName)
+
+	_, err = c.file.db.ExecContext(ctx, query, upsertsSyncID, appliedSyncID, baseSyncID, baseSyncID)
+	return err
+}
+
+// diffTableDeletions finds items in main that don't exist in attached.
+func (c *C1FileAttached) diffTableDeletions(ctx context.Context, tableName string, baseSyncID string, appliedSyncID string, deletionsSyncID string) error {
+	columns, err := c.getTableColumns(ctx, tableName)
+	if err != nil {
+		return err
+	}
+
+	// Build column lists
+	columnList := ""
+	selectList := ""
+	for i, col := range columns {
+		if i > 0 {
+			columnList += ", "
+			selectList += ", "
+		}
+		columnList += col
+		if col == "sync_id" {
+			selectList += "? as sync_id"
+		} else {
+			selectList += col
+		}
+	}
+
+	// Insert items from main that don't exist in attached (deletions)
+	query := fmt.Sprintf(`
+		INSERT INTO main.%s (%s)
+		SELECT %s
+		FROM main.%s AS m
+		WHERE m.sync_id = ?
+		  AND NOT EXISTS (
+		    SELECT 1 FROM attached.%s AS a 
+		    WHERE a.external_id = m.external_id AND a.sync_id = ?
+		  )
+	`, tableName, columnList, selectList, tableName, tableName)
+
+	_, err = c.file.db.ExecContext(ctx, query, deletionsSyncID, baseSyncID, appliedSyncID)
+	return err
 }
