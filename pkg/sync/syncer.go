@@ -876,14 +876,10 @@ func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResource
 	return nil
 }
 
-func (s *syncer) hasChildResources(parent *v2.Resource) bool {
-	for _, a := range parent.GetAnnotations() {
-		if a.MessageIs((*v2.ChildResourceType)(nil)) {
-			return true
-		}
-	}
+func (s *syncer) hasChildResources(resource *v2.Resource) bool {
+	annos := annotations.Annotations(resource.GetAnnotations())
 
-	return false
+	return annos.Contains((*v2.ChildResourceType)(nil))
 }
 
 // getSubResources fetches the sub resource types from a resources' annotations.
