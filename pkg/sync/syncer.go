@@ -877,10 +877,8 @@ func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResource
 }
 
 func (s *syncer) hasChildResources(parent *v2.Resource) bool {
-	fmt.Printf("in hasChildResources\n")
 	for _, a := range parent.GetAnnotations() {
 		if a.MessageIs((*v2.ChildResourceType)(nil)) {
-			fmt.Printf("returning true!!!!\n");
 			return true
 		}
 	}
@@ -1122,10 +1120,12 @@ func (s *syncer) syncResources(ctx context.Context) error {
 			}
 			validatedResource = true
 
-			// Must *ALSO* check if we have any child resources.
+			// We must *ALSO* check if we have any child resources,
 			if !s.hasChildResources(r) {
 				// Since we only have the resource type IDs of child resources,
-				// we can't tell if we already have the child resources of this resource.
+				// we can't tell if we already have synced those child resources.
+				// Those children may also have their own child resource,
+				// so we are conservative here and just re-sync this resource.
 				continue
 			}
 		}
