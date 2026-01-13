@@ -199,6 +199,24 @@ func TestAsyncActionHandler(t *testing.T) {
 }
 
 func TestConstraintValidation(t *testing.T) {
+	t.Run("nil constraint returns no error", func(t *testing.T) {
+		constraints := []*config.Constraint{nil}
+		err := validateActionConstraints(constraints, &structpb.Struct{Fields: map[string]*structpb.Value{}})
+		require.NoError(t, err)
+	})
+
+	t.Run("nil structpb.Value is not considered present (no panic)", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE,
+				FieldNames: []string{"field_a"},
+			}.Build(),
+		}
+		args := &structpb.Struct{Fields: map[string]*structpb.Value{"field_a": nil}}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+	})
+
 	t.Run("RequiredTogether - both present passes", func(t *testing.T) {
 		constraints := []*config.Constraint{
 			config.Constraint_builder{

@@ -419,18 +419,19 @@ func (a *ActionManager) InvokeAction(
 func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	a.mu.RLock()
 	handler, ok := a.handlers[name]
-	schema := a.schemas[name]
+	schema, schemaOk := a.schemas[name]
 	a.mu.RUnlock()
 
 	if !ok {
 		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found", name))
 	}
+	if !schemaOk || schema == nil {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.Internal, fmt.Sprintf("schema for action %s not found", name))
+	}
 
 	// Validate constraints
-	if schema != nil {
-		if err := validateActionConstraints(schema.GetConstraints(), args); err != nil {
-			return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, err.Error())
-		}
+	if err := validateActionConstraints(schema.GetConstraints(), args); err != nil {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	oa := a.GetNewAction(name)
@@ -441,6 +442,7 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 	// If handler takes longer than 1 second, return status pending.
 	// If handler takes longer than an hour, return status failed.
 	go func() {
+		defer close(done)
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
 		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
@@ -451,7 +453,6 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 		} else {
 			oa.SetError(ctx, oaErr)
 		}
-		done <- struct{}{}
 	}()
 
 	select {
@@ -519,6 +520,7 @@ func (a *ActionManager) invokeResourceAction(
 
 	// Invoke handler in goroutine
 	go func() {
+		defer close(done)
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
 		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
@@ -529,7 +531,6 @@ func (a *ActionManager) invokeResourceAction(
 		} else {
 			oa.SetError(ctx, oaErr)
 		}
-		done <- struct{}{}
 	}()
 
 	// Wait for completion or timeout
@@ -626,6 +627,9 @@ func deduplicateStrings(input []string) []string {
 }
 
 func isNullValue(v *structpb.Value) bool {
+	if v == nil {
+		return true
+	}
 	_, isNull := v.GetKind().(*structpb.Value_NullValue)
 	return isNull
 }
