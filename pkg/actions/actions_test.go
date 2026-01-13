@@ -198,6 +198,293 @@ func TestAsyncActionHandler(t *testing.T) {
 	require.True(t, success.BoolValue)
 }
 
+func TestConstraintValidation(t *testing.T) {
+	t.Run("nil constraint returns no error", func(t *testing.T) {
+		constraints := []*config.Constraint{nil}
+		err := validateActionConstraints(constraints, &structpb.Struct{Fields: map[string]*structpb.Value{}})
+		require.NoError(t, err)
+	})
+
+	t.Run("nil structpb.Value is not considered present (no panic)", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE,
+				FieldNames: []string{"field_a"},
+			}.Build(),
+		}
+		args := &structpb.Struct{Fields: map[string]*structpb.Value{"field_a": nil}}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+	})
+
+	t.Run("RequiredTogether - both present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("RequiredTogether - one missing fails", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "fields required together")
+	})
+
+	t.Run("RequiredTogether - none present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("MutuallyExclusive - none present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("MutuallyExclusive - one present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("MutuallyExclusive - two present fails", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "mutually exclusive")
+	})
+
+	t.Run("AtLeastOne - none present fails", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "at least one required")
+	})
+
+	t.Run("AtLeastOne - one present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("DependentOn - primary present with secondary missing fails", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "depend on")
+	})
+
+	t.Run("DependentOn - both present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("DependentOn - primary not present passes", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("null value is not considered present", func(t *testing.T) {
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+				FieldNames: []string{"field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewNullValue(),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "fields required together")
+	})
+
+	t.Run("nil args passes with no constraints", func(t *testing.T) {
+		err := validateActionConstraints(nil, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("empty constraints passes", func(t *testing.T) {
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints([]*config.Constraint{}, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("duplicate field names are deduplicated - RequiredTogether", func(t *testing.T) {
+		// If field_a is listed twice and only field_a is present,
+		// without deduplication this would incorrectly pass (2 present == 2 in list)
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER,
+				FieldNames: []string{"field_a", "field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "fields required together")
+	})
+
+	t.Run("duplicate field names are deduplicated - MutuallyExclusive", func(t *testing.T) {
+		// If field_a is listed twice and only field_a is present,
+		// without deduplication this would incorrectly fail (2 present > 1)
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:       config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE,
+				FieldNames: []string{"field_a", "field_a", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("duplicate secondary field names are deduplicated - DependentOn", func(t *testing.T) {
+		// Secondary field names should also be deduplicated
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b", "field_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+}
+
 func TestActionHandlerGoroutineLeaks(t *testing.T) {
 	// Test case 1: Normal completion should not leak goroutines
 	t.Run("normal completion", func(t *testing.T) {

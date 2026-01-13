@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	config "github.com/conductorone/baton-sdk/pb/c1/config/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -418,10 +419,19 @@ func (a *ActionManager) InvokeAction(
 func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, args *structpb.Struct) (string, v2.BatonActionStatus, *structpb.Struct, annotations.Annotations, error) {
 	a.mu.RLock()
 	handler, ok := a.handlers[name]
+	schema, schemaOk := a.schemas[name]
 	a.mu.RUnlock()
 
 	if !ok {
 		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found", name))
+	}
+	if !schemaOk || schema == nil {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.Internal, fmt.Sprintf("schema for action %s not found", name))
+	}
+
+	// Validate constraints
+	if err := validateActionConstraints(schema.GetConstraints(), args); err != nil {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	oa := a.GetNewAction(name)
@@ -432,6 +442,7 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 	// If handler takes longer than 1 second, return status pending.
 	// If handler takes longer than an hour, return status failed.
 	go func() {
+		defer close(done)
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
 		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
@@ -442,7 +453,6 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 		} else {
 			oa.SetError(ctx, oaErr)
 		}
-		done <- struct{}{}
 	}()
 
 	select {
@@ -486,13 +496,31 @@ func (a *ActionManager) invokeResourceAction(
 			nil,
 			status.Error(codes.NotFound, fmt.Sprintf("handler for action %s not found for resource type %s", actionName, resourceTypeID))
 	}
+
+	schemas, ok := a.resourceSchemas[resourceTypeID]
+	if !ok {
+		a.mu.RUnlock()
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.Internal, fmt.Sprintf("schemas not found for resource type %s", resourceTypeID))
+	}
+
+	schema, ok := schemas[actionName]
+	if !ok {
+		a.mu.RUnlock()
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.Internal, fmt.Sprintf("schema not found for action %s", actionName))
+	}
 	a.mu.RUnlock()
+
+	// Validate constraints
+	if err := validateActionConstraints(schema.GetConstraints(), args); err != nil {
+		return "", v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED, nil, nil, status.Error(codes.InvalidArgument, err.Error())
+	}
 
 	oa := a.GetNewAction(actionName)
 	done := make(chan struct{})
 
 	// Invoke handler in goroutine
 	go func() {
+		defer close(done)
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
 		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
@@ -503,7 +531,6 @@ func (a *ActionManager) invokeResourceAction(
 		} else {
 			oa.SetError(ctx, oaErr)
 		}
-		done <- struct{}{}
 	}()
 
 	// Wait for completion or timeout
@@ -516,4 +543,93 @@ func (a *ActionManager) invokeResourceAction(
 		oa.SetError(ctx, ctx.Err())
 		return oa.Id, oa.Status, oa.Rv, oa.Annos, ctx.Err()
 	}
+}
+
+// validateActionConstraints validates that the provided args satisfy the schema constraints.
+func validateActionConstraints(constraints []*config.Constraint, args *structpb.Struct) error {
+	if len(constraints) == 0 {
+		return nil
+	}
+
+	// Build map of present fields (non-null values in struct)
+	present := make(map[string]bool)
+	if args != nil {
+		for fieldName, value := range args.GetFields() {
+			if !isNullValue(value) {
+				present[fieldName] = true
+			}
+		}
+	}
+
+	// Validate each constraint
+	for _, constraint := range constraints {
+		if err := validateConstraint(constraint, present); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateConstraint(c *config.Constraint, present map[string]bool) error {
+	// Deduplicate field names to handle cases where the same field is listed multiple times
+	uniqueFieldNames := deduplicateStrings(c.GetFieldNames())
+
+	// Count how many unique primary fields are present
+	var primaryPresent int
+	for _, name := range uniqueFieldNames {
+		if present[name] {
+			primaryPresent++
+		}
+	}
+
+	switch c.GetKind() {
+	case config.ConstraintKind_CONSTRAINT_KIND_REQUIRED_TOGETHER:
+		if primaryPresent > 0 && primaryPresent < len(uniqueFieldNames) {
+			return fmt.Errorf("fields required together: %v", uniqueFieldNames)
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE:
+		if primaryPresent > 1 {
+			return fmt.Errorf("fields are mutually exclusive: %v", uniqueFieldNames)
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE:
+		if primaryPresent == 0 {
+			return fmt.Errorf("at least one required: %v", uniqueFieldNames)
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON:
+		if primaryPresent > 0 {
+			// Deduplicate secondary field names and check they are all present
+			uniqueSecondaryFieldNames := deduplicateStrings(c.GetSecondaryFieldNames())
+			for _, name := range uniqueSecondaryFieldNames {
+				if !present[name] {
+					return fmt.Errorf("fields %v depend on %v which must also be present", uniqueFieldNames, uniqueSecondaryFieldNames)
+				}
+			}
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_UNSPECIFIED:
+		return nil
+	default:
+		return fmt.Errorf("unknown constraint kind: %v", c.GetKind())
+	}
+	return nil
+}
+
+// deduplicateStrings returns a new slice with duplicate strings removed, preserving order.
+func deduplicateStrings(input []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(input))
+	for _, s := range input {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+func isNullValue(v *structpb.Value) bool {
+	if v == nil {
+		return true
+	}
+	_, isNull := v.GetKind().(*structpb.Value_NullValue)
+	return isNull
 }
