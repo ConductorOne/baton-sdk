@@ -161,6 +161,9 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		return nil, err
 	}
 	defer func() {
+		if c.compactedC1z == nil {
+			return
+		}
 		err := c.compactedC1z.Close(ctx)
 		if err != nil {
 			l.Error("error closing compacted c1z", zap.Error(err))
@@ -210,6 +213,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to close compacted c1z: %w", err)
 		}
+		c.compactedC1z = nil
 	} else {
 		err = c.expandGrants(ctx, newSyncId, compactionStart)
 		if err != nil {
