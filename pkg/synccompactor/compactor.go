@@ -327,7 +327,7 @@ func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compacti
 	l.Debug("finished compaction", zap.Duration("compaction_duration", compactionDuration))
 
 	switch {
-	case c.runDuration > 0 && runDuration < 0:
+	case c.runDuration > 0 && runDuration <= 0:
 		return fmt.Errorf("unable to finish compaction sync in run duration (%s). compactions took %s", c.runDuration, compactionDuration)
 	case runDuration > 0:
 		syncOpts = append(syncOpts, sync.WithRunDuration(runDuration))

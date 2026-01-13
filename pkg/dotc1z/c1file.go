@@ -48,6 +48,7 @@ type C1File struct {
 	readOnly           bool
 	encoderConcurrency int
 	closed             bool
+	closedMu           sync.Mutex
 
 	// Cached sync run for listConnectorObjects (avoids N+1 queries)
 	cachedViewSyncRun *syncRun
@@ -232,6 +233,8 @@ var ErrReadOnly = errors.New("c1z: read only mode")
 func (c *C1File) Close(ctx context.Context) error {
 	var err error
 
+	c.closedMu.Lock()
+	defer c.closedMu.Unlock()
 	if c.closed {
 		l := ctxzap.Extract(ctx)
 		l.Warn("close called on already-closed c1file", zap.String("db_path", c.dbFilePath))
@@ -283,9 +286,14 @@ func (c *C1File) Close(ctx context.Context) error {
 			return cleanupDbDir(c.dbFilePath, err)
 		}
 	}
+
+	err = cleanupDbDir(c.dbFilePath, err)
+	if err != nil {
+		return err
+	}
 	c.closed = true
 
-	return cleanupDbDir(c.dbFilePath, err)
+	return nil
 }
 
 // init ensures that the database has all of the required schema.
