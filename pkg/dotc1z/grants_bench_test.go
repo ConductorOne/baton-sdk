@@ -89,7 +89,7 @@ func setupBenchmarkDB(b *testing.B, numGrants int) (*C1File, string, func()) {
 	}
 
 	cleanup := func() {
-		_ = f.Close()
+		_ = f.Close(ctx)
 		_ = os.RemoveAll(tempDir)
 	}
 

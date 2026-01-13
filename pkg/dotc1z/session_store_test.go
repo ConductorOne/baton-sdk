@@ -15,12 +15,12 @@ import (
 )
 
 func TestC1FileSessionStore_Get(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
@@ -73,12 +73,12 @@ func TestC1FileSessionStore_Get(t *testing.T) {
 }
 
 func TestC1FileSessionStore_Set(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
@@ -141,12 +141,12 @@ func TestC1FileSessionStore_Set(t *testing.T) {
 }
 
 func TestC1FileSessionStore_GetMany(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
@@ -470,12 +470,12 @@ func TestC1FileSessionStore_GetMany(t *testing.T) {
 }
 
 func TestC1FileSessionStore_SetMany(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
@@ -551,12 +551,12 @@ func TestC1FileSessionStore_SetMany(t *testing.T) {
 }
 
 func TestC1FileSessionStore_Delete(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
@@ -622,12 +622,12 @@ func TestC1FileSessionStore_Delete(t *testing.T) {
 }
 
 func TestC1FileSessionStore_Clear(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
@@ -703,12 +703,12 @@ func TestC1FileSessionStore_Clear(t *testing.T) {
 }
 
 func TestC1FileSessionStore_GetAll(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
@@ -1620,12 +1620,12 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 }
 
 func TestC1FileSessionStore_Isolation(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID1, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
@@ -1687,12 +1687,12 @@ func TestC1FileSessionStore_Isolation(t *testing.T) {
 }
 
 func TestC1FileSessionStore_ConcurrentAccess(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
@@ -1740,12 +1740,12 @@ func TestC1FileSessionStore_ConcurrentAccess(t *testing.T) {
 }
 
 func TestC1FileSessionStore_ErrorHandling(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)
@@ -1772,12 +1772,12 @@ func TestC1FileSessionStore_ErrorHandling(t *testing.T) {
 }
 
 func TestC1FileSessionStore_Performance(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tempDir := filepath.Join(t.TempDir(), "test-session.c1z")
 
 	c1zFile, err := NewC1ZFile(ctx, tempDir, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer c1zFile.Close()
+	defer c1zFile.Close(ctx)
 
 	syncID, err := c1zFile.StartNewSync(ctx, "full", "")
 	require.NoError(t, err)

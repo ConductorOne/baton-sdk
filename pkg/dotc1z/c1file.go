@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -46,6 +47,8 @@ type C1File struct {
 	pragmas            []pragma
 	readOnly           bool
 	encoderConcurrency int
+	closed             bool
+	closedMu           sync.Mutex
 
 	// Cached sync run for listConnectorObjects (avoids N+1 queries)
 	cachedViewSyncRun *syncRun
@@ -226,16 +229,17 @@ func cleanupDbDir(dbFilePath string, err error) error {
 var ErrReadOnly = errors.New("c1z: read only mode")
 
 // Close ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
-// with our changes. It uses context.Background() for the WAL checkpoint operation.
-// Use CloseContext to pass a specific context.
-func (c *C1File) Close() error {
-	return c.CloseContext(context.Background())
-}
-
-// CloseContext ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
 // with our changes. The provided context is used for the WAL checkpoint operation.
-func (c *C1File) CloseContext(ctx context.Context) error {
+func (c *C1File) Close(ctx context.Context) error {
 	var err error
+
+	c.closedMu.Lock()
+	defer c.closedMu.Unlock()
+	if c.closed {
+		l := ctxzap.Extract(ctx)
+		l.Warn("close called on already-closed c1file", zap.String("db_path", c.dbFilePath))
+		return nil
+	}
 
 	if c.rawDb != nil {
 		// CRITICAL: Force a full WAL checkpoint before closing the database.
@@ -251,13 +255,14 @@ func (c *C1File) CloseContext(ctx context.Context) error {
 		if c.dbUpdated && !c.readOnly {
 			_, err = c.rawDb.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
 			if err != nil {
+				l := ctxzap.Extract(ctx)
 				// Checkpoint failed - log and continue. The subsequent Close()
 				// will attempt a passive checkpoint. If that also fails, we'll
 				// get an error from Close() or saveC1z() will read stale data.
 				// We log here for debugging but don't fail because:
 				// 1. Close() will still attempt its own checkpoint
 				// 2. The error might be transient (busy)
-				zap.L().Warn("WAL checkpoint failed before close",
+				l.Warn("WAL checkpoint failed before close",
 					zap.Error(err),
 					zap.String("db_path", c.dbFilePath))
 			}
@@ -282,7 +287,13 @@ func (c *C1File) CloseContext(ctx context.Context) error {
 		}
 	}
 
-	return cleanupDbDir(c.dbFilePath, err)
+	err = cleanupDbDir(c.dbFilePath, err)
+	if err != nil {
+		return err
+	}
+	c.closed = true
+
+	return nil
 }
 
 // init ensures that the database has all of the required schema.

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
@@ -159,7 +160,16 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		l.Error("doOneCompaction failed: could not create c1z file", zap.Error(err))
 		return nil, err
 	}
-	defer func() { _ = c.compactedC1z.Close() }()
+	defer func() {
+		if c.compactedC1z == nil {
+			return
+		}
+		err := c.compactedC1z.Close(ctx)
+		if err != nil {
+			l.Error("error closing compacted c1z", zap.Error(err))
+		}
+	}()
+	// Start new sync of type partial. If we compact syncs of other types, this sync type will be updated by attached.UpdateSync which is called by doOneCompaction().
 	newSyncId, err := c.compactedC1z.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
 	if err != nil {
 		return nil, fmt.Errorf("failed to start new sync: %w", err)
@@ -178,51 +188,37 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		}
 	}
 
-	// Grant expansion doesn't use the connector interface at all, so giving syncer an empty connector is safe... for now.
-	// If that ever changes, we should implement a file connector that is a wrapper around the reader.
-	emptyConnector, err := sdk.NewEmptyConnector()
+	resp, err := c.compactedC1z.GetSync(ctx, reader_v2.SyncsReaderServiceGetSyncRequest_builder{
+		SyncId: newSyncId,
+	}.Build())
 	if err != nil {
-		l.Error("error creating empty connector", zap.Error(err))
-		return nil, err
+		return nil, fmt.Errorf("failed to get sync: %w", err)
+	}
+	newSync := resp.GetSync()
+	if newSync == nil {
+		return nil, fmt.Errorf("no sync found")
 	}
 
-	// Use syncer to expand grants.
-	// TODO: Handle external resources.
-	syncOpts := []sync.SyncOpt{
-		sync.WithConnectorStore(c.compactedC1z), // Use the existing C1File so we're not wasting time compressing & decompressing it.
-		sync.WithTmpDir(c.tmpDir),
-		sync.WithSyncID(newSyncId),
-		sync.WithOnlyExpandGrants(),
+	if newSync.GetId() != newSyncId {
+		return nil, fmt.Errorf("new sync id does not match expected id: %s != %s", newSync.GetId(), newSyncId)
 	}
 
-	compactionDuration := time.Since(compactionStart)
-	runDuration := c.runDuration - compactionDuration
-	l.Debug("finished compaction", zap.Duration("compaction_duration", compactionDuration))
-
-	switch {
-	case c.runDuration > 0 && runDuration < 0:
-		return nil, fmt.Errorf("unable to finish compaction sync in run duration (%s). compactions took %s", c.runDuration, compactionDuration)
-	case runDuration > 0:
-		syncOpts = append(syncOpts, sync.WithRunDuration(runDuration))
-	}
-
-	syncer, err := sync.NewSyncer(
-		ctx,
-		emptyConnector,
-		syncOpts...,
-	)
-	if err != nil {
-		l.Error("error creating syncer", zap.Error(err))
-		return nil, err
-	}
-
-	if err := syncer.Sync(ctx); err != nil {
-		l.Error("error syncing with grant expansion", zap.Error(err))
-		return nil, err
-	}
-	if err := syncer.Close(ctx); err != nil {
-		l.Error("error closing syncer", zap.Error(err))
-		return nil, err
+	if newSync.GetSyncType() == string(connectorstore.SyncTypePartial) {
+		err = c.compactedC1z.Cleanup(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to cleanup compacted c1z: %w", err)
+		}
+		// Close compactedC1z so that the c1z file is written to disk before cpFile() is called.
+		err = c.compactedC1z.Close(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to close compacted c1z: %w", err)
+		}
+		c.compactedC1z = nil
+	} else {
+		err = c.expandGrants(ctx, newSyncId, compactionStart)
+		if err != nil {
+			return nil, fmt.Errorf("failed to expand grants: %w", err)
+		}
 	}
 
 	// Move last compacted file to the destination dir
@@ -296,7 +292,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		return err
 	}
 	defer func() {
-		err := applyFile.Close()
+		err := applyFile.Close(ctx)
 		if err != nil {
 			l.Error("error closing apply file", zap.Error(err), zap.String("apply_file", cs.FilePath))
 		}
@@ -308,5 +304,56 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		return err
 	}
 
+	return nil
+}
+
+func (c *Compactor) expandGrants(ctx context.Context, newSyncId string, compactionStart time.Time) error {
+	l := ctxzap.Extract(ctx)
+	// Grant expansion doesn't use the connector interface at all, so giving syncer an empty connector is safe... for now.
+	// If that ever changes, we should implement a file connector that is a wrapper around the reader.
+	emptyConnector, err := sdk.NewEmptyConnector()
+	if err != nil {
+		l.Error("error creating empty connector", zap.Error(err))
+		return err
+	}
+
+	// Use syncer to expand grants.
+	// TODO: Handle external resources.
+	syncOpts := []sync.SyncOpt{
+		sync.WithConnectorStore(c.compactedC1z), // Use the existing C1File so we're not wasting time compressing & decompressing it.
+		sync.WithTmpDir(c.tmpDir),
+		sync.WithSyncID(newSyncId),
+		sync.WithOnlyExpandGrants(),
+	}
+
+	compactionDuration := time.Since(compactionStart)
+	runDuration := c.runDuration - compactionDuration
+	l.Debug("finished compaction", zap.Duration("compaction_duration", compactionDuration))
+
+	switch {
+	case c.runDuration > 0 && runDuration <= 0:
+		return fmt.Errorf("unable to finish compaction sync in run duration (%s). compactions took %s", c.runDuration, compactionDuration)
+	case runDuration > 0:
+		syncOpts = append(syncOpts, sync.WithRunDuration(runDuration))
+	}
+
+	syncer, err := sync.NewSyncer(
+		ctx,
+		emptyConnector,
+		syncOpts...,
+	)
+	if err != nil {
+		l.Error("error creating syncer", zap.Error(err))
+		return err
+	}
+
+	if err := syncer.Sync(ctx); err != nil {
+		l.Error("error syncing with grant expansion", zap.Error(err))
+		return err
+	}
+	if err := syncer.Close(ctx); err != nil {
+		l.Error("error closing syncer", zap.Error(err))
+		return err
+	}
 	return nil
 }

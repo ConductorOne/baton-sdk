@@ -1,7 +1,6 @@
 package attached
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -11,7 +10,7 @@ import (
 )
 
 func TestAttachedCompactor(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create temporary files for base, applied, and dest databases
 	tmpDir := t.TempDir()
@@ -26,7 +25,7 @@ func TestAttachedCompactor(t *testing.T) {
 	// Create base database with some test data
 	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 	require.NoError(t, err)
-	defer baseDB.Close()
+	defer baseDB.Close(ctx)
 
 	// Start sync and add some base data
 	_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -38,7 +37,7 @@ func TestAttachedCompactor(t *testing.T) {
 	// Create applied database with some test data
 	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
-	defer appliedDB.Close()
+	defer appliedDB.Close(ctx)
 
 	// Start sync and add some applied data
 	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
@@ -57,7 +56,7 @@ func TestAttachedCompactor(t *testing.T) {
 }
 
 func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create temporary files for base, applied, and dest databases
 	tmpDir := t.TempDir()
@@ -72,7 +71,7 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	// Create base database with a full sync
 	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 	require.NoError(t, err)
-	defer baseDB.Close()
+	defer baseDB.Close(ctx)
 
 	// Start a full sync and add some base data
 	baseSyncID, err := baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -85,7 +84,7 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	// Create applied database with an incremental sync
 	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
-	defer appliedDB.Close()
+	defer appliedDB.Close(ctx)
 
 	// Start an incremental sync and add some applied data
 	appliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, baseSyncID)
@@ -107,7 +106,7 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 }
 
 func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create temporary files for base, applied, and dest databases
 	tmpDir := t.TempDir()
@@ -122,7 +121,7 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	// Create base database with a full sync
 	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 	require.NoError(t, err)
-	defer baseDB.Close()
+	defer baseDB.Close(ctx)
 
 	baseSyncID, err := baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -134,7 +133,7 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	// Create applied database with multiple syncs of different types
 	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
-	defer appliedDB.Close()
+	defer appliedDB.Close(ctx)
 
 	// First sync: full
 	firstAppliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")

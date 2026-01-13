@@ -188,7 +188,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	// End the first sync
 	err = firstSync.EndSync(ctx)
 	require.NoError(t, err)
-	err = firstSync.Close()
+	err = firstSync.Close(ctx)
 	require.NoError(t, err)
 
 	// Create the second sync file
@@ -317,7 +317,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	// End the second sync
 	err = secondSync.EndSync(ctx)
 	require.NoError(t, err)
-	err = secondSync.Close()
+	err = secondSync.Close(ctx)
 	require.NoError(t, err)
 
 	// Create the third sync file
@@ -446,7 +446,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	// End the third sync
 	err = thirdSync.EndSync(ctx)
 	require.NoError(t, err)
-	err = thirdSync.Close()
+	err = thirdSync.Close(ctx)
 	require.NoError(t, err)
 
 	// Create compactable syncs
@@ -480,7 +480,7 @@ func runCompactorTest(t *testing.T, ctx context.Context, inputSyncsDir string, c
 	// Open the compacted file
 	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath, opts...)
 	require.NoError(t, err)
-	defer compactedFile.Close()
+	defer compactedFile.Close(ctx)
 
 	// Verify the compacted file contains the expected data
 
@@ -714,7 +714,7 @@ func makeEmptySync(t *testing.T, ctx context.Context, inputSyncsDir string, opts
 	// End the first sync
 	err = sync.EndSync(ctx)
 	require.NoError(t, err)
-	err = sync.Close()
+	err = sync.Close(ctx)
 	require.NoError(t, err)
 
 	return &CompactableSync{
@@ -881,7 +881,7 @@ func runSyncTypeTest(
 	// Open the compacted file.
 	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath, opts...)
 	require.NoError(t, err)
-	defer compactedFile.Close()
+	defer compactedFile.Close(ctx)
 
 	syncRuns, _, err := compactedFile.ListSyncRuns(ctx, "", 10)
 	require.NoError(t, err)
@@ -919,7 +919,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 
 	err = baseDB.EndSync(ctx)
 	require.NoError(t, err)
-	err = baseDB.Close()
+	err = baseDB.Close(ctx)
 	require.NoError(t, err)
 
 	baseCompactableSync := &CompactableSync{
@@ -936,7 +936,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
-	err = appliedDB.Close()
+	err = appliedDB.Close(ctx)
 	require.NoError(t, err)
 
 	appliedCompactableSync := &CompactableSync{
@@ -964,7 +964,7 @@ func TestAttachedCompactorFailsWithNoFullSyncInBase(t *testing.T) {
 
 	compactedFile, err := dotc1z.NewC1ZFile(ctx, compactedSync.FilePath, opts...)
 	require.NoError(t, err)
-	defer compactedFile.Close()
+	defer compactedFile.Close(ctx)
 
 	// The compacted file should have one partial sync.
 	syncRuns, _, err := compactedFile.ListSyncRuns(ctx, "", 10)

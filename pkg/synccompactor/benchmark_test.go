@@ -120,7 +120,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 
 	err = baseSync.EndSync(ctx)
 	require.NoError(t, err)
-	err = baseSync.Close()
+	err = baseSync.Close(ctx)
 	require.NoError(t, err)
 
 	compactableSyncs := []*CompactableSync{
@@ -209,7 +209,7 @@ func generateTestData(ctx context.Context, t *testing.B, tmpDir string, dataset 
 
 		err = appliedSync.EndSync(ctx)
 		require.NoError(t, err)
-		err = appliedSync.Close()
+		err = appliedSync.Close(ctx)
 		require.NoError(t, err)
 
 		compactableSyncs = append(compactableSyncs, &CompactableSync{FilePath: appliedFile, SyncID: appliedSyncID})

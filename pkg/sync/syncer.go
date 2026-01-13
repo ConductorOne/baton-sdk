@@ -2919,14 +2919,14 @@ func (s *syncer) Close(ctx context.Context) error {
 
 	var err error
 	if s.store != nil {
-		err = s.store.Close()
+		err = s.store.Close(ctx)
 		if err != nil {
 			return fmt.Errorf("error closing store: %w", err)
 		}
 	}
 
 	if s.externalResourceReader != nil {
-		err = s.externalResourceReader.Close()
+		err = s.externalResourceReader.Close(ctx)
 		if err != nil {
 			return fmt.Errorf("error closing external resource reader: %w", err)
 		}

@@ -144,12 +144,12 @@ func benchmarkExpand(b *testing.B, syncID string) {
 		b.Skipf("testdata file not found: %s", c1zPath)
 	}
 
-	ctx := context.Background()
+	ctx := b.Context()
 
 	// Open the c1z file once to get stats
 	c1f, err := dotc1z.NewC1ZFile(ctx, c1zPath)
 	require.NoError(b, err)
-	defer c1f.Close()
+	defer c1f.Close(ctx)
 
 	// Load the graph
 	graph, err := loadEntitlementGraphFromC1Z(ctx, c1f)
@@ -181,7 +181,7 @@ func benchmarkExpand(b *testing.B, syncID string) {
 
 			c1fCopy, err := dotc1z.NewC1ZFile(ctx, tmpPath)
 			require.NoError(b, err)
-			defer c1fCopy.Close()
+			defer c1fCopy.Close(ctx)
 
 			err = c1fCopy.SetSyncID(ctx, syncID)
 			require.NoError(b, err)

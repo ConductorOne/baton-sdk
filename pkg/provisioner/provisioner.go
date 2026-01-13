@@ -119,7 +119,7 @@ func (p *Provisioner) Close(ctx context.Context) error {
 
 	var err error
 	if p.store != nil {
-		storeErr := p.store.Close()
+		storeErr := p.store.Close(ctx)
 		if storeErr != nil {
 			err = errors.Join(err, storeErr)
 		}

@@ -2,7 +2,6 @@ package dotc1z
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -30,7 +29,7 @@ func TestWALCheckpointRace(t *testing.T) {
 		t.Skip("skipping race condition test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	tmpDir := t.TempDir()
 
 	// Number of iterations - increase for more thorough testing
@@ -76,7 +75,7 @@ func TestWALCheckpointRace(t *testing.T) {
 			require.NoError(t, err)
 
 			// Close the file - this should checkpoint WAL and save
-			err = f.Close()
+			err = f.Close(ctx)
 			require.NoError(t, err)
 
 			// CRITICAL: Immediately reopen and verify ALL data is present
@@ -105,7 +104,7 @@ func TestWALCheckpointRace(t *testing.T) {
 					"resource count for %s mismatch on iteration %d: expected 10, got %d", rtID, i, count)
 			}
 
-			err = f2.Close()
+			err = f2.Close(ctx)
 			require.NoError(t, err)
 		})
 	}
@@ -118,7 +117,7 @@ func TestC1ZIntegrity(t *testing.T) {
 		t.Skip("skipping integrity test in short mode")
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 	tmpDir := t.TempDir()
 
 	for i := range 50 {
@@ -154,7 +153,7 @@ func TestC1ZIntegrity(t *testing.T) {
 			err = f.EndSync(ctx)
 			require.NoError(t, err)
 
-			err = f.Close()
+			err = f.Close(ctx)
 			require.NoError(t, err)
 
 			// Verify the c1z file can be decoded
