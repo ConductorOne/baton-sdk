@@ -47,6 +47,7 @@ type C1File struct {
 	pragmas            []pragma
 	readOnly           bool
 	encoderConcurrency int
+	closed             bool
 
 	// Cached sync run for listConnectorObjects (avoids N+1 queries)
 	cachedViewSyncRun *syncRun
@@ -231,6 +232,12 @@ var ErrReadOnly = errors.New("c1z: read only mode")
 func (c *C1File) Close(ctx context.Context) error {
 	var err error
 
+	if c.closed {
+		l := ctxzap.Extract(ctx)
+		l.Warn("close called on already-closed c1file", zap.String("db_path", c.dbFilePath))
+		return nil
+	}
+
 	if c.rawDb != nil {
 		// CRITICAL: Force a full WAL checkpoint before closing the database.
 		// This ensures all WAL data is written back to the main database file
@@ -276,6 +283,7 @@ func (c *C1File) Close(ctx context.Context) error {
 			return cleanupDbDir(c.dbFilePath, err)
 		}
 	}
+	c.closed = true
 
 	return cleanupDbDir(c.dbFilePath, err)
 }
