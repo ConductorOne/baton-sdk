@@ -1,7 +1,6 @@
 package attached
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 	"time"
@@ -16,7 +15,7 @@ import (
 // TestDiscoveredAtMergeLogic specifically tests the discovered_at timestamp comparison
 // by creating two separate scenarios with controlled timing.
 func TestDiscoveredAtMergeLogic(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test Case 1: Applied is newer (natural case)
 	t.Run("AppliedNewer", func(t *testing.T) {
@@ -32,7 +31,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		// Create base database first (older timestamps)
 		baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 		require.NoError(t, err)
-		defer baseDB.Close()
+		defer baseDB.Close(ctx)
 
 		_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
@@ -61,7 +60,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		// Create applied database (newer timestamps)
 		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 		require.NoError(t, err)
-		defer appliedDB.Close()
+		defer appliedDB.Close(ctx)
 
 		_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
@@ -109,7 +108,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		// Create applied database first (will have older timestamps)
 		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 		require.NoError(t, err)
-		defer appliedDB.Close()
+		defer appliedDB.Close(ctx)
 
 		_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
@@ -138,7 +137,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		// Create base database after applied (newer timestamps)
 		baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 		require.NoError(t, err)
-		defer baseDB.Close()
+		defer baseDB.Close(ctx)
 
 		_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)

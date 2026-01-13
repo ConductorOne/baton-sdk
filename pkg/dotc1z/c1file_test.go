@@ -82,7 +82,7 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 
 	// Close file without taking action
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 
 	// The file shouldn't exist because we didn't write anything
@@ -100,7 +100,7 @@ func TestC1Z(t *testing.T) {
 	require.NotEmpty(t, syncID)
 
 	// Close file mid sync
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 
 	// file should exist now that we started a sync
@@ -129,7 +129,7 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resourceTypeID, rtResp.GetResourceType().GetId())
 
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 
 	// The file should be updated and larger than it was previously.
@@ -148,7 +148,7 @@ func TestC1Z(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, resourceTypeID, rtResp2.GetResourceType().GetId())
 
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 
 	// The file should be updated and larger than it was previously.
@@ -183,7 +183,7 @@ func TestC1ZDecoder(t *testing.T) {
 	require.NoError(t, err)
 	require.Greater(t, len(dbFile), 40000) // arbitrary, but make sure we read some bytes
 
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 
 	c1zf, err := os.Open(testFilePath)
@@ -326,7 +326,7 @@ func TestC1ZStats(t *testing.T) {
 	require.NoError(t, err)
 	equalStats(t, expectedStats, stats)
 
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 }
 
@@ -366,7 +366,7 @@ func TestC1ZStatsPartialSync(t *testing.T) {
 	require.NoError(t, err)
 	equalStats(t, expectedStats, stats)
 
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 }
 
@@ -408,7 +408,7 @@ func TestC1ZStatsResourcesOnlySync(t *testing.T) {
 	require.NoError(t, err)
 	equalStats(t, expectedStats, stats)
 
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 }
 
@@ -481,7 +481,7 @@ func TestC1ZGrantStatsSync(t *testing.T) {
 		require.Equal(t, v, stats[k])
 	}
 
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 }
 
@@ -500,7 +500,7 @@ func TestC1ZReadOnlyMode(t *testing.T) {
 	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: testResourceType}.Build())
 	require.NoError(t, err)
 
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 
 	// Open the file again in read-only mode
@@ -515,7 +515,7 @@ func TestC1ZReadOnlyMode(t *testing.T) {
 	require.Equal(t, string(connectorstore.SyncTypeFull), sync.GetSync().GetSyncType())
 	require.Equal(t, syncID, sync.GetSync().GetId())
 	// Close the file
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 
 	// Now open it in read-only mode
@@ -530,7 +530,7 @@ func TestC1ZReadOnlyMode(t *testing.T) {
 	err = f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "another-resource-type"}.Build())
 	require.ErrorIs(t, err, ErrReadOnly)
 
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 
 	fileInfo1, err := os.Stat(testFilePath)
@@ -538,7 +538,7 @@ func TestC1ZReadOnlyMode(t *testing.T) {
 	// Reopen to verify no corruption
 	f2, err := NewC1ZFile(ctx, testFilePath, WithReadOnly(true))
 	require.NoError(t, err)
-	err = f2.Close()
+	err = f2.Close(ctx)
 	require.NoError(t, err)
 	fileInfo2, err := os.Stat(testFilePath)
 	require.NoError(t, err)
@@ -603,6 +603,6 @@ func TestC1ZCachedViewSyncRunInvalidation(t *testing.T) {
 	require.Len(t, resp2.GetList(), 1, "should return resource from new sync")
 	require.Equal(t, "resource-2", resp2.GetList()[0].GetId().GetResource(), "should return resource-2 from the new finished sync (sync2), not resource-1 from cached sync (sync1)")
 
-	err = f.Close()
+	err = f.Close(ctx)
 	require.NoError(t, err)
 }

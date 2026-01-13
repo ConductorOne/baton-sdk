@@ -2,7 +2,6 @@ package dotc1z
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,7 +19,7 @@ import (
 //
 // This demonstrates what happens when saveC1z reads stale data.
 func TestSimulateWALRace(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tmpDir := t.TempDir()
 
 	testFilePath := filepath.Join(tmpDir, "simulate_race.c1z")
@@ -122,14 +121,14 @@ func TestSimulateWALRace(t *testing.T) {
 	} else {
 		t.Logf("Before c1z resource_types: %d", beforeStats["resource_types"])
 	}
-	require.NoError(t, beforeFile.Close())
+	require.NoError(t, beforeFile.Close(ctx))
 
 	afterFile, err := NewC1ZFile(ctx, afterC1z, WithPragma("journal_mode", "WAL"), WithReadOnly(true))
 	require.NoError(t, err)
 	afterStats, err := afterFile.Stats(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	t.Logf("After c1z resource_types: %d", afterStats["resource_types"])
-	require.NoError(t, afterFile.Close())
+	require.NoError(t, afterFile.Close(ctx))
 
 	// If before has fewer resource types than after, we've demonstrated the race
 	if beforeStats != nil && beforeStats["resource_types"] < afterStats["resource_types"] {

@@ -1,7 +1,6 @@
 package dotc1z
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -34,7 +33,7 @@ func generateResources(count int, resourceType *v2.ResourceType) []*v2.Resource 
 }
 
 func TestPutResources(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	tempDir := filepath.Join(t.TempDir(), "test.c1z")
 
@@ -65,7 +64,7 @@ func TestPutResources(t *testing.T) {
 
 	require.Equal(t, int64(10_000), stats[resourceType.GetId()])
 
-	err = c1zFile.Close()
+	err = c1zFile.Close(ctx)
 	require.NoError(t, err)
 }
 
@@ -83,9 +82,9 @@ func BenchmarkPutResources(b *testing.B) {
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {
 			b.ReportAllocs()
+			ctx := b.Context()
 			for i := 0; i < b.N; i++ {
 				b.StopTimer()
-				ctx := context.Background()
 
 				tempDir := filepath.Join(b.TempDir(), "test.c1z")
 
@@ -117,7 +116,7 @@ func BenchmarkPutResources(b *testing.B) {
 				err = c1zFile.EndSync(ctx)
 				require.NoError(b, err)
 
-				err = c1zFile.Close()
+				err = c1zFile.Close(ctx)
 				require.NoError(b, err)
 			}
 		})

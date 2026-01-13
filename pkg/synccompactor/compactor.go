@@ -161,7 +161,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		return nil, err
 	}
 	defer func() {
-		err := c.compactedC1z.CloseContext(ctx)
+		err := c.compactedC1z.Close(ctx)
 		if err != nil {
 			l.Error("error closing compacted c1z", zap.Error(err))
 		}
@@ -206,7 +206,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 			return nil, fmt.Errorf("failed to cleanup compacted c1z: %w", err)
 		}
 		// Close compactedC1z so that the c1z file is written to disk before cpFile() is called.
-		err = c.compactedC1z.CloseContext(ctx)
+		err = c.compactedC1z.Close(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to close compacted c1z: %w", err)
 		}
@@ -288,7 +288,7 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		return err
 	}
 	defer func() {
-		err := applyFile.Close()
+		err := applyFile.Close(ctx)
 		if err != nil {
 			l.Error("error closing apply file", zap.Error(err), zap.String("apply_file", cs.FilePath))
 		}

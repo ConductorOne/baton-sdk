@@ -64,7 +64,7 @@ func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		return err
 	}
 
-	if err := file.Close(); err != nil {
+	if err := file.Close(ctx); err != nil {
 		return err
 	}
 

@@ -1,7 +1,6 @@
 package attached
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -19,7 +18,7 @@ import (
 // 4. Overlapping data where applied is newer
 // It also verifies that all data ends up with the correct destination sync ID.
 func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Create temporary files for base, applied, and dest databases
 	tmpDir := t.TempDir()
@@ -36,7 +35,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// ========= Create base database =========
 	baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
 	require.NoError(t, err)
-	defer baseDB.Close()
+	defer baseDB.Close(ctx)
 
 	_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -124,7 +123,7 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// ========= Create applied database =========
 	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
-	defer appliedDB.Close()
+	defer appliedDB.Close(ctx)
 
 	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
 	require.NoError(t, err)

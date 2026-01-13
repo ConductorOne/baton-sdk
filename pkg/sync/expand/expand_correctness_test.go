@@ -127,7 +127,7 @@ func TestExpandCorrectness(t *testing.T) {
 			// Open the temp file and run expansion
 			actualC1f, err := dotc1z.NewC1ZFile(ctx, tmpPath)
 			require.NoError(t, err)
-			defer actualC1f.Close()
+			defer actualC1f.Close(ctx)
 
 			err = actualC1f.SetSyncID(ctx, tc.syncID)
 			require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestExpandCorrectness(t *testing.T) {
 			// Open expected file
 			expectedC1f, err := dotc1z.NewC1ZFile(ctx, expectedPath, dotc1z.WithReadOnly(true))
 			require.NoError(t, err)
-			defer expectedC1f.Close()
+			defer expectedC1f.Close(ctx)
 
 			err = expectedC1f.SetSyncID(ctx, tc.syncID)
 			require.NoError(t, err)

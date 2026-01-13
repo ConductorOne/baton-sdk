@@ -19,7 +19,7 @@ func TestGenerateSyncDiff(t *testing.T) {
 	// Create the base C1Z file
 	syncFile, err := NewC1ZFile(ctx, filePath, WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
-	defer syncFile.Close()
+	defer syncFile.Close(ctx)
 
 	// Start a sync in the base file
 	baseSyncID, err := syncFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -95,6 +95,6 @@ func TestGenerateSyncDiff(t *testing.T) {
 	require.Equal(t, newResourceID, resourcesResp.GetList()[0].GetId().GetResource())
 
 	// Close the new file
-	err = syncFile.Close()
+	err = syncFile.Close(ctx)
 	require.NoError(t, err)
 }
