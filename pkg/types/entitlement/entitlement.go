@@ -32,6 +32,12 @@ func WithDisplayName(displayName string) EntitlementOption {
 	}
 }
 
+func WithSlug(slug string) EntitlementOption {
+	return func(g *v2.Entitlement) {
+		g.SetSlug(slug)
+	}
+}
+
 func WithDescription(description string) EntitlementOption {
 	return func(g *v2.Entitlement) {
 		g.SetDescription(description)
