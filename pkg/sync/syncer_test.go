@@ -1400,7 +1400,7 @@ func TestResumeSyncWithChildResources(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, childResources.GetList(), 0, "children should not be synced")
 
-	err = store1.Close()
+	err = store1.Close(ctx)
 	require.NoError(t, err)
 
 	// Second sync: resume the sync with a non-failing connector - the children should now be synced correctly.
