@@ -37,6 +37,8 @@ message SecurityInsightTrait {
     c1.connector.v2.ResourceId resource_id = 5;
     // For binding to an AppResource by external ID
     ExternalResourceTarget external_resource = 6;
+    // For binding to an AppUser by email address
+    AppUserTarget app_user = 7;
   }
 
   // UserTarget identifies a user by email for resolution to a C1 User
@@ -46,6 +48,17 @@ message SecurityInsightTrait {
       max_bytes: 1024
       email: true
     }];
+  }
+
+  // AppUserTarget identifies a user by email for resolution to an AppUser.
+  message AppUserTarget {
+    string email = 1 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 1024
+      email: true
+    }];
+
+    c1.connector.v2.ResourceId external_resource_id = 2;
   }
 
   // ExternalResourceTarget identifies a resource by external ID for resolution to an AppResource.
