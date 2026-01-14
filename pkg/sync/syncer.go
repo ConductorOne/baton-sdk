@@ -876,6 +876,12 @@ func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResource
 	return nil
 }
 
+func (s *syncer) hasChildResources(resource *v2.Resource) bool {
+	annos := annotations.Annotations(resource.GetAnnotations())
+
+	return annos.Contains((*v2.ChildResourceType)(nil))
+}
+
 // getSubResources fetches the sub resource types from a resources' annotations.
 func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "syncer.getSubResources")
@@ -1097,21 +1103,38 @@ func (s *syncer) syncResources(ctx context.Context) error {
 
 	bulkPutResoruces := []*v2.Resource{}
 	for _, r := range resp.GetList() {
+		validatedResource := false
+
 		// Check if we've already synced this resource, skip it if we have
 		_, err = s.store.GetResource(ctx, reader_v2.ResourcesReaderServiceGetResourceRequest_builder{
 			ResourceId: v2.ResourceId_builder{ResourceType: r.GetId().GetResourceType(), Resource: r.GetId().GetResource()}.Build(),
 		}.Build())
 		if err == nil {
-			continue
+			err = s.validateResourceTraits(ctx, r)
+			if err != nil {
+				return err
+			}
+			validatedResource = true
+
+			// We must *ALSO* check if we have any child resources.
+			if !s.hasChildResources(r) {
+				// Since we only have the resource type IDs of child resources,
+				// we can't tell if we already have synced those child resources.
+				// Those children may also have their own child resources,
+				// so we are conservative here and just re-sync this resource.
+				continue
+			}
 		}
 
-		if !errors.Is(err, sql.ErrNoRows) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 
-		err = s.validateResourceTraits(ctx, r)
-		if err != nil {
-			return err
+		if !validatedResource {
+			err = s.validateResourceTraits(ctx, r)
+			if err != nil {
+				return err
+			}
 		}
 
 		// Set the resource creation source

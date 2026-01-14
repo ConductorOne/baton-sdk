@@ -1300,6 +1300,167 @@ func TestExternalResourceWithGrantToEntitlement(t *testing.T) {
 	require.Len(t, allGrants.GetList(), 0, "Should have no grants because user resource type skips entitlements and grants")
 }
 
+// This test verifies that when a sync fails after syncing a parent resource
+// but before syncing its child resources, resuming the sync will correctly re-process the parent
+// resource to ensure child resources are synced (because the checkpoint may not include those resources).
+func TestResumeSyncWithChildResources(t *testing.T) {
+	ctx := t.Context()
+
+	// Create parent/child resources types.
+	parentResourceType := v2.ResourceType_builder{
+		Id:          "parent",
+		DisplayName: "Parent",
+	}.Build()
+
+	childResourceType := v2.ResourceType_builder{
+		Id:          "child",
+		DisplayName: "Child",
+		Annotations: annotations.New(&v2.SkipEntitlementsAndGrants{}),
+	}.Build()
+
+	tempDir, err := os.MkdirTemp("", "baton-resume-child-resources-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "resume-child-resources.c1z")
+
+	mc := newMockConnector()
+	mc.rtDB = append(mc.rtDB, parentResourceType, childResourceType)
+
+	// Create a parent resource with the annotation for a child resource.
+	parentResource, err := rs.NewResource(
+		"Parent 1",
+		parentResourceType,
+		"parent_1",
+		rs.WithAnnotation(v2.ChildResourceType_builder{
+			ResourceTypeId: childResourceType.GetId(),
+		}.Build()),
+	)
+	require.NoError(t, err)
+	mc.AddResource(ctx, parentResource)
+
+	// Create two child resources.
+	child1, err := rs.NewResource(
+		"Child 1",
+		childResourceType,
+		"child_1",
+		rs.WithParentResourceID(parentResource.GetId()),
+	)
+	require.NoError(t, err)
+	mc.AddResource(ctx, child1)
+
+	child2, err := rs.NewResource(
+		"Child 2",
+		childResourceType,
+		"child_2",
+		rs.WithParentResourceID(parentResource.GetId()),
+	)
+	require.NoError(t, err)
+	mc.AddResource(ctx, child2)
+
+	// First sync: our mock connector will fail sync right after syncing the parent
+	// but before syncing the child resources. This simulates a checkpoint scenario where
+	// the parent resource was synced and saved, but the sync failed.
+	mcWithFailure := &failChildResourceMockConnector{
+		mockConnector:        mc,
+		failOnChildResources: true,
+	}
+
+	syncer1, err := NewSyncer(ctx, mcWithFailure, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+
+	// Start sync - this should sync parent_1, then fail when trying to sync its children.
+	err = syncer1.Sync(ctx)
+	require.Error(t, err, "sync should fail when trying to sync child resources")
+
+	// Cancel the context and close the syncer so that when we we re-open the c1z,
+	// we resume the current sync (as opposed to starting a new sync).
+	ctxToCancel, cancelFunc := context.WithCancel(ctx)
+	cancelFunc()
+	err = syncer1.Close(ctxToCancel)
+	require.NoError(t, err)
+
+	// Verify that parent_1 was synced before the failure.
+	c1zManager1, err := manager.New(ctx, c1zPath)
+	require.NoError(t, err)
+	store1, err := c1zManager1.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	parentResources, err := store1.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: parentResourceType.GetId(),
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, parentResources.GetList(), 1, "parent should be synced")
+	require.Equal(t, parentResource.GetId().GetResource(), parentResources.GetList()[0].GetId().GetResource())
+
+	// Verify that no children were synced before the failure.
+	childResources, err := store1.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: childResourceType.GetId(),
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, childResources.GetList(), 0, "children should not be synced")
+
+	err = store1.Close()
+	require.NoError(t, err)
+
+	// Second sync: resume the sync with a non-failing connector - the children should now be synced correctly.
+	// (We still use the failure mock connector, as we need to return no child resources that are not under our parent.)
+	syncer2, err := NewSyncer(ctx, mcWithFailure, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	mcWithFailure.failOnChildResources = false
+
+	err = syncer2.Sync(ctx)
+	require.NoError(t, err, "resumed sync should succeed")
+
+	err = syncer2.Close(ctx)
+	require.NoError(t, err)
+
+	// Verify that child resources are now synced.
+	c1zManager2, err := manager.New(ctx, c1zPath)
+	require.NoError(t, err)
+	store2, err := c1zManager2.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	childResourcesAfterResume, err := store2.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: childResourceType.GetId(),
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, childResourcesAfterResume.GetList(), 2, "both child resources should be synced after resume")
+
+	// Verify the child resources have the correct parent.
+	for _, child := range childResourcesAfterResume.GetList() {
+		require.NotNil(t, child.GetParentResourceId(), "child should have parent resource ID")
+		require.Equal(t, parentResource.GetId().GetResource(), child.GetParentResourceId().GetResource())
+		require.Equal(t, parentResourceType.GetId(), child.GetParentResourceId().GetResourceType())
+	}
+}
+
+// failChildResourceMockConnector wraps a mockConnector and fails ListResources calls for child resources.
+type failChildResourceMockConnector struct {
+	*mockConnector
+	failOnChildResources bool
+}
+
+func (fmc *failChildResourceMockConnector) ListResources(
+	ctx context.Context,
+	in *v2.ResourcesServiceListResourcesRequest,
+	opts ...grpc.CallOption,
+) (*v2.ResourcesServiceListResourcesResponse, error) {
+	// This simulates a failure after the parent was synced but before children could be synced.
+	if in.GetResourceTypeId() == "child" {
+		if in.GetParentResourceId() != nil {
+			if fmc.failOnChildResources {
+				return nil, status.Errorf(codes.Internal, "simulated failure when syncing child resources")
+			} // Otherwise, dispatch to the regular mock connector
+		} else {
+			// Return no resources - the only instances of the child resource come from inspecting the parent.
+			return v2.ResourcesServiceListResourcesResponse_builder{List: []*v2.Resource{}}.Build(), nil
+		}
+	}
+
+	return fmc.mockConnector.ListResources(ctx, in, opts...)
+}
+
 func newMockConnector() *mockConnector {
 	mc := &mockConnector{
 		rtDB:       make([]*v2.ResourceType, 0),
