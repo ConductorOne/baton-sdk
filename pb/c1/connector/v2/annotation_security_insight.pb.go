@@ -42,6 +42,7 @@ type SecurityInsightTrait struct {
 	//	*SecurityInsightTrait_User
 	//	*SecurityInsightTrait_ResourceId
 	//	*SecurityInsightTrait_ExternalResource
+	//	*SecurityInsightTrait_AppUser
 	Target        isSecurityInsightTrait_Target `protobuf_oneof:"target"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -127,6 +128,15 @@ func (x *SecurityInsightTrait) GetExternalResource() *SecurityInsightTrait_Exter
 	return nil
 }
 
+func (x *SecurityInsightTrait) GetAppUser() *SecurityInsightTrait_AppUserTarget {
+	if x != nil {
+		if x, ok := x.Target.(*SecurityInsightTrait_AppUser); ok {
+			return x.AppUser
+		}
+	}
+	return nil
+}
+
 func (x *SecurityInsightTrait) SetInsightType(v string) {
 	x.InsightType = v
 }
@@ -161,6 +171,14 @@ func (x *SecurityInsightTrait) SetExternalResource(v *SecurityInsightTrait_Exter
 		return
 	}
 	x.Target = &SecurityInsightTrait_ExternalResource{v}
+}
+
+func (x *SecurityInsightTrait) SetAppUser(v *SecurityInsightTrait_AppUserTarget) {
+	if v == nil {
+		x.Target = nil
+		return
+	}
+	x.Target = &SecurityInsightTrait_AppUser{v}
 }
 
 func (x *SecurityInsightTrait) HasObservedAt() bool {
@@ -201,6 +219,14 @@ func (x *SecurityInsightTrait) HasExternalResource() bool {
 	return ok
 }
 
+func (x *SecurityInsightTrait) HasAppUser() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Target.(*SecurityInsightTrait_AppUser)
+	return ok
+}
+
 func (x *SecurityInsightTrait) ClearObservedAt() {
 	x.ObservedAt = nil
 }
@@ -227,10 +253,17 @@ func (x *SecurityInsightTrait) ClearExternalResource() {
 	}
 }
 
+func (x *SecurityInsightTrait) ClearAppUser() {
+	if _, ok := x.Target.(*SecurityInsightTrait_AppUser); ok {
+		x.Target = nil
+	}
+}
+
 const SecurityInsightTrait_Target_not_set_case case_SecurityInsightTrait_Target = 0
 const SecurityInsightTrait_User_case case_SecurityInsightTrait_Target = 4
 const SecurityInsightTrait_ResourceId_case case_SecurityInsightTrait_Target = 5
 const SecurityInsightTrait_ExternalResource_case case_SecurityInsightTrait_Target = 6
+const SecurityInsightTrait_AppUser_case case_SecurityInsightTrait_Target = 7
 
 func (x *SecurityInsightTrait) WhichTarget() case_SecurityInsightTrait_Target {
 	if x == nil {
@@ -243,6 +276,8 @@ func (x *SecurityInsightTrait) WhichTarget() case_SecurityInsightTrait_Target {
 		return SecurityInsightTrait_ResourceId_case
 	case *SecurityInsightTrait_ExternalResource:
 		return SecurityInsightTrait_ExternalResource_case
+	case *SecurityInsightTrait_AppUser:
+		return SecurityInsightTrait_AppUser_case
 	default:
 		return SecurityInsightTrait_Target_not_set_case
 	}
@@ -266,6 +301,8 @@ type SecurityInsightTrait_builder struct {
 	ResourceId *ResourceId
 	// For binding to an AppResource by external ID
 	ExternalResource *SecurityInsightTrait_ExternalResourceTarget
+	// For binding to an AppUser by email address
+	AppUser *SecurityInsightTrait_AppUserTarget
 	// -- end of Target
 }
 
@@ -284,6 +321,9 @@ func (b0 SecurityInsightTrait_builder) Build() *SecurityInsightTrait {
 	}
 	if b.ExternalResource != nil {
 		x.Target = &SecurityInsightTrait_ExternalResource{b.ExternalResource}
+	}
+	if b.AppUser != nil {
+		x.Target = &SecurityInsightTrait_AppUser{b.AppUser}
 	}
 	return m0
 }
@@ -317,11 +357,18 @@ type SecurityInsightTrait_ExternalResource struct {
 	ExternalResource *SecurityInsightTrait_ExternalResourceTarget `protobuf:"bytes,6,opt,name=external_resource,json=externalResource,proto3,oneof"`
 }
 
+type SecurityInsightTrait_AppUser struct {
+	// For binding to an AppUser by email address
+	AppUser *SecurityInsightTrait_AppUserTarget `protobuf:"bytes,7,opt,name=app_user,json=appUser,proto3,oneof"`
+}
+
 func (*SecurityInsightTrait_User) isSecurityInsightTrait_Target() {}
 
 func (*SecurityInsightTrait_ResourceId) isSecurityInsightTrait_Target() {}
 
 func (*SecurityInsightTrait_ExternalResource) isSecurityInsightTrait_Target() {}
+
+func (*SecurityInsightTrait_AppUser) isSecurityInsightTrait_Target() {}
 
 // UserTarget identifies a user by email for resolution to a C1 User
 type SecurityInsightTrait_UserTarget struct {
@@ -381,6 +428,80 @@ func (b0 SecurityInsightTrait_UserTarget_builder) Build() *SecurityInsightTrait_
 	return m0
 }
 
+// AppUserTarget identifies a user by email for resolution to an AppUser.
+type SecurityInsightTrait_AppUserTarget struct {
+	state protoimpl.MessageState `protogen:"hybrid.v1"`
+	Email string                 `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	// The external identifier of the user (e.g., ID, GUID, etc.)
+	ExternalId    string `protobuf:"bytes,2,opt,name=external_id,json=externalId,proto3" json:"external_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SecurityInsightTrait_AppUserTarget) Reset() {
+	*x = SecurityInsightTrait_AppUserTarget{}
+	mi := &file_c1_connector_v2_annotation_security_insight_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SecurityInsightTrait_AppUserTarget) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SecurityInsightTrait_AppUserTarget) ProtoMessage() {}
+
+func (x *SecurityInsightTrait_AppUserTarget) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_security_insight_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *SecurityInsightTrait_AppUserTarget) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *SecurityInsightTrait_AppUserTarget) GetExternalId() string {
+	if x != nil {
+		return x.ExternalId
+	}
+	return ""
+}
+
+func (x *SecurityInsightTrait_AppUserTarget) SetEmail(v string) {
+	x.Email = v
+}
+
+func (x *SecurityInsightTrait_AppUserTarget) SetExternalId(v string) {
+	x.ExternalId = v
+}
+
+type SecurityInsightTrait_AppUserTarget_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Email string
+	// The external identifier of the user (e.g., ID, GUID, etc.)
+	ExternalId string
+}
+
+func (b0 SecurityInsightTrait_AppUserTarget_builder) Build() *SecurityInsightTrait_AppUserTarget {
+	m0 := &SecurityInsightTrait_AppUserTarget{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Email = b.Email
+	x.ExternalId = b.ExternalId
+	return m0
+}
+
 // ExternalResourceTarget identifies a resource by external ID for resolution to an AppResource.
 // Use this when the connector doesn't sync the target resource itself.
 type SecurityInsightTrait_ExternalResourceTarget struct {
@@ -395,7 +516,7 @@ type SecurityInsightTrait_ExternalResourceTarget struct {
 
 func (x *SecurityInsightTrait_ExternalResourceTarget) Reset() {
 	*x = SecurityInsightTrait_ExternalResourceTarget{}
-	mi := &file_c1_connector_v2_annotation_security_insight_proto_msgTypes[2]
+	mi := &file_c1_connector_v2_annotation_security_insight_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -407,7 +528,7 @@ func (x *SecurityInsightTrait_ExternalResourceTarget) String() string {
 func (*SecurityInsightTrait_ExternalResourceTarget) ProtoMessage() {}
 
 func (x *SecurityInsightTrait_ExternalResourceTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_security_insight_proto_msgTypes[2]
+	mi := &file_c1_connector_v2_annotation_security_insight_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -462,7 +583,7 @@ var File_c1_connector_v2_annotation_security_insight_proto protoreflect.FileDesc
 
 const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 	"\n" +
-	"1c1/connector/v2/annotation_security_insight.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xc9\x04\n" +
+	"1c1/connector/v2/annotation_security_insight.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"\xfd\x05\n" +
 	"\x14SecurityInsightTrait\x12-\n" +
 	"\finsight_type\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\vinsightType\x12 \n" +
@@ -473,10 +594,16 @@ const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 	"\x04user\x18\x04 \x01(\v20.c1.connector.v2.SecurityInsightTrait.UserTargetH\x00R\x04user\x12>\n" +
 	"\vresource_id\x18\x05 \x01(\v2\x1b.c1.connector.v2.ResourceIdH\x00R\n" +
 	"resourceId\x12k\n" +
-	"\x11external_resource\x18\x06 \x01(\v2<.c1.connector.v2.SecurityInsightTrait.ExternalResourceTargetH\x00R\x10externalResource\x1a0\n" +
+	"\x11external_resource\x18\x06 \x01(\v2<.c1.connector.v2.SecurityInsightTrait.ExternalResourceTargetH\x00R\x10externalResource\x12P\n" +
+	"\bapp_user\x18\a \x01(\v23.c1.connector.v2.SecurityInsightTrait.AppUserTargetH\x00R\aappUser\x1a0\n" +
 	"\n" +
 	"UserTarget\x12\"\n" +
-	"\x05email\x18\x01 \x01(\tB\f\xfaB\tr\a \x01(\x80\b`\x01R\x05email\x1am\n" +
+	"\x05email\x18\x01 \x01(\tB\f\xfaB\tr\a \x01(\x80\b`\x01R\x05email\x1a`\n" +
+	"\rAppUserTarget\x12\"\n" +
+	"\x05email\x18\x01 \x01(\tB\f\xfaB\tr\a \x01(\x80\b`\x01R\x05email\x12+\n" +
+	"\vexternal_id\x18\x02 \x01(\tB\n" +
+	"\xfaB\ar\x05 \x01(\x80 R\n" +
+	"externalId\x1am\n" +
 	"\x16ExternalResourceTarget\x12+\n" +
 	"\vexternal_id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80 R\n" +
@@ -484,24 +611,26 @@ const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 	"\bapp_hint\x18\x02 \x01(\tB\v\xfaB\br\x06(\x80\b\xd0\x01\x01R\aappHintB\r\n" +
 	"\x06target\x12\x03\xf8B\x01B6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_security_insight_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_c1_connector_v2_annotation_security_insight_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_c1_connector_v2_annotation_security_insight_proto_goTypes = []any{
 	(*SecurityInsightTrait)(nil),                        // 0: c1.connector.v2.SecurityInsightTrait
 	(*SecurityInsightTrait_UserTarget)(nil),             // 1: c1.connector.v2.SecurityInsightTrait.UserTarget
-	(*SecurityInsightTrait_ExternalResourceTarget)(nil), // 2: c1.connector.v2.SecurityInsightTrait.ExternalResourceTarget
-	(*timestamppb.Timestamp)(nil),                       // 3: google.protobuf.Timestamp
-	(*ResourceId)(nil),                                  // 4: c1.connector.v2.ResourceId
+	(*SecurityInsightTrait_AppUserTarget)(nil),          // 2: c1.connector.v2.SecurityInsightTrait.AppUserTarget
+	(*SecurityInsightTrait_ExternalResourceTarget)(nil), // 3: c1.connector.v2.SecurityInsightTrait.ExternalResourceTarget
+	(*timestamppb.Timestamp)(nil),                       // 4: google.protobuf.Timestamp
+	(*ResourceId)(nil),                                  // 5: c1.connector.v2.ResourceId
 }
 var file_c1_connector_v2_annotation_security_insight_proto_depIdxs = []int32{
-	3, // 0: c1.connector.v2.SecurityInsightTrait.observed_at:type_name -> google.protobuf.Timestamp
+	4, // 0: c1.connector.v2.SecurityInsightTrait.observed_at:type_name -> google.protobuf.Timestamp
 	1, // 1: c1.connector.v2.SecurityInsightTrait.user:type_name -> c1.connector.v2.SecurityInsightTrait.UserTarget
-	4, // 2: c1.connector.v2.SecurityInsightTrait.resource_id:type_name -> c1.connector.v2.ResourceId
-	2, // 3: c1.connector.v2.SecurityInsightTrait.external_resource:type_name -> c1.connector.v2.SecurityInsightTrait.ExternalResourceTarget
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	5, // 2: c1.connector.v2.SecurityInsightTrait.resource_id:type_name -> c1.connector.v2.ResourceId
+	3, // 3: c1.connector.v2.SecurityInsightTrait.external_resource:type_name -> c1.connector.v2.SecurityInsightTrait.ExternalResourceTarget
+	2, // 4: c1.connector.v2.SecurityInsightTrait.app_user:type_name -> c1.connector.v2.SecurityInsightTrait.AppUserTarget
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_security_insight_proto_init() }
@@ -514,6 +643,7 @@ func file_c1_connector_v2_annotation_security_insight_proto_init() {
 		(*SecurityInsightTrait_User)(nil),
 		(*SecurityInsightTrait_ResourceId)(nil),
 		(*SecurityInsightTrait_ExternalResource)(nil),
+		(*SecurityInsightTrait_AppUser)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -521,7 +651,7 @@ func file_c1_connector_v2_annotation_security_insight_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_security_insight_proto_rawDesc), len(file_c1_connector_v2_annotation_security_insight_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
