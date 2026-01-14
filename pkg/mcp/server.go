@@ -4,8 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/types"
@@ -14,7 +13,7 @@ import (
 // MCPServer wraps a ConnectorServer and exposes its functionality via MCP.
 type MCPServer struct {
 	connector types.ConnectorServer
-	server    *server.MCPServer
+	server    *mcp.Server
 	caps      *v2.ConnectorCapabilities
 }
 
@@ -26,11 +25,12 @@ func NewMCPServer(ctx context.Context, name string, connector types.ConnectorSer
 		return nil, fmt.Errorf("failed to get connector metadata: %w", err)
 	}
 
-	s := server.NewMCPServer(
-		name,
-		"1.0.0",
-		server.WithToolCapabilities(false),
-		server.WithRecovery(),
+	s := mcp.NewServer(
+		&mcp.Implementation{
+			Name:    name,
+			Version: "1.0.0",
+		},
+		nil,
 	)
 
 	m := &MCPServer{
@@ -44,8 +44,8 @@ func NewMCPServer(ctx context.Context, name string, connector types.ConnectorSer
 }
 
 // Serve starts the MCP server on stdio.
-func (m *MCPServer) Serve() error {
-	return server.ServeStdio(m.server)
+func (m *MCPServer) Serve(ctx context.Context) error {
+	return m.server.Run(ctx, &mcp.StdioTransport{})
 }
 
 // registerTools registers all MCP tools based on connector capabilities.
@@ -79,260 +79,93 @@ func (m *MCPServer) hasCapability(cap v2.Capability) bool {
 
 // registerReadTools registers read-only tools that are always available.
 func (m *MCPServer) registerReadTools() {
-	// get_metadata - Get connector metadata and capabilities.
-	m.server.AddTool(
-		mcp.NewTool("get_metadata",
-			mcp.WithDescription("Get connector metadata including display name, description, and capabilities"),
-		),
-		m.handleGetMetadata,
-	)
+	// get_metadata
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "get_metadata",
+		Description: "Get connector metadata including display name, description, and capabilities",
+	}, m.handleGetMetadata)
 
-	// validate - Validate connector configuration.
-	m.server.AddTool(
-		mcp.NewTool("validate",
-			mcp.WithDescription("Validate the connector configuration and connectivity"),
-		),
-		m.handleValidate,
-	)
+	// validate
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "validate",
+		Description: "Validate the connector configuration and connectivity",
+	}, m.handleValidate)
 
-	// list_resource_types - List available resource types.
-	m.server.AddTool(
-		mcp.NewTool("list_resource_types",
-			mcp.WithDescription("List all resource types supported by this connector"),
-			mcp.WithNumber("page_size",
-				mcp.Description("Number of items per page (default 50)"),
-			),
-			mcp.WithString("page_token",
-				mcp.Description("Pagination token from previous response"),
-			),
-		),
-		m.handleListResourceTypes,
-	)
+	// list_resource_types
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "list_resource_types",
+		Description: "List all resource types supported by this connector",
+	}, m.handleListResourceTypes)
 
-	// list_resources - List resources of a specific type.
-	m.server.AddTool(
-		mcp.NewTool("list_resources",
-			mcp.WithDescription("List resources of a specific type"),
-			mcp.WithString("resource_type_id",
-				mcp.Required(),
-				mcp.Description("The resource type ID to list (e.g., 'user', 'group')"),
-			),
-			mcp.WithString("parent_resource_type",
-				mcp.Description("Parent resource type (optional, for hierarchical resources)"),
-			),
-			mcp.WithString("parent_resource_id",
-				mcp.Description("Parent resource ID (optional, for hierarchical resources)"),
-			),
-			mcp.WithNumber("page_size",
-				mcp.Description("Number of items per page (default 50)"),
-			),
-			mcp.WithString("page_token",
-				mcp.Description("Pagination token from previous response"),
-			),
-		),
-		m.handleListResources,
-	)
+	// list_resources
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "list_resources",
+		Description: "List resources of a specific type",
+	}, m.handleListResources)
 
-	// get_resource - Get a specific resource by ID.
-	m.server.AddTool(
-		mcp.NewTool("get_resource",
-			mcp.WithDescription("Get a specific resource by its type and ID"),
-			mcp.WithString("resource_type",
-				mcp.Required(),
-				mcp.Description("The resource type (e.g., 'user', 'group')"),
-			),
-			mcp.WithString("resource_id",
-				mcp.Required(),
-				mcp.Description("The resource ID"),
-			),
-		),
-		m.handleGetResource,
-	)
+	// get_resource
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "get_resource",
+		Description: "Get a specific resource by its type and ID",
+	}, m.handleGetResource)
 
-	// list_entitlements - List entitlements for a resource.
-	m.server.AddTool(
-		mcp.NewTool("list_entitlements",
-			mcp.WithDescription("List entitlements (permissions, roles, memberships) for a resource"),
-			mcp.WithString("resource_type",
-				mcp.Required(),
-				mcp.Description("The resource type"),
-			),
-			mcp.WithString("resource_id",
-				mcp.Required(),
-				mcp.Description("The resource ID"),
-			),
-			mcp.WithNumber("page_size",
-				mcp.Description("Number of items per page (default 50)"),
-			),
-			mcp.WithString("page_token",
-				mcp.Description("Pagination token from previous response"),
-			),
-		),
-		m.handleListEntitlements,
-	)
+	// list_entitlements
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "list_entitlements",
+		Description: "List entitlements (permissions, roles, memberships) for a resource",
+	}, m.handleListEntitlements)
 
-	// list_grants - List grants for a resource.
-	m.server.AddTool(
-		mcp.NewTool("list_grants",
-			mcp.WithDescription("List grants (who has what access) for a resource"),
-			mcp.WithString("resource_type",
-				mcp.Required(),
-				mcp.Description("The resource type"),
-			),
-			mcp.WithString("resource_id",
-				mcp.Required(),
-				mcp.Description("The resource ID"),
-			),
-			mcp.WithNumber("page_size",
-				mcp.Description("Number of items per page (default 50)"),
-			),
-			mcp.WithString("page_token",
-				mcp.Description("Pagination token from previous response"),
-			),
-		),
-		m.handleListGrants,
-	)
+	// list_grants
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "list_grants",
+		Description: "List grants (who has what access) for a resource",
+	}, m.handleListGrants)
 }
 
 // registerProvisioningTools registers tools for provisioning operations.
 func (m *MCPServer) registerProvisioningTools() {
-	// grant - Grant an entitlement to a principal.
-	m.server.AddTool(
-		mcp.NewTool("grant",
-			mcp.WithDescription("Grant an entitlement to a principal (user or group)"),
-			mcp.WithString("entitlement_resource_type",
-				mcp.Required(),
-				mcp.Description("Resource type of the entitlement"),
-			),
-			mcp.WithString("entitlement_resource_id",
-				mcp.Required(),
-				mcp.Description("Resource ID of the entitlement"),
-			),
-			mcp.WithString("entitlement_id",
-				mcp.Required(),
-				mcp.Description("The entitlement ID"),
-			),
-			mcp.WithString("principal_resource_type",
-				mcp.Required(),
-				mcp.Description("Resource type of the principal (e.g., 'user', 'group')"),
-			),
-			mcp.WithString("principal_resource_id",
-				mcp.Required(),
-				mcp.Description("Resource ID of the principal"),
-			),
-		),
-		m.handleGrant,
-	)
+	// grant
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "grant",
+		Description: "Grant an entitlement to a principal (user or group)",
+	}, m.handleGrant)
 
-	// revoke - Revoke a grant.
-	m.server.AddTool(
-		mcp.NewTool("revoke",
-			mcp.WithDescription("Revoke a grant from a principal"),
-			mcp.WithString("grant_id",
-				mcp.Required(),
-				mcp.Description("The grant ID to revoke"),
-			),
-			mcp.WithString("entitlement_resource_type",
-				mcp.Required(),
-				mcp.Description("Resource type of the entitlement"),
-			),
-			mcp.WithString("entitlement_resource_id",
-				mcp.Required(),
-				mcp.Description("Resource ID of the entitlement"),
-			),
-			mcp.WithString("entitlement_id",
-				mcp.Required(),
-				mcp.Description("The entitlement ID"),
-			),
-			mcp.WithString("principal_resource_type",
-				mcp.Required(),
-				mcp.Description("Resource type of the principal"),
-			),
-			mcp.WithString("principal_resource_id",
-				mcp.Required(),
-				mcp.Description("Resource ID of the principal"),
-			),
-		),
-		m.handleRevoke,
-	)
+	// revoke
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "revoke",
+		Description: "Revoke a grant from a principal",
+	}, m.handleRevoke)
 
-	// create_resource - Create a new resource.
-	m.server.AddTool(
-		mcp.NewTool("create_resource",
-			mcp.WithDescription("Create a new resource"),
-			mcp.WithString("resource_type",
-				mcp.Required(),
-				mcp.Description("The resource type to create"),
-			),
-			mcp.WithString("display_name",
-				mcp.Required(),
-				mcp.Description("Display name for the new resource"),
-			),
-			mcp.WithString("parent_resource_type",
-				mcp.Description("Parent resource type (optional)"),
-			),
-			mcp.WithString("parent_resource_id",
-				mcp.Description("Parent resource ID (optional)"),
-			),
-		),
-		m.handleCreateResource,
-	)
+	// create_resource
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "create_resource",
+		Description: "Create a new resource",
+	}, m.handleCreateResource)
 
-	// delete_resource - Delete a resource.
-	m.server.AddTool(
-		mcp.NewTool("delete_resource",
-			mcp.WithDescription("Delete a resource"),
-			mcp.WithString("resource_type",
-				mcp.Required(),
-				mcp.Description("The resource type"),
-			),
-			mcp.WithString("resource_id",
-				mcp.Required(),
-				mcp.Description("The resource ID to delete"),
-			),
-		),
-		m.handleDeleteResource,
-	)
+	// delete_resource
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "delete_resource",
+		Description: "Delete a resource",
+	}, m.handleDeleteResource)
 }
 
 // registerTicketingTools registers tools for ticketing operations.
 func (m *MCPServer) registerTicketingTools() {
-	// list_ticket_schemas - List available ticket schemas.
-	m.server.AddTool(
-		mcp.NewTool("list_ticket_schemas",
-			mcp.WithDescription("List available ticket schemas"),
-		),
-		m.handleListTicketSchemas,
-	)
+	// list_ticket_schemas
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "list_ticket_schemas",
+		Description: "List available ticket schemas",
+	}, m.handleListTicketSchemas)
 
-	// create_ticket - Create a new ticket.
-	m.server.AddTool(
-		mcp.NewTool("create_ticket",
-			mcp.WithDescription("Create a new ticket"),
-			mcp.WithString("schema_id",
-				mcp.Required(),
-				mcp.Description("The ticket schema ID"),
-			),
-			mcp.WithString("display_name",
-				mcp.Required(),
-				mcp.Description("Display name for the ticket"),
-			),
-			mcp.WithString("description",
-				mcp.Description("Description of the ticket"),
-			),
-		),
-		m.handleCreateTicket,
-	)
+	// create_ticket
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "create_ticket",
+		Description: "Create a new ticket",
+	}, m.handleCreateTicket)
 
-	// get_ticket - Get a ticket by ID.
-	m.server.AddTool(
-		mcp.NewTool("get_ticket",
-			mcp.WithDescription("Get a ticket by ID"),
-			mcp.WithString("ticket_id",
-				mcp.Required(),
-				mcp.Description("The ticket ID"),
-			),
-		),
-		m.handleGetTicket,
-	)
+	// get_ticket
+	mcp.AddTool(m.server, &mcp.Tool{
+		Name:        "get_ticket",
+		Description: "Get a ticket by ID",
+	}, m.handleGetTicket)
 }

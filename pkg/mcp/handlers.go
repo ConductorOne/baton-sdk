@@ -2,423 +2,378 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
 const defaultPageSize = 50
 
-// handleGetMetadata handles the get_metadata tool.
-func (m *MCPServer) handleGetMetadata(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// Input/Output types for handlers.
+
+type EmptyInput struct{}
+
+type PaginationInput struct {
+	PageSize  int    `json:"page_size,omitempty" jsonschema:"description=Number of items per page (default 50)"`
+	PageToken string `json:"page_token,omitempty" jsonschema:"description=Pagination token from previous response"`
+}
+
+type ResourceInput struct {
+	ResourceType string `json:"resource_type" jsonschema:"required,description=The resource type (e.g. user or group)"`
+	ResourceID   string `json:"resource_id" jsonschema:"required,description=The resource ID"`
+}
+
+type ResourcePaginationInput struct {
+	ResourceType string `json:"resource_type" jsonschema:"required,description=The resource type"`
+	ResourceID   string `json:"resource_id" jsonschema:"required,description=The resource ID"`
+	PageSize     int    `json:"page_size,omitempty" jsonschema:"description=Number of items per page (default 50)"`
+	PageToken    string `json:"page_token,omitempty" jsonschema:"description=Pagination token from previous response"`
+}
+
+type ListResourcesInput struct {
+	ResourceTypeID     string `json:"resource_type_id" jsonschema:"required,description=The resource type ID to list (e.g. user or group)"`
+	ParentResourceType string `json:"parent_resource_type,omitempty" jsonschema:"description=Parent resource type (optional)"`
+	ParentResourceID   string `json:"parent_resource_id,omitempty" jsonschema:"description=Parent resource ID (optional)"`
+	PageSize           int    `json:"page_size,omitempty" jsonschema:"description=Number of items per page (default 50)"`
+	PageToken          string `json:"page_token,omitempty" jsonschema:"description=Pagination token from previous response"`
+}
+
+type GrantInput struct {
+	EntitlementResourceType string `json:"entitlement_resource_type" jsonschema:"required,description=Resource type of the entitlement"`
+	EntitlementResourceID   string `json:"entitlement_resource_id" jsonschema:"required,description=Resource ID of the entitlement"`
+	EntitlementID           string `json:"entitlement_id" jsonschema:"required,description=The entitlement ID"`
+	PrincipalResourceType   string `json:"principal_resource_type" jsonschema:"required,description=Resource type of the principal (e.g. user or group)"`
+	PrincipalResourceID     string `json:"principal_resource_id" jsonschema:"required,description=Resource ID of the principal"`
+}
+
+type RevokeInput struct {
+	GrantID                 string `json:"grant_id" jsonschema:"required,description=The grant ID to revoke"`
+	EntitlementResourceType string `json:"entitlement_resource_type" jsonschema:"required,description=Resource type of the entitlement"`
+	EntitlementResourceID   string `json:"entitlement_resource_id" jsonschema:"required,description=Resource ID of the entitlement"`
+	EntitlementID           string `json:"entitlement_id" jsonschema:"required,description=The entitlement ID"`
+	PrincipalResourceType   string `json:"principal_resource_type" jsonschema:"required,description=Resource type of the principal"`
+	PrincipalResourceID     string `json:"principal_resource_id" jsonschema:"required,description=Resource ID of the principal"`
+}
+
+type CreateResourceInput struct {
+	ResourceType       string `json:"resource_type" jsonschema:"required,description=The resource type to create"`
+	DisplayName        string `json:"display_name" jsonschema:"required,description=Display name for the new resource"`
+	ParentResourceType string `json:"parent_resource_type,omitempty" jsonschema:"description=Parent resource type (optional)"`
+	ParentResourceID   string `json:"parent_resource_id,omitempty" jsonschema:"description=Parent resource ID (optional)"`
+}
+
+type DeleteResourceInput struct {
+	ResourceType string `json:"resource_type" jsonschema:"required,description=The resource type"`
+	ResourceID   string `json:"resource_id" jsonschema:"required,description=The resource ID to delete"`
+}
+
+type CreateTicketInput struct {
+	SchemaID    string `json:"schema_id" jsonschema:"required,description=The ticket schema ID"`
+	DisplayName string `json:"display_name" jsonschema:"required,description=Display name for the ticket"`
+	Description string `json:"description,omitempty" jsonschema:"description=Description of the ticket"`
+}
+
+type GetTicketInput struct {
+	TicketID string `json:"ticket_id" jsonschema:"required,description=The ticket ID"`
+}
+
+// Output types.
+
+type MetadataOutput struct {
+	Metadata map[string]any `json:"metadata"`
+}
+
+type ValidateOutput struct {
+	Valid       bool `json:"valid"`
+	Annotations any  `json:"annotations,omitempty"`
+}
+
+type ListResourceTypesOutput struct {
+	ResourceTypes []map[string]any `json:"resource_types"`
+	NextPageToken string           `json:"next_page_token,omitempty"`
+	HasMore       bool             `json:"has_more"`
+}
+
+type ListResourcesOutput struct {
+	Resources     []map[string]any `json:"resources"`
+	NextPageToken string           `json:"next_page_token,omitempty"`
+	HasMore       bool             `json:"has_more"`
+}
+
+type ResourceOutput struct {
+	Resource map[string]any `json:"resource"`
+}
+
+type ListEntitlementsOutput struct {
+	Entitlements  []map[string]any `json:"entitlements"`
+	NextPageToken string           `json:"next_page_token,omitempty"`
+	HasMore       bool             `json:"has_more"`
+}
+
+type ListGrantsOutput struct {
+	Grants        []map[string]any `json:"grants"`
+	NextPageToken string           `json:"next_page_token,omitempty"`
+	HasMore       bool             `json:"has_more"`
+}
+
+type GrantOutput struct {
+	Grants []map[string]any `json:"grants"`
+}
+
+type SuccessOutput struct {
+	Success bool `json:"success"`
+}
+
+type ListTicketSchemasOutput struct {
+	Schemas       []map[string]any `json:"schemas"`
+	NextPageToken string           `json:"next_page_token,omitempty"`
+	HasMore       bool             `json:"has_more"`
+}
+
+type TicketOutput struct {
+	Ticket map[string]any `json:"ticket"`
+}
+
+// Handler implementations.
+
+func (m *MCPServer) handleGetMetadata(ctx context.Context, req *mcp.CallToolRequest, input EmptyInput) (*mcp.CallToolResult, MetadataOutput, error) {
 	resp, err := m.connector.GetMetadata(ctx, &v2.ConnectorServiceGetMetadataRequest{})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to get metadata: %v", err)), nil
+		return nil, MetadataOutput{}, fmt.Errorf("failed to get metadata: %w", err)
 	}
 
 	result, err := protoToMap(resp.GetMetadata())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize metadata: %v", err)), nil
+		return nil, MetadataOutput{}, fmt.Errorf("failed to serialize metadata: %w", err)
 	}
 
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, MetadataOutput{Metadata: result}, nil
 }
 
-// handleValidate handles the validate tool.
-func (m *MCPServer) handleValidate(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (m *MCPServer) handleValidate(ctx context.Context, req *mcp.CallToolRequest, input EmptyInput) (*mcp.CallToolResult, ValidateOutput, error) {
 	resp, err := m.connector.Validate(ctx, &v2.ConnectorServiceValidateRequest{})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("validation failed: %v", err)), nil
+		return nil, ValidateOutput{}, fmt.Errorf("validation failed: %w", err)
 	}
 
-	result := map[string]any{
-		"valid":       true,
-		"annotations": resp.GetAnnotations(),
-	}
-
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, ValidateOutput{
+		Valid:       true,
+		Annotations: resp.GetAnnotations(),
+	}, nil
 }
 
-// handleListResourceTypes handles the list_resource_types tool.
-func (m *MCPServer) handleListResourceTypes(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	pageSize := getPageSize(req)
-	pageToken := getStringArg(req, "page_token")
+func (m *MCPServer) handleListResourceTypes(ctx context.Context, req *mcp.CallToolRequest, input PaginationInput) (*mcp.CallToolResult, ListResourceTypesOutput, error) {
+	pageSize := uint32(defaultPageSize)
+	if input.PageSize > 0 {
+		pageSize = uint32(input.PageSize)
+	}
 
 	resp, err := m.connector.ListResourceTypes(ctx, &v2.ResourceTypesServiceListResourceTypesRequest{
 		PageSize:  pageSize,
-		PageToken: pageToken,
+		PageToken: input.PageToken,
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to list resource types: %v", err)), nil
+		return nil, ListResourceTypesOutput{}, fmt.Errorf("failed to list resource types: %w", err)
 	}
 
 	resourceTypes, err := protoListToMaps(resp.GetList())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize resource types: %v", err)), nil
+		return nil, ListResourceTypesOutput{}, fmt.Errorf("failed to serialize resource types: %w", err)
 	}
 
-	result := map[string]any{
-		"resource_types":  resourceTypes,
-		"next_page_token": resp.GetNextPageToken(),
-		"has_more":        resp.GetNextPageToken() != "",
-	}
-
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, ListResourceTypesOutput{
+		ResourceTypes: resourceTypes,
+		NextPageToken: resp.GetNextPageToken(),
+		HasMore:       resp.GetNextPageToken() != "",
+	}, nil
 }
 
-// handleListResources handles the list_resources tool.
-func (m *MCPServer) handleListResources(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resourceTypeID, err := req.RequireString("resource_type_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resource_type_id is required: %v", err)), nil
+func (m *MCPServer) handleListResources(ctx context.Context, req *mcp.CallToolRequest, input ListResourcesInput) (*mcp.CallToolResult, ListResourcesOutput, error) {
+	pageSize := uint32(defaultPageSize)
+	if input.PageSize > 0 {
+		pageSize = uint32(input.PageSize)
 	}
 
-	pageSize := getPageSize(req)
-	pageToken := getStringArg(req, "page_token")
-
-	// Build parent resource ID if specified.
 	var parentResourceID *v2.ResourceId
-	parentType := getStringArg(req, "parent_resource_type")
-	parentID := getStringArg(req, "parent_resource_id")
-	if parentType != "" && parentID != "" {
+	if input.ParentResourceType != "" && input.ParentResourceID != "" {
 		parentResourceID = &v2.ResourceId{
-			ResourceType: parentType,
-			Resource:     parentID,
+			ResourceType: input.ParentResourceType,
+			Resource:     input.ParentResourceID,
 		}
 	}
 
 	resp, err := m.connector.ListResources(ctx, &v2.ResourcesServiceListResourcesRequest{
-		ResourceTypeId:   resourceTypeID,
+		ResourceTypeId:   input.ResourceTypeID,
 		ParentResourceId: parentResourceID,
 		PageSize:         pageSize,
-		PageToken:        pageToken,
+		PageToken:        input.PageToken,
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to list resources: %v", err)), nil
+		return nil, ListResourcesOutput{}, fmt.Errorf("failed to list resources: %w", err)
 	}
 
 	resources, err := protoListToMaps(resp.GetList())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize resources: %v", err)), nil
+		return nil, ListResourcesOutput{}, fmt.Errorf("failed to serialize resources: %w", err)
 	}
 
-	result := map[string]any{
-		"resources":       resources,
-		"next_page_token": resp.GetNextPageToken(),
-		"has_more":        resp.GetNextPageToken() != "",
-	}
-
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, ListResourcesOutput{
+		Resources:     resources,
+		NextPageToken: resp.GetNextPageToken(),
+		HasMore:       resp.GetNextPageToken() != "",
+	}, nil
 }
 
-// handleGetResource handles the get_resource tool.
-func (m *MCPServer) handleGetResource(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resourceType, err := req.RequireString("resource_type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resource_type is required: %v", err)), nil
-	}
-
-	resourceID, err := req.RequireString("resource_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resource_id is required: %v", err)), nil
-	}
-
+func (m *MCPServer) handleGetResource(ctx context.Context, req *mcp.CallToolRequest, input ResourceInput) (*mcp.CallToolResult, ResourceOutput, error) {
 	resp, err := m.connector.GetResource(ctx, &v2.ResourceGetterServiceGetResourceRequest{
 		ResourceId: &v2.ResourceId{
-			ResourceType: resourceType,
-			Resource:     resourceID,
+			ResourceType: input.ResourceType,
+			Resource:     input.ResourceID,
 		},
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to get resource: %v", err)), nil
+		return nil, ResourceOutput{}, fmt.Errorf("failed to get resource: %w", err)
 	}
 
 	resource, err := protoToMap(resp.GetResource())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize resource: %v", err)), nil
+		return nil, ResourceOutput{}, fmt.Errorf("failed to serialize resource: %w", err)
 	}
 
-	jsonBytes, err := json.Marshal(resource)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, ResourceOutput{Resource: resource}, nil
 }
 
-// handleListEntitlements handles the list_entitlements tool.
-func (m *MCPServer) handleListEntitlements(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resourceType, err := req.RequireString("resource_type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resource_type is required: %v", err)), nil
+func (m *MCPServer) handleListEntitlements(ctx context.Context, req *mcp.CallToolRequest, input ResourcePaginationInput) (*mcp.CallToolResult, ListEntitlementsOutput, error) {
+	pageSize := uint32(defaultPageSize)
+	if input.PageSize > 0 {
+		pageSize = uint32(input.PageSize)
 	}
-
-	resourceID, err := req.RequireString("resource_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resource_id is required: %v", err)), nil
-	}
-
-	pageSize := getPageSize(req)
-	pageToken := getStringArg(req, "page_token")
 
 	resp, err := m.connector.ListEntitlements(ctx, &v2.EntitlementsServiceListEntitlementsRequest{
 		Resource: &v2.Resource{
 			Id: &v2.ResourceId{
-				ResourceType: resourceType,
-				Resource:     resourceID,
+				ResourceType: input.ResourceType,
+				Resource:     input.ResourceID,
 			},
 		},
 		PageSize:  pageSize,
-		PageToken: pageToken,
+		PageToken: input.PageToken,
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to list entitlements: %v", err)), nil
+		return nil, ListEntitlementsOutput{}, fmt.Errorf("failed to list entitlements: %w", err)
 	}
 
 	entitlements, err := protoListToMaps(resp.GetList())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize entitlements: %v", err)), nil
+		return nil, ListEntitlementsOutput{}, fmt.Errorf("failed to serialize entitlements: %w", err)
 	}
 
-	result := map[string]any{
-		"entitlements":    entitlements,
-		"next_page_token": resp.GetNextPageToken(),
-		"has_more":        resp.GetNextPageToken() != "",
-	}
-
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, ListEntitlementsOutput{
+		Entitlements:  entitlements,
+		NextPageToken: resp.GetNextPageToken(),
+		HasMore:       resp.GetNextPageToken() != "",
+	}, nil
 }
 
-// handleListGrants handles the list_grants tool.
-func (m *MCPServer) handleListGrants(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resourceType, err := req.RequireString("resource_type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resource_type is required: %v", err)), nil
+func (m *MCPServer) handleListGrants(ctx context.Context, req *mcp.CallToolRequest, input ResourcePaginationInput) (*mcp.CallToolResult, ListGrantsOutput, error) {
+	pageSize := uint32(defaultPageSize)
+	if input.PageSize > 0 {
+		pageSize = uint32(input.PageSize)
 	}
-
-	resourceID, err := req.RequireString("resource_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resource_id is required: %v", err)), nil
-	}
-
-	pageSize := getPageSize(req)
-	pageToken := getStringArg(req, "page_token")
 
 	resp, err := m.connector.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{
 		Resource: &v2.Resource{
 			Id: &v2.ResourceId{
-				ResourceType: resourceType,
-				Resource:     resourceID,
+				ResourceType: input.ResourceType,
+				Resource:     input.ResourceID,
 			},
 		},
 		PageSize:  pageSize,
-		PageToken: pageToken,
+		PageToken: input.PageToken,
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to list grants: %v", err)), nil
+		return nil, ListGrantsOutput{}, fmt.Errorf("failed to list grants: %w", err)
 	}
 
 	grants, err := protoListToMaps(resp.GetList())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize grants: %v", err)), nil
+		return nil, ListGrantsOutput{}, fmt.Errorf("failed to serialize grants: %w", err)
 	}
 
-	result := map[string]any{
-		"grants":          grants,
-		"next_page_token": resp.GetNextPageToken(),
-		"has_more":        resp.GetNextPageToken() != "",
-	}
-
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, ListGrantsOutput{
+		Grants:        grants,
+		NextPageToken: resp.GetNextPageToken(),
+		HasMore:       resp.GetNextPageToken() != "",
+	}, nil
 }
 
-// handleGrant handles the grant tool.
-func (m *MCPServer) handleGrant(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	entResourceType, err := req.RequireString("entitlement_resource_type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("entitlement_resource_type is required: %v", err)), nil
-	}
-
-	entResourceID, err := req.RequireString("entitlement_resource_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("entitlement_resource_id is required: %v", err)), nil
-	}
-
-	entID, err := req.RequireString("entitlement_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("entitlement_id is required: %v", err)), nil
-	}
-
-	principalType, err := req.RequireString("principal_resource_type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("principal_resource_type is required: %v", err)), nil
-	}
-
-	principalID, err := req.RequireString("principal_resource_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("principal_resource_id is required: %v", err)), nil
-	}
-
+func (m *MCPServer) handleGrant(ctx context.Context, req *mcp.CallToolRequest, input GrantInput) (*mcp.CallToolResult, GrantOutput, error) {
 	resp, err := m.connector.Grant(ctx, &v2.GrantManagerServiceGrantRequest{
 		Entitlement: &v2.Entitlement{
 			Resource: &v2.Resource{
 				Id: &v2.ResourceId{
-					ResourceType: entResourceType,
-					Resource:     entResourceID,
+					ResourceType: input.EntitlementResourceType,
+					Resource:     input.EntitlementResourceID,
 				},
 			},
-			Id: entID,
+			Id: input.EntitlementID,
 		},
 		Principal: &v2.Resource{
 			Id: &v2.ResourceId{
-				ResourceType: principalType,
-				Resource:     principalID,
+				ResourceType: input.PrincipalResourceType,
+				Resource:     input.PrincipalResourceID,
 			},
 		},
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("grant failed: %v", err)), nil
+		return nil, GrantOutput{}, fmt.Errorf("grant failed: %w", err)
 	}
 
 	grants, err := protoListToMaps(resp.GetGrants())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize grants: %v", err)), nil
+		return nil, GrantOutput{}, fmt.Errorf("failed to serialize grants: %w", err)
 	}
 
-	result := map[string]any{
-		"grants": grants,
-	}
-
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, GrantOutput{Grants: grants}, nil
 }
 
-// handleRevoke handles the revoke tool.
-func (m *MCPServer) handleRevoke(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	grantID, err := req.RequireString("grant_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("grant_id is required: %v", err)), nil
-	}
-
-	entResourceType, err := req.RequireString("entitlement_resource_type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("entitlement_resource_type is required: %v", err)), nil
-	}
-
-	entResourceID, err := req.RequireString("entitlement_resource_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("entitlement_resource_id is required: %v", err)), nil
-	}
-
-	entID, err := req.RequireString("entitlement_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("entitlement_id is required: %v", err)), nil
-	}
-
-	principalType, err := req.RequireString("principal_resource_type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("principal_resource_type is required: %v", err)), nil
-	}
-
-	principalID, err := req.RequireString("principal_resource_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("principal_resource_id is required: %v", err)), nil
-	}
-
-	_, err = m.connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
+func (m *MCPServer) handleRevoke(ctx context.Context, req *mcp.CallToolRequest, input RevokeInput) (*mcp.CallToolResult, SuccessOutput, error) {
+	_, err := m.connector.Revoke(ctx, &v2.GrantManagerServiceRevokeRequest{
 		Grant: &v2.Grant{
-			Id: grantID,
+			Id: input.GrantID,
 			Entitlement: &v2.Entitlement{
 				Resource: &v2.Resource{
 					Id: &v2.ResourceId{
-						ResourceType: entResourceType,
-						Resource:     entResourceID,
+						ResourceType: input.EntitlementResourceType,
+						Resource:     input.EntitlementResourceID,
 					},
 				},
-				Id: entID,
+				Id: input.EntitlementID,
 			},
 			Principal: &v2.Resource{
 				Id: &v2.ResourceId{
-					ResourceType: principalType,
-					Resource:     principalID,
+					ResourceType: input.PrincipalResourceType,
+					Resource:     input.PrincipalResourceID,
 				},
 			},
 		},
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("revoke failed: %v", err)), nil
+		return nil, SuccessOutput{}, fmt.Errorf("revoke failed: %w", err)
 	}
 
-	result := map[string]any{
-		"success": true,
-	}
-
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, SuccessOutput{Success: true}, nil
 }
 
-// handleCreateResource handles the create_resource tool.
-func (m *MCPServer) handleCreateResource(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resourceType, err := req.RequireString("resource_type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resource_type is required: %v", err)), nil
-	}
-
-	displayName, err := req.RequireString("display_name")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("display_name is required: %v", err)), nil
-	}
-
-	// Build parent resource if specified.
+func (m *MCPServer) handleCreateResource(ctx context.Context, req *mcp.CallToolRequest, input CreateResourceInput) (*mcp.CallToolResult, ResourceOutput, error) {
 	var parentResource *v2.Resource
-	parentType := getStringArg(req, "parent_resource_type")
-	parentID := getStringArg(req, "parent_resource_id")
-	if parentType != "" && parentID != "" {
+	if input.ParentResourceType != "" && input.ParentResourceID != "" {
 		parentResource = &v2.Resource{
 			Id: &v2.ResourceId{
-				ResourceType: parentType,
-				Resource:     parentID,
+				ResourceType: input.ParentResourceType,
+				Resource:     input.ParentResourceID,
 			},
 		}
 	}
@@ -426,180 +381,90 @@ func (m *MCPServer) handleCreateResource(ctx context.Context, req mcp.CallToolRe
 	resp, err := m.connector.CreateResource(ctx, &v2.CreateResourceRequest{
 		Resource: &v2.Resource{
 			Id: &v2.ResourceId{
-				ResourceType: resourceType,
+				ResourceType: input.ResourceType,
 			},
-			DisplayName:      displayName,
+			DisplayName:      input.DisplayName,
 			ParentResourceId: parentResource.GetId(),
 		},
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("create resource failed: %v", err)), nil
+		return nil, ResourceOutput{}, fmt.Errorf("create resource failed: %w", err)
 	}
 
 	resource, err := protoToMap(resp.GetCreated())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize resource: %v", err)), nil
+		return nil, ResourceOutput{}, fmt.Errorf("failed to serialize resource: %w", err)
 	}
 
-	jsonBytes, err := json.Marshal(resource)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, ResourceOutput{Resource: resource}, nil
 }
 
-// handleDeleteResource handles the delete_resource tool.
-func (m *MCPServer) handleDeleteResource(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	resourceType, err := req.RequireString("resource_type")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resource_type is required: %v", err)), nil
-	}
-
-	resourceID, err := req.RequireString("resource_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("resource_id is required: %v", err)), nil
-	}
-
-	_, err = m.connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
+func (m *MCPServer) handleDeleteResource(ctx context.Context, req *mcp.CallToolRequest, input DeleteResourceInput) (*mcp.CallToolResult, SuccessOutput, error) {
+	_, err := m.connector.DeleteResource(ctx, &v2.DeleteResourceRequest{
 		ResourceId: &v2.ResourceId{
-			ResourceType: resourceType,
-			Resource:     resourceID,
+			ResourceType: input.ResourceType,
+			Resource:     input.ResourceID,
 		},
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("delete resource failed: %v", err)), nil
+		return nil, SuccessOutput{}, fmt.Errorf("delete resource failed: %w", err)
 	}
 
-	result := map[string]any{
-		"success": true,
-	}
-
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, SuccessOutput{Success: true}, nil
 }
 
-// handleListTicketSchemas handles the list_ticket_schemas tool.
-func (m *MCPServer) handleListTicketSchemas(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (m *MCPServer) handleListTicketSchemas(ctx context.Context, req *mcp.CallToolRequest, input EmptyInput) (*mcp.CallToolResult, ListTicketSchemasOutput, error) {
 	resp, err := m.connector.ListTicketSchemas(ctx, &v2.TicketsServiceListTicketSchemasRequest{})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to list ticket schemas: %v", err)), nil
+		return nil, ListTicketSchemasOutput{}, fmt.Errorf("failed to list ticket schemas: %w", err)
 	}
 
 	schemas, err := protoListToMaps(resp.GetList())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize ticket schemas: %v", err)), nil
+		return nil, ListTicketSchemasOutput{}, fmt.Errorf("failed to serialize ticket schemas: %w", err)
 	}
 
-	result := map[string]any{
-		"schemas":         schemas,
-		"next_page_token": resp.GetNextPageToken(),
-		"has_more":        resp.GetNextPageToken() != "",
-	}
-
-	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, ListTicketSchemasOutput{
+		Schemas:       schemas,
+		NextPageToken: resp.GetNextPageToken(),
+		HasMore:       resp.GetNextPageToken() != "",
+	}, nil
 }
 
-// handleCreateTicket handles the create_ticket tool.
-func (m *MCPServer) handleCreateTicket(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	schemaID, err := req.RequireString("schema_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("schema_id is required: %v", err)), nil
-	}
-
-	displayName, err := req.RequireString("display_name")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("display_name is required: %v", err)), nil
-	}
-
-	description := getStringArg(req, "description")
-
+func (m *MCPServer) handleCreateTicket(ctx context.Context, req *mcp.CallToolRequest, input CreateTicketInput) (*mcp.CallToolResult, TicketOutput, error) {
 	resp, err := m.connector.CreateTicket(ctx, &v2.TicketsServiceCreateTicketRequest{
 		Schema: &v2.TicketSchema{
-			Id: schemaID,
+			Id: input.SchemaID,
 		},
 		Request: &v2.TicketRequest{
-			DisplayName: displayName,
-			Description: description,
+			DisplayName: input.DisplayName,
+			Description: input.Description,
 		},
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("create ticket failed: %v", err)), nil
+		return nil, TicketOutput{}, fmt.Errorf("create ticket failed: %w", err)
 	}
 
 	ticket, err := protoToMap(resp.GetTicket())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize ticket: %v", err)), nil
+		return nil, TicketOutput{}, fmt.Errorf("failed to serialize ticket: %w", err)
 	}
 
-	jsonBytes, err := json.Marshal(ticket)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
+	return nil, TicketOutput{Ticket: ticket}, nil
 }
 
-// handleGetTicket handles the get_ticket tool.
-func (m *MCPServer) handleGetTicket(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	ticketID, err := req.RequireString("ticket_id")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("ticket_id is required: %v", err)), nil
-	}
-
+func (m *MCPServer) handleGetTicket(ctx context.Context, req *mcp.CallToolRequest, input GetTicketInput) (*mcp.CallToolResult, TicketOutput, error) {
 	resp, err := m.connector.GetTicket(ctx, &v2.TicketsServiceGetTicketRequest{
-		Id: ticketID,
+		Id: input.TicketID,
 	})
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("get ticket failed: %v", err)), nil
+		return nil, TicketOutput{}, fmt.Errorf("get ticket failed: %w", err)
 	}
 
 	ticket, err := protoToMap(resp.GetTicket())
 	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to serialize ticket: %v", err)), nil
+		return nil, TicketOutput{}, fmt.Errorf("failed to serialize ticket: %w", err)
 	}
 
-	jsonBytes, err := json.Marshal(ticket)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed to marshal result: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
-}
-
-// Helper functions.
-
-func getPageSize(req mcp.CallToolRequest) uint32 {
-	args := req.GetArguments()
-	if args == nil {
-		return defaultPageSize
-	}
-	if ps, ok := args["page_size"]; ok {
-		if psFloat, ok := ps.(float64); ok {
-			return uint32(psFloat)
-		}
-	}
-	return defaultPageSize
-}
-
-func getStringArg(req mcp.CallToolRequest, name string) string {
-	args := req.GetArguments()
-	if args == nil {
-		return ""
-	}
-	if v, ok := args[name]; ok {
-		if s, ok := v.(string); ok {
-			return s
-		}
-	}
-	return ""
+	return nil, TicketOutput{Ticket: ticket}, nil
 }

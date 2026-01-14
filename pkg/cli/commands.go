@@ -664,7 +664,7 @@ func MakeMCPServerCommand[T field.Configurable](
 		}
 
 		l.Info("MCP server starting on stdio")
-		return mcpServer.Serve()
+		return mcpServer.Serve(runCtx)
 	}
 }
 
