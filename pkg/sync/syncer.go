@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	native_sync "sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Masterminds/semver/v3"
@@ -253,6 +255,8 @@ type syncer struct {
 	injectSyncIDAnnotation              bool
 	setSessionStore                     sessions.SetSessionStore
 	syncResourceTypes                   []string
+	previousSyncMu                      native_sync.Mutex
+	previousSyncIDPtr                   atomic.Pointer[string]
 }
 
 const minCheckpointInterval = 10 * time.Second
@@ -276,6 +280,33 @@ func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	}
 
 	return nil
+}
+
+func (s *syncer) getPreviousFullSyncID(ctx context.Context) (string, error) {
+	if ptr := s.previousSyncIDPtr.Load(); ptr != nil {
+		return *ptr, nil
+	}
+
+	s.previousSyncMu.Lock()
+	defer s.previousSyncMu.Unlock()
+
+	if ptr := s.previousSyncIDPtr.Load(); ptr != nil {
+		return *ptr, nil
+	}
+
+	psf, ok := s.store.(latestSyncFetcher)
+	if !ok {
+		empty := ""
+		s.previousSyncIDPtr.Store(&empty)
+		return "", nil
+	}
+
+	previousSyncID, err := psf.LatestFinishedSync(ctx, connectorstore.SyncTypeFull)
+	if err == nil {
+		s.previousSyncIDPtr.Store(&previousSyncID)
+	}
+
+	return previousSyncID, err
 }
 
 func (s *syncer) handleInitialActionForStep(ctx context.Context, a Action) {
@@ -1916,14 +1947,9 @@ func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v
 
 	l := ctxzap.Extract(ctx)
 
-	var previousSyncID string
-	var err error
-
-	if psf, ok := s.store.(latestSyncFetcher); ok {
-		previousSyncID, err = psf.LatestFinishedSync(ctx, connectorstore.SyncTypeFull)
-		if err != nil {
-			return "", nil, err
-		}
+	previousSyncID, err := s.getPreviousFullSyncID(ctx)
+	if err != nil {
+		return "", nil, err
 	}
 
 	if previousSyncID == "" {
