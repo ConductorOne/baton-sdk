@@ -57,8 +57,11 @@ message SecurityInsightTrait {
       max_bytes: 1024
       email: true
     }];
-
-    c1.connector.v2.ResourceId external_resource_id = 2;
+    // The external identifier of the user (e.g., ID, GUID, etc.)
+    string external_id = 2 [(validate.rules).string = {
+      min_bytes: 1
+      max_bytes: 4096
+    }];
   }
 
   // ExternalResourceTarget identifies a resource by external ID for resolution to an AppResource.
