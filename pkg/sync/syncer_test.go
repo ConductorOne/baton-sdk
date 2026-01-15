@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 var groupResourceType = v2.ResourceType_builder{
@@ -1634,4 +1635,266 @@ func (mc *mockConnector) Validate(ctx context.Context, in *v2.ConnectorServiceVa
 
 func (mc *mockConnector) Cleanup(ctx context.Context, in *v2.ConnectorServiceCleanupRequest, opts ...grpc.CallOption) (*v2.ConnectorServiceCleanupResponse, error) {
 	return &v2.ConnectorServiceCleanupResponse{}, nil
+}
+
+// etagMockConnector extends mockConnector to simulate ETag/ETagMatch behavior.
+type etagMockConnector struct {
+	*mockConnector
+	etagValue        string
+	matchOnNext      bool
+	callTokens       []string
+	entitlementID    string
+	firstPageGrants  []*v2.Grant
+	secondPageGrants []*v2.Grant
+	nextPageToken    string
+	forceMatch       bool
+}
+
+func newEtagMockConnector(etagValue string) *etagMockConnector {
+	mc := &etagMockConnector{
+		mockConnector: newMockConnector(),
+		etagValue:     etagValue,
+		callTokens:    make([]string, 0),
+	}
+	// Ensure default resource types
+	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+	return mc
+}
+
+func (mc *etagMockConnector) WithData(resource *v2.Resource, ent *v2.Entitlement, grants ...*v2.Grant) {
+	mc.AddResource(context.Background(), resource)
+	mc.entitlementID = ent.GetId()
+	mc.entDB[resource.GetId().GetResource()] = []*v2.Entitlement{ent}
+	mc.grantDB[resource.GetId().GetResource()] = grants
+	mc.firstPageGrants = grants
+	mc.secondPageGrants = nil
+	mc.nextPageToken = ""
+}
+
+func (mc *etagMockConnector) WithPagination(first []*v2.Grant, second []*v2.Grant, token string) {
+	mc.firstPageGrants = first
+	mc.secondPageGrants = second
+	mc.nextPageToken = token
+}
+
+func (mc *etagMockConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, _ ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
+	mc.callTokens = append(mc.callTokens, in.GetPageToken())
+
+	// Extract incoming ETag from resource annotations
+	var incomingETag string
+	var incomingEntitlement string
+	if res := in.GetResource(); res != nil {
+		annos := annotations.Annotations(res.GetAnnotations())
+		et := &v2.ETag{}
+		ok, _ := annos.Pick(et)
+		if ok {
+			incomingETag = et.GetValue()
+			incomingEntitlement = et.GetEntitlementId()
+		}
+	}
+
+	// If configured to match (or force match), return ETagMatch with empty list
+	if mc.forceMatch || (mc.matchOnNext && incomingETag == mc.etagValue && incomingEntitlement == mc.entitlementID) {
+		mc.matchOnNext = false
+		return v2.GrantsServiceListGrantsResponse_builder{
+			List: []*v2.Grant{},
+			Annotations: annotations.New(&v2.ETagMatch{
+				EntitlementId: mc.entitlementID,
+			}),
+		}.Build(), nil
+	}
+
+	// Normal path, optionally paginated
+	if mc.nextPageToken != "" {
+		if in.GetPageToken() == "" {
+			return v2.GrantsServiceListGrantsResponse_builder{
+				List:          mc.firstPageGrants,
+				NextPageToken: mc.nextPageToken,
+				Annotations: annotations.New(&v2.ETag{
+					Value:         mc.etagValue,
+					EntitlementId: mc.entitlementID,
+				}),
+			}.Build(), nil
+		}
+		return v2.GrantsServiceListGrantsResponse_builder{
+			List: mc.secondPageGrants,
+			Annotations: annotations.New(&v2.ETag{
+				Value:         mc.etagValue,
+				EntitlementId: mc.entitlementID,
+			}),
+		}.Build(), nil
+	}
+
+	return v2.GrantsServiceListGrantsResponse_builder{
+		List: mc.grantDB[in.GetResource().GetId().GetResource()],
+		Annotations: annotations.New(&v2.ETag{
+			Value:         mc.etagValue,
+			EntitlementId: mc.entitlementID,
+		}),
+	}.Build(), nil
+}
+
+func TestSyncGrants_EtagMatchReuse(t *testing.T) {
+	ctx := t.Context()
+
+	tempDir, err := os.MkdirTemp("", "baton-etag-reuse")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "etag-reuse.c1z")
+
+	// Build resource/entitlement/grant
+	group, err := rs.NewGroupResource("g1", groupResourceType, "g1", nil)
+	require.NoError(t, err)
+	ent := et.NewAssignmentEntitlement(group, "member", et.WithGrantableTo(groupResourceType, userResourceType))
+	ent.SetSlug("member")
+	user, err := rs.NewUserResource("u1", userResourceType, "u1", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
+	require.NoError(t, err)
+	grant := gt.NewGrant(group, "member", user)
+
+	mc := newEtagMockConnector("etag-1")
+	mc.WithData(group, ent, grant)
+
+	// First sync: normal path, store etag
+	syncer1, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.NoError(t, syncer1.Sync(ctx))
+	require.NoError(t, syncer1.Close(ctx))
+
+	// Second sync: connector will return ETagMatch and empty list, reuse previous grants
+	mc.matchOnNext = true
+	mc.callTokens = nil
+
+	syncer2, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.NoError(t, syncer2.Sync(ctx))
+	require.NoError(t, syncer2.Close(ctx))
+
+	// Should have only been called once (no pagination)
+	require.Equal(t, []string{""}, mc.callTokens)
+
+	// Verify grants exist after second sync
+	c1zManager, err := manager.New(ctx, c1zPath)
+	require.NoError(t, err)
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, resp.GetList(), 1)
+	got := resp.GetList()[0]
+	require.Equal(t, grant.GetId(), got.GetId())
+	require.True(t, proto.Equal(grant.GetEntitlement(), got.GetEntitlement()))
+	require.True(t, proto.Equal(grant.GetPrincipal(), got.GetPrincipal()))
+	require.True(t, proto.Equal(grant.GetSources(), got.GetSources()))
+}
+
+func TestSyncGrants_EtagMatchMissingPreviousEtag(t *testing.T) {
+	ctx := t.Context()
+
+	tempDir, err := os.MkdirTemp("", "baton-etag-miss")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "etag-miss.c1z")
+
+	group, err := rs.NewGroupResource("g1", groupResourceType, "g1", nil)
+	require.NoError(t, err)
+	ent := et.NewAssignmentEntitlement(group, "member", et.WithGrantableTo(groupResourceType, userResourceType))
+	ent.SetSlug("member")
+	user, err := rs.NewUserResource("u1", userResourceType, "u1", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
+	require.NoError(t, err)
+	grant := gt.NewGrant(group, "member", user)
+
+	mc := newEtagMockConnector("etag-1")
+	mc.WithData(group, ent, grant)
+
+	// First sync: do NOT return etag (simulate connector not setting it)
+	mc.etagValue = ""
+	syncer1, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.NoError(t, syncer1.Sync(ctx))
+	require.NoError(t, syncer1.Close(ctx))
+
+	// Second sync: connector claims ETagMatch but syncer has no previous etag -> expect error
+	mc.forceMatch = true
+	mc.etagValue = "etag-1"
+	mc.callTokens = nil
+
+	syncer2, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	err = syncer2.Sync(ctx)
+	require.Error(t, err, "expected error when connector returns ETagMatch but no previous etag stored")
+	_ = syncer2.Close(ctx)
+}
+
+func TestSyncGrants_EtagMatchEntitlementMismatch(t *testing.T) {
+	ctx := t.Context()
+
+	tempDir, err := os.MkdirTemp("", "baton-etag-mismatch")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "etag-mismatch.c1z")
+
+	group, err := rs.NewGroupResource("g1", groupResourceType, "g1", nil)
+	require.NoError(t, err)
+	ent := et.NewAssignmentEntitlement(group, "member", et.WithGrantableTo(groupResourceType, userResourceType))
+	ent.SetSlug("member")
+	user, err := rs.NewUserResource("u1", userResourceType, "u1", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
+	require.NoError(t, err)
+	grant := gt.NewGrant(group, "member", user)
+
+	mc := newEtagMockConnector("etag-1")
+	mc.WithData(group, ent, grant)
+
+	// First sync sets etag
+	syncer1, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.NoError(t, syncer1.Sync(ctx))
+	require.NoError(t, syncer1.Close(ctx))
+
+	// Second sync: connector returns ETagMatch but with different entitlement id -> error
+	mc.forceMatch = true
+	otherEnt := et.NewAssignmentEntitlement(group, "member2", et.WithGrantableTo(groupResourceType, userResourceType))
+	otherEnt.SetSlug("member2")
+	mc.entitlementID = otherEnt.GetId()
+	mc.callTokens = nil
+
+	syncer2, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	err = syncer2.Sync(ctx)
+	require.Error(t, err, "expected error when ETagMatch entitlement id mismatches previous etag")
+	_ = syncer2.Close(ctx)
+}
+
+func TestSyncGrants_NoMatchPaginates(t *testing.T) {
+	ctx := t.Context()
+
+	tempDir, err := os.MkdirTemp("", "baton-etag-paginate")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "etag-paginate.c1z")
+
+	group, err := rs.NewGroupResource("g1", groupResourceType, "g1", nil)
+	require.NoError(t, err)
+	ent := et.NewAssignmentEntitlement(group, "member", et.WithGrantableTo(groupResourceType, userResourceType))
+	ent.SetSlug("member")
+	user, err := rs.NewUserResource("u1", userResourceType, "u1", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
+	require.NoError(t, err)
+	grant1 := gt.NewGrant(group, "member", user)
+	grant2 := gt.NewGrant(group, "member", user)
+	grant2.SetId(grant1.GetId() + "_2")
+
+	mc := newEtagMockConnector("etag-1")
+	mc.WithData(group, ent, grant1, grant2)
+	mc.WithPagination([]*v2.Grant{grant1}, []*v2.Grant{grant2}, "next")
+
+	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.NoError(t, syncer.Sync(ctx))
+	require.NoError(t, syncer.Close(ctx))
+
+	require.Equal(t, []string{"", "next"}, mc.callTokens)
 }
