@@ -728,7 +728,7 @@ func ExtractDefaultConnector(ctx context.Context, options ...Option) (any, error
 	for _, o := range options {
 		err := o(ctx, cfg)
 		if err != nil {
-			return false, err
+			return nil, err
 		}
 	}
 
