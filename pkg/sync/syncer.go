@@ -2014,6 +2014,7 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 	var ret []*v2.Grant
 
 	// No previous etag, so an etag match is not possible
+	// TODO(kans): do the request again to get the grants, but this time don't use the etag match!
 	if prevEtag == nil {
 		return nil, false, errors.New("connector returned an etag match but there is no previous sync generation to use")
 	}
