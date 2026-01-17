@@ -37,31 +37,19 @@ func (c *listEventsHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, errors.Join(errors.New("malformed get list event task"), ErrTaskNonRetryable))
 	}
 
-	var (
-		pageToken = ""
-		events    []*v2.Event
-	)
-
-	for {
-		feeds, err := cc.ListEvents(ctx, v2.ListEventsRequest_builder{
-			EventFeedId: t.GetEventFeedId(),
-			StartAt:     t.GetStartAt(),
-			Cursor:      pageToken,
-			PageSize:    t.GetPageSize(),
-		}.Build())
-		if err != nil {
-			return err
-		}
-
-		events = append(events, feeds.GetEvents()...)
-		pageToken = feeds.GetCursor()
-		if !feeds.GetHasMore() {
-			break
-		}
+	feeds, err := cc.ListEvents(ctx, v2.ListEventsRequest_builder{
+		EventFeedId: t.GetEventFeedId(),
+		StartAt:     t.GetStartAt(),
+		PageSize:    t.GetPageSize(),
+	}.Build())
+	if err != nil {
+		return err
 	}
 
 	resp := v2.ListEventsResponse_builder{
-		Events: events,
+		Events:  feeds.GetEvents(),
+		Cursor:  feeds.GetCursor(),
+		HasMore: feeds.GetHasMore(),
 	}.Build()
 	return c.helpers.FinishTask(ctx, resp, resp.GetAnnotations(), nil)
 }
