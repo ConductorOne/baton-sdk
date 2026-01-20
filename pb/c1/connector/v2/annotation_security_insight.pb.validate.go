@@ -57,16 +57,7 @@ func (m *SecurityInsightTrait) validate(all bool) error {
 
 	var errors []error
 
-	if l := len(m.GetInsightType()); l < 1 || l > 1024 {
-		err := SecurityInsightTraitValidationError{
-			field:  "InsightType",
-			reason: "value length must be between 1 and 1024 bytes, inclusive",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
+	// no validation rules for InsightType
 
 	if l := len(m.GetValue()); l < 1 || l > 1024 {
 		err := SecurityInsightTraitValidationError{
