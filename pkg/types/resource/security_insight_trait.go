@@ -15,10 +15,10 @@ type SecurityInsightTraitOption func(*v2.SecurityInsightTrait) error
 
 // WithInsightType sets the insight type. This is typically set via NewSecurityInsightTrait,
 // but can be used to override or update the type on an existing trait.
-func WithInsightType(insightType string) SecurityInsightTraitOption {
+func WithInsightType(insightType v2.InsightType) SecurityInsightTraitOption {
 	return func(t *v2.SecurityInsightTrait) error {
-		if insightType == "" {
-			return fmt.Errorf("insight type cannot be empty")
+		if insightType == v2.InsightType_INSIGHT_TYPE_UNSPECIFIED {
+			return fmt.Errorf("insight type cannot be unspecified")
 		}
 		t.SetInsightType(insightType)
 		return nil
@@ -74,9 +74,9 @@ func WithInsightExternalResourceTarget(externalId string, appHint string) Securi
 }
 
 // NewSecurityInsightTrait creates a new SecurityInsightTrait with the given insight type and options.
-func NewSecurityInsightTrait(insightType string, opts ...SecurityInsightTraitOption) (*v2.SecurityInsightTrait, error) {
-	if insightType == "" {
-		return nil, fmt.Errorf("insight type cannot be empty")
+func NewSecurityInsightTrait(insightType v2.InsightType, opts ...SecurityInsightTraitOption) (*v2.SecurityInsightTrait, error) {
+	if insightType == v2.InsightType_INSIGHT_TYPE_UNSPECIFIED {
+		return nil, fmt.Errorf("insight type cannot be unspecified")
 	}
 
 	trait := v2.SecurityInsightTrait_builder{
@@ -112,7 +112,7 @@ func GetSecurityInsightTrait(resource *v2.Resource) (*v2.SecurityInsightTrait, e
 // The insightType parameter is required to ensure the trait is always valid.
 // If the resource already has a SecurityInsightTrait, it will be updated with the provided options.
 // If not, a new trait will be created with the given insightType.
-func WithSecurityInsightTrait(insightType string, opts ...SecurityInsightTraitOption) ResourceOption {
+func WithSecurityInsightTrait(insightType v2.InsightType, opts ...SecurityInsightTraitOption) ResourceOption {
 	return func(r *v2.Resource) error {
 		t := &v2.SecurityInsightTrait{}
 		annos := annotations.Annotations(r.GetAnnotations())
@@ -123,15 +123,15 @@ func WithSecurityInsightTrait(insightType string, opts ...SecurityInsightTraitOp
 
 		if !existing {
 			// Creating a new trait - insightType is required
-			if insightType == "" {
+			if insightType == v2.InsightType_INSIGHT_TYPE_UNSPECIFIED {
 				return fmt.Errorf("insight type is required when creating a new security insight trait")
 			}
 			t.SetInsightType(insightType)
-		} else if insightType != "" {
+		} else if insightType != v2.InsightType_INSIGHT_TYPE_UNSPECIFIED {
 			// Updating existing trait with a new type
 			t.SetInsightType(insightType)
 		}
-		// If existing and insightType is empty, keep the existing type
+		// If existing and insightType is unspecified, keep the existing type
 
 		for _, o := range opts {
 			if err := o(t); err != nil {
@@ -152,7 +152,7 @@ func NewUserSecurityInsightResource(
 	name string,
 	resourceType *v2.ResourceType,
 	objectID interface{},
-	insightType string,
+	insightType v2.InsightType,
 	value string,
 	userEmail string,
 	traitOpts []SecurityInsightTraitOption,
@@ -179,7 +179,7 @@ func NewResourceSecurityInsightResource(
 	name string,
 	resourceType *v2.ResourceType,
 	objectID interface{},
-	insightType string,
+	insightType v2.InsightType,
 	value string,
 	targetResourceId *v2.ResourceId,
 	traitOpts []SecurityInsightTraitOption,
@@ -206,7 +206,7 @@ func NewExternalResourceSecurityInsightResource(
 	name string,
 	resourceType *v2.ResourceType,
 	objectID interface{},
-	insightType string,
+	insightType v2.InsightType,
 	value string,
 	targetExternalId string,
 	targetAppHint string,
