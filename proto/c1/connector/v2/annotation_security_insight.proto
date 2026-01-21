@@ -8,25 +8,32 @@ import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
-// InsightType defines the well-known types of security insights.
-enum InsightType {
-  INSIGHT_TYPE_UNSPECIFIED = 0;
-  INSIGHT_TYPE_RISK_SCORE = 1;
-  INSIGHT_TYPE_ISSUE = 2;
+// RiskScore represents a risk score insight
+message RiskScore {
+  // The risk score value (e.g., "85", "High")
+  string value = 1;
+}
+
+// Issue represents a security issue or vulnerability
+message Issue {
+  // The issue description or severity (e.g., "Critical", "CVE-2024-1234")
+  string value = 1;
+  string severity = 2 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
 }
 
 // SecurityInsightTrait is the trait annotation for resources with TRAIT_SECURITY_INSIGHT.
 // It contains the metadata for the security insight including type, value, observation time,
 // and the target entity (user or resource) that this insight should be bound to.
 message SecurityInsightTrait {
-  // The type of insight
-  InsightType insight_type = 1;
-
-  // The value of the insight (e.g., "85", "High", "Critical")
-  string value = 2 [(validate.rules).string = {
-    min_bytes: 1
-    max_bytes: 1024
-  }];
+  // The type and value of the insight
+  oneof insight_type {
+    option (validate.required) = true;
+    RiskScore risk_score = 1;
+    Issue issue = 2;
+  }
 
   // When this insight was observed/captured from the source system
   google.protobuf.Timestamp observed_at = 3;
