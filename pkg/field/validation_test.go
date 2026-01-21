@@ -658,7 +658,7 @@ func TestRepeatedResourceIdRules_Validate(t *testing.T) {
 			},
 			v1_conf.RepeatedResourceIdRules_builder{Unique: true, ValidateEmpty: true}.Build(),
 		)
-		require.EqualError(t, err, "field TestField: value must not contain duplicate items but got multiple \"user:1\"")
+		require.EqualError(t, err, "field TestField: value must not contain duplicate items but got multiple (user, 1)")
 	})
 
 	t.Run("unique items with same type but different id", func(t *testing.T) {
