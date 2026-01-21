@@ -603,6 +603,132 @@ func TestFieldGroupMapping(t *testing.T) {
 	})
 }
 
+func TestRepeatedResourceIdRules_Validate(t *testing.T) {
+	run := func(value []*v1_conf.ResourceId, r *v1_conf.RepeatedResourceIdRules) error {
+		return ValidateRepeatedResourceIdRules(r, value, "TestField")
+	}
+
+	makeResourceId := func(typeId, id string) *v1_conf.ResourceId {
+		return v1_conf.ResourceId_builder{
+			ResourceTypeId: typeId,
+			ResourceId:     id,
+		}.Build()
+	}
+
+	t.Run("nil rules returns no error", func(t *testing.T) {
+		err := run([]*v1_conf.ResourceId{makeResourceId("user", "1")}, nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("empty input when required", func(t *testing.T) {
+		err := run([]*v1_conf.ResourceId{}, v1_conf.RepeatedResourceIdRules_builder{IsRequired: true}.Build())
+		require.EqualError(t, err, "field TestField of type []*ResourceId is marked as required but it has a zero-value")
+	})
+
+	t.Run("empty input when not required and validate_empty is false", func(t *testing.T) {
+		err := run([]*v1_conf.ResourceId{}, v1_conf.RepeatedResourceIdRules_builder{MinItems: uintP(2)}.Build())
+		require.NoError(t, err)
+	})
+
+	t.Run("fewer items than MinItems", func(t *testing.T) {
+		err := run(
+			[]*v1_conf.ResourceId{makeResourceId("user", "1")},
+			v1_conf.RepeatedResourceIdRules_builder{MinItems: uintP(2), ValidateEmpty: true}.Build(),
+		)
+		require.EqualError(t, err, "field TestField: value must have at least 2 items but got 1")
+	})
+
+	t.Run("more items than MaxItems", func(t *testing.T) {
+		err := run(
+			[]*v1_conf.ResourceId{
+				makeResourceId("user", "1"),
+				makeResourceId("user", "2"),
+				makeResourceId("user", "3"),
+			},
+			v1_conf.RepeatedResourceIdRules_builder{MaxItems: uintP(2), ValidateEmpty: true}.Build(),
+		)
+		require.EqualError(t, err, "field TestField: value must have at most 2 items but got 3")
+	})
+
+	t.Run("duplicate items when unique required", func(t *testing.T) {
+		err := run(
+			[]*v1_conf.ResourceId{
+				makeResourceId("user", "1"),
+				makeResourceId("user", "1"),
+			},
+			v1_conf.RepeatedResourceIdRules_builder{Unique: true, ValidateEmpty: true}.Build(),
+		)
+		require.EqualError(t, err, "field TestField: value must not contain duplicate items but got multiple \"user:1\"")
+	})
+
+	t.Run("unique items with same type but different id", func(t *testing.T) {
+		err := run(
+			[]*v1_conf.ResourceId{
+				makeResourceId("user", "1"),
+				makeResourceId("user", "2"),
+			},
+			v1_conf.RepeatedResourceIdRules_builder{Unique: true, ValidateEmpty: true}.Build(),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("unique items with different types", func(t *testing.T) {
+		err := run(
+			[]*v1_conf.ResourceId{
+				makeResourceId("user", "1"),
+				makeResourceId("group", "1"),
+			},
+			v1_conf.RepeatedResourceIdRules_builder{Unique: true, ValidateEmpty: true}.Build(),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("resource type not in allowed list", func(t *testing.T) {
+		err := run(
+			[]*v1_conf.ResourceId{
+				makeResourceId("user", "1"),
+				makeResourceId("admin", "2"),
+			},
+			v1_conf.RepeatedResourceIdRules_builder{
+				AllowedResourceTypeIds: []string{"user", "group"},
+				ValidateEmpty:          true,
+			}.Build(),
+		)
+		require.EqualError(t, err, "field TestField: item at index 1 has resource type 'admin' which is not in the allowed list [user group]")
+	})
+
+	t.Run("all resource types in allowed list", func(t *testing.T) {
+		err := run(
+			[]*v1_conf.ResourceId{
+				makeResourceId("user", "1"),
+				makeResourceId("group", "2"),
+			},
+			v1_conf.RepeatedResourceIdRules_builder{
+				AllowedResourceTypeIds: []string{"user", "group"},
+				ValidateEmpty:          true,
+			}.Build(),
+		)
+		require.NoError(t, err)
+	})
+
+	t.Run("valid input with all rules", func(t *testing.T) {
+		err := run(
+			[]*v1_conf.ResourceId{
+				makeResourceId("user", "1"),
+				makeResourceId("user", "2"),
+			},
+			v1_conf.RepeatedResourceIdRules_builder{
+				MinItems:               uintP(1),
+				MaxItems:               uintP(5),
+				Unique:                 true,
+				AllowedResourceTypeIds: []string{"user", "group"},
+				ValidateEmpty:          true,
+			}.Build(),
+		)
+		require.NoError(t, err)
+	})
+}
+
 func TestFieldGroupMappingSkip(t *testing.T) {
 	t.Run("field group mapping skip", func(t *testing.T) {
 		carrier := Configuration{

@@ -201,4 +201,20 @@ message ResourceIDRules {
 
 message RepeatedResourceIdRules {
   repeated string allowed_resource_type_ids = 1;
+
+  // MinItems specifies that this field must have the specified number of
+  // items at a minimum
+  optional uint64 min_items = 2;
+
+  // MaxItems specifies that this field must have the specified number of
+  // items at a maximum
+  optional uint64 max_items = 3;
+
+  // Unique specifies that all elements in this field must be unique.
+  bool unique = 4;
+
+  // IgnoreEmpty specifies that the validation rules of this field should be
+  // evaluated only if the field is not empty
+  bool validate_empty = 5;
+  bool is_required = 6;
 }
