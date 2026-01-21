@@ -829,7 +829,7 @@ func TestResourceProvisioner(t *testing.T) {
 			Id: "test-entitlement",
 		}.Build(),
 	}.Build())
-	require.ErrorContains(t, err, "resource type does not have provisioner configured")
+	require.ErrorContains(t, err, "does not have provisioner configured")
 
 	// Test success case - ResourceProvisioner implemented
 	rsProvisioner := newTestResourceProvisioner("test-resource")
