@@ -263,13 +263,13 @@ func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceG
 	tt := tasks.GetMetadataType
 	md, err := b.metadataProvider.Metadata(ctx)
 	if err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
 
 	md.Capabilities, err = b.getCapabilities(ctx)
 	if err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
 

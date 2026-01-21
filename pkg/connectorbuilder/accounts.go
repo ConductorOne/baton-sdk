@@ -62,8 +62,9 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 
 	if len(b.accountManagers) == 0 {
 		l.Error("error: connector does not have account manager configured")
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, status.Error(codes.Unimplemented, "connector does not have account manager configured")
+		err := status.Error(codes.Unimplemented, "connector does not have account manager configured")
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
 	}
 
 	var accountManager AccountManagerLimited
@@ -79,8 +80,9 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 			var ok bool
 			accountManager, ok = b.accountManagers["user"]
 			if !ok {
-				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-				return nil, status.Error(codes.Unimplemented, "connector has multiple account managers configured, but no resource type specified, and no default account manager configured")
+				err := status.Error(codes.Unimplemented, "connector has multiple account managers configured, but no resource type specified, and no default account manager configured")
+				b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+				return nil, err
 			}
 		}
 	}
@@ -91,29 +93,30 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		accountManager, ok = b.accountManagers[request.GetResourceTypeId()]
 		if !ok {
 			l.Error("error: connector does not have account manager configured")
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-			return nil, status.Errorf(codes.Unimplemented, "connector does not have account manager configured for resource type: %s", request.GetResourceTypeId())
+			err := status.Errorf(codes.Unimplemented, "connector does not have account manager configured for resource type: %s", request.GetResourceTypeId())
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+			return nil, err
 		}
 	}
 
 	opts, err := crypto.ConvertCredentialOptions(ctx, b.clientSecret, request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: converting credential options failed", zap.Error(err))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
 	result, plaintexts, annos, err := accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: create account failed: %w", err)
 	}
 
 	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
@@ -121,7 +124,7 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 	for _, plaintextCredential := range plaintexts {
 		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
-			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 			return nil, err
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
@@ -142,8 +145,9 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 	case *v2.CreateAccountResponse_InProgressResult:
 		rv.SetInProgress(proto.ValueOrDefault(r))
 	default:
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
-		return nil, status.Error(codes.Unimplemented, fmt.Sprintf("unknown result type: %T", result))
+		err := status.Error(codes.Unimplemented, fmt.Sprintf("unknown result type: %T", result))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
+		return nil, err
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))

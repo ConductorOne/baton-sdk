@@ -122,7 +122,7 @@ func (b *builder) ListEvents(ctx context.Context, request *v2.ListEventsRequest)
 		Cursor: request.GetCursor(),
 	})
 	if err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: listing events failed: %w", err)
 	}
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
