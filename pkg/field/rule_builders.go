@@ -267,7 +267,7 @@ func (b *ResourceIdSliceRuler) ValidateEmpty(value bool) *ResourceIdSliceRuler {
 	return b
 }
 
-func (b *ResourceIdSliceRuler) AllowedResourceTypeIds(typeIds []string) *ResourceIdSliceRuler {
-	b.rules.SetAllowedResourceTypeIds(typeIds)
+func (b *ResourceIdSliceRuler) AllowedResourceTypeIDs(typeIDs []string) *ResourceIdSliceRuler {
+	b.rules.SetAllowedResourceTypeIds(typeIDs)
 	return b
 }
