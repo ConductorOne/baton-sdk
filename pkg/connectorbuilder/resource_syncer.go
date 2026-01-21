@@ -89,7 +89,7 @@ func (b *builder) ListResourceTypes(
 	var out []*v2.ResourceType
 
 	if len(b.resourceSyncers) == 0 {
-		err := fmt.Errorf("error: no resource builders found")
+		err := status.Error(codes.FailedPrecondition, "no resource builders found")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -99,7 +99,7 @@ func (b *builder) ListResourceTypes(
 	}
 
 	if len(out) == 0 {
-		err := fmt.Errorf("error: no resource types found")
+		err := status.Error(codes.FailedPrecondition, "no resource types found")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -142,9 +142,9 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 		return resp, fmt.Errorf("error: listing resources failed: %w", err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
-		errMsg := "error: listing resources failed: next page token is the same as the current page token" +
-			" with page token %s resource type id %s and resource parent id: %s this is most likely a connector bug"
-		err := fmt.Errorf(errMsg, request.GetPageToken(), request.GetResourceTypeId(), request.GetParentResourceId())
+		err := status.Errorf(codes.Internal,
+			"listing resources failed: next page token unchanged (token=%s, type=%s, parent=%s) - likely a connector bug",
+			request.GetPageToken(), request.GetResourceTypeId(), request.GetParentResourceId())
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return resp, err
 	}
@@ -228,7 +228,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 		return nil, fmt.Errorf("error: listing static entitlements failed: %w", err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
-		err := fmt.Errorf("error: listing static entitlements failed: next page token is the same as the current page token. this is most likely a connector bug")
+		err := status.Error(codes.Internal, "listing static entitlements failed: next page token unchanged - likely a connector bug")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return resp, err
 	}
@@ -270,7 +270,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 		return resp, fmt.Errorf("error: listing entitlements failed: %w", err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
-		err := fmt.Errorf("error: listing entitlements failed: next page token is the same as the current page token. this is most likely a connector bug")
+		err := status.Error(codes.Internal, "listing entitlements failed: next page token unchanged - likely a connector bug")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return resp, err
 	}
@@ -315,9 +315,9 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 		return resp, fmt.Errorf("error: listing grants for resource %s/%s failed: %w", rid.GetResourceType(), rid.GetResource(), err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
-		err := fmt.Errorf("error: listing grants for resource %s/%s failed: next page token is the same as the current page token. this is most likely a connector bug",
-			rid.GetResourceType(),
-			rid.GetResource())
+		err := status.Errorf(codes.Internal,
+			"listing grants for resource %s/%s failed: next page token unchanged - likely a connector bug",
+			rid.GetResourceType(), rid.GetResource())
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return resp, err
 	}

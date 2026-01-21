@@ -36,6 +36,12 @@ func TestExtractFailureReason(t *testing.T) {
 			expectedRateLimit: false,
 		},
 		{
+			name:              "wrapped gRPC error preserves code",
+			err:               fmt.Errorf("outer: %w", status.Error(codes.Unavailable, "service unavailable")),
+			expectedCode:      codes.Unavailable,
+			expectedRateLimit: false,
+		},
+		{
 			name:              "gRPC Unavailable without details",
 			err:               status.Error(codes.Unavailable, "service unavailable"),
 			expectedCode:      codes.Unavailable,
@@ -110,8 +116,8 @@ func createRateLimitError(code codes.Code, rlStatus v2.RateLimitDescription_Stat
 	}.Build()
 	stWithDetails, err := st.WithDetails(rlDesc)
 	if err != nil {
-		// If we can't add details, return the original status error
-		return st.Err()
+		// This should not happen in tests - fail loudly
+		panic(fmt.Sprintf("failed to add rate limit details: %v", err))
 	}
 	return stWithDetails.Err()
 }

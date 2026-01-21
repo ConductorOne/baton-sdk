@@ -11,6 +11,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ResourceProvisioner extends ResourceSyncer to add capabilities for granting and revoking access.
@@ -71,7 +73,7 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 
 	if !ok {
 		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-		err := fmt.Errorf("error: resource type does not have provisioner configured")
+		err := status.Errorf(codes.Unimplemented, "resource type %s does not have provisioner configured", rt)
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -115,7 +117,7 @@ func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRev
 
 	if revokeProvisioner == nil {
 		l.Error("error: resource type does not have provisioner configured", zap.String("resource_type", rt))
-		err := fmt.Errorf("error: resource type does not have provisioner configured")
+		err := status.Errorf(codes.Unimplemented, "resource type %s does not have provisioner configured", rt)
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
