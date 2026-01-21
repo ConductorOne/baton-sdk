@@ -26,8 +26,7 @@ func WithRiskScore(value string) SecurityInsightTraitOption {
 	}
 }
 
-// WithIssue sets the insight type to issue with the given value and optional severity.
-// If severity is not empty, it will be set on the issue.
+// WithIssue sets the insight type to issue with the given value.
 func WithIssue(value string) SecurityInsightTraitOption {
 	return func(t *v2.SecurityInsightTrait) error {
 		if value == "" {
@@ -120,6 +119,10 @@ func NewSecurityInsightTrait(opts ...SecurityInsightTraitOption) (*v2.SecurityIn
 	// Validate that an insight type was set
 	if trait.GetRiskScore() == nil && trait.GetIssue() == nil {
 		return nil, fmt.Errorf("insight type must be set (use WithRiskScore or WithIssue)")
+	}
+
+	if trait.GetTarget() == nil {
+		return nil, fmt.Errorf("target must be set (use WithInsightUserTarget, WithInsightResourceTarget, WithInsightExternalResourceTarget, or WithInsightAppUserTarget)")
 	}
 
 	return trait, nil

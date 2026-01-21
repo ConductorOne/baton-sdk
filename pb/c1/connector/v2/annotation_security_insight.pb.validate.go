@@ -159,10 +159,10 @@ func (m *Issue) validate(all bool) error {
 
 	// no validation rules for Value
 
-	if l := len(m.GetSeverity()); l < 1 || l > 1024 {
+	if l := len(m.GetSeverity()); l < 0 || l > 1024 {
 		err := IssueValidationError{
 			field:  "Severity",
-			reason: "value length must be between 1 and 1024 bytes, inclusive",
+			reason: "value length must be between 0 and 1024 bytes, inclusive",
 		}
 		if !all {
 			return err

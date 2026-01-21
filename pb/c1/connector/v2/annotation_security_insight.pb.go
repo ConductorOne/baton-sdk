@@ -834,7 +834,7 @@ const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 	"\x05Issue\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\x12&\n" +
 	"\bseverity\x18\x02 \x01(\tB\n" +
-	"\xfaB\ar\x05 \x01(\x80\bR\bseverity\"\xae\x06\n" +
+	"\xfaB\ar\x05 \x00(\x80\bR\bseverity\"\xae\x06\n" +
 	"\x14SecurityInsightTrait\x12;\n" +
 	"\n" +
 	"risk_score\x18\x01 \x01(\v2\x1a.c1.connector.v2.RiskScoreH\x00R\triskScore\x12.\n" +

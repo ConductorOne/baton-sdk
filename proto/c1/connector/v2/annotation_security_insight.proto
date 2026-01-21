@@ -19,7 +19,7 @@ message Issue {
   // The issue description or severity (e.g., "Critical", "CVE-2024-1234")
   string value = 1;
   string severity = 2 [(validate.rules).string = {
-    min_bytes: 1
+    min_bytes: 0
     max_bytes: 1024
   }];
 }
