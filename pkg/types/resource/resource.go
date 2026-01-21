@@ -132,6 +132,30 @@ func WithRoleTrait(opts ...RoleTraitOption) ResourceOption {
 	}
 }
 
+func WithRoleScopeTrait(opts ...RoleScopeTraitOption) ResourceOption {
+	return func(r *v2.Resource) error {
+		rt := &v2.RoleScopeTrait{}
+
+		annos := annotations.Annotations(r.GetAnnotations())
+		_, err := annos.Pick(rt)
+		if err != nil {
+			return err
+		}
+
+		for _, o := range opts {
+			err := o(rt)
+			if err != nil {
+				return err
+			}
+		}
+
+		annos.Update(rt)
+		r.SetAnnotations(annos)
+
+		return nil
+	}
+}
+
 func WithAppTrait(opts ...AppTraitOption) ResourceOption {
 	return func(r *v2.Resource) error {
 		at := &v2.AppTrait{}
@@ -295,6 +319,24 @@ func NewRoleResource(
 	opts ...ResourceOption,
 ) (*v2.Resource, error) {
 	opts = append(opts, WithRoleTrait(roleTraitOpts...))
+
+	ret, err := NewResource(name, resourceType, objectID, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return ret, nil
+}
+
+// NewRoleScopeResource returns a new resource instance with a configured role scope trait.
+func NewRoleScopeResource(
+	name string,
+	resourceType *v2.ResourceType,
+	objectID interface{},
+	roleScopeOpts []RoleScopeTraitOption,
+	opts ...ResourceOption,
+) (*v2.Resource, error) {
+	opts = append(opts, WithRoleScopeTrait(roleScopeOpts...))
 
 	ret, err := NewResource(name, resourceType, objectID, opts...)
 	if err != nil {

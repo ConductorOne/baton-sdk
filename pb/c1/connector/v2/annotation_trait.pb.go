@@ -650,6 +650,101 @@ func (b0 RoleTrait_builder) Build() *RoleTrait {
 	return m0
 }
 
+// RoleScopeTrait is used to scope a role to a resource or set of resources.
+// The scope may be static (determined at crawl time) or dynamic (determined based on conditions).
+type RoleScopeTrait struct {
+	state           protoimpl.MessageState `protogen:"hybrid.v1"`
+	RoleId          *ResourceId            `protobuf:"bytes,1,opt,name=role_id,json=roleId,proto3" json:"role_id,omitempty"`                              // The role that is scoped.
+	ScopeResourceId *ResourceId            `protobuf:"bytes,2,opt,name=scope_resource_id,json=scopeResourceId,proto3" json:"scope_resource_id,omitempty"` // The resource that the role is scoped to.
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *RoleScopeTrait) Reset() {
+	*x = RoleScopeTrait{}
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RoleScopeTrait) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RoleScopeTrait) ProtoMessage() {}
+
+func (x *RoleScopeTrait) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RoleScopeTrait) GetRoleId() *ResourceId {
+	if x != nil {
+		return x.RoleId
+	}
+	return nil
+}
+
+func (x *RoleScopeTrait) GetScopeResourceId() *ResourceId {
+	if x != nil {
+		return x.ScopeResourceId
+	}
+	return nil
+}
+
+func (x *RoleScopeTrait) SetRoleId(v *ResourceId) {
+	x.RoleId = v
+}
+
+func (x *RoleScopeTrait) SetScopeResourceId(v *ResourceId) {
+	x.ScopeResourceId = v
+}
+
+func (x *RoleScopeTrait) HasRoleId() bool {
+	if x == nil {
+		return false
+	}
+	return x.RoleId != nil
+}
+
+func (x *RoleScopeTrait) HasScopeResourceId() bool {
+	if x == nil {
+		return false
+	}
+	return x.ScopeResourceId != nil
+}
+
+func (x *RoleScopeTrait) ClearRoleId() {
+	x.RoleId = nil
+}
+
+func (x *RoleScopeTrait) ClearScopeResourceId() {
+	x.ScopeResourceId = nil
+}
+
+type RoleScopeTrait_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	RoleId          *ResourceId
+	ScopeResourceId *ResourceId
+}
+
+func (b0 RoleScopeTrait_builder) Build() *RoleScopeTrait {
+	m0 := &RoleScopeTrait{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.RoleId = b.RoleId
+	x.ScopeResourceId = b.ScopeResourceId
+	return m0
+}
+
 type AppTrait struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	HelpUrl       string                 `protobuf:"bytes,1,opt,name=help_url,json=helpUrl,proto3" json:"help_url,omitempty"`
@@ -663,7 +758,7 @@ type AppTrait struct {
 
 func (x *AppTrait) Reset() {
 	*x = AppTrait{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[3]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -675,7 +770,7 @@ func (x *AppTrait) String() string {
 func (*AppTrait) ProtoMessage() {}
 
 func (x *AppTrait) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[3]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -810,7 +905,7 @@ type SecretTrait struct {
 
 func (x *SecretTrait) Reset() {
 	*x = SecretTrait{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[4]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -822,7 +917,7 @@ func (x *SecretTrait) String() string {
 func (*SecretTrait) ProtoMessage() {}
 
 func (x *SecretTrait) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[4]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1000,7 +1095,7 @@ type UserTrait_Email struct {
 
 func (x *UserTrait_Email) Reset() {
 	*x = UserTrait_Email{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[5]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1012,7 +1107,7 @@ func (x *UserTrait_Email) String() string {
 func (*UserTrait_Email) ProtoMessage() {}
 
 func (x *UserTrait_Email) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[5]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1072,7 +1167,7 @@ type UserTrait_Status struct {
 
 func (x *UserTrait_Status) Reset() {
 	*x = UserTrait_Status{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[6]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1084,7 +1179,7 @@ func (x *UserTrait_Status) String() string {
 func (*UserTrait_Status) ProtoMessage() {}
 
 func (x *UserTrait_Status) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[6]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1142,7 +1237,7 @@ type UserTrait_MFAStatus struct {
 
 func (x *UserTrait_MFAStatus) Reset() {
 	*x = UserTrait_MFAStatus{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[7]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1154,7 +1249,7 @@ func (x *UserTrait_MFAStatus) String() string {
 func (*UserTrait_MFAStatus) ProtoMessage() {}
 
 func (x *UserTrait_MFAStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[7]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1199,7 +1294,7 @@ type UserTrait_SSOStatus struct {
 
 func (x *UserTrait_SSOStatus) Reset() {
 	*x = UserTrait_SSOStatus{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[8]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1211,7 +1306,7 @@ func (x *UserTrait_SSOStatus) String() string {
 func (*UserTrait_SSOStatus) ProtoMessage() {}
 
 func (x *UserTrait_SSOStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[8]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1260,7 +1355,7 @@ type UserTrait_StructuredName struct {
 
 func (x *UserTrait_StructuredName) Reset() {
 	*x = UserTrait_StructuredName{}
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[9]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1272,7 +1367,7 @@ func (x *UserTrait_StructuredName) String() string {
 func (*UserTrait_StructuredName) ProtoMessage() {}
 
 func (x *UserTrait_StructuredName) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[9]
+	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1421,7 +1516,10 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x04icon\x18\x01 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x121\n" +
 	"\aprofile\x18\x02 \x01(\v2\x17.google.protobuf.StructR\aprofile\">\n" +
 	"\tRoleTrait\x121\n" +
-	"\aprofile\x18\x01 \x01(\v2\x17.google.protobuf.StructR\aprofile\"\x9a\x03\n" +
+	"\aprofile\x18\x01 \x01(\v2\x17.google.protobuf.StructR\aprofile\"\x8f\x01\n" +
+	"\x0eRoleScopeTrait\x124\n" +
+	"\arole_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x06roleId\x12G\n" +
+	"\x11scope_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x0fscopeResourceId\"\x9a\x03\n" +
 	"\bAppTrait\x125\n" +
 	"\bhelp_url\x18\x01 \x01(\tB\x1a\xfaB\x17r\x15 \x01(\x80\b:\bhttps://\xd0\x01\x01\x88\x01\x01R\ahelpUrl\x12-\n" +
 	"\x04icon\x18\x02 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x12-\n" +
@@ -1448,7 +1546,7 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"identityIdB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_annotation_trait_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_c1_connector_v2_annotation_trait_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_c1_connector_v2_annotation_trait_proto_goTypes = []any{
 	(UserTrait_AccountType)(0),       // 0: c1.connector.v2.UserTrait.AccountType
 	(UserTrait_Status_Status)(0),     // 1: c1.connector.v2.UserTrait.Status.Status
@@ -1456,48 +1554,51 @@ var file_c1_connector_v2_annotation_trait_proto_goTypes = []any{
 	(*UserTrait)(nil),                // 3: c1.connector.v2.UserTrait
 	(*GroupTrait)(nil),               // 4: c1.connector.v2.GroupTrait
 	(*RoleTrait)(nil),                // 5: c1.connector.v2.RoleTrait
-	(*AppTrait)(nil),                 // 6: c1.connector.v2.AppTrait
-	(*SecretTrait)(nil),              // 7: c1.connector.v2.SecretTrait
-	(*UserTrait_Email)(nil),          // 8: c1.connector.v2.UserTrait.Email
-	(*UserTrait_Status)(nil),         // 9: c1.connector.v2.UserTrait.Status
-	(*UserTrait_MFAStatus)(nil),      // 10: c1.connector.v2.UserTrait.MFAStatus
-	(*UserTrait_SSOStatus)(nil),      // 11: c1.connector.v2.UserTrait.SSOStatus
-	(*UserTrait_StructuredName)(nil), // 12: c1.connector.v2.UserTrait.StructuredName
-	(*structpb.Struct)(nil),          // 13: google.protobuf.Struct
-	(*AssetRef)(nil),                 // 14: c1.connector.v2.AssetRef
-	(*timestamppb.Timestamp)(nil),    // 15: google.protobuf.Timestamp
-	(*ResourceId)(nil),               // 16: c1.connector.v2.ResourceId
+	(*RoleScopeTrait)(nil),           // 6: c1.connector.v2.RoleScopeTrait
+	(*AppTrait)(nil),                 // 7: c1.connector.v2.AppTrait
+	(*SecretTrait)(nil),              // 8: c1.connector.v2.SecretTrait
+	(*UserTrait_Email)(nil),          // 9: c1.connector.v2.UserTrait.Email
+	(*UserTrait_Status)(nil),         // 10: c1.connector.v2.UserTrait.Status
+	(*UserTrait_MFAStatus)(nil),      // 11: c1.connector.v2.UserTrait.MFAStatus
+	(*UserTrait_SSOStatus)(nil),      // 12: c1.connector.v2.UserTrait.SSOStatus
+	(*UserTrait_StructuredName)(nil), // 13: c1.connector.v2.UserTrait.StructuredName
+	(*structpb.Struct)(nil),          // 14: google.protobuf.Struct
+	(*AssetRef)(nil),                 // 15: c1.connector.v2.AssetRef
+	(*timestamppb.Timestamp)(nil),    // 16: google.protobuf.Timestamp
+	(*ResourceId)(nil),               // 17: c1.connector.v2.ResourceId
 }
 var file_c1_connector_v2_annotation_trait_proto_depIdxs = []int32{
-	8,  // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
-	9,  // 1: c1.connector.v2.UserTrait.status:type_name -> c1.connector.v2.UserTrait.Status
-	13, // 2: c1.connector.v2.UserTrait.profile:type_name -> google.protobuf.Struct
-	14, // 3: c1.connector.v2.UserTrait.icon:type_name -> c1.connector.v2.AssetRef
+	9,  // 0: c1.connector.v2.UserTrait.emails:type_name -> c1.connector.v2.UserTrait.Email
+	10, // 1: c1.connector.v2.UserTrait.status:type_name -> c1.connector.v2.UserTrait.Status
+	14, // 2: c1.connector.v2.UserTrait.profile:type_name -> google.protobuf.Struct
+	15, // 3: c1.connector.v2.UserTrait.icon:type_name -> c1.connector.v2.AssetRef
 	0,  // 4: c1.connector.v2.UserTrait.account_type:type_name -> c1.connector.v2.UserTrait.AccountType
-	15, // 5: c1.connector.v2.UserTrait.created_at:type_name -> google.protobuf.Timestamp
-	15, // 6: c1.connector.v2.UserTrait.last_login:type_name -> google.protobuf.Timestamp
-	10, // 7: c1.connector.v2.UserTrait.mfa_status:type_name -> c1.connector.v2.UserTrait.MFAStatus
-	11, // 8: c1.connector.v2.UserTrait.sso_status:type_name -> c1.connector.v2.UserTrait.SSOStatus
-	12, // 9: c1.connector.v2.UserTrait.structured_name:type_name -> c1.connector.v2.UserTrait.StructuredName
-	14, // 10: c1.connector.v2.GroupTrait.icon:type_name -> c1.connector.v2.AssetRef
-	13, // 11: c1.connector.v2.GroupTrait.profile:type_name -> google.protobuf.Struct
-	13, // 12: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
-	14, // 13: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
-	14, // 14: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
-	13, // 15: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct
-	2,  // 16: c1.connector.v2.AppTrait.flags:type_name -> c1.connector.v2.AppTrait.AppFlag
-	13, // 17: c1.connector.v2.SecretTrait.profile:type_name -> google.protobuf.Struct
-	15, // 18: c1.connector.v2.SecretTrait.created_at:type_name -> google.protobuf.Timestamp
-	15, // 19: c1.connector.v2.SecretTrait.expires_at:type_name -> google.protobuf.Timestamp
-	15, // 20: c1.connector.v2.SecretTrait.last_used_at:type_name -> google.protobuf.Timestamp
-	16, // 21: c1.connector.v2.SecretTrait.created_by_id:type_name -> c1.connector.v2.ResourceId
-	16, // 22: c1.connector.v2.SecretTrait.identity_id:type_name -> c1.connector.v2.ResourceId
-	1,  // 23: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
-	24, // [24:24] is the sub-list for method output_type
-	24, // [24:24] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	16, // 5: c1.connector.v2.UserTrait.created_at:type_name -> google.protobuf.Timestamp
+	16, // 6: c1.connector.v2.UserTrait.last_login:type_name -> google.protobuf.Timestamp
+	11, // 7: c1.connector.v2.UserTrait.mfa_status:type_name -> c1.connector.v2.UserTrait.MFAStatus
+	12, // 8: c1.connector.v2.UserTrait.sso_status:type_name -> c1.connector.v2.UserTrait.SSOStatus
+	13, // 9: c1.connector.v2.UserTrait.structured_name:type_name -> c1.connector.v2.UserTrait.StructuredName
+	15, // 10: c1.connector.v2.GroupTrait.icon:type_name -> c1.connector.v2.AssetRef
+	14, // 11: c1.connector.v2.GroupTrait.profile:type_name -> google.protobuf.Struct
+	14, // 12: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
+	17, // 13: c1.connector.v2.RoleScopeTrait.role_id:type_name -> c1.connector.v2.ResourceId
+	17, // 14: c1.connector.v2.RoleScopeTrait.scope_resource_id:type_name -> c1.connector.v2.ResourceId
+	15, // 15: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
+	15, // 16: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
+	14, // 17: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct
+	2,  // 18: c1.connector.v2.AppTrait.flags:type_name -> c1.connector.v2.AppTrait.AppFlag
+	14, // 19: c1.connector.v2.SecretTrait.profile:type_name -> google.protobuf.Struct
+	16, // 20: c1.connector.v2.SecretTrait.created_at:type_name -> google.protobuf.Timestamp
+	16, // 21: c1.connector.v2.SecretTrait.expires_at:type_name -> google.protobuf.Timestamp
+	16, // 22: c1.connector.v2.SecretTrait.last_used_at:type_name -> google.protobuf.Timestamp
+	17, // 23: c1.connector.v2.SecretTrait.created_by_id:type_name -> c1.connector.v2.ResourceId
+	17, // 24: c1.connector.v2.SecretTrait.identity_id:type_name -> c1.connector.v2.ResourceId
+	1,  // 25: c1.connector.v2.UserTrait.Status.status:type_name -> c1.connector.v2.UserTrait.Status.Status
+	26, // [26:26] is the sub-list for method output_type
+	26, // [26:26] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_trait_proto_init() }
@@ -1513,7 +1614,7 @@ func file_c1_connector_v2_annotation_trait_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_trait_proto_rawDesc), len(file_c1_connector_v2_annotation_trait_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
