@@ -325,14 +325,18 @@ func ValidateRepeatedResourceIdRules(r *v1_conf.RepeatedResourceIdRules, v []*v1
 		return fmt.Errorf("field %s: value must have at most %d items but got %d", name, r.GetMaxItems(), len(v))
 	}
 	if r.GetUnique() {
-		uniqueValues := make(map[string]struct{})
+		type resourceKey struct {
+			typeID string
+			id     string
+		}
+		uniqueValues := make(map[resourceKey]struct{})
 		for _, item := range v {
 			if item == nil {
 				continue
 			}
-			key := item.GetResourceTypeId() + ":" + item.GetResourceId()
+			key := resourceKey{typeID: item.GetResourceTypeId(), id: item.GetResourceId()}
 			if _, exists := uniqueValues[key]; exists {
-				return fmt.Errorf("field %s: value must not contain duplicate items but got multiple \"%s\"", name, key)
+				return fmt.Errorf("field %s: value must not contain duplicate items but got multiple (%s, %s)", name, key.typeID, key.id)
 			}
 			uniqueValues[key] = struct{}{}
 		}
