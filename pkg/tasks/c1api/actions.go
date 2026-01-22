@@ -147,7 +147,12 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 				errMsg = errField.GetStringValue()
 			}
 		}
-		l.Error("ActionInvoke failed", zap.String("error", errMsg), zap.Any("resp", resp))
+		l.Error("ActionInvoke failed",
+			zap.String("error", errMsg),
+			zap.String("action_id", resp.GetId()),
+			zap.String("action_name", resp.GetName()),
+			zap.Stringer("status", resp.GetStatus()),
+		)
 		return c.helpers.FinishTask(ctx, resp, nil, fmt.Errorf("%s", errMsg))
 	}
 
