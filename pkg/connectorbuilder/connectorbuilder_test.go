@@ -829,7 +829,7 @@ func TestResourceProvisioner(t *testing.T) {
 			Id: "test-entitlement",
 		}.Build(),
 	}.Build())
-	require.ErrorContains(t, err, "resource type does not have provisioner configured")
+	require.ErrorContains(t, err, "does not have provisioner configured")
 
 	// Test success case - ResourceProvisioner implemented
 	rsProvisioner := newTestResourceProvisioner("test-resource")
@@ -1816,7 +1816,7 @@ func TestResourceSyncerPagination(t *testing.T) {
 			PageToken:      "same-token",
 		}.Build())
 		require.Error(t, err) // Should return an error for same page token
-		require.ErrorContains(t, err, "next page token is the same as the current page token")
+		require.ErrorContains(t, err, "next page token unchanged")
 		// Response should contain the data returned before the error was detected
 		require.NotNil(t, resp)
 		require.Empty(t, resp.GetList())                        // Should return empty list

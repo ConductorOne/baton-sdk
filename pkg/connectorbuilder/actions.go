@@ -108,7 +108,7 @@ func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionS
 
 	actionSchemas, _, err := b.actionManager.ListActionSchemas(ctx, resourceTypeID)
 	if err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: listing action schemas failed: %w", err)
 	}
 
@@ -129,7 +129,7 @@ func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSche
 
 	actionSchema, annos, err := b.actionManager.GetActionSchema(ctx, request.GetName())
 	if err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: action schema %s not found: %w", request.GetName(), err)
 	}
 
@@ -152,7 +152,7 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 
 	id, actionStatus, resp, annos, err := b.actionManager.InvokeAction(ctx, request.GetName(), resourceTypeID, request.GetArgs())
 	if err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: invoking action failed: %w", err)
 	}
 
@@ -177,7 +177,7 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 
 	actionStatus, name, rv, annos, err := b.actionManager.GetActionStatus(ctx, request.GetId())
 	if err != nil {
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start))
+		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, fmt.Errorf("error: action status for id %s not found: %w", request.GetId(), err)
 	}
 
