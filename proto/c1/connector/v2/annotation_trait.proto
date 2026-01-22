@@ -80,6 +80,16 @@ message GroupTrait {
 
 message RoleTrait {
   google.protobuf.Struct profile = 1;
+  RoleScopeConditions role_scope_conditions = 2;
+}
+
+message RoleScopeConditions {
+  string type = 1;
+  repeated RoleScopeCondition conditions = 3;
+}
+
+message RoleScopeCondition {
+  string expression = 1;
 }
 
 // RoleScopeTrait is used to scope a role to a resource or set of resources.

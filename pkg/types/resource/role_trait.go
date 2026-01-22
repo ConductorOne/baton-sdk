@@ -23,6 +23,22 @@ func WithRoleProfile(profile map[string]interface{}) RoleTraitOption {
 	}
 }
 
+func WithRoleScopeConditions(typ string, conditions []string) RoleTraitOption {
+	return func(rt *v2.RoleTrait) error {
+		rt.RoleScopeConditions = &v2.RoleScopeConditions{
+			Type:       typ,
+			Conditions: make([]*v2.RoleScopeCondition, len(conditions)),
+		}
+		for i, condition := range conditions {
+			rt.RoleScopeConditions.Conditions[i] = &v2.RoleScopeCondition{
+				Expression: condition,
+			}
+		}
+
+		return nil
+	}
+}
+
 // NewRoleTrait creates a new `RoleTrait` with the provided profile.
 func NewRoleTrait(opts ...RoleTraitOption) (*v2.RoleTrait, error) {
 	groupTrait := &v2.RoleTrait{}
