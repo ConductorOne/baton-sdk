@@ -40,6 +40,7 @@ func (c *listEventsHandler) HandleTask(ctx context.Context) error {
 	feeds, err := cc.ListEvents(ctx, v2.ListEventsRequest_builder{
 		EventFeedId: t.GetEventFeedId(),
 		StartAt:     t.GetStartAt(),
+		Cursor:      t.GetCursor(),
 		PageSize:    t.GetPageSize(),
 	}.Build())
 	if err != nil {

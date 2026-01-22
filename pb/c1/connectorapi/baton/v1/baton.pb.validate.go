@@ -3835,6 +3835,21 @@ func (m *Task_ListEventsTask) validate(all bool) error {
 
 	}
 
+	if m.GetCursor() != "" {
+
+		if l := len(m.GetCursor()); l < 1 || l > 4096 {
+			err := Task_ListEventsTaskValidationError{
+				field:  "Cursor",
+				reason: "value length must be between 1 and 4096 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
 	if all {
 		switch v := interface{}(m.GetStartAt()).(type) {
 		case interface{ ValidateAll() error }:

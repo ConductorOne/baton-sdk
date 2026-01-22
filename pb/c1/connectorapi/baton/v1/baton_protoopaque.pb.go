@@ -2779,9 +2779,10 @@ func (b0 Task_EventFeedTask_builder) Build() *Task_EventFeedTask {
 type Task_ListEventsTask struct {
 	state                  protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Annotations *[]*anypb.Any          `protobuf:"bytes,1,rep,name=annotations,proto3"`
-	xxx_hidden_StartAt     *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=start_at,json=startAt,proto3"`
-	xxx_hidden_EventFeedId string                 `protobuf:"bytes,3,opt,name=event_feed_id,json=eventFeedId,proto3"`
-	xxx_hidden_PageSize    uint32                 `protobuf:"varint,4,opt,name=page_size,json=pageSize,proto3"`
+	xxx_hidden_Cursor      string                 `protobuf:"bytes,2,opt,name=cursor,proto3"`
+	xxx_hidden_StartAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=start_at,json=startAt,proto3"`
+	xxx_hidden_EventFeedId string                 `protobuf:"bytes,4,opt,name=event_feed_id,json=eventFeedId,proto3"`
+	xxx_hidden_PageSize    uint32                 `protobuf:"varint,5,opt,name=page_size,json=pageSize,proto3"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -2820,6 +2821,13 @@ func (x *Task_ListEventsTask) GetAnnotations() []*anypb.Any {
 	return nil
 }
 
+func (x *Task_ListEventsTask) GetCursor() string {
+	if x != nil {
+		return x.xxx_hidden_Cursor
+	}
+	return ""
+}
+
 func (x *Task_ListEventsTask) GetStartAt() *timestamppb.Timestamp {
 	if x != nil {
 		return x.xxx_hidden_StartAt
@@ -2843,6 +2851,10 @@ func (x *Task_ListEventsTask) GetPageSize() uint32 {
 
 func (x *Task_ListEventsTask) SetAnnotations(v []*anypb.Any) {
 	x.xxx_hidden_Annotations = &v
+}
+
+func (x *Task_ListEventsTask) SetCursor(v string) {
+	x.xxx_hidden_Cursor = v
 }
 
 func (x *Task_ListEventsTask) SetStartAt(v *timestamppb.Timestamp) {
@@ -2872,6 +2884,7 @@ type Task_ListEventsTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Annotations []*anypb.Any
+	Cursor      string
 	StartAt     *timestamppb.Timestamp
 	EventFeedId string
 	PageSize    uint32
@@ -2882,6 +2895,7 @@ func (b0 Task_ListEventsTask_builder) Build() *Task_ListEventsTask {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Annotations = &b.Annotations
+	x.xxx_hidden_Cursor = b.Cursor
 	x.xxx_hidden_StartAt = b.StartAt
 	x.xxx_hidden_EventFeedId = b.EventFeedId
 	x.xxx_hidden_PageSize = b.PageSize
@@ -5150,7 +5164,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xfb,\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xa2-\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -5192,12 +5206,14 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\x17targeted_sync_resources\x18\x04 \x03(\v2\x19.c1.connector.v2.ResourceR\x15targetedSyncResources\x1a~\n" +
 	"\rEventFeedTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x125\n" +
-	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x1a\xc0\x01\n" +
+	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x1a\xe7\x01\n" +
 	"\x0eListEventsTask\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x125\n" +
-	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x12\"\n" +
-	"\revent_feed_id\x18\x03 \x01(\tR\veventFeedId\x12\x1b\n" +
-	"\tpage_size\x18\x04 \x01(\rR\bpageSize\x1aL\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12%\n" +
+	"\x06cursor\x18\x02 \x01(\tB\r\xfaB\n" +
+	"r\b \x01(\x80 \xd0\x01\x01R\x06cursor\x125\n" +
+	"\bstart_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x12\"\n" +
+	"\revent_feed_id\x18\x04 \x01(\tR\veventFeedId\x12\x1b\n" +
+	"\tpage_size\x18\x05 \x01(\rR\bpageSize\x1aL\n" +
 	"\x12ListEventFeedsTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\xf3\x01\n" +
 	"\tGrantTask\x12>\n" +
