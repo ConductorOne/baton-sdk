@@ -60,6 +60,9 @@ type C1File struct {
 	slowQueryLogTimesMu   sync.Mutex
 	slowQueryThreshold    time.Duration
 	slowQueryLogFrequency time.Duration
+
+	// Sync cleanup settings
+	syncLimit int
 }
 
 var _ connectorstore.Writer = (*C1File)(nil)
@@ -90,6 +93,14 @@ func WithC1FReadOnly(readOnly bool) C1FOption {
 func WithC1FEncoderConcurrency(concurrency int) C1FOption {
 	return func(o *C1File) {
 		o.encoderConcurrency = concurrency
+	}
+}
+
+// WithC1FSyncCountLimit sets the number of syncs to keep during cleanup.
+// If not set, defaults to 2 (or BATON_KEEP_SYNC_COUNT env var if set).
+func WithC1FSyncCountLimit(limit int) C1FOption {
+	return func(o *C1File) {
+		o.syncLimit = limit
 	}
 }
 
@@ -139,7 +150,9 @@ type c1zOptions struct {
 	decoderOptions     []DecoderOption
 	readOnly           bool
 	encoderConcurrency int
+	syncLimit          int
 }
+
 type C1ZOption func(*c1zOptions)
 
 // WithTmpDir sets the temporary directory to extract the c1z file to.
@@ -179,6 +192,14 @@ func WithEncoderConcurrency(concurrency int) C1ZOption {
 	}
 }
 
+// WithSyncLimit sets the number of syncs to keep during cleanup.
+// If not set, defaults to 2 (or BATON_KEEP_SYNC_COUNT env var if set).
+func WithSyncLimit(limit int) C1ZOption {
+	return func(o *c1zOptions) {
+		o.syncLimit = limit
+	}
+}
+
 // Returns a new C1File instance with its state stored at the provided filename.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
@@ -207,6 +228,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 		return nil, fmt.Errorf("encoder concurrency must be greater than 0")
 	}
 	c1fopts = append(c1fopts, WithC1FEncoderConcurrency(options.encoderConcurrency))
+	if options.syncLimit > 0 {
+		c1fopts = append(c1fopts, WithC1FSyncCountLimit(options.syncLimit))
+	}
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)
 	if err != nil {
