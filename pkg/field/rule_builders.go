@@ -238,3 +238,36 @@ func (b *StringSliceRuler) ItemRules(f func(stringer *StringRuler)) *StringSlice
 	f(b.stringer)
 	return b
 }
+
+type ResourceIdSliceRuler struct {
+	rules *v1_conf.RepeatedResourceIdRules
+}
+
+func NewRepeatedResourceIdBuilder(rules *v1_conf.RepeatedResourceIdRules) *ResourceIdSliceRuler {
+	return &ResourceIdSliceRuler{rules: rules}
+}
+
+func (b *ResourceIdSliceRuler) MinItems(value uint64) *ResourceIdSliceRuler {
+	b.rules.SetMinItems(value)
+	return b
+}
+
+func (b *ResourceIdSliceRuler) MaxItems(value uint64) *ResourceIdSliceRuler {
+	b.rules.SetMaxItems(value)
+	return b
+}
+
+func (b *ResourceIdSliceRuler) Unique(unique bool) *ResourceIdSliceRuler {
+	b.rules.SetUnique(unique)
+	return b
+}
+
+func (b *ResourceIdSliceRuler) ValidateEmpty(value bool) *ResourceIdSliceRuler {
+	b.rules.SetValidateEmpty(value)
+	return b
+}
+
+func (b *ResourceIdSliceRuler) AllowedResourceTypeIDs(typeIDs []string) *ResourceIdSliceRuler {
+	b.rules.SetAllowedResourceTypeIds(typeIDs)
+	return b
+}
