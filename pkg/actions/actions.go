@@ -522,7 +522,7 @@ func (a *ActionManager) invokeResourceAction(
 	go func() {
 		defer close(done)
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
-		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
+		handlerCtx, cancel := context.WithTimeoutCause(ctxzap.ToContext(context.Background(), ctxzap.Extract(ctx)), 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
 		var oaErr error
 		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, args)
