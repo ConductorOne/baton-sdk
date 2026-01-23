@@ -632,8 +632,11 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		var c types.ConnectorServer
 
 		c, err = defaultConnectorBuilder(ctx, opts...)
+		if err != nil {
+			return fmt.Errorf("failed to build default connector: %w", err)
+		}
 
-		if c == nil || err != nil {
+		if c == nil {
 			readFromPath := true
 			decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
 			t, err := MakeGenericConfiguration[T](v, decodeOpts)
@@ -731,6 +734,10 @@ func defaultConnectorBuilder(ctx context.Context, opts ...connectorrunner.Option
 	defaultConnector, err := connectorrunner.ExtractDefaultConnector(ctx, opts...)
 	if err != nil {
 		return nil, err
+	}
+
+	if defaultConnector == nil {
+		return nil, nil
 	}
 
 	c, err := connectorbuilder.NewConnector(ctx, defaultConnector)

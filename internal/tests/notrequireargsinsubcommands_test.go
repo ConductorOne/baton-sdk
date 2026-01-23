@@ -28,4 +28,9 @@ func TestCallSubCommand(t *testing.T) {
 		_, err := entrypoint(ctx, carrier, nil, "completion", "zsh")
 		require.NoError(t, err)
 	})
+
+	t.Run("should run «capabilities» sub-command without success when no default builder and missing config", func(t *testing.T) {
+		_, err := entrypoint(ctx, carrier, nil, "capabilities")
+		require.EqualError(t, err, "(Cobra) Execute failed: errors found:\nfield name of type string is marked as required but it has a zero-value")
+	})
 }
