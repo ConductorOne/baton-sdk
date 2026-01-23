@@ -700,8 +700,9 @@ func TestC1FileSessionStore_Clear(t *testing.T) {
 		err := c1zFile.Clear(ctx, sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 
-		// Add one key for each special prefix, plus a control key.
+		// Add one key for each special prefix, plus control keys that would match if wildcards weren't escaped.
 		require.NoError(t, c1zFile.Set(ctx, "k1", []byte("v1"), sessions.WithSyncID(syncID), sessions.WithPrefix("a_b:")))
+		require.NoError(t, c1zFile.Set(ctx, "k1x", []byte("v1x"), sessions.WithSyncID(syncID), sessions.WithPrefix("aXb:"))) // control for "_"
 		require.NoError(t, c1zFile.Set(ctx, "k2", []byte("v2"), sessions.WithSyncID(syncID), sessions.WithPrefix("a%:")))
 		require.NoError(t, c1zFile.Set(ctx, "k3", []byte("v3"), sessions.WithSyncID(syncID), sessions.WithPrefix(`a\b:`)))
 		require.NoError(t, c1zFile.Set(ctx, "k4", []byte("v4"), sessions.WithSyncID(syncID), sessions.WithPrefix("control:")))
@@ -711,6 +712,11 @@ func TestC1FileSessionStore_Clear(t *testing.T) {
 		_, found, err := c1zFile.Get(ctx, "k1", sessions.WithSyncID(syncID), sessions.WithPrefix("a_b:"))
 		require.NoError(t, err)
 		require.False(t, found)
+
+		// "aXb:" should NOT be cleared (it would be if "_" were treated as a wildcard).
+		_, found, err = c1zFile.Get(ctx, "k1x", sessions.WithSyncID(syncID), sessions.WithPrefix("aXb:"))
+		require.NoError(t, err)
+		require.True(t, found, "aXb: should remain after clearing a_b:")
 
 		// Other prefixes should remain.
 		_, found, err = c1zFile.Get(ctx, "k2", sessions.WithSyncID(syncID), sessions.WithPrefix("a%:"))
@@ -822,13 +828,16 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 	})
 
 	t.Run("GetAll with underscore in prefix", func(t *testing.T) {
-		// NOTE: This currently fails because SQLite LIKE does not treat "\" as an escape
-		// unless the query includes an explicit ESCAPE clause.
+		// Underscore must be treated literally, NOT as a single-char wildcard.
 		err := c1zFile.Clear(ctx, sessions.WithSyncID(syncID))
 		require.NoError(t, err)
 
 		err = c1zFile.Set(ctx, "k1", []byte("v1"),
 			sessions.WithSyncID(syncID), sessions.WithPrefix("a_b:"))
+		require.NoError(t, err)
+		// Control: prefix "aXb:" would match if "_" were a wildcard.
+		err = c1zFile.Set(ctx, "k2", []byte("v2"),
+			sessions.WithSyncID(syncID), sessions.WithPrefix("aXb:"))
 		require.NoError(t, err)
 
 		got, pageToken, err := c1zFile.GetAll(ctx, "", sessions.WithSyncID(syncID), sessions.WithPrefix("a_b:"))
