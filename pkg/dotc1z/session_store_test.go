@@ -695,6 +695,60 @@ func TestC1FileSessionStore_Clear(t *testing.T) {
 		require.Equal(t, []byte("prefix2-value1"), value)
 	})
 
+	t.Run("Clear with special characters in prefix (underscore, percent, backslash)", func(t *testing.T) {
+		// Ensure test isolation.
+		err := c1zFile.Clear(ctx, sessions.WithSyncID(syncID))
+		require.NoError(t, err)
+
+		// Add one key for each special prefix, plus a control key.
+		require.NoError(t, c1zFile.Set(ctx, "k1", []byte("v1"), sessions.WithSyncID(syncID), sessions.WithPrefix("a_b:")))
+		require.NoError(t, c1zFile.Set(ctx, "k2", []byte("v2"), sessions.WithSyncID(syncID), sessions.WithPrefix("a%:")))
+		require.NoError(t, c1zFile.Set(ctx, "k3", []byte("v3"), sessions.WithSyncID(syncID), sessions.WithPrefix(`a\b:`)))
+		require.NoError(t, c1zFile.Set(ctx, "k4", []byte("v4"), sessions.WithSyncID(syncID), sessions.WithPrefix("control:")))
+
+		// Clear underscore prefix only.
+		require.NoError(t, c1zFile.Clear(ctx, sessions.WithSyncID(syncID), sessions.WithPrefix("a_b:")))
+		_, found, err := c1zFile.Get(ctx, "k1", sessions.WithSyncID(syncID), sessions.WithPrefix("a_b:"))
+		require.NoError(t, err)
+		require.False(t, found)
+
+		// Other prefixes should remain.
+		_, found, err = c1zFile.Get(ctx, "k2", sessions.WithSyncID(syncID), sessions.WithPrefix("a%:"))
+		require.NoError(t, err)
+		require.True(t, found)
+		_, found, err = c1zFile.Get(ctx, "k3", sessions.WithSyncID(syncID), sessions.WithPrefix(`a\b:`))
+		require.NoError(t, err)
+		require.True(t, found)
+		_, found, err = c1zFile.Get(ctx, "k4", sessions.WithSyncID(syncID), sessions.WithPrefix("control:"))
+		require.NoError(t, err)
+		require.True(t, found)
+
+		// Clear percent prefix only.
+		require.NoError(t, c1zFile.Clear(ctx, sessions.WithSyncID(syncID), sessions.WithPrefix("a%:")))
+		_, found, err = c1zFile.Get(ctx, "k2", sessions.WithSyncID(syncID), sessions.WithPrefix("a%:"))
+		require.NoError(t, err)
+		require.False(t, found)
+
+		// Backslash + control should remain.
+		_, found, err = c1zFile.Get(ctx, "k3", sessions.WithSyncID(syncID), sessions.WithPrefix(`a\b:`))
+		require.NoError(t, err)
+		require.True(t, found)
+		_, found, err = c1zFile.Get(ctx, "k4", sessions.WithSyncID(syncID), sessions.WithPrefix("control:"))
+		require.NoError(t, err)
+		require.True(t, found)
+
+		// Clear backslash prefix only.
+		require.NoError(t, c1zFile.Clear(ctx, sessions.WithSyncID(syncID), sessions.WithPrefix(`a\b:`)))
+		_, found, err = c1zFile.Get(ctx, "k3", sessions.WithSyncID(syncID), sessions.WithPrefix(`a\b:`))
+		require.NoError(t, err)
+		require.False(t, found)
+
+		// Control should remain.
+		_, found, err = c1zFile.Get(ctx, "k4", sessions.WithSyncID(syncID), sessions.WithPrefix("control:"))
+		require.NoError(t, err)
+		require.True(t, found)
+	})
+
 	t.Run("Clear without sync ID", func(t *testing.T) {
 		err := c1zFile.Clear(ctx)
 		require.Error(t, err)
@@ -765,6 +819,62 @@ func TestC1FileSessionStore_GetAll(t *testing.T) {
 		// Also verify we don't get keys from prefix2
 		_, hasPrefix2Key := result["getall-prefix2-key1"]
 		require.False(t, hasPrefix2Key, "should not return keys from different prefix")
+	})
+
+	t.Run("GetAll with underscore in prefix", func(t *testing.T) {
+		// NOTE: This currently fails because SQLite LIKE does not treat "\" as an escape
+		// unless the query includes an explicit ESCAPE clause.
+		err := c1zFile.Clear(ctx, sessions.WithSyncID(syncID))
+		require.NoError(t, err)
+
+		err = c1zFile.Set(ctx, "k1", []byte("v1"),
+			sessions.WithSyncID(syncID), sessions.WithPrefix("a_b:"))
+		require.NoError(t, err)
+
+		got, pageToken, err := c1zFile.GetAll(ctx, "", sessions.WithSyncID(syncID), sessions.WithPrefix("a_b:"))
+		require.NoError(t, err)
+		require.Equal(t, "", pageToken)
+
+		require.Len(t, got, 1)
+		require.Equal(t, []byte("v1"), got["k1"])
+	})
+
+	t.Run("GetAll with percent in prefix", func(t *testing.T) {
+		err := c1zFile.Clear(ctx, sessions.WithSyncID(syncID))
+		require.NoError(t, err)
+
+		// Prefix contains "%" which must be treated literally.
+		err = c1zFile.Set(ctx, "k1", []byte("v1"),
+			sessions.WithSyncID(syncID), sessions.WithPrefix("a%:"))
+		require.NoError(t, err)
+		err = c1zFile.Set(ctx, "k2", []byte("v2"),
+			sessions.WithSyncID(syncID), sessions.WithPrefix("ax:"))
+		require.NoError(t, err)
+
+		got, pageToken, err := c1zFile.GetAll(ctx, "", sessions.WithSyncID(syncID), sessions.WithPrefix("a%:"))
+		require.NoError(t, err)
+		require.Equal(t, "", pageToken)
+		require.Len(t, got, 1)
+		require.Equal(t, []byte("v1"), got["k1"])
+	})
+
+	t.Run("GetAll with backslash in prefix", func(t *testing.T) {
+		err := c1zFile.Clear(ctx, sessions.WithSyncID(syncID))
+		require.NoError(t, err)
+
+		// Prefix contains "\" which must be treated literally.
+		err = c1zFile.Set(ctx, "k1", []byte("v1"),
+			sessions.WithSyncID(syncID), sessions.WithPrefix(`a\b:`))
+		require.NoError(t, err)
+		err = c1zFile.Set(ctx, "k2", []byte("v2"),
+			sessions.WithSyncID(syncID), sessions.WithPrefix("ab:"))
+		require.NoError(t, err)
+
+		got, pageToken, err := c1zFile.GetAll(ctx, "", sessions.WithSyncID(syncID), sessions.WithPrefix(`a\b:`))
+		require.NoError(t, err)
+		require.Equal(t, "", pageToken)
+		require.Len(t, got, 1)
+		require.Equal(t, []byte("v1"), got["k1"])
 	})
 
 	t.Run("GetAll without sync ID", func(t *testing.T) {
