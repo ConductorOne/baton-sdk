@@ -26,6 +26,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	baton_v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	mcpPkg "github.com/conductorone/baton-sdk/pkg/mcp"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
@@ -596,6 +597,74 @@ func MakeGRPCServerCommand[T field.Configurable](
 		}
 
 		return cw.Run(runCtx, serverCfg)
+	}
+}
+
+func MakeMCPServerCommand[T field.Configurable](
+	ctx context.Context,
+	name string,
+	v *viper.Viper,
+	confschema field.Configuration,
+	getconnector GetConnectorFunc2[T],
+) func(*cobra.Command, []string) error {
+	return func(cmd *cobra.Command, args []string) error {
+		err := v.BindPFlags(cmd.Flags())
+		if err != nil {
+			return err
+		}
+
+		runCtx, err := initLogger(
+			ctx,
+			name,
+			logging.WithLogFormat(v.GetString("log-format")),
+			logging.WithLogLevel(v.GetString("log-level")),
+		)
+		if err != nil {
+			return err
+		}
+
+		runCtx, otelShutdown, err := initOtel(runCtx, name, v, nil)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if otelShutdown == nil {
+				return
+			}
+			shutdownCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(otelShutdownTimeout))
+			defer cancel()
+			err := otelShutdown(shutdownCtx)
+			if err != nil {
+				zap.L().Error("error shutting down otel", zap.Error(err))
+			}
+		}()
+
+		l := ctxzap.Extract(runCtx)
+		l.Debug("starting MCP server")
+
+		readFromPath := true
+		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+		t, err := MakeGenericConfiguration[T](v, decodeOpts)
+		if err != nil {
+			return fmt.Errorf("failed to make configuration: %w", err)
+		}
+
+		if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
+			return err
+		}
+
+		c, err := getconnector(runCtx, t, RunTimeOpts{})
+		if err != nil {
+			return err
+		}
+
+		mcpServer, err := mcpPkg.NewMCPServer(runCtx, name, c)
+		if err != nil {
+			return fmt.Errorf("failed to create MCP server: %w", err)
+		}
+
+		l.Info("MCP server starting on stdio")
+		return mcpServer.Serve(runCtx)
 	}
 }
 
