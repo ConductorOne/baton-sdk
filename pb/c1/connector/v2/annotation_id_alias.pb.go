@@ -140,7 +140,7 @@ var File_c1_connector_v2_annotation_id_alias_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_id_alias_proto_rawDesc = "" +
 	"\n" +
-	")c1/connector/v2/annotation_id_alias.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\"\x19\n" +
+	")c1/connector/v2/annotation_id_alias.proto\x12\x0fc1.connector.v2\"\x19\n" +
 	"\aIdAlias\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"3\n" +
 	"\aAliases\x12(\n" +
@@ -165,7 +165,6 @@ func file_c1_connector_v2_annotation_id_alias_proto_init() {
 	if File_c1_connector_v2_annotation_id_alias_proto != nil {
 		return
 	}
-	file_c1_connector_v2_resource_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
