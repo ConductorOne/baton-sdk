@@ -307,10 +307,11 @@ message Resource {
     ignore_empty: true
   }];
   bool baton_resource = 6;
-  ExternalId external_id = 7;
-  CreationSource creation_source = 8;
+  // Deprecated. This is no longer used.
+  ExternalId external_id = 7 [deprecated = true];
+  // Deprecated. This is no longer used.
+  CreationSource creation_source = 8 [deprecated = true];
 
-  // FIXME(mstanbCO): call this something else? Should it just be a bool? Possibly just use an annotation?
   enum CreationSource {
     CREATION_SOURCE_UNSPECIFIED = 0;
     CREATION_SOURCE_CONNECTOR_LIST_RESOURCES = 1;
