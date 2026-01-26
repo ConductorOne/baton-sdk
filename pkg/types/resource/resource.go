@@ -135,9 +135,9 @@ func WithRoleTrait(opts ...RoleTraitOption) ResourceOption {
 	}
 }
 
-func WithRoleScopeTrait(opts ...RoleScopeTraitOption) ResourceOption {
+func WithScopeBindingTrait(opts ...ScopeBindingTraitOption) ResourceOption {
 	return func(r *v2.Resource) error {
-		rt := &v2.RoleScopeTrait{}
+		rt := &v2.ScopeBindingTrait{}
 
 		annos := annotations.Annotations(r.GetAnnotations())
 		_, err := annos.Pick(rt)
@@ -155,10 +155,10 @@ func WithRoleScopeTrait(opts ...RoleScopeTraitOption) ResourceOption {
 		roleId := rt.GetRoleId()
 		scopeResourceId := rt.GetScopeResourceId()
 		if roleId == nil {
-			return status.Errorf(codes.InvalidArgument, "role ID is required for role scope trait")
+			return status.Errorf(codes.InvalidArgument, "role ID is required for scope binding trait")
 		}
 		if scopeResourceId == nil {
-			return status.Errorf(codes.InvalidArgument, "scope resource ID is required for role scope trait")
+			return status.Errorf(codes.InvalidArgument, "scope resource ID is required for scope binding trait")
 		}
 
 		annos.Update(rt)
@@ -340,15 +340,15 @@ func NewRoleResource(
 	return ret, nil
 }
 
-// NewRoleScopeResource returns a new resource instance with a configured role scope trait.
-func NewRoleScopeResource(
+// NewScopeBindingResource returns a new resource instance with a configured scope binding trait.
+func NewScopeBindingResource(
 	name string,
 	resourceType *v2.ResourceType,
-	objectID interface{},
-	roleScopeOpts []RoleScopeTraitOption,
+	objectID any,
+	scopeBindingOpts []ScopeBindingTraitOption,
 	opts ...ResourceOption,
 ) (*v2.Resource, error) {
-	opts = append(opts, WithRoleScopeTrait(roleScopeOpts...))
+	opts = append(opts, WithScopeBindingTrait(scopeBindingOpts...))
 
 	ret, err := NewResource(name, resourceType, objectID, opts...)
 	if err != nil {

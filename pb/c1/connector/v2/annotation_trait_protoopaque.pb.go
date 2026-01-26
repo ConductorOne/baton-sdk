@@ -805,9 +805,9 @@ func (b0 RoleScopeCondition_builder) Build() *RoleScopeCondition {
 	return m0
 }
 
-// RoleScopeTrait is used to scope a role to a resource or set of resources.
+// ScopeBindingTrait is used to scope a role to a resource or set of resources.
 // The scope may be static (determined at crawl time) or dynamic (determined based on conditions).
-type RoleScopeTrait struct {
+type ScopeBindingTrait struct {
 	state                      protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_RoleId          *ResourceId            `protobuf:"bytes,1,opt,name=role_id,json=roleId,proto3"`
 	xxx_hidden_ScopeResourceId *ResourceId            `protobuf:"bytes,2,opt,name=scope_resource_id,json=scopeResourceId,proto3"`
@@ -815,20 +815,20 @@ type RoleScopeTrait struct {
 	sizeCache                  protoimpl.SizeCache
 }
 
-func (x *RoleScopeTrait) Reset() {
-	*x = RoleScopeTrait{}
+func (x *ScopeBindingTrait) Reset() {
+	*x = ScopeBindingTrait{}
 	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *RoleScopeTrait) String() string {
+func (x *ScopeBindingTrait) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*RoleScopeTrait) ProtoMessage() {}
+func (*ScopeBindingTrait) ProtoMessage() {}
 
-func (x *RoleScopeTrait) ProtoReflect() protoreflect.Message {
+func (x *ScopeBindingTrait) ProtoReflect() protoreflect.Message {
 	mi := &file_c1_connector_v2_annotation_trait_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -840,59 +840,60 @@ func (x *RoleScopeTrait) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *RoleScopeTrait) GetRoleId() *ResourceId {
+func (x *ScopeBindingTrait) GetRoleId() *ResourceId {
 	if x != nil {
 		return x.xxx_hidden_RoleId
 	}
 	return nil
 }
 
-func (x *RoleScopeTrait) GetScopeResourceId() *ResourceId {
+func (x *ScopeBindingTrait) GetScopeResourceId() *ResourceId {
 	if x != nil {
 		return x.xxx_hidden_ScopeResourceId
 	}
 	return nil
 }
 
-func (x *RoleScopeTrait) SetRoleId(v *ResourceId) {
+func (x *ScopeBindingTrait) SetRoleId(v *ResourceId) {
 	x.xxx_hidden_RoleId = v
 }
 
-func (x *RoleScopeTrait) SetScopeResourceId(v *ResourceId) {
+func (x *ScopeBindingTrait) SetScopeResourceId(v *ResourceId) {
 	x.xxx_hidden_ScopeResourceId = v
 }
 
-func (x *RoleScopeTrait) HasRoleId() bool {
+func (x *ScopeBindingTrait) HasRoleId() bool {
 	if x == nil {
 		return false
 	}
 	return x.xxx_hidden_RoleId != nil
 }
 
-func (x *RoleScopeTrait) HasScopeResourceId() bool {
+func (x *ScopeBindingTrait) HasScopeResourceId() bool {
 	if x == nil {
 		return false
 	}
 	return x.xxx_hidden_ScopeResourceId != nil
 }
 
-func (x *RoleScopeTrait) ClearRoleId() {
+func (x *ScopeBindingTrait) ClearRoleId() {
 	x.xxx_hidden_RoleId = nil
 }
 
-func (x *RoleScopeTrait) ClearScopeResourceId() {
+func (x *ScopeBindingTrait) ClearScopeResourceId() {
 	x.xxx_hidden_ScopeResourceId = nil
 }
 
-type RoleScopeTrait_builder struct {
+type ScopeBindingTrait_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	RoleId          *ResourceId
+	RoleId *ResourceId
+	// Remove required if we add more ways to scope roles. (eg: Expressions.)
 	ScopeResourceId *ResourceId
 }
 
-func (b0 RoleScopeTrait_builder) Build() *RoleScopeTrait {
-	m0 := &RoleScopeTrait{}
+func (b0 ScopeBindingTrait_builder) Build() *ScopeBindingTrait {
+	m0 := &ScopeBindingTrait{}
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_RoleId = b.RoleId
@@ -1680,10 +1681,10 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x12RoleScopeCondition\x12\x1e\n" +
 	"\n" +
 	"expression\x18\x01 \x01(\tR\n" +
-	"expression\"\x99\x01\n" +
-	"\x0eRoleScopeTrait\x12>\n" +
-	"\arole_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x06roleId\x12G\n" +
-	"\x11scope_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x0fscopeResourceId\"\x9a\x03\n" +
+	"expression\"\xa6\x01\n" +
+	"\x11ScopeBindingTrait\x12>\n" +
+	"\arole_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x06roleId\x12Q\n" +
+	"\x11scope_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x0fscopeResourceId\"\x9a\x03\n" +
 	"\bAppTrait\x125\n" +
 	"\bhelp_url\x18\x01 \x01(\tB\x1a\xfaB\x17r\x15 \x01(\x80\b:\bhttps://\xd0\x01\x01\x88\x01\x01R\ahelpUrl\x12-\n" +
 	"\x04icon\x18\x02 \x01(\v2\x19.c1.connector.v2.AssetRefR\x04icon\x12-\n" +
@@ -1720,7 +1721,7 @@ var file_c1_connector_v2_annotation_trait_proto_goTypes = []any{
 	(*RoleTrait)(nil),                // 5: c1.connector.v2.RoleTrait
 	(*RoleScopeConditions)(nil),      // 6: c1.connector.v2.RoleScopeConditions
 	(*RoleScopeCondition)(nil),       // 7: c1.connector.v2.RoleScopeCondition
-	(*RoleScopeTrait)(nil),           // 8: c1.connector.v2.RoleScopeTrait
+	(*ScopeBindingTrait)(nil),        // 8: c1.connector.v2.ScopeBindingTrait
 	(*AppTrait)(nil),                 // 9: c1.connector.v2.AppTrait
 	(*SecretTrait)(nil),              // 10: c1.connector.v2.SecretTrait
 	(*UserTrait_Email)(nil),          // 11: c1.connector.v2.UserTrait.Email
@@ -1749,8 +1750,8 @@ var file_c1_connector_v2_annotation_trait_proto_depIdxs = []int32{
 	16, // 12: c1.connector.v2.RoleTrait.profile:type_name -> google.protobuf.Struct
 	6,  // 13: c1.connector.v2.RoleTrait.role_scope_conditions:type_name -> c1.connector.v2.RoleScopeConditions
 	7,  // 14: c1.connector.v2.RoleScopeConditions.conditions:type_name -> c1.connector.v2.RoleScopeCondition
-	19, // 15: c1.connector.v2.RoleScopeTrait.role_id:type_name -> c1.connector.v2.ResourceId
-	19, // 16: c1.connector.v2.RoleScopeTrait.scope_resource_id:type_name -> c1.connector.v2.ResourceId
+	19, // 15: c1.connector.v2.ScopeBindingTrait.role_id:type_name -> c1.connector.v2.ResourceId
+	19, // 16: c1.connector.v2.ScopeBindingTrait.scope_resource_id:type_name -> c1.connector.v2.ResourceId
 	17, // 17: c1.connector.v2.AppTrait.icon:type_name -> c1.connector.v2.AssetRef
 	17, // 18: c1.connector.v2.AppTrait.logo:type_name -> c1.connector.v2.AssetRef
 	16, // 19: c1.connector.v2.AppTrait.profile:type_name -> google.protobuf.Struct

@@ -980,22 +980,22 @@ var _ interface {
 	ErrorName() string
 } = RoleScopeConditionValidationError{}
 
-// Validate checks the field values on RoleScopeTrait with the rules defined in
-// the proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *RoleScopeTrait) Validate() error {
+// Validate checks the field values on ScopeBindingTrait with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// first error encountered is returned, or nil if there are no violations.
+func (m *ScopeBindingTrait) Validate() error {
 	return m.validate(false)
 }
 
-// ValidateAll checks the field values on RoleScopeTrait with the rules defined
-// in the proto definition for this message. If any rules are violated, the
-// result is a list of violation errors wrapped in RoleScopeTraitMultiError,
-// or nil if none found.
-func (m *RoleScopeTrait) ValidateAll() error {
+// ValidateAll checks the field values on ScopeBindingTrait with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ScopeBindingTraitMultiError, or nil if none found.
+func (m *ScopeBindingTrait) ValidateAll() error {
 	return m.validate(true)
 }
 
-func (m *RoleScopeTrait) validate(all bool) error {
+func (m *ScopeBindingTrait) validate(all bool) error {
 	if m == nil {
 		return nil
 	}
@@ -1003,7 +1003,7 @@ func (m *RoleScopeTrait) validate(all bool) error {
 	var errors []error
 
 	if m.GetRoleId() == nil {
-		err := RoleScopeTraitValidationError{
+		err := ScopeBindingTraitValidationError{
 			field:  "RoleId",
 			reason: "value is required",
 		}
@@ -1017,7 +1017,7 @@ func (m *RoleScopeTrait) validate(all bool) error {
 		switch v := interface{}(m.GetRoleId()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, RoleScopeTraitValidationError{
+				errors = append(errors, ScopeBindingTraitValidationError{
 					field:  "RoleId",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1025,7 +1025,7 @@ func (m *RoleScopeTrait) validate(all bool) error {
 			}
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
-				errors = append(errors, RoleScopeTraitValidationError{
+				errors = append(errors, ScopeBindingTraitValidationError{
 					field:  "RoleId",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1034,7 +1034,7 @@ func (m *RoleScopeTrait) validate(all bool) error {
 		}
 	} else if v, ok := interface{}(m.GetRoleId()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
-			return RoleScopeTraitValidationError{
+			return ScopeBindingTraitValidationError{
 				field:  "RoleId",
 				reason: "embedded message failed validation",
 				cause:  err,
@@ -1042,11 +1042,22 @@ func (m *RoleScopeTrait) validate(all bool) error {
 		}
 	}
 
+	if m.GetScopeResourceId() == nil {
+		err := ScopeBindingTraitValidationError{
+			field:  "ScopeResourceId",
+			reason: "value is required",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if all {
 		switch v := interface{}(m.GetScopeResourceId()).(type) {
 		case interface{ ValidateAll() error }:
 			if err := v.ValidateAll(); err != nil {
-				errors = append(errors, RoleScopeTraitValidationError{
+				errors = append(errors, ScopeBindingTraitValidationError{
 					field:  "ScopeResourceId",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1054,7 +1065,7 @@ func (m *RoleScopeTrait) validate(all bool) error {
 			}
 		case interface{ Validate() error }:
 			if err := v.Validate(); err != nil {
-				errors = append(errors, RoleScopeTraitValidationError{
+				errors = append(errors, ScopeBindingTraitValidationError{
 					field:  "ScopeResourceId",
 					reason: "embedded message failed validation",
 					cause:  err,
@@ -1063,7 +1074,7 @@ func (m *RoleScopeTrait) validate(all bool) error {
 		}
 	} else if v, ok := interface{}(m.GetScopeResourceId()).(interface{ Validate() error }); ok {
 		if err := v.Validate(); err != nil {
-			return RoleScopeTraitValidationError{
+			return ScopeBindingTraitValidationError{
 				field:  "ScopeResourceId",
 				reason: "embedded message failed validation",
 				cause:  err,
@@ -1072,19 +1083,19 @@ func (m *RoleScopeTrait) validate(all bool) error {
 	}
 
 	if len(errors) > 0 {
-		return RoleScopeTraitMultiError(errors)
+		return ScopeBindingTraitMultiError(errors)
 	}
 
 	return nil
 }
 
-// RoleScopeTraitMultiError is an error wrapping multiple validation errors
-// returned by RoleScopeTrait.ValidateAll() if the designated constraints
+// ScopeBindingTraitMultiError is an error wrapping multiple validation errors
+// returned by ScopeBindingTrait.ValidateAll() if the designated constraints
 // aren't met.
-type RoleScopeTraitMultiError []error
+type ScopeBindingTraitMultiError []error
 
 // Error returns a concatenation of all the error messages it wraps.
-func (m RoleScopeTraitMultiError) Error() string {
+func (m ScopeBindingTraitMultiError) Error() string {
 	msgs := make([]string, 0, len(m))
 	for _, err := range m {
 		msgs = append(msgs, err.Error())
@@ -1093,11 +1104,11 @@ func (m RoleScopeTraitMultiError) Error() string {
 }
 
 // AllErrors returns a list of validation violation errors.
-func (m RoleScopeTraitMultiError) AllErrors() []error { return m }
+func (m ScopeBindingTraitMultiError) AllErrors() []error { return m }
 
-// RoleScopeTraitValidationError is the validation error returned by
-// RoleScopeTrait.Validate if the designated constraints aren't met.
-type RoleScopeTraitValidationError struct {
+// ScopeBindingTraitValidationError is the validation error returned by
+// ScopeBindingTrait.Validate if the designated constraints aren't met.
+type ScopeBindingTraitValidationError struct {
 	field  string
 	reason string
 	cause  error
@@ -1105,22 +1116,24 @@ type RoleScopeTraitValidationError struct {
 }
 
 // Field function returns field value.
-func (e RoleScopeTraitValidationError) Field() string { return e.field }
+func (e ScopeBindingTraitValidationError) Field() string { return e.field }
 
 // Reason function returns reason value.
-func (e RoleScopeTraitValidationError) Reason() string { return e.reason }
+func (e ScopeBindingTraitValidationError) Reason() string { return e.reason }
 
 // Cause function returns cause value.
-func (e RoleScopeTraitValidationError) Cause() error { return e.cause }
+func (e ScopeBindingTraitValidationError) Cause() error { return e.cause }
 
 // Key function returns key value.
-func (e RoleScopeTraitValidationError) Key() bool { return e.key }
+func (e ScopeBindingTraitValidationError) Key() bool { return e.key }
 
 // ErrorName returns error name.
-func (e RoleScopeTraitValidationError) ErrorName() string { return "RoleScopeTraitValidationError" }
+func (e ScopeBindingTraitValidationError) ErrorName() string {
+	return "ScopeBindingTraitValidationError"
+}
 
 // Error satisfies the builtin error interface
-func (e RoleScopeTraitValidationError) Error() string {
+func (e ScopeBindingTraitValidationError) Error() string {
 	cause := ""
 	if e.cause != nil {
 		cause = fmt.Sprintf(" | caused by: %v", e.cause)
@@ -1132,14 +1145,14 @@ func (e RoleScopeTraitValidationError) Error() string {
 	}
 
 	return fmt.Sprintf(
-		"invalid %sRoleScopeTrait.%s: %s%s",
+		"invalid %sScopeBindingTrait.%s: %s%s",
 		key,
 		e.field,
 		e.reason,
 		cause)
 }
 
-var _ error = RoleScopeTraitValidationError{}
+var _ error = ScopeBindingTraitValidationError{}
 
 var _ interface {
 	Field() string
@@ -1147,7 +1160,7 @@ var _ interface {
 	Key() bool
 	Cause() error
 	ErrorName() string
-} = RoleScopeTraitValidationError{}
+} = ScopeBindingTraitValidationError{}
 
 // Validate checks the field values on AppTrait with the rules defined in the
 // proto definition for this message. If any rules are violated, the first

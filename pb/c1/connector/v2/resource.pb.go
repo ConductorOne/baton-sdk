@@ -35,7 +35,7 @@ const (
 	ResourceType_TRAIT_APP              ResourceType_Trait = 4
 	ResourceType_TRAIT_SECRET           ResourceType_Trait = 5
 	ResourceType_TRAIT_SECURITY_INSIGHT ResourceType_Trait = 6
-	ResourceType_TRAIT_ROLE_SCOPE       ResourceType_Trait = 7
+	ResourceType_TRAIT_SCOPE_BINDING    ResourceType_Trait = 7
 )
 
 // Enum value maps for ResourceType_Trait.
@@ -48,7 +48,7 @@ var (
 		4: "TRAIT_APP",
 		5: "TRAIT_SECRET",
 		6: "TRAIT_SECURITY_INSIGHT",
-		7: "TRAIT_ROLE_SCOPE",
+		7: "TRAIT_SCOPE_BINDING",
 	}
 	ResourceType_Trait_value = map[string]int32{
 		"TRAIT_UNSPECIFIED":      0,
@@ -58,7 +58,7 @@ var (
 		"TRAIT_APP":              4,
 		"TRAIT_SECRET":           5,
 		"TRAIT_SECURITY_INSIGHT": 6,
-		"TRAIT_ROLE_SCOPE":       7,
+		"TRAIT_SCOPE_BINDING":    7,
 	}
 )
 
@@ -4473,7 +4473,7 @@ var File_c1_connector_v2_resource_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\n" +
-	"\x1ec1/connector/v2/resource.proto\x12\x0fc1.connector.v2\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\xe7\x03\n" +
+	"\x1ec1/connector/v2/resource.proto\x12\x0fc1.connector.v2\x1a\x19google/protobuf/any.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x17validate/validate.proto\"\xea\x03\n" +
 	"\fResourceType\x12\x1a\n" +
 	"\x02id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x120\n" +
@@ -4483,7 +4483,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12/\n" +
 	"\vdescription\x18\x05 \x01(\tB\r\xfaB\n" +
 	"r\b \x01(\x80 \xd0\x01\x01R\vdescription\x12-\n" +
-	"\x12sourced_externally\x18\x06 \x01(\bR\x11sourcedExternally\"\xa2\x01\n" +
+	"\x12sourced_externally\x18\x06 \x01(\bR\x11sourcedExternally\"\xa5\x01\n" +
 	"\x05Trait\x12\x15\n" +
 	"\x11TRAIT_UNSPECIFIED\x10\x00\x12\x0e\n" +
 	"\n" +
@@ -4493,8 +4493,8 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"TRAIT_ROLE\x10\x03\x12\r\n" +
 	"\tTRAIT_APP\x10\x04\x12\x10\n" +
 	"\fTRAIT_SECRET\x10\x05\x12\x1a\n" +
-	"\x16TRAIT_SECURITY_INSIGHT\x10\x06\x12\x14\n" +
-	"\x10TRAIT_ROLE_SCOPE\x10\a\"\xa6\x02\n" +
+	"\x16TRAIT_SECURITY_INSIGHT\x10\x06\x12\x17\n" +
+	"\x13TRAIT_SCOPE_BINDING\x10\a\"\xa6\x02\n" +
 	",ResourceTypesServiceListResourceTypesRequest\x121\n" +
 	"\x06parent\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\x06parent\x12'\n" +
 	"\tpage_size\x18\x02 \x01(\rB\n" +

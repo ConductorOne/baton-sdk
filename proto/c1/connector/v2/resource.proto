@@ -31,7 +31,7 @@ message ResourceType {
     TRAIT_APP = 4;
     TRAIT_SECRET = 5;
     TRAIT_SECURITY_INSIGHT = 6;
-    TRAIT_ROLE_SCOPE = 7;
+    TRAIT_SCOPE_BINDING = 7;
   }
   repeated Trait traits = 3 [(validate.rules).repeated = {
     unique: true
