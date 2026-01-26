@@ -95,10 +95,8 @@ message RoleScopeCondition {
 // RoleScopeTrait is used to scope a role to a resource or set of resources.
 // The scope may be static (determined at crawl time) or dynamic (determined based on conditions).
 message RoleScopeTrait {
-  c1.connector.v2.ResourceId role_id = 1; // The role that is scoped.
+  c1.connector.v2.ResourceId role_id = 1; // The role that is scoped. Must be a resource with the role trait.
   c1.connector.v2.ResourceId scope_resource_id = 2; // The resource that the role is scoped to.
-  // TODO: Add support for conditions.
-  // TODO: Add support for start/end times.
 }
 
 message AppTrait {
