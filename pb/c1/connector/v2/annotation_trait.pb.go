@@ -807,7 +807,7 @@ func (b0 RoleScopeCondition_builder) Build() *RoleScopeCondition {
 // The scope may be static (determined at crawl time) or dynamic (determined based on conditions).
 type RoleScopeTrait struct {
 	state           protoimpl.MessageState `protogen:"hybrid.v1"`
-	RoleId          *ResourceId            `protobuf:"bytes,1,opt,name=role_id,json=roleId,proto3" json:"role_id,omitempty"`                              // The role that is scoped.
+	RoleId          *ResourceId            `protobuf:"bytes,1,opt,name=role_id,json=roleId,proto3" json:"role_id,omitempty"`                              // The role that is scoped. Must be a resource with the role trait.
 	ScopeResourceId *ResourceId            `protobuf:"bytes,2,opt,name=scope_resource_id,json=scopeResourceId,proto3" json:"scope_resource_id,omitempty"` // The resource that the role is scoped to.
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache

@@ -84,7 +84,6 @@ func (x ResourceType_Trait) Number() protoreflect.EnumNumber {
 	return protoreflect.EnumNumber(x)
 }
 
-// FIXME(mstanbCO): call this something else? Should it just be a bool? Possibly just use an annotation?
 type Resource_CreationSource int32
 
 const (
@@ -2881,6 +2880,7 @@ func (x *Resource) GetBatonResource() bool {
 	return false
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 func (x *Resource) GetExternalId() *ExternalId {
 	if x != nil {
 		return x.xxx_hidden_ExternalId
@@ -2888,6 +2888,7 @@ func (x *Resource) GetExternalId() *ExternalId {
 	return nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 func (x *Resource) GetCreationSource() Resource_CreationSource {
 	if x != nil {
 		return x.xxx_hidden_CreationSource
@@ -2919,10 +2920,12 @@ func (x *Resource) SetBatonResource(v bool) {
 	x.xxx_hidden_BatonResource = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 func (x *Resource) SetExternalId(v *ExternalId) {
 	x.xxx_hidden_ExternalId = v
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 func (x *Resource) SetCreationSource(v Resource_CreationSource) {
 	x.xxx_hidden_CreationSource = v
 }
@@ -2941,6 +2944,7 @@ func (x *Resource) HasParentResourceId() bool {
 	return x.xxx_hidden_ParentResourceId != nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 func (x *Resource) HasExternalId() bool {
 	if x == nil {
 		return false
@@ -2956,6 +2960,7 @@ func (x *Resource) ClearParentResourceId() {
 	x.xxx_hidden_ParentResourceId = nil
 }
 
+// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
 func (x *Resource) ClearExternalId() {
 	x.xxx_hidden_ExternalId = nil
 }
@@ -2969,8 +2974,14 @@ type Resource_builder struct {
 	Annotations      []*anypb.Any
 	Description      string
 	BatonResource    bool
-	ExternalId       *ExternalId
-	CreationSource   Resource_CreationSource
+	// Deprecated. This is no longer used.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
+	ExternalId *ExternalId
+	// Deprecated. This is no longer used.
+	//
+	// Deprecated: Marked as deprecated in c1/connector/v2/resource.proto.
+	CreationSource Resource_CreationSource
 }
 
 func (b0 Resource_builder) Build() *Resource {
@@ -4612,7 +4623,7 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\xfaB\ar\x05 \x01(\x80\bR\fresourceType\x12&\n" +
 	"\bresource\x18\x02 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\bresource\x12%\n" +
-	"\x0ebaton_resource\x18\x03 \x01(\bR\rbatonResource\"\xf0\x04\n" +
+	"\x0ebaton_resource\x18\x03 \x01(\bR\rbatonResource\"\xf8\x04\n" +
 	"\bResource\x12+\n" +
 	"\x02id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x02id\x12I\n" +
 	"\x12parent_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x10parentResourceId\x120\n" +
@@ -4621,10 +4632,10 @@ const file_c1_connector_v2_resource_proto_rawDesc = "" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12/\n" +
 	"\vdescription\x18\x05 \x01(\tB\r\xfaB\n" +
 	"r\b \x01(\x80\x10\xd0\x01\x01R\vdescription\x12%\n" +
-	"\x0ebaton_resource\x18\x06 \x01(\bR\rbatonResource\x12<\n" +
-	"\vexternal_id\x18\a \x01(\v2\x1b.c1.connector.v2.ExternalIdR\n" +
-	"externalId\x12Q\n" +
-	"\x0fcreation_source\x18\b \x01(\x0e2(.c1.connector.v2.Resource.CreationSourceR\x0ecreationSource\"\x98\x01\n" +
+	"\x0ebaton_resource\x18\x06 \x01(\bR\rbatonResource\x12@\n" +
+	"\vexternal_id\x18\a \x01(\v2\x1b.c1.connector.v2.ExternalIdB\x02\x18\x01R\n" +
+	"externalId\x12U\n" +
+	"\x0fcreation_source\x18\b \x01(\x0e2(.c1.connector.v2.Resource.CreationSourceB\x02\x18\x01R\x0ecreationSource\"\x98\x01\n" +
 	"\x0eCreationSource\x12\x1f\n" +
 	"\x1bCREATION_SOURCE_UNSPECIFIED\x10\x00\x12,\n" +
 	"(CREATION_SOURCE_CONNECTOR_LIST_RESOURCES\x10\x01\x127\n" +
