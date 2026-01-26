@@ -9,6 +9,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
 	"github.com/spf13/cobra"
@@ -605,6 +607,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 	v *viper.Viper,
 	confschema field.Configuration,
 	getconnector GetConnectorFunc2[T],
+	opts ...connectorrunner.Option,
 ) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		// NOTE(shackra): bind all the flags (persistent and
@@ -626,29 +629,59 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 
-		readFromPath := true
-		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
-		t, err := MakeGenericConfiguration[T](v, decodeOpts)
+		var c types.ConnectorServer
+
+		c, err = defaultConnectorBuilder(ctx, opts...)
 		if err != nil {
-			return fmt.Errorf("failed to make configuration: %w", err)
-		}
-		// validate required fields and relationship constraints
-		if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
-			return err
+			return fmt.Errorf("failed to build default connector: %w", err)
 		}
 
-		c, err := getconnector(runCtx, t, RunTimeOpts{})
-		if err != nil {
-			return err
+		if c == nil {
+			readFromPath := true
+			decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
+			t, err := MakeGenericConfiguration[T](v, decodeOpts)
+			if err != nil {
+				return fmt.Errorf("failed to make configuration: %w", err)
+			}
+			// validate required fields and relationship constraints
+			if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
+				return err
+			}
+
+			c, err = getconnector(runCtx, t, RunTimeOpts{})
+			if err != nil {
+				return err
+			}
 		}
 
-		md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
-		if err != nil {
-			return err
+		if c == nil {
+			return fmt.Errorf("could not create connector %w", err)
 		}
 
-		if !md.GetMetadata().HasCapabilities() {
-			return fmt.Errorf("connector does not support capabilities")
+		type getter interface {
+			GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilities, error)
+		}
+
+		var capabilities *v2.ConnectorCapabilities
+
+		if getCap, ok := c.(getter); ok {
+			capabilities, err = getCap.GetCapabilities(runCtx)
+			if err != nil {
+				return err
+			}
+		}
+
+		if capabilities == nil {
+			md, err := c.GetMetadata(runCtx, &v2.ConnectorServiceGetMetadataRequest{})
+			if err != nil {
+				return err
+			}
+
+			if !md.GetMetadata().HasCapabilities() {
+				return fmt.Errorf("connector does not support capabilities")
+			}
+
+			capabilities = md.GetMetadata().GetCapabilities()
 		}
 
 		protoMarshaller := protojson.MarshalOptions{
@@ -657,7 +690,7 @@ func MakeCapabilitiesCommand[T field.Configurable](
 		}
 
 		a := &anypb.Any{}
-		err = anypb.MarshalFrom(a, md.GetMetadata().GetCapabilities(), proto.MarshalOptions{Deterministic: true})
+		err = anypb.MarshalFrom(a, capabilities, proto.MarshalOptions{Deterministic: true})
 		if err != nil {
 			return err
 		}
@@ -695,4 +728,21 @@ func MakeConfigSchemaCommand[T field.Configurable](
 		}
 		return nil
 	}
+}
+
+func defaultConnectorBuilder(ctx context.Context, opts ...connectorrunner.Option) (types.ConnectorServer, error) {
+	defaultConnector, err := connectorrunner.ExtractDefaultConnector(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	if defaultConnector == nil {
+		return nil, nil
+	}
+
+	c, err := connectorbuilder.NewConnector(ctx, defaultConnector)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }

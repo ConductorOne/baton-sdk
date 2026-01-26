@@ -8,13 +8,14 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/spf13/viper"
 )
 
-func entrypoint(ctx context.Context, cfg field.Configuration, args ...string) (*viper.Viper, error) {
-	v, cmd, err := config.DefineConfigurationV2(ctx, "baton-dummy", getConnector, cfg)
+func entrypoint(ctx context.Context, cfg field.Configuration, options []connectorrunner.Option, args ...string) (*viper.Viper, error) {
+	v, cmd, err := config.DefineConfigurationV2(ctx, "baton-dummy", getConnector, cfg, options...)
 	if err != nil {
 		return nil, fmt.Errorf("DefineConfiguration failed: %w", err)
 	}

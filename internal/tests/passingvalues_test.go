@@ -47,6 +47,7 @@ func TestEntryPoint(t *testing.T) {
 		v, err := entrypoint(
 			ctx,
 			carrier,
+			nil,
 			"--string-field",
 			"foo",
 			"--int-field",
@@ -73,7 +74,7 @@ func TestEntryPoint(t *testing.T) {
 		t.Setenv("BATON_STRING_FIELD", "bar")
 		t.Setenv("BATON_INT_FIELD", "200")
 		t.Setenv("BATON_BOOL_FIELD", "true")
-		v, err := entrypoint(ctx, carrier)
+		v, err := entrypoint(ctx, carrier, nil)
 
 		require.NoError(t, err)
 		require.EqualValues(t, "bar", v.GetString("string-field"))
@@ -90,7 +91,7 @@ func TestEntryPoint(t *testing.T) {
 			},
 		)
 
-		_, err := entrypoint(ctx, carrier)
+		_, err := entrypoint(ctx, carrier, nil)
 
 		require.Error(t, err)
 		require.EqualError(t, err, "(Cobra) Execute failed: required flag(s) \"int-field\", \"string-field\" not set")
@@ -106,7 +107,7 @@ func TestEntryPoint(t *testing.T) {
 			},
 		)
 
-		_, err := entrypoint(ctx, carrier)
+		_, err := entrypoint(ctx, carrier, nil)
 
 		require.Error(t, err)
 		require.ErrorIs(t, err, config.ErrDuplicateField)
@@ -122,7 +123,7 @@ func TestEntryPoint(t *testing.T) {
 				field2.ExportAs(field.ExportTargetGUI),
 			},
 		)
-		_, err := entrypoint(ctx, carrier)
+		_, err := entrypoint(ctx, carrier, nil)
 		require.Error(t, err)
 		require.ErrorIs(t, err, config.ErrDuplicateField)
 		require.EqualError(t, err, duplicateFieldError("string-field"))
@@ -150,7 +151,7 @@ func TestEntryPoint(t *testing.T) {
 		require.Equal(t, field.ListTicketSchemasField.FieldName, listTicketSchemasField.FieldName)
 		require.Equal(t, false, field.ListTicketSchemasField.WasReExported)
 
-		_, err := entrypoint(ctx, carrier)
+		_, err := entrypoint(ctx, carrier, nil)
 		require.NoError(t, err)
 	})
 
@@ -164,7 +165,7 @@ func TestEntryPoint(t *testing.T) {
 			},
 		)
 
-		_, err := entrypoint(ctx, carrier)
+		_, err := entrypoint(ctx, carrier, nil)
 		require.Error(t, err)
 		require.ErrorIs(t, err, config.ErrDuplicateField)
 		require.EqualError(t, err, duplicateDefaultFieldError("list-ticket-schemas"))
@@ -176,7 +177,7 @@ func TestEntryPoint(t *testing.T) {
 			field.WithConstraints(field.FieldsRequiredTogether(stringField, boolField)),
 		)
 
-		_, err := entrypoint(ctx, carrier, "--string-field", "foo")
+		_, err := entrypoint(ctx, carrier, nil, "--string-field", "foo")
 
 		require.Error(t, err)
 		require.EqualError(t, err, "(Cobra) Execute failed: if any flags in the group [string-field bool-field] are set they must all be set; missing [bool-field]")
@@ -191,6 +192,7 @@ func TestEntryPoint(t *testing.T) {
 		_, err := entrypoint(
 			ctx,
 			carrier,
+			nil,
 			"--string-field",
 			"foo",
 			"--bool-field",
@@ -209,7 +211,7 @@ func TestEntryPoint(t *testing.T) {
 			)),
 		)
 
-		_, err := entrypoint(ctx, carrier, "--string-field", "foo")
+		_, err := entrypoint(ctx, carrier, nil, "--string-field", "foo")
 
 		require.Error(t, err)
 		require.EqualError(t, err, "(Cobra) Execute failed: set fields ('string-field') are dependent on ('bool-field') being set")
@@ -221,7 +223,7 @@ func TestEntryPoint(t *testing.T) {
 			field.WithConstraints(field.FieldsAtLeastOneUsed(stringField, boolField)),
 		)
 
-		_, err := entrypoint(ctx, carrier)
+		_, err := entrypoint(ctx, carrier, nil)
 
 		require.Error(t, err)
 		require.EqualError(t, err, "(Cobra) Execute failed: at least one of the flags in the group [string-field bool-field] is required")
@@ -250,6 +252,7 @@ func TestEntryPoint(t *testing.T) {
 		_, err := entrypoint(
 			ctx,
 			carrier,
+			nil,
 			"--auth-method",
 			"group1",
 		)

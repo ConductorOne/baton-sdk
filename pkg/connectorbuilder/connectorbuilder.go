@@ -267,7 +267,7 @@ func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceG
 		return nil, err
 	}
 
-	md.Capabilities, err = b.getCapabilities(ctx)
+	md.Capabilities, err = b.GetCapabilities(ctx)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
@@ -332,8 +332,8 @@ func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceClean
 	return resp, err
 }
 
-// getCapabilities gets all capabilities for a connector.
-func (b *builder) getCapabilities(ctx context.Context) (*v2.ConnectorCapabilities, error) {
+// GetCapabilities gets all capabilities for a connector.
+func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilities, error) {
 	connectorCaps := make(map[v2.Capability]struct{})
 	resourceTypeCapabilities := []*v2.ResourceTypeCapability{}
 
