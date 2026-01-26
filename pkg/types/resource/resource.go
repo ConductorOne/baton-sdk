@@ -34,7 +34,7 @@ func WithAnnotation(msgs ...proto.Message) ResourceOption {
 // WithExternalID: Deprecated. This field is no longer used.
 func WithExternalID(externalID *v2.ExternalId) ResourceOption {
 	return func(r *v2.Resource) error {
-		r.SetExternalId(externalID) //nolint:staticcheck
+		r.SetExternalId(externalID) //nolint:staticcheck // Deprecated.
 		return nil
 	}
 }
