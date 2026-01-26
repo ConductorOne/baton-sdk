@@ -67,6 +67,8 @@ message Field {
     // These are meant to serve as return types for actions.
     ResourceField resource_field = 107;
     ResourceSliceField resource_slice_field = 108;
+    EntitlementSliceField entitlement_slice_field = 109;
+    GrantSliceField grant_slice_field = 110;
   }
 }
 
@@ -91,6 +93,38 @@ message ResourceField {
 
 message ResourceSliceField {
   repeated Resource default_value = 1;
+}
+
+// Simplified Entitlement for config return types (avoids import cycles with connector package)
+message Entitlement {
+  string id = 1;
+  string display_name = 2;
+  string description = 3;
+  string slug = 4;
+  string purpose = 5; // "PURPOSE_VALUE_ASSIGNMENT", "PURPOSE_VALUE_PERMISSION", or "PURPOSE_VALUE_OWNERSHIP"
+  repeated string grantable_to_resource_type_ids = 6;
+  string resource_id = 7;
+  string resource_type_id = 8;
+}
+
+message EntitlementSliceField {
+  repeated Entitlement default_value = 1;
+}
+
+// Reference to an entitlement (used in Grant)
+message EntitlementRef {
+  string id = 1;
+}
+
+// Simplified Grant for config return types (avoids import cycles with connector package)
+message Grant {
+  string id = 1;
+  EntitlementRef entitlement = 2;
+  Resource principal = 3;
+}
+
+message GrantSliceField {
+  repeated Grant default_value = 1;
 }
 
 message ResourceIdField {
