@@ -36,7 +36,7 @@ jobs:
       - name: go tests
         if: ${{ matrix.platform == 'windows-latest' }}
         # Run tests with -short on Windows since its filesystem is very slow, causing CI to time out.
-        run: go test -tags=baton_lambda_support -short -v -covermode=count -json ./... > test.json
+        run: go test -timeout=30m -tags=baton_lambda_support -short -v -covermode=count -json ./... > test.json
       - name: Print go test results
         if: always()
         run: cat test.json
