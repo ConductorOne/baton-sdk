@@ -807,6 +807,8 @@ func (b0 RoleScopeCondition_builder) Build() *RoleScopeCondition {
 
 // ScopeBindingTrait is used to scope a role to a resource or set of resources.
 // The scope may be static (determined at crawl time) or dynamic (determined based on conditions).
+// For example, in Azure a role definition can be scoped to a subscription, management group, or resource group.
+// In that case, the role ID would be the resource ID of the role definition, and the scope resource ID would be the resource ID of the subscription, management group, or resource group.
 type ScopeBindingTrait struct {
 	state                      protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_RoleId          *ResourceId            `protobuf:"bytes,1,opt,name=role_id,json=roleId,proto3"`

@@ -94,6 +94,8 @@ message RoleScopeCondition {
 
 // ScopeBindingTrait is used to scope a role to a resource or set of resources.
 // The scope may be static (determined at crawl time) or dynamic (determined based on conditions).
+// For example, in Azure a role definition can be scoped to a subscription, management group, or resource group.
+// In that case, the role ID would be the resource ID of the role definition, and the scope resource ID would be the resource ID of the subscription, management group, or resource group.
 message ScopeBindingTrait {
   c1.connector.v2.ResourceId role_id = 1 [(validate.rules).message = {required: true}]; // The role that is scoped. Must be a resource with the role trait.
   // Remove required if we add more ways to scope roles. (eg: Expressions.)
