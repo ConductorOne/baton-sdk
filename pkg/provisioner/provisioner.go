@@ -184,7 +184,7 @@ func (p *Provisioner) grant(ctx context.Context) error {
 		DisplayName: principal.GetResource().GetDisplayName(),
 		Annotations: principal.GetResource().GetAnnotations(),
 		Description: principal.GetResource().GetDescription(),
-		ExternalId:  principal.GetResource().GetExternalId(),
+		ExternalId:  principal.GetResource().GetExternalId(), //nolint:staticcheck // Deprecated.
 		// Omit parent resource ID so that behavior is the same as ConductorOne's provisioning mode
 		ParentResourceId: nil,
 	}.Build()
@@ -247,7 +247,7 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 		DisplayName: principal.GetResource().GetDisplayName(),
 		Annotations: principal.GetResource().GetAnnotations(),
 		Description: principal.GetResource().GetDescription(),
-		ExternalId:  principal.GetResource().GetExternalId(),
+		ExternalId:  principal.GetResource().GetExternalId(), //nolint:staticcheck // Deprecated.
 		// Omit parent resource ID so that behavior is the same as ConductorOne's provisioning mode
 		ParentResourceId: nil,
 	}.Build()

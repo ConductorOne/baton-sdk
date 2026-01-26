@@ -38,7 +38,6 @@ message SecurityInsightTrait {
   // When this insight was observed/captured from the source system
   google.protobuf.Timestamp observed_at = 3;
 
-
   // The target entity this insight should be bound to
   oneof target {
     option (validate.required) = true;

@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// Resource was not deleted because the resource does not exist.
+message ResourceDoesNotExist {}

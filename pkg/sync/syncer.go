@@ -1168,9 +1168,6 @@ func (s *syncer) syncResources(ctx context.Context) error {
 			}
 		}
 
-		// Set the resource creation source
-		r.SetCreationSource(v2.Resource_CREATION_SOURCE_CONNECTOR_LIST_RESOURCES)
-
 		bulkPutResoruces = append(bulkPutResoruces, r)
 
 		err = s.getSubResources(ctx, r)
