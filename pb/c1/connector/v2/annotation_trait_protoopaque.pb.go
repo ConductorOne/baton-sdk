@@ -1680,9 +1680,9 @@ const file_c1_connector_v2_annotation_trait_proto_rawDesc = "" +
 	"\x12RoleScopeCondition\x12\x1e\n" +
 	"\n" +
 	"expression\x18\x01 \x01(\tR\n" +
-	"expression\"\x8f\x01\n" +
-	"\x0eRoleScopeTrait\x124\n" +
-	"\arole_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x06roleId\x12G\n" +
+	"expression\"\x99\x01\n" +
+	"\x0eRoleScopeTrait\x12>\n" +
+	"\arole_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\x06roleId\x12G\n" +
 	"\x11scope_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x0fscopeResourceId\"\x9a\x03\n" +
 	"\bAppTrait\x125\n" +
 	"\bhelp_url\x18\x01 \x01(\tB\x1a\xfaB\x17r\x15 \x01(\x80\b:\bhttps://\xd0\x01\x01\x88\x01\x01R\ahelpUrl\x12-\n" +

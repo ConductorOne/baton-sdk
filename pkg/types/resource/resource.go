@@ -9,6 +9,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -29,9 +31,10 @@ func WithAnnotation(msgs ...proto.Message) ResourceOption {
 	}
 }
 
+// WithExternalID: Deprecated. This field is no longer used.
 func WithExternalID(externalID *v2.ExternalId) ResourceOption {
 	return func(r *v2.Resource) error {
-		r.SetExternalId(externalID)
+		r.SetExternalId(externalID) //nolint:staticcheck
 		return nil
 	}
 }
@@ -147,6 +150,15 @@ func WithRoleScopeTrait(opts ...RoleScopeTraitOption) ResourceOption {
 			if err != nil {
 				return err
 			}
+		}
+
+		roleId := rt.GetRoleId()
+		scopeResourceId := rt.GetScopeResourceId()
+		if roleId == nil {
+			return status.Errorf(codes.InvalidArgument, "role ID is required for role scope trait")
+		}
+		if scopeResourceId == nil {
+			return status.Errorf(codes.InvalidArgument, "scope resource ID is required for role scope trait")
 		}
 
 		annos.Update(rt)

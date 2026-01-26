@@ -1002,6 +1002,17 @@ func (m *RoleScopeTrait) validate(all bool) error {
 
 	var errors []error
 
+	if m.GetRoleId() == nil {
+		err := RoleScopeTraitValidationError{
+			field:  "RoleId",
+			reason: "value is required",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if all {
 		switch v := interface{}(m.GetRoleId()).(type) {
 		case interface{ ValidateAll() error }:

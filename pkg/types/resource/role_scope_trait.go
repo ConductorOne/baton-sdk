@@ -1,10 +1,10 @@
 package resource
 
 import (
-	"fmt"
-
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type RoleScopeTraitOption func(rs *v2.RoleScopeTrait) error
@@ -34,7 +34,7 @@ func GetRoleScopeTrait(resource *v2.Resource) (*v2.RoleScopeTrait, error) {
 		return nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("role scope trait was not found on resource")
+		return nil, status.Errorf(codes.NotFound, "role scope trait was not found on resource")
 	}
 
 	return ret, nil

@@ -1,10 +1,10 @@
 package resource
 
 import (
-	"fmt"
-
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -62,7 +62,7 @@ func GetRoleTrait(resource *v2.Resource) (*v2.RoleTrait, error) {
 		return nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("role trait was not found on resource")
+		return nil, status.Errorf(codes.NotFound, "role trait was not found on resource")
 	}
 
 	return ret, nil
