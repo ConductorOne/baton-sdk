@@ -12,6 +12,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/healthcheck"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -38,10 +39,11 @@ const (
 )
 
 type connectorRunner struct {
-	cw        types.ClientWrapper
-	oneShot   bool
-	tasks     tasks.Manager
-	debugFile *os.File
+	cw           types.ClientWrapper
+	oneShot      bool
+	tasks        tasks.Manager
+	debugFile    *os.File
+	healthServer *healthcheck.Server
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -240,6 +242,14 @@ func (c *connectorRunner) run(ctx context.Context) error {
 func (c *connectorRunner) Close(ctx context.Context) error {
 	var retErr error
 
+	// Stop health check server if running
+	if c.healthServer != nil {
+		if err := c.healthServer.Stop(ctx); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
+		c.healthServer = nil
+	}
+
 	if err := c.cw.Close(); err != nil {
 		retErr = errors.Join(retErr, err)
 	}
@@ -360,6 +370,9 @@ type runnerConfig struct {
 	syncResourceTypeIDs                   []string
 	defaultCapabilitiesConnectorBuilder   connectorbuilder.ConnectorBuilder
 	defaultCapabilitiesConnectorBuilderV2 connectorbuilder.ConnectorBuilderV2
+	healthCheckEnabled                    bool
+	healthCheckPort                       int
+	healthCheckBindAddress                string
 }
 
 func WithSessionStoreEnabled() Option {
@@ -722,6 +735,16 @@ func WithDefaultCapabilitiesConnectorBuilderV2(t connectorbuilder.ConnectorBuild
 	}
 }
 
+// WithHealthCheck enables the HTTP health check server.
+func WithHealthCheck(enabled bool, port int, bindAddress string) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.healthCheckEnabled = enabled
+		cfg.healthCheckPort = port
+		cfg.healthCheckBindAddress = bindAddress
+		return nil
+	}
+}
+
 func ExtractDefaultConnector(ctx context.Context, options ...Option) (any, error) {
 	cfg := &runnerConfig{}
 
@@ -915,6 +938,21 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		return nil, err
 	}
 	runner.tasks = tm
+
+	// Start health check server if enabled (only for daemon mode)
+	if cfg.healthCheckEnabled {
+		healthCfg := healthcheck.Config{
+			Enabled:     true,
+			Port:        cfg.healthCheckPort,
+			BindAddress: cfg.healthCheckBindAddress,
+		}
+		healthServer := healthcheck.NewServer(healthCfg, cw.C)
+		if err := healthServer.Start(ctx); err != nil {
+			_ = cw.Close() // Clean up connector wrapper on failure
+			return nil, fmt.Errorf("failed to start health check server: %w", err)
+		}
+		runner.healthServer = healthServer
+	}
 
 	return runner, nil
 }

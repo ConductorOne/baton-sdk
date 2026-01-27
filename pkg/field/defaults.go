@@ -290,6 +290,25 @@ var (
 		WithExportTarget(ExportTargetOps),
 		WithHidden(true),
 		WithPersistent(true))
+
+	healthCheckField = BoolField("health-check",
+		WithDescription("Enable the HTTP health check endpoint"),
+		WithDefaultValue(false),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetOps))
+
+	healthCheckPortField = IntField("health-check-port",
+		WithDescription("Port for the HTTP health check endpoint"),
+		WithDefaultValue(8081),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetOps))
+
+	healthCheckBindAddressField = StringField("health-check-bind-address",
+		WithDescription("Bind address for health check server (127.0.0.1 for localhost-only)"),
+		WithDefaultValue("127.0.0.1"),
+		WithPersistent(true),
+		WithHidden(true),
+		WithExportTarget(ExportTargetOps))
 )
 
 func LambdaServerFields() []SchemaField {
@@ -373,6 +392,10 @@ var DefaultFields = []SchemaField{
 	otelLoggingDisabled,
 
 	authMethod,
+
+	healthCheckField,
+	healthCheckPortField,
+	healthCheckBindAddressField,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {

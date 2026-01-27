@@ -39,6 +39,10 @@ var DefaultRelationships = []SchemaFieldRelationship{
 		[]SchemaField{skipGrants},
 		[]SchemaField{targetedSyncResourceIDs},
 	),
+	FieldsDependentOn(
+		[]SchemaField{healthCheckPortField, healthCheckBindAddressField},
+		[]SchemaField{healthCheckField},
+	),
 }
 
 func EnsureDefaultRelationships(original []SchemaFieldRelationship) []SchemaFieldRelationship {

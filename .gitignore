@@ -20,3 +20,5 @@ dist/
 # Dependency directories (remove the comment below to include it)
 # vendor/
 /.pre-commit-config.yaml
+
+.claude/settings.local.json

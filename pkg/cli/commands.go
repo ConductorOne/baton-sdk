@@ -179,6 +179,13 @@ func MakeMainCommand[T field.Configurable](
 			if v.GetBool("skip-full-sync") {
 				opts = append(opts, connectorrunner.WithFullSyncDisabled())
 			}
+			if v.GetBool("health-check") {
+				opts = append(opts, connectorrunner.WithHealthCheck(
+					true,
+					v.GetInt("health-check-port"),
+					v.GetString("health-check-bind-address"),
+				))
+			}
 		} else {
 			switch {
 			case v.GetString("grant-entitlement") != "":
