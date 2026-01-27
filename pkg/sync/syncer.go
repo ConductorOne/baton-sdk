@@ -647,6 +647,11 @@ func (s *syncer) Sync(ctx context.Context) error {
 				s.state.FinishAction(ctx)
 				continue
 			}
+			if codes.Code(status.Code(err)) == codes.NotFound && s.syncType == connectorstore.SyncTypePartial {
+				l.Warn("sync targeted resource not found, continuing to sync other resources", zap.Any("stateAction", stateAction), zap.Error(err))
+				s.state.FinishAction(ctx)
+				continue
+			}
 			if !retryer.ShouldWaitAndRetry(ctx, err) {
 				return err
 			}
