@@ -948,6 +948,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		}
 		healthServer := healthcheck.NewServer(healthCfg, cw.C)
 		if err := healthServer.Start(ctx); err != nil {
+			_ = cw.Close() // Clean up connector wrapper on failure
 			return nil, fmt.Errorf("failed to start health check server: %w", err)
 		}
 		runner.healthServer = healthServer
