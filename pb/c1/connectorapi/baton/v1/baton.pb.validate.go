@@ -924,6 +924,88 @@ func (m *Task) validate(all bool) error {
 			}
 		}
 
+	case *Task_ListEventFeeds:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetListEventFeeds()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "ListEventFeeds",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "ListEventFeeds",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetListEventFeeds()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "ListEventFeeds",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	case *Task_ListEvents:
+		if v == nil {
+			err := TaskValidationError{
+				field:  "TaskType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+		if all {
+			switch v := interface{}(m.GetListEvents()).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "ListEvents",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, TaskValidationError{
+						field:  "ListEvents",
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(m.GetListEvents()).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return TaskValidationError{
+					field:  "ListEvents",
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
 	default:
 		_ = v // ensures v is used
 	}
@@ -3696,6 +3778,326 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = Task_EventFeedTaskValidationError{}
+
+// Validate checks the field values on Task_ListEventsTask with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *Task_ListEventsTask) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task_ListEventsTask with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// Task_ListEventsTaskMultiError, or nil if none found.
+func (m *Task_ListEventsTask) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_ListEventsTask) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_ListEventsTaskValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_ListEventsTaskValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_ListEventsTaskValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if m.GetCursor() != "" {
+
+		if l := len(m.GetCursor()); l < 1 || l > 4096 {
+			err := Task_ListEventsTaskValidationError{
+				field:  "Cursor",
+				reason: "value length must be between 1 and 4096 bytes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+
+	}
+
+	if all {
+		switch v := interface{}(m.GetStartAt()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, Task_ListEventsTaskValidationError{
+					field:  "StartAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, Task_ListEventsTaskValidationError{
+					field:  "StartAt",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetStartAt()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return Task_ListEventsTaskValidationError{
+				field:  "StartAt",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	// no validation rules for EventFeedId
+
+	// no validation rules for PageSize
+
+	if len(errors) > 0 {
+		return Task_ListEventsTaskMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_ListEventsTaskMultiError is an error wrapping multiple validation
+// errors returned by Task_ListEventsTask.ValidateAll() if the designated
+// constraints aren't met.
+type Task_ListEventsTaskMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_ListEventsTaskMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_ListEventsTaskMultiError) AllErrors() []error { return m }
+
+// Task_ListEventsTaskValidationError is the validation error returned by
+// Task_ListEventsTask.Validate if the designated constraints aren't met.
+type Task_ListEventsTaskValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_ListEventsTaskValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_ListEventsTaskValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_ListEventsTaskValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_ListEventsTaskValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_ListEventsTaskValidationError) ErrorName() string {
+	return "Task_ListEventsTaskValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e Task_ListEventsTaskValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_ListEventsTask.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_ListEventsTaskValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_ListEventsTaskValidationError{}
+
+// Validate checks the field values on Task_ListEventFeedsTask with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *Task_ListEventFeedsTask) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on Task_ListEventFeedsTask with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// Task_ListEventFeedsTaskMultiError, or nil if none found.
+func (m *Task_ListEventFeedsTask) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *Task_ListEventFeedsTask) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	for idx, item := range m.GetAnnotations() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, Task_ListEventFeedsTaskValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, Task_ListEventFeedsTaskValidationError{
+						field:  fmt.Sprintf("Annotations[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return Task_ListEventFeedsTaskValidationError{
+					field:  fmt.Sprintf("Annotations[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return Task_ListEventFeedsTaskMultiError(errors)
+	}
+
+	return nil
+}
+
+// Task_ListEventFeedsTaskMultiError is an error wrapping multiple validation
+// errors returned by Task_ListEventFeedsTask.ValidateAll() if the designated
+// constraints aren't met.
+type Task_ListEventFeedsTaskMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m Task_ListEventFeedsTaskMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m Task_ListEventFeedsTaskMultiError) AllErrors() []error { return m }
+
+// Task_ListEventFeedsTaskValidationError is the validation error returned by
+// Task_ListEventFeedsTask.Validate if the designated constraints aren't met.
+type Task_ListEventFeedsTaskValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e Task_ListEventFeedsTaskValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e Task_ListEventFeedsTaskValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e Task_ListEventFeedsTaskValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e Task_ListEventFeedsTaskValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e Task_ListEventFeedsTaskValidationError) ErrorName() string {
+	return "Task_ListEventFeedsTaskValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e Task_ListEventFeedsTaskValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sTask_ListEventFeedsTask.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = Task_ListEventFeedsTaskValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = Task_ListEventFeedsTaskValidationError{}
 
 // Validate checks the field values on Task_GrantTask with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
