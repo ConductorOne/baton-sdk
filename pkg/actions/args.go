@@ -575,7 +575,7 @@ func basicEntitlementToEntitlement(basicEntitlement *config.Entitlement) *v2.Ent
 	}
 
 	var resource *v2.Resource
-	if basicEntitlement.GetResourceId() != "" || basicEntitlement.GetResourceTypeId() != "" {
+	if basicEntitlement.GetResourceId() != "" && basicEntitlement.GetResourceTypeId() != "" {
 		resource = &v2.Resource{
 			Id: &v2.ResourceId{
 				Resource:     basicEntitlement.GetResourceId(),
