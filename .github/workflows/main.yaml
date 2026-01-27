@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup
         uses: bufbuild/buf-setup-action@v1
         with:
@@ -28,7 +28,7 @@ jobs:
         with:
           go-version: 1.25.2
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Run linters
         uses: golangci/golangci-lint-action@v8
         with:
@@ -48,9 +48,14 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: go tests
+        if: ${{ matrix.platform != 'windows-latest' }}
         run: go test -tags=baton_lambda_support -v -covermode=count -json ./... > test.json
+      - name: go tests
+        if: ${{ matrix.platform == 'windows-latest' }}
+        # Run tests with -short on Windows since its filesystem is very slow, causing CI to time out.
+        run: go test -timeout=30m -tags=baton_lambda_support -short -v -covermode=count -json ./... > test.json
       - name: Print go test results
         if: always()
         run: cat test.json
