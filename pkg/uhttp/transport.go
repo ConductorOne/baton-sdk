@@ -192,7 +192,7 @@ func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 			l.Debug("HTTP request client error", fields...)
 		default:
 			// Success
-			l.Info("HTTP request complete", fields...)
+			l.Debug("HTTP request complete", fields...)
 		}
 	}
 	return resp, err
