@@ -151,13 +151,14 @@ func TestMakeHealthCheckCommand_Non200Response(t *testing.T) {
 }
 
 func TestMakeHealthCheckCommand_ConnectionRefused(t *testing.T) {
+	ctx := context.Background()
+
 	// Get a free port by listening on :0 and immediately closing
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	lc := &net.ListenConfig{}
+	listener, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
-
-	ctx := context.Background()
 	v := viper.New()
 
 	cmd := &cobra.Command{}
