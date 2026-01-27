@@ -543,7 +543,7 @@ func MakeGRPCServerCommand[T field.Configurable](
 					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
 				}
 			}),
-			SelectedAuthMethod: viper.GetString("auth-method"),
+			SelectedAuthMethod: v.GetString("auth-method"),
 		})
 		if err != nil {
 			return err
