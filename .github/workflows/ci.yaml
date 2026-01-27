@@ -29,7 +29,11 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+      - name: Log go version and matrix platform
+        run: |
+          echo "matrix.platform: ${{ matrix.platform }}"
+          echo "matrix.go-version: ${{ matrix.go-version }}"
       - name: go tests
         if: ${{ matrix.platform != 'windows-latest' }}
         run: go test -tags=baton_lambda_support -v -covermode=count -json ./... > test.json
@@ -49,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Setup
         uses: bufbuild/buf-setup-action@v1
         with:
