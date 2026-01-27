@@ -30,7 +30,8 @@ func RunConnector[T field.Configurable](
 ) {
 	f := func(ctx context.Context, cfg T, runTimeOpts cli.RunTimeOpts) (types.ConnectorServer, error) {
 		l := ctxzap.Extract(ctx)
-		connector, builderOpts, err := cf(ctx, cfg, &cli.ConnectorOpts{TokenSource: runTimeOpts.TokenSource})
+		connector, builderOpts, err := cf(ctx, cfg, &cli.ConnectorOpts{TokenSource: runTimeOpts.TokenSource,
+			SelectedAuthMethod: runTimeOpts.SelectedAuthMethod})
 		if err != nil {
 			return nil, err
 		}

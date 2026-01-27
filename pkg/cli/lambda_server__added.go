@@ -226,6 +226,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
 				}
 			}),
+			SelectedAuthMethod: authMethodStr,
 		}
 
 		if hasOauthField(schemaFields) {

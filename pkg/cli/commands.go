@@ -373,7 +373,8 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithSkipGrants(v.GetBool("skip-grants")))
 		}
 
-		c, err := getconnector(runCtx, t, RunTimeOpts{})
+		// Save the selected authentication method and get the connector.
+		c, err := getconnector(runCtx, t, RunTimeOpts{SelectedAuthMethod: v.GetString("auth-method")})
 		if err != nil {
 			return err
 		}
