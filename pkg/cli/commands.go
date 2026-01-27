@@ -645,12 +645,13 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			if err != nil {
 				return fmt.Errorf("failed to make configuration: %w", err)
 			}
+			authMethod := v.GetString("auth-method")
 			// validate required fields and relationship constraints
-			if err := field.Validate(confschema, t, field.WithAuthMethod(v.GetString("auth-method"))); err != nil {
+			if err := field.Validate(confschema, t, field.WithAuthMethod(authMethod)); err != nil {
 				return err
 			}
 
-			c, err = getconnector(runCtx, t, RunTimeOpts{})
+			c, err = getconnector(runCtx, t, RunTimeOpts{SelectedAuthMethod: authMethod})
 			if err != nil {
 				return err
 			}
