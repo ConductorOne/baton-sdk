@@ -26,7 +26,6 @@ const (
 type Config struct {
 	Enabled     bool
 	Port        int
-	Path        string
 	BindAddress string
 }
 
@@ -73,15 +72,9 @@ func (s *Server) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 
 	// Register health check endpoints
-	// Always register /health, /ready, and /live
 	mux.HandleFunc("/health", s.healthHandler)
 	mux.HandleFunc("/ready", s.readyHandler)
 	mux.HandleFunc("/live", s.liveHandler)
-
-	// Register custom path if different from /health
-	if s.cfg.Path != "" && s.cfg.Path != "/health" {
-		mux.HandleFunc(s.cfg.Path, s.healthHandler)
-	}
 
 	addr := net.JoinHostPort(s.cfg.BindAddress, strconv.Itoa(s.cfg.Port))
 	lc := &net.ListenConfig{}

@@ -33,7 +33,6 @@ func TestHealthHandler_Healthy(t *testing.T) {
 		cfg: Config{
 			Enabled:     true,
 			Port:        8081,
-			Path:        "/health",
 			BindAddress: "127.0.0.1",
 		},
 		clientFunc: func(ctx context.Context) (types.ConnectorClient, error) {
@@ -60,7 +59,6 @@ func TestHealthHandler_Unhealthy_ClientError(t *testing.T) {
 		cfg: Config{
 			Enabled:     true,
 			Port:        8081,
-			Path:        "/health",
 			BindAddress: "127.0.0.1",
 		},
 		clientFunc: func(ctx context.Context) (types.ConnectorClient, error) {
@@ -91,7 +89,6 @@ func TestHealthHandler_Unhealthy_ValidationError(t *testing.T) {
 		cfg: Config{
 			Enabled:     true,
 			Port:        8081,
-			Path:        "/health",
 			BindAddress: "127.0.0.1",
 		},
 		clientFunc: func(ctx context.Context) (types.ConnectorClient, error) {
@@ -121,7 +118,6 @@ func TestReadyHandler_Ready(t *testing.T) {
 		cfg: Config{
 			Enabled:     true,
 			Port:        8081,
-			Path:        "/health",
 			BindAddress: "127.0.0.1",
 		},
 		clientFunc: func(ctx context.Context) (types.ConnectorClient, error) {
@@ -148,7 +144,6 @@ func TestReadyHandler_NotReady(t *testing.T) {
 		cfg: Config{
 			Enabled:     true,
 			Port:        8081,
-			Path:        "/health",
 			BindAddress: "127.0.0.1",
 		},
 		clientFunc: func(ctx context.Context) (types.ConnectorClient, error) {
@@ -175,7 +170,6 @@ func TestLiveHandler(t *testing.T) {
 		cfg: Config{
 			Enabled:     true,
 			Port:        8081,
-			Path:        "/health",
 			BindAddress: "127.0.0.1",
 		},
 	}
@@ -198,7 +192,6 @@ func TestServerStartStop(t *testing.T) {
 	cfg := Config{
 		Enabled:     true,
 		Port:        0, // Use port 0 to let the OS assign an available port
-		Path:        "/health",
 		BindAddress: "127.0.0.1",
 	}
 
@@ -232,7 +225,6 @@ func TestNewServer(t *testing.T) {
 	cfg := Config{
 		Enabled:     true,
 		Port:        8081,
-		Path:        "/health",
 		BindAddress: "127.0.0.1",
 	}
 

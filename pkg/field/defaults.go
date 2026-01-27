@@ -303,13 +303,6 @@ var (
 		WithPersistent(true),
 		WithExportTarget(ExportTargetOps))
 
-	healthCheckPathField = StringField("health-check-path",
-		WithDescription("Path for the health check endpoint"),
-		WithDefaultValue("/health"),
-		WithPersistent(true),
-		WithHidden(true),
-		WithExportTarget(ExportTargetOps))
-
 	healthCheckBindAddressField = StringField("health-check-bind-address",
 		WithDescription("Bind address for health check server (127.0.0.1 for localhost-only)"),
 		WithDefaultValue("127.0.0.1"),
@@ -402,7 +395,6 @@ var DefaultFields = []SchemaField{
 
 	healthCheckField,
 	healthCheckPortField,
-	healthCheckPathField,
 	healthCheckBindAddressField,
 }
 

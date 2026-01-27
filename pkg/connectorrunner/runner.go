@@ -370,10 +370,9 @@ type runnerConfig struct {
 	syncResourceTypeIDs                   []string
 	defaultCapabilitiesConnectorBuilder   connectorbuilder.ConnectorBuilder
 	defaultCapabilitiesConnectorBuilderV2 connectorbuilder.ConnectorBuilderV2
-	healthCheckEnabled                    bool
-	healthCheckPort                       int
-	healthCheckPath                       string
-	healthCheckBindAddress                string
+	healthCheckEnabled     bool
+	healthCheckPort        int
+	healthCheckBindAddress string
 }
 
 func WithSessionStoreEnabled() Option {
@@ -737,11 +736,10 @@ func WithDefaultCapabilitiesConnectorBuilderV2(t connectorbuilder.ConnectorBuild
 }
 
 // WithHealthCheck enables the HTTP health check server.
-func WithHealthCheck(enabled bool, port int, path string, bindAddress string) Option {
+func WithHealthCheck(enabled bool, port int, bindAddress string) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
 		cfg.healthCheckEnabled = enabled
 		cfg.healthCheckPort = port
-		cfg.healthCheckPath = path
 		cfg.healthCheckBindAddress = bindAddress
 		return nil
 	}
@@ -946,7 +944,6 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		healthCfg := healthcheck.Config{
 			Enabled:     true,
 			Port:        cfg.healthCheckPort,
-			Path:        cfg.healthCheckPath,
 			BindAddress: cfg.healthCheckBindAddress,
 		}
 		healthServer := healthcheck.NewServer(healthCfg, cw.C)

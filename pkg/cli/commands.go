@@ -183,7 +183,6 @@ func MakeMainCommand[T field.Configurable](
 				opts = append(opts, connectorrunner.WithHealthCheck(
 					true,
 					v.GetInt("health-check-port"),
-					v.GetString("health-check-path"),
 					v.GetString("health-check-bind-address"),
 				))
 			}
