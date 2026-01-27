@@ -370,9 +370,9 @@ type runnerConfig struct {
 	syncResourceTypeIDs                   []string
 	defaultCapabilitiesConnectorBuilder   connectorbuilder.ConnectorBuilder
 	defaultCapabilitiesConnectorBuilderV2 connectorbuilder.ConnectorBuilderV2
-	healthCheckEnabled     bool
-	healthCheckPort        int
-	healthCheckBindAddress string
+	healthCheckEnabled                    bool
+	healthCheckPort                       int
+	healthCheckBindAddress                string
 }
 
 func WithSessionStoreEnabled() Option {
