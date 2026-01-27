@@ -544,9 +544,9 @@ func NewReturnValues(success bool, fields ...ReturnField) *structpb.Struct {
 
 // entitlementToBasicEntitlement converts a v2.Entitlement to a config.Entitlement.
 func entitlementToBasicEntitlement(entitlement *v2.Entitlement) *config.Entitlement {
-	var grantableToResourceTypeIds []string
+	var grantableToResourceTypeIDs []string
 	for _, rt := range entitlement.GetGrantableTo() {
-		grantableToResourceTypeIds = append(grantableToResourceTypeIds, rt.GetId())
+		grantableToResourceTypeIDs = append(grantableToResourceTypeIDs, rt.GetId())
 	}
 
 	var resourceId, resourceTypeId string
@@ -561,7 +561,7 @@ func entitlementToBasicEntitlement(entitlement *v2.Entitlement) *config.Entitlem
 		Description:                entitlement.GetDescription(),
 		Slug:                       entitlement.GetSlug(),
 		Purpose:                    entitlement.GetPurpose().String(),
-		GrantableToResourceTypeIds: grantableToResourceTypeIds,
+		GrantableToResourceTypeIds: grantableToResourceTypeIDs,
 		ResourceId:                 resourceId,
 		ResourceTypeId:             resourceTypeId,
 	}.Build()
