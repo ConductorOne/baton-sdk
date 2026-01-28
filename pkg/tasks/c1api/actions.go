@@ -139,6 +139,8 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
+	l.Debug("ActionInvoke response", zap.Any("resp", resp))
+
 	// Check if the action itself failed and propagate the error
 	if resp.GetStatus() == v2.BatonActionStatus_BATON_ACTION_STATUS_FAILED {
 		errMsg := "action failed"
@@ -155,8 +157,6 @@ func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 		)
 		return c.helpers.FinishTask(ctx, resp, nil, fmt.Errorf("%s", errMsg))
 	}
-
-	l.Debug("ActionInvoke response", zap.Any("resp", resp))
 
 	return c.helpers.FinishTask(ctx, resp, nil, nil)
 }
