@@ -10,7 +10,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
-	"github.com/conductorone/baton-sdk/pkg/types/resource"
+	rs "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -18,6 +18,10 @@ import (
 
 type testConnector struct {
 	resourceSyncers []ResourceSyncer
+}
+
+type testConnectorV2 struct {
+	resourceSyncers []ResourceSyncerV2
 }
 
 func newTestConnector(resourceSyncers []ResourceSyncer) ConnectorBuilder {
@@ -36,6 +40,24 @@ func (t *testConnector) Validate(ctx context.Context) (annotations.Annotations, 
 }
 
 func (t *testConnector) ResourceSyncers(ctx context.Context) []ResourceSyncer {
+	return t.resourceSyncers
+}
+
+func newTestConnectorV2(resourceSyncers []ResourceSyncerV2) ConnectorBuilderV2 {
+	return &testConnectorV2{resourceSyncers: resourceSyncers}
+}
+func (t *testConnectorV2) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
+	return v2.ConnectorMetadata_builder{
+		DisplayName: "test-connector",
+		Description: "A test connector",
+	}.Build(), nil
+}
+
+func (t *testConnectorV2) Validate(ctx context.Context) (annotations.Annotations, error) {
+	return annotations.Annotations{}, nil
+}
+
+func (t *testConnectorV2) ResourceSyncers(ctx context.Context) []ResourceSyncerV2 {
 	return t.resourceSyncers
 }
 
@@ -98,6 +120,77 @@ func (t *testResourceSyncer) Grants(ctx context.Context, resource *v2.Resource, 
 	}, "", annotations.Annotations{}, nil
 }
 
+type testResourceSyncerV2 struct {
+	resourceType *v2.ResourceType
+}
+
+func newTestResourceSyncerV2(resourceType string) ResourceSyncerV2 {
+	return &testResourceSyncerV2{
+		resourceType: v2.ResourceType_builder{
+			Id:          resourceType,
+			DisplayName: "Test " + resourceType,
+		}.Build(),
+	}
+}
+
+func (t *testResourceSyncerV2) ResourceType(ctx context.Context) *v2.ResourceType {
+	return t.resourceType
+}
+
+func (t *testResourceSyncerV2) List(ctx context.Context, parentResourceID *v2.ResourceId, opts rs.SyncOpAttrs) ([]*v2.Resource, *rs.SyncOpResults, error) {
+	syncResults := &rs.SyncOpResults{
+		NextPageToken: "",
+		Annotations:   annotations.Annotations{},
+	}
+	return []*v2.Resource{
+		v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: t.resourceType.GetId(),
+				Resource:     "test-resource-1",
+			}.Build(),
+			DisplayName: "Test Resource 1",
+		}.Build(),
+	}, syncResults, nil
+}
+
+func (t *testResourceSyncerV2) Entitlements(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	syncResults := &rs.SyncOpResults{
+		NextPageToken: "",
+		Annotations:   annotations.Annotations{},
+	}
+	return []*v2.Entitlement{
+		v2.Entitlement_builder{
+			Resource:    resource,
+			Id:          "test-entitlement",
+			DisplayName: "Test Entitlement",
+		}.Build(),
+	}, syncResults, nil
+}
+
+func (t *testResourceSyncerV2) Grants(ctx context.Context, resource *v2.Resource, opts rs.SyncOpAttrs) ([]*v2.Grant, *rs.SyncOpResults, error) {
+	syncResults := &rs.SyncOpResults{
+		NextPageToken: "",
+		Annotations:   annotations.Annotations{},
+	}
+	return []*v2.Grant{
+		v2.Grant_builder{
+			Entitlement: v2.Entitlement_builder{
+				Resource:    resource,
+				Id:          "test-entitlement",
+				DisplayName: "Test Entitlement",
+			}.Build(),
+			Principal: v2.Resource_builder{
+				Id: v2.ResourceId_builder{
+					ResourceType: "user",
+					Resource:     "test-user",
+				}.Build(),
+				DisplayName: "Test User",
+			}.Build(),
+			Id: "test-grant-1",
+		}.Build(),
+	}, syncResults, nil
+}
+
 type testResourceSyncerV2WithTargetedSync struct {
 	resourceType *v2.ResourceType
 }
@@ -118,8 +211,8 @@ func (t *testResourceSyncerV2WithTargetedSync) ResourceType(ctx context.Context)
 func (t *testResourceSyncerV2WithTargetedSync) List(
 	ctx context.Context,
 	parentResourceID *v2.ResourceId,
-	opts resource.SyncOpAttrs,
-) ([]*v2.Resource, *resource.SyncOpResults, error) {
+	opts rs.SyncOpAttrs,
+) ([]*v2.Resource, *rs.SyncOpResults, error) {
 	return []*v2.Resource{
 		v2.Resource_builder{
 			Id: v2.ResourceId_builder{
@@ -128,32 +221,32 @@ func (t *testResourceSyncerV2WithTargetedSync) List(
 			}.Build(),
 			DisplayName: "Test Resource 1",
 		}.Build(),
-	}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
+	}, &rs.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
-func (t *testResourceSyncerV2WithTargetedSync) StaticEntitlements(ctx context.Context, opts resource.SyncOpAttrs) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
-	return []*v2.Entitlement{}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
+func (t *testResourceSyncerV2WithTargetedSync) StaticEntitlements(ctx context.Context, opts rs.SyncOpAttrs) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
+	return []*v2.Entitlement{}, &rs.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
 func (t *testResourceSyncerV2WithTargetedSync) Entitlements(
 	ctx context.Context,
 	r *v2.Resource,
-	opts resource.SyncOpAttrs,
-) ([]*v2.Entitlement, *resource.SyncOpResults, error) {
+	opts rs.SyncOpAttrs,
+) ([]*v2.Entitlement, *rs.SyncOpResults, error) {
 	return []*v2.Entitlement{
 		v2.Entitlement_builder{
 			Resource:    r,
 			Id:          "test-entitlement",
 			DisplayName: "Test Entitlement",
 		}.Build(),
-	}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
+	}, &rs.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
 func (t *testResourceSyncerV2WithTargetedSync) Grants(
 	ctx context.Context,
 	r *v2.Resource,
-	opts resource.SyncOpAttrs,
-) ([]*v2.Grant, *resource.SyncOpResults, error) {
+	opts rs.SyncOpAttrs,
+) ([]*v2.Grant, *rs.SyncOpResults, error) {
 	return []*v2.Grant{
 		v2.Grant_builder{
 			Entitlement: v2.Entitlement_builder{
@@ -170,7 +263,7 @@ func (t *testResourceSyncerV2WithTargetedSync) Grants(
 			}.Build(),
 			Id: "test-grant-1",
 		}.Build(),
-	}, &resource.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
+	}, &rs.SyncOpResults{NextPageToken: "", Annotations: annotations.Annotations{}}, nil
 }
 
 func (t *testResourceSyncerV2WithTargetedSync) Get(
@@ -269,11 +362,11 @@ func (t *testResourceProvisioner) Revoke(ctx context.Context, grant *v2.Grant) (
 }
 
 type testResourceProvisionerV2 struct {
-	ResourceSyncer
+	ResourceSyncerV2
 }
 
 func newTestResourceProvisionerV2(resourceType string) ResourceProvisionerV2 {
-	return &testResourceProvisionerV2{newTestResourceSyncer(resourceType)}
+	return &testResourceProvisionerV2{newTestResourceSyncerV2(resourceType)}
 }
 
 type testResourceTargetedSyncer struct {
@@ -885,7 +978,7 @@ func TestResourceProvisionerV2(t *testing.T) {
 	ctx := context.Background()
 
 	rsProvisionerV2 := newTestResourceProvisionerV2("test-resource")
-	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsProvisionerV2}))
+	connector, err := NewConnector(ctx, newTestConnectorV2([]ResourceSyncerV2{rsProvisionerV2}))
 	require.NoError(t, err)
 
 	// Test Grant V2

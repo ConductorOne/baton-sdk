@@ -46,7 +46,7 @@ type GrantProvisioner interface {
 // This is the recommended interface for implementing provisioning operations in new connectors.
 // It differs from ResourceProvisioner by returning a list of grants from the Grant method.
 type ResourceProvisionerV2 interface {
-	ResourceSyncer
+	ResourceSyncerV2
 	ResourceProvisionerV2Limited
 }
 
