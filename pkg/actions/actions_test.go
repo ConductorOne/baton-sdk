@@ -546,3 +546,95 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		require.LessOrEqual(t, finalCount, initialCount+1, "goroutine leak detected after context cancellation")
 	})
 }
+
+func TestNewUpdateProfileSchema(t *testing.T) {
+	t.Run("basic schema without custom attributes", func(t *testing.T) {
+		schema := NewUpdateProfileSchema(false, nil)
+
+		require.Equal(t, "update_profile", schema.GetName())
+		require.Equal(t, "Update Profile", schema.GetDisplayName())
+		require.Equal(t, "Update a user's profile attributes", schema.GetDescription())
+		require.Contains(t, schema.GetActionType(), v2.ActionType_ACTION_TYPE_ACCOUNT_UPDATE_PROFILE)
+
+		// Should have only user_id field
+		require.Len(t, schema.GetArguments(), 1)
+
+		userIdField := schema.GetArguments()[0]
+		require.Equal(t, "user_id", userIdField.GetName())
+		require.Equal(t, "User ID", userIdField.GetDisplayName())
+		require.True(t, userIdField.GetIsRequired())
+		require.NotNil(t, userIdField.GetResourceIdField())
+		require.Equal(t, []string{"user"}, userIdField.GetResourceIdField().GetRules().GetAllowedResourceTypeIds())
+	})
+
+	t.Run("schema with attribute names", func(t *testing.T) {
+		schema := NewUpdateProfileSchema(false, []string{"first_name", "last_name", "email"})
+
+		// Should have user_id + 3 attribute fields
+		require.Len(t, schema.GetArguments(), 4)
+
+		// Verify user_id is first
+		require.Equal(t, "user_id", schema.GetArguments()[0].GetName())
+
+		// Verify attribute fields
+		firstNameField := schema.GetArguments()[1]
+		require.Equal(t, "first_name", firstNameField.GetName())
+		require.Equal(t, "First Name", firstNameField.GetDisplayName())
+		require.NotNil(t, firstNameField.GetStringField())
+
+		lastNameField := schema.GetArguments()[2]
+		require.Equal(t, "last_name", lastNameField.GetName())
+		require.Equal(t, "Last Name", lastNameField.GetDisplayName())
+		require.NotNil(t, lastNameField.GetStringField())
+
+		emailField := schema.GetArguments()[3]
+		require.Equal(t, "email", emailField.GetName())
+		require.Equal(t, "Email", emailField.GetDisplayName())
+		require.NotNil(t, emailField.GetStringField())
+	})
+
+	t.Run("schema with custom attributes enabled", func(t *testing.T) {
+		schema := NewUpdateProfileSchema(true, []string{"first_name"})
+
+		// Should have user_id + first_name + custom_attributes
+		require.Len(t, schema.GetArguments(), 3)
+
+		customAttrsField := schema.GetArguments()[2]
+		require.Equal(t, "custom_attributes", customAttrsField.GetName())
+		require.Equal(t, "Custom Attributes", customAttrsField.GetDisplayName())
+		require.NotNil(t, customAttrsField.GetStringMapField())
+	})
+
+	t.Run("schema without custom attributes disabled", func(t *testing.T) {
+		schema := NewUpdateProfileSchema(false, []string{"first_name"})
+
+		// Should have user_id + first_name only
+		require.Len(t, schema.GetArguments(), 2)
+
+		// Verify no custom_attributes field
+		for _, field := range schema.GetArguments() {
+			require.NotEqual(t, "custom_attributes", field.GetName())
+		}
+	})
+}
+
+func TestToDisplayName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"first_name", "First Name"},
+		{"last_name", "Last Name"},
+		{"email", "Email"},
+		{"user_profile_picture_url", "User Profile Picture Url"},
+		{"id", "Id"},
+		{"", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			result := toDisplayName(tc.input)
+			require.Equal(t, tc.expected, result)
+		})
+	}
+}
