@@ -168,9 +168,22 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	}
 	defer dstFile.Close()
 
+	// Get source file size before copy for validation
+	srcStat, err := tmpFile.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat source file: %w", err)
+	}
+	expectedSize := srcStat.Size()
+
 	size, err := io.Copy(dstFile, tmpFile)
 	if err != nil {
 		return err
+	}
+
+	// CRITICAL: Validate copy was complete. A truncated copy would result in
+	// a corrupt c1z file missing the zstd end-of-stream marker.
+	if size != expectedSize {
+		return fmt.Errorf("copy truncated: copied %d bytes, expected %d bytes", size, expectedSize)
 	}
 
 	// CRITICAL: Sync to ensure data is written before function returns.
