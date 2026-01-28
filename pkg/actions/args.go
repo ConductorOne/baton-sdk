@@ -541,3 +541,231 @@ func NewReturnValues(success bool, fields ...ReturnField) *structpb.Struct {
 
 	return rv
 }
+
+// entitlementToBasicEntitlement converts a v2.Entitlement to a config.Entitlement.
+func entitlementToBasicEntitlement(entitlement *v2.Entitlement) *config.Entitlement {
+	var grantableToResourceTypeIDs []string
+	for _, rt := range entitlement.GetGrantableTo() {
+		grantableToResourceTypeIDs = append(grantableToResourceTypeIDs, rt.GetId())
+	}
+
+	var resourceId, resourceTypeId string
+	if entitlement.GetResource() != nil && entitlement.GetResource().GetId() != nil {
+		resourceId = entitlement.GetResource().GetId().GetResource()
+		resourceTypeId = entitlement.GetResource().GetId().GetResourceType()
+	}
+
+	return config.Entitlement_builder{
+		Id:                         entitlement.GetId(),
+		DisplayName:                entitlement.GetDisplayName(),
+		Description:                entitlement.GetDescription(),
+		Slug:                       entitlement.GetSlug(),
+		Purpose:                    entitlement.GetPurpose().String(),
+		GrantableToResourceTypeIds: grantableToResourceTypeIDs,
+		ResourceId:                 resourceId,
+		ResourceTypeId:             resourceTypeId,
+	}.Build()
+}
+
+// basicEntitlementToEntitlement converts a config.Entitlement to a v2.Entitlement.
+func basicEntitlementToEntitlement(basicEntitlement *config.Entitlement) *v2.Entitlement {
+	var grantableTo []*v2.ResourceType
+	for _, rtId := range basicEntitlement.GetGrantableToResourceTypeIds() {
+		grantableTo = append(grantableTo, &v2.ResourceType{Id: rtId})
+	}
+
+	var resource *v2.Resource
+	if basicEntitlement.GetResourceId() != "" && basicEntitlement.GetResourceTypeId() != "" {
+		resource = &v2.Resource{
+			Id: &v2.ResourceId{
+				Resource:     basicEntitlement.GetResourceId(),
+				ResourceType: basicEntitlement.GetResourceTypeId(),
+			},
+		}
+	}
+
+	// Parse purpose from string
+	purposeValue := v2.Entitlement_PURPOSE_VALUE_UNSPECIFIED
+	switch basicEntitlement.GetPurpose() {
+	case "PURPOSE_VALUE_ASSIGNMENT":
+		purposeValue = v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT
+	case "PURPOSE_VALUE_PERMISSION":
+		purposeValue = v2.Entitlement_PURPOSE_VALUE_PERMISSION
+	case "PURPOSE_VALUE_OWNERSHIP":
+		purposeValue = v2.Entitlement_PURPOSE_VALUE_OWNERSHIP
+	}
+
+	return &v2.Entitlement{
+		Id:          basicEntitlement.GetId(),
+		DisplayName: basicEntitlement.GetDisplayName(),
+		Description: basicEntitlement.GetDescription(),
+		Slug:        basicEntitlement.GetSlug(),
+		Purpose:     purposeValue,
+		GrantableTo: grantableTo,
+		Resource:    resource,
+	}
+}
+
+// grantToBasicGrant converts a v2.Grant to a config.Grant.
+func grantToBasicGrant(grant *v2.Grant) *config.Grant {
+	var entitlementRef *config.EntitlementRef
+	if grant.GetEntitlement() != nil {
+		entitlementRef = config.EntitlementRef_builder{
+			Id: grant.GetEntitlement().GetId(),
+		}.Build()
+	}
+
+	var principal *config.Resource
+	if grant.GetPrincipal() != nil {
+		principal = resourceToBasicResource(grant.GetPrincipal())
+	}
+
+	return config.Grant_builder{
+		Id:          grant.GetId(),
+		Entitlement: entitlementRef,
+		Principal:   principal,
+	}.Build()
+}
+
+// basicGrantToGrant converts a config.Grant to a v2.Grant.
+func basicGrantToGrant(basicGrant *config.Grant) *v2.Grant {
+	var entitlement *v2.Entitlement
+	if basicGrant.GetEntitlement() != nil {
+		entitlement = &v2.Entitlement{
+			Id: basicGrant.GetEntitlement().GetId(),
+		}
+	}
+
+	var principal *v2.Resource
+	if basicGrant.GetPrincipal() != nil {
+		principal = basicResourceToResource(basicGrant.GetPrincipal())
+	}
+
+	return &v2.Grant{
+		Id:          basicGrant.GetId(),
+		Entitlement: entitlement,
+		Principal:   principal,
+	}
+}
+
+// GetEntitlementListFieldArg extracts a list of Entitlement proto messages from the args struct by key.
+// Each Entitlement is expected to be stored as a JSON-serialized struct value.
+// Returns the list of Entitlement and true if found and valid, or nil and false otherwise.
+func GetEntitlementListFieldArg(args *structpb.Struct, key string) ([]*v2.Entitlement, bool) {
+	if args == nil || args.Fields == nil {
+		return nil, false
+	}
+	value, ok := args.Fields[key]
+	if !ok {
+		return nil, false
+	}
+	listValue, ok := value.GetKind().(*structpb.Value_ListValue)
+	if !ok {
+		return nil, false
+	}
+	var entitlements []*v2.Entitlement
+	for _, v := range listValue.ListValue.Values {
+		structValue, ok := v.GetKind().(*structpb.Value_StructValue)
+		if !ok {
+			return nil, false
+		}
+
+		// Marshal the struct value back to JSON, then unmarshal into the proto message
+		jsonBytes, err := protojson.Marshal(structValue.StructValue)
+		if err != nil {
+			return nil, false
+		}
+
+		basicEntitlement := &config.Entitlement{}
+		if err := protojson.Unmarshal(jsonBytes, basicEntitlement); err != nil {
+			return nil, false
+		}
+
+		entitlements = append(entitlements, basicEntitlementToEntitlement(basicEntitlement))
+	}
+	return entitlements, true
+}
+
+// GetGrantListFieldArg extracts a list of Grant proto messages from the args struct by key.
+// Each Grant is expected to be stored as a JSON-serialized struct value.
+// Returns the list of Grant and true if found and valid, or nil and false otherwise.
+func GetGrantListFieldArg(args *structpb.Struct, key string) ([]*v2.Grant, bool) {
+	if args == nil || args.Fields == nil {
+		return nil, false
+	}
+	value, ok := args.Fields[key]
+	if !ok {
+		return nil, false
+	}
+	listValue, ok := value.GetKind().(*structpb.Value_ListValue)
+	if !ok {
+		return nil, false
+	}
+	var grants []*v2.Grant
+	for _, v := range listValue.ListValue.Values {
+		structValue, ok := v.GetKind().(*structpb.Value_StructValue)
+		if !ok {
+			return nil, false
+		}
+
+		// Marshal the struct value back to JSON, then unmarshal into the proto message
+		jsonBytes, err := protojson.Marshal(structValue.StructValue)
+		if err != nil {
+			return nil, false
+		}
+
+		basicGrant := &config.Grant{}
+		if err := protojson.Unmarshal(jsonBytes, basicGrant); err != nil {
+			return nil, false
+		}
+
+		grants = append(grants, basicGrantToGrant(basicGrant))
+	}
+	return grants, true
+}
+
+// NewEntitlementListReturnField creates a return field with a list of Entitlement proto values.
+func NewEntitlementListReturnField(key string, entitlements []*v2.Entitlement) (ReturnField, error) {
+	listValues := make([]*structpb.Value, len(entitlements))
+	for i, entitlement := range entitlements {
+		if entitlement == nil {
+			return ReturnField{}, fmt.Errorf("entitlement at index %d cannot be nil", i)
+		}
+		basicEntitlement := entitlementToBasicEntitlement(entitlement)
+		jsonBytes, err := protojson.Marshal(basicEntitlement)
+		if err != nil {
+			return ReturnField{}, fmt.Errorf("failed to marshal entitlement: %w", err)
+		}
+
+		structValue := &structpb.Struct{}
+		if err := protojson.Unmarshal(jsonBytes, structValue); err != nil {
+			return ReturnField{}, fmt.Errorf("failed to unmarshal entitlement to struct: %w", err)
+		}
+
+		listValues[i] = structpb.NewStructValue(structValue)
+	}
+	return ReturnField{Key: key, Value: structpb.NewListValue(&structpb.ListValue{Values: listValues})}, nil
+}
+
+// NewGrantListReturnField creates a return field with a list of Grant proto values.
+func NewGrantListReturnField(key string, grants []*v2.Grant) (ReturnField, error) {
+	listValues := make([]*structpb.Value, len(grants))
+	for i, grant := range grants {
+		if grant == nil {
+			return ReturnField{}, fmt.Errorf("grant at index %d cannot be nil", i)
+		}
+		basicGrant := grantToBasicGrant(grant)
+		jsonBytes, err := protojson.Marshal(basicGrant)
+		if err != nil {
+			return ReturnField{}, fmt.Errorf("failed to marshal grant: %w", err)
+		}
+
+		structValue := &structpb.Struct{}
+		if err := protojson.Unmarshal(jsonBytes, structValue); err != nil {
+			return ReturnField{}, fmt.Errorf("failed to unmarshal grant to struct: %w", err)
+		}
+
+		listValues[i] = structpb.NewStructValue(structValue)
+	}
+	return ReturnField{Key: key, Value: structpb.NewListValue(&structpb.ListValue{Values: listValues})}, nil
+}

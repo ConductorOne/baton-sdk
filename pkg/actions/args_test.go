@@ -1160,3 +1160,485 @@ func TestResourceConversionHelpers(t *testing.T) {
 		require.Equal(t, original.Description, converted.Description)
 	})
 }
+
+func TestEntitlementConversionHelpers(t *testing.T) {
+	t.Run("entitlementToBasicEntitlement and back", func(t *testing.T) {
+		original := &v2.Entitlement{
+			Id:          "entitlement-123",
+			DisplayName: "Test Entitlement",
+			Description: "A test entitlement description",
+			Slug:        "test-entitlement",
+			Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+			GrantableTo: []*v2.ResourceType{
+				{Id: "user"},
+				{Id: "group"},
+			},
+			Resource: &v2.Resource{
+				Id: &v2.ResourceId{
+					ResourceType: "role",
+					Resource:     "admin",
+				},
+			},
+		}
+
+		basic := entitlementToBasicEntitlement(original)
+		require.NotNil(t, basic)
+		require.Equal(t, "entitlement-123", basic.GetId())
+		require.Equal(t, "Test Entitlement", basic.GetDisplayName())
+		require.Equal(t, "A test entitlement description", basic.GetDescription())
+		require.Equal(t, "test-entitlement", basic.GetSlug())
+		require.Equal(t, "PURPOSE_VALUE_ASSIGNMENT", basic.GetPurpose())
+		require.Equal(t, []string{"user", "group"}, basic.GetGrantableToResourceTypeIds())
+		require.Equal(t, "admin", basic.GetResourceId())
+		require.Equal(t, "role", basic.GetResourceTypeId())
+
+		converted := basicEntitlementToEntitlement(basic)
+		require.NotNil(t, converted)
+		require.Equal(t, original.Id, converted.Id)
+		require.Equal(t, original.DisplayName, converted.DisplayName)
+		require.Equal(t, original.Description, converted.Description)
+		require.Equal(t, original.Slug, converted.Slug)
+		require.Equal(t, original.Purpose, converted.Purpose)
+		require.Len(t, converted.GrantableTo, 2)
+		require.Equal(t, "user", converted.GrantableTo[0].Id)
+		require.Equal(t, "group", converted.GrantableTo[1].Id)
+		require.NotNil(t, converted.Resource)
+		require.Equal(t, "admin", converted.Resource.Id.Resource)
+		require.Equal(t, "role", converted.Resource.Id.ResourceType)
+	})
+
+	t.Run("handles nil resource", func(t *testing.T) {
+		original := &v2.Entitlement{
+			Id:          "entitlement-123",
+			DisplayName: "Test Entitlement",
+			Resource:    nil,
+		}
+
+		basic := entitlementToBasicEntitlement(original)
+		require.NotNil(t, basic)
+		require.Empty(t, basic.GetResourceId())
+		require.Empty(t, basic.GetResourceTypeId())
+
+		converted := basicEntitlementToEntitlement(basic)
+		require.NotNil(t, converted)
+		require.Nil(t, converted.Resource)
+	})
+
+	t.Run("handles all purpose values", func(t *testing.T) {
+		purposes := []v2.Entitlement_PurposeValue{
+			v2.Entitlement_PURPOSE_VALUE_UNSPECIFIED,
+			v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+			v2.Entitlement_PURPOSE_VALUE_PERMISSION,
+			v2.Entitlement_PURPOSE_VALUE_OWNERSHIP,
+		}
+
+		for _, purpose := range purposes {
+			original := &v2.Entitlement{
+				Id:      "ent-1",
+				Purpose: purpose,
+			}
+
+			basic := entitlementToBasicEntitlement(original)
+			converted := basicEntitlementToEntitlement(basic)
+			require.Equal(t, purpose, converted.Purpose)
+		}
+	})
+}
+
+func TestGrantConversionHelpers(t *testing.T) {
+	t.Run("grantToBasicGrant and back", func(t *testing.T) {
+		original := &v2.Grant{
+			Id: "grant-123",
+			Entitlement: &v2.Entitlement{
+				Id: "entitlement-456",
+			},
+			Principal: &v2.Resource{
+				Id: &v2.ResourceId{
+					ResourceType: "user",
+					Resource:     "user-789",
+				},
+				DisplayName: "Test User",
+			},
+		}
+
+		basic := grantToBasicGrant(original)
+		require.NotNil(t, basic)
+		require.Equal(t, "grant-123", basic.GetId())
+		require.NotNil(t, basic.GetEntitlement())
+		require.Equal(t, "entitlement-456", basic.GetEntitlement().GetId())
+		require.NotNil(t, basic.GetPrincipal())
+
+		converted := basicGrantToGrant(basic)
+		require.NotNil(t, converted)
+		require.Equal(t, original.Id, converted.Id)
+		require.NotNil(t, converted.Entitlement)
+		require.Equal(t, "entitlement-456", converted.Entitlement.Id)
+		require.NotNil(t, converted.Principal)
+		require.Equal(t, "user", converted.Principal.Id.ResourceType)
+		require.Equal(t, "user-789", converted.Principal.Id.Resource)
+	})
+
+	t.Run("handles nil entitlement", func(t *testing.T) {
+		original := &v2.Grant{
+			Id:          "grant-123",
+			Entitlement: nil,
+			Principal: &v2.Resource{
+				Id: &v2.ResourceId{
+					ResourceType: "user",
+					Resource:     "user-123",
+				},
+			},
+		}
+
+		basic := grantToBasicGrant(original)
+		require.NotNil(t, basic)
+		require.Nil(t, basic.GetEntitlement())
+
+		converted := basicGrantToGrant(basic)
+		require.NotNil(t, converted)
+		require.Nil(t, converted.Entitlement)
+	})
+
+	t.Run("handles nil principal", func(t *testing.T) {
+		original := &v2.Grant{
+			Id: "grant-123",
+			Entitlement: &v2.Entitlement{
+				Id: "entitlement-456",
+			},
+			Principal: nil,
+		}
+
+		basic := grantToBasicGrant(original)
+		require.NotNil(t, basic)
+		require.Nil(t, basic.GetPrincipal())
+
+		converted := basicGrantToGrant(basic)
+		require.NotNil(t, converted)
+		require.Nil(t, converted.Principal)
+	})
+}
+
+func TestGetEntitlementListFieldArg(t *testing.T) {
+	t.Run("nil args", func(t *testing.T) {
+		val, ok := GetEntitlementListFieldArg(nil, "test")
+		require.False(t, ok)
+		require.Nil(t, val)
+	})
+
+	t.Run("nil fields", func(t *testing.T) {
+		val, ok := GetEntitlementListFieldArg(&structpb.Struct{}, "test")
+		require.False(t, ok)
+		require.Nil(t, val)
+	})
+
+	t.Run("key not found", func(t *testing.T) {
+		args := &structpb.Struct{Fields: map[string]*structpb.Value{}}
+		val, ok := GetEntitlementListFieldArg(args, "test")
+		require.False(t, ok)
+		require.Nil(t, val)
+	})
+
+	t.Run("wrong type - not list", func(t *testing.T) {
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"test": structpb.NewStringValue("not a list"),
+			},
+		}
+		val, ok := GetEntitlementListFieldArg(args, "test")
+		require.False(t, ok)
+		require.Nil(t, val)
+	})
+
+	t.Run("wrong type - list with non-struct", func(t *testing.T) {
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"test": structpb.NewListValue(&structpb.ListValue{
+					Values: []*structpb.Value{
+						structpb.NewStringValue("not a struct"),
+					},
+				}),
+			},
+		}
+		val, ok := GetEntitlementListFieldArg(args, "test")
+		require.False(t, ok)
+		require.Nil(t, val)
+	})
+
+	t.Run("roundtrip with NewEntitlementListReturnField", func(t *testing.T) {
+		entitlements := []*v2.Entitlement{
+			{
+				Id:          "ent-1",
+				DisplayName: "Entitlement 1",
+				Description: "First entitlement",
+				Slug:        "ent-1",
+				Purpose:     v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT,
+				GrantableTo: []*v2.ResourceType{{Id: "user"}},
+				Resource: &v2.Resource{
+					Id: &v2.ResourceId{
+						ResourceType: "role",
+						Resource:     "admin",
+					},
+				},
+			},
+			{
+				Id:          "ent-2",
+				DisplayName: "Entitlement 2",
+				Description: "Second entitlement",
+				Slug:        "ent-2",
+				Purpose:     v2.Entitlement_PURPOSE_VALUE_PERMISSION,
+			},
+		}
+
+		field, err := NewEntitlementListReturnField("entitlements", entitlements)
+		require.NoError(t, err)
+
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"entitlements": field.Value,
+			},
+		}
+
+		retrieved, ok := GetEntitlementListFieldArg(args, "entitlements")
+		require.True(t, ok)
+		require.Len(t, retrieved, 2)
+
+		require.Equal(t, "ent-1", retrieved[0].Id)
+		require.Equal(t, "Entitlement 1", retrieved[0].DisplayName)
+		require.Equal(t, v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT, retrieved[0].Purpose)
+		require.Len(t, retrieved[0].GrantableTo, 1)
+		require.NotNil(t, retrieved[0].Resource)
+
+		require.Equal(t, "ent-2", retrieved[1].Id)
+		require.Equal(t, "Entitlement 2", retrieved[1].DisplayName)
+		require.Equal(t, v2.Entitlement_PURPOSE_VALUE_PERMISSION, retrieved[1].Purpose)
+	})
+
+	t.Run("empty list", func(t *testing.T) {
+		field, err := NewEntitlementListReturnField("entitlements", []*v2.Entitlement{})
+		require.NoError(t, err)
+
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"entitlements": field.Value,
+			},
+		}
+
+		retrieved, ok := GetEntitlementListFieldArg(args, "entitlements")
+		require.True(t, ok)
+		require.Len(t, retrieved, 0)
+	})
+}
+
+func TestGetGrantListFieldArg(t *testing.T) {
+	t.Run("nil args", func(t *testing.T) {
+		val, ok := GetGrantListFieldArg(nil, "test")
+		require.False(t, ok)
+		require.Nil(t, val)
+	})
+
+	t.Run("nil fields", func(t *testing.T) {
+		val, ok := GetGrantListFieldArg(&structpb.Struct{}, "test")
+		require.False(t, ok)
+		require.Nil(t, val)
+	})
+
+	t.Run("key not found", func(t *testing.T) {
+		args := &structpb.Struct{Fields: map[string]*structpb.Value{}}
+		val, ok := GetGrantListFieldArg(args, "test")
+		require.False(t, ok)
+		require.Nil(t, val)
+	})
+
+	t.Run("wrong type - not list", func(t *testing.T) {
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"test": structpb.NewStringValue("not a list"),
+			},
+		}
+		val, ok := GetGrantListFieldArg(args, "test")
+		require.False(t, ok)
+		require.Nil(t, val)
+	})
+
+	t.Run("wrong type - list with non-struct", func(t *testing.T) {
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"test": structpb.NewListValue(&structpb.ListValue{
+					Values: []*structpb.Value{
+						structpb.NewStringValue("not a struct"),
+					},
+				}),
+			},
+		}
+		val, ok := GetGrantListFieldArg(args, "test")
+		require.False(t, ok)
+		require.Nil(t, val)
+	})
+
+	t.Run("roundtrip with NewGrantListReturnField", func(t *testing.T) {
+		grants := []*v2.Grant{
+			{
+				Id: "grant-1",
+				Entitlement: &v2.Entitlement{
+					Id: "ent-1",
+				},
+				Principal: &v2.Resource{
+					Id: &v2.ResourceId{
+						ResourceType: "user",
+						Resource:     "user-1",
+					},
+					DisplayName: "User 1",
+				},
+			},
+			{
+				Id: "grant-2",
+				Entitlement: &v2.Entitlement{
+					Id: "ent-2",
+				},
+				Principal: &v2.Resource{
+					Id: &v2.ResourceId{
+						ResourceType: "group",
+						Resource:     "group-1",
+					},
+					DisplayName: "Group 1",
+				},
+			},
+		}
+
+		field, err := NewGrantListReturnField("grants", grants)
+		require.NoError(t, err)
+
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"grants": field.Value,
+			},
+		}
+
+		retrieved, ok := GetGrantListFieldArg(args, "grants")
+		require.True(t, ok)
+		require.Len(t, retrieved, 2)
+
+		require.Equal(t, "grant-1", retrieved[0].Id)
+		require.NotNil(t, retrieved[0].Entitlement)
+		require.Equal(t, "ent-1", retrieved[0].Entitlement.Id)
+		require.NotNil(t, retrieved[0].Principal)
+		require.Equal(t, "user", retrieved[0].Principal.Id.ResourceType)
+
+		require.Equal(t, "grant-2", retrieved[1].Id)
+		require.NotNil(t, retrieved[1].Entitlement)
+		require.Equal(t, "ent-2", retrieved[1].Entitlement.Id)
+		require.NotNil(t, retrieved[1].Principal)
+		require.Equal(t, "group", retrieved[1].Principal.Id.ResourceType)
+	})
+
+	t.Run("empty list", func(t *testing.T) {
+		field, err := NewGrantListReturnField("grants", []*v2.Grant{})
+		require.NoError(t, err)
+
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"grants": field.Value,
+			},
+		}
+
+		retrieved, ok := GetGrantListFieldArg(args, "grants")
+		require.True(t, ok)
+		require.Len(t, retrieved, 0)
+	})
+}
+
+func TestNewEntitlementListReturnField(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		entitlements := []*v2.Entitlement{
+			{
+				Id:          "ent-1",
+				DisplayName: "Entitlement 1",
+			},
+			{
+				Id:          "ent-2",
+				DisplayName: "Entitlement 2",
+			},
+		}
+
+		field, err := NewEntitlementListReturnField("entitlements", entitlements)
+		require.NoError(t, err)
+		require.Equal(t, "entitlements", field.Key)
+		require.NotNil(t, field.Value)
+
+		listVal, ok := field.Value.GetKind().(*structpb.Value_ListValue)
+		require.True(t, ok)
+		require.Len(t, listVal.ListValue.Values, 2)
+	})
+
+	t.Run("nil entitlement in list", func(t *testing.T) {
+		entitlements := []*v2.Entitlement{
+			{Id: "ent-1"},
+			nil,
+		}
+
+		field, err := NewEntitlementListReturnField("entitlements", entitlements)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "entitlement at index 1 cannot be nil")
+		require.Empty(t, field.Key)
+	})
+
+	t.Run("empty list", func(t *testing.T) {
+		field, err := NewEntitlementListReturnField("entitlements", []*v2.Entitlement{})
+		require.NoError(t, err)
+		require.Equal(t, "entitlements", field.Key)
+
+		listVal, ok := field.Value.GetKind().(*structpb.Value_ListValue)
+		require.True(t, ok)
+		require.Len(t, listVal.ListValue.Values, 0)
+	})
+}
+
+func TestNewGrantListReturnField(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		grants := []*v2.Grant{
+			{
+				Id: "grant-1",
+				Entitlement: &v2.Entitlement{
+					Id: "ent-1",
+				},
+			},
+			{
+				Id: "grant-2",
+				Entitlement: &v2.Entitlement{
+					Id: "ent-2",
+				},
+			},
+		}
+
+		field, err := NewGrantListReturnField("grants", grants)
+		require.NoError(t, err)
+		require.Equal(t, "grants", field.Key)
+		require.NotNil(t, field.Value)
+
+		listVal, ok := field.Value.GetKind().(*structpb.Value_ListValue)
+		require.True(t, ok)
+		require.Len(t, listVal.ListValue.Values, 2)
+	})
+
+	t.Run("nil grant in list", func(t *testing.T) {
+		grants := []*v2.Grant{
+			{Id: "grant-1"},
+			nil,
+		}
+
+		field, err := NewGrantListReturnField("grants", grants)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "grant at index 1 cannot be nil")
+		require.Empty(t, field.Key)
+	})
+
+	t.Run("empty list", func(t *testing.T) {
+		field, err := NewGrantListReturnField("grants", []*v2.Grant{})
+		require.NoError(t, err)
+		require.Equal(t, "grants", field.Key)
+
+		listVal, ok := field.Value.GetKind().(*structpb.Value_ListValue)
+		require.True(t, ok)
+		require.Len(t, listVal.ListValue.Values, 0)
+	})
+}
