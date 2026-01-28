@@ -248,6 +248,7 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 
 	debugfile, err := os.Open(debugPath)
 	if err != nil {
+		l.Error("failed to open debug log file path", zap.Error(err))
 		return err
 	}
 	defer func() {
