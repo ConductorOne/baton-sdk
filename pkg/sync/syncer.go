@@ -2518,6 +2518,11 @@ func (s *syncer) listExternalEntitlementsForResource(ctx context.Context, resour
 			break
 		}
 	}
+	for _, ent := range ents {
+		annos := annotations.Annotations(ent.GetAnnotations())
+		annos.Update(&v2.EntitlementImmutable{})
+		ent.SetAnnotations(annos)
+	}
 	return ents, nil
 }
 
@@ -2535,6 +2540,12 @@ func (s *syncer) listExternalGrantsForEntitlement(ctx context.Context, ent *v2.E
 			}
 			grants := grantsForEntitlementResp.GetList()
 			if len(grants) > 0 {
+				// Add immutable annotation to external resource grants.
+				for _, grant := range grants {
+					annos := annotations.Annotations(grant.GetAnnotations())
+					annos.Update(&v2.GrantImmutable{})
+					grant.SetAnnotations(annos)
+				}
 				if !yield(grants, err) {
 					return
 				}
