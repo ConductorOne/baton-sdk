@@ -145,6 +145,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	c1zPath := assetFile.Name()
 	err = assetFile.Close()
 	if err != nil {
+		l.Error("failed to close asset file", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
@@ -185,9 +186,11 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 
 	err = uploadDebugLogs(ctx, c.helpers)
 	if err != nil {
+		l.Error("uploadDebugLogs returned error", zap.Error(err))
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
+	l.Info("HandleTask() returning no error")
 	return c.helpers.FinishTask(ctx, nil, nil, nil)
 }
 
@@ -243,6 +246,7 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 		default:
 			l.Warn("cannot stat debug log file", zap.Error(err))
 		}
+		l.Error("debug path stat failed", zap.Error(err))
 		return nil
 	}
 
@@ -255,6 +259,8 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 		err := os.Remove(debugPath)
 		if err != nil {
 			l.Error("failed to delete file with debug logs", zap.Error(err), zap.String("file", debugPath))
+		} else {
+			l.Info("deleted debug path")
 		}
 	}()
 	defer debugfile.Close()
@@ -262,8 +268,10 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers) error {
 	l.Info("uploading debug logs", zap.String("file", debugPath))
 	err = helper.Upload(ctx, debugfile)
 	if err != nil {
+		l.Error("failed to upload debug logs", zap.Error(err))
 		return err
 	}
 
+	l.Info("completed upload of debug logs, no error")
 	return nil
 }
