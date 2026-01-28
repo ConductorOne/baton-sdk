@@ -36,6 +36,9 @@ func entrypoint(ctx context.Context, cfg field.Configuration, options []connecto
 
 func getConnector(ctx context.Context, v *viper.Viper, runTimeOpts cli.RunTimeOpts) (types.ConnectorServer, error) {
 	dummyConnector := NewDummy()
+	if v.GetString("auth-method") != runTimeOpts.SelectedAuthMethod {
+		return nil, fmt.Errorf("incorrect authentication method passed")
+	}
 
 	c, err := connectorbuilder.NewConnector(ctx, dummyConnector)
 	if err != nil {
