@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/metrics"
 	"github.com/conductorone/baton-sdk/pkg/ratelimit"
 )
 
@@ -33,6 +34,11 @@ const (
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
 	authorizationHeader       = "Authorization"
+
+	httpCacheHitCounterName  = "baton_sdk.http_cache_hit"
+	httpCacheMissCounterName = "baton_sdk.http_cache_miss"
+	httpCacheHitCounterDesc  = "number of HTTP cache hits"
+	httpCacheMissCounterDesc = "number of HTTP cache misses"
 )
 
 type WrapperResponse struct {
@@ -63,6 +69,20 @@ func WithRateLimiter(rate int, per time.Duration) WrapperOption {
 	return rateLimiterOption{rate: rate, per: per}
 }
 
+type metricsHandlerOption struct {
+	handler metrics.Handler
+}
+
+func (o metricsHandlerOption) Apply(c *BaseHttpClient) {
+	c.metricsHandler = o.handler
+}
+
+// WithMetricsHandler returns a WrapperOption that sets the metrics handler for the http client.
+// When set, cache hits and misses will be recorded as metrics.
+func WithMetricsHandler(handler metrics.Handler) WrapperOption {
+	return metricsHandlerOption{handler: handler}
+}
+
 type WrapperOption interface {
 	Apply(*BaseHttpClient)
 }
@@ -91,9 +111,10 @@ type (
 		NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error)
 	}
 	BaseHttpClient struct {
-		HttpClient    *http.Client
-		rateLimiter   uRateLimit.Limiter
-		baseHttpCache icache
+		HttpClient     *http.Client
+		rateLimiter    uRateLimit.Limiter
+		baseHttpCache  icache
+		metricsHandler metrics.Handler
 	}
 
 	DoOption      func(resp *WrapperResponse) error
@@ -341,6 +362,22 @@ func WrapErrorsWithRateLimitInfo(preferredCode codes.Code, resp *http.Response, 
 	return errors.Join(allErrs...)
 }
 
+func (c *BaseHttpClient) recordCacheHit(ctx context.Context) {
+	if c.metricsHandler == nil {
+		return
+	}
+	counter := c.metricsHandler.Int64Counter(httpCacheHitCounterName, httpCacheHitCounterDesc, metrics.Dimensionless)
+	counter.Add(ctx, 1, nil)
+}
+
+func (c *BaseHttpClient) recordCacheMiss(ctx context.Context) {
+	if c.metricsHandler == nil {
+		return
+	}
+	counter := c.metricsHandler.Int64Counter(httpCacheMissCounterName, httpCacheMissCounterDesc, metrics.Dimensionless)
+	counter.Add(ctx, 1, nil)
+}
+
 func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Response, error) {
 	var (
 		err  error
@@ -359,9 +396,9 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 			return nil, err
 		}
 		if resp == nil {
-			l.Debug("http cache miss", zap.String("url", req.URL.String()))
+			c.recordCacheMiss(req.Context())
 		} else {
-			l.Debug("http cache hit", zap.String("url", req.URL.String()))
+			c.recordCacheHit(req.Context())
 		}
 	}
 
