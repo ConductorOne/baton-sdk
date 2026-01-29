@@ -389,7 +389,7 @@ func (c *C1FileAttached) diffTableFromMainTx(ctx context.Context, tx *sql.Tx, ta
 		      SELECT 1 FROM attached.%s AS a 
 		      WHERE a.external_id = m.external_id 
 		        AND a.sync_id = ?
-		        AND a.data != m.data
+		        AND a.row_hash != m.row_hash
 		    )
 		  )
 	`, tableName, columnList, selectList, tableName, tableName, tableName)
