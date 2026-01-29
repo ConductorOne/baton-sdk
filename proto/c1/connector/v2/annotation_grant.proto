@@ -16,6 +16,15 @@ message GrantExpandable {
   repeated string resource_type_ids = 3;
 }
 
+// GrantExpansionEdges defines entitlement-to-entitlement expansion edges for a grant.
+// It carries the same payload as GrantExpandable, but is intended to be durable as an
+// edge-definition annotation (not an internal "processed" marker).
+message GrantExpansionEdges {
+  repeated string entitlement_ids = 1;
+  bool shallow = 2;
+  repeated string resource_type_ids = 3;
+}
+
 // Grant cannot be updated or revoked. For example, membership in an "all users" group.
 message GrantImmutable {
   string source_id = 1;

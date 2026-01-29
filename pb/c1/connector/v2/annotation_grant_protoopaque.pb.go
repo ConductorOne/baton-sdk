@@ -176,6 +176,94 @@ func (b0 GrantExpandable_builder) Build() *GrantExpandable {
 	return m0
 }
 
+// GrantExpansionEdges defines entitlement-to-entitlement expansion edges for a grant.
+// It carries the same payload as GrantExpandable, but is intended to be durable as an
+// edge-definition annotation (not an internal "processed" marker).
+type GrantExpansionEdges struct {
+	state                      protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_EntitlementIds  []string               `protobuf:"bytes,1,rep,name=entitlement_ids,json=entitlementIds,proto3"`
+	xxx_hidden_Shallow         bool                   `protobuf:"varint,2,opt,name=shallow,proto3"`
+	xxx_hidden_ResourceTypeIds []string               `protobuf:"bytes,3,rep,name=resource_type_ids,json=resourceTypeIds,proto3"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
+}
+
+func (x *GrantExpansionEdges) Reset() {
+	*x = GrantExpansionEdges{}
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GrantExpansionEdges) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GrantExpansionEdges) ProtoMessage() {}
+
+func (x *GrantExpansionEdges) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GrantExpansionEdges) GetEntitlementIds() []string {
+	if x != nil {
+		return x.xxx_hidden_EntitlementIds
+	}
+	return nil
+}
+
+func (x *GrantExpansionEdges) GetShallow() bool {
+	if x != nil {
+		return x.xxx_hidden_Shallow
+	}
+	return false
+}
+
+func (x *GrantExpansionEdges) GetResourceTypeIds() []string {
+	if x != nil {
+		return x.xxx_hidden_ResourceTypeIds
+	}
+	return nil
+}
+
+func (x *GrantExpansionEdges) SetEntitlementIds(v []string) {
+	x.xxx_hidden_EntitlementIds = v
+}
+
+func (x *GrantExpansionEdges) SetShallow(v bool) {
+	x.xxx_hidden_Shallow = v
+}
+
+func (x *GrantExpansionEdges) SetResourceTypeIds(v []string) {
+	x.xxx_hidden_ResourceTypeIds = v
+}
+
+type GrantExpansionEdges_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	EntitlementIds  []string
+	Shallow         bool
+	ResourceTypeIds []string
+}
+
+func (b0 GrantExpansionEdges_builder) Build() *GrantExpansionEdges {
+	m0 := &GrantExpansionEdges{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_EntitlementIds = b.EntitlementIds
+	x.xxx_hidden_Shallow = b.Shallow
+	x.xxx_hidden_ResourceTypeIds = b.ResourceTypeIds
+	return m0
+}
+
 // Grant cannot be updated or revoked. For example, membership in an "all users" group.
 type GrantImmutable struct {
 	state               protoimpl.MessageState `protogen:"opaque.v1"`
@@ -187,7 +275,7 @@ type GrantImmutable struct {
 
 func (x *GrantImmutable) Reset() {
 	*x = GrantImmutable{}
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[2]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -199,7 +287,7 @@ func (x *GrantImmutable) String() string {
 func (*GrantImmutable) ProtoMessage() {}
 
 func (x *GrantImmutable) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[2]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -268,7 +356,7 @@ type GrantAlreadyExists struct {
 
 func (x *GrantAlreadyExists) Reset() {
 	*x = GrantAlreadyExists{}
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[3]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -280,7 +368,7 @@ func (x *GrantAlreadyExists) String() string {
 func (*GrantAlreadyExists) ProtoMessage() {}
 
 func (x *GrantAlreadyExists) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[3]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -312,7 +400,7 @@ type GrantAlreadyRevoked struct {
 
 func (x *GrantAlreadyRevoked) Reset() {
 	*x = GrantAlreadyRevoked{}
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[4]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -324,7 +412,7 @@ func (x *GrantAlreadyRevoked) String() string {
 func (*GrantAlreadyRevoked) ProtoMessage() {}
 
 func (x *GrantAlreadyRevoked) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[4]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -356,7 +444,7 @@ type InsertResourceGrants struct {
 
 func (x *InsertResourceGrants) Reset() {
 	*x = InsertResourceGrants{}
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[5]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -368,7 +456,7 @@ func (x *InsertResourceGrants) String() string {
 func (*InsertResourceGrants) ProtoMessage() {}
 
 func (x *InsertResourceGrants) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[5]
+	mi := &file_c1_connector_v2_annotation_grant_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -401,6 +489,10 @@ const file_c1_connector_v2_annotation_grant_proto_rawDesc = "" +
 	"\x0fGrantExpandable\x12'\n" +
 	"\x0fentitlement_ids\x18\x01 \x03(\tR\x0eentitlementIds\x12\x18\n" +
 	"\ashallow\x18\x02 \x01(\bR\ashallow\x12*\n" +
+	"\x11resource_type_ids\x18\x03 \x03(\tR\x0fresourceTypeIds\"\x84\x01\n" +
+	"\x13GrantExpansionEdges\x12'\n" +
+	"\x0fentitlement_ids\x18\x01 \x03(\tR\x0eentitlementIds\x12\x18\n" +
+	"\ashallow\x18\x02 \x01(\bR\ashallow\x12*\n" +
 	"\x11resource_type_ids\x18\x03 \x03(\tR\x0fresourceTypeIds\"b\n" +
 	"\x0eGrantImmutable\x12\x1b\n" +
 	"\tsource_id\x18\x01 \x01(\tR\bsourceId\x123\n" +
@@ -409,19 +501,20 @@ const file_c1_connector_v2_annotation_grant_proto_rawDesc = "" +
 	"\x13GrantAlreadyRevoked\"\x16\n" +
 	"\x14InsertResourceGrantsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_grant_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_c1_connector_v2_annotation_grant_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_c1_connector_v2_annotation_grant_proto_goTypes = []any{
 	(*GrantMetadata)(nil),        // 0: c1.connector.v2.GrantMetadata
 	(*GrantExpandable)(nil),      // 1: c1.connector.v2.GrantExpandable
-	(*GrantImmutable)(nil),       // 2: c1.connector.v2.GrantImmutable
-	(*GrantAlreadyExists)(nil),   // 3: c1.connector.v2.GrantAlreadyExists
-	(*GrantAlreadyRevoked)(nil),  // 4: c1.connector.v2.GrantAlreadyRevoked
-	(*InsertResourceGrants)(nil), // 5: c1.connector.v2.InsertResourceGrants
-	(*structpb.Struct)(nil),      // 6: google.protobuf.Struct
+	(*GrantExpansionEdges)(nil),  // 2: c1.connector.v2.GrantExpansionEdges
+	(*GrantImmutable)(nil),       // 3: c1.connector.v2.GrantImmutable
+	(*GrantAlreadyExists)(nil),   // 4: c1.connector.v2.GrantAlreadyExists
+	(*GrantAlreadyRevoked)(nil),  // 5: c1.connector.v2.GrantAlreadyRevoked
+	(*InsertResourceGrants)(nil), // 6: c1.connector.v2.InsertResourceGrants
+	(*structpb.Struct)(nil),      // 7: google.protobuf.Struct
 }
 var file_c1_connector_v2_annotation_grant_proto_depIdxs = []int32{
-	6, // 0: c1.connector.v2.GrantMetadata.metadata:type_name -> google.protobuf.Struct
-	6, // 1: c1.connector.v2.GrantImmutable.metadata:type_name -> google.protobuf.Struct
+	7, // 0: c1.connector.v2.GrantMetadata.metadata:type_name -> google.protobuf.Struct
+	7, // 1: c1.connector.v2.GrantImmutable.metadata:type_name -> google.protobuf.Struct
 	2, // [2:2] is the sub-list for method output_type
 	2, // [2:2] is the sub-list for method input_type
 	2, // [2:2] is the sub-list for extension type_name
@@ -440,7 +533,7 @@ func file_c1_connector_v2_annotation_grant_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_grant_proto_rawDesc), len(file_c1_connector_v2_annotation_grant_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

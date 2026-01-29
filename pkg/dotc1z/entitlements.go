@@ -20,6 +20,7 @@ create table if not exists %s (
     resource_id text not null,
     external_id text not null,
     data blob not null,
+    row_hash blob not null default (X''),
     sync_id text not null,
     discovered_at datetime not null
 );
@@ -49,7 +50,19 @@ func (r *entitlementsTable) Schema() (string, []interface{}) {
 }
 
 func (r *entitlementsTable) Migrations(ctx context.Context, db *goqu.Database) error {
-	return nil
+	var rowHashExists int
+	err := db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='row_hash'", r.Name())).Scan(&rowHashExists)
+	if err != nil {
+		return err
+	}
+	if rowHashExists == 0 {
+		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column row_hash blob not null default (X'')", r.Name()))
+		if err != nil {
+			return err
+		}
+	}
+
+	return backfillRowHash(ctx, db, r.Name())
 }
 
 func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {

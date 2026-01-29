@@ -2,6 +2,7 @@ package dotc1z
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -282,6 +283,11 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 // This is required for sync diffs to work.  Its not much slower.
 var protoMarshaler = proto.MarshalOptions{Deterministic: true}
 
+func hashRowBytes(b []byte) []byte {
+	h := sha256.Sum256(b)
+	return h[:]
+}
+
 // prepareSingleConnectorObjectRow processes a single message and returns the prepared record.
 func prepareSingleConnectorObjectRow[T proto.Message](
 	c *C1File,
@@ -309,6 +315,7 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 		fields["external_id"] = idGetter.GetId()
 	}
 	fields["data"] = messageBlob
+	fields["row_hash"] = hashRowBytes(messageBlob)
 	fields["sync_id"] = c.currentSyncID
 	fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
 
@@ -397,6 +404,7 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 					fields["external_id"] = idGetter.GetId()
 				}
 				fields["data"] = messageBlob
+				fields["row_hash"] = hashRowBytes(messageBlob)
 				fields["sync_id"] = syncID
 				fields["discovered_at"] = discoveredAt
 				rows[i] = &fields
@@ -520,7 +528,12 @@ func bulkPutConnectorObject[T proto.Message](
 	// Define query building function
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
 		return insertDs.
-			OnConflict(goqu.DoUpdate("external_id, sync_id", goqu.C("data").Set(goqu.I("EXCLUDED.data")))).
+			OnConflict(goqu.DoUpdate("external_id, sync_id",
+				goqu.Record{
+					"data":     goqu.I("EXCLUDED.data"),
+					"row_hash": goqu.I("EXCLUDED.row_hash"),
+				},
+			)).
 			Rows(chunkedRows).
 			Prepared(true), nil
 	}
@@ -558,6 +571,7 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 			OnConflict(goqu.DoUpdate("external_id, sync_id",
 				goqu.Record{
 					"data":          goqu.I("EXCLUDED.data"),
+					"row_hash":      goqu.I("EXCLUDED.row_hash"),
 					"discovered_at": goqu.I("EXCLUDED.discovered_at"),
 				}).Where(
 				goqu.L("EXCLUDED.discovered_at > ?.discovered_at", goqu.I(tableName)),
@@ -568,6 +582,56 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 
 	// Execute the insert
 	return executeChunkedInsert(ctx, c, tableName, rows, buildQueryFn)
+}
+
+func backfillRowHash(ctx context.Context, db *goqu.Database, tableName string) error {
+	// Backfill row_hash for existing databases. SQLite doesn't provide SHA functions by default,
+	// so we compute hashes in Go and update rows where row_hash is empty.
+	ctx, span := tracer.Start(ctx, "C1File.backfillRowHash")
+	defer span.End()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	//nolint:gosec // tableName is from known table descriptors, not user input
+	rows, err := tx.QueryContext(ctx, fmt.Sprintf("select external_id, sync_id, data from %s where length(row_hash) = 0", tableName))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var externalID string
+		var syncID string
+		var data []byte
+		if err := rows.Scan(&externalID, &syncID, &data); err != nil {
+			return err
+		}
+		h := hashRowBytes(data)
+
+		//nolint:gosec // tableName is from known table descriptors, not user input
+		_, err := tx.ExecContext(ctx, fmt.Sprintf("update %s set row_hash = ? where external_id = ? and sync_id = ?", tableName), h, externalID, syncID)
+		if err != nil {
+			return err
+		}
+	}
+	if rows.Err() != nil {
+		return rows.Err()
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	return nil
 }
 
 func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceId, m *v2.Resource, syncID string) error {

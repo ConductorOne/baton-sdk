@@ -1743,13 +1743,36 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 
 	// Process grants and add edges to the graph
 	updatedGrants := make([]*v2.Grant, 0)
+
+	putGrantsInChunks := func(ctx context.Context, grants []*v2.Grant, minChunkSize int) ([]*v2.Grant, error) {
+		if len(grants) < minChunkSize {
+			return grants, nil
+		}
+
+		// Prefer a hash-preserving update path for baton-internal rewrites (e.g., stripping legacy annotations).
+		if pw, ok := s.store.(interface {
+			PutGrantsPreserveRowHash(ctx context.Context, grants ...*v2.Grant) error
+		}); ok {
+			if err := pw.PutGrantsPreserveRowHash(ctx, grants...); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := s.store.PutGrants(ctx, grants...); err != nil {
+				return nil, err
+			}
+		}
+
+		return make([]*v2.Grant, 0), nil
+	}
+
 	for _, grant := range resp.GetList() {
 		err := s.processGrantForGraph(ctx, grant, graph)
 		if err != nil {
 			return err
 		}
 
-		// Remove expandable annotation from descendant grant now that we've added it to the graph.
+		// Remove legacy expandable annotation from descendant grant now that we've added it to the graph.
+		// We intentionally do NOT strip GrantExpansionEdges, which is meant to be a durable edge-definition annotation.
 		// That way if this sync is part of a compaction, expanding grants at the end of compaction won't redo work.
 		newAnnos := make(annotations.Annotations, 0)
 		updated := false
@@ -1767,13 +1790,13 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 		grant.SetAnnotations(newAnnos)
 		l.Debug("removed expandable annotation from grant", zap.String("grant_id", grant.GetId()))
 		updatedGrants = append(updatedGrants, grant)
-		updatedGrants, err = expand.PutGrantsInChunks(ctx, s.store, updatedGrants, 10000)
+		updatedGrants, err = putGrantsInChunks(ctx, updatedGrants, 10000)
 		if err != nil {
 			return err
 		}
 	}
 
-	_, err = expand.PutGrantsInChunks(ctx, s.store, updatedGrants, 0)
+	_, err = putGrantsInChunks(ctx, updatedGrants, 0)
 	if err != nil {
 		return err
 	}
@@ -1789,12 +1812,11 @@ func (s *syncer) processGrantForGraph(ctx context.Context, grant *v2.Grant, grap
 	l := ctxzap.Extract(ctx)
 
 	annos := annotations.Annotations(grant.GetAnnotations())
-	expandable := &v2.GrantExpandable{}
-	_, err := annos.Pick(expandable)
+	expandable, err := GetExpansionEdgesAnnotation(annos)
 	if err != nil {
 		return err
 	}
-	if len(expandable.GetEntitlementIds()) == 0 {
+	if expandable == nil || len(expandable.GetEntitlementIds()) == 0 {
 		return nil
 	}
 
@@ -2110,7 +2132,7 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
-		if !s.dontExpandGrants && grantAnnos.Contains(&v2.GrantExpandable{}) {
+		if !s.dontExpandGrants && grantAnnos.ContainsAny(&v2.GrantExpansionEdges{}, &v2.GrantExpandable{}) {
 			s.state.SetNeedsExpansion()
 		}
 		if grantAnnos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
@@ -2673,7 +2695,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				continue
 			}
 
-			expandableAnno, err := GetExpandableAnnotation(annos)
+			expandableAnno, err := GetExpansionEdgesAnnotation(annos)
 			if err != nil {
 				return err
 			}
@@ -2733,7 +2755,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 							newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
 						}
 
-						newExpandableAnno := v2.GrantExpandable_builder{
+						newExpandableAnno := v2.GrantExpansionEdges_builder{
 							EntitlementIds:  newExpandableEntitlementIDs,
 							Shallow:         expandableAnno.GetShallow(),
 							ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
@@ -2812,7 +2834,7 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 									newExpandableEntitlementIDs = append(newExpandableEntitlementIDs, newExpandableEntId)
 								}
 
-								newExpandableAnno := v2.GrantExpandable_builder{
+								newExpandableAnno := v2.GrantExpansionEdges_builder{
 									EntitlementIds:  newExpandableEntitlementIDs,
 									Shallow:         expandableAnno.GetShallow(),
 									ResourceTypeIds: expandableAnno.GetResourceTypeIds(),
@@ -2900,13 +2922,33 @@ func GetExternalResourceMatchIDAnnotation(annos annotations.Annotations) (*v2.Ex
 	return externalResourceMatchID, nil
 }
 
-func GetExpandableAnnotation(annos annotations.Annotations) (*v2.GrantExpandable, error) {
-	expandableAnno := &v2.GrantExpandable{}
-	ok, err := annos.Pick(expandableAnno)
-	if err != nil || !ok {
+// GetExpansionEdgesAnnotation returns the canonical edge-definition annotation for grant expansion.
+// It prefers GrantExpansionEdges, and falls back to legacy GrantExpandable (converting it to GrantExpansionEdges).
+func GetExpansionEdgesAnnotation(annos annotations.Annotations) (*v2.GrantExpansionEdges, error) {
+	expandableEdges := &v2.GrantExpansionEdges{}
+	ok, err := annos.Pick(expandableEdges)
+	if err != nil {
 		return nil, err
 	}
-	return expandableAnno, nil
+	if ok {
+		return expandableEdges, nil
+	}
+
+	legacy := &v2.GrantExpandable{}
+	ok, err = annos.Pick(legacy)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, nil
+	}
+
+	// Convert legacy annotation to the canonical GrantExpansionEdges type.
+	return v2.GrantExpansionEdges_builder{
+		EntitlementIds:  legacy.GetEntitlementIds(),
+		Shallow:         legacy.GetShallow(),
+		ResourceTypeIds: legacy.GetResourceTypeIds(),
+	}.Build(), nil
 }
 
 // expandGrantsForEntitlements expands grants for the given entitlement.

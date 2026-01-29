@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/doug-martin/goqu/v9"
 
@@ -23,6 +24,7 @@ create table if not exists %s (
     principal_resource_id text not null,
     external_id text not null,
     data blob not null,
+    row_hash blob not null default (X''),
     sync_id text not null,
     discovered_at datetime not null
 );
@@ -60,7 +62,19 @@ func (r *grantsTable) Schema() (string, []any) {
 }
 
 func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
-	return nil
+	var rowHashExists int
+	err := db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='row_hash'", r.Name())).Scan(&rowHashExists)
+	if err != nil {
+		return err
+	}
+	if rowHashExists == 0 {
+		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column row_hash blob not null default (X'')", r.Name()))
+		if err != nil {
+			return err
+		}
+	}
+
+	return backfillRowHash(ctx, db, r.Name())
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
@@ -155,6 +169,66 @@ func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	defer span.End()
 
 	return c.putGrantsInternal(ctx, bulkPutConnectorObject, bulkGrants...)
+}
+
+// PutGrantsPreserveRowHash updates the stored grant data for the current sync without changing row_hash.
+// This is intended for baton-internal rewrites (e.g., stripping legacy annotations) that should not affect
+// hash-based diffing semantics.
+func (c *C1File) PutGrantsPreserveRowHash(ctx context.Context, grantsToUpdate ...*v2.Grant) error {
+	ctx, span := tracer.Start(ctx, "C1File.PutGrantsPreserveRowHash")
+	defer span.End()
+
+	if c.readOnly {
+		return ErrReadOnly
+	}
+	if err := c.validateSyncDb(ctx); err != nil {
+		return err
+	}
+	if c.currentSyncID == "" {
+		return fmt.Errorf("no current sync set")
+	}
+	if len(grantsToUpdate) == 0 {
+		return nil
+	}
+
+	tx, err := c.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+
+	discoveredAt := time.Now().Format("2006-01-02 15:04:05.999999999")
+
+	for _, g := range grantsToUpdate {
+		blob, err := protoMarshaler.Marshal(g)
+		if err != nil {
+			return err
+		}
+		//nolint:gosec // table name is constant from table descriptor
+		_, err = tx.ExecContext(
+			ctx,
+			fmt.Sprintf("update %s set data = ?, discovered_at = ? where external_id = ? and sync_id = ?", grants.Name()),
+			blob,
+			discoveredAt,
+			g.GetId(),
+			c.currentSyncID,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	committed = true
+	c.dbUpdated = true
+	return nil
 }
 
 func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) error {
