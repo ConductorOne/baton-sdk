@@ -308,8 +308,10 @@ func TestPooledRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, testData, decoded)
 
-			_ = decoder.Close()
-			_ = f.Close()
+			err = decoder.Close()
+			require.NoError(t, err)
+			err = f.Close()
+			require.NoError(t, err)
 		}
 	})
 }
