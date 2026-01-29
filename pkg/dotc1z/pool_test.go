@@ -207,7 +207,7 @@ func TestPoolGrowsFromDecoder(t *testing.T) {
 	for {
 		dec, fromPool := getDecoder()
 		if !fromPool {
-			dec.Close()
+			dec.Close() // zstd.Decoder.Close() returns nothing
 			break
 		}
 		dec.Close() // Don't return to pool
@@ -244,8 +244,10 @@ func TestPoolGrowsFromDecoder(t *testing.T) {
 	_, err = io.ReadAll(decoder)
 	require.NoError(t, err)
 
-	decoder.Close()
-	f.Close()
+	err = decoder.Close()
+	require.NoError(t, err)
+	err = f.Close()
+	require.NoError(t, err)
 
 	// Now the decoder pool should have a decoder
 	dec2, fromPool2 := getDecoder()
@@ -306,8 +308,8 @@ func TestPooledRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, testData, decoded)
 
-			decoder.Close()
-			f.Close()
+			_ = decoder.Close()
+			_ = f.Close()
 		}
 	})
 }
@@ -410,8 +412,8 @@ func BenchmarkDecoderPoolAllocs(b *testing.B) {
 			f, _ := os.Open(c1zFile)
 			dec, _ := NewDecoder(f)
 			_, _ = io.ReadAll(dec)
-			dec.Close()
-			f.Close()
+			_ = dec.Close()
+			_ = f.Close()
 		}
 	})
 
@@ -432,7 +434,7 @@ func BenchmarkDecoderPoolAllocs(b *testing.B) {
 			)
 			_, _ = io.ReadAll(dec)
 			dec.Close()
-			f.Close()
+			_ = f.Close()
 		}
 	})
 }
