@@ -90,11 +90,23 @@ func TestEncoderPool(t *testing.T) {
 
 func TestDecoderPool(t *testing.T) {
 	// Create some test compressed data
-	createCompressedData := func(data []byte) []byte {
+	createCompressedData := func(t *testing.T, data []byte) []byte {
+		t.Helper()
 		var buf bytes.Buffer
-		enc, _ := zstd.NewWriter(&buf)
-		_, _ = enc.Write(data)
-		_ = enc.Close()
+		enc, err := zstd.NewWriter(&buf)
+		if err != nil {
+			t.Fatalf("failed to create zstd writer: %v", err)
+		}
+		n, err := enc.Write(data)
+		if err != nil {
+			t.Fatalf("failed to write data: %v", err)
+		}
+		if n != len(data) {
+			t.Fatalf("short write: wrote %d of %d bytes", n, len(data))
+		}
+		if err := enc.Close(); err != nil {
+			t.Fatalf("failed to close encoder: %v", err)
+		}
 		return buf.Bytes()
 	}
 
@@ -113,7 +125,7 @@ func TestDecoderPool(t *testing.T) {
 
 	t.Run("pooled decoder produces correct output", func(t *testing.T) {
 		testData := []byte("test data for decompression with pooled decoder")
-		compressed := createCompressedData(testData)
+		compressed := createCompressedData(t, testData)
 
 		dec, _ := getDecoder()
 		require.NotNil(t, dec)
@@ -130,7 +142,7 @@ func TestDecoderPool(t *testing.T) {
 
 	t.Run("concurrent decoder pool access", func(t *testing.T) {
 		testData := []byte("concurrent decoder test data")
-		compressed := createCompressedData(testData)
+		compressed := createCompressedData(t, testData)
 
 		const numGoroutines = 10
 		const iterations = 100
