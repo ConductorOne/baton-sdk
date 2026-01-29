@@ -141,9 +141,8 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 	// Try to use a pooled encoder if concurrency matches the pool's default.
 	// This reduces allocation overhead for the common case.
 	var c1z *zstd.Encoder
-	var fromPool bool
 	if encoderConcurrency == pooledEncoderConcurrency {
-		c1z, fromPool = getEncoder()
+		c1z, _ = getEncoder()
 	}
 	if c1z != nil {
 		c1z.Reset(outFile)
@@ -176,8 +175,9 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 		return fmt.Errorf("failed to close c1z: %w", err)
 	}
 
-	// Successfully finished - return encoder to pool if it came from there.
-	if fromPool {
+	// Successfully finished - return encoder to pool if it has pool-compatible settings.
+	// This ensures the pool grows even when initially empty.
+	if encoderConcurrency == pooledEncoderConcurrency {
 		putEncoder(c1z)
 	}
 

@@ -120,8 +120,8 @@ type decoder struct {
 	f  io.Reader
 	zd *zstd.Decoder
 
-	decodedBytes uint64
-	fromPool     bool // true if zd came from the pool
+	decodedBytes   uint64
+	poolCompatible bool // true if zd has pool-compatible settings and should be returned to pool
 
 	initOnce       sync.Once
 	headerCheckErr error
@@ -146,14 +146,14 @@ func (d *decoder) Read(p []byte) (int, error) {
 		// Pool decoders use: concurrency=1, lowmem=true, maxMemory=defaultDecoderMaxMemory.
 		usePool := d.o.decoderConcurrency == 1 && maxMemSize == defaultDecoderMaxMemory
 		if usePool {
-			zd, ok := getDecoder()
+			zd, _ := getDecoder()
 			if zd != nil {
 				if err := zd.Reset(d.f); err != nil {
 					// Reset failed, return decoder to pool and fall through to create new one.
 					putDecoder(zd)
 				} else {
 					d.zd = zd
-					d.fromPool = ok
+					d.poolCompatible = true // Mark for return to pool on Close()
 					return
 				}
 			}
@@ -177,6 +177,8 @@ func (d *decoder) Read(p []byte) (int, error) {
 			return
 		}
 		d.zd = zd
+		// If settings are pool-compatible, mark for return to pool on Close()
+		d.poolCompatible = usePool
 	})
 
 	// Check header
@@ -219,8 +221,8 @@ func (d *decoder) Read(p []byte) (int, error) {
 
 func (d *decoder) Close() error {
 	if d.zd != nil {
-		if d.fromPool {
-			// Return pooled decoder for reuse.
+		if d.poolCompatible {
+			// Return decoder to pool for reuse.
 			putDecoder(d.zd)
 		} else {
 			d.zd.Close()
