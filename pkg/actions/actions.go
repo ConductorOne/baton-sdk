@@ -21,6 +21,10 @@ import (
 
 type ActionHandler func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error)
 
+// SchemaRefreshFunc is called on each ListActionSchemas to get an updated schema.
+// The handler remains the same; only the schema is refreshed.
+type SchemaRefreshFunc func(ctx context.Context) (*v2.BatonActionSchema, error)
+
 type OutstandingAction struct {
 	Id        string
 	Name      string
@@ -89,6 +93,11 @@ type ActionRegistry interface {
 	// Register registers an action using the name from the schema.
 	Register(ctx context.Context, schema *v2.BatonActionSchema, handler ActionHandler) error
 
+	// RegisterDynamic registers an action with a dynamic schema. The refreshFunc is called
+	// immediately to get the initial schema, and again on each ListActionSchemas call to
+	// refresh the schema. The handler remains the same across refreshes.
+	RegisterDynamic(ctx context.Context, refreshFunc SchemaRefreshFunc, handler ActionHandler) error
+
 	// Deprecated: Use Register instead.
 	// RegisterAction registers an action.
 	RegisterAction(ctx context.Context, name string, schema *v2.BatonActionSchema, handler ActionHandler) error
@@ -101,12 +110,14 @@ type ResourceTypeActionRegistry = ActionRegistry
 // ActionManager manages both global actions and resource-scoped actions.
 type ActionManager struct {
 	// Global actions (no resource type)
-	schemas  map[string]*v2.BatonActionSchema // actionName -> schema
-	handlers map[string]ActionHandler         // actionName -> handler
+	schemas        map[string]*v2.BatonActionSchema // actionName -> schema
+	handlers       map[string]ActionHandler         // actionName -> handler
+	refreshFuncs   map[string]SchemaRefreshFunc     // actionName -> refresh func
 
 	// Resource-scoped actions (keyed by resource type)
-	resourceSchemas  map[string]map[string]*v2.BatonActionSchema // resourceTypeID -> actionName -> schema
-	resourceHandlers map[string]map[string]ActionHandler         // resourceTypeID -> actionName -> handler
+	resourceSchemas      map[string]map[string]*v2.BatonActionSchema // resourceTypeID -> actionName -> schema
+	resourceHandlers     map[string]map[string]ActionHandler         // resourceTypeID -> actionName -> handler
+	resourceRefreshFuncs map[string]map[string]SchemaRefreshFunc     // resourceTypeID -> actionName -> refresh func
 
 	// Outstanding actions (shared across global and resource-scoped)
 	actions map[string]*OutstandingAction // actionID -> outstanding action
@@ -116,11 +127,13 @@ type ActionManager struct {
 
 func NewActionManager(_ context.Context) *ActionManager {
 	return &ActionManager{
-		schemas:          make(map[string]*v2.BatonActionSchema),
-		handlers:         make(map[string]ActionHandler),
-		resourceSchemas:  make(map[string]map[string]*v2.BatonActionSchema),
-		resourceHandlers: make(map[string]map[string]ActionHandler),
-		actions:          make(map[string]*OutstandingAction),
+		schemas:              make(map[string]*v2.BatonActionSchema),
+		handlers:             make(map[string]ActionHandler),
+		refreshFuncs:         make(map[string]SchemaRefreshFunc),
+		resourceSchemas:      make(map[string]map[string]*v2.BatonActionSchema),
+		resourceHandlers:     make(map[string]map[string]ActionHandler),
+		resourceRefreshFuncs: make(map[string]map[string]SchemaRefreshFunc),
+		actions:              make(map[string]*OutstandingAction),
 	}
 }
 
@@ -191,6 +204,30 @@ func (a *ActionManager) Register(ctx context.Context, schema *v2.BatonActionSche
 		return errors.New("action schema cannot be nil")
 	}
 	return a.RegisterAction(ctx, schema.GetName(), schema, handler)
+}
+
+// RegisterDynamic registers a global action with a dynamic schema.
+// The refreshFunc is called immediately to get the initial schema, and again on each
+// ListActionSchemas call to refresh the schema.
+func (a *ActionManager) RegisterDynamic(ctx context.Context, refreshFunc SchemaRefreshFunc, handler ActionHandler) error {
+	if refreshFunc == nil {
+		return errors.New("refreshFunc cannot be nil")
+	}
+
+	schema, err := refreshFunc(ctx)
+	if err != nil {
+		return fmt.Errorf("error getting initial schema: %w", err)
+	}
+
+	if err := a.Register(ctx, schema, handler); err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	a.refreshFuncs[schema.GetName()] = refreshFunc
+	a.mu.Unlock()
+
+	return nil
 }
 
 // Deprecated: Use Register instead.
@@ -292,6 +329,38 @@ func (a *ActionManager) RegisterResourceAction(
 	return nil
 }
 
+// RegisterDynamicResourceAction registers a resource-scoped action with a dynamic schema.
+// The refreshFunc is called immediately to get the initial schema, and again on each
+// ListActionSchemas call to refresh the schema.
+func (a *ActionManager) RegisterDynamicResourceAction(
+	ctx context.Context,
+	resourceTypeID string,
+	refreshFunc SchemaRefreshFunc,
+	handler ActionHandler,
+) error {
+	if refreshFunc == nil {
+		return errors.New("refreshFunc cannot be nil")
+	}
+
+	schema, err := refreshFunc(ctx)
+	if err != nil {
+		return fmt.Errorf("error getting initial schema: %w", err)
+	}
+
+	if err := a.RegisterResourceAction(ctx, resourceTypeID, schema, handler); err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	if a.resourceRefreshFuncs[resourceTypeID] == nil {
+		a.resourceRefreshFuncs[resourceTypeID] = make(map[string]SchemaRefreshFunc)
+	}
+	a.resourceRefreshFuncs[resourceTypeID][schema.GetName()] = refreshFunc
+	a.mu.Unlock()
+
+	return nil
+}
+
 // resourceTypeActionRegistry implements ResourceTypeActionRegistry for a specific resource type.
 type resourceTypeActionRegistry struct {
 	resourceTypeID string
@@ -300,6 +369,10 @@ type resourceTypeActionRegistry struct {
 
 func (r *resourceTypeActionRegistry) Register(ctx context.Context, schema *v2.BatonActionSchema, handler ActionHandler) error {
 	return r.actionManager.RegisterResourceAction(ctx, r.resourceTypeID, schema, handler)
+}
+
+func (r *resourceTypeActionRegistry) RegisterDynamic(ctx context.Context, refreshFunc SchemaRefreshFunc, handler ActionHandler) error {
+	return r.actionManager.RegisterDynamicResourceAction(ctx, r.resourceTypeID, refreshFunc, handler)
 }
 
 // Deprecated: Use Register instead.
@@ -340,7 +413,12 @@ func (a *ActionManager) UnregisterAction(ctx context.Context, name string) error
 // ListActionSchemas returns all action schemas, optionally filtered by resource type.
 // If resourceTypeID is empty, returns all global actions plus all resource-scoped actions.
 // If resourceTypeID is set, returns only actions for that resource type.
-func (a *ActionManager) ListActionSchemas(_ context.Context, resourceTypeID string) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
+func (a *ActionManager) ListActionSchemas(ctx context.Context, resourceTypeID string) ([]*v2.BatonActionSchema, annotations.Annotations, error) {
+	// Refresh dynamic actions first (requires write lock)
+	if err := a.refreshDynamicActions(ctx, resourceTypeID); err != nil {
+		return nil, nil, fmt.Errorf("error refreshing dynamic actions: %w", err)
+	}
+
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 
@@ -373,6 +451,42 @@ func (a *ActionManager) ListActionSchemas(_ context.Context, resourceTypeID stri
 	}
 
 	return rv, nil, nil
+}
+
+// refreshDynamicActions calls all registered refresh functions to update dynamic schemas.
+func (a *ActionManager) refreshDynamicActions(ctx context.Context, resourceTypeID string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	l := ctxzap.Extract(ctx)
+
+	// Refresh global dynamic actions (only when listing all actions)
+	if resourceTypeID == "" {
+		for name, refreshFunc := range a.refreshFuncs {
+			if schema, err := refreshFunc(ctx); err != nil {
+				l.Warn("error refreshing dynamic action", zap.String("name", name), zap.Error(err))
+			} else if schema != nil {
+				a.schemas[name] = schema
+			}
+		}
+	}
+
+	// Refresh resource-scoped dynamic actions
+	for rtID, refreshFuncs := range a.resourceRefreshFuncs {
+		if resourceTypeID != "" && rtID != resourceTypeID {
+			continue
+		}
+		for name, refreshFunc := range refreshFuncs {
+			if schema, err := refreshFunc(ctx); err != nil {
+				l.Warn("error refreshing dynamic resource action", zap.String("resource_type", rtID), zap.String("name", name), zap.Error(err))
+			} else if schema != nil {
+				schema.SetResourceTypeId(rtID)
+				a.resourceSchemas[rtID][name] = schema
+			}
+		}
+	}
+
+	return nil
 }
 
 func (a *ActionManager) GetActionSchema(_ context.Context, name string) (*v2.BatonActionSchema, annotations.Annotations, error) {

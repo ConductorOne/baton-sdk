@@ -546,3 +546,50 @@ func TestActionHandlerGoroutineLeaks(t *testing.T) {
 		require.LessOrEqual(t, finalCount, initialCount+1, "goroutine leak detected after context cancellation")
 	})
 }
+
+func TestRegisterDynamic(t *testing.T) {
+	ctx := context.Background()
+	m := NewActionManager(ctx)
+
+	callCount := 0
+	refreshFunc := func(ctx context.Context) (*v2.BatonActionSchema, error) {
+		callCount++
+		return v2.BatonActionSchema_builder{
+			Name:        "dynamic_action",
+			Description: fmt.Sprintf("v%d", callCount),
+		}.Build(), nil
+	}
+	handler := func(ctx context.Context, args *structpb.Struct) (*structpb.Struct, annotations.Annotations, error) {
+		return nil, nil, nil
+	}
+
+	// RegisterDynamic calls refreshFunc for initial schema
+	err := m.RegisterDynamic(ctx, refreshFunc, handler)
+	require.NoError(t, err)
+	require.Equal(t, 1, callCount)
+
+	// ListActionSchemas refreshes the schema
+	schemas, _, err := m.ListActionSchemas(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, schemas, 1)
+	require.Equal(t, "v2", schemas[0].GetDescription())
+	require.Equal(t, 2, callCount)
+
+	// Each ListActionSchemas call refreshes again
+	schemas, _, _ = m.ListActionSchemas(ctx, "")
+	require.Equal(t, "v3", schemas[0].GetDescription())
+
+	// Resource-scoped dynamic action
+	resourceCallCount := 0
+	registry, _ := m.GetTypeRegistry(ctx, "test_type")
+	err = registry.RegisterDynamic(ctx, func(ctx context.Context) (*v2.BatonActionSchema, error) {
+		resourceCallCount++
+		return v2.BatonActionSchema_builder{Name: "resource_action", Description: fmt.Sprintf("v%d", resourceCallCount)}.Build(), nil
+	}, handler)
+	require.NoError(t, err)
+
+	// Listing specific resource type only refreshes that type's actions
+	schemas, _, _ = m.ListActionSchemas(ctx, "test_type")
+	require.Len(t, schemas, 1)
+	require.Equal(t, "test_type", schemas[0].GetResourceTypeId())
+}
