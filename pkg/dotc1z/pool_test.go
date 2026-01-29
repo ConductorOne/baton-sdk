@@ -161,6 +161,98 @@ func TestDecoderPool(t *testing.T) {
 	})
 }
 
+// TestPoolGrowsFromSaveC1z verifies that saveC1z populates the encoder pool
+// even when starting with an empty pool. This was a bug where only encoders
+// that came FROM the pool were returned TO the pool.
+func TestPoolGrowsFromSaveC1z(t *testing.T) {
+	// Clear any existing pool state by getting and not returning
+	for {
+		enc, fromPool := getEncoder()
+		if !fromPool {
+			// This was a fresh encoder, pool is now empty
+			// Don't return it - let it be GC'd
+			_ = enc.Close()
+			break
+		}
+		_ = enc.Close() // Don't return to pool
+	}
+
+	// Verify pool is empty
+	enc, fromPool := getEncoder()
+	require.False(t, fromPool, "pool should be empty after draining")
+	_ = enc.Close() // Don't return
+
+	// Now use saveC1z which should populate the pool
+	tmpDir := t.TempDir()
+	testData := bytes.Repeat([]byte("test data "), 100)
+
+	dbFile := filepath.Join(tmpDir, "test.db")
+	err := os.WriteFile(dbFile, testData, 0600)
+	require.NoError(t, err)
+
+	c1zFile := filepath.Join(tmpDir, "test.c1z")
+	err = saveC1z(dbFile, c1zFile, 0)
+	require.NoError(t, err)
+
+	// Now the pool should have an encoder
+	enc2, fromPool2 := getEncoder()
+	require.True(t, fromPool2, "saveC1z should have returned encoder to pool")
+	putEncoder(enc2)
+}
+
+// TestPoolGrowsFromDecoder verifies that NewDecoder populates the decoder pool
+// even when starting with an empty pool.
+func TestPoolGrowsFromDecoder(t *testing.T) {
+	// Clear any existing pool state
+	for {
+		dec, fromPool := getDecoder()
+		if !fromPool {
+			dec.Close()
+			break
+		}
+		dec.Close() // Don't return to pool
+	}
+
+	// Verify pool is empty
+	dec, fromPool := getDecoder()
+	require.False(t, fromPool, "pool should be empty after draining")
+	dec.Close()
+
+	// Create a c1z file to decode
+	tmpDir := t.TempDir()
+	testData := bytes.Repeat([]byte("test data "), 100)
+
+	dbFile := filepath.Join(tmpDir, "test.db")
+	err := os.WriteFile(dbFile, testData, 0600)
+	require.NoError(t, err)
+
+	c1zFile := filepath.Join(tmpDir, "test.c1z")
+	err = saveC1z(dbFile, c1zFile, 0)
+	require.NoError(t, err)
+
+	// Drain encoder pool (saveC1z added one)
+	enc, _ := getEncoder()
+	_ = enc.Close()
+
+	// Now use NewDecoder which should populate the decoder pool
+	f, err := os.Open(c1zFile)
+	require.NoError(t, err)
+
+	decoder, err := NewDecoder(f)
+	require.NoError(t, err)
+
+	_, err = io.ReadAll(decoder)
+	require.NoError(t, err)
+
+	decoder.Close()
+	f.Close()
+
+	// Now the decoder pool should have a decoder
+	dec2, fromPool2 := getDecoder()
+	require.True(t, fromPool2, "NewDecoder.Close should have returned decoder to pool")
+	putDecoder(dec2)
+}
+
 func TestPooledRoundTrip(t *testing.T) {
 	t.Run("encode decode round trip with pooled codecs", func(t *testing.T) {
 		tmpDir := t.TempDir()
