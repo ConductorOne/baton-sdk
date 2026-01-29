@@ -93,6 +93,18 @@ func WithInsightExternalResourceTarget(externalId string, appHint string) Securi
 	}
 }
 
+// WithInsightAppUserTarget sets the app user target for the insight.
+// Use this when the insight should be resolved to an AppUser by email and external ID.
+func WithInsightAppUserTarget(email string, externalId string) SecurityInsightTraitOption {
+	return func(t *v2.SecurityInsightTrait) error {
+		t.SetAppUser(v2.SecurityInsightTrait_AppUserTarget_builder{
+			Email:      email,
+			ExternalId: externalId,
+		}.Build())
+		return nil
+	}
+}
+
 // NewSecurityInsightTrait creates a new SecurityInsightTrait with the given options.
 // You must provide either WithRiskScore or WithIssue to set the insight type.
 //
@@ -291,6 +303,11 @@ func IsExternalResourceTarget(trait *v2.SecurityInsightTrait) bool {
 	return trait.GetExternalResource() != nil
 }
 
+// IsAppUserTarget returns true if the insight targets an app user.
+func IsAppUserTarget(trait *v2.SecurityInsightTrait) bool {
+	return trait.GetAppUser() != nil
+}
+
 // --- Target data extractors ---
 
 // GetUserTargetEmail returns the user email from a SecurityInsightTrait, or empty string if not a user target.
@@ -318,6 +335,22 @@ func GetExternalResourceTargetId(trait *v2.SecurityInsightTrait) string {
 func GetExternalResourceTargetAppHint(trait *v2.SecurityInsightTrait) string {
 	if ext := trait.GetExternalResource(); ext != nil {
 		return ext.GetAppHint()
+	}
+	return ""
+}
+
+// GetAppUserTargetEmail returns the email from a SecurityInsightTrait, or empty string if not an app user target.
+func GetAppUserTargetEmail(trait *v2.SecurityInsightTrait) string {
+	if appUser := trait.GetAppUser(); appUser != nil {
+		return appUser.GetEmail()
+	}
+	return ""
+}
+
+// GetAppUserTargetExternalId returns the external ID from a SecurityInsightTrait, or empty string if not an app user target.
+func GetAppUserTargetExternalId(trait *v2.SecurityInsightTrait) string {
+	if appUser := trait.GetAppUser(); appUser != nil {
+		return appUser.GetExternalId()
 	}
 	return ""
 }
