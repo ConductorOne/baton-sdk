@@ -354,20 +354,55 @@ func BenchmarkEncoderPoolAllocs(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			c1zFile := filepath.Join(tmpDir, "bench2.c1z")
 
-			dbF, _ := os.Open(dbFile)
-			outF, _ := os.Create(c1zFile)
+			dbF, err := os.Open(dbFile)
+			if err != nil {
+				b.Fatal(err)
+			}
+			outF, err := os.Create(c1zFile)
+			if err != nil {
+				dbF.Close()
+				b.Fatal(err)
+			}
 
-			_, _ = outF.Write(C1ZFileHeader)
+			if _, err := outF.Write(C1ZFileHeader); err != nil {
+				outF.Close()
+				dbF.Close()
+				b.Fatal(err)
+			}
 
 			// Create new encoder each time (simulates old behavior)
-			enc, _ := zstd.NewWriter(outF, zstd.WithEncoderConcurrency(runtime.GOMAXPROCS(0)))
-			_, _ = io.Copy(enc, dbF)
-			_ = enc.Flush()
-			_ = enc.Close()
+			enc, err := zstd.NewWriter(outF, zstd.WithEncoderConcurrency(runtime.GOMAXPROCS(0)))
+			if err != nil {
+				outF.Close()
+				dbF.Close()
+				b.Fatal(err)
+			}
+			if _, err := io.Copy(enc, dbF); err != nil {
+				enc.Close()
+				outF.Close()
+				dbF.Close()
+				b.Fatal(err)
+			}
+			if err := enc.Flush(); err != nil {
+				enc.Close()
+				outF.Close()
+				dbF.Close()
+				b.Fatal(err)
+			}
+			enc.Close()
 
-			_ = outF.Sync()
-			_ = outF.Close()
-			_ = dbF.Close()
+			if err := outF.Sync(); err != nil {
+				outF.Close()
+				dbF.Close()
+				b.Fatal(err)
+			}
+			if err := outF.Close(); err != nil {
+				dbF.Close()
+				b.Fatal(err)
+			}
+			if err := dbF.Close(); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 }
@@ -386,10 +421,15 @@ func BenchmarkEncoderAllocationOnly(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			enc, _ := getEncoder()
+			if enc == nil {
+				b.Fatal("getEncoder returned nil")
+			}
 			var buf bytes.Buffer
 			enc.Reset(&buf)
-			_, _ = enc.Write(testData)
-			_ = enc.Close()
+			if _, err := enc.Write(testData); err != nil {
+				b.Fatal(err)
+			}
+			enc.Close()
 			putEncoder(enc)
 		}
 	})
@@ -399,9 +439,14 @@ func BenchmarkEncoderAllocationOnly(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			var buf bytes.Buffer
-			enc, _ := zstd.NewWriter(&buf, zstd.WithEncoderConcurrency(runtime.GOMAXPROCS(0)))
-			_, _ = enc.Write(testData)
-			_ = enc.Close()
+			enc, err := zstd.NewWriter(&buf, zstd.WithEncoderConcurrency(runtime.GOMAXPROCS(0)))
+			if err != nil {
+				b.Fatal(err)
+			}
+			if _, err := enc.Write(testData); err != nil {
+				b.Fatal(err)
+			}
+			enc.Close()
 		}
 	})
 }
@@ -423,32 +468,64 @@ func BenchmarkDecoderPoolAllocs(b *testing.B) {
 	b.Run("pooled_decoder", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			f, _ := os.Open(c1zFile)
-			dec, _ := NewDecoder(f)
-			_, _ = io.ReadAll(dec)
-			_ = dec.Close()
-			_ = f.Close()
+			f, err := os.Open(c1zFile)
+			if err != nil {
+				b.Fatal(err)
+			}
+			dec, err := NewDecoder(f)
+			if err != nil {
+				f.Close()
+				b.Fatal(err)
+			}
+			if _, err := io.ReadAll(dec); err != nil {
+				dec.Close()
+				f.Close()
+				b.Fatal(err)
+			}
+			if err := dec.Close(); err != nil {
+				f.Close()
+				b.Fatal(err)
+			}
+			if err := f.Close(); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 
 	b.Run("new_decoder_each_time", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			f, _ := os.Open(c1zFile)
+			f, err := os.Open(c1zFile)
+			if err != nil {
+				b.Fatal(err)
+			}
 
 			// Skip header manually
 			headerBuf := make([]byte, len(C1ZFileHeader))
-			_, _ = f.Read(headerBuf)
+			if _, err := f.Read(headerBuf); err != nil {
+				f.Close()
+				b.Fatal(err)
+			}
 
 			// Create new decoder each time (simulates old behavior)
-			dec, _ := zstd.NewReader(f,
+			dec, err := zstd.NewReader(f,
 				zstd.WithDecoderConcurrency(1),
 				zstd.WithDecoderLowmem(true),
 				zstd.WithDecoderMaxMemory(defaultDecoderMaxMemory),
 			)
-			_, _ = io.ReadAll(dec)
+			if err != nil {
+				f.Close()
+				b.Fatal(err)
+			}
+			if _, err := io.ReadAll(dec); err != nil {
+				dec.Close()
+				f.Close()
+				b.Fatal(err)
+			}
 			dec.Close()
-			_ = f.Close()
+			if err := f.Close(); err != nil {
+				b.Fatal(err)
+			}
 		}
 	})
 }
