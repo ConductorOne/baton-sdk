@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/klauspost/compress/zstd"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,15 +70,21 @@ func TestEncoderPool(t *testing.T) {
 				defer wg.Done()
 				for j := 0; j < iterations; j++ {
 					enc, _ := getEncoder()
-					require.NotNil(t, enc)
+					if !assert.NotNil(t, enc) {
+						return
+					}
 
 					var buf bytes.Buffer
 					enc.Reset(&buf)
 
 					data := []byte("concurrent test data")
 					_, err := enc.Write(data)
-					require.NoError(t, err)
-					require.NoError(t, enc.Close())
+					if !assert.NoError(t, err) {
+						return
+					}
+					if !assert.NoError(t, enc.Close()) {
+						return
+					}
 
 					putEncoder(enc)
 				}
@@ -155,14 +162,22 @@ func TestDecoderPool(t *testing.T) {
 				defer wg.Done()
 				for j := 0; j < iterations; j++ {
 					dec, _ := getDecoder()
-					require.NotNil(t, dec)
+					if !assert.NotNil(t, dec) {
+						return
+					}
 
 					err := dec.Reset(bytes.NewReader(compressed))
-					require.NoError(t, err)
+					if !assert.NoError(t, err) {
+						return
+					}
 
 					decoded, err := io.ReadAll(dec)
-					require.NoError(t, err)
-					require.Equal(t, testData, decoded)
+					if !assert.NoError(t, err) {
+						return
+					}
+					if !assert.Equal(t, testData, decoded) {
+						return
+					}
 
 					putDecoder(dec)
 				}
