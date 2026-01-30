@@ -203,6 +203,29 @@ func (g *EntitlementGraph) AddEntitlementID(entitlementID string) {
 	g.EntitlementsToNodes[entitlementID] = node.Id
 }
 
+// AddEntitlementID adds an entitlement ID as an unconnected node in the graph.
+// This is a convenience for callers that already have entitlement IDs and do not
+// want to fetch/unmarshal full entitlement protos.
+func (g *EntitlementGraph) AddEntitlementID(entitlementID string) {
+	// If the entitlement is already in the graph, fail silently.
+	found := g.GetNode(entitlementID)
+	if found != nil {
+		return
+	}
+	g.HasNoCycles = false // Reset this since we're changing the graph.
+
+	// Start at 1 in case we don't initialize something and try to get node 0.
+	g.NextNodeID++
+
+	node := Node{
+		Id:             g.NextNodeID,
+		EntitlementIDs: []string{entitlementID},
+	}
+
+	g.Nodes[node.Id] = node
+	g.EntitlementsToNodes[entitlementID] = node.Id
+}
+
 // GetEntitlements returns a combined list of _all_ entitlements from all nodes.
 func (g *EntitlementGraph) GetEntitlements() []string {
 	var entitlements []string

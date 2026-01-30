@@ -1746,7 +1746,6 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 	if err != nil {
 		return err
 	}
-	nextPageToken := internalList.NextPageToken
 
 	for _, row := range internalList.Rows {
 		def := row.Expansion
@@ -1801,8 +1800,8 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 			}
 		}
 	}
-
 	// Handle pagination
+	nextPageToken := internalList.NextPageToken
 	if nextPageToken != "" {
 		if err := s.state.NextPage(ctx, nextPageToken); err != nil {
 			return err

@@ -117,7 +117,11 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID
 					EntitlementId: srcEntitlementID,
 				}.Build())
 				if err != nil {
-					continue // Skip if source entitlement not found
+					// Only skip not-found entitlements; propagate other errors.
+					if errors.Is(err, sql.ErrNoRows) {
+						continue
+					}
+					return nil, fmt.Errorf("error fetching source entitlement %q: %w", srcEntitlementID, err)
 				}
 
 				graph.AddEntitlementID(def.TargetEntitlementID)

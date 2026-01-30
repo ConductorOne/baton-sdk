@@ -2,6 +2,7 @@ package dotc1z
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
@@ -134,6 +136,9 @@ func TestGenerateSyncDiffFromFile_Additions(t *testing.T) {
 		}.Build(),
 		DisplayName: "Resource A",
 	}.Build())
+	require.NoError(t, err)
+
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -269,6 +274,9 @@ func TestGenerateSyncDiffFromFile_Deletions(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
+
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
 
@@ -358,6 +366,9 @@ func TestGenerateSyncDiffFromFile_Modifications(t *testing.T) {
 		}.Build(),
 		DisplayName: "Original Name",
 	}.Build())
+	require.NoError(t, err)
+
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -453,6 +464,9 @@ func TestGenerateSyncDiffFromFile_MixedChanges(t *testing.T) {
 		}.Build())
 		require.NoError(t, err)
 	}
+
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
@@ -581,6 +595,9 @@ func TestGenerateSyncDiffFromFile_NoChanges(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
+
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
 
@@ -624,7 +641,12 @@ func TestGenerateSyncDiffFromFile_NoChanges(t *testing.T) {
 		ResourceTypeId: resourceTypeID,
 	}.Build())
 	require.NoError(t, err)
-	require.Len(t, resourcesResp.GetList(), 0, "upserts should be empty when no changes")
+	require.Len(t, resourcesResp.GetList(), 0, "upserts should not include resources when no changes")
+
+	// Resource types are always included in upserts.
+	rtResp, err := newFile.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, rtResp.GetList(), 1, "upserts should include resource types")
 
 	// Verify deletions is empty
 	err = newFile.ViewSync(ctx, deletionsSyncID)
@@ -635,6 +657,10 @@ func TestGenerateSyncDiffFromFile_NoChanges(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 	require.Len(t, resourcesResp.GetList(), 0, "deletions should be empty when no changes")
+
+	rtResp, err = newFile.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, rtResp.GetList(), 0, "deletions should not include resource types when no changes")
 
 	_ = oldFile.Close(ctx)
 	_ = newFile.Close(ctx)
@@ -672,6 +698,9 @@ func TestGenerateSyncDiffFromFile_EntitlementsOnly(t *testing.T) {
 		}.Build(),
 		DisplayName: "Entitlement A",
 	}.Build())
+	require.NoError(t, err)
+
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -787,6 +816,9 @@ func TestGenerateSyncDiffFromFile_GrantsOnly(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
+
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
 
@@ -897,6 +929,9 @@ func TestGenerateSyncDiffFromFile_EmptyBase(t *testing.T) {
 	require.NoError(t, err)
 
 	// No resources added - empty sync
+
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
@@ -1014,6 +1049,9 @@ func TestGenerateSyncDiffFromFile_EmptyNew(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
+
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
 
@@ -1120,6 +1158,9 @@ func TestGenerateSyncDiffFromFile_EntitlementsDeletions(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
+
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
 
@@ -1211,6 +1252,9 @@ func TestGenerateSyncDiffFromFile_EntitlementsModifications(t *testing.T) {
 		}.Build(),
 		DisplayName: "Original Entitlement A",
 	}.Build())
+	require.NoError(t, err)
+
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -1335,6 +1379,9 @@ func TestGenerateSyncDiffFromFile_GrantsDeletions(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
+
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
 
@@ -1397,6 +1444,206 @@ func TestGenerateSyncDiffFromFile_GrantsDeletions(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, grantsResp.GetList(), 1)
 	require.Equal(t, "grant-B", grantsResp.GetList()[0].GetId())
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+func TestGenerateSyncDiffFromFile_MissingExpansionMarker(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_missing_marker_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_missing_marker_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+
+	// Create the OLD file with an expandable grant (but WITHOUT setting expansion marker)
+	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	require.NoError(t, err)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+	err = oldFile.PutResourceTypes(ctx, groupRT, userRT)
+	require.NoError(t, err)
+
+	g1 := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+		DisplayName: "G1",
+	}.Build()
+	g2 := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(),
+		DisplayName: "G2",
+	}.Build()
+	err = oldFile.PutResources(ctx, g1, g2)
+	require.NoError(t, err)
+
+	e1 := v2.Entitlement_builder{
+		Id:          "group:g1:member",
+		Resource:    g1,
+		Slug:        "member",
+		DisplayName: "member",
+	}.Build()
+	e2 := v2.Entitlement_builder{
+		Id:          "group:g2:member",
+		Resource:    g2,
+		Slug:        "member",
+		DisplayName: "member",
+	}.Build()
+	err = oldFile.PutEntitlements(ctx, e1, e2)
+	require.NoError(t, err)
+
+	// Create an expandable grant (g1 -> e2 with expansion annotation)
+	expandableGrant := v2.Grant_builder{
+		Id:          "grant:g1:e2",
+		Entitlement: e2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{e1.GetId()},
+			Shallow:         false,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	err = oldFile.PutGrants(ctx, expandableGrant)
+	require.NoError(t, err)
+
+	// Simulate an old sync that predates supports_diff by explicitly clearing it.
+	// (New code defaults supports_diff=1 for newly created syncs.)
+	_, err = oldFile.db.ExecContext(ctx, "UPDATE "+syncRuns.Name()+" SET supports_diff=0 WHERE sync_id = ?", oldSyncID)
+	require.NoError(t, err)
+
+	err = oldFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Create the NEW file (minimal, just needs to exist)
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	err = newFile.PutResourceTypes(ctx, groupRT, userRT)
+	require.NoError(t, err)
+	err = newFile.PutResources(ctx, g1, g2)
+	require.NoError(t, err)
+	err = newFile.PutEntitlements(ctx, e1, e2)
+	require.NoError(t, err)
+	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Attach and try to generate diff - should fail
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+
+	_, _, err = attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrOldSyncMissingExpansionMarker), "expected ErrOldSyncMissingExpansionMarker, got: %v", err)
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+func TestGenerateSyncDiffFromFile_WithExpansionMarker(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_with_marker_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_with_marker_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+
+	// Create the OLD file with an expandable grant AND set expansion marker
+	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	require.NoError(t, err)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+	err = oldFile.PutResourceTypes(ctx, groupRT, userRT)
+	require.NoError(t, err)
+
+	g1 := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+		DisplayName: "G1",
+	}.Build()
+	g2 := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(),
+		DisplayName: "G2",
+	}.Build()
+	err = oldFile.PutResources(ctx, g1, g2)
+	require.NoError(t, err)
+
+	e1 := v2.Entitlement_builder{
+		Id:          "group:g1:member",
+		Resource:    g1,
+		Slug:        "member",
+		DisplayName: "member",
+	}.Build()
+	e2 := v2.Entitlement_builder{
+		Id:          "group:g2:member",
+		Resource:    g2,
+		Slug:        "member",
+		DisplayName: "member",
+	}.Build()
+	err = oldFile.PutEntitlements(ctx, e1, e2)
+	require.NoError(t, err)
+
+	// Create an expandable grant (g1 -> e2 with expansion annotation)
+	expandableGrant := v2.Grant_builder{
+		Id:          "grant:g1:e2",
+		Entitlement: e2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{e1.GetId()},
+			Shallow:         false,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	err = oldFile.PutGrants(ctx, expandableGrant)
+	require.NoError(t, err)
+
+	// Set the expansion marker - simulates sync expanded with new code
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
+
+	err = oldFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Create the NEW file (minimal, just needs to exist)
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	err = newFile.PutResourceTypes(ctx, groupRT, userRT)
+	require.NoError(t, err)
+	err = newFile.PutResources(ctx, g1, g2)
+	require.NoError(t, err)
+	err = newFile.PutEntitlements(ctx, e1, e2)
+	require.NoError(t, err)
+	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+
+	// Attach and generate diff - should succeed
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	require.NotEmpty(t, upsertsSyncID)
+	require.NotEmpty(t, deletionsSyncID)
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
 
 	_ = oldFile.Close(ctx)
 	_ = newFile.Close(ctx)
