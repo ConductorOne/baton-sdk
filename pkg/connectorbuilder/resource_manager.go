@@ -37,7 +37,7 @@ type ResourceManagerV2Limited interface {
 //
 // This is the recommended interface for implementing resource creation operations in new connectors.
 type ResourceManagerV2 interface {
-	ResourceSyncer
+	ResourceSyncerV2
 	ResourceManagerV2Limited
 }
 
@@ -62,7 +62,7 @@ type ResourceDeleterLimited interface {
 // This is the recommended interface for implementing resource deletion operations in new connectors.
 // It differs from ResourceDeleter by having the resource, not just the id.
 type ResourceDeleterV2 interface {
-	ResourceSyncer
+	ResourceSyncerV2
 	ResourceDeleterV2Limited
 }
 
