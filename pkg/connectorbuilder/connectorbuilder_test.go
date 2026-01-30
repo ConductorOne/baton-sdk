@@ -300,11 +300,11 @@ func (t *testResourceManager) Delete(ctx context.Context, resourceId *v2.Resourc
 }
 
 type testResourceManagerV2 struct {
-	ResourceSyncer
+	ResourceSyncerV2
 }
 
 func newTestResourceManagerV2(resourceType string) ResourceManagerV2 {
-	return &testResourceManagerV2{newTestResourceSyncer(resourceType)}
+	return &testResourceManagerV2{newTestResourceSyncerV2(resourceType)}
 }
 
 func (t *testResourceManagerV2) Create(ctx context.Context, resource *v2.Resource) (*v2.Resource, annotations.Annotations, error) {
@@ -334,11 +334,11 @@ func (t *testResourceDeleter) Delete(ctx context.Context, resourceId *v2.Resourc
 }
 
 type testResourceDeleterV2 struct {
-	ResourceSyncer
+	ResourceSyncerV2
 }
 
 func newTestResourceDeleterV2(resourceType string) ResourceDeleterV2 {
-	return &testResourceDeleterV2{newTestResourceSyncer(resourceType)}
+	return &testResourceDeleterV2{newTestResourceSyncerV2(resourceType)}
 }
 
 func (t *testResourceDeleterV2) Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error) {
@@ -824,7 +824,7 @@ func TestResourceManagerV2(t *testing.T) {
 	ctx := context.Background()
 
 	rsManagerV2 := newTestResourceManagerV2("test-resource")
-	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsManagerV2}))
+	connector, err := NewConnector(ctx, newTestConnectorV2([]ResourceSyncerV2{rsManagerV2}))
 	require.NoError(t, err)
 
 	// Test Create
@@ -878,7 +878,7 @@ func TestResourceDeleterV2(t *testing.T) {
 	ctx := context.Background()
 
 	rsDeleterV2 := newTestResourceDeleterV2("test-resource")
-	connector, err := NewConnector(ctx, newTestConnector([]ResourceSyncer{rsDeleterV2}))
+	connector, err := NewConnector(ctx, newTestConnectorV2([]ResourceSyncerV2{rsDeleterV2}))
 	require.NoError(t, err)
 
 	// Test Delete V2
