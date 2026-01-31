@@ -6,14 +6,14 @@ require (
 	filippo.io/age v1.2.1
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/aws/aws-lambda-go v1.47.0
-	github.com/aws/aws-sdk-go-v2 v1.36.3
+	github.com/aws/aws-sdk-go-v2 v1.41.0
 	github.com/aws/aws-sdk-go-v2/config v1.29.2
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.55
 	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.55
 	github.com/aws/aws-sdk-go-v2/service/lambda v1.71.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.75.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.10
-	github.com/aws/smithy-go v1.22.2
+	github.com/aws/smithy-go v1.24.0
 	github.com/conductorone/dpop v0.2.3
 	github.com/conductorone/dpop/integrations/dpop_grpc v0.2.3
 	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.3
