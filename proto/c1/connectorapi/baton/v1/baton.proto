@@ -57,6 +57,22 @@ message Task {
     google.protobuf.Timestamp start_at = 2;
   }
 
+  message ListEventsTask {
+    repeated google.protobuf.Any annotations = 1;
+    string cursor = 2 [(validate.rules).string = {
+      ignore_empty: true
+      min_bytes: 1
+      max_bytes: 4096
+    }];
+    google.protobuf.Timestamp start_at = 3;
+    string event_feed_id = 4;
+    uint32 page_size = 5;
+  }
+
+  message ListEventFeedsTask {
+    repeated google.protobuf.Any annotations = 1;
+  }
+
   message GrantTask {
     connector.v2.Entitlement entitlement = 1;
     connector.v2.Resource principal = 2;
@@ -184,6 +200,8 @@ message Task {
     ActionStatusTask action_status = 118;
     CreateSyncDiffTask create_sync_diff = 119;
     CompactSyncs compact_syncs = 120;
+    ListEventFeedsTask list_event_feeds = 121;
+    ListEventsTask list_events = 122;
   }
   bool debug = 3;
 }
