@@ -83,6 +83,11 @@ type hasPrincipalResourceTypeIDsListRequest interface {
 	GetPrincipalResourceTypeIds() []string
 }
 
+type hasParentResourceIdListRequest interface {
+	listRequest
+	GetParentResourceId() *v2.ResourceId
+}
+
 type protoHasID interface {
 	proto.Message
 	GetId() string
@@ -186,6 +191,14 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		p := principalResourceTypeIDsReq.GetPrincipalResourceTypeIds()
 		if len(p) > 0 {
 			q = q.Where(goqu.C("principal_resource_type_id").In(p))
+		}
+	}
+
+	if parentResourceIdReq, ok := req.(hasParentResourceIdListRequest); ok {
+		p := parentResourceIdReq.GetParentResourceId()
+		if p != nil && p.GetResource() != "" {
+			q = q.Where(goqu.C("parent_resource_id").Eq(p.GetResource()))
+			q = q.Where(goqu.C("parent_resource_type_id").Eq(p.GetResourceType()))
 		}
 	}
 
