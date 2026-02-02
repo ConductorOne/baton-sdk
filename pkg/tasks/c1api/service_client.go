@@ -153,7 +153,7 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 	for i := range maxAttempts {
 		err = c.upload(ctx, task, r)
 		if err == nil {
-			l.Error("service client upload failed", zap.Error(err))
+			l.Debug("service client upload succeeded")
 			return nil
 		}
 		l.Warn("failed to upload asset", zap.Error(err))

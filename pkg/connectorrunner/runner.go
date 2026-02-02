@@ -54,7 +54,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(ErrSigTerm)
 
-	if c.debugFile == nil {
+	if c.tasks.ShouldDebug() && c.debugFile == nil {
 		var err error
 		tempDir := c.tasks.GetTempDir()
 		if tempDir == "" {

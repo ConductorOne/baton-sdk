@@ -50,7 +50,7 @@ type c1ApiTaskManager struct {
 	serviceClient                       BatonServiceClient
 	tempDir                             string
 	skipFullSync                        bool
-	runnerShouldDebug                   bool
+	runnerDebugExpiresAt                time.Time
 	externalResourceC1Z                 string
 	externalResourceEntitlementIdFilter string
 	targetedSyncResources               []*v2.Resource
@@ -209,7 +209,7 @@ func (c *c1ApiTaskManager) GetTempDir() string {
 }
 
 func (c *c1ApiTaskManager) ShouldDebug() bool {
-	return c.runnerShouldDebug
+	return !c.runnerDebugExpiresAt.IsZero() && time.Now().Before(c.runnerDebugExpiresAt)
 }
 
 func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
@@ -273,7 +273,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 	case taskTypes.GetTicketType:
 		handler = newGetTicketTaskHandler(task, tHelpers)
 	case taskTypes.StartDebugging:
-		handler = newStartDebugging(c)
+		handler = newStartDebuggingTaskHandler(task, c)
 	case taskTypes.BulkCreateTicketsType:
 		handler = newBulkCreateTicketTaskHandler(task, tHelpers)
 	case taskTypes.BulkGetTicketsType:
