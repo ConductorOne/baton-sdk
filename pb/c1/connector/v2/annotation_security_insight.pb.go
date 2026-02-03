@@ -28,7 +28,8 @@ const (
 type RiskScore struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// The risk score value (e.g., "85", "High")
-	Value         string `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	Value         string   `protobuf:"bytes,1,opt,name=value,proto3" json:"value,omitempty"`
+	Factors       []string `protobuf:"bytes,2,rep,name=factors,proto3" json:"factors,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -65,15 +66,27 @@ func (x *RiskScore) GetValue() string {
 	return ""
 }
 
+func (x *RiskScore) GetFactors() []string {
+	if x != nil {
+		return x.Factors
+	}
+	return nil
+}
+
 func (x *RiskScore) SetValue(v string) {
 	x.Value = v
+}
+
+func (x *RiskScore) SetFactors(v []string) {
+	x.Factors = v
 }
 
 type RiskScore_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	// The risk score value (e.g., "85", "High")
-	Value string
+	Value   string
+	Factors []string
 }
 
 func (b0 RiskScore_builder) Build() *RiskScore {
@@ -81,6 +94,7 @@ func (b0 RiskScore_builder) Build() *RiskScore {
 	b, x := &b0, m0
 	_, _ = b, x
 	x.Value = b.Value
+	x.Factors = b.Factors
 	return m0
 }
 
@@ -828,9 +842,10 @@ var File_c1_connector_v2_annotation_security_insight_proto protoreflect.FileDesc
 
 const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 	"\n" +
-	"1c1/connector/v2/annotation_security_insight.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\"!\n" +
+	"1c1/connector/v2/annotation_security_insight.proto\x12\x0fc1.connector.v2\x1a\x1ec1/connector/v2/resource.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17validate/validate.proto\";\n" +
 	"\tRiskScore\x12\x14\n" +
-	"\x05value\x18\x01 \x01(\tR\x05value\"E\n" +
+	"\x05value\x18\x01 \x01(\tR\x05value\x12\x18\n" +
+	"\afactors\x18\x02 \x03(\tR\afactors\"E\n" +
 	"\x05Issue\x12\x14\n" +
 	"\x05value\x18\x01 \x01(\tR\x05value\x12&\n" +
 	"\bseverity\x18\x02 \x01(\tB\n" +

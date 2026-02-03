@@ -12,6 +12,7 @@ option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 message RiskScore {
   // The risk score value (e.g., "85", "High")
   string value = 1;
+  repeated string factors = 2;
 }
 
 // Issue represents a security issue or vulnerability
