@@ -48,13 +48,18 @@ type connectorRunner struct {
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
 
-// Run starts a connector and creates a new C1Z file.
-func (c *connectorRunner) Run(ctx context.Context) error {
+func (c *connectorRunner) ensurePersistentLog(ctx context.Context, taskRequired bool) (context.Context, error) {
 	l := ctxzap.Extract(ctx)
-	ctx, cancel := context.WithCancelCause(ctx)
-	defer cancel(ErrSigTerm)
 
-	if c.tasks.ShouldDebug() && c.debugFile == nil {
+	managerRequired := c.tasks.ShouldDebug()
+	// If we're not being required to create a persistent log by a task
+	// and our runner doesn't want one, we have nothing to do.
+	if !taskRequired && !managerRequired {
+		return ctx, nil
+	}
+
+	// Create a log file if none already exists.
+	if c.debugFile == nil {
 		var err error
 		tempDir := c.tasks.GetTempDir()
 		if tempDir == "" {
@@ -74,21 +79,41 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		debugFile := filepath.Join(tempDir, "debug.log")
 		c.debugFile, err = os.Create(debugFile)
 		if err != nil {
-			l.Warn("cannot create file", zap.String("full file path", debugFile), zap.Error(err))
+			l.Warn("cannot create file", zap.String("file_path", debugFile), zap.Error(err))
+		}
+	} else if !managerRequired {
+		// A log file was already open, but we should clear it of old data
+		// since we only want to use it for this task's results.
+		err := c.debugFile.Truncate(0)
+		if err == nil {
+			_, err = c.debugFile.Seek(0, 0)
+		}
+
+		if err != nil {
+			l.Error("failed to rotate debug log file", zap.String("filename", c.debugFile.Name()), zap.Error(err))
+			return nil, err
 		}
 	}
 
 	// modify the context to insert a logger directed to a file
-	if c.debugFile != nil {
-		writeSyncer := zapcore.AddSync(c.debugFile)
-		encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
-		core := zapcore.NewCore(encoder, writeSyncer, zapcore.DebugLevel)
+	writeSyncer := zapcore.AddSync(c.debugFile)
+	encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+	core := zapcore.NewCore(encoder, writeSyncer, zapcore.DebugLevel)
 
-		l = l.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
-			return zapcore.NewTee(c, core)
-		}))
+	l = l.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+		return zapcore.NewTee(c, core)
+	}))
+	return ctxzap.ToContext(ctx, l), nil
+}
 
-		ctx = ctxzap.ToContext(ctx, l)
+// Run starts a connector and creates a new C1Z file.
+func (c *connectorRunner) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(ErrSigTerm)
+
+	ctxWithLogger, err := c.ensurePersistentLog(ctx, false)
+	if err != nil {
+		ctx = ctxWithLogger
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -99,7 +124,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		}
 	}()
 
-	err := c.run(ctx)
+	err = c.run(ctx)
 	if err != nil {
 		return err
 	}
@@ -128,6 +153,15 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 	cc, err := c.cw.C(ctx)
 	if err != nil {
 		return fmt.Errorf("runner: error creating connector client: %w", err)
+	}
+
+	// While we may not have already set up a persistent log file,
+	// the task may request us to do so on-demand.
+	if task.GetDebug() {
+		loggingCtx, err := c.ensurePersistentLog(ctx, true)
+		if err != nil {
+			ctx = loggingCtx
+		}
 	}
 
 	err = c.tasks.Process(ctx, task, cc)
