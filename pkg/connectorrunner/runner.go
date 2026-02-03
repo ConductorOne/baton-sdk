@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
@@ -39,11 +40,12 @@ const (
 )
 
 type connectorRunner struct {
-	cw           types.ClientWrapper
-	oneShot      bool
-	tasks        tasks.Manager
-	debugFile    *os.File
-	healthServer *healthcheck.Server
+	cw             types.ClientWrapper
+	oneShot        bool
+	tasks          tasks.Manager
+	debugFile      *os.File
+	debugFileMutex sync.Mutex
+	healthServer   *healthcheck.Server
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -58,6 +60,12 @@ var ErrSigTerm = errors.New("context cancelled by process shutdown")
 // a persistent log file could not be created.
 func (c *connectorRunner) setupPersistentLog(ctx context.Context, requiredByTask bool) (context.Context, error) {
 	var err error
+
+	// We lock around manipulation of the debug file field for safety,
+	// but make no attempt to serialize logging of concurrent tasks.
+	c.debugFileMutex.Lock()
+	defer c.debugFileMutex.Unlock()
+
 	l := ctxzap.Extract(ctx)
 
 	requiredByManager := c.tasks.ShouldDebug()
