@@ -117,7 +117,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 	defer cancel(ErrSigTerm)
 
 	ctxWithLogger, err := c.ensurePersistentLog(ctx, false)
-	if err != nil {
+	if err == nil {
 		ctx = ctxWithLogger
 		l := ctxzap.Extract(ctx)
 		l.Info("Got logger from ensurePersistentLog")
@@ -166,7 +166,7 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 	// the task may request us to do so on-demand.
 	if task.GetDebug() {
 		loggingCtx, err := c.ensurePersistentLog(ctx, true)
-		if err != nil {
+		if err == nil {
 			ctx = loggingCtx
 			l := ctxzap.Extract(ctx)
 			l.Info("Got new loooogger from ensurePersistentLog!")
