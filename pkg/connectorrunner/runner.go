@@ -49,57 +49,61 @@ type connectorRunner struct {
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
 
 func (c *connectorRunner) ensurePersistentLog(ctx context.Context, taskRequired bool) (context.Context, error) {
+	var err error
 	l := ctxzap.Extract(ctx)
 
 	managerRequired := c.tasks.ShouldDebug()
-	// If we're not being required to create a persistent log by a task
-	// and our runner doesn't want one, we have nothing to do.
 	if !taskRequired && !managerRequired {
+		// If we're not being required to create a persistent log by a task
+		// and our runner doesn't want one, we have nothing to do.
 		l.Info("Not required")
+		return ctx, nil
+	} else if c.debugFile != nil && managerRequired {
+		// If a log file already exists from our runner,
+		// we also have nothing to do.
+		l.Info("Not changing log file")
 		return ctx, nil
 	}
 
-	// Create a log file if none already exists.
-	if c.debugFile == nil {
-		var err error
-		tempDir := c.tasks.GetTempDir()
-		if tempDir == "" {
-			wd, err := os.Getwd()
-			if err != nil {
-				l.Warn("unable to get the current working directory", zap.Error(err))
-			}
-
-			if wd != "" {
-				l.Warn("no temporal folder found on this system according to our task manager,"+
-					" we may create files in the current working directory by mistake as a result",
-					zap.String("current working directory", wd))
-			} else {
-				l.Warn("no temporal folder found on this system according to our task manager")
-			}
-		}
-		debugFile := filepath.Join(tempDir, "debug.log")
-		c.debugFile, err = os.Create(debugFile)
+	if c.debugFile != nil {
+		// A log file already exists from a previous task;
+		// it is time to rotate it by closing it
+		// and calling Create() on it below -
+		// this is equivalent to open(O_TRUNC).
+		l.Info("Rotating existing log file")
+		err = c.debugFile.Close()
 		if err != nil {
-			l.Warn("cannot create file", zap.String("file_path", debugFile), zap.Error(err))
-			return nil, err
-		}
-	} else if !managerRequired {
-		l.Info("closing / reopening existing debug log file for rotation")
-		// A log file was already open, but we should clear it of old data
-		// since we only want to use it for this task's results.
-		// XXXjag fix this
-		err := c.debugFile.Truncate(0)
-		if err == nil {
-			_, err = c.debugFile.Seek(0, 0)
+			l.Warn("cannot close existing log file, continuing to rotate log...", zap.Error(err))
 		}
 
+		c.debugFile = nil
+	}
+
+	// Create or truncate the log file, and open it.
+	tempDir := c.tasks.GetTempDir()
+	if tempDir == "" {
+		wd, err := os.Getwd()
 		if err != nil {
-			l.Error("failed to rotate debug log file", zap.String("filename", c.debugFile.Name()), zap.Error(err))
-			return nil, err
+			l.Warn("unable to get the current working directory", zap.Error(err))
+		}
+
+		if wd != "" {
+			l.Warn("no temporal folder found on this system according to our task manager,"+
+				" we may create files in the current working directory by mistake as a result",
+				zap.String("current working directory", wd))
+		} else {
+			l.Warn("no temporal folder found on this system according to our task manager")
 		}
 	}
 
-	// modify the context to insert a logger directed to a file
+	debugFile := filepath.Join(tempDir, "debug.log")
+	c.debugFile, err = os.Create(debugFile)
+	if err != nil {
+		l.Warn("cannot create file", zap.String("file_path", debugFile), zap.Error(err))
+		return nil, err
+	}
+
+	// Modify the context to insert a logger directed to that file.
 	writeSyncer := zapcore.AddSync(c.debugFile)
 	encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
 	core := zapcore.NewCore(encoder, writeSyncer, zapcore.DebugLevel)
