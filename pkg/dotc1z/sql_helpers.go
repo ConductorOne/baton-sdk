@@ -576,8 +576,9 @@ func bulkPutConnectorObject[T proto.Message](
 
 	// Define query building function
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
+		update := goqu.Record{"data": goqu.I("EXCLUDED.data")}
 		return insertDs.
-			OnConflict(goqu.DoUpdate("external_id, sync_id", goqu.C("data").Set(goqu.I("EXCLUDED.data")))).
+			OnConflict(goqu.DoUpdate("external_id, sync_id", update)).
 			Rows(chunkedRows).
 			Prepared(true), nil
 	}
@@ -611,12 +612,13 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 
 	// Define query building function
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
+		update := goqu.Record{
+			"data":          goqu.I("EXCLUDED.data"),
+			"discovered_at": goqu.I("EXCLUDED.discovered_at"),
+		}
 		return insertDs.
 			OnConflict(goqu.DoUpdate("external_id, sync_id",
-				goqu.Record{
-					"data":          goqu.I("EXCLUDED.data"),
-					"discovered_at": goqu.I("EXCLUDED.discovered_at"),
-				}).Where(
+				update).Where(
 				goqu.L("EXCLUDED.discovered_at > ?.discovered_at", goqu.I(tableName)),
 			)).
 			Rows(chunkedRows).
