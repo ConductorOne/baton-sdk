@@ -55,6 +55,7 @@ func (c *connectorRunner) ensurePersistentLog(ctx context.Context, taskRequired 
 	// If we're not being required to create a persistent log by a task
 	// and our runner doesn't want one, we have nothing to do.
 	if !taskRequired && !managerRequired {
+		l.Info("Not required")
 		return ctx, nil
 	}
 
@@ -80,10 +81,13 @@ func (c *connectorRunner) ensurePersistentLog(ctx context.Context, taskRequired 
 		c.debugFile, err = os.Create(debugFile)
 		if err != nil {
 			l.Warn("cannot create file", zap.String("file_path", debugFile), zap.Error(err))
+			return nil, err
 		}
 	} else if !managerRequired {
+		l.Info("closing / reopening existing debug log file for rotation")
 		// A log file was already open, but we should clear it of old data
 		// since we only want to use it for this task's results.
+		// XXXjag fix this
 		err := c.debugFile.Truncate(0)
 		if err == nil {
 			_, err = c.debugFile.Seek(0, 0)
@@ -103,6 +107,7 @@ func (c *connectorRunner) ensurePersistentLog(ctx context.Context, taskRequired 
 	l = l.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
 		return zapcore.NewTee(c, core)
 	}))
+	l.Info("Returning new context!!!")
 	return ctxzap.ToContext(ctx, l), nil
 }
 
@@ -114,6 +119,8 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 	ctxWithLogger, err := c.ensurePersistentLog(ctx, false)
 	if err != nil {
 		ctx = ctxWithLogger
+		l := ctxzap.Extract(ctx)
+		l.Info("Got logger from ensurePersistentLog")
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -161,7 +168,12 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 		loggingCtx, err := c.ensurePersistentLog(ctx, true)
 		if err != nil {
 			ctx = loggingCtx
+			l := ctxzap.Extract(ctx)
+			l.Info("Got new loooogger from ensurePersistentLog!")
 		}
+	} else {
+		l := ctxzap.Extract(ctx)
+		l.Info("No new logger from ensurePersistentLog :(")
 	}
 
 	err = c.tasks.Process(ctx, task, cc)
