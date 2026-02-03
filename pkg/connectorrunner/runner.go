@@ -124,7 +124,8 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(ErrSigTerm)
 
-	ctx, err := c.setupPersistentLog(ctx, false)
+	var err error
+	ctx, err = c.setupPersistentLog(ctx, false)
 	if err != nil {
 		l := ctxzap.Extract(ctx)
 		l.Warn("Persistent logging could not be set up.", zap.Error(err))
@@ -172,7 +173,7 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 	// While we may not have already set up a persistent log file,
 	// if the task requires one, we set it up here.
 	if task.GetDebug() {
-		ctx, err := c.setupPersistentLog(ctx, true)
+		ctx, err = c.setupPersistentLog(ctx, true)
 		if err != nil {
 			l := ctxzap.Extract(ctx)
 			l.Warn("Persistent logging for this Task could not be set up.", zap.Error(err))
