@@ -48,28 +48,33 @@ type connectorRunner struct {
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
 
-func (c *connectorRunner) ensurePersistentLog(ctx context.Context, taskRequired bool) (context.Context, error) {
+// setupPersistentLog ensures that a log file on disk is created,
+// when required by either the stored Manager or by a Task.
+// A log file created by a stored Manager persists for our entire run,
+// while a log file created for a Task only lasts for that Task.
+// (There is currently no good way for a Manager to require this.)
+//
+// This function always returns a valid context, even if
+// a persistent log file could not be created.
+func (c *connectorRunner) setupPersistentLog(ctx context.Context, requiredByTask bool) (context.Context, error) {
 	var err error
 	l := ctxzap.Extract(ctx)
 
-	managerRequired := c.tasks.ShouldDebug()
-	if !taskRequired && !managerRequired {
+	requiredByManager := c.tasks.ShouldDebug()
+	if !requiredByTask && !requiredByManager {
 		// If we're not being required to create a persistent log by a task
 		// and our runner doesn't want one, we have nothing to do.
-		l.Info("Not required")
 		return ctx, nil
-	} else if c.debugFile != nil && managerRequired {
+	} else if c.debugFile != nil && requiredByManager {
 		// If a log file already exists from our runner,
 		// we also have nothing to do.
-		l.Info("Not changing log file")
 		return ctx, nil
 	}
 
 	if c.debugFile != nil {
-		// A log file already exists from a previous task;
-		// it is time to rotate it by closing it
-		// and calling Create() on it below -
-		// this is equivalent to open(O_TRUNC).
+		// A log file already exists from a previous task, and it is time to rotate it.
+		// The file is likely already closed, but we attempt to Close() it to be sure
+		// and rotate it by calling Create() on it below - this is equivalent to open(O_TRUNC).
 		l.Info("Rotating existing log file")
 		err = c.debugFile.Close()
 		if err != nil {
@@ -79,7 +84,7 @@ func (c *connectorRunner) ensurePersistentLog(ctx context.Context, taskRequired 
 		c.debugFile = nil
 	}
 
-	// Create or truncate the log file, and open it.
+	// Create/truncate the log file, and open it.
 	tempDir := c.tasks.GetTempDir()
 	if tempDir == "" {
 		wd, err := os.Getwd()
@@ -99,8 +104,8 @@ func (c *connectorRunner) ensurePersistentLog(ctx context.Context, taskRequired 
 	debugFile := filepath.Join(tempDir, "debug.log")
 	c.debugFile, err = os.Create(debugFile)
 	if err != nil {
-		l.Warn("cannot create file", zap.String("file_path", debugFile), zap.Error(err))
-		return nil, err
+		l.Warn("cannot create debug log file", zap.String("file_path", debugFile), zap.Error(err))
+		return ctx, err
 	}
 
 	// Modify the context to insert a logger directed to that file.
@@ -111,7 +116,6 @@ func (c *connectorRunner) ensurePersistentLog(ctx context.Context, taskRequired 
 	l = l.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
 		return zapcore.NewTee(c, core)
 	}))
-	l.Info("Returning new context!!!")
 	return ctxzap.ToContext(ctx, l), nil
 }
 
@@ -120,11 +124,10 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(ErrSigTerm)
 
-	ctxWithLogger, err := c.ensurePersistentLog(ctx, false)
-	if err == nil {
-		ctx = ctxWithLogger
+	ctx, err := c.setupPersistentLog(ctx, false)
+	if err != nil {
 		l := ctxzap.Extract(ctx)
-		l.Info("Got logger from ensurePersistentLog")
+		l.Warn("Persistent logging could not be set up.", zap.Error(err))
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -167,17 +170,13 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 	}
 
 	// While we may not have already set up a persistent log file,
-	// the task may request us to do so on-demand.
+	// if the task requires one, we set it up here.
 	if task.GetDebug() {
-		loggingCtx, err := c.ensurePersistentLog(ctx, true)
-		if err == nil {
-			ctx = loggingCtx
+		ctx, err := c.setupPersistentLog(ctx, true)
+		if err != nil {
 			l := ctxzap.Extract(ctx)
-			l.Info("Got new loooogger from ensurePersistentLog!")
+			l.Warn("Persistent logging for this Task could not be set up.", zap.Error(err))
 		}
-	} else {
-		l := ctxzap.Extract(ctx)
-		l.Info("No new logger from ensurePersistentLog :(")
 	}
 
 	err = c.tasks.Process(ctx, task, cc)

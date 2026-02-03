@@ -153,7 +153,6 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 	for i := range maxAttempts {
 		err = c.upload(ctx, task, r)
 		if err == nil {
-			l.Debug("service client upload succeeded")
 			return nil
 		}
 		l.Warn("failed to upload asset", zap.Error(err))
@@ -162,13 +161,11 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 			select {
 			case <-time.After(backoff):
 			case <-ctx.Done():
-				l.Info("ctx.Done()")
 				return ctx.Err()
 			}
 		}
 	}
 
-	l.Error("at end of Upload(), returning error object", zap.Error(err))
 	return err
 }
 
