@@ -70,3 +70,10 @@ type Writer interface {
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	DeleteGrant(ctx context.Context, grantId string) error
 }
+
+// ExpansionStore provides methods for grant expansion operations.
+// Not all store implementations support expansion; callers should type-assert.
+type ExpansionStore interface {
+	// SetExpansionStarted marks the given sync as having started expansion.
+	SetExpansionStarted(ctx context.Context, syncID string) error
+}

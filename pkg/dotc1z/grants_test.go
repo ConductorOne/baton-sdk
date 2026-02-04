@@ -9,10 +9,9 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-func TestGrantExpandableColumns_WhitespaceOnlyEntitlementIDs(t *testing.T) {
+func TestIsGrantExpandable_WhitespaceOnlyEntitlementIDs(t *testing.T) {
 	// Create a GrantExpandable annotation with only whitespace entitlement IDs.
-	// After checking, this should result in is_expandable=0 because
-	// there are no valid source entitlements.
+	// This should return false because there are no valid source entitlements.
 	expandable := v2.GrantExpandable_builder{
 		EntitlementIds: []string{"  ", "\t", "   \n  "},
 	}.Build()
@@ -34,17 +33,12 @@ func TestGrantExpandableColumns_WhitespaceOnlyEntitlementIDs(t *testing.T) {
 		Annotations: []*anypb.Any{expandableAny},
 	}.Build()
 
-	isExpandable, needsExpansion := grantExpandableColumns(grant)
-
-	// After checking, this grant should NOT be marked as expandable
-	// since there are no valid source entitlements.
-	require.Equal(t, 0, isExpandable, "grant with only whitespace entitlement IDs should not be expandable")
-	require.Equal(t, 0, needsExpansion, "grant with no valid source entitlements should not need expansion")
+	require.False(t, isGrantExpandable(grant), "grant with only whitespace entitlement IDs should not be expandable")
 }
 
-func TestGrantExpandableColumns_MixedWhitespaceAndValidIDs(t *testing.T) {
+func TestIsGrantExpandable_MixedWhitespaceAndValidIDs(t *testing.T) {
 	// Create a GrantExpandable annotation with a mix of whitespace and valid IDs.
-	// The grant should still be expandable with only the valid IDs.
+	// The grant should still be expandable because there's at least one valid ID.
 	expandable := v2.GrantExpandable_builder{
 		EntitlementIds: []string{"  ", "valid-entitlement-id", "\t"},
 		Shallow:        true,
@@ -67,9 +61,5 @@ func TestGrantExpandableColumns_MixedWhitespaceAndValidIDs(t *testing.T) {
 		Annotations: []*anypb.Any{expandableAny},
 	}.Build()
 
-	isExpandable, needsExpansion := grantExpandableColumns(grant)
-
-	// Should still be expandable because there's at least one valid entitlement ID.
-	require.Equal(t, 1, isExpandable, "grant with valid entitlement ID should be expandable")
-	require.Equal(t, 1, needsExpansion, "expandable grant should need expansion on insert")
+	require.True(t, isGrantExpandable(grant), "grant with valid entitlement ID should be expandable")
 }

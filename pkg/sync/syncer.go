@@ -704,6 +704,15 @@ func (s *syncer) Sync(ctx context.Context) error {
 			continue
 
 		case SyncGrantExpansionOp:
+			// Mark the sync as having reached the expansion phase. This is set unconditionally
+			// so that diffs can detect syncs created with older code that dropped annotations.
+			if expansionStore, ok := s.store.(connectorstore.ExpansionStore); ok {
+				if err := expansionStore.SetExpansionStarted(ctx, s.syncID); err != nil {
+					l.Error("failed to set expansion started marker", zap.Error(err))
+					return err
+				}
+			}
+
 			if s.dontExpandGrants || !s.state.NeedsExpansion() {
 				l.Debug("skipping grant expansion, no grants to expand")
 				s.state.FinishAction(ctx)
@@ -1725,6 +1734,88 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 		s.handleInitialActionForStep(ctx, *s.state.Current())
 	}
 
+	// Prefer a fast-path that scans only expandable grants using queryable columns,
+	// avoiding full protobuf unmarshalling across all grants.
+	type expandableGrantLister interface {
+		ListExpandableGrants(ctx context.Context, opts ...dotc1z.ListExpandableGrantsOption) ([]*dotc1z.ExpandableGrantDef, string, error)
+	}
+	if lister, ok := s.store.(expandableGrantLister); ok {
+		defs, nextPageToken, err := lister.ListExpandableGrants(
+			ctx,
+			dotc1z.WithExpandableGrantsPageToken(pageToken),
+			dotc1z.WithExpandableGrantsNeedsExpansionOnly(true),
+		)
+		if err != nil {
+			return err
+		}
+
+		// Handle pagination
+		if nextPageToken != "" {
+			if err := s.state.NextPage(ctx, nextPageToken); err != nil {
+				return err
+			}
+		} else {
+			l.Debug("Finished loading expandable grants to expand")
+			graph.Loaded = true
+		}
+
+		for _, def := range defs {
+			principalID := v2.ResourceId_builder{
+				ResourceType: def.PrincipalResourceTypeID,
+				Resource:     def.PrincipalResourceID,
+			}.Build()
+
+			for _, srcEntitlementID := range def.SrcEntitlementIDs {
+				// Preserve the same validation semantics as processGrantForGraph.
+				srcEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+					EntitlementId: srcEntitlementID,
+				}.Build())
+				if err != nil {
+					// Only skip not-found entitlements; propagate other errors
+					// to avoid silently dropping edges and yielding incorrect expansions.
+					if errors.Is(err, sql.ErrNoRows) {
+						l.Debug("source entitlement not found, skipping edge",
+							zap.String("src_entitlement_id", srcEntitlementID),
+							zap.String("dst_entitlement_id", def.DstEntitlementID),
+						)
+						continue
+					}
+					l.Error("error fetching source entitlement",
+						zap.String("src_entitlement_id", srcEntitlementID),
+						zap.String("dst_entitlement_id", def.DstEntitlementID),
+						zap.Error(err),
+					)
+					return err
+				}
+
+				sourceEntitlementResourceID := srcEntitlement.GetEntitlement().GetResource().GetId()
+				if sourceEntitlementResourceID == nil {
+					return fmt.Errorf("source entitlement resource id was nil")
+				}
+				if principalID.GetResourceType() != sourceEntitlementResourceID.GetResourceType() ||
+					principalID.GetResource() != sourceEntitlementResourceID.GetResource() {
+					l.Error(
+						"source entitlement resource id did not match grant principal id",
+						zap.String("grant_principal_id", principalID.String()),
+						zap.String("source_entitlement_resource_id", sourceEntitlementResourceID.String()))
+
+					return fmt.Errorf("source entitlement resource id did not match grant principal id")
+				}
+
+				graph.AddEntitlementID(def.DstEntitlementID)
+				graph.AddEntitlementID(srcEntitlementID)
+				if err := graph.AddEdge(ctx, srcEntitlementID, def.DstEntitlementID, def.Shallow, def.PrincipalResourceTypeIDs); err != nil {
+					return fmt.Errorf("error adding edge to graph: %w", err)
+				}
+			}
+		}
+
+		if graph.Loaded {
+			l.Info("Finished loading entitlement graph", zap.Int("edges", len(graph.Edges)))
+		}
+		return nil
+	}
+
 	resp, err := s.store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageToken: pageToken}.Build())
 	if err != nil {
 		return err
@@ -1742,40 +1833,11 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 	}
 
 	// Process grants and add edges to the graph
-	updatedGrants := make([]*v2.Grant, 0)
 	for _, grant := range resp.GetList() {
 		err := s.processGrantForGraph(ctx, grant, graph)
 		if err != nil {
 			return err
 		}
-
-		// Remove expandable annotation from descendant grant now that we've added it to the graph.
-		// That way if this sync is part of a compaction, expanding grants at the end of compaction won't redo work.
-		newAnnos := make(annotations.Annotations, 0)
-		updated := false
-		for _, anno := range grant.GetAnnotations() {
-			if anno.MessageIs(&v2.GrantExpandable{}) {
-				updated = true
-			} else {
-				newAnnos = append(newAnnos, anno)
-			}
-		}
-		if !updated {
-			continue
-		}
-
-		grant.SetAnnotations(newAnnos)
-		l.Debug("removed expandable annotation from grant", zap.String("grant_id", grant.GetId()))
-		updatedGrants = append(updatedGrants, grant)
-		updatedGrants, err = expand.PutGrantsInChunks(ctx, s.store, updatedGrants, 10000)
-		if err != nil {
-			return err
-		}
-	}
-
-	_, err = expand.PutGrantsInChunks(ctx, s.store, updatedGrants, 0)
-	if err != nil {
-		return err
 	}
 
 	if graph.Loaded {
@@ -1814,12 +1876,21 @@ func (s *syncer) processGrantForGraph(ctx context.Context, grant *v2.Grant, grap
 			EntitlementId: srcEntitlementID,
 		}.Build())
 		if err != nil {
+			// Only skip not-found entitlements; propagate other errors
+			// to avoid silently dropping edges and yielding incorrect expansions.
+			if errors.Is(err, sql.ErrNoRows) {
+				l.Debug("source entitlement not found, skipping edge",
+					zap.String("src_entitlement_id", srcEntitlementID),
+					zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
+				)
+				continue
+			}
 			l.Error("error fetching source entitlement",
 				zap.String("src_entitlement_id", srcEntitlementID),
 				zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
 				zap.Error(err),
 			)
-			continue
+			return err
 		}
 
 		// The expand annotation points at entitlements by id. Those entitlements' resource should match

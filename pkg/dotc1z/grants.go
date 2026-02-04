@@ -206,7 +206,7 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 
 	err := f(ctx, c, grants.Name(),
 		func(grant *v2.Grant) (goqu.Record, error) {
-			isExpandable, needsExpansion := grantExpandableColumns(grant)
+			expandable := isGrantExpandable(grant)
 
 			return goqu.Record{
 				"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
@@ -214,8 +214,8 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 				"entitlement_id":             grant.GetEntitlement().GetId(),
 				"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
 				"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-				"is_expandable":              isExpandable,
-				"needs_expansion":            needsExpansion,
+				"is_expandable":              expandable,
+				"needs_expansion":            expandable,
 			}, nil
 		},
 		bulkGrants...,
@@ -227,25 +227,23 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 	return nil
 }
 
-// grantExpandableColumns returns (is_expandable, needs_expansion).
-// is_expandable is 1 if the grant has a valid GrantExpandable annotation, 0 otherwise.
-func grantExpandableColumns(grant *v2.Grant) (int, int) {
+// isGrantExpandable returns true if the grant has a valid GrantExpandable annotation
+// with at least one non-whitespace entitlement ID.
+func isGrantExpandable(grant *v2.Grant) bool {
 	annos := annotations.Annotations(grant.GetAnnotations())
 	expandable := &v2.GrantExpandable{}
 	ok, err := annos.Pick(expandable)
 	if err != nil || !ok || len(expandable.GetEntitlementIds()) == 0 {
-		return 0, 0
+		return false
 	}
 
 	// Check that there's at least one non-whitespace entitlement ID.
 	for _, id := range expandable.GetEntitlementIds() {
 		if strings.TrimSpace(id) != "" {
-			// On initial insert, we want expandable grants to be picked up by expansion.
-			// On updates, bulkPutGrants* preserves needs_expansion unless is_expandable changes.
-			return 1, 1
+			return true
 		}
 	}
-	return 0, 0
+	return false
 }
 
 func backfillGrantExpandableColumns(ctx context.Context, db *goqu.Database, tableName string) error {
@@ -307,13 +305,12 @@ func backfillGrantExpandableColumns(ctx context.Context, db *goqu.Database, tabl
 				_ = tx.Rollback()
 				return err
 			}
-			isExpandable, needsExpansion := grantExpandableColumns(g)
 			// Only update if we found a valid expandable annotation.
 			// Rows with "GrantExpandable" in the blob but no valid annotation are skipped.
-			if isExpandable == 0 {
+			if !isGrantExpandable(g) {
 				continue
 			}
-			if _, err := stmt.ExecContext(ctx, isExpandable, needsExpansion, r.id); err != nil {
+			if _, err := stmt.ExecContext(ctx, true, true, r.id); err != nil {
 				_ = stmt.Close()
 				_ = tx.Rollback()
 				return err
