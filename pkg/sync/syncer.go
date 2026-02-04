@@ -704,12 +704,17 @@ func (s *syncer) Sync(ctx context.Context) error {
 			continue
 
 		case SyncGrantExpansionOp:
-			// Mark the sync as having reached the expansion phase. This is set unconditionally
-			// so that diffs can detect syncs created with older code that dropped annotations.
-			if expansionStore, ok := s.store.(connectorstore.ExpansionStore); ok {
-				if err := expansionStore.SetExpansionStarted(ctx, s.syncID); err != nil {
-					l.Error("failed to set expansion started marker", zap.Error(err))
-					return err
+			// Mark the sync as supporting diff, but only if we're starting fresh.
+			// If we're resuming (graph has edges or a page token), we may be continuing
+			// from old code that didn't have this marker, so we must not set it.
+			entitlementGraph := s.state.EntitlementGraph(ctx)
+			isResumingExpansion := entitlementGraph.Loaded || len(entitlementGraph.Edges) > 0 || s.state.PageToken(ctx) != ""
+			if !isResumingExpansion {
+				if expansionStore, ok := s.store.(connectorstore.ExpansionStore); ok {
+					if err := expansionStore.SetSupportsDiff(ctx, s.syncID); err != nil {
+						l.Error("failed to set supports_diff marker", zap.Error(err))
+						return err
+					}
 				}
 			}
 
@@ -1742,7 +1747,8 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 
 	lister, ok := s.store.(expandableGrantLister)
 	if !ok {
-		return fmt.Errorf("store does not support ListExpandableGrants")
+		l.Warn("store does not support ListExpandableGrants")
+		return nil
 	}
 
 	defs, nextPageToken, err := lister.ListExpandableGrants(
@@ -1752,16 +1758,6 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 	)
 	if err != nil {
 		return err
-	}
-
-	// Handle pagination
-	if nextPageToken != "" {
-		if err := s.state.NextPage(ctx, nextPageToken); err != nil {
-			return err
-		}
-	} else {
-		l.Debug("Finished loading expandable grants to expand")
-		graph.Loaded = true
 	}
 
 	for _, def := range defs {
@@ -1816,9 +1812,16 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 		}
 	}
 
-	if graph.Loaded {
+	// Handle pagination
+	if nextPageToken != "" {
+		if err := s.state.NextPage(ctx, nextPageToken); err != nil {
+			return err
+		}
+	} else {
+		graph.Loaded = true
 		l.Info("Finished loading entitlement graph", zap.Int("edges", len(graph.Edges)))
 	}
+
 	return nil
 }
 

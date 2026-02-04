@@ -34,7 +34,7 @@ create table if not exists %s (
     sync_type text not null default 'full',
     parent_sync_id text not null default '',
     linked_sync_id text not null default '',
-    expansion_started_at datetime
+    supports_diff integer not null default 0
 );
 create unique index if not exists %s on %s (sync_id);`
 
@@ -98,31 +98,23 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) error
 		}
 	}
 
-	// Check if expansion_started_at column exists
-	var expansionStartedAtExists int
-	err = db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='expansion_started_at'", r.Name())).Scan(&expansionStartedAtExists)
-	if err != nil {
+	// Add supports_diff column if missing (for older files).
+	if _, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column supports_diff integer not null default 0", r.Name())); err != nil && !isAlreadyExistsError(err) {
 		return err
-	}
-	if expansionStartedAtExists == 0 {
-		_, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column expansion_started_at datetime", r.Name()))
-		if err != nil {
-			return err
-		}
 	}
 
 	return nil
 }
 
 type syncRun struct {
-	ID                 string
-	StartedAt          *time.Time
-	EndedAt            *time.Time
-	SyncToken          string
-	Type               connectorstore.SyncType
-	ParentSyncID       string
-	LinkedSyncID       string
-	ExpansionStartedAt *time.Time
+	ID           string
+	StartedAt    *time.Time
+	EndedAt      *time.Time
+	SyncToken    string
+	Type         connectorstore.SyncType
+	ParentSyncID string
+	LinkedSyncID string
+	SupportsDiff bool
 }
 
 // getCachedViewSyncRun returns the cached sync run for read operations.
@@ -174,7 +166,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 	oneWeekAgo := time.Now().AddDate(0, 0, -7)
 	ret := &syncRun{}
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "expansion_started_at")
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff")
 	q = q.Where(goqu.C("ended_at").IsNull())
 	q = q.Where(goqu.C("started_at").Gte(oneWeekAgo))
 	q = q.Order(goqu.C("started_at").Desc())
@@ -190,7 +182,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 
 	row := c.db.QueryRowContext(ctx, query, args...)
 
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.ExpansionStartedAt)
+	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -217,7 +209,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 
 	ret := &syncRun{}
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "expansion_started_at")
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff")
 	q = q.Where(goqu.C("ended_at").IsNotNull())
 	if syncType != connectorstore.SyncTypeAny {
 		q = q.Where(goqu.C("sync_type").Eq(syncType))
@@ -236,7 +228,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 
 	row := c.db.QueryRowContext(ctx, query, args...)
 
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.ExpansionStartedAt)
+	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -257,7 +249,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 	}
 
 	q := c.db.From(syncRuns.Name()).Prepared(true)
-	q = q.Select("id", "sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "expansion_started_at")
+	q = q.Select("id", "sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff")
 
 	if pageToken != "" {
 		q = q.Where(goqu.C("id").Gte(pageToken))
@@ -292,7 +284,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 		}
 		rowId := 0
 		data := &syncRun{}
-		err := rows.Scan(&rowId, &data.ID, &data.StartedAt, &data.EndedAt, &data.SyncToken, &data.Type, &data.ParentSyncID, &data.LinkedSyncID, &data.ExpansionStartedAt)
+		err := rows.Scan(&rowId, &data.ID, &data.StartedAt, &data.EndedAt, &data.SyncToken, &data.Type, &data.ParentSyncID, &data.LinkedSyncID, &data.SupportsDiff)
 		if err != nil {
 			return nil, "", err
 		}
@@ -381,7 +373,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*syncRun, error) {
 	ret := &syncRun{}
 
 	q := c.db.From(syncRuns.Name())
-	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "expansion_started_at")
+	q = q.Select("sync_id", "started_at", "ended_at", "sync_token", "sync_type", "parent_sync_id", "linked_sync_id", "supports_diff")
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 
 	query, args, err := q.ToSQL()
@@ -389,7 +381,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*syncRun, error) {
 		return nil, err
 	}
 	row := c.db.QueryRowContext(ctx, query, args...)
-	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.ExpansionStartedAt)
+	err = row.Scan(&ret.ID, &ret.StartedAt, &ret.EndedAt, &ret.SyncToken, &ret.Type, &ret.ParentSyncID, &ret.LinkedSyncID, &ret.SupportsDiff)
 	if err != nil {
 		return nil, err
 	}
@@ -673,10 +665,10 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 	return nil
 }
 
-// SetExpansionStarted marks the given sync as having started expansion.
-// This marker is used to detect syncs that expanded with older code that dropped annotations.
-func (c *C1File) SetExpansionStarted(ctx context.Context, syncID string) error {
-	ctx, span := tracer.Start(ctx, "C1File.SetExpansionStarted")
+// SetSupportsDiff marks the given sync as supporting diff operations.
+// This indicates the sync has SQL-layer grant metadata (is_expandable) properly populated.
+func (c *C1File) SetSupportsDiff(ctx context.Context, syncID string) error {
+	ctx, span := tracer.Start(ctx, "C1File.SetSupportsDiff")
 	defer span.End()
 
 	if c.readOnly {
@@ -685,10 +677,10 @@ func (c *C1File) SetExpansionStarted(ctx context.Context, syncID string) error {
 
 	q := c.db.Update(syncRuns.Name())
 	q = q.Set(goqu.Record{
-		"expansion_started_at": time.Now().Format("2006-01-02 15:04:05.999999999"),
+		"supports_diff": 1,
 	})
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
-	q = q.Where(goqu.C("expansion_started_at").IsNull())
+	q = q.Where(goqu.C("supports_diff").Eq(0))
 
 	query, args, err := q.ToSQL()
 	if err != nil {

@@ -74,6 +74,6 @@ type Writer interface {
 // ExpansionStore provides methods for grant expansion operations.
 // Not all store implementations support expansion; callers should type-assert.
 type ExpansionStore interface {
-	// SetExpansionStarted marks the given sync as having started expansion.
-	SetExpansionStarted(ctx context.Context, syncID string) error
+	// SetSupportsDiff marks the sync as supporting diff operations.
+	SetSupportsDiff(ctx context.Context, syncID string) error
 }
