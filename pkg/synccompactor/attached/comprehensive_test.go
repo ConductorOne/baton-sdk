@@ -7,6 +7,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
@@ -315,4 +316,212 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 
 	// Note: The fact that all APIs work correctly implies that the sync IDs are correct
 	// as the GetResource/GetEntitlement/GetGrant methods filter by the latest sync
+}
+
+// TestCompactionPreservesGrantExpansionColumns verifies that compacting two syncs
+// where grants have GrantExpandable annotations preserves the expansion column correctly.
+// Scenarios tested:
+// 1. Grant only in base with expansion -> compacted result has expansion
+// 2. Grant only in applied with expansion -> compacted result has expansion
+// 3. Same grant in both, applied has different expansion -> applied wins
+// 4. Grant in base has expansion, applied version has no expansion -> applied wins (no expansion)
+// 5. Normal grant (no expansion) stays normal after compaction.
+func TestCompactionPreservesGrantExpansionColumns(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	opts := []dotc1z.C1ZOption{
+		dotc1z.WithPragma("journal_mode", "WAL"),
+		dotc1z.WithTmpDir(tmpDir),
+	}
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
+	u2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build(), DisplayName: "U2"}.Build()
+
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
+	ent2 := v2.Entitlement_builder{Id: "ent2", Resource: g2, Purpose: v2.Entitlement_PURPOSE_VALUE_ASSIGNMENT}.Build()
+
+	// ========= Create base database =========
+	baseDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "base.c1z"), opts...)
+	require.NoError(t, err)
+	defer baseDB.Close(ctx)
+
+	_, err = baseDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, baseDB.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, baseDB.PutResources(ctx, g1, g2, u1, u2))
+	require.NoError(t, baseDB.PutEntitlements(ctx, ent1, ent2))
+
+	// Scenario 1: expandable grant only in base.
+	baseOnlyExpandable := v2.Grant_builder{
+		Id:          "grant-base-only-expandable",
+		Entitlement: ent1,
+		Principal:   g2,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        true,
+		}.Build()),
+	}.Build()
+
+	// Scenario 3: expandable grant in both, base version.
+	baseOverlapExpandable := v2.Grant_builder{
+		Id:          "grant-overlap-expandable",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        false,
+		}.Build()),
+	}.Build()
+
+	// Scenario 4: expandable grant in base, non-expandable in applied.
+	baseExpandableAppliedNormal := v2.Grant_builder{
+		Id:          "grant-loses-expansion",
+		Entitlement: ent2,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent1"},
+		}.Build()),
+	}.Build()
+
+	// Scenario 5: normal grant (no expansion) in base.
+	baseNormalGrant := v2.Grant_builder{
+		Id:          "grant-always-normal",
+		Entitlement: ent1,
+		Principal:   u2,
+	}.Build()
+
+	require.NoError(t, baseDB.PutGrants(ctx, baseOnlyExpandable, baseOverlapExpandable, baseExpandableAppliedNormal, baseNormalGrant))
+	require.NoError(t, baseDB.EndSync(ctx))
+
+	// ========= Create applied database =========
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "applied.c1z"), opts...)
+	require.NoError(t, err)
+	defer appliedDB.Close(ctx)
+
+	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
+	require.NoError(t, err)
+	require.NoError(t, appliedDB.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, appliedDB.PutResources(ctx, g1, g2, u1, u2))
+	require.NoError(t, appliedDB.PutEntitlements(ctx, ent1, ent2))
+
+	// Scenario 2: expandable grant only in applied.
+	appliedOnlyExpandable := v2.Grant_builder{
+		Id:          "grant-applied-only-expandable",
+		Entitlement: ent2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{"ent1"},
+			Shallow:         true,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+
+	// Scenario 3: same grant but with different expansion in applied (newer, should win).
+	appliedOverlapExpandable := v2.Grant_builder{
+		Id:          "grant-overlap-expandable",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent1", "ent2"}, // Different from base.
+			Shallow:        true,                     // Different from base.
+		}.Build()),
+	}.Build()
+
+	// Scenario 4: same grant but WITHOUT expansion in applied (newer, should win).
+	appliedNonExpandable := v2.Grant_builder{
+		Id:          "grant-loses-expansion",
+		Entitlement: ent2,
+		Principal:   u1,
+		// No GrantExpandable annotation.
+	}.Build()
+
+	// Scenario 5: normal grant in applied too.
+	appliedNormalGrant := v2.Grant_builder{
+		Id:          "grant-always-normal",
+		Entitlement: ent1,
+		Principal:   u2,
+	}.Build()
+
+	require.NoError(t, appliedDB.PutGrants(ctx, appliedOnlyExpandable, appliedOverlapExpandable, appliedNonExpandable, appliedNormalGrant))
+	require.NoError(t, appliedDB.EndSync(ctx))
+
+	// ========= Compact =========
+	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	require.NoError(t, compactor.Compact(ctx))
+
+	// ========= Verify results =========
+
+	// Scenario 1: Grant only in base with expansion - should be present with expansion.
+	t.Run("BaseOnlyExpandable", func(t *testing.T) {
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+			GrantId: "grant-base-only-expandable",
+		}.Build())
+		require.NoError(t, err)
+		annos := annotations.Annotations(grantResp.GetGrant().GetAnnotations())
+		ge := &v2.GrantExpandable{}
+		ok, err := annos.Pick(ge)
+		require.NoError(t, err)
+		require.True(t, ok, "base-only expandable grant should retain GrantExpandable after compaction")
+		require.Equal(t, []string{"ent2"}, ge.GetEntitlementIds())
+		require.True(t, ge.GetShallow())
+	})
+
+	// Scenario 2: Grant only in applied with expansion - should be present with expansion.
+	t.Run("AppliedOnlyExpandable", func(t *testing.T) {
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+			GrantId: "grant-applied-only-expandable",
+		}.Build())
+		require.NoError(t, err)
+		annos := annotations.Annotations(grantResp.GetGrant().GetAnnotations())
+		ge := &v2.GrantExpandable{}
+		ok, err := annos.Pick(ge)
+		require.NoError(t, err)
+		require.True(t, ok, "applied-only expandable grant should have GrantExpandable after compaction")
+		require.Equal(t, []string{"ent1"}, ge.GetEntitlementIds())
+		require.True(t, ge.GetShallow())
+		require.Equal(t, []string{"user"}, ge.GetResourceTypeIds())
+	})
+
+	// Scenario 3: Same grant in both, applied has different expansion - applied should win.
+	t.Run("OverlapAppliedWins", func(t *testing.T) {
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+			GrantId: "grant-overlap-expandable",
+		}.Build())
+		require.NoError(t, err)
+		annos := annotations.Annotations(grantResp.GetGrant().GetAnnotations())
+		ge := &v2.GrantExpandable{}
+		ok, err := annos.Pick(ge)
+		require.NoError(t, err)
+		require.True(t, ok, "overlapping grant should have GrantExpandable from applied after compaction")
+		require.Equal(t, []string{"ent1", "ent2"}, ge.GetEntitlementIds(), "should have applied's entitlement IDs")
+		require.True(t, ge.GetShallow(), "should have applied's shallow=true")
+	})
+
+	// Scenario 4: Expandable in base, non-expandable in applied - applied wins (no expansion).
+	t.Run("LosesExpansion", func(t *testing.T) {
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+			GrantId: "grant-loses-expansion",
+		}.Build())
+		require.NoError(t, err)
+		annos := annotations.Annotations(grantResp.GetGrant().GetAnnotations())
+		require.False(t, annos.Contains(&v2.GrantExpandable{}),
+			"grant that lost expansion in applied should not have GrantExpandable after compaction")
+	})
+
+	// Scenario 5: Normal grant stays normal.
+	t.Run("AlwaysNormal", func(t *testing.T) {
+		grantResp, err := baseDB.GetGrant(ctx, reader_v2.GrantsReaderServiceGetGrantRequest_builder{
+			GrantId: "grant-always-normal",
+		}.Build())
+		require.NoError(t, err)
+		annos := annotations.Annotations(grantResp.GetGrant().GetAnnotations())
+		require.False(t, annos.Contains(&v2.GrantExpandable{}),
+			"normal grant should not have GrantExpandable after compaction")
+	})
 }

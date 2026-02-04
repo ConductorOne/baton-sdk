@@ -1,0 +1,789 @@
+package dotc1z
+
+import (
+	"context"
+	"database/sql"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
+
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+)
+
+func TestExtractAndStripExpansion_WhitespaceOnlyEntitlementIDs(t *testing.T) {
+	expandable := v2.GrantExpandable_builder{
+		EntitlementIds: []string{"  ", "\t", "   \n  "},
+	}.Build()
+
+	expandableAny, err := anypb.New(expandable)
+	require.NoError(t, err)
+
+	grant := v2.Grant_builder{
+		Id: "test-grant",
+		Entitlement: v2.Entitlement_builder{
+			Id: "test-entitlement",
+		}.Build(),
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: "user",
+				Resource:     "user1",
+			}.Build(),
+		}.Build(),
+		Annotations: []*anypb.Any{expandableAny},
+	}.Build()
+
+	expansionBytes, isExpandable := extractAndStripExpansion(grant)
+	require.False(t, isExpandable, "grant with only whitespace entitlement IDs should not be expandable")
+	require.Nil(t, expansionBytes, "expansion bytes should be nil for non-expandable grant")
+}
+
+func TestExtractAndStripExpansion_MixedWhitespaceAndValidIDs(t *testing.T) {
+	expandable := v2.GrantExpandable_builder{
+		EntitlementIds: []string{"  ", "valid-entitlement-id", "\t"},
+		Shallow:        true,
+	}.Build()
+
+	expandableAny, err := anypb.New(expandable)
+	require.NoError(t, err)
+
+	grant := v2.Grant_builder{
+		Id: "test-grant",
+		Entitlement: v2.Entitlement_builder{
+			Id: "test-entitlement",
+		}.Build(),
+		Principal: v2.Resource_builder{
+			Id: v2.ResourceId_builder{
+				ResourceType: "user",
+				Resource:     "user1",
+			}.Build(),
+		}.Build(),
+		Annotations: []*anypb.Any{expandableAny},
+	}.Build()
+
+	expansionBytes, isExpandable := extractAndStripExpansion(grant)
+	require.True(t, isExpandable, "grant with valid entitlement ID should be expandable")
+	require.NotNil(t, expansionBytes, "expansion bytes should not be nil for expandable grant")
+
+	// Verify that the annotation was stripped from the grant.
+	require.Len(t, grant.GetAnnotations(), 0, "GrantExpandable annotation should be stripped from grant")
+}
+
+// TestGrantExpandableRoundTrip verifies that storing a grant with GrantExpandable, then reading
+// it back via ListGrants, returns the annotation intact on the returned proto. This exercises the
+// strip-on-write / re-attach-on-read path through the expansion column.
+func TestGrantExpandableRoundTrip(t *testing.T) {
+	ctx := context.Background()
+
+	tmpFile, err := os.CreateTemp("", "test-roundtrip-*.c1z")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	c1f, err := NewC1ZFile(ctx, tmpFile.Name())
+	require.NoError(t, err)
+	defer c1f.Close(ctx)
+
+	_, err = c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	groupRT := v2.ResourceType_builder{Id: "group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user"}.Build()
+	require.NoError(t, c1f.PutResourceTypes(ctx, groupRT, userRT))
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	require.NoError(t, c1f.PutResources(ctx, g1, u1))
+
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+	ent2 := v2.Entitlement_builder{Id: "ent2", Resource: g1}.Build()
+	require.NoError(t, c1f.PutEntitlements(ctx, ent1, ent2))
+
+	// Grant WITHOUT expandable annotation.
+	normalGrant := v2.Grant_builder{
+		Id:          "grant-normal",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+
+	// Grant WITH expandable annotation.
+	origExpandable := v2.GrantExpandable_builder{
+		EntitlementIds:  []string{"ent1"},
+		Shallow:         true,
+		ResourceTypeIds: []string{"user"},
+	}.Build()
+	expandableGrant := v2.Grant_builder{
+		Id:          "grant-expandable",
+		Entitlement: ent2,
+		Principal:   g1,
+		Annotations: annotations.New(origExpandable),
+	}.Build()
+
+	// Keep a copy of the original grant to verify PutGrants doesn't mutate the caller's object.
+	expandableGrantCopy := proto.Clone(expandableGrant).(*v2.Grant)
+
+	require.NoError(t, c1f.PutGrants(ctx, normalGrant, expandableGrant))
+
+	// Verify PutGrants did NOT mutate the caller's grant (annotation still present).
+	callerAnnotations := annotations.Annotations(expandableGrant.GetAnnotations())
+	require.True(t, callerAnnotations.Contains(&v2.GrantExpandable{}),
+		"PutGrants should not mutate caller's grant object")
+
+	// Read grants back via ListGrants.
+	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, resp.GetList(), 2)
+
+	grantsByID := make(map[string]*v2.Grant)
+	for _, g := range resp.GetList() {
+		grantsByID[g.GetId()] = g
+	}
+
+	// Normal grant: no GrantExpandable on read.
+	normal := grantsByID["grant-normal"]
+	require.NotNil(t, normal)
+	normalAnnos := annotations.Annotations(normal.GetAnnotations())
+	require.False(t, normalAnnos.Contains(&v2.GrantExpandable{}),
+		"normal grant should not have GrantExpandable annotation")
+
+	// Expandable grant: GrantExpandable re-attached on read.
+	expandable := grantsByID["grant-expandable"]
+	require.NotNil(t, expandable)
+	readAnnos := annotations.Annotations(expandable.GetAnnotations())
+	ge := &v2.GrantExpandable{}
+	ok, err := readAnnos.Pick(ge)
+	require.NoError(t, err)
+	require.True(t, ok, "expandable grant should have GrantExpandable annotation after read")
+
+	// Verify the annotation fields match what we stored.
+	origGE := &v2.GrantExpandable{}
+	origAnnos := annotations.Annotations(expandableGrantCopy.GetAnnotations())
+	_, err = origAnnos.Pick(origGE)
+	require.NoError(t, err)
+
+	require.Equal(t, origGE.GetEntitlementIds(), ge.GetEntitlementIds())
+	require.Equal(t, origGE.GetShallow(), ge.GetShallow())
+	require.Equal(t, origGE.GetResourceTypeIds(), ge.GetResourceTypeIds())
+}
+
+// TestDiffDetectsExpansionAnnotationChange verifies that when only the expansion annotation
+// changes (not the rest of the grant data), the diff correctly detects the grant as modified.
+func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_expansion_change_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_expansion_change_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
+
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+	ent2 := v2.Entitlement_builder{Id: "ent2", Resource: g1}.Build()
+
+	// OLD: grant with expansion annotation pointing to ent1.
+	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	require.NoError(t, err)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, oldFile.PutResources(ctx, g1, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, ent1, ent2))
+
+	oldGrant := v2.Grant_builder{
+		Id:          "grant-1",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        false,
+		}.Build()),
+	}.Build()
+	require.NoError(t, oldFile.PutGrants(ctx, oldGrant))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	// NEW: same grant but expansion annotation now has Shallow=true (different expansion).
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, newFile.PutResources(ctx, g1, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, ent1, ent2))
+
+	newGrant := v2.Grant_builder{
+		Id:          "grant-1",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        true, // Changed from false to true.
+		}.Build()),
+	}.Build()
+	require.NoError(t, newFile.PutGrants(ctx, newGrant))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	// Generate diff.
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+
+	upsertsSyncID, _, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	// The grant should appear in upserts because the expansion column changed.
+	err = newFile.ViewSync(ctx, upsertsSyncID)
+	require.NoError(t, err)
+
+	grantsResp, err := newFile.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, grantsResp.GetList(), 1, "diff should detect expansion annotation change as a modification")
+	require.Equal(t, "grant-1", grantsResp.GetList()[0].GetId())
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestDiffDetectsDataOnlyChange verifies that when the grant data changes but the expansion
+// annotation stays the same, the diff correctly detects the grant as modified.
+func TestDiffDetectsDataOnlyChange(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_data_change_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_data_change_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
+
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+	ent2 := v2.Entitlement_builder{Id: "ent2", Resource: g2}.Build()
+
+	sharedExpandable := v2.GrantExpandable_builder{
+		EntitlementIds: []string{"ent1"},
+		Shallow:        true,
+	}.Build()
+
+	// OLD: grant with sources={}.
+	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	require.NoError(t, err)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, oldFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, ent1, ent2))
+
+	oldGrant := v2.Grant_builder{
+		Id:          "grant-1",
+		Entitlement: ent2,
+		Principal:   u1,
+		Annotations: annotations.New(sharedExpandable),
+	}.Build()
+	require.NoError(t, oldFile.PutGrants(ctx, oldGrant))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	// NEW: same expansion, but grant now has sources (data blob changes).
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, newFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, ent1, ent2))
+
+	newGrant := v2.Grant_builder{
+		Id:          "grant-1",
+		Entitlement: ent2,
+		Principal:   u1,
+		Annotations: annotations.New(sharedExpandable),
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{
+				"ent1": {},
+			},
+		}.Build(),
+	}.Build()
+	require.NoError(t, newFile.PutGrants(ctx, newGrant))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	// Generate diff.
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+
+	upsertsSyncID, _, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	// The grant should appear in upserts because the data blob changed.
+	err = newFile.ViewSync(ctx, upsertsSyncID)
+	require.NoError(t, err)
+
+	grantsResp, err := newFile.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, grantsResp.GetList(), 1, "diff should detect data-only change as a modification")
+	require.Equal(t, "grant-1", grantsResp.GetList()[0].GetId())
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestBackfillMigration_OldSyncGetsExpansionColumn verifies that opening a c1z file where
+// grants were stored with GrantExpandable in the data blob (old format) correctly backfills
+// the expansion column and strips the annotation from data.
+//
+// It creates a small file, manually reverts a grant row to old format (annotation in data,
+// expansion=NULL, supports_diff=0), then re-opens the file and verifies the migration ran.
+func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
+	ctx := context.Background()
+
+	tmpFile, err := os.CreateTemp("", "test-backfill-*.c1z")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	// Step 1: Create a c1z and write grants the "new" way (expansion column populated).
+	c1f, err := NewC1ZFile(ctx, tmpFile.Name())
+	require.NoError(t, err)
+
+	defer c1f.Close(ctx)
+
+	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	groupRT := v2.ResourceType_builder{Id: "group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user"}.Build()
+	require.NoError(t, c1f.PutResourceTypes(ctx, groupRT, userRT))
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	require.NoError(t, c1f.PutResources(ctx, g1, u1))
+
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+	require.NoError(t, c1f.PutEntitlements(ctx, ent1))
+
+	expandableGrant := v2.Grant_builder{
+		Id:          "grant-expandable",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{"ent1"},
+			Shallow:         true,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	normalGrant := v2.Grant_builder{
+		Id:          "grant-normal",
+		Entitlement: ent1,
+		Principal:   g1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, expandableGrant, normalGrant))
+	require.NoError(t, c1f.EndSync(ctx))
+
+	// Step 2: Simulate "old format" by manually moving GrantExpandable back into data blob
+	// and clearing the expansion column + supports_diff. This mimics what an old c1z would look like.
+
+	// Re-serialize expandableGrant WITH the annotation in data blob.
+	origExpandable := v2.GrantExpandable_builder{
+		EntitlementIds:  []string{"ent1"},
+		Shallow:         true,
+		ResourceTypeIds: []string{"user"},
+	}.Build()
+	grantWithAnno := v2.Grant_builder{
+		Id:          "grant-expandable",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(origExpandable),
+	}.Build()
+	oldFormatData, err := proto.MarshalOptions{Deterministic: true}.Marshal(grantWithAnno)
+	require.NoError(t, err)
+
+	// Overwrite the row to simulate old format: annotation in data, expansion=NULL.
+	_, err = c1f.db.ExecContext(ctx, "UPDATE "+grants.Name()+" SET data=?, expansion=NULL WHERE external_id='grant-expandable' AND sync_id=?", oldFormatData, syncID)
+	require.NoError(t, err)
+
+	// Mark the sync as NOT supporting diff (old sync).
+	_, err = c1f.db.ExecContext(ctx, "UPDATE "+syncRuns.Name()+" SET supports_diff=0 WHERE sync_id=?", syncID)
+	require.NoError(t, err)
+
+	// Step 3: Run the backfill explicitly (as the migration would on re-open).
+	err = backfillGrantExpansionColumn(ctx, c1f.db, grants.Name())
+	require.NoError(t, err)
+
+	// Clear current sync so we can use ViewSync.
+	c1f.currentSyncID = ""
+	require.NoError(t, c1f.ViewSync(ctx, syncID))
+
+	// List all grants — expandable one should have GrantExpandable re-attached.
+	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, resp.GetList(), 2)
+
+	grantsByID := make(map[string]*v2.Grant)
+	for _, g := range resp.GetList() {
+		grantsByID[g.GetId()] = g
+	}
+
+	// Expandable grant: annotation should be re-attached after backfill.
+	eg := grantsByID["grant-expandable"]
+	require.NotNil(t, eg)
+	annos := annotations.Annotations(eg.GetAnnotations())
+	ge := &v2.GrantExpandable{}
+	ok, err := annos.Pick(ge)
+	require.NoError(t, err)
+	require.True(t, ok, "backfilled grant should have GrantExpandable re-attached on read")
+	require.Equal(t, []string{"ent1"}, ge.GetEntitlementIds())
+	require.True(t, ge.GetShallow())
+	require.Equal(t, []string{"user"}, ge.GetResourceTypeIds())
+
+	// Normal grant: should not have GrantExpandable.
+	ng := grantsByID["grant-normal"]
+	require.NotNil(t, ng)
+	normalAnnos := annotations.Annotations(ng.GetAnnotations())
+	require.False(t, normalAnnos.Contains(&v2.GrantExpandable{}),
+		"normal grant should not have GrantExpandable after backfill")
+
+	// Also verify via expandable_only filter that the expandable grant is found.
+	expandableResp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+		ExpandableOnly: true,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, expandableResp.GetList(), 1, "expandable_only filter should find the backfilled grant")
+	require.Equal(t, "grant-expandable", expandableResp.GetList()[0].GetId())
+}
+
+// grantRawRow holds the raw SQL column values for a grant row.
+type grantRawRow struct {
+	expansion      []byte
+	needsExpansion int
+}
+
+// getRawGrantRow reads the raw expansion and needs_expansion columns for a grant by external_id.
+func getRawGrantRow(ctx context.Context, t *testing.T, c1f *C1File, externalID string) grantRawRow {
+	t.Helper()
+	var r grantRawRow
+	var expansion sql.NullString
+	err := c1f.db.QueryRowContext(ctx,
+		"SELECT expansion, needs_expansion FROM "+grants.Name()+" WHERE external_id=?", externalID,
+	).Scan(&expansion, &r.needsExpansion)
+	require.NoError(t, err)
+	if expansion.Valid {
+		r.expansion = []byte(expansion.String)
+	}
+	return r
+}
+
+// setupTestC1Z creates a fresh c1z with a started full sync and common resource types,
+// resources, and entitlements. Returns the c1z, sync ID, and a cleanup function.
+func setupTestC1Z(ctx context.Context, t *testing.T) (*C1File, string, func()) {
+	t.Helper()
+	tmpFile, err := os.CreateTemp("", "test-grants-*.c1z")
+	require.NoError(t, err)
+	tmpFile.Close()
+
+	c1f, err := NewC1ZFile(ctx, tmpFile.Name())
+	require.NoError(t, err)
+
+	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	groupRT := v2.ResourceType_builder{Id: "group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user"}.Build()
+	require.NoError(t, c1f.PutResourceTypes(ctx, groupRT, userRT))
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	require.NoError(t, c1f.PutResources(ctx, g1, u1))
+
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+	ent2 := v2.Entitlement_builder{Id: "ent2", Resource: g1}.Build()
+	require.NoError(t, c1f.PutEntitlements(ctx, ent1, ent2))
+
+	cleanup := func() {
+		_ = c1f.Close(ctx)
+		os.Remove(tmpFile.Name())
+	}
+	return c1f, syncID, cleanup
+}
+
+// TestNeedsExpansion_ExpandableToNonExpandable verifies that when a grant transitions
+// from expandable (expansion IS NOT NULL) to non-expandable (expansion IS NULL),
+// needs_expansion is forced to 0 by the UPSERT CASE expression.
+func TestNeedsExpansion_ExpandableToNonExpandable(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	// Step 1: Insert grant WITH expansion.
+	expandableGrant := v2.Grant_builder{
+		Id:          "grant-transition",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        true,
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, expandableGrant))
+
+	raw := getRawGrantRow(ctx, t, c1f, "grant-transition")
+	require.NotNil(t, raw.expansion, "initial insert should have non-nil expansion")
+	require.Equal(t, 1, raw.needsExpansion, "initial insert should have needs_expansion=1")
+
+	// Step 2: Upsert same grant WITHOUT expansion (no GrantExpandable annotation).
+	nonExpandableGrant := v2.Grant_builder{
+		Id:          "grant-transition",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, nonExpandableGrant))
+
+	raw = getRawGrantRow(ctx, t, c1f, "grant-transition")
+	require.Nil(t, raw.expansion, "after removing expansion, column should be NULL")
+	require.Equal(t, 0, raw.needsExpansion, "needs_expansion must be 0 when expansion is NULL")
+
+	// Step 3: Verify via ListGrants that the grant has no GrantExpandable annotation.
+	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, resp.GetList(), 1)
+	annos := annotations.Annotations(resp.GetList()[0].GetAnnotations())
+	require.False(t, annos.Contains(&v2.GrantExpandable{}),
+		"grant that lost expansion should not have GrantExpandable annotation")
+
+	// Step 4: Verify expandable_only filter returns nothing.
+	expandableResp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+		ExpandableOnly: true,
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, expandableResp.GetList(), 0, "no expandable grants should remain")
+}
+
+// TestNeedsExpansion_IdenticalExpansionKeepsExistingFlag verifies that upserting
+// a grant with the same expansion annotation does not flip needs_expansion back to 1
+// if it was already 0 (i.e. the ELSE branch of the CASE expression keeps the existing value).
+func TestNeedsExpansion_IdenticalExpansionKeepsExistingFlag(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	expandable := v2.GrantExpandable_builder{
+		EntitlementIds: []string{"ent2"},
+		Shallow:        true,
+	}.Build()
+
+	grant := v2.Grant_builder{
+		Id:          "grant-stable",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(expandable),
+	}.Build()
+
+	// Step 1: Insert the grant. needs_expansion starts at 1.
+	require.NoError(t, c1f.PutGrants(ctx, grant))
+	raw := getRawGrantRow(ctx, t, c1f, "grant-stable")
+	require.Equal(t, 1, raw.needsExpansion, "initial insert should have needs_expansion=1")
+
+	// Step 2: Manually set needs_expansion to 0 (simulating post-expansion state).
+	_, err := c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET needs_expansion=0 WHERE external_id='grant-stable'",
+	)
+	require.NoError(t, err)
+	raw = getRawGrantRow(ctx, t, c1f, "grant-stable")
+	require.Equal(t, 0, raw.needsExpansion, "sanity check: needs_expansion should be 0 after manual update")
+
+	// Step 3: Upsert with identical expansion. needs_expansion should stay 0.
+	identicalGrant := v2.Grant_builder{
+		Id:          "grant-stable",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(expandable),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, identicalGrant))
+
+	raw = getRawGrantRow(ctx, t, c1f, "grant-stable")
+	require.Equal(t, 0, raw.needsExpansion,
+		"upsert with identical expansion should not flip needs_expansion back to 1")
+}
+
+// TestNeedsExpansion_ExpansionChangeSetsFlag verifies that when the expansion annotation
+// changes (different entitlement IDs, shallow flag, etc.), needs_expansion is set to 1.
+func TestNeedsExpansion_ExpansionChangeSetsFlag(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	// Step 1: Insert with one expansion annotation.
+	grant := v2.Grant_builder{
+		Id:          "grant-changing",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        false,
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grant))
+
+	// Step 2: Set needs_expansion to 0 (simulating post-expansion state).
+	_, err := c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET needs_expansion=0 WHERE external_id='grant-changing'",
+	)
+	require.NoError(t, err)
+
+	// Step 3: Upsert with DIFFERENT expansion (Shallow changed to true).
+	changedGrant := v2.Grant_builder{
+		Id:          "grant-changing",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        true, // Changed!
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, changedGrant))
+
+	raw := getRawGrantRow(ctx, t, c1f, "grant-changing")
+	require.Equal(t, 1, raw.needsExpansion,
+		"upsert with changed expansion should set needs_expansion=1")
+}
+
+// TestNeedsExpansion_NonExpandableToExpandable verifies that when a grant transitions
+// from non-expandable to expandable, needs_expansion is set to 1.
+func TestNeedsExpansion_NonExpandableToExpandable(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	// Step 1: Insert grant WITHOUT expansion.
+	normalGrant := v2.Grant_builder{
+		Id:          "grant-becoming-expandable",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, normalGrant))
+
+	raw := getRawGrantRow(ctx, t, c1f, "grant-becoming-expandable")
+	require.Nil(t, raw.expansion, "initial insert should have NULL expansion")
+	require.Equal(t, 0, raw.needsExpansion, "non-expandable grant should have needs_expansion=0")
+
+	// Step 2: Upsert with expansion annotation.
+	expandableGrant := v2.Grant_builder{
+		Id:          "grant-becoming-expandable",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        true,
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, expandableGrant))
+
+	raw = getRawGrantRow(ctx, t, c1f, "grant-becoming-expandable")
+	require.NotNil(t, raw.expansion, "after gaining expansion, column should be non-NULL")
+	require.Equal(t, 1, raw.needsExpansion,
+		"needs_expansion must be 1 when grant transitions from non-expandable to expandable")
+}
+
+// TestPutGrantsIfNewer_ExpansionColumnsUpdated verifies that PutGrantsIfNewer correctly
+// handles expansion columns when the newer grant has a different expansion annotation.
+func TestPutGrantsIfNewer_ExpansionColumnsUpdated(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	// Step 1: Insert grant with expansion via PutGrants (the normal path).
+	oldGrant := v2.Grant_builder{
+		Id:          "grant-ifnewer",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        false,
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, oldGrant))
+
+	raw := getRawGrantRow(ctx, t, c1f, "grant-ifnewer")
+	require.NotNil(t, raw.expansion)
+	require.Equal(t, 1, raw.needsExpansion)
+	oldExpansion := make([]byte, len(raw.expansion))
+	copy(oldExpansion, raw.expansion)
+
+	// Step 2: Upsert with different expansion via PutGrantsIfNewer.
+	// Since this is the same sync, discovered_at should be the same or newer.
+	newGrant := v2.Grant_builder{
+		Id:          "grant-ifnewer",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent1", "ent2"}, // Changed!
+			Shallow:        true,                     // Changed!
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrantsIfNewer(ctx, newGrant))
+
+	raw = getRawGrantRow(ctx, t, c1f, "grant-ifnewer")
+	require.NotNil(t, raw.expansion)
+
+	// Verify the expansion was updated by checking the proto content.
+	ge := &v2.GrantExpandable{}
+	require.NoError(t, proto.Unmarshal(raw.expansion, ge))
+	require.Equal(t, []string{"ent1", "ent2"}, ge.GetEntitlementIds())
+	require.True(t, ge.GetShallow())
+
+	// Step 3: Also verify via ListGrants.
+	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, resp.GetList(), 1)
+	readAnnos := annotations.Annotations(resp.GetList()[0].GetAnnotations())
+	readGE := &v2.GrantExpandable{}
+	ok, err := readAnnos.Pick(readGE)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, []string{"ent1", "ent2"}, readGE.GetEntitlementIds())
+	require.True(t, readGE.GetShallow())
+}

@@ -33,8 +33,8 @@ var allTableDescriptors = []tableDescriptor{
 	resourceTypes,
 	resources,
 	entitlements,
+	syncRuns, // Must be before grants since grants migration joins sync_runs.
 	grants,
-	syncRuns,
 	assets,
 	sessionStore,
 }
@@ -86,6 +86,16 @@ type hasPrincipalResourceTypeIDsListRequest interface {
 type hasParentResourceIdListRequest interface {
 	listRequest
 	GetParentResourceId() *v2.ResourceId
+}
+
+type hasExpandableOnlyListRequest interface {
+	listRequest
+	GetExpandableOnly() bool
+}
+
+type hasNeedsExpansionOnlyListRequest interface {
+	listRequest
+	GetNeedsExpansionOnly() bool
 }
 
 type protoHasID interface {
@@ -146,7 +156,14 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	}
 
 	q := c.db.From(tableName).Prepared(true)
-	q = q.Select("id", "data")
+	// Grants are special-cased because GrantExpandable is stored in a separate SQL column.
+	// When listing grants, we re-attach the GrantExpandable annotation to the returned proto.
+	withExpansion := tableName == grants.Name()
+	if withExpansion {
+		q = q.Select("id", "data", "expansion")
+	} else {
+		q = q.Select("id", "data")
+	}
 
 	// If the request allows filtering by resource type, apply the filter
 	if resourceTypeReq, ok := req.(hasResourceTypeListRequest); ok {
@@ -200,6 +217,14 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 			q = q.Where(goqu.C("parent_resource_id").Eq(p.GetResource()))
 			q = q.Where(goqu.C("parent_resource_type_id").Eq(p.GetResourceType()))
 		}
+	}
+
+	if expandableReq, ok := req.(hasExpandableOnlyListRequest); ok && expandableReq.GetExpandableOnly() {
+		q = q.Where(goqu.C("expansion").IsNotNull())
+	}
+
+	if needsExpansionReq, ok := req.(hasNeedsExpansionOnlyListRequest); ok && needsExpansionReq.GetNeedsExpansionOnly() {
+		q = q.Where(goqu.C("needs_expansion").Eq(1))
 	}
 
 	// If a sync is running, be sure we only select from the current values
@@ -264,20 +289,39 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	var count uint32 = 0
 	lastRow := 0
 	var data sql.RawBytes
+	var expansion sql.RawBytes
 	var ret []T
 	for rows.Next() {
 		count++
 		if count > pageSize {
 			break
 		}
-		err := rows.Scan(&lastRow, &data)
-		if err != nil {
-			return nil, "", err
+		if withExpansion {
+			err := rows.Scan(&lastRow, &data, &expansion)
+			if err != nil {
+				return nil, "", err
+			}
+		} else {
+			err := rows.Scan(&lastRow, &data)
+			if err != nil {
+				return nil, "", err
+			}
 		}
 		t := factory()
 		err = unmarshalerOptions.Unmarshal(data, t)
 		if err != nil {
 			return nil, "", err
+		}
+		if withExpansion && len(expansion) > 0 {
+			if g, ok := any(t).(*v2.Grant); ok {
+				expandable := &v2.GrantExpandable{}
+				if err := proto.Unmarshal(expansion, expandable); err != nil {
+					return nil, "", fmt.Errorf("failed to unmarshal grant expansion: %w", err)
+				}
+				annos := annotations.Annotations(g.GetAnnotations())
+				annos.Append(expandable)
+				g.SetAnnotations(annos)
+			}
 		}
 		ret = append(ret, t)
 	}
