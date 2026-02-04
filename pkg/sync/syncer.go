@@ -1809,7 +1809,8 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 
 			graph.AddEntitlementID(def.DstEntitlementID)
 			graph.AddEntitlementID(srcEntitlementID)
-			if err := graph.AddEdge(ctx, srcEntitlementID, def.DstEntitlementID, def.Shallow, def.PrincipalResourceTypeIDs); err != nil {
+			err = graph.AddEdge(ctx, srcEntitlementID, def.DstEntitlementID, def.Shallow, def.PrincipalResourceTypeIDs)
+			if err != nil {
 				return fmt.Errorf("error adding edge to graph: %w", err)
 			}
 		}
