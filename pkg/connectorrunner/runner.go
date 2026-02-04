@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
@@ -39,56 +40,103 @@ const (
 )
 
 type connectorRunner struct {
-	cw           types.ClientWrapper
-	oneShot      bool
-	tasks        tasks.Manager
-	debugFile    *os.File
-	healthServer *healthcheck.Server
+	cw             types.ClientWrapper
+	oneShot        bool
+	tasks          tasks.Manager
+	debugFile      *os.File
+	debugFileMutex sync.Mutex
+	healthServer   *healthcheck.Server
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
 
-// Run starts a connector and creates a new C1Z file.
-func (c *connectorRunner) Run(ctx context.Context) error {
+// setupPersistentLog ensures that a log file on disk is created,
+// when required by either the stored Manager or by a Task.
+// A log file created by a stored Manager persists for our entire run,
+// while a log file created for a Task only lasts for that Task.
+// (There is currently no good way for a Manager to require this.)
+//
+// This function always returns a valid context, even if
+// a persistent log file could not be created.
+func (c *connectorRunner) setupPersistentLog(ctx context.Context, requiredByTask bool) (context.Context, error) {
+	var err error
+
+	// We lock around manipulation of the debug file field for safety,
+	// but make no attempt to serialize logging of concurrent tasks.
+	c.debugFileMutex.Lock()
+	defer c.debugFileMutex.Unlock()
+
 	l := ctxzap.Extract(ctx)
-	ctx, cancel := context.WithCancelCause(ctx)
-	defer cancel(ErrSigTerm)
 
-	if c.tasks.ShouldDebug() && c.debugFile == nil {
-		var err error
-		tempDir := c.tasks.GetTempDir()
-		if tempDir == "" {
-			wd, err := os.Getwd()
-			if err != nil {
-				l.Warn("unable to get the current working directory", zap.Error(err))
-			}
+	requiredByManager := c.tasks.ShouldDebug()
+	if !requiredByTask && !requiredByManager {
+		// If we're not being required to create a persistent log by a task
+		// and our runner doesn't want one, we have nothing to do.
+		return ctx, nil
+	} else if c.debugFile != nil && requiredByManager {
+		// If a log file already exists from our runner,
+		// we also have nothing to do.
+		return ctx, nil
+	}
 
-			if wd != "" {
-				l.Warn("no temporal folder found on this system according to our task manager,"+
-					" we may create files in the current working directory by mistake as a result",
-					zap.String("current working directory", wd))
-			} else {
-				l.Warn("no temporal folder found on this system according to our task manager")
-			}
-		}
-		debugFile := filepath.Join(tempDir, "debug.log")
-		c.debugFile, err = os.Create(debugFile)
+	if c.debugFile != nil {
+		// A log file already exists from a previous task, and it is time to rotate it.
+		// The file is likely already closed, but we attempt to Close() it to be sure
+		// and rotate it by calling Create() on it below - this is equivalent to open(O_TRUNC).
+		l.Info("Rotating existing log file")
+		err = c.debugFile.Close()
 		if err != nil {
-			l.Warn("cannot create file", zap.String("full file path", debugFile), zap.Error(err))
+			l.Warn("cannot close existing log file, continuing to rotate log...", zap.Error(err))
+		}
+
+		c.debugFile = nil
+	}
+
+	// Create/truncate the log file, and open it.
+	tempDir := c.tasks.GetTempDir()
+	if tempDir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			l.Warn("unable to get the current working directory", zap.Error(err))
+		}
+
+		if wd != "" {
+			l.Warn("no temporal folder found on this system according to our task manager,"+
+				" we may create files in the current working directory by mistake as a result",
+				zap.String("current working directory", wd))
+		} else {
+			l.Warn("no temporal folder found on this system according to our task manager")
 		}
 	}
 
-	// modify the context to insert a logger directed to a file
-	if c.debugFile != nil {
-		writeSyncer := zapcore.AddSync(c.debugFile)
-		encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
-		core := zapcore.NewCore(encoder, writeSyncer, zapcore.DebugLevel)
+	debugFile := filepath.Join(tempDir, "debug.log")
+	c.debugFile, err = os.Create(debugFile)
+	if err != nil {
+		l.Warn("cannot create debug log file", zap.String("file_path", debugFile), zap.Error(err))
+		return ctx, err
+	}
 
-		l = l.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
-			return zapcore.NewTee(c, core)
-		}))
+	// Modify the context to insert a logger directed to that file.
+	writeSyncer := zapcore.AddSync(c.debugFile)
+	encoder := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+	core := zapcore.NewCore(encoder, writeSyncer, zapcore.DebugLevel)
 
-		ctx = ctxzap.ToContext(ctx, l)
+	l = l.WithOptions(zap.WrapCore(func(c zapcore.Core) zapcore.Core {
+		return zapcore.NewTee(c, core)
+	}))
+	return ctxzap.ToContext(ctx, l), nil
+}
+
+// Run starts a connector and creates a new C1Z file.
+func (c *connectorRunner) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(ErrSigTerm)
+
+	var err error
+	ctx, err = c.setupPersistentLog(ctx, false)
+	if err != nil {
+		l := ctxzap.Extract(ctx)
+		l.Warn("Persistent logging could not be set up.", zap.Error(err))
 	}
 
 	sigChan := make(chan os.Signal, 1)
@@ -99,7 +147,7 @@ func (c *connectorRunner) Run(ctx context.Context) error {
 		}
 	}()
 
-	err := c.run(ctx)
+	err = c.run(ctx)
 	if err != nil {
 		return err
 	}
@@ -128,6 +176,16 @@ func (c *connectorRunner) processTask(ctx context.Context, task *v1.Task) error 
 	cc, err := c.cw.C(ctx)
 	if err != nil {
 		return fmt.Errorf("runner: error creating connector client: %w", err)
+	}
+
+	// While we may not have already set up a persistent log file,
+	// if the task requires one, we set it up here.
+	if task.GetDebug() {
+		ctx, err = c.setupPersistentLog(ctx, true)
+		if err != nil {
+			l := ctxzap.Extract(ctx)
+			l.Warn("Persistent logging for this Task could not be set up.", zap.Error(err))
+		}
 	}
 
 	err = c.tasks.Process(ctx, task, cc)

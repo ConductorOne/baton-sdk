@@ -183,12 +183,14 @@ func (c *c1ServiceClient) upload(ctx context.Context, task *v1.Task, r io.ReadSe
 
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
+		l.Error("failed to get client connection", zap.Error(err))
 		return err
 	}
 	defer done()
 
 	uc, err := client.UploadAsset(ctx)
 	if err != nil {
+		l.Error("UploadAsset returned error", zap.Error(err))
 		return err
 	}
 
