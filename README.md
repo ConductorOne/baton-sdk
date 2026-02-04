@@ -12,6 +12,10 @@ The `baton-sdk` is a collection of libraries and helpers to help you work with u
 
 See the [example](https://github.com/ConductorOne/baton-demo) for more details.
 
+# Building Protobufs
+
+To build changes to any protocol buffers, run `make protogen` - this requires an installation of `buf` in `$PATH`.
+
 # Contributing, Support and Issues
 
 We started Baton because we were tired of taking screenshots and manually building spreadsheets. We welcome contributions and ideas, no matter how small -- our goal is to make identity and permissions sprawl less painful for everyone. If you have questions, problems, or ideas: Please open a Github Issue!
