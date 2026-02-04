@@ -4,7 +4,6 @@ import (
 	"context"
 	"iter"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand/scc"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -179,10 +178,14 @@ func (g *EntitlementGraph) HasEntitlement(entitlementID string) bool {
 	return g.GetNode(entitlementID) != nil
 }
 
-// AddEntitlement - add an entitlement's ID as an unconnected node in the graph.
-func (g *EntitlementGraph) AddEntitlement(entitlement *v2.Entitlement) {
+// AddEntitlementID adds an entitlement ID as an unconnected node in the graph.
+func (g *EntitlementGraph) AddEntitlementID(entitlementID string) {
+	if entitlementID == "" {
+		return
+	}
+
 	// If the entitlement is already in the graph, fail silently.
-	found := g.GetNode(entitlement.GetId())
+	found := g.GetNode(entitlementID)
 	if found != nil {
 		return
 	}
@@ -191,15 +194,13 @@ func (g *EntitlementGraph) AddEntitlement(entitlement *v2.Entitlement) {
 	// Start at 1 in case we don't initialize something and try to get node 0.
 	g.NextNodeID++
 
-	// Create a new node.
 	node := Node{
 		Id:             g.NextNodeID,
-		EntitlementIDs: []string{entitlement.GetId()},
+		EntitlementIDs: []string{entitlementID},
 	}
 
-	// Add the node to the data structures.
 	g.Nodes[node.Id] = node
-	g.EntitlementsToNodes[entitlement.GetId()] = node.Id
+	g.EntitlementsToNodes[entitlementID] = node.Id
 }
 
 // GetEntitlements returns a combined list of _all_ entitlements from all nodes.
