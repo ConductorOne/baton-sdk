@@ -69,10 +69,6 @@ type Writer interface {
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	DeleteGrant(ctx context.Context, grantId string) error
-
-	// SetExpansionStarted marks the current sync as having started expansion.
-	// This marker is used to detect syncs that expanded with older code that dropped annotations.
-	SetExpansionStarted(ctx context.Context, syncID string) error
 }
 
 // ExpansionStore provides methods for grant expansion operations.

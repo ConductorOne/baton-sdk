@@ -135,7 +135,7 @@ func TestGenerateSyncDiffFromFile_Additions(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -270,7 +270,7 @@ func TestGenerateSyncDiffFromFile_Deletions(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -363,7 +363,7 @@ func TestGenerateSyncDiffFromFile_Modifications(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -459,7 +459,7 @@ func TestGenerateSyncDiffFromFile_MixedChanges(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -588,7 +588,7 @@ func TestGenerateSyncDiffFromFile_NoChanges(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -692,7 +692,7 @@ func TestGenerateSyncDiffFromFile_EntitlementsOnly(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -807,7 +807,7 @@ func TestGenerateSyncDiffFromFile_GrantsOnly(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -920,7 +920,7 @@ func TestGenerateSyncDiffFromFile_EmptyBase(t *testing.T) {
 
 	// No resources added - empty sync
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -1038,7 +1038,7 @@ func TestGenerateSyncDiffFromFile_EmptyNew(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -1146,7 +1146,7 @@ func TestGenerateSyncDiffFromFile_EntitlementsDeletions(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -1241,7 +1241,7 @@ func TestGenerateSyncDiffFromFile_EntitlementsModifications(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -1365,7 +1365,7 @@ func TestGenerateSyncDiffFromFile_GrantsDeletions(t *testing.T) {
 	}.Build())
 	require.NoError(t, err)
 
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
@@ -1497,8 +1497,10 @@ func TestGenerateSyncDiffFromFile_MissingExpansionMarker(t *testing.T) {
 	err = oldFile.PutGrants(ctx, expandableGrant)
 	require.NoError(t, err)
 
-	// NOTE: We deliberately do NOT call SetExpansionStarted here
-	// This simulates an old sync that was expanded with code that dropped annotations
+	// Simulate an old sync that predates supports_diff by explicitly clearing it.
+	// (New code defaults supports_diff=1 for newly created syncs.)
+	_, err = oldFile.db.ExecContext(ctx, "UPDATE "+syncRuns.Name()+" SET supports_diff=0 WHERE sync_id = ?", oldSyncID)
+	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
@@ -1596,7 +1598,7 @@ func TestGenerateSyncDiffFromFile_WithExpansionMarker(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set the expansion marker - simulates sync expanded with new code
-	err = oldFile.SetExpansionStarted(ctx, oldSyncID)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
 	require.NoError(t, err)
 
 	err = oldFile.EndSync(ctx)

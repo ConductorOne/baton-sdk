@@ -21,8 +21,8 @@ func runFullExpansion(ctx context.Context, c1f *dotc1z.C1File, syncID string) er
 		return err
 	}
 
-	// Mark the sync as having started expansion.
-	if err := c1f.SetExpansionStarted(ctx, syncID); err != nil {
+	// Mark the sync as supporting diff operations (SQL-layer data is ready).
+	if err := c1f.SetSupportsDiff(ctx, syncID); err != nil {
 		return err
 	}
 

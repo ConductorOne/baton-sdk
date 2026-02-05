@@ -3,6 +3,7 @@ package incrementalexpansion
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 )
@@ -16,6 +17,26 @@ func ApplyIncrementalExpansionFromDiff(ctx context.Context, c1f *dotc1z.C1File, 
 	delta, err := EdgeDeltaFromDiffSyncs(ctx, c1f, upsertsSyncID, deletionsSyncID)
 	if err != nil {
 		return err
+	}
+	if os.Getenv("BATON_DEBUG_INCREMENTAL") != "" {
+		fmt.Printf("incremental: delta added=%d removed=%d\n", len(delta.Added), len(delta.Removed))
+		// Print a small sample for debugging.
+		i := 0
+		for _, e := range delta.Added {
+			fmt.Printf("  added: %s -> %s\n", e.SrcEntitlementID, e.DstEntitlementID)
+			i++
+			if i >= 10 {
+				break
+			}
+		}
+		i = 0
+		for _, e := range delta.Removed {
+			fmt.Printf("  removed: %s -> %s\n", e.SrcEntitlementID, e.DstEntitlementID)
+			i++
+			if i >= 10 {
+				break
+			}
+		}
 	}
 
 	// Seed invalidation from any entitlement/resource/grant changes, not just edge-definition changes.

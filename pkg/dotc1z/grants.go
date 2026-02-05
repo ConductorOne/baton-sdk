@@ -213,6 +213,16 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 		return ErrReadOnly
 	}
 
+	// We intentionally do not mutate caller-owned grant objects. The write path strips
+	// GrantExpandable from the stored data blob, so operate on clones.
+	grantsToStore := make([]*v2.Grant, 0, len(bulkGrants))
+	for _, g := range bulkGrants {
+		if g == nil {
+			continue
+		}
+		grantsToStore = append(grantsToStore, proto.Clone(g).(*v2.Grant))
+	}
+
 	err := f(ctx, c, grants.Name(),
 		func(grant *v2.Grant) (goqu.Record, error) {
 			expansionBytes, needsExpansion := extractAndStripExpansion(grant)
@@ -227,7 +237,7 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 				"needs_expansion":            needsExpansion,
 			}, nil
 		},
-		bulkGrants...,
+		grantsToStore...,
 	)
 	if err != nil {
 		return err

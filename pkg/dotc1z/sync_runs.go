@@ -596,7 +596,8 @@ func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncT
 		"sync_type":      syncType,
 		"parent_sync_id": parentSyncID,
 		"linked_sync_id": linkedSyncID,
-		"supports_diff":  1, // New code writes grants with expansion column populated correctly.
+		// New code writes SQL-layer metadata needed for diffs/expansion, so default to true.
+		"supports_diff": 1,
 	})
 
 	query, args, err := q.ToSQL()

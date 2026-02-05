@@ -22,9 +22,9 @@ func ExpandDirtySubgraph(ctx context.Context, c1f *dotc1z.C1File, syncID string)
 		return err
 	}
 
-	// Mark the sync as having started expansion. This is idempotent - subsequent calls are no-ops.
+	// Mark the sync as supporting diff operations (SQL-layer data is ready). This is idempotent - subsequent calls are no-ops.
 	// The marker is used to detect syncs that expanded with older code that dropped annotations.
-	if err := c1f.SetExpansionStarted(ctx, syncID); err != nil {
+	if err := c1f.SetSupportsDiff(ctx, syncID); err != nil {
 		return err
 	}
 

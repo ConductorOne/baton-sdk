@@ -179,7 +179,7 @@ func (c *C1FileAttached) UpdateSync(ctx context.Context, baseSync *reader_v2.Syn
 	return nil
 }
 
-// ErrOldSyncMissingExpansionMarker is returned when the old sync doesn't have the expansion_started_at
+// ErrOldSyncMissingExpansionMarker is returned when the old sync doesn't have the supports_diff
 // marker set. This indicates the sync was expanded with older code that dropped grant annotations,
 // making it unsuitable for diff-based incremental expansion.
 var ErrOldSyncMissingExpansionMarker = errors.New("old sync is missing expansion marker; cannot generate diff from sync expanded with older code that dropped annotations")
@@ -204,17 +204,17 @@ func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID
 	ctx, span := tracer.Start(ctx, "C1FileAttached.GenerateSyncDiffFromFile")
 	defer span.End()
 
-	// Check that the old sync has the expansion marker set.
+	// Check that the old sync has the supports_diff marker set.
 	// Syncs expanded with older code dropped annotations, making them unusable for diffs.
-	var expansionStartedAt sql.NullTime
+	var supportsDiffInt int
 	err := c.file.db.QueryRowContext(ctx,
-		fmt.Sprintf("SELECT expansion_started_at FROM attached.%s WHERE sync_id = ?", syncRuns.Name()),
+		fmt.Sprintf("SELECT supports_diff FROM attached.%s WHERE sync_id = ?", syncRuns.Name()),
 		oldSyncID,
-	).Scan(&expansionStartedAt)
+	).Scan(&supportsDiffInt)
 	if err != nil {
 		return "", "", fmt.Errorf("failed to check expansion marker for old sync: %w", err)
 	}
-	if !expansionStartedAt.Valid {
+	if supportsDiffInt == 0 {
 		return "", "", ErrOldSyncMissingExpansionMarker
 	}
 

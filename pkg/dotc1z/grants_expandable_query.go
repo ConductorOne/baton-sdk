@@ -10,7 +10,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
 )
 
 // ExpandableGrantDef is a lightweight representation of an expandable grant row,
@@ -81,11 +80,11 @@ func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...ListExpandabl
 		"entitlement_id",
 		"principal_resource_type_id",
 		"principal_resource_id",
-		"data",
+		"expansion",
 		"needs_expansion",
 	)
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
-	q = q.Where(goqu.C("is_expandable").Eq(1))
+	q = q.Where(goqu.C("expansion").IsNotNull())
 	if o.needsExpansionOnly {
 		q = q.Where(goqu.C("needs_expansion").Eq(1))
 	}
@@ -133,7 +132,7 @@ func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...ListExpandabl
 			dstEntitlementID  string
 			principalRTID     string
 			principalRID      string
-			dataBlob          []byte
+			expansionBlob     []byte
 			needsExpansionInt int
 		)
 
@@ -143,22 +142,16 @@ func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...ListExpandabl
 			&dstEntitlementID,
 			&principalRTID,
 			&principalRID,
-			&dataBlob,
+			&expansionBlob,
 			&needsExpansionInt,
 		); err != nil {
 			return nil, "", err
 		}
 		lastRow = rowID
 
-		var g v2.Grant
-		if err := proto.Unmarshal(dataBlob, &g); err != nil {
-			return nil, "", fmt.Errorf("invalid grant data for %q: %w", externalID, err)
-		}
-
-		annos := annotations.Annotations(g.GetAnnotations())
 		ge := &v2.GrantExpandable{}
-		if _, err := annos.Pick(ge); err != nil {
-			return nil, "", fmt.Errorf("failed to extract GrantExpandable from grant %q: %w", externalID, err)
+		if err := proto.Unmarshal(expansionBlob, ge); err != nil {
+			return nil, "", fmt.Errorf("invalid expansion data for %q: %w", externalID, err)
 		}
 
 		defs = append(defs, &ExpandableGrantDef{

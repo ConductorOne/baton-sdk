@@ -289,15 +289,18 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	var count uint32 = 0
 	lastRow := 0
 	var data sql.RawBytes
-	var expansion sql.RawBytes
 	var ret []T
 	for rows.Next() {
 		count++
 		if count > pageSize {
 			break
 		}
+		var expansionBytes []byte
 		if withExpansion {
-			err := rows.Scan(&lastRow, &data, &expansion)
+			// IMPORTANT: keep expansion scoped to this row. Some drivers may not overwrite a []byte
+			// destination on NULL, which would cause us to accidentally reuse bytes from a previous row.
+			expansionBytes = nil
+			err := rows.Scan(&lastRow, &data, &expansionBytes)
 			if err != nil {
 				return nil, "", err
 			}
@@ -312,10 +315,10 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		if err != nil {
 			return nil, "", err
 		}
-		if withExpansion && len(expansion) > 0 {
+		if withExpansion && len(expansionBytes) > 0 {
 			if g, ok := any(t).(*v2.Grant); ok {
 				expandable := &v2.GrantExpandable{}
-				if err := proto.Unmarshal(expansion, expandable); err != nil {
+				if err := proto.Unmarshal(expansionBytes, expandable); err != nil {
 					return nil, "", fmt.Errorf("failed to unmarshal grant expansion: %w", err)
 				}
 				annos := annotations.Annotations(g.GetAnnotations())

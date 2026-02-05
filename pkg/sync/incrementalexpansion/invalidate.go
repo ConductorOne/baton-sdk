@@ -3,6 +3,7 @@ package incrementalexpansion
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -33,6 +34,27 @@ func InvalidateRemovedEdges(ctx context.Context, store InvalidationStore, target
 		return err
 	}
 
+	type groupKey struct {
+		dstEntitlementID string
+		// Use a stable join so we can group by principal type filters.
+		principalTypes string
+	}
+
+	// Group removed edges so we only scan/write each destination entitlement once per filter.
+	removedByGroup := make(map[groupKey]map[string]struct{}, len(delta.Removed))
+	for _, edge := range delta.Removed {
+		k := groupKey{
+			dstEntitlementID: edge.DstEntitlementID,
+			principalTypes:   strings.Join(edge.PrincipalResourceTypeIDs, "\x1f"),
+		}
+		m := removedByGroup[k]
+		if m == nil {
+			m = make(map[string]struct{}, 4)
+			removedByGroup[k] = m
+		}
+		m[edge.SrcEntitlementID] = struct{}{}
+	}
+
 	// Batch updates to reduce write overhead.
 	const chunkSize = 10000
 	updates := make([]*v2.Grant, 0, chunkSize)
@@ -48,15 +70,19 @@ func InvalidateRemovedEdges(ctx context.Context, store InvalidationStore, target
 		return nil
 	}
 
-	for _, edge := range delta.Removed {
+	for k, srcIDs := range removedByGroup {
 		// Entitlement is only used for filtering by entitlement_id; ID is sufficient.
-		ent := v2.Entitlement_builder{Id: edge.DstEntitlementID}.Build()
+		ent := v2.Entitlement_builder{Id: k.dstEntitlementID}.Build()
+		var principalTypes []string
+		if k.principalTypes != "" {
+			principalTypes = strings.Split(k.principalTypes, "\x1f")
+		}
 		pageToken := ""
 		for {
 			resp, err := store.ListGrantsForEntitlement(ctx, reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
 				Entitlement:              ent,
 				PageToken:                pageToken,
-				PrincipalResourceTypeIds: edge.PrincipalResourceTypeIDs,
+				PrincipalResourceTypeIds: principalTypes,
 			}.Build())
 			if err != nil {
 				return err
@@ -67,11 +93,17 @@ func InvalidateRemovedEdges(ctx context.Context, store InvalidationStore, target
 				if len(srcs) == 0 {
 					continue
 				}
-				if _, ok := srcs[edge.SrcEntitlementID]; !ok {
+				removedAny := false
+				for srcID := range srcIDs {
+					if _, ok := srcs[srcID]; !ok {
+						continue
+					}
+					delete(srcs, srcID)
+					removedAny = true
+				}
+				if !removedAny {
 					continue
 				}
-
-				delete(srcs, edge.SrcEntitlementID)
 
 				// The expander adds a "self-source" (destination entitlement ID) to mark
 				// that a grant was originally direct. When all expansion sources are removed,
