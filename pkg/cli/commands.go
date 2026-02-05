@@ -33,6 +33,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
+	"github.com/conductorone/baton-sdk/pkg/uhttp"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 	utls2 "github.com/conductorone/baton-sdk/pkg/utls"
 )
@@ -380,6 +381,10 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithSkipGrants(v.GetBool("skip-grants")))
 		}
 
+		if httpTimeout := v.GetInt(field.HttpTimeoutField.GetName()); httpTimeout > 0 {
+			runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
+		}
+
 		// Save the selected authentication method and get the connector.
 		c, err := getconnector(runCtx, t, RunTimeOpts{SelectedAuthMethod: v.GetString("auth-method")})
 		if err != nil {
@@ -538,6 +543,10 @@ func MakeGRPCServerCommand[T field.Configurable](
 				return err
 			}
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
+		}
+
+		if httpTimeout := v.GetInt(field.HttpTimeoutField.GetName()); httpTimeout > 0 {
+			runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
 		}
 
 		sessionStoreMaximumSize := v.GetInt(field.ServerSessionStoreMaximumSizeField.GetName())
