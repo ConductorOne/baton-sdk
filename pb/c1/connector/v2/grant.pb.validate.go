@@ -454,17 +454,6 @@ func (m *GrantsServiceListGrantsRequest) validate(all bool) error {
 
 	var errors []error
 
-	if m.GetResource() == nil {
-		err := GrantsServiceListGrantsRequestValidationError{
-			field:  "Resource",
-			reason: "value is required",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
-
 	if all {
 		switch v := interface{}(m.GetResource()).(type) {
 		case interface{ ValidateAll() error }:

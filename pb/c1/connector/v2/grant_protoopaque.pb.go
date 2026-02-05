@@ -861,9 +861,9 @@ const file_c1_connector_v2_grant_proto_rawDesc = "" +
 	"\x02id\x18\x03 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x12A\n" +
 	"\asources\x18\x05 \x01(\v2\x1d.c1.connector.v2.GrantSourcesB\b\xfaB\x05\x8a\x01\x02\x10\x00R\asources\x126\n" +
-	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x81\x03\n" +
-	"\x1eGrantsServiceListGrantsRequest\x12?\n" +
-	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\bresource\x12'\n" +
+	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xf7\x02\n" +
+	"\x1eGrantsServiceListGrantsRequest\x125\n" +
+	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x12'\n" +
 	"\tpage_size\x18\x02 \x01(\rB\n" +
 	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12-\n" +
 	"\n" +

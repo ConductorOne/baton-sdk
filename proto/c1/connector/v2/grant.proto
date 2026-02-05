@@ -30,7 +30,7 @@ message Grant {
 }
 
 message GrantsServiceListGrantsRequest {
-  c1.connector.v2.Resource resource = 1 [(validate.rules).message = {required: true}];
+  c1.connector.v2.Resource resource = 1;
   uint32 page_size = 2 [(validate.rules).uint32 = {
     ignore_empty: true
     lte: 250
