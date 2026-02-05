@@ -24,7 +24,7 @@ create table if not exists %s (
     principal_resource_type_id text not null,
     principal_resource_id text not null,
     external_id text not null,
-    is_expandable integer not null default 0,   -- 1 if data contains a GrantExpandable annotation; used to build the expansion graph.
+    expansion blob,                             -- Serialized GrantExpandable proto; NULL if grant is not expandable.
     needs_expansion integer not null default 0, -- 1 if grant should be processed during expansion.
     data blob not null,
     sync_id text not null,
@@ -69,9 +69,9 @@ func isAlreadyExistsError(err error) bool {
 }
 
 func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
-	// Add is_expandable column if missing (for older files).
+	// Add expansion column if missing (for older files).
 	if _, err := db.ExecContext(ctx, fmt.Sprintf(
-		"alter table %s add column is_expandable integer not null default 0", r.Name(),
+		"alter table %s add column expansion blob", r.Name(),
 	)); err != nil && !isAlreadyExistsError(err) {
 		return err
 	}
@@ -83,7 +83,16 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 		return err
 	}
 
-	// Create the index only after the columns exist.
+	// Create partial index for efficient queries on expandable grants.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		"create index if not exists %s on %s (sync_id) where expansion is not null",
+		fmt.Sprintf("idx_grants_sync_expansion_v%s", r.Version()),
+		r.Name(),
+	)); err != nil {
+		return err
+	}
+
+	// Create index for needs_expansion queries.
 	if _, err := db.ExecContext(ctx, fmt.Sprintf(
 		"create index if not exists %s on %s (sync_id, needs_expansion)",
 		fmt.Sprintf("idx_grants_sync_needs_expansion_v%s", r.Version()),
@@ -92,15 +101,15 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 		return err
 	}
 
-	// Backfill from stored grant bytes for rows that haven't been classified yet.
-	return backfillGrantExpandableColumns(ctx, db, r.Name())
+	// Backfill expansion column from stored grant bytes.
+	return backfillGrantExpansionColumn(ctx, db, r.Name())
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrants")
 	defer span.End()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	ret, nextPageToken, err := listGrantsWithExpansion(ctx, c, grants.Name(), request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants: %w", err)
 	}
@@ -109,6 +118,154 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 		List:          ret,
 		NextPageToken: nextPageToken,
 	}.Build(), nil
+}
+
+// listGrantsWithExpansion lists grants and re-attaches the expansion annotation from the
+// separate column back to the grant's annotations. This allows callers to access the
+// GrantExpandable annotation as if it were stored in the data blob.
+func listGrantsWithExpansion(
+	ctx context.Context,
+	c *C1File,
+	tableName string,
+	request *v2.GrantsServiceListGrantsRequest,
+) ([]*v2.Grant, string, error) {
+	// Use generic listing but post-process to attach expansion
+	grants, nextPageToken, err := listGrantsInternal(ctx, c, tableName, request)
+	if err != nil {
+		return nil, "", err
+	}
+	return grants, nextPageToken, nil
+}
+
+// listGrantsInternal performs the actual grant listing with expansion column handling.
+func listGrantsInternal(
+	ctx context.Context,
+	c *C1File,
+	tableName string,
+	req *v2.GrantsServiceListGrantsRequest,
+) ([]*v2.Grant, string, error) {
+	annoSyncID, err := annotations.GetSyncIdFromAnnotations(req.GetAnnotations())
+	if err != nil {
+		return nil, "", fmt.Errorf("error getting sync id from annotations for list request: %w", err)
+	}
+
+	var reqSyncID string
+	switch {
+	case annoSyncID != "":
+		reqSyncID = annoSyncID
+	case c.currentSyncID != "":
+		reqSyncID = c.currentSyncID
+	case c.viewSyncID != "":
+		reqSyncID = c.viewSyncID
+	default:
+		reqSyncID = ""
+	}
+
+	q := c.db.From(tableName).Prepared(true)
+	q = q.Select("id", "data", "expansion")
+
+	// Apply resource filters
+	r := req.GetResource()
+	if r != nil {
+		q = q.Where(goqu.C("resource_id").Eq(r.GetId().GetResource()))
+		q = q.Where(goqu.C("resource_type_id").Eq(r.GetId().GetResourceType()))
+	}
+
+	// Apply expandable/needs_expansion filters
+	if req.GetExpandableOnly() {
+		q = q.Where(goqu.C("expansion").IsNotNull())
+	}
+	if req.GetNeedsExpansionOnly() {
+		q = q.Where(goqu.C("needs_expansion").Eq(1))
+	}
+
+	// Apply sync ID filter
+	switch {
+	case reqSyncID != "":
+		q = q.Where(goqu.C("sync_id").Eq(reqSyncID))
+	default:
+		latestSyncRun, err := c.getCachedViewSyncRun(ctx)
+		if err != nil {
+			return nil, "", err
+		}
+		if latestSyncRun != nil {
+			q = q.Where(goqu.C("sync_id").Eq(latestSyncRun.ID))
+		}
+	}
+
+	// Handle pagination
+	if req.GetPageToken() != "" {
+		q = q.Where(goqu.C("id").Gte(req.GetPageToken()))
+	}
+
+	pageSize := req.GetPageSize()
+	if pageSize > maxPageSize || pageSize == 0 {
+		pageSize = maxPageSize
+	}
+	q = q.Order(goqu.C("id").Asc())
+	q = q.Limit(uint(pageSize + 1))
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return nil, "", err
+	}
+
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var unmarshalerOptions = proto.UnmarshalOptions{
+		Merge:          true,
+		DiscardUnknown: true,
+	}
+
+	var count uint32
+	var lastRow int
+	var ret []*v2.Grant
+
+	for rows.Next() {
+		count++
+		if count > pageSize {
+			break
+		}
+
+		var id int
+		var data []byte
+		var expansion []byte
+		if err := rows.Scan(&id, &data, &expansion); err != nil {
+			return nil, "", err
+		}
+		lastRow = id
+
+		grant := &v2.Grant{}
+		if err := unmarshalerOptions.Unmarshal(data, grant); err != nil {
+			return nil, "", err
+		}
+
+		// Re-attach expansion annotation if present.
+		if len(expansion) > 0 {
+			expandable := &v2.GrantExpandable{}
+			if err := proto.Unmarshal(expansion, expandable); err != nil {
+				return nil, "", fmt.Errorf("failed to unmarshal expansion: %w", err)
+			}
+			annos := annotations.Annotations(grant.GetAnnotations())
+			annos.Append(expandable)
+			grant.SetAnnotations(annos)
+		}
+
+		ret = append(ret, grant)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+
+	nextPageToken := ""
+	if count > pageSize {
+		nextPageToken = fmt.Sprintf("%d", lastRow+1)
+	}
+	return ret, nextPageToken, nil
 }
 
 func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
@@ -206,7 +363,7 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 
 	err := f(ctx, c, grants.Name(),
 		func(grant *v2.Grant) (goqu.Record, error) {
-			expandable := isGrantExpandable(grant)
+			expansionBytes, needsExpansion := extractAndStripExpansion(grant)
 
 			return goqu.Record{
 				"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
@@ -214,8 +371,8 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 				"entitlement_id":             grant.GetEntitlement().GetId(),
 				"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
 				"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-				"is_expandable":              expandable,
-				"needs_expansion":            expandable,
+				"expansion":                  expansionBytes, // nil for non-expandable grants
+				"needs_expansion":            needsExpansion,
 			}, nil
 		},
 		bulkGrants...,
@@ -227,33 +384,54 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 	return nil
 }
 
-// isGrantExpandable returns true if the grant has a valid GrantExpandable annotation
-// with at least one non-whitespace entitlement ID.
-func isGrantExpandable(grant *v2.Grant) bool {
+// extractAndStripExpansion extracts the GrantExpandable annotation from the grant,
+// removes it from the grant's annotations, and returns the serialized proto bytes.
+// Returns (nil, false) if the grant has no valid GrantExpandable annotation.
+func extractAndStripExpansion(grant *v2.Grant) ([]byte, bool) {
 	annos := annotations.Annotations(grant.GetAnnotations())
 	expandable := &v2.GrantExpandable{}
 	ok, err := annos.Pick(expandable)
 	if err != nil || !ok || len(expandable.GetEntitlementIds()) == 0 {
-		return false
+		return nil, false
 	}
 
 	// Check that there's at least one non-whitespace entitlement ID.
+	hasValid := false
 	for _, id := range expandable.GetEntitlementIds() {
 		if strings.TrimSpace(id) != "" {
-			return true
+			hasValid = true
+			break
 		}
 	}
-	return false
+	if !hasValid {
+		return nil, false
+	}
+
+	// Strip the GrantExpandable annotation from the grant by filtering it out.
+	filtered := annotations.Annotations{}
+	for _, a := range annos {
+		if !a.MessageIs(expandable) {
+			filtered = append(filtered, a)
+		}
+	}
+	grant.SetAnnotations(filtered)
+
+	// Serialize the expandable annotation.
+	data, err := proto.Marshal(expandable)
+	if err != nil {
+		return nil, false
+	}
+	return data, true
 }
 
-func backfillGrantExpandableColumns(ctx context.Context, db *goqu.Database, tableName string) error {
+func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableName string) error {
 	// Scan for rows that contain "GrantExpandable" in the proto blob but haven't been
-	// backfilled yet (is_expandable=0). The LIKE filter skips the 99%+ of rows that
+	// backfilled yet (expansion IS NULL). The LIKE filter skips the 99%+ of rows that
 	// don't have expandable annotations, making this fast even on large tables.
 	for {
 		rows, err := db.QueryContext(ctx, fmt.Sprintf(
 			`SELECT id, data FROM %s 
-			 WHERE is_expandable=0 AND data LIKE '%%GrantExpandable%%' 
+			 WHERE expansion IS NULL AND data LIKE '%%GrantExpandable%%' 
 			 LIMIT 1000`,
 			tableName,
 		))
@@ -290,7 +468,7 @@ func backfillGrantExpandableColumns(ctx context.Context, db *goqu.Database, tabl
 		}
 
 		stmt, err := tx.PrepareContext(ctx, fmt.Sprintf(
-			`UPDATE %s SET is_expandable=?, needs_expansion=? WHERE id=?`,
+			`UPDATE %s SET expansion=?, needs_expansion=?, data=? WHERE id=?`,
 			tableName,
 		))
 		if err != nil {
@@ -305,12 +483,22 @@ func backfillGrantExpandableColumns(ctx context.Context, db *goqu.Database, tabl
 				_ = tx.Rollback()
 				return err
 			}
-			// Only update if we found a valid expandable annotation.
-			// Rows with "GrantExpandable" in the blob but no valid annotation are skipped.
-			if !isGrantExpandable(g) {
+
+			expansionBytes, needsExpansion := extractAndStripExpansion(g)
+			if expansionBytes == nil {
+				// No valid expandable annotation - skip.
 				continue
 			}
-			if _, err := stmt.ExecContext(ctx, true, true, r.id); err != nil {
+
+			// Re-serialize the grant with the annotation stripped.
+			newData, err := proto.Marshal(g)
+			if err != nil {
+				_ = stmt.Close()
+				_ = tx.Rollback()
+				return err
+			}
+
+			if _, err := stmt.ExecContext(ctx, expansionBytes, needsExpansion, newData, r.id); err != nil {
 				_ = stmt.Close()
 				_ = tx.Rollback()
 				return err
@@ -365,21 +553,22 @@ func bulkPutGrantsInternal(
 		return err
 	}
 
-	// needs_expansion should only flip to 1 when is_expandable changes.
-	// If a grant is no longer expandable (is_expandable=0), needs_expansion should be forced to 0.
+	// needs_expansion should only flip to 1 when expansion changes from NULL to non-NULL.
+	// If a grant is no longer expandable (expansion IS NULL), needs_expansion should be forced to 0.
 	needsExpansionExpr := goqu.L(
 		`CASE
-			WHEN EXCLUDED.is_expandable = 0 THEN 0
-			WHEN EXCLUDED.is_expandable != ?.is_expandable THEN 1
+			WHEN EXCLUDED.expansion IS NULL THEN 0
+			WHEN ?.expansion IS NULL AND EXCLUDED.expansion IS NOT NULL THEN 1
+			WHEN ?.expansion IS NOT NULL AND EXCLUDED.expansion IS NOT NULL AND ?.expansion != EXCLUDED.expansion THEN 1
 			ELSE ?.needs_expansion
 		END`,
-		goqu.I(tableName), goqu.I(tableName),
+		goqu.I(tableName), goqu.I(tableName), goqu.I(tableName), goqu.I(tableName),
 	)
 
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
 		update := goqu.Record{
 			"data":            goqu.I("EXCLUDED.data"),
-			"is_expandable":   goqu.I("EXCLUDED.is_expandable"),
+			"expansion":       goqu.I("EXCLUDED.expansion"),
 			"needs_expansion": needsExpansionExpr,
 		}
 		if ifNewer {

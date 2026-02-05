@@ -9,9 +9,9 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-func TestIsGrantExpandable_WhitespaceOnlyEntitlementIDs(t *testing.T) {
+func TestExtractAndStripExpansion_WhitespaceOnlyEntitlementIDs(t *testing.T) {
 	// Create a GrantExpandable annotation with only whitespace entitlement IDs.
-	// This should return false because there are no valid source entitlements.
+	// This should return nil because there are no valid source entitlements.
 	expandable := v2.GrantExpandable_builder{
 		EntitlementIds: []string{"  ", "\t", "   \n  "},
 	}.Build()
@@ -33,10 +33,12 @@ func TestIsGrantExpandable_WhitespaceOnlyEntitlementIDs(t *testing.T) {
 		Annotations: []*anypb.Any{expandableAny},
 	}.Build()
 
-	require.False(t, isGrantExpandable(grant), "grant with only whitespace entitlement IDs should not be expandable")
+	expansionBytes, isExpandable := extractAndStripExpansion(grant)
+	require.False(t, isExpandable, "grant with only whitespace entitlement IDs should not be expandable")
+	require.Nil(t, expansionBytes, "expansion bytes should be nil for non-expandable grant")
 }
 
-func TestIsGrantExpandable_MixedWhitespaceAndValidIDs(t *testing.T) {
+func TestExtractAndStripExpansion_MixedWhitespaceAndValidIDs(t *testing.T) {
 	// Create a GrantExpandable annotation with a mix of whitespace and valid IDs.
 	// The grant should still be expandable because there's at least one valid ID.
 	expandable := v2.GrantExpandable_builder{
@@ -61,5 +63,10 @@ func TestIsGrantExpandable_MixedWhitespaceAndValidIDs(t *testing.T) {
 		Annotations: []*anypb.Any{expandableAny},
 	}.Build()
 
-	require.True(t, isGrantExpandable(grant), "grant with valid entitlement ID should be expandable")
+	expansionBytes, isExpandable := extractAndStripExpansion(grant)
+	require.True(t, isExpandable, "grant with valid entitlement ID should be expandable")
+	require.NotNil(t, expansionBytes, "expansion bytes should not be nil for expandable grant")
+
+	// Verify that the annotation was stripped from the grant.
+	require.Len(t, grant.GetAnnotations(), 0, "GrantExpandable annotation should be stripped from grant")
 }
