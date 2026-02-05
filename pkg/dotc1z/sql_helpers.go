@@ -88,6 +88,16 @@ type hasParentResourceIdListRequest interface {
 	GetParentResourceId() *v2.ResourceId
 }
 
+type hasExpandableOnlyListRequest interface {
+	listRequest
+	GetExpandableOnly() bool
+}
+
+type hasNeedsExpansionOnlyListRequest interface {
+	listRequest
+	GetNeedsExpansionOnly() bool
+}
+
 type protoHasID interface {
 	proto.Message
 	GetId() string
@@ -200,6 +210,14 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 			q = q.Where(goqu.C("parent_resource_id").Eq(p.GetResource()))
 			q = q.Where(goqu.C("parent_resource_type_id").Eq(p.GetResourceType()))
 		}
+	}
+
+	if expandableReq, ok := req.(hasExpandableOnlyListRequest); ok && expandableReq.GetExpandableOnly() {
+		q = q.Where(goqu.C("is_expandable").Eq(1))
+	}
+
+	if needsExpansionReq, ok := req.(hasNeedsExpansionOnlyListRequest); ok && needsExpansionReq.GetNeedsExpansionOnly() {
+		q = q.Where(goqu.C("needs_expansion").Eq(1))
 	}
 
 	// If a sync is running, be sure we only select from the current values

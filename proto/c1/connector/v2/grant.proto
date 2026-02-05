@@ -46,6 +46,10 @@ message GrantsServiceListGrantsRequest {
     min_bytes: 1
     max_bytes: 1024
   }];
+  // If true, only return grants that are expandable (have GrantExpandable annotation).
+  bool expandable_only = 6;
+  // If true, only return grants that need expansion processing.
+  bool needs_expansion_only = 7;
 }
 
 message GrantsServiceListGrantsResponse {

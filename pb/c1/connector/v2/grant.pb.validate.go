@@ -573,6 +573,10 @@ func (m *GrantsServiceListGrantsRequest) validate(all bool) error {
 
 	}
 
+	// no validation rules for ExpandableOnly
+
+	// no validation rules for NeedsExpansionOnly
+
 	if len(errors) > 0 {
 		return GrantsServiceListGrantsRequestMultiError(errors)
 	}
