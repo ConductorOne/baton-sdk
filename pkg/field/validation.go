@@ -392,6 +392,19 @@ func WithAuthMethod(authMethod string) Option {
 	}
 }
 
+func validateFieldGroupDefaults(fieldGroups []SchemaFieldGroup) error {
+	var defaultGroups []string
+	for _, fg := range fieldGroups {
+		if fg.Default {
+			defaultGroups = append(defaultGroups, fg.Name)
+		}
+	}
+	if len(defaultGroups) > 1 {
+		return fmt.Errorf("only one field group can be set as default, but found %d: %s", len(defaultGroups), strings.Join(defaultGroups, ", "))
+	}
+	return nil
+}
+
 // Validate perform validation of field requirement and constraints
 // relationships after the configuration is read.
 // We don't check the following:
@@ -402,6 +415,10 @@ func Validate(c Configuration, v Configurable, opts ...Option) error {
 
 	for _, opt := range opts {
 		opt(&validateOpts)
+	}
+
+	if err := validateFieldGroupDefaults(c.FieldGroups); err != nil {
+		return err
 	}
 
 	present := make(map[string]int)

@@ -573,6 +573,63 @@ func TestStringMapRules_Validate(t *testing.T) {
 	})
 }
 
+func TestFieldGroupDefaultValidation(t *testing.T) {
+	t.Run("should not error when no field groups have default", func(t *testing.T) {
+		carrier := Configuration{
+			Fields: []SchemaField{StringField("key")},
+			FieldGroups: []SchemaFieldGroup{
+				{Name: "group1", Fields: []SchemaField{StringField("field1")}},
+				{Name: "group2", Fields: []SchemaField{StringField("field2")}},
+			},
+		}
+		AssertOutcome(t, carrier, fieldsPresent("key", "field1"), "")
+	})
+
+	t.Run("should not error when exactly one field group has default", func(t *testing.T) {
+		carrier := Configuration{
+			Fields: []SchemaField{StringField("key")},
+			FieldGroups: []SchemaFieldGroup{
+				{Name: "group1", Fields: []SchemaField{StringField("field1")}, Default: true},
+				{Name: "group2", Fields: []SchemaField{StringField("field2")}},
+			},
+		}
+		AssertOutcome(t, carrier, fieldsPresent("key", "field1"), "")
+	})
+
+	t.Run("should error when multiple field groups have default", func(t *testing.T) {
+		carrier := Configuration{
+			Fields: []SchemaField{StringField("key")},
+			FieldGroups: []SchemaFieldGroup{
+				{Name: "group1", Fields: []SchemaField{StringField("field1")}, Default: true},
+				{Name: "group2", Fields: []SchemaField{StringField("field2")}, Default: true},
+			},
+		}
+		AssertOutcome(
+			t,
+			carrier,
+			fieldsPresent("key"),
+			"only one field group can be set as default, but found 2: group1, group2",
+		)
+	})
+
+	t.Run("should error when three field groups have default", func(t *testing.T) {
+		carrier := Configuration{
+			Fields: []SchemaField{StringField("key")},
+			FieldGroups: []SchemaFieldGroup{
+				{Name: "a", Fields: []SchemaField{StringField("f1")}, Default: true},
+				{Name: "b", Fields: []SchemaField{StringField("f2")}, Default: true},
+				{Name: "c", Fields: []SchemaField{StringField("f3")}, Default: true},
+			},
+		}
+		AssertOutcome(
+			t,
+			carrier,
+			fieldsPresent("key"),
+			"only one field group can be set as default, but found 3: a, b, c",
+		)
+	})
+}
+
 func TestFieldGroupMapping(t *testing.T) {
 	t.Run("field group mapping", func(t *testing.T) {
 		carrier := Configuration{
