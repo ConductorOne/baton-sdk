@@ -2,6 +2,7 @@ package logging
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -16,7 +17,8 @@ const (
 type Option func(*zap.Config)
 
 func WithLogLevel(level string) Option {
-	zap.L().Info("setting log level", zap.String("level", level))
+	zap.L().Error("not really an error setting log level", zap.String("level", level))
+	fmt.Printf("not really an error setting log level (%s)\n", level)
 	return func(c *zap.Config) {
 		ll := zapcore.DebugLevel
 		err := ll.Set(level)
