@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	aws_lambda "github.com/aws/aws-lambda-go/lambda"
@@ -60,10 +61,29 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 	}
 
 	lambdaCmd.RunE = func(cmd *cobra.Command, args []string) error {
-		err := v.BindPFlags(cmd.Flags())
+		// Log all env vars with "log" in the name
+		for _, env := range os.Environ() {
+			parts := strings.SplitN(env, "=", 2)
+			if len(parts) == 2 && strings.Contains(strings.ToLower(parts[0]), "log") {
+				fmt.Printf("env: %s=%s\n", parts[0], parts[1])
+			}
+		}
+		flag, err := cmd.Flags().GetString("log-level")
+		if err != nil {
+			fmt.Printf("error getting log-level from cobra flags: %s\n", err)
+		} else {
+			fmt.Printf("log-level: %s\n", flag)
+		}
+
+		viperLevel := v.GetString("log-level")
+		fmt.Printf("viper log-level: %s\n", viperLevel)
+		err = v.BindPFlags(cmd.Flags())
 		if err != nil {
 			return err
 		}
+
+		viperLevel = v.GetString("log-level")
+		fmt.Printf("viper log-level post binding: %s\n", viperLevel)
 
 		logLevel := v.GetString("log-level")
 		// Downgrade log level to "info" if debug mode has expired
@@ -71,6 +91,8 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		if logLevel == "debug" && !debugModeExpiresAt.IsZero() && time.Now().After(debugModeExpiresAt) {
 			logLevel = "info"
 		}
+
+		fmt.Printf("logLevel: %v\n", debugModeExpiresAt)
 
 		initialLogFields := map[string]interface{}{
 			"tenant_id":          os.Getenv("tenant"),
@@ -85,6 +107,8 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			"log_level":          logLevel,
 		}
 
+		l := ctxzap.Extract(ctx)
+		l.Info("logging level set 0", zap.String("log_level", l.Level().String()))
 		runCtx, err := initLogger(
 			ctx,
 			name,
@@ -96,6 +120,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 
+		l.Info("logging level set 1", zap.String("log_level", l.Level().String()))
 		runCtx, otelShutdown, err := initOtel(runCtx, name, v, initialLogFields)
 		if err != nil {
 			return err
@@ -112,8 +137,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			}
 		}()
 
-		l := ctxzap.Extract(runCtx)
-		l.Info("logging level set", zap.String("log_level", l.Level().String()))
+		l.Info("logging level set 2", zap.String("log_level", l.Level().String()))
 
 		if err := field.Validate(lambdaSchema, v); err != nil {
 			return err
