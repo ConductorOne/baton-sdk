@@ -33,8 +33,8 @@ var allTableDescriptors = []tableDescriptor{
 	resourceTypes,
 	resources,
 	entitlements,
+	syncRuns, // Must be before grants since grants migration joins sync_runs.
 	grants,
-	syncRuns,
 	assets,
 	sessionStore,
 }

@@ -425,15 +425,21 @@ func extractAndStripExpansion(grant *v2.Grant) ([]byte, bool) {
 }
 
 func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableName string) error {
-	// Scan for rows that contain "GrantExpandable" in the proto blob but haven't been
-	// backfilled yet (expansion IS NULL). The LIKE filter skips the 99%+ of rows that
-	// don't have expandable annotations, making this fast even on large tables.
+	// Only backfill grants from syncs that don't support diff (old syncs created before
+	// this code change). New syncs set supports_diff=1 at creation and write grants with
+	// the expansion column populated correctly, so they don't need backfilling.
+	//
+	// The LIKE filter skips the 99%+ of rows that don't have expandable annotations,
+	// making this fast even on large tables.
 	for {
 		rows, err := db.QueryContext(ctx, fmt.Sprintf(
-			`SELECT id, data FROM %s 
-			 WHERE expansion IS NULL AND data LIKE '%%GrantExpandable%%' 
+			`SELECT g.id, g.data FROM %s g
+			 JOIN %s sr ON g.sync_id = sr.sync_id
+			 WHERE g.expansion IS NULL 
+			   AND g.data LIKE '%%GrantExpandable%%'
+			   AND sr.supports_diff = 0
 			 LIMIT 1000`,
-			tableName,
+			tableName, syncRuns.Name(),
 		))
 		if err != nil {
 			return err
@@ -486,7 +492,28 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 
 			expansionBytes, needsExpansion := extractAndStripExpansion(g)
 			if expansionBytes == nil {
-				// No valid expandable annotation - skip.
+				// Strip GrantExpandable so this row won't be retried forever.
+				annos := annotations.Annotations(g.GetAnnotations())
+				filtered := annotations.Annotations{}
+				expandable := &v2.GrantExpandable{}
+				for _, a := range annos {
+					if !a.MessageIs(expandable) {
+						filtered = append(filtered, a)
+					}
+				}
+				g.SetAnnotations(filtered)
+
+				newData, err := proto.Marshal(g)
+				if err != nil {
+					_ = stmt.Close()
+					_ = tx.Rollback()
+					return err
+				}
+				if _, err := stmt.ExecContext(ctx, nil, 0, newData, r.id); err != nil {
+					_ = stmt.Close()
+					_ = tx.Rollback()
+					return err
+				}
 				continue
 			}
 
