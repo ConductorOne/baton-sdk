@@ -382,6 +382,10 @@ func MakeMainCommand[T field.Configurable](
 		}
 
 		if httpTimeout := v.GetInt(field.HttpTimeoutField.GetName()); httpTimeout > 0 {
+			httpTimeoutField := field.HttpTimeoutField
+			if _, err := field.ValidateField(&httpTimeoutField, httpTimeout); err != nil {
+				return err
+			}
 			runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
 		}
 
@@ -546,6 +550,10 @@ func MakeGRPCServerCommand[T field.Configurable](
 		}
 
 		if httpTimeout := v.GetInt(field.HttpTimeoutField.GetName()); httpTimeout > 0 {
+			httpTimeoutField := field.HttpTimeoutField
+			if _, err := field.ValidateField(&httpTimeoutField, httpTimeout); err != nil {
+				return err
+			}
 			runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
 		}
 
