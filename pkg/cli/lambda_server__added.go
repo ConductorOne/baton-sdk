@@ -17,6 +17,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/go-jose/go-jose/v4"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
@@ -81,6 +82,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			"catalog_name":       os.Getenv("catalog_name"),
 			"tenant_name":        os.Getenv("tenant_name"),
 			"tenant_is_internal": os.Getenv("tenant_is_internal"),
+			"log_level":          logLevel,
 		}
 
 		runCtx, err := initLogger(
@@ -109,6 +111,9 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				zap.L().Error("error shutting down otel", zap.Error(err))
 			}
 		}()
+
+		l := ctxzap.Extract(runCtx)
+		l.Info("logging level set", zap.String("log_level", l.Level().String()))
 
 		if err := field.Validate(lambdaSchema, v); err != nil {
 			return err

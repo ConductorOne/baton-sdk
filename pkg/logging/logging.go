@@ -16,9 +16,14 @@ const (
 type Option func(*zap.Config)
 
 func WithLogLevel(level string) Option {
+	zap.L().Info("setting log level", zap.String("level", level))
 	return func(c *zap.Config) {
 		ll := zapcore.DebugLevel
-		_ = ll.Set(level)
+		err := ll.Set(level)
+		if err != nil {
+			zap.L().Error("error setting log level", zap.Error(err), zap.String("level", level))
+		}
+
 		c.Level.SetLevel(ll)
 	}
 }
