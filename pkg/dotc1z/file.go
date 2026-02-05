@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"syscall"
 
 	"github.com/klauspost/compress/zstd"
 	"go.uber.org/zap"
@@ -112,15 +111,28 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 		}
 	}()
 
-	outFile, err := os.OpenFile(outputFilePath, os.O_RDWR|os.O_CREATE|syscall.O_TRUNC, 0644)
+	// Write to a temporary file first to ensure atomic writes.
+	// This prevents file corruption if the process crashes mid-write,
+	// since the original file remains intact until the rename succeeds.
+	tmpPath := outputFilePath + ".tmp"
+	outFile, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
+
+	// Track whether we successfully completed the write
+	success := false
 	defer func() {
 		if outFile != nil {
 			err = outFile.Close()
 			if err != nil {
 				zap.L().Error("failed to close out file", zap.Error(err))
+			}
+		}
+		// Clean up temp file if we didn't successfully rename it
+		if !success {
+			if removeErr := os.Remove(tmpPath); removeErr != nil && !os.IsNotExist(removeErr) {
+				zap.L().Error("failed to remove temp file", zap.Error(removeErr))
 			}
 		}
 	}()
@@ -174,6 +186,15 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 		return fmt.Errorf("failed to close db file: %w", err)
 	}
 	dbFile = nil
+
+	// Atomically replace the original file with the temp file.
+	// This ensures the original file remains intact if there was any
+	// error during the write process.
+	err = os.Rename(tmpPath, outputFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to rename temp file to output file: %w", err)
+	}
+	success = true
 
 	return nil
 }
