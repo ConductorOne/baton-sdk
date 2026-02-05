@@ -279,16 +279,10 @@ func (c *C1File) Close(ctx context.Context) error {
 		if c.dbUpdated && !c.readOnly {
 			_, err = c.rawDb.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
 			if err != nil {
-				l := ctxzap.Extract(ctx)
-				// Checkpoint failed - log and continue. The subsequent Close()
-				// will attempt a passive checkpoint. If that also fails, we'll
-				// get an error from Close() or saveC1z() will read stale data.
-				// We log here for debugging but don't fail because:
-				// 1. Close() will still attempt its own checkpoint
-				// 2. The error might be transient (busy)
-				l.Warn("WAL checkpoint failed before close",
-					zap.Error(err),
-					zap.String("db_path", c.dbFilePath))
+				// Checkpoint failed - this is fatal because saveC1z() will read
+				// stale/incomplete data from the database file if WAL data hasn't
+				// been checkpointed. This would result in a corrupted c1z output.
+				return cleanupDbDir(c.dbFilePath, fmt.Errorf("failed to checkpoint WAL before close: %w", err))
 			}
 		}
 
