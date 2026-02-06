@@ -227,13 +227,21 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 		func(grant *v2.Grant) (goqu.Record, error) {
 			expansionBytes, needsExpansion := extractAndStripExpansion(grant)
 
+			// Avoid the Go typed-nil interface trap: []byte(nil) assigned to
+			// interface{} is *not* a nil interface, so some SQL drivers store
+			// it as an empty blob instead of NULL. Use an untyped nil instead.
+			var expansion interface{}
+			if expansionBytes != nil {
+				expansion = expansionBytes
+			}
+
 			return goqu.Record{
 				"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
 				"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
 				"entitlement_id":             grant.GetEntitlement().GetId(),
 				"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
 				"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-				"expansion":                  expansionBytes, // nil for non-expandable grants
+				"expansion":                  expansion,
 				"needs_expansion":            needsExpansion,
 			}, nil
 		},

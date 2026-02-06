@@ -2,7 +2,6 @@ package dotc1z
 
 import (
 	"context"
-	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -486,13 +485,14 @@ type grantRawRow struct {
 func getRawGrantRow(ctx context.Context, t *testing.T, c1f *C1File, externalID string) grantRawRow {
 	t.Helper()
 	var r grantRawRow
-	var expansion sql.NullString
 	err := c1f.db.QueryRowContext(ctx,
 		"SELECT expansion, needs_expansion FROM "+grants.Name()+" WHERE external_id=?", externalID,
-	).Scan(&expansion, &r.needsExpansion)
+	).Scan(&r.expansion, &r.needsExpansion)
 	require.NoError(t, err)
-	if expansion.Valid {
-		r.expansion = []byte(expansion.String)
+	// Normalize empty blob to nil so callers can use require.Nil uniformly
+	// across drivers that may return []byte{} vs nil for SQL NULL.
+	if len(r.expansion) == 0 {
+		r.expansion = nil
 	}
 	return r
 }
