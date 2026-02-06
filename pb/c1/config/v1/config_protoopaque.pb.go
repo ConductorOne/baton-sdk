@@ -323,6 +323,7 @@ type Constraint struct {
 	xxx_hidden_Name                string                 `protobuf:"bytes,4,opt,name=name,proto3"`
 	xxx_hidden_HelpText            string                 `protobuf:"bytes,5,opt,name=help_text,json=helpText,proto3"`
 	xxx_hidden_IsFieldGroup        bool                   `protobuf:"varint,6,opt,name=is_field_group,json=isFieldGroup,proto3"`
+	xxx_hidden_AllowedOptions      []string               `protobuf:"bytes,7,rep,name=allowed_options,json=allowedOptions,proto3"`
 	unknownFields                  protoimpl.UnknownFields
 	sizeCache                      protoimpl.SizeCache
 }
@@ -394,6 +395,13 @@ func (x *Constraint) GetIsFieldGroup() bool {
 	return false
 }
 
+func (x *Constraint) GetAllowedOptions() []string {
+	if x != nil {
+		return x.xxx_hidden_AllowedOptions
+	}
+	return nil
+}
+
 func (x *Constraint) SetKind(v ConstraintKind) {
 	x.xxx_hidden_Kind = v
 }
@@ -418,6 +426,10 @@ func (x *Constraint) SetIsFieldGroup(v bool) {
 	x.xxx_hidden_IsFieldGroup = v
 }
 
+func (x *Constraint) SetAllowedOptions(v []string) {
+	x.xxx_hidden_AllowedOptions = v
+}
+
 type Constraint_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -427,6 +439,7 @@ type Constraint_builder struct {
 	Name                string
 	HelpText            string
 	IsFieldGroup        bool
+	AllowedOptions      []string
 }
 
 func (b0 Constraint_builder) Build() *Constraint {
@@ -439,6 +452,7 @@ func (b0 Constraint_builder) Build() *Constraint {
 	x.xxx_hidden_Name = b.Name
 	x.xxx_hidden_HelpText = b.HelpText
 	x.xxx_hidden_IsFieldGroup = b.IsFieldGroup
+	x.xxx_hidden_AllowedOptions = b.AllowedOptions
 	return m0
 }
 
@@ -2734,7 +2748,7 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x1bsupports_external_resources\x18\t \x01(\bR\x19supportsExternalResources\x12>\n" +
 	"\x1brequires_external_connector\x18\n" +
 	" \x01(\bR\x19requiresExternalConnector\x12;\n" +
-	"\ffield_groups\x18\v \x03(\v2\x18.c1.config.v1.FieldGroupR\vfieldGroups\"\xea\x01\n" +
+	"\ffield_groups\x18\v \x03(\v2\x18.c1.config.v1.FieldGroupR\vfieldGroups\"\x93\x02\n" +
 	"\n" +
 	"Constraint\x120\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x1c.c1.config.v1.ConstraintKindR\x04kind\x12\x1f\n" +
@@ -2743,7 +2757,8 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x15secondary_field_names\x18\x03 \x03(\tR\x13secondaryFieldNames\x12\x12\n" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x12\x1b\n" +
 	"\thelp_text\x18\x05 \x01(\tR\bhelpText\x12$\n" +
-	"\x0eis_field_group\x18\x06 \x01(\bR\fisFieldGroup\"\x92\x01\n" +
+	"\x0eis_field_group\x18\x06 \x01(\bR\fisFieldGroup\x12'\n" +
+	"\x0fallowed_options\x18\a \x03(\tR\x0eallowedOptions\"\x92\x01\n" +
 	"\n" +
 	"FieldGroup\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
