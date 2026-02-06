@@ -253,7 +253,8 @@ func cleanupDbDir(dbFilePath string, err error) error {
 var ErrReadOnly = errors.New("c1z: read only mode")
 
 // Close ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
-// with our changes. The provided context is used for the WAL checkpoint operation.
+// with our changes. The provided context is used for the WAL checkpoint operation. If the context is already expired,
+// a fresh context with a 30-second timeout is used to ensure the checkpoint completes.
 func (c *C1File) Close(ctx context.Context) error {
 	var err error
 
@@ -277,7 +278,17 @@ func (c *C1File) Close(ctx context.Context) error {
 		// the WAL file to zero bytes. This guarantees all data is in the main
 		// database file before we read it for compression.
 		if c.dbUpdated && !c.readOnly {
-			_, err = c.rawDb.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+			// Use a dedicated context for the checkpoint. The caller's context
+			// may already be expired (e.g. Temporal activity deadline), but the
+			// checkpoint is a local SQLite operation that must complete to avoid
+			// saving a stale c1z.
+			checkpointCtx := ctx
+			if ctx.Err() != nil {
+				var checkpointCancel context.CancelFunc
+				checkpointCtx, checkpointCancel = context.WithTimeout(context.Background(), 30*time.Second)
+				defer checkpointCancel()
+			}
+			_, err = c.rawDb.ExecContext(checkpointCtx, "PRAGMA wal_checkpoint(TRUNCATE)")
 			if err != nil {
 				l := ctxzap.Extract(ctx)
 				// Checkpoint failed - log and continue. The subsequent Close()
