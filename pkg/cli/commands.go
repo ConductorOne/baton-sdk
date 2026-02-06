@@ -381,13 +381,15 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithSkipGrants(v.GetBool("skip-grants")))
 		}
 
-		if httpTimeout := v.GetInt(field.HttpTimeoutField.GetName()); httpTimeout > 0 {
-			httpTimeoutField := field.HttpTimeoutField
-			if _, err := field.ValidateField(&httpTimeoutField, httpTimeout); err != nil {
-				return err
-			}
-			runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
+		httpTimeout := v.GetInt(field.HttpTimeoutField.GetName())
+		if httpTimeout <= 0 {
+			return fmt.Errorf("field %s: value must be greater than or equal to 1 but got %d", field.HttpTimeoutField.GetName(), httpTimeout)
 		}
+		httpTimeoutField := field.HttpTimeoutField
+		if _, err := field.ValidateField(&httpTimeoutField, httpTimeout); err != nil {
+			return err
+		}
+		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
 
 		// Save the selected authentication method and get the connector.
 		c, err := getconnector(runCtx, t, RunTimeOpts{SelectedAuthMethod: v.GetString("auth-method")})
@@ -549,13 +551,15 @@ func MakeGRPCServerCommand[T field.Configurable](
 			runCtx = context.WithValue(runCtx, crypto.ContextClientSecretKey, secretJwk)
 		}
 
-		if httpTimeout := v.GetInt(field.HttpTimeoutField.GetName()); httpTimeout > 0 {
-			httpTimeoutField := field.HttpTimeoutField
-			if _, err := field.ValidateField(&httpTimeoutField, httpTimeout); err != nil {
-				return err
-			}
-			runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
+		httpTimeout := v.GetInt(field.HttpTimeoutField.GetName())
+		if httpTimeout <= 0 {
+			return fmt.Errorf("field %s: value must be greater than or equal to 1 but got %d", field.HttpTimeoutField.GetName(), httpTimeout)
 		}
+		httpTimeoutField := field.HttpTimeoutField
+		if _, err := field.ValidateField(&httpTimeoutField, httpTimeout); err != nil {
+			return err
+		}
+		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
 
 		sessionStoreMaximumSize := v.GetInt(field.ServerSessionStoreMaximumSizeField.GetName())
 		sessionConstructor := getGRPCSessionStoreClient(runCtx, serverCfg)
