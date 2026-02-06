@@ -9,6 +9,7 @@
 package v2
 
 import (
+	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -22,73 +23,16 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type IdAlias struct {
-	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *IdAlias) Reset() {
-	*x = IdAlias{}
-	mi := &file_c1_connector_v2_annotation_id_alias_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *IdAlias) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*IdAlias) ProtoMessage() {}
-
-func (x *IdAlias) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_id_alias_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-func (x *IdAlias) GetId() string {
-	if x != nil {
-		return x.Id
-	}
-	return ""
-}
-
-func (x *IdAlias) SetId(v string) {
-	x.Id = v
-}
-
-type IdAlias_builder struct {
-	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
-
-	Id string
-}
-
-func (b0 IdAlias_builder) Build() *IdAlias {
-	m0 := &IdAlias{}
-	b, x := &b0, m0
-	_, _ = b, x
-	x.Id = b.Id
-	return m0
-}
-
 type Aliases struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
-	Id            []*IdAlias             `protobuf:"bytes,1,rep,name=id,proto3" json:"id,omitempty"`
+	Ids           []string               `protobuf:"bytes,1,rep,name=ids,proto3" json:"ids,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Aliases) Reset() {
 	*x = Aliases{}
-	mi := &file_c1_connector_v2_annotation_id_alias_proto_msgTypes[1]
+	mi := &file_c1_connector_v2_annotation_id_alias_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -100,7 +44,7 @@ func (x *Aliases) String() string {
 func (*Aliases) ProtoMessage() {}
 
 func (x *Aliases) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_annotation_id_alias_proto_msgTypes[1]
+	mi := &file_c1_connector_v2_annotation_id_alias_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -111,28 +55,28 @@ func (x *Aliases) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-func (x *Aliases) GetId() []*IdAlias {
+func (x *Aliases) GetIds() []string {
 	if x != nil {
-		return x.Id
+		return x.Ids
 	}
 	return nil
 }
 
-func (x *Aliases) SetId(v []*IdAlias) {
-	x.Id = v
+func (x *Aliases) SetIds(v []string) {
+	x.Ids = v
 }
 
 type Aliases_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Id []*IdAlias
+	Ids []string
 }
 
 func (b0 Aliases_builder) Build() *Aliases {
 	m0 := &Aliases{}
 	b, x := &b0, m0
 	_, _ = b, x
-	x.Id = b.Id
+	x.Ids = b.Ids
 	return m0
 }
 
@@ -140,24 +84,20 @@ var File_c1_connector_v2_annotation_id_alias_proto protoreflect.FileDescriptor
 
 const file_c1_connector_v2_annotation_id_alias_proto_rawDesc = "" +
 	"\n" +
-	")c1/connector/v2/annotation_id_alias.proto\x12\x0fc1.connector.v2\"\x19\n" +
-	"\aIdAlias\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"3\n" +
-	"\aAliases\x12(\n" +
-	"\x02id\x18\x01 \x03(\v2\x18.c1.connector.v2.IdAliasR\x02idB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
+	")c1/connector/v2/annotation_id_alias.proto\x12\x0fc1.connector.v2\x1a\x17validate/validate.proto\"2\n" +
+	"\aAliases\x12'\n" +
+	"\x03ids\x18\x01 \x03(\tB\x15\xfaB\x12\x92\x01\x0f\b\x01\x10d\x18\x01\"\ar\x05\x10\x01\x18\x80\x02R\x03idsB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
-var file_c1_connector_v2_annotation_id_alias_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_c1_connector_v2_annotation_id_alias_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_c1_connector_v2_annotation_id_alias_proto_goTypes = []any{
-	(*IdAlias)(nil), // 0: c1.connector.v2.IdAlias
-	(*Aliases)(nil), // 1: c1.connector.v2.Aliases
+	(*Aliases)(nil), // 0: c1.connector.v2.Aliases
 }
 var file_c1_connector_v2_annotation_id_alias_proto_depIdxs = []int32{
-	0, // 0: c1.connector.v2.Aliases.id:type_name -> c1.connector.v2.IdAlias
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	0, // [0:0] is the sub-list for method output_type
+	0, // [0:0] is the sub-list for method input_type
+	0, // [0:0] is the sub-list for extension type_name
+	0, // [0:0] is the sub-list for extension extendee
+	0, // [0:0] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_annotation_id_alias_proto_init() }
@@ -171,7 +111,7 @@ func file_c1_connector_v2_annotation_id_alias_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_annotation_id_alias_proto_rawDesc), len(file_c1_connector_v2_annotation_id_alias_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

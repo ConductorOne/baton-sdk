@@ -216,6 +216,33 @@ func WithSecretTrait(opts ...SecretTraitOption) ResourceOption {
 	}
 }
 
+// WithAliases sets the aliases id for a resource.
+func WithAliases(aliases ...string) ResourceOption {
+	return func(r *v2.Resource) error {
+		aliasV := &v2.Aliases{}
+
+		annos := annotations.Annotations(r.GetAnnotations())
+		_, err := annos.Pick(aliasV)
+		if err != nil {
+			return err
+		}
+
+		v := make([]string, 0, len(aliases))
+		for _, alias := range aliases {
+			if alias != "" {
+				v = append(v, alias)
+			}
+		}
+
+		aliasV.Ids = v
+
+		annos.Update(aliasV)
+		r.SetAnnotations(annos)
+
+		return nil
+	}
+}
+
 func convertIDToString(id interface{}) (string, error) {
 	var resourceID string
 	switch objID := id.(type) {

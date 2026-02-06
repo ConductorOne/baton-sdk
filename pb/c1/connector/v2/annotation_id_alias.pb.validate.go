@@ -35,106 +35,6 @@ var (
 	_ = sort.Sort
 )
 
-// Validate checks the field values on IdAlias with the rules defined in the
-// proto definition for this message. If any rules are violated, the first
-// error encountered is returned, or nil if there are no violations.
-func (m *IdAlias) Validate() error {
-	return m.validate(false)
-}
-
-// ValidateAll checks the field values on IdAlias with the rules defined in the
-// proto definition for this message. If any rules are violated, the result is
-// a list of violation errors wrapped in IdAliasMultiError, or nil if none found.
-func (m *IdAlias) ValidateAll() error {
-	return m.validate(true)
-}
-
-func (m *IdAlias) validate(all bool) error {
-	if m == nil {
-		return nil
-	}
-
-	var errors []error
-
-	// no validation rules for Id
-
-	if len(errors) > 0 {
-		return IdAliasMultiError(errors)
-	}
-
-	return nil
-}
-
-// IdAliasMultiError is an error wrapping multiple validation errors returned
-// by IdAlias.ValidateAll() if the designated constraints aren't met.
-type IdAliasMultiError []error
-
-// Error returns a concatenation of all the error messages it wraps.
-func (m IdAliasMultiError) Error() string {
-	msgs := make([]string, 0, len(m))
-	for _, err := range m {
-		msgs = append(msgs, err.Error())
-	}
-	return strings.Join(msgs, "; ")
-}
-
-// AllErrors returns a list of validation violation errors.
-func (m IdAliasMultiError) AllErrors() []error { return m }
-
-// IdAliasValidationError is the validation error returned by IdAlias.Validate
-// if the designated constraints aren't met.
-type IdAliasValidationError struct {
-	field  string
-	reason string
-	cause  error
-	key    bool
-}
-
-// Field function returns field value.
-func (e IdAliasValidationError) Field() string { return e.field }
-
-// Reason function returns reason value.
-func (e IdAliasValidationError) Reason() string { return e.reason }
-
-// Cause function returns cause value.
-func (e IdAliasValidationError) Cause() error { return e.cause }
-
-// Key function returns key value.
-func (e IdAliasValidationError) Key() bool { return e.key }
-
-// ErrorName returns error name.
-func (e IdAliasValidationError) ErrorName() string { return "IdAliasValidationError" }
-
-// Error satisfies the builtin error interface
-func (e IdAliasValidationError) Error() string {
-	cause := ""
-	if e.cause != nil {
-		cause = fmt.Sprintf(" | caused by: %v", e.cause)
-	}
-
-	key := ""
-	if e.key {
-		key = "key for "
-	}
-
-	return fmt.Sprintf(
-		"invalid %sIdAlias.%s: %s%s",
-		key,
-		e.field,
-		e.reason,
-		cause)
-}
-
-var _ error = IdAliasValidationError{}
-
-var _ interface {
-	Field() string
-	Reason() string
-	Key() bool
-	Cause() error
-	ErrorName() string
-} = IdAliasValidationError{}
-
 // Validate checks the field values on Aliases with the rules defined in the
 // proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
@@ -156,36 +56,44 @@ func (m *Aliases) validate(all bool) error {
 
 	var errors []error
 
-	for idx, item := range m.GetId() {
+	if l := len(m.GetIds()); l < 1 || l > 100 {
+		err := AliasesValidationError{
+			field:  "Ids",
+			reason: "value must contain between 1 and 100 items, inclusive",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
+	_Aliases_Ids_Unique := make(map[string]struct{}, len(m.GetIds()))
+
+	for idx, item := range m.GetIds() {
 		_, _ = idx, item
 
-		if all {
-			switch v := interface{}(item).(type) {
-			case interface{ ValidateAll() error }:
-				if err := v.ValidateAll(); err != nil {
-					errors = append(errors, AliasesValidationError{
-						field:  fmt.Sprintf("Id[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
-			case interface{ Validate() error }:
-				if err := v.Validate(); err != nil {
-					errors = append(errors, AliasesValidationError{
-						field:  fmt.Sprintf("Id[%v]", idx),
-						reason: "embedded message failed validation",
-						cause:  err,
-					})
-				}
+		if _, exists := _Aliases_Ids_Unique[item]; exists {
+			err := AliasesValidationError{
+				field:  fmt.Sprintf("Ids[%v]", idx),
+				reason: "repeated value must contain unique items",
 			}
-		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
-				return AliasesValidationError{
-					field:  fmt.Sprintf("Id[%v]", idx),
-					reason: "embedded message failed validation",
-					cause:  err,
-				}
+			if !all {
+				return err
 			}
+			errors = append(errors, err)
+		} else {
+			_Aliases_Ids_Unique[item] = struct{}{}
+		}
+
+		if l := utf8.RuneCountInString(item); l < 1 || l > 256 {
+			err := AliasesValidationError{
+				field:  fmt.Sprintf("Ids[%v]", idx),
+				reason: "value length must be between 1 and 256 runes, inclusive",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
 		}
 
 	}
