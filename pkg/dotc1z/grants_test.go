@@ -173,6 +173,61 @@ func TestGrantExpandableRoundTrip(t *testing.T) {
 	require.Equal(t, origGE.GetResourceTypeIds(), ge.GetResourceTypeIds())
 }
 
+// TestGrantExpandableNotDuplicatedInDataBlob verifies that the GrantExpandable annotation
+// is stripped from the data blob on write and only stored in the expansion column.
+// If the data blob still contains it, ListGrants would return the annotation twice
+// (once from the blob, once re-attached from the expansion column).
+func TestGrantExpandableNotDuplicatedInDataBlob(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	expandableGrant := v2.Grant_builder{
+		Id:          "grant-dup-check",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        true,
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, expandableGrant))
+
+	// Read the raw data blob and verify GrantExpandable is NOT in it.
+	var rawData []byte
+	err := c1f.db.QueryRowContext(ctx,
+		"SELECT data FROM "+grants.Name()+" WHERE external_id=?", "grant-dup-check",
+	).Scan(&rawData)
+	require.NoError(t, err)
+
+	rawGrant := &v2.Grant{}
+	require.NoError(t, proto.Unmarshal(rawData, rawGrant))
+
+	rawAnnos := annotations.Annotations(rawGrant.GetAnnotations())
+	require.False(t, rawAnnos.Contains(&v2.GrantExpandable{}),
+		"data blob should NOT contain GrantExpandable -- it should only be in the expansion column")
+
+	// Verify ListGrants returns the annotation exactly once (from expansion column re-attachment).
+	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, resp.GetList(), 1)
+
+	grant := resp.GetList()[0]
+	geCount := 0
+	for _, a := range grant.GetAnnotations() {
+		ge := &v2.GrantExpandable{}
+		if a.MessageIs(ge) {
+			geCount++
+		}
+	}
+	require.Equal(t, 1, geCount,
+		"ListGrants should return GrantExpandable exactly once, not duplicated from both data blob and expansion column")
+}
+
 // TestDiffDetectsExpansionAnnotationChange verifies that when only the expansion annotation
 // changes (not the rest of the grant data), the diff correctly detects the grant as modified.
 func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {

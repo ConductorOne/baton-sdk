@@ -349,17 +349,20 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 	msg T,
 	extractFields func(m T) (goqu.Record, error),
 ) (*goqu.Record, error) {
-	messageBlob, err := protoMarshaler.Marshal(msg)
-	if err != nil {
-		return nil, err
-	}
-
+	// Call extractFields before marshaling so that any mutations it makes
+	// (e.g. stripping GrantExpandable from grant annotations) are reflected
+	// in the serialized data blob.
 	fields, err := extractFields(msg)
 	if err != nil {
 		return nil, err
 	}
 	if fields == nil {
 		fields = goqu.Record{}
+	}
+
+	messageBlob, err := protoMarshaler.Marshal(msg)
+	if err != nil {
+		return nil, err
 	}
 
 	if _, idSet := fields["external_id"]; !idSet {
@@ -434,12 +437,8 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 			for i := start; i < end; i++ {
 				m := msgs[i]
 
-				messageBlob, err := protoMarshallers[worker].Marshal(m)
-				if err != nil {
-					errs[i] = err
-					continue
-				}
-
+				// Call extractFields before marshaling so that any mutations
+				// (e.g. stripping GrantExpandable) are reflected in the data blob.
 				fields, err := extractFields(m)
 				if err != nil {
 					errs[i] = err
@@ -447,6 +446,12 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 				}
 				if fields == nil {
 					fields = goqu.Record{}
+				}
+
+				messageBlob, err := protoMarshallers[worker].Marshal(m)
+				if err != nil {
+					errs[i] = err
+					continue
 				}
 
 				if _, idSet := fields["external_id"]; !idSet {
@@ -701,8 +706,16 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 		return err
 	}
 
+	// For grants, also select the expansion column so we can re-attach
+	// the GrantExpandable annotation that was stripped from the data blob.
+	withExpansion := tableName == grants.Name()
+
 	q := c.db.From(tableName).Prepared(true)
-	q = q.Select("data")
+	if withExpansion {
+		q = q.Select("data", "expansion")
+	} else {
+		q = q.Select("data")
+	}
 	q = q.Where(goqu.C("external_id").Eq(id))
 
 	switch {
@@ -737,9 +750,14 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 		return err
 	}
 
-	data := make([]byte, 0)
+	var data []byte
+	var expansion []byte
 	row := c.db.QueryRowContext(ctx, query, args...)
-	err = row.Scan(&data)
+	if withExpansion {
+		err = row.Scan(&data, &expansion)
+	} else {
+		err = row.Scan(&data)
+	}
 	if err != nil {
 		return err
 	}
@@ -747,6 +765,19 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	err = proto.Unmarshal(data, m)
 	if err != nil {
 		return err
+	}
+
+	// Re-attach the GrantExpandable annotation from the expansion column.
+	if withExpansion && len(expansion) > 0 {
+		if g, ok := m.(*v2.Grant); ok {
+			expandable := &v2.GrantExpandable{}
+			if err := proto.Unmarshal(expansion, expandable); err != nil {
+				return fmt.Errorf("failed to unmarshal grant expansion: %w", err)
+			}
+			annos := annotations.Annotations(g.GetAnnotations())
+			annos.Append(expandable)
+			g.SetAnnotations(annos)
+		}
 	}
 
 	return nil
