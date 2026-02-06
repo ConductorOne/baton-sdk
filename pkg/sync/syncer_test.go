@@ -1615,7 +1615,11 @@ func (mc *mockConnector) ListStaticEntitlements(
 }
 
 func (mc *mockConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
-	return v2.GrantsServiceListGrantsResponse_builder{List: mc.grantDB[in.GetResource().GetId().GetResource()]}.Build(), nil
+	var key string
+	if r := in.GetResource(); r != nil {
+		key = r.GetId().GetResource()
+	}
+	return v2.GrantsServiceListGrantsResponse_builder{List: mc.grantDB[key]}.Build(), nil
 }
 
 func (mc *mockConnector) GetMetadata(ctx context.Context, in *v2.ConnectorServiceGetMetadataRequest, opts ...grpc.CallOption) (*v2.ConnectorServiceGetMetadataResponse, error) {
@@ -1720,8 +1724,12 @@ func (mc *etagMockConnector) ListGrants(ctx context.Context, in *v2.GrantsServic
 		}.Build(), nil
 	}
 
+	var key string
+	if r := in.GetResource(); r != nil {
+		key = r.GetId().GetResource()
+	}
 	return v2.GrantsServiceListGrantsResponse_builder{
-		List: mc.grantDB[in.GetResource().GetId().GetResource()],
+		List: mc.grantDB[key],
 		Annotations: annotations.New(&v2.ETag{
 			Value:         mc.etagValue,
 			EntitlementId: mc.entitlementID,

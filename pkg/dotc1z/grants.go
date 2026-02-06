@@ -256,16 +256,28 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 
 // extractAndStripExpansion extracts the GrantExpandable annotation from the grant,
 // removes it from the grant's annotations, and returns the serialized proto bytes.
-// Returns (nil, false) if the grant has no valid GrantExpandable annotation.
+// The annotation is always stripped from the grant if present, so it never leaks
+// into the data blob. Returns (nil, false) if the grant has no GrantExpandable
+// annotation or if the annotation contains no valid entitlement IDs.
 func extractAndStripExpansion(grant *v2.Grant) ([]byte, bool) {
 	annos := annotations.Annotations(grant.GetAnnotations())
 	expandable := &v2.GrantExpandable{}
 	ok, err := annos.Pick(expandable)
-	if err != nil || !ok || len(expandable.GetEntitlementIds()) == 0 {
+	if err != nil || !ok {
 		return nil, false
 	}
 
-	// Check that there's at least one non-whitespace entitlement ID.
+	// Always strip the GrantExpandable annotation from the grant, regardless
+	// of whether it contains valid IDs. This keeps the data blob clean.
+	filtered := annotations.Annotations{}
+	for _, a := range annos {
+		if !a.MessageIs(expandable) {
+			filtered = append(filtered, a)
+		}
+	}
+	grant.SetAnnotations(filtered)
+
+	// Only return expansion bytes if there's at least one non-whitespace entitlement ID.
 	hasValid := false
 	for _, id := range expandable.GetEntitlementIds() {
 		if strings.TrimSpace(id) != "" {
@@ -276,15 +288,6 @@ func extractAndStripExpansion(grant *v2.Grant) ([]byte, bool) {
 	if !hasValid {
 		return nil, false
 	}
-
-	// Strip the GrantExpandable annotation from the grant by filtering it out.
-	filtered := annotations.Annotations{}
-	for _, a := range annos {
-		if !a.MessageIs(expandable) {
-			filtered = append(filtered, a)
-		}
-	}
-	grant.SetAnnotations(filtered)
 
 	// Serialize the expandable annotation.
 	data, err := proto.Marshal(expandable)

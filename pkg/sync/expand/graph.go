@@ -206,6 +206,10 @@ func (g *EntitlementGraph) AddEntitlement(entitlement *v2.Entitlement) {
 // This is a convenience for callers that already have entitlement IDs and do not
 // want to fetch/unmarshal full entitlement protos.
 func (g *EntitlementGraph) AddEntitlementID(entitlementID string) {
+	if entitlementID == "" {
+		return
+	}
+
 	// If the entitlement is already in the graph, fail silently.
 	found := g.GetNode(entitlementID)
 	if found != nil {

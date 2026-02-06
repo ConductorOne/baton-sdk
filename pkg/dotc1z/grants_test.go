@@ -40,6 +40,9 @@ func TestExtractAndStripExpansion_WhitespaceOnlyEntitlementIDs(t *testing.T) {
 	expansionBytes, isExpandable := extractAndStripExpansion(grant)
 	require.False(t, isExpandable, "grant with only whitespace entitlement IDs should not be expandable")
 	require.Nil(t, expansionBytes, "expansion bytes should be nil for non-expandable grant")
+
+	// The annotation should still be stripped from the grant even though the IDs were invalid.
+	require.Empty(t, grant.GetAnnotations(), "GrantExpandable annotation should be stripped even with invalid IDs")
 }
 
 func TestExtractAndStripExpansion_MixedWhitespaceAndValidIDs(t *testing.T) {

@@ -289,13 +289,17 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	var count uint32 = 0
 	lastRow := 0
 	var data sql.RawBytes
-	var expansion sql.RawBytes
 	var ret []T
 	for rows.Next() {
 		count++
 		if count > pageSize {
 			break
 		}
+		// Use a fresh []byte per row for expansion so NULL rows don't
+		// inherit stale data from a previous iteration. We avoid
+		// sql.RawBytes here because driver behaviour for NULL blobs
+		// varies across platforms (some nil it, some leave it unchanged).
+		var expansion []byte
 		if withExpansion {
 			err := rows.Scan(&lastRow, &data, &expansion)
 			if err != nil {
