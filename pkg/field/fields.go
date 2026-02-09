@@ -10,6 +10,11 @@ import (
 
 var ErrWrongValueType = errors.New("unable to cast any to concrete type")
 
+const (
+	Oauth2ClientIDFieldName     = "oauth2_client_cred_grant_client_id"
+	Oauth2ClientSecretFieldName = "oauth2_client_cred_grant_client_secret"
+)
+
 type Variant string
 
 const (
