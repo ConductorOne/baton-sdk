@@ -15,6 +15,7 @@ import (
 )
 
 var ErrNoAlias = fmt.Errorf("no aliases found for resource")
+var ErrEmptyAlias = fmt.Errorf("alias cannot be empty")
 
 type ResourceOption func(*v2.Resource) error
 
@@ -239,6 +240,10 @@ func WithAliases(aliases ...string) ResourceOption {
 		}
 
 		for _, alias := range aliases {
+			if alias == "" {
+				return ErrEmptyAlias
+			}
+
 			uniqueAlias[alias] = struct{}{}
 		}
 

@@ -59,6 +59,47 @@ func TestNewAppResource(t *testing.T) {
 	require.Len(t, aliases.GetIds(), 2)
 }
 
+func TestNewAppResourceAliases(t *testing.T) {
+	rt := NewResourceType("App", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_APP})
+	_, err := NewAppResource(
+		"test app",
+		rt,
+		1234,
+		[]AppTraitOption{
+			WithAppHelpURL("https://example.com"),
+		},
+		WithAliases(),
+	)
+	require.Error(t, err)
+
+	_, err = NewAppResource(
+		"test app",
+		rt,
+		1234,
+		[]AppTraitOption{
+			WithAppHelpURL("https://example.com"),
+		},
+		WithAliases(""),
+	)
+	require.Error(t, err)
+
+	bigString := ""
+	for i := 0; i < 300; i++ {
+		bigString += "a"
+	}
+
+	_, err = NewAppResource(
+		"test app",
+		rt,
+		1234,
+		[]AppTraitOption{
+			WithAppHelpURL("https://example.com"),
+		},
+		WithAliases(bigString),
+	)
+	require.Error(t, err)
+}
+
 func TestNewGroupResource(t *testing.T) {
 	profile := map[string]interface{}{
 		"group_name": "Test",
