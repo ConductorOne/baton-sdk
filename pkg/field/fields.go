@@ -12,7 +12,7 @@ var ErrWrongValueType = errors.New("unable to cast any to concrete type")
 
 const (
 	Oauth2ClientIDFieldName     = "oauth2_client_cred_grant_client_id"
-	Oauth2ClientSecretFieldName = "oauth2_client_cred_grant_client_secret"
+	Oauth2ClientSecretFieldName = "oauth2_client_cred_grant_client_secret" //nolint:gosec // this is not a credential
 )
 
 type Variant string
