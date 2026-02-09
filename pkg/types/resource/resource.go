@@ -249,6 +249,11 @@ func WithAliases(aliases ...string) ResourceOption {
 
 		aliasV.Ids = ids
 
+		err = aliasV.Validate()
+		if err != nil {
+			return err
+		}
+
 		annos.Update(aliasV)
 		r.SetAnnotations(annos)
 
