@@ -14,6 +14,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+var ErrNoAlias = fmt.Errorf("no aliases found for resource")
+var ErrEmptyAlias = fmt.Errorf("alias cannot be empty")
+
 type ResourceOption func(*v2.Resource) error
 
 func WithAnnotation(msgs ...proto.Message) ResourceOption {
@@ -210,6 +213,53 @@ func WithSecretTrait(opts ...SecretTraitOption) ResourceOption {
 		}
 
 		annos.Update(rt)
+		r.SetAnnotations(annos)
+
+		return nil
+	}
+}
+
+// WithAliases sets the aliases id for a resource.
+func WithAliases(aliases ...string) ResourceOption {
+	return func(r *v2.Resource) error {
+		if len(aliases) == 0 {
+			return ErrNoAlias
+		}
+
+		aliasV := &v2.Aliases{}
+
+		annos := annotations.Annotations(r.GetAnnotations())
+		_, err := annos.Pick(aliasV)
+		if err != nil {
+			return err
+		}
+
+		uniqueAlias := make(map[string]struct{}, len(aliasV.GetIds())+len(aliases))
+		for _, alias := range aliasV.GetIds() {
+			uniqueAlias[alias] = struct{}{}
+		}
+
+		for _, alias := range aliases {
+			if alias == "" {
+				return ErrEmptyAlias
+			}
+
+			uniqueAlias[alias] = struct{}{}
+		}
+
+		ids := make([]string, 0, len(uniqueAlias))
+		for alias := range uniqueAlias {
+			ids = append(ids, alias)
+		}
+
+		aliasV.Ids = ids
+
+		err = aliasV.Validate()
+		if err != nil {
+			return err
+		}
+
+		annos.Update(aliasV)
 		r.SetAnnotations(annos)
 
 		return nil
