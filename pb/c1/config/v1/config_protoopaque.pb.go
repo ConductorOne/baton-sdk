@@ -31,7 +31,7 @@ const (
 	ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE       ConstraintKind = 2
 	ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE ConstraintKind = 3
 	ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON       ConstraintKind = 4
-	ConstraintKind_CONSTRAINT_KIND_OPTIONS_RESTRICTED ConstraintKind = 5
+	ConstraintKind_CONSTRAINT_KIND_ALLOWED_OPTIONS    ConstraintKind = 5
 )
 
 // Enum value maps for ConstraintKind.
@@ -42,7 +42,7 @@ var (
 		2: "CONSTRAINT_KIND_AT_LEAST_ONE",
 		3: "CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE",
 		4: "CONSTRAINT_KIND_DEPENDENT_ON",
-		5: "CONSTRAINT_KIND_OPTIONS_RESTRICTED",
+		5: "CONSTRAINT_KIND_ALLOWED_OPTIONS",
 	}
 	ConstraintKind_value = map[string]int32{
 		"CONSTRAINT_KIND_UNSPECIFIED":        0,
@@ -50,7 +50,7 @@ var (
 		"CONSTRAINT_KIND_AT_LEAST_ONE":       2,
 		"CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE": 3,
 		"CONSTRAINT_KIND_DEPENDENT_ON":       4,
-		"CONSTRAINT_KIND_OPTIONS_RESTRICTED": 5,
+		"CONSTRAINT_KIND_ALLOWED_OPTIONS":    5,
 	}
 )
 
@@ -2861,14 +2861,14 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x04type\x18\x03 \x01(\x0e2\x1d.c1.config.v1.StringFieldTypeR\x04type\x12-\n" +
 	"\x12allowed_extensions\x18\x04 \x03(\tR\x11allowedExtensions\x129\n" +
 	"\aoptions\x18\x05 \x03(\v2\x1f.c1.config.v1.StringFieldOptionR\aoptionsB\b\n" +
-	"\x06_rules*\xec\x01\n" +
+	"\x06_rules*\xe9\x01\n" +
 	"\x0eConstraintKind\x12\x1f\n" +
 	"\x1bCONSTRAINT_KIND_UNSPECIFIED\x10\x00\x12%\n" +
 	"!CONSTRAINT_KIND_REQUIRED_TOGETHER\x10\x01\x12 \n" +
 	"\x1cCONSTRAINT_KIND_AT_LEAST_ONE\x10\x02\x12&\n" +
 	"\"CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE\x10\x03\x12 \n" +
-	"\x1cCONSTRAINT_KIND_DEPENDENT_ON\x10\x04\x12&\n" +
-	"\"CONSTRAINT_KIND_OPTIONS_RESTRICTED\x10\x05*\xc9\x01\n" +
+	"\x1cCONSTRAINT_KIND_DEPENDENT_ON\x10\x04\x12#\n" +
+	"\x1fCONSTRAINT_KIND_ALLOWED_OPTIONS\x10\x05*\xc9\x01\n" +
 	"\x0fStringFieldType\x12&\n" +
 	"\"STRING_FIELD_TYPE_TEXT_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18STRING_FIELD_TYPE_RANDOM\x10\x01\x12\x1c\n" +
