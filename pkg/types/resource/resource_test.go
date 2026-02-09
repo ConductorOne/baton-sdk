@@ -22,13 +22,14 @@ func TestNewAppResource(t *testing.T) {
 			WithAppProfile(profile),
 		},
 		WithAnnotation(v2.V1Identifier_builder{Id: "v1"}.Build()),
+		WithAliases("oldid1", "oldid2", "oldid1"),
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ar)
 	require.Equal(t, rt.GetId(), ar.GetId().GetResourceType())
 	require.Equal(t, "1234", ar.GetId().GetResource())
 
-	require.Len(t, ar.GetAnnotations(), 2)
+	require.Len(t, ar.GetAnnotations(), 3)
 	v1ID := &v2.V1Identifier{}
 	annos := annotations.Annotations(ar.GetAnnotations())
 	ok, err := annos.Pick(v1ID)
@@ -50,6 +51,12 @@ func TestNewAppResource(t *testing.T) {
 	mName, foundProfileData := GetProfileStringValue(appTrait.GetProfile(), "first_name")
 	require.False(t, foundProfileData)
 	require.Equal(t, "", mName)
+
+	aliases := &v2.Aliases{}
+	ok, err = annos.Pick(aliases)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Len(t, aliases.GetIds(), 2)
 }
 
 func TestNewGroupResource(t *testing.T) {
