@@ -26,7 +26,7 @@ func (c *C1FileAttached) CompactTable(ctx context.Context, baseSyncID string, ap
 	defer span.End()
 
 	// Get the column structure for this table by querying the schema
-	columns, err := c.getTableColumns(ctx, tableName)
+	columns, err := c.getTableColumns(ctx, c.file.rawDb, tableName)
 	if err != nil {
 		return fmt.Errorf("failed to get table columns: %w", err)
 	}
@@ -71,13 +71,18 @@ func (c *C1FileAttached) CompactTable(ctx context.Context, baseSyncID string, ap
 	return err
 }
 
-func (c *C1FileAttached) getTableColumns(ctx context.Context, tableName string) ([]string, error) {
+// sqlQuerier is satisfied by both *sql.DB and *sql.Tx.
+type sqlQuerier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+func (c *C1FileAttached) getTableColumns(ctx context.Context, q sqlQuerier, tableName string) ([]string, error) {
 	if !c.safe {
 		return nil, errors.New("database has been detached")
 	}
 	// PRAGMA doesn't support parameter binding, so we format the table name directly
 	query := fmt.Sprintf("PRAGMA table_info(%s)", tableName)
-	rows, err := c.file.db.QueryContext(ctx, query)
+	rows, err := q.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -306,7 +311,7 @@ func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID
 // These are DELETIONS - items that existed before but no longer exist.
 // Uses the provided transaction.
 func (c *C1FileAttached) diffTableFromAttachedTx(ctx context.Context, tx *sql.Tx, tableName string, oldSyncID string, newSyncID string, targetSyncID string) error {
-	columns, err := c.getTableColumns(ctx, tableName)
+	columns, err := c.getTableColumns(ctx, tx, tableName)
 	if err != nil {
 		return err
 	}
@@ -349,7 +354,7 @@ func (c *C1FileAttached) diffTableFromAttachedTx(ctx context.Context, tx *sql.Tx
 // These are UPSERTS - items that are new or have changed.
 // Uses the provided transaction.
 func (c *C1FileAttached) diffTableFromMainTx(ctx context.Context, tx *sql.Tx, tableName string, oldSyncID string, newSyncID string, targetSyncID string) error {
-	columns, err := c.getTableColumns(ctx, tableName)
+	columns, err := c.getTableColumns(ctx, tx, tableName)
 	if err != nil {
 		return err
 	}
