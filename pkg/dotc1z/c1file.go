@@ -114,6 +114,12 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 		return nil, err
 	}
 
+	// Limit to a single connection so idle pool connections don't hold WAL
+	// read locks that prevent PRAGMA wal_checkpoint(TRUNCATE) from completing
+	// all frames. Without this, saveC1z() can read an incomplete main db file
+	// because uncheckpointed WAL frames are invisible to raw file I/O.
+	rawDB.SetMaxOpenConns(1)
+
 	db := goqu.New("sqlite3", rawDB)
 
 	c1File := &C1File{
@@ -288,18 +294,30 @@ func (c *C1File) Close(ctx context.Context) error {
 				checkpointCtx, checkpointCancel = context.WithTimeout(context.Background(), 30*time.Second)
 				defer checkpointCancel()
 			}
-			_, err = c.rawDb.ExecContext(checkpointCtx, "PRAGMA wal_checkpoint(TRUNCATE)")
-			if err != nil {
+
+			// Use QueryRowContext to read the (busy, log, checkpointed) result.
+			// ExecContext silently discards these values, making partial
+			// checkpoints undetectable — the PRAGMA returns nil error even when
+			// it can't checkpoint all frames due to concurrent readers.
+			var busy, log, checkpointed int
+			row := c.rawDb.QueryRowContext(checkpointCtx, "PRAGMA wal_checkpoint(TRUNCATE)")
+			if err = row.Scan(&busy, &log, &checkpointed); err != nil {
 				l := ctxzap.Extract(ctx)
-				// Checkpoint failed - log and continue. The subsequent Close()
-				// will attempt a passive checkpoint. If that also fails, we'll
-				// get an error from Close() or saveC1z() will read stale data.
-				// We log here for debugging but don't fail because:
-				// 1. Close() will still attempt its own checkpoint
-				// 2. The error might be transient (busy)
-				l.Warn("WAL checkpoint failed before close",
+				l.Error("WAL checkpoint failed before close",
 					zap.Error(err),
 					zap.String("db_path", c.dbFilePath))
+				_ = c.rawDb.Close()
+				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint failed: %w", err))
+			}
+			if busy != 0 || (log >= 0 && checkpointed < log) {
+				l := ctxzap.Extract(ctx)
+				l.Error("WAL checkpoint incomplete before close",
+					zap.Int("busy", busy),
+					zap.Int("log", log),
+					zap.Int("checkpointed", checkpointed),
+					zap.String("db_path", c.dbFilePath))
+				_ = c.rawDb.Close()
+				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint incomplete: busy=%d log=%d checkpointed=%d", busy, log, checkpointed))
 			}
 		}
 
