@@ -28,8 +28,16 @@ func Generate(name string, schema field.Configuration) {
 		panic("schema must contain at least one field")
 	}
 
+	filteredFieldGroups := make([]field.SchemaFieldGroup, 0)
+	for _, g := range schema.FieldGroups {
+		if g.ExportTarget != field.ExportTargetGUI && g.ExportTarget != field.ExportTargetOps && g.ExportTarget != field.ExportTargetCLIOnly {
+			continue
+		}
+		filteredFieldGroups = append(filteredFieldGroups, g)
+	}
+
 	defaultGroupCount := 0
-	for _, group := range schema.FieldGroups {
+	for _, group := range filteredFieldGroups {
 		if group.Default {
 			defaultGroupCount++
 		}

@@ -54,8 +54,11 @@ func (c Configuration) marshal() (*v1_conf.Configuration, error) {
 		return nil, fmt.Errorf("failed to convert fields and constraints to v1: %w", err)
 	}
 
-	fieldGroups := make([]*v1_conf.FieldGroup, 0, len(c.FieldGroups))
+	fieldGroups := make([]*v1_conf.FieldGroup, 0)
 	for _, group := range c.FieldGroups {
+		if group.ExportTarget == ExportTargetCLIOnly || group.ExportTarget == ExportTargetNone {
+			continue
+		}
 		fieldGroups = append(fieldGroups, fieldGroupToV1(group))
 	}
 	conf.SetFieldGroups(fieldGroups)
