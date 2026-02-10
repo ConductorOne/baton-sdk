@@ -307,6 +307,8 @@ func (c *C1File) Close(ctx context.Context) error {
 					zap.Error(err),
 					zap.String("db_path", c.dbFilePath))
 				_ = c.rawDb.Close()
+				c.rawDb = nil
+				c.db = nil
 				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint failed: %w", err))
 			}
 			if busy != 0 || (log >= 0 && checkpointed < log) {
@@ -317,6 +319,8 @@ func (c *C1File) Close(ctx context.Context) error {
 					zap.Int("checkpointed", checkpointed),
 					zap.String("db_path", c.dbFilePath))
 				_ = c.rawDb.Close()
+				c.rawDb = nil
+				c.db = nil
 				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint incomplete: busy=%d log=%d checkpointed=%d", busy, log, checkpointed))
 			}
 		}
