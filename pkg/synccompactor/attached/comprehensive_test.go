@@ -27,7 +27,6 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
 
 	opts := []dotc1z.C1ZOption{
-		dotc1z.WithPragma("journal_mode", "WAL"),
 		dotc1z.WithTmpDir(tmpDir),
 	}
 
@@ -122,10 +121,8 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	require.NoError(t, err)
 
 	// ========= Create applied database =========
-	appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
-	defer appliedDB.Close(ctx)
 
 	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
 	require.NoError(t, err)
@@ -201,6 +198,18 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
+
+	err = appliedDB.Close(ctx)
+	require.NoError(t, err)
+
+	// Reopen the applied database in read only mode.
+	readOnlyOpts := append(slices.Clone(opts), dotc1z.WithReadOnly(true))
+	appliedDB, err = dotc1z.NewC1ZFile(ctx, appliedFile, readOnlyOpts...)
+	require.NoError(t, err)
+	defer func() {
+		err := appliedDB.Close(ctx)
+		require.NoError(t, err)
+	}()
 
 	// Note: Since applied sync is created after base sync,
 	// applied records will naturally have newer discovered_at timestamps

@@ -76,10 +76,8 @@ func TestAttachedCompactor(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create applied database with some test data
-	appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
-	defer appliedDB.Close(ctx)
 
 	// Start sync and add some applied data
 	_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, "")
@@ -89,6 +87,15 @@ func TestAttachedCompactor(t *testing.T) {
 
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
+	err = appliedDB.Close(ctx)
+	require.NoError(t, err)
+	readOnlyOpts := append(slices.Clone(opts), dotc1z.WithReadOnly(true))
+	appliedDB, err = dotc1z.NewC1ZFile(ctx, appliedFile, readOnlyOpts...)
+	require.NoError(t, err)
+	defer func() {
+		err := appliedDB.Close(ctx)
+		require.NoError(t, err)
+	}()
 
 	compactor := NewAttachedCompactor(baseDB, appliedDB)
 	err = compactor.Compact(ctx)
@@ -130,10 +137,8 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create applied database with an incremental sync
-	appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
-	defer appliedDB.Close(ctx)
 
 	// Start an incremental sync and add some applied data
 	appliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypePartial, baseSyncID)
@@ -144,6 +149,17 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
+	err = appliedDB.Close(ctx)
+	require.NoError(t, err)
+
+	// Reopen the applied database in read only mode.
+	readOnlyOpts := append(slices.Clone(opts), dotc1z.WithReadOnly(true))
+	appliedDB, err = dotc1z.NewC1ZFile(ctx, appliedFile, readOnlyOpts...)
+	require.NoError(t, err)
+	defer func() {
+		err := appliedDB.Close(ctx)
+		require.NoError(t, err)
+	}()
 
 	compactor := NewAttachedCompactor(baseDB, appliedDB)
 	err = compactor.Compact(ctx)
@@ -177,10 +193,8 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 	require.NoError(t, err)
 
 	// Create applied database with multiple syncs of different types
-	appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
-	defer appliedDB.Close(ctx)
 
 	// First sync: full
 	firstAppliedSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -201,7 +215,16 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 
 	err = appliedDB.EndSync(ctx)
 	require.NoError(t, err)
+	err = appliedDB.Close(ctx)
+	require.NoError(t, err)
 
+	readOnlyOpts := append(slices.Clone(opts), dotc1z.WithReadOnly(true))
+	appliedDB, err = dotc1z.NewC1ZFile(ctx, appliedFile, readOnlyOpts...)
+	require.NoError(t, err)
+	defer func() {
+		err := appliedDB.Close(ctx)
+		require.NoError(t, err)
+	}()
 	compactor := NewAttachedCompactor(baseDB, appliedDB)
 	err = compactor.Compact(ctx)
 	require.NoError(t, err)
@@ -242,9 +265,9 @@ func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
 	require.NoError(t, oldDB.EndSync(ctx))
 
 	// Applied DB: create a full sync, then generate diff syncs, then delete the full sync.
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "applied.c1z"), opts...)
+	appliedFile := filepath.Join(tmpDir, "applied.c1z")
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
 	require.NoError(t, err)
-	defer appliedDB.Close(ctx)
 
 	appliedFullSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
@@ -260,6 +283,16 @@ func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
 	// Remove the only compactable sync from appliedDB; only diff syncs remain.
 	require.NoError(t, appliedDB.DeleteSyncRun(ctx, appliedFullSyncID))
 
+	err = appliedDB.Close(ctx)
+	require.NoError(t, err)
+
+	readOnlyOpts := append(slices.Clone(opts), dotc1z.WithReadOnly(true))
+	appliedDB, err = dotc1z.NewC1ZFile(ctx, appliedFile, readOnlyOpts...)
+	require.NoError(t, err)
+	defer func() {
+		err := appliedDB.Close(ctx)
+		require.NoError(t, err)
+	}()
 	compactor := NewAttachedCompactor(baseDB, appliedDB)
 	err = compactor.Compact(ctx)
 	require.Error(t, err)
