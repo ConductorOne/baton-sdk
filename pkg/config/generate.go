@@ -28,13 +28,8 @@ func Generate(name string, schema field.Configuration) {
 		panic("schema must contain at least one field")
 	}
 
-	filteredFieldGroups := make([]field.SchemaFieldGroup, 0)
-	for _, g := range schema.FieldGroups {
-		filteredFieldGroups = append(filteredFieldGroups, g)
-	}
-
 	defaultGroupCount := 0
-	for _, group := range filteredFieldGroups {
+	for _, group := range schema.FieldGroups {
 		if group.Default {
 			defaultGroupCount++
 		}
