@@ -302,14 +302,15 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 	// this code change). New syncs set supports_diff=1 at creation and write grants with
 	// the expansion column populated correctly, so they don't need backfilling.
 	//
-	// The LIKE filter skips the 99%+ of rows that don't have expandable annotations,
-	// making this fast even on large tables.
+	// We unmarshal every grant with expansion IS NULL from old syncs, extract the
+	// GrantExpandable annotation (if present), and populate the expansion column.
+	// Non-expandable grants get an empty-blob sentinel to avoid re-processing,
+	// which is cleaned up to NULL at the end.
 	for {
 		rows, err := db.QueryContext(ctx, fmt.Sprintf(
 			`SELECT g.id, g.data FROM %s g
 			 JOIN %s sr ON g.sync_id = sr.sync_id
-			 WHERE g.expansion IS NULL 
-			   AND CAST(g.data AS TEXT) LIKE '%%GrantExpandable%%'
+			 WHERE g.expansion IS NULL
 			   AND sr.supports_diff = 0
 			 LIMIT 1000`,
 			tableName, syncRuns.Name(),
@@ -338,7 +339,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 		_ = rows.Close()
 
 		if len(batch) == 0 {
-			return nil
+			break
 		}
 
 		tx, err := db.BeginTx(ctx, nil)
@@ -364,31 +365,6 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			}
 
 			expansionBytes, needsExpansion := extractAndStripExpansion(g)
-			if expansionBytes == nil {
-				// Strip GrantExpandable so this row won't be retried forever.
-				annos := annotations.Annotations(g.GetAnnotations())
-				filtered := annotations.Annotations{}
-				expandable := &v2.GrantExpandable{}
-				for _, a := range annos {
-					if !a.MessageIs(expandable) {
-						filtered = append(filtered, a)
-					}
-				}
-				g.SetAnnotations(filtered)
-
-				newData, err := proto.Marshal(g)
-				if err != nil {
-					_ = stmt.Close()
-					_ = tx.Rollback()
-					return err
-				}
-				if _, err := stmt.ExecContext(ctx, nil, 0, newData, r.id); err != nil {
-					_ = stmt.Close()
-					_ = tx.Rollback()
-					return err
-				}
-				continue
-			}
 
 			// Re-serialize the grant with the annotation stripped.
 			newData, err := proto.Marshal(g)
@@ -398,7 +374,16 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 				return err
 			}
 
-			if _, err := stmt.ExecContext(ctx, expansionBytes, needsExpansion, newData, r.id); err != nil {
+			// Use empty blob for non-expandable grants so they won't match
+			// "expansion IS NULL" on the next iteration. Cleaned up below.
+			var expansionVal interface{}
+			if expansionBytes != nil {
+				expansionVal = expansionBytes
+			} else {
+				expansionVal = []byte{}
+			}
+
+			if _, err := stmt.ExecContext(ctx, expansionVal, needsExpansion, newData, r.id); err != nil {
 				_ = stmt.Close()
 				_ = tx.Rollback()
 				return err
@@ -410,6 +395,15 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			return err
 		}
 	}
+
+	// Convert empty-blob sentinels back to NULL.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		`UPDATE %s SET expansion = NULL WHERE expansion = X''`, tableName,
+	)); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func bulkPutGrants(

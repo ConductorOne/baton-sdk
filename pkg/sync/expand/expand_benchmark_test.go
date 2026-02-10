@@ -10,9 +10,7 @@ import (
 	"slices"
 	"testing"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
-	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
 )
@@ -86,30 +84,22 @@ func copyGraph(g *EntitlementGraph) *EntitlementGraph {
 	return newGraph
 }
 
-// loadEntitlementGraphFromC1Z builds the entitlement graph by scanning all grants
-// and looking for GrantExpandable annotations.
+// loadEntitlementGraphFromC1Z builds the entitlement graph by reading expandable grant
+// metadata directly from SQL columns via ListExpandableGrants.
 func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File) (*EntitlementGraph, error) {
 	graph := NewEntitlementGraph(ctx)
 
 	pageToken := ""
 	for {
-		resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageToken: pageToken}.Build())
+		defs, nextPageToken, err := c1f.ListExpandableGrants(ctx,
+			dotc1z.WithExpandableGrantsPageToken(pageToken),
+		)
 		if err != nil {
 			return nil, err
 		}
 
-		for _, grant := range resp.GetList() {
-			annos := annotations.Annotations(grant.GetAnnotations())
-			expandable := &v2.GrantExpandable{}
-			_, err := annos.Pick(expandable)
-			if err != nil {
-				return nil, err
-			}
-			if len(expandable.GetEntitlementIds()) == 0 {
-				continue
-			}
-
-			for _, srcEntitlementID := range expandable.GetEntitlementIds() {
+		for _, def := range defs {
+			for _, srcEntitlementID := range def.SourceEntitlementIDs {
 				srcEntitlement, err := c1f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 					EntitlementId: srcEntitlementID,
 				}.Build())
@@ -117,18 +107,18 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File) (*Enti
 					continue // Skip if source entitlement not found
 				}
 
-				graph.AddEntitlement(grant.GetEntitlement())
+				graph.AddEntitlementID(def.TargetEntitlementID)
 				graph.AddEntitlement(srcEntitlement.GetEntitlement())
 				_ = graph.AddEdge(ctx,
 					srcEntitlement.GetEntitlement().GetId(),
-					grant.GetEntitlement().GetId(),
-					expandable.GetShallow(),
-					expandable.GetResourceTypeIds(),
+					def.TargetEntitlementID,
+					def.Shallow,
+					def.ResourceTypeIDs,
 				)
 			}
 		}
 
-		pageToken = resp.GetNextPageToken()
+		pageToken = nextPageToken
 		if pageToken == "" {
 			break
 		}
