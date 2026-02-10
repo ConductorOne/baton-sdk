@@ -338,6 +338,18 @@ func (c *C1File) Close(ctx context.Context) error {
 		if c.readOnly {
 			return cleanupDbDir(c.dbFilePath, ErrReadOnly)
 		}
+
+		// Verify WAL was fully checkpointed. If it still has data,
+		// saveC1z would create a c1z missing the WAL contents since
+		// it only reads the main database file.
+		walPath := c.dbFilePath + "-wal"
+		if walInfo, statErr := os.Stat(walPath); statErr == nil && walInfo.Size() > 0 {
+			return cleanupDbDir(c.dbFilePath, fmt.Errorf(
+				"c1z: WAL file not empty after database close (%d bytes), "+
+					"checkpoint may have failed - refusing to save potentially incomplete data",
+				walInfo.Size()))
+		}
+
 		err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
 		if err != nil {
 			return cleanupDbDir(c.dbFilePath, err)
