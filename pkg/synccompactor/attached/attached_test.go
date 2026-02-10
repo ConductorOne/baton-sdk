@@ -1,6 +1,7 @@
 package attached
 
 import (
+	"context"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -231,7 +232,8 @@ func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
 	require.NoError(t, baseDB.EndSync(ctx))
 
 	// Old DB (used to generate diff syncs)
-	oldDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "old.c1z"), opts...)
+	oldOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
+	oldDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "old.c1z"), oldOpts...)
 	require.NoError(t, err)
 	defer oldDB.Close(ctx)
 

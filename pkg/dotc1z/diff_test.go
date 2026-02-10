@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -113,8 +114,10 @@ func TestGenerateSyncDiffFromFile_Additions(t *testing.T) {
 
 	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
 
-	// Create the OLD file with one resource
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	// Create the OLD file with one resource.
+	// We're attaching this later, so don't use an exclusive lock.
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -237,7 +240,8 @@ func TestGenerateSyncDiffFromFile_Deletions(t *testing.T) {
 	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
 
 	// Create the OLD file with two resources
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -336,7 +340,8 @@ func TestGenerateSyncDiffFromFile_Modifications(t *testing.T) {
 	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
 
 	// Create the OLD file with a resource
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -428,7 +433,8 @@ func TestGenerateSyncDiffFromFile_MixedChanges(t *testing.T) {
 	resourceTypeID := testResourceType
 
 	// Create OLD file with resources A, B, C
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -556,7 +562,8 @@ func TestGenerateSyncDiffFromFile_NoChanges(t *testing.T) {
 	resourceTypeID := testResourceType
 
 	// Create OLD file with resource A
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -645,7 +652,8 @@ func TestGenerateSyncDiffFromFile_EntitlementsOnly(t *testing.T) {
 	resourceTypeID := testResourceType
 
 	// Create OLD file with entitlement A
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -749,7 +757,8 @@ func TestGenerateSyncDiffFromFile_GrantsOnly(t *testing.T) {
 	resourceTypeID := testResourceType
 
 	// Create OLD file with grant A
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -877,7 +886,8 @@ func TestGenerateSyncDiffFromFile_EmptyBase(t *testing.T) {
 	resourceTypeID := testResourceType
 
 	// Create OLD file with empty sync (no resources)
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -976,7 +986,8 @@ func TestGenerateSyncDiffFromFile_EmptyNew(t *testing.T) {
 	resourceTypeID := testResourceType
 
 	// Create OLD file with resources A and B
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -1075,7 +1086,8 @@ func TestGenerateSyncDiffFromFile_EntitlementsDeletions(t *testing.T) {
 	resourceTypeID := testResourceType
 
 	// Create OLD file with entitlements A and B
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -1179,7 +1191,8 @@ func TestGenerateSyncDiffFromFile_EntitlementsModifications(t *testing.T) {
 	resourceTypeID := testResourceType
 
 	// Create OLD file with entitlement A
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -1272,7 +1285,8 @@ func TestGenerateSyncDiffFromFile_GrantsDeletions(t *testing.T) {
 	resourceTypeID := testResourceType
 
 	// Create OLD file with grants A and B
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
