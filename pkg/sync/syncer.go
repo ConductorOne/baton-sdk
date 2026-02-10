@@ -1728,15 +1728,8 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	return nil
 }
 
-// expandableGrantLister is satisfied by *dotc1z.C1File and allows loading the
-// expansion graph directly from SQL columns without unmarshalling full grant protos.
-type expandableGrantLister interface {
-	ListExpandableGrants(ctx context.Context, opts ...dotc1z.ListExpandableGrantsOption) ([]*dotc1z.ExpandableGrantDef, string, error)
-}
-
-// loadEntitlementGraph loads one page of expandable grants and adds edges to the graph.
-// This method reads expansion metadata directly from SQL columns via ListExpandableGrants,
-// avoiding the cost of unmarshalling full grant protos.
+// loadEntitlementGraph loads one page of grants and adds expandable relationships to the graph.
+// This method handles pagination via the syncer's state machine.
 func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.EntitlementGraph) error {
 	l := ctxzap.Extract(ctx)
 	pageToken := s.state.PageToken(ctx)
@@ -1746,36 +1739,48 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 		s.handleInitialActionForStep(ctx, *s.state.Current())
 	}
 
-	egl, ok := s.store.(expandableGrantLister)
-	if !ok {
-		return fmt.Errorf("store does not support ListExpandableGrants")
-	}
-
-	defs, nextPageToken, err := egl.ListExpandableGrants(ctx,
-		dotc1z.WithExpandableGrantsPageToken(pageToken),
-		dotc1z.WithExpandableGrantsNeedsExpansionOnly(true),
-	)
+	// List only expandable grants that need expansion using SQL-layer filtering.
+	resp, err := s.store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+		PageToken:          pageToken,
+		ExpandableOnly:     true,
+		NeedsExpansionOnly: true,
+	}.Build())
 	if err != nil {
 		return err
 	}
 
-	for _, def := range defs {
-		for _, srcEntitlementID := range def.SourceEntitlementIDs {
+	for _, grant := range resp.GetList() {
+		// Extract GrantExpandable annotation from the grant.
+		annos := annotations.Annotations(grant.GetAnnotations())
+		expandable := &v2.GrantExpandable{}
+		ok, err := annos.Pick(expandable)
+		if err != nil || !ok {
+			// This shouldn't happen since we filtered by is_expandable=1,
+			// but skip gracefully if the annotation is missing.
+			continue
+		}
+
+		principalID := grant.GetPrincipal().GetId()
+		dstEntitlementID := grant.GetEntitlement().GetId()
+
+		for _, srcEntitlementID := range expandable.GetEntitlementIds() {
 			// Validate that the source entitlement's resource matches the grant's principal.
 			srcEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 				EntitlementId: srcEntitlementID,
 			}.Build())
 			if err != nil {
+				// Only skip not-found entitlements; propagate other errors
+				// to avoid silently dropping edges and yielding incorrect expansions.
 				if errors.Is(err, sql.ErrNoRows) {
 					l.Debug("source entitlement not found, skipping edge",
 						zap.String("src_entitlement_id", srcEntitlementID),
-						zap.String("target_entitlement_id", def.TargetEntitlementID),
+						zap.String("dst_entitlement_id", dstEntitlementID),
 					)
 					continue
 				}
 				l.Error("error fetching source entitlement",
 					zap.String("src_entitlement_id", srcEntitlementID),
-					zap.String("target_entitlement_id", def.TargetEntitlementID),
+					zap.String("dst_entitlement_id", dstEntitlementID),
 					zap.Error(err),
 				)
 				return err
@@ -1785,27 +1790,27 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 			if sourceEntitlementResourceID == nil {
 				return fmt.Errorf("source entitlement resource id was nil")
 			}
-			if def.PrincipalResourceTypeID != sourceEntitlementResourceID.GetResourceType() ||
-				def.PrincipalResourceID != sourceEntitlementResourceID.GetResource() {
+			if principalID.GetResourceType() != sourceEntitlementResourceID.GetResourceType() ||
+				principalID.GetResource() != sourceEntitlementResourceID.GetResource() {
 				l.Error(
 					"source entitlement resource id did not match grant principal id",
-					zap.String("grant_principal_resource_type", def.PrincipalResourceTypeID),
-					zap.String("grant_principal_resource", def.PrincipalResourceID),
+					zap.String("grant_principal_id", principalID.String()),
 					zap.String("source_entitlement_resource_id", sourceEntitlementResourceID.String()))
 
 				return fmt.Errorf("source entitlement resource id did not match grant principal id")
 			}
 
-			graph.AddEntitlementID(def.TargetEntitlementID)
+			graph.AddEntitlementID(dstEntitlementID)
 			graph.AddEntitlementID(srcEntitlementID)
-			err = graph.AddEdge(ctx, srcEntitlementID, def.TargetEntitlementID, def.Shallow, def.ResourceTypeIDs)
+			err = graph.AddEdge(ctx, srcEntitlementID, dstEntitlementID, expandable.GetShallow(), expandable.GetResourceTypeIds())
 			if err != nil {
 				return fmt.Errorf("error adding edge to graph: %w", err)
 			}
 		}
 	}
 
-	// Handle pagination.
+	// Handle pagination
+	nextPageToken := resp.GetNextPageToken()
 	if nextPageToken != "" {
 		if err := s.state.NextPage(ctx, nextPageToken); err != nil {
 			return err

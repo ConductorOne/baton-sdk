@@ -400,7 +400,9 @@ func TestCompactionPreservesGrantExpansionColumns(t *testing.T) {
 	require.NoError(t, baseDB.EndSync(ctx))
 
 	// ========= Create applied database =========
-	appliedDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "applied.c1z"), opts...)
+	// Use normal locking mode so the file can be attached to the base database later.
+	appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
+	appliedDB, err := dotc1z.NewC1ZFile(ctx, filepath.Join(tmpDir, "applied.c1z"), appliedOpts...)
 	require.NoError(t, err)
 	defer appliedDB.Close(ctx)
 

@@ -62,7 +62,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
 		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 		require.NoError(t, err)
-		defer appliedDB.Close(ctx)
+		t.Cleanup(func() { require.NoError(t, baseDB.Close(ctx)) })
 
 		_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
@@ -111,7 +111,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
 		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 		require.NoError(t, err)
-		defer appliedDB.Close(ctx)
+		t.Cleanup(func() { require.NoError(t, appliedDB.Close(ctx)) })
 
 		_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)

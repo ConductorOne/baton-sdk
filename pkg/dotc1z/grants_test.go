@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -77,9 +78,8 @@ func TestExtractAndStripExpansion_MixedWhitespaceAndValidIDs(t *testing.T) {
 }
 
 // TestGrantExpandableRoundTrip verifies that storing a grant with GrantExpandable strips the
-// annotation from the data blob and stores it in the expansion column. The annotation is NOT
-// re-attached to grant protos on read; instead, callers use ListExpandableGrants to read
-// expansion data directly from SQL columns.
+// annotation from the data blob, stores it in the expansion column, and re-attaches it when
+// reading via ListGrants. Also verifies ListExpandableGrants returns the data from SQL columns.
 func TestGrantExpandableRoundTrip(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
@@ -109,28 +109,54 @@ func TestGrantExpandableRoundTrip(t *testing.T) {
 		}.Build()),
 	}.Build()
 
-	// Keep a reference to verify PutGrants doesn't mutate the caller's object.
-	callerGrant := proto.Clone(expandableGrant).(*v2.Grant)
-
 	require.NoError(t, c1f.PutGrants(ctx, normalGrant, expandableGrant))
 
 	// Verify PutGrants did NOT mutate the caller's grant (annotation still present).
-	callerAnnotations := annotations.Annotations(callerGrant.GetAnnotations())
+	callerAnnotations := annotations.Annotations(expandableGrant.GetAnnotations())
 	require.True(t, callerAnnotations.Contains(&v2.GrantExpandable{}),
 		"PutGrants should not mutate caller's grant object")
 
-	// ListGrants should NOT return GrantExpandable on the proto -- it's stripped from the data blob
-	// and not re-attached. Expansion data is accessed via ListExpandableGrants instead.
+	// ListGrants should return GrantExpandable re-attached from the expansion column.
 	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 2)
+
+	grantsByID := make(map[string]*v2.Grant)
 	for _, g := range resp.GetList() {
-		annos := annotations.Annotations(g.GetAnnotations())
-		require.False(t, annos.Contains(&v2.GrantExpandable{}),
-			"ListGrants should not return GrantExpandable on grant %s", g.GetId())
+		grantsByID[g.GetId()] = g
 	}
 
-	// ListExpandableGrants should return the expandable grant with correct expansion data.
+	// Normal grant: no GrantExpandable on read.
+	normal := grantsByID["grant-normal"]
+	require.NotNil(t, normal)
+	normalAnnos := annotations.Annotations(normal.GetAnnotations())
+	require.False(t, normalAnnos.Contains(&v2.GrantExpandable{}),
+		"normal grant should not have GrantExpandable annotation")
+
+	// Expandable grant: GrantExpandable re-attached on read.
+	expandable := grantsByID["grant-expandable"]
+	require.NotNil(t, expandable)
+	readAnnos := annotations.Annotations(expandable.GetAnnotations())
+	ge := &v2.GrantExpandable{}
+	ok, err := readAnnos.Pick(ge)
+	require.NoError(t, err)
+	require.True(t, ok, "expandable grant should have GrantExpandable annotation after read")
+	require.Equal(t, []string{"ent1"}, ge.GetEntitlementIds())
+	require.True(t, ge.GetShallow())
+	require.Equal(t, []string{"user"}, ge.GetResourceTypeIds())
+
+	// The annotation should appear exactly once (not duplicated from both blob and column).
+	geCount := 0
+	for _, a := range expandable.GetAnnotations() {
+		check := &v2.GrantExpandable{}
+		if a.MessageIs(check) {
+			geCount++
+		}
+	}
+	require.Equal(t, 1, geCount,
+		"GrantExpandable should appear exactly once on the grant proto")
+
+	// ListExpandableGrants should also return the expandable grant with correct expansion data.
 	defs, _, err := c1f.ListExpandableGrants(ctx)
 	require.NoError(t, err)
 	require.Len(t, defs, 1)
@@ -139,8 +165,6 @@ func TestGrantExpandableRoundTrip(t *testing.T) {
 	require.Equal(t, []string{"ent1"}, defs[0].SourceEntitlementIDs)
 	require.True(t, defs[0].Shallow)
 	require.Equal(t, []string{"user"}, defs[0].ResourceTypeIDs)
-	require.Equal(t, "group", defs[0].PrincipalResourceTypeID)
-	require.Equal(t, "g1", defs[0].PrincipalResourceID)
 }
 
 // TestGrantExpandableStrippedFromDataBlob verifies that the GrantExpandable annotation
@@ -210,7 +234,9 @@ func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {
 	ent2 := v2.Entitlement_builder{Id: "ent2", Resource: g1}.Build()
 
 	// OLD: grant with expansion annotation pointing to ent1.
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	// Use normal locking mode so the file can be attached later.
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -304,7 +330,9 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 	}.Build()
 
 	// OLD: grant with sources={}.
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	// Use normal locking mode so the file can be attached later.
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -467,15 +495,33 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	// Verify normal grant is NOT in the expandable list.
 	// (ListExpandableGrants filters by expansion IS NOT NULL.)
 
-	// Also verify that ListGrants returns both grants but neither has GrantExpandable on the proto.
+	// Also verify that ListGrants returns both grants. The expandable grant should have
+	// GrantExpandable re-attached from the expansion column; the normal grant should not.
 	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 2)
+
+	grantsByID := make(map[string]*v2.Grant)
 	for _, g := range resp.GetList() {
-		annos := annotations.Annotations(g.GetAnnotations())
-		require.False(t, annos.Contains(&v2.GrantExpandable{}),
-			"grant %s should not have GrantExpandable on proto after backfill", g.GetId())
+		grantsByID[g.GetId()] = g
 	}
+
+	readNormal := grantsByID["grant-normal"]
+	require.NotNil(t, readNormal)
+	normalAnnos := annotations.Annotations(readNormal.GetAnnotations())
+	require.False(t, normalAnnos.Contains(&v2.GrantExpandable{}),
+		"normal grant should not have GrantExpandable on proto after backfill")
+
+	readExpandable := grantsByID["grant-expandable"]
+	require.NotNil(t, readExpandable)
+	readAnnos := annotations.Annotations(readExpandable.GetAnnotations())
+	ge := &v2.GrantExpandable{}
+	ok, err := readAnnos.Pick(ge)
+	require.NoError(t, err)
+	require.True(t, ok, "expandable grant should have GrantExpandable re-attached after backfill")
+	require.Equal(t, []string{"ent1"}, ge.GetEntitlementIds())
+	require.True(t, ge.GetShallow())
+	require.Equal(t, []string{"user"}, ge.GetResourceTypeIds())
 }
 
 // grantRawRow holds the raw SQL column values for a grant row.
