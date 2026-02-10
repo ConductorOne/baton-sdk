@@ -30,9 +30,6 @@ func Generate(name string, schema field.Configuration) {
 
 	filteredFieldGroups := make([]field.SchemaFieldGroup, 0)
 	for _, g := range schema.FieldGroups {
-		if g.ExportTarget != field.ExportTargetGUI && g.ExportTarget != field.ExportTargetOps && g.ExportTarget != field.ExportTargetCLIOnly {
-			continue
-		}
 		filteredFieldGroups = append(filteredFieldGroups, g)
 	}
 
