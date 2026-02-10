@@ -2,6 +2,7 @@ package attached
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -58,7 +59,8 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		// Create applied database (newer timestamps)
-		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+		appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
+		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 		require.NoError(t, err)
 		defer appliedDB.Close(ctx)
 
@@ -106,7 +108,8 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		}
 
 		// Create applied database first (will have older timestamps)
-		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, opts...)
+		appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
+		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 		require.NoError(t, err)
 		defer appliedDB.Close(ctx)
 
