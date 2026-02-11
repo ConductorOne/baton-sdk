@@ -238,12 +238,12 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 
 				if len(sourcesMap) == 0 {
 					// If we are already granted this entitlement, make sure to add ourselves as a source.
-					sourcesMap[action.DescendantEntitlementID] = &v2.GrantSources_GrantSource{}
+					sourcesMap[action.DescendantEntitlementID] = &v2.GrantSources_GrantSource{IsDirect: true}
 					updated = true
 				}
 				// Include the source grant as a source.
 				if sourcesMap[action.SourceEntitlementID] == nil {
-					sourcesMap[action.SourceEntitlementID] = &v2.GrantSources_GrantSource{}
+					sourcesMap[action.SourceEntitlementID] = &v2.GrantSources_GrantSource{IsDirect: true}
 					updated = true
 				}
 
@@ -311,7 +311,7 @@ func newExpandedGrant(descEntitlement *v2.Entitlement, principal *v2.Resource, s
 	if sourceEntitlementID != "" {
 		sources = &v2.GrantSources{
 			Sources: map[string]*v2.GrantSources_GrantSource{
-				sourceEntitlementID: {},
+				sourceEntitlementID: {IsDirect: true},
 			},
 		}
 	}

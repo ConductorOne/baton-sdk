@@ -14,7 +14,9 @@ service GrantsService {
 }
 
 message GrantSources {
-  message GrantSource {}
+  message GrantSource {
+    bool is_direct = 1;
+  }
   map<string, GrantSource> sources = 1;
 }
 
