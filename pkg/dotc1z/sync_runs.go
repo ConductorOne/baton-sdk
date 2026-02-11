@@ -581,6 +581,11 @@ func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncT
 		return ErrReadOnly
 	}
 
+	err := c.validateDb(ctx)
+	if err != nil {
+		return err
+	}
+
 	q := c.db.Insert(syncRuns.Name())
 	q = q.Rows(goqu.Record{
 		"sync_id":        syncID,

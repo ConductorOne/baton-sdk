@@ -31,6 +31,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
+var ErrDbNotOpen = errors.New("c1file: database has not been opened")
+
 type pragma struct {
 	name  string
 	value string
@@ -264,11 +266,11 @@ var ErrReadOnly = errors.New("c1z: read only mode")
 // a fresh context with a 30-second timeout is used to ensure the checkpoint completes.
 func (c *C1File) Close(ctx context.Context) error {
 	var err error
+	l := ctxzap.Extract(ctx)
 
 	c.closedMu.Lock()
 	defer c.closedMu.Unlock()
 	if c.closed {
-		l := ctxzap.Extract(ctx)
 		l.Warn("close called on already-closed c1file", zap.String("db_path", c.dbFilePath))
 		return nil
 	}
@@ -303,23 +305,27 @@ func (c *C1File) Close(ctx context.Context) error {
 			var busy, log, checkpointed int
 			row := c.rawDb.QueryRowContext(checkpointCtx, "PRAGMA wal_checkpoint(TRUNCATE)")
 			if err = row.Scan(&busy, &log, &checkpointed); err != nil {
-				l := ctxzap.Extract(ctx)
 				l.Error("WAL checkpoint failed before close",
 					zap.Error(err),
 					zap.String("db_path", c.dbFilePath))
-				_ = c.rawDb.Close()
+				closeErr := c.rawDb.Close()
+				if closeErr != nil {
+					l.Error("error closing raw db", zap.Error(closeErr))
+				}
 				c.rawDb = nil
 				c.db = nil
 				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint failed: %w", err))
 			}
 			if busy != 0 || (log >= 0 && checkpointed < log) {
-				l := ctxzap.Extract(ctx)
 				l.Error("WAL checkpoint incomplete before close",
 					zap.Int("busy", busy),
 					zap.Int("log", log),
 					zap.Int("checkpointed", checkpointed),
 					zap.String("db_path", c.dbFilePath))
-				_ = c.rawDb.Close()
+				closeErr := c.rawDb.Close()
+				if closeErr != nil {
+					l.Error("error closing raw db", zap.Error(closeErr))
+				}
 				c.rawDb = nil
 				c.db = nil
 				return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL checkpoint incomplete: busy=%d log=%d checkpointed=%d", busy, log, checkpointed))
@@ -345,7 +351,7 @@ func (c *C1File) Close(ctx context.Context) error {
 		// it only reads the main database file.
 		walPath := c.dbFilePath + "-wal"
 		if walInfo, statErr := os.Stat(walPath); statErr == nil && walInfo.Size() > 0 {
-			ctxzap.Extract(ctx).Error("c1z: WAL file not empty after database close checkpoint may have failed - refusing to save potentially incomplete data",
+			l.Error("c1z: WAL file not empty after database close checkpoint may have failed - refusing to save potentially incomplete data",
 				zap.Int64("wal_size", walInfo.Size()))
 		}
 
@@ -523,7 +529,7 @@ func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, sy
 // validateDb ensures that the database has been opened.
 func (c *C1File) validateDb(ctx context.Context) error {
 	if c.db == nil {
-		return fmt.Errorf("c1file: datbase has not been opened")
+		return ErrDbNotOpen
 	}
 
 	return nil
