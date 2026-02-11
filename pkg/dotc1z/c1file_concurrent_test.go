@@ -101,7 +101,7 @@ func TestC1ZConcurrentClose(t *testing.T) {
 	wg.Add(2)
 	closeFunc := func() {
 		defer wg.Done()
-		err = f.Close(ctx)
+		err := f.Close(ctx)
 		require.NoError(t, err)
 		elapsed := time.Since(start)
 		t.Logf("close took %s", elapsed)
@@ -112,6 +112,7 @@ func TestC1ZConcurrentClose(t *testing.T) {
 	require.NotEmpty(t, syncID)
 
 	putGrantsFunc := func() {
+		var err error
 		// Close will finish at some point, causing DB operations to fail.
 		defer wg.Done()
 		// Put grants in a loop until we get a DbNotOpen error.
