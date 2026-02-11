@@ -158,7 +158,8 @@ func TestMakeHealthCheckCommand_ConnectionRefused(t *testing.T) {
 	listener, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close()
+	err = listener.Close()
+	require.NoError(t, err)
 	v := viper.New()
 
 	cmd := &cobra.Command{}

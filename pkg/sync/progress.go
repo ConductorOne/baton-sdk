@@ -1,4 +1,4 @@
-package sync
+package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 type Progress struct {
 	Action               string
