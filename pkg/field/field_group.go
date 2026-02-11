@@ -1,11 +1,12 @@
 package field
 
 type SchemaFieldGroup struct {
-	Name        string
-	DisplayName string
-	HelpText    string
-	Fields      []SchemaField
-	Default     bool
+	Name         string
+	DisplayName  string
+	HelpText     string
+	Fields       []SchemaField
+	Default      bool
+	ExportTarget ExportTarget
 }
 
 func WithFieldGroups(fieldGroups []SchemaFieldGroup) configOption {
