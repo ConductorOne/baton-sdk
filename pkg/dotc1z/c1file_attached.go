@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -388,7 +387,7 @@ func (c *C1FileAttached) diffTableFromMainTx(ctx context.Context, tx *sql.Tx, ta
 	// For grants, we also compare the expansion column since GrantExpandable
 	// annotation is stored separately from data.
 	var dataCompare string
-	if strings.Contains(tableName, "grants") {
+	if tableName == grants.Name() {
 		// For grants: compare both data AND expansion columns.
 		// Use IFNULL to handle NULL expansion values.
 		dataCompare = "(a.data != m.data OR IFNULL(a.expansion, X'') != IFNULL(m.expansion, X''))"
