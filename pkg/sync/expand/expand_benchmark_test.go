@@ -108,7 +108,7 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File) (*Enti
 				}
 
 				graph.AddEntitlementID(def.TargetEntitlementID)
-				graph.AddEntitlement(srcEntitlement.GetEntitlement())
+				graph.AddEntitlementID(srcEntitlement.GetEntitlement().GetId())
 				_ = graph.AddEdge(ctx,
 					srcEntitlement.GetEntitlement().GetId(),
 					def.TargetEntitlementID,

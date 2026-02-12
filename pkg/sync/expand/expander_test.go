@@ -158,8 +158,8 @@ func TestExpanderWithMockStore(t *testing.T) {
 	// Build the entitlement graph with an edge from A -> B
 	// This means: principals who have entitlement A should also get entitlement B
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlement(entA)
-	graph.AddEntitlement(entB)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
 	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 
@@ -206,8 +206,8 @@ func TestExpanderStepByStep(t *testing.T) {
 
 	// Build graph
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlement(entA)
-	graph.AddEntitlement(entB)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
 	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 
@@ -254,8 +254,8 @@ func TestExpanderWithCycle(t *testing.T) {
 
 	// Build graph with a cycle: A -> B -> A
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlement(entA)
-	graph.AddEntitlement(entB)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
 	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 	err = graph.AddEdge(ctx, entB.GetId(), entA.GetId(), false, []string{"user"})
@@ -298,9 +298,9 @@ func TestExpanderMultiLevel(t *testing.T) {
 
 	// Build graph
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlement(entA)
-	graph.AddEntitlement(entB)
-	graph.AddEntitlement(entC)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
+	graph.AddEntitlementID(entC.GetId())
 	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 	err = graph.AddEdge(ctx, entB.GetId(), entC.GetId(), false, []string{"user"})

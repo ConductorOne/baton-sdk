@@ -1757,6 +1757,7 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 		if err != nil || !ok {
 			// This shouldn't happen since we filtered by is_expandable=1,
 			// but skip gracefully if the annotation is missing.
+			// Not everything that syncs (connectorreader) is backed by a c1z file.
 			continue
 		}
 
