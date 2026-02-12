@@ -463,7 +463,7 @@ func TestCompactionPreservesGrantExpansionColumns(t *testing.T) {
 	defs, _, err := baseDB.ListExpandableGrants(ctx)
 	require.NoError(t, err)
 
-	defsByID := make(map[string]*dotc1z.ExpandableGrantDef)
+	defsByID := make(map[string]*connectorstore.ExpandableGrantDef)
 	for _, d := range defs {
 		defsByID[d.GrantExternalID] = d
 	}

@@ -122,10 +122,7 @@ func (c *C1File) throttledWarnSlowQuery(ctx context.Context, query string, durat
 
 // listConnectorObjects uses a connector list request to fetch the corresponding data from the local db.
 // It returns a slice of typed proto messages constructed via the provided factory function.
-// For grants, the GrantExpandable annotation stored in the expansion column is re-attached
-// to each returned proto by default. Pass withExpansionAnnotation=false to skip this
-// (useful in hot paths like expansion where the caller doesn't need the annotation).
-func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T, withExpansionAnnotation ...bool) ([]T, string, error) {
+func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T) ([]T, string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.listConnectorObjects")
 	defer span.End()
 
@@ -159,15 +156,7 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	}
 
 	q := c.db.From(tableName).Prepared(true)
-	// Grants are special-cased because GrantExpandable is stored in a separate SQL column.
-	// When listing grants, we can re-attach the GrantExpandable annotation to the returned proto.
-	// Callers that don't need the annotation (e.g. expansion) can skip this for better performance.
-	withExpansion := tableName == grants.Name() && (len(withExpansionAnnotation) == 0 || withExpansionAnnotation[0])
-	if withExpansion {
-		q = q.Select("id", "data", "expansion")
-	} else {
-		q = q.Select("id", "data")
-	}
+	q = q.Select("id", "data")
 
 	// If the request allows filtering by resource type, apply the filter
 	if resourceTypeReq, ok := req.(hasResourceTypeListRequest); ok {
@@ -299,37 +288,14 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		if count > pageSize {
 			break
 		}
-		// Use a fresh []byte per row for expansion so NULL rows don't
-		// inherit stale data from a previous iteration. We avoid
-		// sql.RawBytes here because driver behaviour for NULL blobs
-		// varies across platforms (some nil it, some leave it unchanged).
-		var expansion []byte
-		if withExpansion {
-			err := rows.Scan(&lastRow, &data, &expansion)
-			if err != nil {
-				return nil, "", err
-			}
-		} else {
-			err := rows.Scan(&lastRow, &data)
-			if err != nil {
-				return nil, "", err
-			}
+		err := rows.Scan(&lastRow, &data)
+		if err != nil {
+			return nil, "", err
 		}
 		t := factory()
 		err = unmarshalerOptions.Unmarshal(data, t)
 		if err != nil {
 			return nil, "", err
-		}
-		if withExpansion && len(expansion) > 0 {
-			if g, ok := any(t).(*v2.Grant); ok {
-				expandable := &v2.GrantExpandable{}
-				if err := proto.Unmarshal(expansion, expandable); err != nil {
-					return nil, "", fmt.Errorf("failed to unmarshal grant expansion: %w", err)
-				}
-				annos := annotations.Annotations(g.GetAnnotations())
-				annos.Append(expandable)
-				g.SetAnnotations(annos)
-			}
 		}
 		ret = append(ret, t)
 	}
@@ -707,9 +673,7 @@ func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceI
 	return nil
 }
 
-// getConnectorObject fetches a single connector object by external_id.
-// For grants, pass withExpansionAnnotation=false to skip re-attaching the GrantExpandable annotation.
-func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id string, syncID string, m proto.Message, withExpansionAnnotation ...bool) error {
+func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id string, syncID string, m proto.Message) error {
 	ctx, span := tracer.Start(ctx, "C1File.getConnectorObject")
 	defer span.End()
 
@@ -718,16 +682,8 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 		return err
 	}
 
-	// For grants, optionally select the expansion column to re-attach
-	// the GrantExpandable annotation that was stripped from the data blob.
-	withExpansion := tableName == grants.Name() && (len(withExpansionAnnotation) == 0 || withExpansionAnnotation[0])
-
 	q := c.db.From(tableName).Prepared(true)
-	if withExpansion {
-		q = q.Select("data", "expansion")
-	} else {
-		q = q.Select("data")
-	}
+	q = q.Select("data")
 	q = q.Where(goqu.C("external_id").Eq(id))
 
 	switch {
@@ -763,13 +719,8 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	}
 
 	var data []byte
-	var expansion []byte
 	row := c.db.QueryRowContext(ctx, query, args...)
-	if withExpansion {
-		err = row.Scan(&data, &expansion)
-	} else {
-		err = row.Scan(&data)
-	}
+	err = row.Scan(&data)
 	if err != nil {
 		return err
 	}
@@ -777,19 +728,6 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	err = proto.Unmarshal(data, m)
 	if err != nil {
 		return err
-	}
-
-	// Re-attach the GrantExpandable annotation from the expansion column.
-	if withExpansion && len(expansion) > 0 {
-		if g, ok := m.(*v2.Grant); ok {
-			expandable := &v2.GrantExpandable{}
-			if err := proto.Unmarshal(expansion, expandable); err != nil {
-				return fmt.Errorf("failed to unmarshal grant expansion: %w", err)
-			}
-			annos := annotations.Annotations(g.GetAnnotations())
-			annos.Append(expandable)
-			g.SetAnnotations(annos)
-		}
 	}
 
 	return nil

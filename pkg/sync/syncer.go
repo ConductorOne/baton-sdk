@@ -1728,7 +1728,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	return nil
 }
 
-// loadEntitlementGraph loads one page of grants and adds expandable relationships to the graph.
+// loadEntitlementGraph loads one page of expandable grants and adds relationships to the graph.
 // This method handles pagination via the syncer's state machine.
 func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.EntitlementGraph) error {
 	l := ctxzap.Extract(ctx)
@@ -1739,32 +1739,20 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 		s.handleInitialActionForStep(ctx, *s.state.Current())
 	}
 
-	// List only expandable grants that need expansion using SQL-layer filtering.
-	resp, err := s.store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
-		PageToken:          pageToken,
-		ExpandableOnly:     true,
-		NeedsExpansionOnly: true,
-	}.Build())
+	// Use ListExpandableGrants to read expansion metadata directly from SQL columns,
+	// avoiding the cost of unmarshalling full grant protos.
+	defs, nextPageToken, err := s.store.ListExpandableGrants(ctx,
+		connectorstore.WithExpandableGrantsPageToken(pageToken),
+		connectorstore.WithExpandableGrantsNeedsExpansionOnly(true),
+	)
 	if err != nil {
 		return err
 	}
 
-	for _, grant := range resp.GetList() {
-		// Extract GrantExpandable annotation from the grant.
-		annos := annotations.Annotations(grant.GetAnnotations())
-		expandable := &v2.GrantExpandable{}
-		ok, err := annos.Pick(expandable)
-		if err != nil || !ok {
-			// This shouldn't happen since we filtered by is_expandable=1,
-			// but skip gracefully if the annotation is missing.
-			// Not everything that syncs (connectorreader) is backed by a c1z file.
-			continue
-		}
+	for _, def := range defs {
+		dstEntitlementID := def.TargetEntitlementID
 
-		principalID := grant.GetPrincipal().GetId()
-		dstEntitlementID := grant.GetEntitlement().GetId()
-
-		for _, srcEntitlementID := range expandable.GetEntitlementIds() {
+		for _, srcEntitlementID := range def.SourceEntitlementIDs {
 			// Validate that the source entitlement's resource matches the grant's principal.
 			srcEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 				EntitlementId: srcEntitlementID,
@@ -1791,11 +1779,12 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 			if sourceEntitlementResourceID == nil {
 				return fmt.Errorf("source entitlement resource id was nil")
 			}
-			if principalID.GetResourceType() != sourceEntitlementResourceID.GetResourceType() ||
-				principalID.GetResource() != sourceEntitlementResourceID.GetResource() {
+			if def.PrincipalResourceTypeID != sourceEntitlementResourceID.GetResourceType() ||
+				def.PrincipalResourceID != sourceEntitlementResourceID.GetResource() {
 				l.Error(
 					"source entitlement resource id did not match grant principal id",
-					zap.String("grant_principal_id", principalID.String()),
+					zap.String("grant_principal_resource_type_id", def.PrincipalResourceTypeID),
+					zap.String("grant_principal_resource_id", def.PrincipalResourceID),
 					zap.String("source_entitlement_resource_id", sourceEntitlementResourceID.String()))
 
 				return fmt.Errorf("source entitlement resource id did not match grant principal id")
@@ -1803,7 +1792,7 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 
 			graph.AddEntitlementID(dstEntitlementID)
 			graph.AddEntitlementID(srcEntitlementID)
-			err = graph.AddEdge(ctx, srcEntitlementID, dstEntitlementID, expandable.GetShallow(), expandable.GetResourceTypeIds())
+			err = graph.AddEdge(ctx, srcEntitlementID, dstEntitlementID, def.Shallow, def.ResourceTypeIDs)
 			if err != nil {
 				return fmt.Errorf("error adding edge to graph: %w", err)
 			}
@@ -1811,7 +1800,6 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 	}
 
 	// Handle pagination
-	nextPageToken := resp.GetNextPageToken()
 	if nextPageToken != "" {
 		if err := s.state.NextPage(ctx, nextPageToken); err != nil {
 			return err

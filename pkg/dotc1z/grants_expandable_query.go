@@ -10,57 +10,13 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
-
-// ExpandableGrantDef is a lightweight representation of an expandable grant row,
-// using queryable columns instead of unmarshalling the full grant proto.
-type ExpandableGrantDef struct {
-	RowID                   int64
-	GrantExternalID         string
-	TargetEntitlementID     string
-	PrincipalResourceTypeID string
-	PrincipalResourceID     string
-	SourceEntitlementIDs    []string
-	Shallow                 bool
-	ResourceTypeIDs         []string
-	NeedsExpansion          bool
-}
-
-type listExpandableGrantsOptions struct {
-	pageToken          string
-	pageSize           uint32
-	needsExpansionOnly bool
-	syncID             string
-}
-
-// ListExpandableGrantsOption configures a ListExpandableGrants query.
-type ListExpandableGrantsOption func(*listExpandableGrantsOptions)
-
-// WithExpandableGrantsPageToken sets the page token for pagination.
-func WithExpandableGrantsPageToken(t string) ListExpandableGrantsOption {
-	return func(o *listExpandableGrantsOptions) { o.pageToken = t }
-}
-
-// WithExpandableGrantsPageSize sets the page size.
-func WithExpandableGrantsPageSize(n uint32) ListExpandableGrantsOption {
-	return func(o *listExpandableGrantsOptions) { o.pageSize = n }
-}
-
-// WithExpandableGrantsNeedsExpansionOnly filters to grants that need expansion processing.
-func WithExpandableGrantsNeedsExpansionOnly(b bool) ListExpandableGrantsOption {
-	return func(o *listExpandableGrantsOptions) { o.needsExpansionOnly = b }
-}
-
-// WithExpandableGrantsSyncID forces listing expandable grants for a specific sync ID.
-// If omitted, defaults to the current sync ID, then view sync ID, then latest finished sync.
-func WithExpandableGrantsSyncID(syncID string) ListExpandableGrantsOption {
-	return func(o *listExpandableGrantsOptions) { o.syncID = syncID }
-}
 
 // ListExpandableGrants lists expandable grants using the grants table's queryable columns.
 // It reads the expansion column directly and returns lightweight ExpandableGrantDef structs,
 // avoiding the cost of unmarshalling full grant protos.
-func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...ListExpandableGrantsOption) ([]*ExpandableGrantDef, string, error) {
+func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...connectorstore.ListExpandableGrantsOption) ([]*connectorstore.ExpandableGrantDef, string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListExpandableGrants")
 	defer span.End()
 
@@ -68,12 +24,12 @@ func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...ListExpandabl
 		return nil, "", err
 	}
 
-	o := &listExpandableGrantsOptions{}
+	o := &connectorstore.ListExpandableGrantsOptions{}
 	for _, opt := range opts {
 		opt(o)
 	}
 
-	syncID, err := c.resolveSyncIDForInternalQuery(ctx, o.syncID)
+	syncID, err := c.resolveSyncIDForInternalQuery(ctx, o.SyncID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -90,19 +46,19 @@ func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...ListExpandabl
 	)
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 	q = q.Where(goqu.C("expansion").IsNotNull())
-	if o.needsExpansionOnly {
+	if o.NeedsExpansionOnly {
 		q = q.Where(goqu.C("needs_expansion").Eq(1))
 	}
 
-	if o.pageToken != "" {
-		id, err := strconv.ParseInt(o.pageToken, 10, 64)
+	if o.PageToken != "" {
+		id, err := strconv.ParseInt(o.PageToken, 10, 64)
 		if err != nil {
-			return nil, "", fmt.Errorf("invalid expandable grants page token %q: %w", o.pageToken, err)
+			return nil, "", fmt.Errorf("invalid expandable grants page token %q: %w", o.PageToken, err)
 		}
 		q = q.Where(goqu.C("id").Gte(id))
 	}
 
-	pageSize := o.pageSize
+	pageSize := o.PageSize
 	if pageSize > maxPageSize || pageSize == 0 {
 		pageSize = maxPageSize
 	}
@@ -119,7 +75,7 @@ func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...ListExpandabl
 	}
 	defer rows.Close()
 
-	defs := make([]*ExpandableGrantDef, 0, pageSize)
+	defs := make([]*connectorstore.ExpandableGrantDef, 0, pageSize)
 	var (
 		count   uint32
 		lastRow int64
@@ -158,7 +114,7 @@ func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...ListExpandabl
 			return nil, "", fmt.Errorf("invalid expansion data for %q: %w", externalID, err)
 		}
 
-		defs = append(defs, &ExpandableGrantDef{
+		defs = append(defs, &connectorstore.ExpandableGrantDef{
 			RowID:                   rowID,
 			GrantExternalID:         externalID,
 			TargetEntitlementID:     targetEntID,

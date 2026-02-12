@@ -148,7 +148,7 @@ func (c *C1File) ListGrantsForEntitlement(
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlement")
 	defer span.End()
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, false)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
 	}
@@ -166,7 +166,7 @@ func (c *C1File) ListGrantsForPrincipal(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForPrincipal")
 	defer span.End()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, false)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err)
 	}
@@ -184,7 +184,7 @@ func (c *C1File) ListGrantsForResourceType(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForResourceType")
 	defer span.End()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, false)
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for resource type '%s': %w", request.GetResourceTypeId(), err)
 	}
@@ -218,6 +218,14 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 
 	err := f(ctx, c, grants.Name(),
 		func(grant *v2.Grant) (goqu.Record, error) {
+			// Expansion column values:
+			// - nil (SQL NULL): "no opinion" — on INSERT defaults to NULL, on UPDATE
+			//   preserves the existing expansion value. Used when the grant has no
+			//   GrantExpandable annotation (e.g. expander updating sources).
+			// - []byte{} (empty blob): "explicitly clear expansion". Used when the
+			//   grant HAD a GrantExpandable annotation but it contained no valid IDs.
+			//   Cleaned up to NULL after the upsert.
+			// - Non-empty []byte: the serialized GrantExpandable proto.
 			rec := goqu.Record{
 				"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
 				"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
@@ -228,18 +236,14 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 				"needs_expansion":            false,
 			}
 
-			// Extract and strip the GrantExpandable annotation from the grant.
-			// Only clone + strip if the annotation is actually present. Most grants
-			// (especially expanded grants) have no GrantExpandable, so we skip the
-			// clone entirely. When we do strip, we must marshal the stripped clone
-			// ourselves and set "data" in the record so that prepareSingleConnectorObjectRow
-			// uses our stripped blob instead of marshaling the original (which still
-			// has the annotation).
 			if hasGrantExpandable(grant) {
 				stripped := proto.Clone(grant).(*v2.Grant)
 				expansionBytes, needsExpansion := extractAndStripExpansion(stripped)
 				if expansionBytes != nil {
 					rec["expansion"] = expansionBytes
+				} else {
+					// Had annotation but no valid IDs — explicitly clear via sentinel.
+					rec["expansion"] = []byte{}
 				}
 				rec["needs_expansion"] = needsExpansion
 
@@ -467,22 +471,41 @@ func bulkPutGrantsInternal(
 		return err
 	}
 
-	// needs_expansion should only flip to 1 when expansion changes from NULL to non-NULL.
-	// If a grant is no longer expandable (expansion IS NULL), needs_expansion should be forced to 0.
+	// Expansion column update logic:
+	// - NULL: "no opinion" — preserve existing expansion value. This happens when
+	//   the grant has no GrantExpandable annotation (e.g. expander updating sources).
+	// - Empty blob (X''): sentinel meaning "explicitly clear expansion". This happens
+	//   when a grant had a GrantExpandable annotation but it had no valid IDs.
+	//   Cleaned up to NULL after the upsert.
+	// - Non-empty: set expansion to this value.
+	expansionExpr := goqu.L(
+		`CASE
+			WHEN EXCLUDED.expansion IS NULL THEN ?.expansion
+			ELSE EXCLUDED.expansion
+		END`,
+		goqu.I(tableName),
+	)
+
+	// needs_expansion update logic mirrors the expansion logic:
+	// - NULL: preserve existing needs_expansion (no opinion).
+	// - Empty blob: force to 0 (explicitly clearing expansion).
+	// - Non-empty, different from existing: set to 1.
+	// - Non-empty, same as existing: preserve existing.
 	needsExpansionExpr := goqu.L(
 		`CASE
-			WHEN EXCLUDED.expansion IS NULL THEN 0
+			WHEN EXCLUDED.expansion IS NULL THEN ?.needs_expansion
+			WHEN EXCLUDED.expansion = X'' THEN 0
 			WHEN ?.expansion IS NULL AND EXCLUDED.expansion IS NOT NULL THEN 1
 			WHEN ?.expansion IS NOT NULL AND EXCLUDED.expansion IS NOT NULL AND ?.expansion != EXCLUDED.expansion THEN 1
 			ELSE ?.needs_expansion
 		END`,
-		goqu.I(tableName), goqu.I(tableName), goqu.I(tableName), goqu.I(tableName),
+		goqu.I(tableName), goqu.I(tableName), goqu.I(tableName), goqu.I(tableName), goqu.I(tableName),
 	)
 
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
 		update := goqu.Record{
 			"data":            goqu.I("EXCLUDED.data"),
-			"expansion":       goqu.I("EXCLUDED.expansion"),
+			"expansion":       expansionExpr,
 			"needs_expansion": needsExpansionExpr,
 		}
 		if ifNewer {
@@ -501,7 +524,23 @@ func bulkPutGrantsInternal(
 			Prepared(true), nil
 	}
 
-	return executeChunkedInsert(ctx, c, tableName, rows, buildQueryFn)
+	if err := executeChunkedInsert(ctx, c, tableName, rows, buildQueryFn); err != nil {
+		return err
+	}
+
+	// Clean up empty-blob sentinels to NULL. Fresh inserts (no conflict) will have
+	// the sentinel value X'' in the expansion column; convert these to NULL so they
+	// are correctly treated as non-expandable grants.
+	if err := c.validateDb(ctx); err != nil {
+		return err
+	}
+	if _, err := c.db.ExecContext(ctx, fmt.Sprintf(
+		`UPDATE %s SET expansion = NULL, needs_expansion = 0 WHERE expansion = X''`, tableName,
+	)); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {

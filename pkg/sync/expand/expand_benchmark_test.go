@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
 )
@@ -94,8 +95,8 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID
 	pageToken := ""
 	for {
 		defs, nextPageToken, err := c1f.ListExpandableGrants(ctx,
-			dotc1z.WithExpandableGrantsPageToken(pageToken),
-			dotc1z.WithExpandableGrantsSyncID(syncID),
+			connectorstore.WithExpandableGrantsPageToken(pageToken),
+			connectorstore.WithExpandableGrantsSyncID(syncID),
 		)
 		if errors.Is(err, sql.ErrNoRows) {
 			return graph, nil

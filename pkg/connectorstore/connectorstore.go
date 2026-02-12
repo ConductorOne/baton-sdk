@@ -69,6 +69,10 @@ type Writer interface {
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	DeleteGrant(ctx context.Context, grantId string) error
+
+	// ListExpandableGrants lists expandable grants directly from SQL columns,
+	// returning lightweight structs without unmarshalling full grant protos.
+	ListExpandableGrants(ctx context.Context, opts ...ListExpandableGrantsOption) ([]*ExpandableGrantDef, string, error)
 }
 
 // ExpansionStore provides methods for grant expansion operations.
@@ -76,4 +80,49 @@ type Writer interface {
 type ExpansionStore interface {
 	// SetSupportsDiff marks the sync as supporting diff operations.
 	SetSupportsDiff(ctx context.Context, syncID string) error
+}
+
+// ExpandableGrantDef is a lightweight representation of an expandable grant row,
+// using queryable columns instead of unmarshalling the full grant proto.
+type ExpandableGrantDef struct {
+	RowID                   int64
+	GrantExternalID         string
+	TargetEntitlementID     string
+	PrincipalResourceTypeID string
+	PrincipalResourceID     string
+	SourceEntitlementIDs    []string
+	Shallow                 bool
+	ResourceTypeIDs         []string
+	NeedsExpansion          bool
+}
+
+// ListExpandableGrantsOption configures a ListExpandableGrants query.
+type ListExpandableGrantsOption func(*ListExpandableGrantsOptions)
+
+// ListExpandableGrantsOptions holds the resolved options for ListExpandableGrants.
+type ListExpandableGrantsOptions struct {
+	PageToken          string
+	PageSize           uint32
+	NeedsExpansionOnly bool
+	SyncID             string
+}
+
+// WithExpandableGrantsPageToken sets the page token for pagination.
+func WithExpandableGrantsPageToken(t string) ListExpandableGrantsOption {
+	return func(o *ListExpandableGrantsOptions) { o.PageToken = t }
+}
+
+// WithExpandableGrantsPageSize sets the page size.
+func WithExpandableGrantsPageSize(n uint32) ListExpandableGrantsOption {
+	return func(o *ListExpandableGrantsOptions) { o.PageSize = n }
+}
+
+// WithExpandableGrantsNeedsExpansionOnly filters to grants that need expansion processing.
+func WithExpandableGrantsNeedsExpansionOnly(b bool) ListExpandableGrantsOption {
+	return func(o *ListExpandableGrantsOptions) { o.NeedsExpansionOnly = b }
+}
+
+// WithExpandableGrantsSyncID forces listing expandable grants for a specific sync ID.
+func WithExpandableGrantsSyncID(syncID string) ListExpandableGrantsOption {
+	return func(o *ListExpandableGrantsOptions) { o.SyncID = syncID }
 }
