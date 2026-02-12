@@ -2,6 +2,8 @@ package expand
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -86,14 +88,19 @@ func copyGraph(g *EntitlementGraph) *EntitlementGraph {
 
 // loadEntitlementGraphFromC1Z builds the entitlement graph by reading expandable grant
 // metadata directly from SQL columns via ListExpandableGrants.
-func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File) (*EntitlementGraph, error) {
+func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID string) (*EntitlementGraph, error) {
 	graph := NewEntitlementGraph(ctx)
 
 	pageToken := ""
 	for {
 		defs, nextPageToken, err := c1f.ListExpandableGrants(ctx,
 			dotc1z.WithExpandableGrantsPageToken(pageToken),
+			dotc1z.WithExpandableGrantsSyncID(syncID),
 		)
+		if errors.Is(err, sql.ErrNoRows) {
+			return graph, nil
+		}
+
 		if err != nil {
 			return nil, err
 		}
@@ -142,7 +149,7 @@ func benchmarkExpand(b *testing.B, syncID string) {
 	defer c1f.Close(ctx)
 
 	// Load the graph
-	graph, err := loadEntitlementGraphFromC1Z(ctx, c1f)
+	graph, err := loadEntitlementGraphFromC1Z(ctx, c1f, syncID)
 	require.NoError(b, err)
 
 	b.Logf("Graph loaded: %d nodes, %d edges", len(graph.Nodes), len(graph.Edges))
