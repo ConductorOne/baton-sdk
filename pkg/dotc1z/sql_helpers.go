@@ -376,7 +376,11 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 		}
 		fields["external_id"] = idGetter.GetId()
 	}
-	fields["data"] = messageBlob
+	// Only set "data" if extractFields didn't already provide a pre-marshaled blob
+	// (e.g. grants strip GrantExpandable from a clone and marshal it themselves).
+	if _, dataSet := fields["data"]; !dataSet {
+		fields["data"] = messageBlob
+	}
 	fields["sync_id"] = c.currentSyncID
 	fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
 
@@ -466,7 +470,9 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 					}
 					fields["external_id"] = idGetter.GetId()
 				}
-				fields["data"] = messageBlob
+				if _, dataSet := fields["data"]; !dataSet {
+					fields["data"] = messageBlob
+				}
 				fields["sync_id"] = syncID
 				fields["discovered_at"] = discoveredAt
 				rows[i] = &fields

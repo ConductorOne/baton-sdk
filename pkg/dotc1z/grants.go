@@ -216,45 +216,62 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 		return ErrReadOnly
 	}
 
-	// We intentionally do not mutate caller-owned grant objects. The write path strips
-	// GrantExpandable from the stored data blob, so operate on clones.
-	grantsToStore := make([]*v2.Grant, 0, len(bulkGrants))
-	for _, g := range bulkGrants {
-		if g == nil {
-			continue 
-		}
-		grantsToStore = append(grantsToStore, proto.Clone(g).(*v2.Grant))
-	}
-
 	err := f(ctx, c, grants.Name(),
 		func(grant *v2.Grant) (goqu.Record, error) {
-			expansionBytes, needsExpansion := extractAndStripExpansion(grant)
-
-			// Avoid the Go typed-nil interface trap: []byte(nil) assigned to
-			// interface{} is *not* a nil interface, so some SQL drivers store
-			// it as an empty blob instead of NULL. Use an untyped nil instead.
-			var expansion interface{}
-			if expansionBytes != nil {
-				expansion = expansionBytes
-			}
-
-			return goqu.Record{
+			rec := goqu.Record{
 				"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
 				"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
 				"entitlement_id":             grant.GetEntitlement().GetId(),
 				"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
 				"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-				"expansion":                  expansion,
-				"needs_expansion":            needsExpansion,
-			}, nil
+				"expansion":                  nil,
+				"needs_expansion":            false,
+			}
+
+			// Extract and strip the GrantExpandable annotation from the grant.
+			// Only clone + strip if the annotation is actually present. Most grants
+			// (especially expanded grants) have no GrantExpandable, so we skip the
+			// clone entirely. When we do strip, we must marshal the stripped clone
+			// ourselves and set "data" in the record so that prepareSingleConnectorObjectRow
+			// uses our stripped blob instead of marshaling the original (which still
+			// has the annotation).
+			if hasGrantExpandable(grant) {
+				stripped := proto.Clone(grant).(*v2.Grant)
+				expansionBytes, needsExpansion := extractAndStripExpansion(stripped)
+				if expansionBytes != nil {
+					rec["expansion"] = expansionBytes
+				}
+				rec["needs_expansion"] = needsExpansion
+
+				strippedData, err := proto.MarshalOptions{Deterministic: true}.Marshal(stripped)
+				if err != nil {
+					return nil, fmt.Errorf("error marshaling grant after stripping expansion: %w", err)
+				}
+				rec["data"] = strippedData
+			}
+
+			return rec, nil
 		},
-		grantsToStore...,
+		bulkGrants...,
 	)
 	if err != nil {
 		return err
 	}
 	c.dbUpdated = true
 	return nil
+}
+
+// hasGrantExpandable returns true if the grant has a GrantExpandable annotation.
+// This is a cheap check (no proto unmarshal) used to avoid cloning grants that
+// don't need annotation stripping.
+func hasGrantExpandable(grant *v2.Grant) bool {
+	expandable := &v2.GrantExpandable{}
+	for _, a := range grant.GetAnnotations() {
+		if a.MessageIs(expandable) {
+			return true
+		}
+	}
+	return false
 }
 
 // extractAndStripExpansion extracts the GrantExpandable annotation from the grant,
