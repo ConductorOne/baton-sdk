@@ -145,7 +145,7 @@ func (c *C1File) ListGrantsForEntitlement(
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlement")
 	defer span.End()
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, false)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
 	}
@@ -163,7 +163,7 @@ func (c *C1File) ListGrantsForPrincipal(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForPrincipal")
 	defer span.End()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, false)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err)
 	}
@@ -181,7 +181,7 @@ func (c *C1File) ListGrantsForResourceType(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForResourceType")
 	defer span.End()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} }, false)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for resource type '%s': %w", request.GetResourceTypeId(), err)
 	}
@@ -218,7 +218,7 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 	grantsToStore := make([]*v2.Grant, 0, len(bulkGrants))
 	for _, g := range bulkGrants {
 		if g == nil {
-			continue
+			continue 
 		}
 		grantsToStore = append(grantsToStore, proto.Clone(g).(*v2.Grant))
 	}
@@ -311,7 +311,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			`SELECT g.id, g.data FROM %s g
 			 JOIN %s sr ON g.sync_id = sr.sync_id
 			 WHERE g.expansion IS NULL
-			   AND sr.supports_diff = 0
+			   -- AND sr.supports_diff = 0
 			 LIMIT 1000`,
 			tableName, syncRuns.Name(),
 		))
