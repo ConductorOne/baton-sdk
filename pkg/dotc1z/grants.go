@@ -92,9 +92,12 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 		return err
 	}
 
-	// Create index for needs_expansion queries.
+	// Create partial index for grants needing expansion processing.
+	// Using a partial index (WHERE needs_expansion = 1) avoids polluting the query planner
+	// for general grant queries — without this, SQLite may prefer this index over more
+	// selective compound indexes like (entitlement_id, principal_resource_type_id, principal_resource_id).
 	if _, err := db.ExecContext(ctx, fmt.Sprintf(
-		"create index if not exists %s on %s (sync_id, needs_expansion)",
+		"create index if not exists %s on %s (sync_id) where needs_expansion = 1",
 		fmt.Sprintf("idx_grants_sync_needs_expansion_v%s", r.Version()),
 		r.Name(),
 	)); err != nil {
