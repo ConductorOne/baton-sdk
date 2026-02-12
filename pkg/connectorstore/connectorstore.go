@@ -73,6 +73,23 @@ type Writer interface {
 	// ListExpandableGrants lists expandable grants directly from SQL columns,
 	// returning lightweight structs without unmarshalling full grant protos.
 	ListExpandableGrants(ctx context.Context, opts ...ListExpandableGrantsOption) ([]*ExpandableGrantDef, string, error)
+
+	// ListGrantsWithExpansion lists grants and includes expansion metadata from the
+	// expansion column. Each returned GrantWithExpansion contains the full grant proto
+	// plus an optional ExpandableGrantDef (nil if the grant is not expandable).
+	ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*GrantsWithExpansionResponse, error)
+}
+
+// GrantWithExpansion pairs a grant proto with its optional expansion metadata.
+type GrantWithExpansion struct {
+	Grant     *v2.Grant
+	Expansion *ExpandableGrantDef // nil if grant is not expandable
+}
+
+// GrantsWithExpansionResponse is the response from ListGrantsWithExpansion.
+type GrantsWithExpansionResponse struct {
+	List          []*GrantWithExpansion
+	NextPageToken string
 }
 
 // ExpansionStore provides methods for grant expansion operations.

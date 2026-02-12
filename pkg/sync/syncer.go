@@ -2536,11 +2536,11 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 	return resourceTypes, nil
 }
 
-func (s *syncer) listAllGrants(ctx context.Context) iter.Seq2[[]*v2.Grant, error] {
-	return func(yield func([]*v2.Grant, error) bool) {
+func (s *syncer) listAllGrantsWithExpansion(ctx context.Context) iter.Seq2[[]*connectorstore.GrantWithExpansion, error] {
+	return func(yield func([]*connectorstore.GrantWithExpansion, error) bool) {
 		pageToken := ""
 		for {
-			grantsResp, err := s.store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+			resp, err := s.store.ListGrantsWithExpansion(ctx, v2.GrantsServiceListGrantsRequest_builder{
 				PageToken: pageToken,
 			}.Build())
 			if err != nil {
@@ -2548,12 +2548,12 @@ func (s *syncer) listAllGrants(ctx context.Context) iter.Seq2[[]*v2.Grant, error
 				return
 			}
 
-			if len(grantsResp.GetList()) > 0 {
-				if !yield(grantsResp.GetList(), err) {
+			if len(resp.List) > 0 {
+				if !yield(resp.List, nil) {
 					return
 				}
 			}
-			pageToken = grantsResp.GetNextPageToken()
+			pageToken = resp.NextPageToken
 			if pageToken == "" {
 				return
 			}
@@ -2598,12 +2598,13 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	grantsToDelete := make([]string, 0)
 	expandedGrants := make([]*v2.Grant, 0)
 
-	for grants, err := range s.listAllGrants(ctx) {
+	for grantsWithExp, err := range s.listAllGrantsWithExpansion(ctx) {
 		if err != nil {
 			return err
 		}
 
-		for _, grant := range grants {
+		for _, gwe := range grantsWithExp {
+			grant := gwe.Grant
 			annos := annotations.Annotations(grant.GetAnnotations())
 			if !annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 				continue
@@ -2632,29 +2633,30 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				continue
 			}
 
-			expandableAnno, err := GetExpandableAnnotation(annos)
-			if err != nil {
-				return err
+			// Look up expansion data from the expansion column (returned alongside
+			// the grant by ListGrantsWithExpansion).
+			var expandableAnno *v2.GrantExpandable
+			if gwe.Expansion != nil {
+				expandableAnno = v2.GrantExpandable_builder{
+					EntitlementIds:  gwe.Expansion.SourceEntitlementIDs,
+					Shallow:         gwe.Expansion.Shallow,
+					ResourceTypeIds: gwe.Expansion.ResourceTypeIDs,
+				}.Build()
 			}
-			expandableEntitlementsResourceMap := make(map[string][]*v2.Entitlement)
+			expandableEntitlementsResourceMap := make(map[string][]string)
 			if expandableAnno != nil {
 				for _, entId := range expandableAnno.GetEntitlementIds() {
-					parsedEnt, err := bid.ParseEntitlementBid(entId)
+					resourceBID, slug, err := parseExpandableEntitlementID(entId)
 					if err != nil {
-						l.Error("error parsing expandable entitlement bid", zap.Any("entitlementId", entId))
+						l.Error("error parsing expandable entitlement id", zap.Any("entitlementId", entId), zap.Error(err))
 						continue
 					}
-					resourceBID, err := bid.MakeBid(parsedEnt.GetResource())
-					if err != nil {
-						l.Error("error making resource bid", zap.Any("parsedEnt.Resource", parsedEnt.GetResource()))
-						continue
-					}
-					entitlementMap, ok := expandableEntitlementsResourceMap[resourceBID]
+					slugs, ok := expandableEntitlementsResourceMap[resourceBID]
 					if !ok {
-						entitlementMap = make([]*v2.Entitlement, 0)
+						slugs = make([]string, 0)
 					}
-					entitlementMap = append(entitlementMap, parsedEnt)
-					expandableEntitlementsResourceMap[resourceBID] = entitlementMap
+					slugs = append(slugs, slug)
+					expandableEntitlementsResourceMap[resourceBID] = slugs
 				}
 			}
 
@@ -2678,9 +2680,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 							continue
 						}
 
-						principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
-						for _, expandableGrant := range principalEntitlements {
-							newExpandableEntId := entitlement.NewEntitlementID(principal, expandableGrant.GetSlug())
+						principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
+						for _, slug := range principalEntitlementSlugs {
+							newExpandableEntId := entitlement.NewEntitlementID(principal, slug)
 							_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
 							if err != nil {
 								if errors.Is(err, sql.ErrNoRows) {
@@ -2757,9 +2759,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 									continue
 								}
 
-								principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
-								for _, expandableGrant := range principalEntitlements {
-									newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, expandableGrant.GetSlug())
+								principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
+								for _, slug := range principalEntitlementSlugs {
+									newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, slug)
 									_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
 									if err != nil {
 										if errors.Is(err, sql.ErrNoRows) {
@@ -2819,6 +2821,34 @@ func userTraitContainsEmail(emails []*v2.UserTrait_Email, address string) bool {
 	return slices.ContainsFunc(emails, func(e *v2.UserTrait_Email) bool {
 		return strings.EqualFold(e.GetAddress(), address)
 	})
+}
+
+// parseExpandableEntitlementID supports both legacy entitlement IDs
+// (resourceType:resourceID:slug) and BID-based IDs (bid:e:...).
+func parseExpandableEntitlementID(entitlementID string) (string, string, error) {
+	if parsedEnt, err := bid.ParseEntitlementBid(entitlementID); err == nil {
+		resourceBID, err := bid.MakeBid(parsedEnt.GetResource())
+		if err != nil {
+			return "", "", err
+		}
+		return resourceBID, parsedEnt.GetSlug(), nil
+	}
+
+	parts := strings.SplitN(entitlementID, ":", 3)
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", fmt.Errorf("unsupported entitlement id format: %q", entitlementID)
+	}
+
+	resourceBID, err := bid.MakeBid(v2.Resource_builder{
+		Id: v2.ResourceId_builder{
+			ResourceType: parts[0],
+			Resource:     parts[1],
+		}.Build(),
+	}.Build())
+	if err != nil {
+		return "", "", err
+	}
+	return resourceBID, parts[2], nil
 }
 
 func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {

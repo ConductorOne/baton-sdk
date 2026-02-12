@@ -141,6 +141,70 @@ func TestGrantExpandableRoundTrip(t *testing.T) {
 	require.Equal(t, []string{"user"}, defs[0].ResourceTypeIDs)
 }
 
+// TestGrantExpandableSurvivesCloseReopen verifies that expansion data persists
+// through a close/reopen cycle of the c1z file.
+func TestGrantExpandableSurvivesCloseReopen(t *testing.T) {
+	ctx := context.Background()
+
+	tmpFile, err := os.CreateTemp("", "test-expansion-reopen-*.c1z")
+	require.NoError(t, err)
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	// Phase 1: Create store, write expandable grant, close.
+	func() {
+		c1f, err := NewC1ZFile(ctx, tmpPath)
+		require.NoError(t, err)
+
+		_, err = c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+		require.NoError(t, err)
+
+		groupRT := v2.ResourceType_builder{Id: "group"}.Build()
+		userRT := v2.ResourceType_builder{Id: "user"}.Build()
+		require.NoError(t, c1f.PutResourceTypes(ctx, groupRT, userRT))
+
+		g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+		u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+		require.NoError(t, c1f.PutResources(ctx, g1, u1))
+
+		ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+		require.NoError(t, c1f.PutEntitlements(ctx, ent1))
+
+		expandableGrant := v2.Grant_builder{
+			Id:          "grant-expandable",
+			Entitlement: ent1,
+			Principal:   u1,
+			Annotations: annotations.New(v2.GrantExpandable_builder{
+				EntitlementIds:  []string{"ent1"},
+				Shallow:         true,
+				ResourceTypeIds: []string{"user"},
+			}.Build()),
+		}.Build()
+		require.NoError(t, c1f.PutGrants(ctx, expandableGrant))
+
+		// Verify expansion is set before close.
+		raw := getRawGrantRow(ctx, t, c1f, "grant-expandable")
+		require.NotNil(t, raw.expansion, "expansion should be set before close")
+
+		require.NoError(t, c1f.EndSync(ctx))
+		require.NoError(t, c1f.Close(ctx))
+	}()
+
+	// Phase 2: Reopen and verify expansion survived.
+	c1f2, err := NewC1ZFile(ctx, tmpPath)
+	require.NoError(t, err)
+	defer c1f2.Close(ctx)
+
+	defs, _, err := c1f2.ListExpandableGrants(ctx)
+	require.NoError(t, err)
+	require.Len(t, defs, 1, "expansion should survive close/reopen")
+	require.Equal(t, "grant-expandable", defs[0].GrantExternalID)
+	require.Equal(t, []string{"ent1"}, defs[0].SourceEntitlementIDs)
+	require.True(t, defs[0].Shallow)
+	require.Equal(t, []string{"user"}, defs[0].ResourceTypeIDs)
+}
+
 // TestGrantExpandableStrippedFromDataBlob verifies that the GrantExpandable annotation
 // is stripped from the data blob on write and only stored in the expansion column.
 func TestGrantExpandableStrippedFromDataBlob(t *testing.T) {

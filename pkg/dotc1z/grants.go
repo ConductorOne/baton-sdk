@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 const grantsTableVersion = "1"
@@ -121,6 +122,99 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 		List:          ret,
 		NextPageToken: nextPageToken,
 	}.Build(), nil
+}
+
+// ListGrantsWithExpansion lists grants and includes expansion metadata from the expansion column.
+// This uses listConnectorObjects for the grant protos (no expansion re-attachment overhead),
+// then does a single batch query to fetch expansion data for the returned grants.
+func (c *C1File) ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*connectorstore.GrantsWithExpansionResponse, error) {
+	ctx, span := tracer.Start(ctx, "C1File.ListGrantsWithExpansion")
+	defer span.End()
+
+	grantProtos, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	if err != nil {
+		return nil, fmt.Errorf("error listing grants with expansion: %w", err)
+	}
+
+	if len(grantProtos) == 0 {
+		return &connectorstore.GrantsWithExpansionResponse{
+			NextPageToken: nextPageToken,
+		}, nil
+	}
+
+	// Batch-fetch expansion data for the returned grants.
+	ids := make([]interface{}, 0, len(grantProtos))
+	for _, g := range grantProtos {
+		ids = append(ids, g.GetId())
+	}
+
+	q := c.db.From(grants.Name()).Prepared(true).
+		Select("external_id", "entitlement_id", "principal_resource_type_id", "principal_resource_id", "expansion", "needs_expansion").
+		Where(goqu.C("external_id").In(ids...)).
+		Where(goqu.C("expansion").IsNotNull())
+	if c.currentSyncID != "" {
+		q = q.Where(goqu.C("sync_id").Eq(c.currentSyncID))
+	}
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	expansionMap := make(map[string]*connectorstore.ExpandableGrantDef, len(grantProtos))
+	for rows.Next() {
+		var (
+			externalID    string
+			entID         string
+			principalRTID string
+			principalRID  string
+			expansionBlob []byte
+			needsExp      int
+		)
+		if err := rows.Scan(&externalID, &entID, &principalRTID, &principalRID, &expansionBlob, &needsExp); err != nil {
+			return nil, err
+		}
+		if len(expansionBlob) == 0 {
+			continue
+		}
+		ge := &v2.GrantExpandable{}
+		if err := proto.Unmarshal(expansionBlob, ge); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal grant expansion for %s: %w", externalID, err)
+		}
+		expansionMap[externalID] = &connectorstore.ExpandableGrantDef{
+			GrantExternalID:         externalID,
+			TargetEntitlementID:     entID,
+			PrincipalResourceTypeID: principalRTID,
+			PrincipalResourceID:     principalRID,
+			SourceEntitlementIDs:    ge.GetEntitlementIds(),
+			Shallow:                 ge.GetShallow(),
+			ResourceTypeIDs:         ge.GetResourceTypeIds(),
+			NeedsExpansion:          needsExp != 0,
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// Build combined result.
+	result := make([]*connectorstore.GrantWithExpansion, 0, len(grantProtos))
+	for _, g := range grantProtos {
+		result = append(result, &connectorstore.GrantWithExpansion{
+			Grant:     g,
+			Expansion: expansionMap[g.GetId()],
+		})
+	}
+
+	return &connectorstore.GrantsWithExpansionResponse{
+		List:          result,
+		NextPageToken: nextPageToken,
+	}, nil
 }
 
 func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
