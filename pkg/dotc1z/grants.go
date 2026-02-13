@@ -429,7 +429,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			`SELECT g.id, g.data FROM %s g
 			 JOIN %s sr ON g.sync_id = sr.sync_id
 			 WHERE g.expansion IS NULL
-			   -- AND sr.supports_diff = 0
+			   AND sr.supports_diff = 0
 			 LIMIT 1000`,
 			tableName, syncRuns.Name(),
 		))
