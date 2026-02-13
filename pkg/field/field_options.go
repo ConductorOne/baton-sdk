@@ -8,6 +8,9 @@ import (
 
 type fieldOption func(SchemaField) SchemaField
 
+// WithRequired sets whether the field is required or not.
+// If a required field is not set, the connector will error on startup.
+// In the GUI, empty required fields will fail form validation.
 func WithRequired(required bool) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.Required = required
@@ -44,6 +47,8 @@ func WithRequired(required bool) fieldOption {
 	}
 }
 
+// WithDescription sets the description for the field.
+// The description is shown in the GUI config and CLI help.
 func WithDescription(description string) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.Description = description
@@ -52,6 +57,8 @@ func WithDescription(description string) fieldOption {
 	}
 }
 
+// WithDisplayName sets the display name for the field.
+// The display name is only shown in the GUI, and should be a human-readable name such as "Otel Collector Endpoint".
 func WithDisplayName(displayName string) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.ConnectorConfig.DisplayName = displayName
@@ -59,6 +66,7 @@ func WithDisplayName(displayName string) fieldOption {
 	}
 }
 
+// WithDefaultValue sets the default value for the field.
 func WithDefaultValue(value any) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.DefaultValue = value
@@ -74,6 +82,8 @@ func WithDefaultValueFunc(f func() any) fieldOption {
 	}
 }
 
+// WithHidden sets whether the field is hidden or not.
+// Hidden fields will not be shown in the GUI config or CLI help.
 func WithHidden(hidden bool) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.SyncerConfig.Hidden = hidden
@@ -100,6 +110,7 @@ const (
 	ExportTargetCLIOnly ExportTarget = "cli"
 )
 
+// WithExportTarget sets the export target for the field. See ExportTarget for more details.
 func WithExportTarget(target ExportTarget) fieldOption {
 	return func(o SchemaField) SchemaField {
 		if o.ExportTarget != ExportTargetGUI && target != o.ExportTarget {
@@ -134,6 +145,8 @@ func WithPersistent(value bool) fieldOption {
 	}
 }
 
+// WithIsSecret sets the field to be secret, causing the values to be obscured in the GUI.
+// This is meant for fields that contain sensitive information, such as passwords or API keys.
 func WithIsSecret(value bool) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.Secret = value
@@ -142,6 +155,8 @@ func WithIsSecret(value bool) fieldOption {
 	}
 }
 
+// WithPlaceholder sets the placeholder value for the field.
+// The placeholder is only shown in the GUI, and should be an example value such as "my-password" or "my-api-key".
 func WithPlaceholder(value string) fieldOption {
 	return func(o SchemaField) SchemaField {
 		o.ConnectorConfig.Placeholder = value
