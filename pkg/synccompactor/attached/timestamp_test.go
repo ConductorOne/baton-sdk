@@ -56,7 +56,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 
 		// Small delay to ensure different timestamps
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 
 		// Create applied database (newer timestamps)
 		appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
