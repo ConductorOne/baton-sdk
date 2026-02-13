@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -88,20 +89,25 @@ type WrapperOption interface {
 }
 
 // Keep a handle on all caches so we can clear them later.
-var caches []icache
+var (
+	caches    []icache
+	cachesMtx sync.RWMutex
+)
 
 func ClearCaches(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 	l.Debug("clearing caches")
-	var err error
+	var errs []error
+	cachesMtx.RLock()
+	defer cachesMtx.RUnlock()
 	for _, cache := range caches {
 		l.Debug("clearing cache", zap.String("cache", fmt.Sprintf("%T", cache)), zap.Any("stats", cache.Stats(ctx)))
-		err = cache.Clear(ctx)
+		err := cache.Clear(ctx)
 		if err != nil {
-			err = errors.Join(err, err)
+			errs = append(errs, err)
 		}
 	}
-	return err
+	return errors.Join(errs...)
 }
 
 type (
@@ -143,7 +149,9 @@ func NewBaseHttpClientWithContext(ctx context.Context, httpClient *http.Client, 
 		baseHttpCache: cache,
 	}
 
+	cachesMtx.Lock()
 	caches = append(caches, cache)
+	cachesMtx.Unlock()
 
 	for _, opt := range opts {
 		opt.Apply(cli)
