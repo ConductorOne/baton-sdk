@@ -351,8 +351,7 @@ func (c *C1File) Close(ctx context.Context) error {
 		// it only reads the main database file.
 		walPath := c.dbFilePath + "-wal"
 		if walInfo, statErr := os.Stat(walPath); statErr == nil && walInfo.Size() > 0 {
-			l.Error("c1z: WAL file not empty after database close checkpoint may have failed - refusing to save potentially incomplete data",
-				zap.Int64("wal_size", walInfo.Size()))
+			return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL file not empty after close (size=%d) - refusing to save incomplete data", walInfo.Size()))
 		}
 
 		err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
