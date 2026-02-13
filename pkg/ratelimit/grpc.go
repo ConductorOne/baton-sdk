@@ -132,7 +132,7 @@ func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimi
 						nil,
 					)
 					if rlErr != nil {
-						return fmt.Errorf("ratelimit: error reporting ratelimit after request error: %w", err)
+						return fmt.Errorf("ratelimit: error reporting ratelimit after request error: %w", rlErr)
 					}
 
 					l.Error("ratelimit: error running client request", zap.Error(err))
@@ -140,7 +140,7 @@ func UnaryInterceptor(now func() time.Time, descriptors ...*ratelimitV1.RateLimi
 				}
 
 				if reply != nil {
-					if resp, ok := req.(hasAnnos); ok {
+					if resp, ok := reply.(hasAnnos); ok {
 						err = reportRatelimit(ctx, rlClient, rlReq.GetRequestToken(), ratelimitV1.RateLimitDescription_STATUS_OK, rlDescriptors, resp.GetAnnotations())
 						if err != nil {
 							l.Error("ratelimit: error reporting rate limit", zap.Error(err))
