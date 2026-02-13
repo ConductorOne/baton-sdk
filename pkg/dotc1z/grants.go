@@ -152,8 +152,14 @@ func (c *C1File) ListGrantsWithExpansion(ctx context.Context, request *v2.Grants
 		Select("external_id", "entitlement_id", "principal_resource_type_id", "principal_resource_id", "expansion", "needs_expansion").
 		Where(goqu.C("external_id").In(ids...)).
 		Where(goqu.C("expansion").IsNotNull())
-	if c.currentSyncID != "" {
-		q = q.Where(goqu.C("sync_id").Eq(c.currentSyncID))
+
+	syncID, err := resolveSyncID(ctx, c, request)
+	if err != nil {
+		return nil, fmt.Errorf("error getting sync id for list grants with expansion: %w", err)
+	}
+
+	if syncID != "" {
+		q = q.Where(goqu.C("sync_id").Eq(syncID))
 	}
 
 	query, args, err := q.ToSQL()

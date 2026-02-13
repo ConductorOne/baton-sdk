@@ -120,6 +120,36 @@ func (c *C1File) throttledWarnSlowQuery(ctx context.Context, query string, durat
 	}
 }
 
+func resolveSyncID(ctx context.Context, c *C1File, req listRequest) (string, error) {
+	annoSyncID, err := annotations.GetSyncIdFromAnnotations(req.GetAnnotations())
+	if err != nil {
+		return "", fmt.Errorf("error getting sync id from annotations for list request: %w", err)
+	}
+
+	if annoSyncID != "" {
+		return annoSyncID, nil
+	}
+	// We are currently syncing, so use the current sync id
+	if c.currentSyncID != "" {
+		return c.currentSyncID, nil
+	}
+	// We are viewing a sync, so use the view sync id
+	if c.viewSyncID != "" {
+		return c.viewSyncID, nil
+	}
+
+	latestSyncRun, err := c.getCachedViewSyncRun(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	if latestSyncRun != nil {
+		return latestSyncRun.ID, nil
+	}
+
+	return "", nil
+}
+
 // listConnectorObjects uses a connector list request to fetch the corresponding data from the local db.
 // It returns a slice of typed proto messages constructed via the provided factory function.
 func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T) ([]T, string, error) {
@@ -131,28 +161,9 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		return nil, "", err
 	}
 
-	annoSyncID, err := annotations.GetSyncIdFromAnnotations(req.GetAnnotations())
+	reqSyncID, err := resolveSyncID(ctx, c, req)
 	if err != nil {
-		return nil, "", fmt.Errorf("error getting sync id from annotations for list request: %w", err)
-	}
-
-	var reqSyncID string
-	switch {
-	// If the request has a sync id annotation, use that
-	case annoSyncID != "":
-		reqSyncID = annoSyncID
-
-	// We are currently syncing, so use the current sync id
-	case c.currentSyncID != "":
-		reqSyncID = c.currentSyncID
-
-	// We are viewing a sync, so use the view sync id
-	case c.viewSyncID != "":
-		reqSyncID = c.viewSyncID
-
-	// Be explicit that we have no sync ID set
-	default:
-		reqSyncID = ""
+		return nil, "", err
 	}
 
 	q := c.db.From(tableName).Prepared(true)
@@ -221,19 +232,8 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	}
 
 	// If a sync is running, be sure we only select from the current values
-	switch {
-	case reqSyncID != "":
+	if reqSyncID != "" {
 		q = q.Where(goqu.C("sync_id").Eq(reqSyncID))
-	default:
-		// Use cached sync run to avoid N+1 queries during pagination
-		latestSyncRun, err := c.getCachedViewSyncRun(ctx)
-		if err != nil {
-			return nil, "", err
-		}
-
-		if latestSyncRun != nil {
-			q = q.Where(goqu.C("sync_id").Eq(latestSyncRun.ID))
-		}
 	}
 
 	// If a page token is provided, begin listing rows greater than or equal to the token
