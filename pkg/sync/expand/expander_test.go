@@ -180,6 +180,9 @@ func TestExpanderWithMockStore(t *testing.T) {
 	sources := expandedGrant.GetSources().GetSources()
 	require.NotNil(t, sources)
 	require.Contains(t, sources, entA.GetId())
+
+	// Source grant on entA is direct (Alice has entA directly), so IsDirect must be true.
+	require.True(t, sources[entA.GetId()].GetIsDirect())
 }
 
 func TestExpanderStepByStep(t *testing.T) {
@@ -312,11 +315,138 @@ func TestExpanderMultiLevel(t *testing.T) {
 	putGrants := store.GetPutGrants()
 	require.Len(t, putGrants, 2) // B and C (A was already granted)
 
-	// Verify the grants are for the correct entitlements
-	entitlementIDs := make(map[string]bool)
+	// Index expanded grants by entitlement ID for inspection.
+	grantsByEnt := make(map[string]*v2.Grant)
 	for _, g := range putGrants {
-		entitlementIDs[g.GetEntitlement().GetId()] = true
+		grantsByEnt[g.GetEntitlement().GetId()] = g
 	}
-	require.True(t, entitlementIDs[entB.GetId()])
-	require.True(t, entitlementIDs[entC.GetId()])
+	require.Contains(t, grantsByEnt, entB.GetId())
+	require.Contains(t, grantsByEnt, entC.GetId())
+
+	// Grant on B: source is A. Charlie has A directly, so IsDirect = true (depth 0).
+	sourcesB := grantsByEnt[entB.GetId()].GetSources().GetSources()
+	require.Contains(t, sourcesB, entA.GetId())
+	require.True(t, sourcesB[entA.GetId()].GetIsDirect(), "source A on grant B should be direct (depth 0)")
+
+	// Grant on C: source is B. Charlie has B only through expansion, so IsDirect = false (depth > 0).
+	sourcesC := grantsByEnt[entC.GetId()].GetSources().GetSources()
+	require.Contains(t, sourcesC, entB.GetId())
+	require.False(t, sourcesC[entB.GetId()].GetIsDirect(), "source B on grant C should be transitive (depth > 0)")
+}
+
+// TestExpanderDiamondGraph tests the diamond case where two direct grants
+// both expand to the same descendant entitlement. Both sources should be
+// marked IsDirect=true since the principal holds both source entitlements directly.
+//
+//	Alice → A ─┐
+//	Alice → B ─┴→ C
+func TestExpanderDiamondGraph(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	groupResource := makeResource("group", "org")
+	userResource := makeResource("user", "alice")
+
+	entA := makeEntitlement("ent:a", groupResource)
+	entB := makeEntitlement("ent:b", groupResource)
+	entC := makeEntitlement("ent:c", groupResource)
+
+	store.AddEntitlement(entA)
+	store.AddEntitlement(entB)
+	store.AddEntitlement(entC)
+
+	// Alice has both A and B directly.
+	store.AddGrant(makeGrant("grant:alice:a", entA, userResource))
+	store.AddGrant(makeGrant("grant:alice:b", entB, userResource))
+
+	// Both A and B expand to C.
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlement(entA)
+	graph.AddEntitlement(entB)
+	graph.AddEntitlement(entC)
+	err := graph.AddEdge(ctx, entA.GetId(), entC.GetId(), false, []string{"user"})
+	require.NoError(t, err)
+	err = graph.AddEdge(ctx, entB.GetId(), entC.GetId(), false, []string{"user"})
+	require.NoError(t, err)
+
+	expander := NewExpander(store, graph)
+	err = expander.Run(ctx)
+	require.NoError(t, err)
+
+	// Find Alice's grant on C (it may have been written multiple times; take the last version).
+	var grantC *v2.Grant
+	for _, g := range store.GetPutGrants() {
+		if g.GetEntitlement().GetId() == entC.GetId() {
+			grantC = g
+		}
+	}
+	require.NotNil(t, grantC)
+
+	sourcesC := grantC.GetSources().GetSources()
+	require.Contains(t, sourcesC, entA.GetId())
+	require.Contains(t, sourcesC, entB.GetId())
+
+	// Both A and B are direct grants, so both sources should be IsDirect=true.
+	require.True(t, sourcesC[entA.GetId()].GetIsDirect(), "source A should be direct (Alice has A directly)")
+	require.True(t, sourcesC[entB.GetId()].GetIsDirect(), "source B should be direct (Alice has B directly)")
+}
+
+// TestExpanderMixedDirectness tests a diamond where one path is direct and
+// the other is transitive, verifying IsDirect differs per source.
+//
+//	Alice → A → B ─┐
+//	                └→ C
+//	Alice → A ──────┘  (A is direct, B is transitive)
+func TestExpanderMixedDirectness(t *testing.T) {
+	ctx := context.Background()
+	store := NewMockExpanderStore()
+
+	groupResource := makeResource("group", "org")
+	userResource := makeResource("user", "alice")
+
+	entA := makeEntitlement("ent:a", groupResource)
+	entB := makeEntitlement("ent:b", groupResource)
+	entC := makeEntitlement("ent:c", groupResource)
+
+	store.AddEntitlement(entA)
+	store.AddEntitlement(entB)
+	store.AddEntitlement(entC)
+
+	// Alice has A directly.
+	store.AddGrant(makeGrant("grant:alice:a", entA, userResource))
+
+	// A → B and A → C, B → C (so C is reachable from A directly and from B transitively).
+	graph := NewEntitlementGraph(ctx)
+	graph.AddEntitlement(entA)
+	graph.AddEntitlement(entB)
+	graph.AddEntitlement(entC)
+	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
+	require.NoError(t, err)
+	err = graph.AddEdge(ctx, entA.GetId(), entC.GetId(), false, []string{"user"})
+	require.NoError(t, err)
+	err = graph.AddEdge(ctx, entB.GetId(), entC.GetId(), false, []string{"user"})
+	require.NoError(t, err)
+
+	expander := NewExpander(store, graph)
+	err = expander.Run(ctx)
+	require.NoError(t, err)
+
+	// Find Alice's grant on C.
+	var grantC *v2.Grant
+	for _, g := range store.GetPutGrants() {
+		if g.GetEntitlement().GetId() == entC.GetId() {
+			grantC = g
+		}
+	}
+	require.NotNil(t, grantC)
+
+	sourcesC := grantC.GetSources().GetSources()
+
+	// Source A: Alice has A directly → IsDirect=true
+	require.Contains(t, sourcesC, entA.GetId())
+	require.True(t, sourcesC[entA.GetId()].GetIsDirect(), "source A should be direct")
+
+	// Source B: Alice has B only through expansion from A → IsDirect=false
+	require.Contains(t, sourcesC, entB.GetId())
+	require.False(t, sourcesC[entB.GetId()].GetIsDirect(), "source B should be transitive")
 }
