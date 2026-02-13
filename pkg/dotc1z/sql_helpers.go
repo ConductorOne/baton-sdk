@@ -33,8 +33,8 @@ var allTableDescriptors = []tableDescriptor{
 	resourceTypes,
 	resources,
 	entitlements,
+	syncRuns, // Must be before grants since grants migration joins sync_runs.
 	grants,
-	syncRuns,
 	assets,
 	sessionStore,
 }
@@ -86,6 +86,16 @@ type hasPrincipalResourceTypeIDsListRequest interface {
 type hasParentResourceIdListRequest interface {
 	listRequest
 	GetParentResourceId() *v2.ResourceId
+}
+
+type hasExpandableOnlyListRequest interface {
+	listRequest
+	GetExpandableOnly() bool
+}
+
+type hasNeedsExpansionOnlyListRequest interface {
+	listRequest
+	GetNeedsExpansionOnly() bool
 }
 
 type protoHasID interface {
@@ -146,7 +156,14 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	}
 
 	q := c.db.From(tableName).Prepared(true)
-	q = q.Select("id", "data")
+	// Grants are special-cased because GrantExpandable is stored in a separate SQL column.
+	// When listing grants, we re-attach the GrantExpandable annotation to the returned proto.
+	withExpansion := tableName == grants.Name()
+	if withExpansion {
+		q = q.Select("id", "data", "expansion")
+	} else {
+		q = q.Select("id", "data")
+	}
 
 	// If the request allows filtering by resource type, apply the filter
 	if resourceTypeReq, ok := req.(hasResourceTypeListRequest); ok {
@@ -200,6 +217,14 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 			q = q.Where(goqu.C("parent_resource_id").Eq(p.GetResource()))
 			q = q.Where(goqu.C("parent_resource_type_id").Eq(p.GetResourceType()))
 		}
+	}
+
+	if expandableReq, ok := req.(hasExpandableOnlyListRequest); ok && expandableReq.GetExpandableOnly() {
+		q = q.Where(goqu.C("expansion").IsNotNull())
+	}
+
+	if needsExpansionReq, ok := req.(hasNeedsExpansionOnlyListRequest); ok && needsExpansionReq.GetNeedsExpansionOnly() {
+		q = q.Where(goqu.C("needs_expansion").Eq(1))
 	}
 
 	// If a sync is running, be sure we only select from the current values
@@ -270,14 +295,36 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		if count > pageSize {
 			break
 		}
-		err := rows.Scan(&lastRow, &data)
-		if err != nil {
-			return nil, "", err
+		var expansionBytes []byte
+		if withExpansion {
+			// IMPORTANT: keep expansion scoped to this row. Some drivers may not overwrite a []byte
+			// destination on NULL, which would cause us to accidentally reuse bytes from a previous row.
+			expansionBytes = nil
+			err := rows.Scan(&lastRow, &data, &expansionBytes)
+			if err != nil {
+				return nil, "", err
+			}
+		} else {
+			err := rows.Scan(&lastRow, &data)
+			if err != nil {
+				return nil, "", err
+			}
 		}
 		t := factory()
 		err = unmarshalerOptions.Unmarshal(data, t)
 		if err != nil {
 			return nil, "", err
+		}
+		if withExpansion && len(expansionBytes) > 0 {
+			if g, ok := any(t).(*v2.Grant); ok {
+				expandable := &v2.GrantExpandable{}
+				if err := proto.Unmarshal(expansionBytes, expandable); err != nil {
+					return nil, "", fmt.Errorf("failed to unmarshal grant expansion: %w", err)
+				}
+				annos := annotations.Annotations(g.GetAnnotations())
+				annos.Append(expandable)
+				g.SetAnnotations(annos)
+			}
 		}
 		ret = append(ret, t)
 	}
@@ -532,8 +579,9 @@ func bulkPutConnectorObject[T proto.Message](
 
 	// Define query building function
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
+		update := goqu.Record{"data": goqu.I("EXCLUDED.data")}
 		return insertDs.
-			OnConflict(goqu.DoUpdate("external_id, sync_id", goqu.C("data").Set(goqu.I("EXCLUDED.data")))).
+			OnConflict(goqu.DoUpdate("external_id, sync_id", update)).
 			Rows(chunkedRows).
 			Prepared(true), nil
 	}
@@ -567,12 +615,13 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 
 	// Define query building function
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
+		update := goqu.Record{
+			"data":          goqu.I("EXCLUDED.data"),
+			"discovered_at": goqu.I("EXCLUDED.discovered_at"),
+		}
 		return insertDs.
 			OnConflict(goqu.DoUpdate("external_id, sync_id",
-				goqu.Record{
-					"data":          goqu.I("EXCLUDED.data"),
-					"discovered_at": goqu.I("EXCLUDED.discovered_at"),
-				}).Where(
+				update).Where(
 				goqu.L("EXCLUDED.discovered_at > ?.discovered_at", goqu.I(tableName)),
 			)).
 			Rows(chunkedRows).

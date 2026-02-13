@@ -2,6 +2,8 @@ package expand
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -114,17 +116,23 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File) (*Enti
 					EntitlementId: srcEntitlementID,
 				}.Build())
 				if err != nil {
-					continue // Skip if source entitlement not found
+					// Only skip not-found entitlements; propagate other errors.
+					if errors.Is(err, sql.ErrNoRows) {
+						continue
+					}
+					return nil, fmt.Errorf("error fetching source entitlement %q: %w", srcEntitlementID, err)
 				}
 
 				graph.AddEntitlement(grant.GetEntitlement())
 				graph.AddEntitlement(srcEntitlement.GetEntitlement())
-				_ = graph.AddEdge(ctx,
+				if err := graph.AddEdge(ctx,
 					srcEntitlement.GetEntitlement().GetId(),
 					grant.GetEntitlement().GetId(),
 					expandable.GetShallow(),
 					expandable.GetResourceTypeIds(),
-				)
+				); err != nil {
+					return nil, err
+				}
 			}
 		}
 

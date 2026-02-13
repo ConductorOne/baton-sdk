@@ -108,13 +108,8 @@ func TestExpandGrants(t *testing.T) {
 		}
 	}
 	require.Len(t, allGrants, expectedGrantCount, "should have %d grants but got %d", expectedGrantCount, len(allGrants))
-	for _, grant := range allGrants {
-		annos := annotations.Annotations(grant.GetAnnotations())
-		expandable := &v2.GrantExpandable{}
-		ok, err := annos.Pick(expandable)
-		require.NoError(t, err)
-		require.False(t, ok, "grants are expanded, but grant %s has expandable annotation with entitlement ids %v", grant.GetId(), expandable.GetEntitlementIds())
-	}
+	// Note: We no longer strip GrantExpandable from stored grants during expansion.
+	// Expansion bookkeeping lives outside the grant proto so diffs can safely compare data bytes.
 }
 
 func TestInvalidResourceTypeFilter(t *testing.T) {
