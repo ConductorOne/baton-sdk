@@ -361,9 +361,9 @@ func TestExpanderDiamondGraph(t *testing.T) {
 
 	// Both A and B expand to C.
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlement(entA)
-	graph.AddEntitlement(entB)
-	graph.AddEntitlement(entC)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
+	graph.AddEntitlementID(entC.GetId())
 	err := graph.AddEdge(ctx, entA.GetId(), entC.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 	err = graph.AddEdge(ctx, entB.GetId(), entC.GetId(), false, []string{"user"})
@@ -417,9 +417,9 @@ func TestExpanderMixedDirectness(t *testing.T) {
 
 	// A → B and A → C, B → C (so C is reachable from A directly and from B transitively).
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlement(entA)
-	graph.AddEntitlement(entB)
-	graph.AddEntitlement(entC)
+	graph.AddEntitlementID(entA.GetId())
+	graph.AddEntitlementID(entB.GetId())
+	graph.AddEntitlementID(entC.GetId())
 	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 	err = graph.AddEdge(ctx, entA.GetId(), entC.GetId(), false, []string{"user"})

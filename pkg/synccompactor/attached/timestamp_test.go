@@ -62,7 +62,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
 		appliedDB, err := dotc1z.NewC1ZFile(ctx, appliedFile, appliedOpts...)
 		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, baseDB.Close(ctx)) })
+		t.Cleanup(func() { require.NoError(t, appliedDB.Close(ctx)) })
 
 		_, err = appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 		require.NoError(t, err)
@@ -134,8 +134,8 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		err = appliedDB.EndSync(ctx)
 		require.NoError(t, err)
 
-		// Small delay to ensure different timestamps
-		time.Sleep(10 * time.Millisecond)
+		// Give enough clock separation for CI/Windows timer granularity.
+		time.Sleep(100 * time.Millisecond)
 
 		// Create base database after applied (newer timestamps)
 		baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
