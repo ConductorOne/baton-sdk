@@ -27,6 +27,9 @@ func (c *C1File) ListGrantsInternal(ctx context.Context, opts connectorstore.Gra
 	if opts.Request != nil && (opts.PageToken != "" || opts.PageSize != 0 || opts.SyncID != "") {
 		return nil, fmt.Errorf("invalid grant list options: Request must not be combined with PageToken/PageSize/SyncID")
 	}
+	if opts.IncludeGrantPayload && opts.Request == nil && (opts.PageToken != "" || opts.PageSize != 0 || opts.SyncID != "") {
+		return nil, fmt.Errorf("invalid grant list options: PageToken/PageSize/SyncID are only for expansion-only listing; use Request for grant payload listing")
+	}
 
 	// Expansion-only path uses direct SQL column reads and does not unmarshal full grant protos.
 	if !opts.IncludeGrantPayload && opts.IncludeExpansion {

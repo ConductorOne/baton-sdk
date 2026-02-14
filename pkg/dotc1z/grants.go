@@ -205,18 +205,6 @@ func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	}, bulkGrants...)
 }
 
-// PutGrantsWithoutExpansionChange writes grants while preserving any existing expansion
-// column values. This is used by the expander when updating sources on existing grants
-// — the grant's expandability hasn't changed, only its source tracking has.
-func (c *C1File) PutGrantsWithoutExpansionChange(ctx context.Context, bulkGrants ...*v2.Grant) error {
-	ctx, span := tracer.Start(ctx, "C1File.PutGrantsWithoutExpansionChange")
-	defer span.End()
-
-	// Compatibility wrapper: preserve expansion behavior is now modeled via UpsertGrants options.
-	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
-		Mode: connectorstore.GrantUpsertModePreserveExpansion,
-	}, bulkGrants...)
-}
 
 func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrantsIfNewer")
