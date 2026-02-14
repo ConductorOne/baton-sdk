@@ -225,6 +225,7 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 
 	if expandableReq, ok := req.(hasExpandableOnlyListRequest); ok && expandableReq.GetExpandableOnly() {
 		q = q.Where(goqu.C("expansion").IsNotNull())
+		q = q.Where(goqu.L("length(expansion) > 0"))
 	}
 
 	if needsExpansionReq, ok := req.(hasNeedsExpansionOnlyListRequest); ok && needsExpansionReq.GetNeedsExpansionOnly() {

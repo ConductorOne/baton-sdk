@@ -51,6 +51,18 @@ type Reader interface {
 	Close(ctx context.Context) error
 }
 
+type InternalWriter interface {
+	Writer
+	// ListExpandableGrants lists expandable grants directly from SQL columns,
+	// returning lightweight structs without unmarshalling full grant protos.
+	ListExpandableGrants(ctx context.Context, opts ...ListExpandableGrantsOption) ([]*ExpandableGrantDef, string, error)
+
+	// ListGrantsWithExpansion lists grants and includes expansion metadata from the
+	// expansion column. Each returned GrantWithExpansion contains the full grant proto
+	// plus an optional ExpandableGrantDef (nil if the grant is not expandable).
+	ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*GrantsWithExpansionResponse, error)
+}
+
 // ConnectorStoreWriter defines an implementation for a connector v2 datasource writer. This is used to store sync data from an upstream provider.
 type Writer interface {
 	Reader
@@ -73,15 +85,6 @@ type Writer interface {
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	DeleteGrant(ctx context.Context, grantId string) error
-
-	// ListExpandableGrants lists expandable grants directly from SQL columns,
-	// returning lightweight structs without unmarshalling full grant protos.
-	ListExpandableGrants(ctx context.Context, opts ...ListExpandableGrantsOption) ([]*ExpandableGrantDef, string, error)
-
-	// ListGrantsWithExpansion lists grants and includes expansion metadata from the
-	// expansion column. Each returned GrantWithExpansion contains the full grant proto
-	// plus an optional ExpandableGrantDef (nil if the grant is not expandable).
-	ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*GrantsWithExpansionResponse, error)
 }
 
 // GrantWithExpansion pairs a grant proto with its optional expansion metadata.

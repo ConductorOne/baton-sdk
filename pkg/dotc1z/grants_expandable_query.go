@@ -46,6 +46,7 @@ func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...connectorstor
 	)
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 	q = q.Where(goqu.C("expansion").IsNotNull())
+	q = q.Where(goqu.L("length(expansion) > 0"))
 	if o.NeedsExpansionOnly {
 		q = q.Where(goqu.C("needs_expansion").Eq(1))
 	}

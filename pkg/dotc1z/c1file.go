@@ -68,7 +68,7 @@ type C1File struct {
 	syncLimit int
 }
 
-var _ connectorstore.Writer = (*C1File)(nil)
+var _ connectorstore.InternalWriter = (*C1File)(nil)
 
 type C1FOption func(*C1File)
 

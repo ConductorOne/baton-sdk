@@ -151,7 +151,8 @@ func (c *C1File) ListGrantsWithExpansion(ctx context.Context, request *v2.Grants
 	q := c.db.From(grants.Name()).Prepared(true).
 		Select("external_id", "entitlement_id", "principal_resource_type_id", "principal_resource_id", "expansion", "needs_expansion").
 		Where(goqu.C("external_id").In(ids...)).
-		Where(goqu.C("expansion").IsNotNull())
+		Where(goqu.C("expansion").IsNotNull()).
+		Where(goqu.L("length(expansion) > 0"))
 
 	syncID, err := resolveSyncID(ctx, c, request)
 	if err != nil {
@@ -377,7 +378,12 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 
 				stripped := proto.Clone(grant).(*v2.Grant)
 				expansionBytes, needsExpansion := extractAndStripExpansion(stripped)
-				rec["expansion"] = expansionBytes
+				// Use untyped nil for SQL NULL to avoid driver-specific []byte(nil)->X'' coercion.
+				if expansionBytes == nil {
+					rec["expansion"] = nil
+				} else {
+					rec["expansion"] = expansionBytes
+				}
 				rec["needs_expansion"] = needsExpansion
 
 				strippedData, err := proto.MarshalOptions{Deterministic: true}.Marshal(stripped)
@@ -645,7 +651,7 @@ func bulkPutGrantsInternal(
 	needsExpansionExpr := goqu.L(
 		`CASE
 			WHEN ? = ? THEN ?.needs_expansion
-			WHEN EXCLUDED.expansion IS NULL THEN 0
+			WHEN EXCLUDED.expansion IS NULL OR EXCLUDED.expansion = X'' THEN 0
 			WHEN ?.expansion IS NULL AND EXCLUDED.expansion IS NOT NULL THEN 1
 			WHEN ?.expansion IS NOT NULL AND EXCLUDED.expansion IS NOT NULL AND ?.expansion != EXCLUDED.expansion THEN 1
 			ELSE ?.needs_expansion

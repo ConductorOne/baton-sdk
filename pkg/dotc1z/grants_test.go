@@ -585,6 +585,31 @@ func getRawGrantRowForSync(ctx context.Context, t *testing.T, c1f *C1File, exter
 	return r
 }
 
+func requireExpansionSQLNullForSync(ctx context.Context, t *testing.T, c1f *C1File, externalID string, syncID string) {
+	t.Helper()
+	var isNull int
+	err := c1f.db.QueryRowContext(
+		ctx,
+		"SELECT expansion IS NULL FROM "+grants.Name()+" WHERE external_id=? AND sync_id=?",
+		externalID,
+		syncID,
+	).Scan(&isNull)
+	require.NoError(t, err)
+	require.Equal(t, 1, isNull, "expansion must be SQL NULL, not empty blob")
+}
+
+func requireExpansionSQLNull(ctx context.Context, t *testing.T, c1f *C1File, externalID string) {
+	t.Helper()
+	var isNull int
+	err := c1f.db.QueryRowContext(
+		ctx,
+		"SELECT expansion IS NULL FROM "+grants.Name()+" WHERE external_id=?",
+		externalID,
+	).Scan(&isNull)
+	require.NoError(t, err)
+	require.Equal(t, 1, isNull, "expansion must be SQL NULL, not empty blob")
+}
+
 // setupTestC1Z creates a fresh c1z with a started full sync and common resource types,
 // resources, and entitlements. Returns the c1z, sync ID, and a cleanup function.
 func setupTestC1Z(ctx context.Context, t *testing.T) (*C1File, string, func()) {
@@ -620,7 +645,7 @@ func setupTestC1Z(ctx context.Context, t *testing.T) (*C1File, string, func()) {
 
 // TestNeedsExpansion_ExpandableToNonExpandable verifies that when a grant transitions
 // from expandable to non-expandable by being re-synced with a GrantExpandable annotation
-// that has no valid entitlement IDs, expansion is cleared via the empty-blob sentinel.
+// that has no valid entitlement IDs, expansion is cleared to SQL NULL.
 func TestNeedsExpansion_ExpandableToNonExpandable(t *testing.T) {
 	ctx := context.Background()
 	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
@@ -659,6 +684,7 @@ func TestNeedsExpansion_ExpandableToNonExpandable(t *testing.T) {
 
 	raw = getRawGrantRowForSync(ctx, t, c1f, "grant-transition", syncID)
 	require.Nil(t, raw.expansion, "after clearing expansion, column should be NULL")
+	requireExpansionSQLNullForSync(ctx, t, c1f, "grant-transition", syncID)
 	require.Equal(t, 0, raw.needsExpansion, "needs_expansion must be 0 when expansion is cleared")
 
 	// Step 3: Verify ListExpandableGrants returns nothing.
@@ -709,6 +735,7 @@ func TestExpansionClearedOnUpsertWithoutAnnotation(t *testing.T) {
 	raw = getRawGrantRow(ctx, t, c1f, "grant-loses-expansion")
 	require.Nil(t, raw.expansion,
 		"expansion column should be cleared when grant is upserted without GrantExpandable annotation")
+	requireExpansionSQLNull(ctx, t, c1f, "grant-loses-expansion")
 	require.Equal(t, 0, raw.needsExpansion,
 		"needs_expansion should be 0 when expansion is cleared")
 

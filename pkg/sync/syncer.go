@@ -231,7 +231,7 @@ type syncer struct {
 	c1zPath                             string
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string
-	store                               connectorstore.Writer
+	store                               connectorstore.InternalWriter
 	externalResourceReader              connectorstore.Reader
 	connector                           types.ConnectorClient
 	state                               State
@@ -3002,7 +3002,7 @@ func WithProgressHandler(f func(s *Progress)) SyncOpt {
 	}
 }
 
-func WithConnectorStore(store connectorstore.Writer) SyncOpt {
+func WithConnectorStore(store connectorstore.InternalWriter) SyncOpt {
 	return func(s *syncer) {
 		s.store = store
 	}
