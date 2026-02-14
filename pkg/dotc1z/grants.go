@@ -235,28 +235,11 @@ func (c *C1File) UpsertGrants(ctx context.Context, opts connectorstore.GrantUpse
 	case connectorstore.GrantUpsertModeIfNewer:
 		return c.putGrantsInternal(ctx, bulkPutGrantsIfNewer, bulkGrants...)
 	case connectorstore.GrantUpsertModePreserveExpansion:
-		if c.readOnly {
-			return ErrReadOnly
-		}
-
-		err := bulkPutGrants(ctx, c, grants.Name(),
-			func(grant *v2.Grant) (goqu.Record, error) {
-				return goqu.Record{
-					"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
-					"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
-					"entitlement_id":             grant.GetEntitlement().GetId(),
-					"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
-					"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-				}, nil
-			},
-			expansionWriteModePreserve,
-			bulkGrants...,
-		)
-		if err != nil {
-			return err
-		}
-		c.dbUpdated = true
-		return nil
+		// Route through putGrantsInternal so GrantExpandable annotations are
+		// stripped from the data blob, matching Replace/IfNewer behavior.
+		// The expansionWriteModePreserve flag ensures existing expansion/needs_expansion
+		// columns are kept unchanged on conflict.
+		return c.putGrantsInternalWithMode(ctx, bulkPutGrants, expansionWriteModePreserve, bulkGrants...)
 	default:
 		return fmt.Errorf("unknown grant upsert mode: %d", opts.Mode)
 	}
@@ -272,6 +255,10 @@ const (
 )
 
 func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGrants ...*v2.Grant) error {
+	return c.putGrantsInternalWithMode(ctx, f, expansionWriteModeExplicit, bulkGrants...)
+}
+
+func (c *C1File) putGrantsInternalWithMode(ctx context.Context, f grantPutFunc, mode expansionWriteMode, bulkGrants ...*v2.Grant) error {
 	if c.readOnly {
 		return ErrReadOnly
 	}
@@ -315,7 +302,7 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 
 				return rec, nil
 			},
-			expansionWriteModeExplicit,
+			mode,
 			withExpandable...,
 		)
 		if err != nil {
@@ -336,7 +323,7 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 					"needs_expansion":            false,
 				}, nil
 			},
-			expansionWriteModeExplicit,
+			mode,
 			withoutExpandable...,
 		)
 		if err != nil {

@@ -101,6 +101,12 @@ type Writer interface {
 }
 
 // GrantListOptions configures ListGrantsInternal.
+//
+// There are two pagination models, depending on whether IncludeGrantPayload is set:
+//   - Expansion-only (IncludeGrantPayload=false): use PageToken, PageSize, SyncID directly.
+//   - Grant payload (IncludeGrantPayload=true): use Request, which carries its own pagination/filters.
+//
+// Setting both Request and PageToken/PageSize/SyncID is an error.
 type GrantListOptions struct {
 	// IncludeGrantPayload controls whether full grant protos are returned in each row.
 	IncludeGrantPayload bool
@@ -112,12 +118,14 @@ type GrantListOptions struct {
 	// want rows marked 1 so we avoid rebuilding graph edges for already-processed grants.
 	// Requires IncludeExpansion.
 	NeedsExpansionOnly bool
-	// SyncID forces filtering to a specific sync when supported by the listing path.
-	SyncID string
-	// PageToken and PageSize control pagination.
+
+	// SyncID, PageToken, PageSize are used for expansion-only listing (no grant payload).
+	SyncID    string
 	PageToken string
 	PageSize  uint32
-	// Request is optional request-style filtering used when IncludeGrantPayload=true.
+
+	// Request is used when IncludeGrantPayload=true. It carries its own pagination and filters.
+	// Must not be combined with PageToken/PageSize/SyncID.
 	Request *v2.GrantsServiceListGrantsRequest
 }
 

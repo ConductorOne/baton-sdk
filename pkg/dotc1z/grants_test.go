@@ -961,3 +961,57 @@ func TestPutGrantsIfNewer_ExpansionColumnsUpdated(t *testing.T) {
 	require.Equal(t, []string{"ent1", "ent2"}, defs[0].SourceEntitlementIDs)
 	require.True(t, defs[0].Shallow)
 }
+
+func TestListGrantsInternal_NeedsExpansionOnlyWithPayloadFiltersRows(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	expandableGrant := v2.Grant_builder{
+		Id:          "grant-expandable-needs",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+		}.Build()),
+	}.Build()
+	normalGrant := v2.Grant_builder{
+		Id:          "grant-normal-noneeds",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+
+	require.NoError(t, c1f.PutGrants(ctx, expandableGrant, normalGrant))
+
+	resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		IncludeGrantPayload: true,
+		IncludeExpansion:    true,
+		NeedsExpansionOnly:  true,
+		Request:             v2.GrantsServiceListGrantsRequest_builder{}.Build(),
+	})
+	require.NoError(t, err)
+
+	require.Len(t, resp.Rows, 1, "only grants with needs_expansion=1 should be returned")
+	require.NotNil(t, resp.Rows[0].Grant)
+	require.Equal(t, "grant-expandable-needs", resp.Rows[0].Grant.GetId())
+	require.NotNil(t, resp.Rows[0].Expansion)
+	require.True(t, resp.Rows[0].Expansion.NeedsExpansion)
+}
+
+func TestListGrantsInternal_RequestRequiresGrantPayload(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	_, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		IncludeGrantPayload: false,
+		IncludeExpansion:    true,
+		Request:             v2.GrantsServiceListGrantsRequest_builder{}.Build(),
+	})
+	require.Error(t, err)
+	require.ErrorContains(t, err, "Request requires IncludeGrantPayload")
+}

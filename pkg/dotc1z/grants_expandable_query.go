@@ -21,6 +21,12 @@ func (c *C1File) ListGrantsInternal(ctx context.Context, opts connectorstore.Gra
 	if opts.NeedsExpansionOnly && !opts.IncludeExpansion {
 		return nil, fmt.Errorf("invalid grant list options: NeedsExpansionOnly requires IncludeExpansion")
 	}
+	if opts.Request != nil && !opts.IncludeGrantPayload {
+		return nil, fmt.Errorf("invalid grant list options: Request requires IncludeGrantPayload")
+	}
+	if opts.Request != nil && (opts.PageToken != "" || opts.PageSize != 0 || opts.SyncID != "") {
+		return nil, fmt.Errorf("invalid grant list options: Request must not be combined with PageToken/PageSize/SyncID")
+	}
 
 	// Expansion-only path uses direct SQL column reads and does not unmarshal full grant protos.
 	if !opts.IncludeGrantPayload && opts.IncludeExpansion {
@@ -42,10 +48,7 @@ func (c *C1File) ListGrantsInternal(ctx context.Context, opts connectorstore.Gra
 
 	req := opts.Request
 	if req == nil {
-		req = v2.GrantsServiceListGrantsRequest_builder{
-			PageToken: opts.PageToken,
-			PageSize:  opts.PageSize,
-		}.Build()
+		req = v2.GrantsServiceListGrantsRequest_builder{}.Build()
 	}
 
 	if opts.IncludeExpansion {
@@ -220,6 +223,10 @@ func (c *C1File) listGrantsWithExpansionInternal(
 		Where(goqu.C("expansion").IsNotNull()).
 		Where(goqu.L("length(expansion) > 0"))
 
+	if needsExpansionOnly {
+		q = q.Where(goqu.C("needs_expansion").Eq(1))
+	}
+
 	syncID, err := resolveSyncID(ctx, c, request)
 	if err != nil {
 		return nil, fmt.Errorf("error getting sync id for list grants with expansion: %w", err)
@@ -281,7 +288,7 @@ func (c *C1File) listGrantsWithExpansionInternal(
 			Grant:     g,
 			Expansion: expansionMap[g.GetId()],
 		}
-		if needsExpansionOnly && (row.Expansion == nil || !row.Expansion.NeedsExpansion) {
+		if needsExpansionOnly && row.Expansion == nil {
 			continue
 		}
 		result = append(result, row)
