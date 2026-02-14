@@ -104,6 +104,10 @@ func (m *MockExpanderStore) PutGrants(_ context.Context, grants ...*v2.Grant) er
 	return nil
 }
 
+func (m *MockExpanderStore) PutGrantsWithoutExpansionChange(_ context.Context, grants ...*v2.Grant) error {
+	return m.PutGrants(context.Background(), grants...)
+}
+
 // Helper functions for creating test data
 
 func makeResourceID(resourceType, resource string) *v2.ResourceId {

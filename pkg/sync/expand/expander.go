@@ -29,6 +29,10 @@ type ExpanderStore interface {
 	GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error)
 	ListGrantsForEntitlement(ctx context.Context, req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error)
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+	// PutGrantsWithoutExpansionChange writes grants while preserving any existing
+	// expansion column values. Used when updating sources on existing grants during
+	// expansion — the grant's expandability hasn't changed, only its source tracking.
+	PutGrantsWithoutExpansionChange(ctx context.Context, grants ...*v2.Grant) error
 }
 
 // Expander handles the grant expansion algorithm.
@@ -289,7 +293,7 @@ func PutGrantsInChunks(ctx context.Context, store ExpanderStore, grants []*v2.Gr
 		return grants, nil
 	}
 
-	err := store.PutGrants(ctx, grants...)
+	err := store.PutGrantsWithoutExpansionChange(ctx, grants...)
 	if err != nil {
 		return nil, fmt.Errorf("PutGrantsInChunks: error putting grants: %w", err)
 	}

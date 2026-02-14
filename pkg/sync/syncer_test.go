@@ -11,6 +11,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/logging"
@@ -1023,7 +1024,11 @@ func TestExternalResourceMatchIDWithExpandableRemapping(t *testing.T) {
 	placeholderResource := v2.Resource_builder{
 		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "placeholder_role"}.Build(),
 	}.Build()
-	placeholderEntID := et.NewEntitlementID(placeholderResource, "member")
+	placeholderEntID, err := bid.MakeBid(v2.Entitlement_builder{
+		Resource: placeholderResource,
+		Slug:     "member",
+	}.Build())
+	require.NoError(t, err)
 
 	// Create a grant with BOTH ExternalResourceMatchID AND GrantExpandable.
 	// The GrantExpandable references an entitlement on the PLACEHOLDER resource.

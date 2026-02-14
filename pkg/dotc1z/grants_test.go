@@ -568,6 +568,23 @@ func getRawGrantRow(ctx context.Context, t *testing.T, c1f *C1File, externalID s
 	return r
 }
 
+func getRawGrantRowForSync(ctx context.Context, t *testing.T, c1f *C1File, externalID string, syncID string) grantRawRow {
+	t.Helper()
+	var r grantRawRow
+	err := c1f.db.QueryRowContext(ctx,
+		"SELECT expansion, needs_expansion FROM "+grants.Name()+" WHERE external_id=? AND sync_id=?",
+		externalID,
+		syncID,
+	).Scan(&r.expansion, &r.needsExpansion)
+	require.NoError(t, err)
+	// Normalize empty blob to nil so callers can use require.Nil uniformly
+	// across drivers that may return []byte{} vs nil for SQL NULL.
+	if len(r.expansion) == 0 {
+		r.expansion = nil
+	}
+	return r
+}
+
 // setupTestC1Z creates a fresh c1z with a started full sync and common resource types,
 // resources, and entitlements. Returns the c1z, sync ID, and a cleanup function.
 func setupTestC1Z(ctx context.Context, t *testing.T) (*C1File, string, func()) {
@@ -606,7 +623,7 @@ func setupTestC1Z(ctx context.Context, t *testing.T) (*C1File, string, func()) {
 // that has no valid entitlement IDs, expansion is cleared via the empty-blob sentinel.
 func TestNeedsExpansion_ExpandableToNonExpandable(t *testing.T) {
 	ctx := context.Background()
-	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
 
 	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
@@ -625,7 +642,7 @@ func TestNeedsExpansion_ExpandableToNonExpandable(t *testing.T) {
 	}.Build()
 	require.NoError(t, c1f.PutGrants(ctx, expandableGrant))
 
-	raw := getRawGrantRow(ctx, t, c1f, "grant-transition")
+	raw := getRawGrantRowForSync(ctx, t, c1f, "grant-transition", syncID)
 	require.NotNil(t, raw.expansion, "initial insert should have non-nil expansion")
 	require.Equal(t, 1, raw.needsExpansion, "initial insert should have needs_expansion=1")
 
@@ -640,20 +657,21 @@ func TestNeedsExpansion_ExpandableToNonExpandable(t *testing.T) {
 	}.Build()
 	require.NoError(t, c1f.PutGrants(ctx, clearedGrant))
 
-	raw = getRawGrantRow(ctx, t, c1f, "grant-transition")
+	raw = getRawGrantRowForSync(ctx, t, c1f, "grant-transition", syncID)
 	require.Nil(t, raw.expansion, "after clearing expansion, column should be NULL")
 	require.Equal(t, 0, raw.needsExpansion, "needs_expansion must be 0 when expansion is cleared")
 
 	// Step 3: Verify ListExpandableGrants returns nothing.
-	defs, _, err := c1f.ListExpandableGrants(ctx)
+	defs, _, err := c1f.ListExpandableGrants(ctx, connectorstore.WithExpandableGrantsSyncID(syncID))
 	require.NoError(t, err)
 	require.Len(t, defs, 0, "no expandable grants should remain")
 }
 
-// TestExpansionPreservedOnUpsertWithoutAnnotation verifies that upserting a grant
-// WITHOUT the GrantExpandable annotation preserves the existing expansion column.
-// This is the behavior needed during expansion when the expander updates sources.
-func TestExpansionPreservedOnUpsertWithoutAnnotation(t *testing.T) {
+// TestExpansionClearedOnUpsertWithoutAnnotation verifies that upserting a grant
+// WITHOUT the GrantExpandable annotation clears the existing expansion column.
+// If a connector previously returned GrantExpandable but now omits it, the grant
+// is no longer expandable.
+func TestExpansionClearedOnUpsertWithoutAnnotation(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -664,7 +682,7 @@ func TestExpansionPreservedOnUpsertWithoutAnnotation(t *testing.T) {
 
 	// Step 1: Insert grant WITH expansion.
 	expandableGrant := v2.Grant_builder{
-		Id:          "grant-no-annotation-preserve",
+		Id:          "grant-loses-expansion",
 		Entitlement: ent1,
 		Principal:   u1,
 		Annotations: annotations.New(v2.GrantExpandable_builder{
@@ -674,25 +692,33 @@ func TestExpansionPreservedOnUpsertWithoutAnnotation(t *testing.T) {
 	}.Build()
 	require.NoError(t, c1f.PutGrants(ctx, expandableGrant))
 
-	raw := getRawGrantRow(ctx, t, c1f, "grant-no-annotation-preserve")
+	raw := getRawGrantRow(ctx, t, c1f, "grant-loses-expansion")
 	require.NotNil(t, raw.expansion, "initial insert should have non-nil expansion")
 	require.Equal(t, 1, raw.needsExpansion, "initial insert should have needs_expansion=1")
 
 	// Step 2: Upsert same grant WITHOUT the annotation (no GrantExpandable at all).
-	// This simulates the expander updating sources on an existing grant.
-	// Expansion should be PRESERVED.
+	// This simulates a connector that previously provided expansion but now omits it.
+	// Expansion should be CLEARED.
 	noAnnotationGrant := v2.Grant_builder{
-		Id:          "grant-no-annotation-preserve",
+		Id:          "grant-loses-expansion",
 		Entitlement: ent1,
 		Principal:   u1,
 	}.Build()
 	require.NoError(t, c1f.PutGrants(ctx, noAnnotationGrant))
 
-	raw = getRawGrantRow(ctx, t, c1f, "grant-no-annotation-preserve")
-	require.NotNil(t, raw.expansion,
-		"expansion column should be preserved when grant is upserted without GrantExpandable annotation")
-	require.Equal(t, 1, raw.needsExpansion,
-		"needs_expansion should be preserved when expansion is unchanged")
+	raw = getRawGrantRow(ctx, t, c1f, "grant-loses-expansion")
+	require.Nil(t, raw.expansion,
+		"expansion column should be cleared when grant is upserted without GrantExpandable annotation")
+	require.Equal(t, 0, raw.needsExpansion,
+		"needs_expansion should be 0 when expansion is cleared")
+
+	// Step 3: Verify ListExpandableGrants returns nothing for this grant.
+	defs, _, err := c1f.ListExpandableGrants(ctx)
+	require.NoError(t, err)
+	for _, d := range defs {
+		require.NotEqual(t, "grant-loses-expansion", d.GrantExternalID,
+			"grant should not appear in expandable grants after losing annotation")
+	}
 }
 
 // TestNeedsExpansion_IdenticalExpansionKeepsExistingFlag verifies that upserting

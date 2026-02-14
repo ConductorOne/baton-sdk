@@ -2646,16 +2646,22 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			expandableEntitlementsResourceMap := make(map[string][]string)
 			if expandableAnno != nil {
 				for _, entId := range expandableAnno.GetEntitlementIds() {
-					resourceBID, slug, err := parseExpandableEntitlementID(entId)
+					parsedEnt, err := bid.ParseEntitlementBid(entId)
 					if err != nil {
-						l.Error("error parsing expandable entitlement id", zap.Any("entitlementId", entId), zap.Error(err))
+						l.Error("error parsing expandable entitlement bid", zap.Any("entitlementId", entId))
 						continue
 					}
+					resourceBID, err := bid.MakeBid(parsedEnt.GetResource())
+					if err != nil {
+						l.Error("error making resource bid", zap.Any("parsedEnt.Resource", parsedEnt.GetResource()))
+						continue
+					}
+
 					slugs, ok := expandableEntitlementsResourceMap[resourceBID]
 					if !ok {
 						slugs = make([]string, 0)
 					}
-					slugs = append(slugs, slug)
+					slugs = append(slugs, parsedEnt.GetSlug())
 					expandableEntitlementsResourceMap[resourceBID] = slugs
 				}
 			}
@@ -2821,34 +2827,6 @@ func userTraitContainsEmail(emails []*v2.UserTrait_Email, address string) bool {
 	return slices.ContainsFunc(emails, func(e *v2.UserTrait_Email) bool {
 		return strings.EqualFold(e.GetAddress(), address)
 	})
-}
-
-// parseExpandableEntitlementID supports both legacy entitlement IDs
-// (resourceType:resourceID:slug) and BID-based IDs (bid:e:...).
-func parseExpandableEntitlementID(entitlementID string) (string, string, error) {
-	if parsedEnt, err := bid.ParseEntitlementBid(entitlementID); err == nil {
-		resourceBID, err := bid.MakeBid(parsedEnt.GetResource())
-		if err != nil {
-			return "", "", err
-		}
-		return resourceBID, parsedEnt.GetSlug(), nil
-	}
-
-	parts := strings.SplitN(entitlementID, ":", 3)
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
-		return "", "", fmt.Errorf("unsupported entitlement id format: %q", entitlementID)
-	}
-
-	resourceBID, err := bid.MakeBid(v2.Resource_builder{
-		Id: v2.ResourceId_builder{
-			ResourceType: parts[0],
-			Resource:     parts[1],
-		}.Build(),
-	}.Build())
-	if err != nil {
-		return "", "", err
-	}
-	return resourceBID, parts[2], nil
 }
 
 func newGrantForExternalPrincipal(grant *v2.Grant, principal *v2.Resource) *v2.Grant {

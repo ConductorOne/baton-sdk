@@ -65,6 +65,10 @@ type Writer interface {
 	Cleanup(ctx context.Context) error
 
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
+	// PutGrantsWithoutExpansionChange writes grants while preserving any existing
+	// expansion column values. Used by the expander when updating sources on
+	// existing grants — the grant's expandability hasn't changed.
+	PutGrantsWithoutExpansionChange(ctx context.Context, grants ...*v2.Grant) error
 	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error

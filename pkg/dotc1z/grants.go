@@ -302,6 +302,37 @@ func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	return c.putGrantsInternal(ctx, bulkPutGrants, bulkGrants...)
 }
 
+// PutGrantsWithoutExpansionChange writes grants while preserving any existing expansion
+// column values. This is used by the expander when updating sources on existing grants
+// — the grant's expandability hasn't changed, only its source tracking has.
+func (c *C1File) PutGrantsWithoutExpansionChange(ctx context.Context, bulkGrants ...*v2.Grant) error {
+	ctx, span := tracer.Start(ctx, "C1File.PutGrantsWithoutExpansionChange")
+	defer span.End()
+
+	if c.readOnly {
+		return ErrReadOnly
+	}
+
+	err := bulkPutGrants(ctx, c, grants.Name(),
+		func(grant *v2.Grant) (goqu.Record, error) {
+			return goqu.Record{
+				"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
+				"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
+				"entitlement_id":             grant.GetEntitlement().GetId(),
+				"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
+				"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
+			}, nil
+		},
+		expansionWriteModePreserve,
+		bulkGrants...,
+	)
+	if err != nil {
+		return err
+	}
+	c.dbUpdated = true
+	return nil
+}
+
 func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrantsIfNewer")
 	defer span.End()
@@ -309,42 +340,44 @@ func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) 
 	return c.putGrantsInternal(ctx, bulkPutGrantsIfNewer, bulkGrants...)
 }
 
-type grantPutFunc func(context.Context, *C1File, string, func(m *v2.Grant) (goqu.Record, error), ...*v2.Grant) error
+type grantPutFunc func(context.Context, *C1File, string, func(m *v2.Grant) (goqu.Record, error), expansionWriteMode, ...*v2.Grant) error
+
+type expansionWriteMode int
+
+const (
+	expansionWriteModePreserve expansionWriteMode = iota
+	expansionWriteModeExplicit
+)
 
 func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGrants ...*v2.Grant) error {
 	if c.readOnly {
 		return ErrReadOnly
 	}
 
-	err := f(ctx, c, grants.Name(),
-		func(grant *v2.Grant) (goqu.Record, error) {
-			// Expansion column values:
-			// - nil (SQL NULL): "no opinion" — on INSERT defaults to NULL, on UPDATE
-			//   preserves the existing expansion value. Used when the grant has no
-			//   GrantExpandable annotation (e.g. expander updating sources).
-			// - []byte{} (empty blob): "explicitly clear expansion". Used when the
-			//   grant HAD a GrantExpandable annotation but it contained no valid IDs.
-			//   Cleaned up to NULL after the upsert.
-			// - Non-empty []byte: the serialized GrantExpandable proto.
-			rec := goqu.Record{
-				"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
-				"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
-				"entitlement_id":             grant.GetEntitlement().GetId(),
-				"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
-				"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-				"expansion":                  nil,
-				"needs_expansion":            false,
-			}
+	withExpandable := make([]*v2.Grant, 0, len(bulkGrants))
+	withoutExpandable := make([]*v2.Grant, 0, len(bulkGrants))
+	for _, grant := range bulkGrants {
+		if hasGrantExpandable(grant) {
+			withExpandable = append(withExpandable, grant)
+		} else {
+			withoutExpandable = append(withoutExpandable, grant)
+		}
+	}
 
-			if hasGrantExpandable(grant) {
+	if len(withExpandable) > 0 {
+		err := f(ctx, c, grants.Name(),
+			func(grant *v2.Grant) (goqu.Record, error) {
+				rec := goqu.Record{
+					"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
+					"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
+					"entitlement_id":             grant.GetEntitlement().GetId(),
+					"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
+					"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
+				}
+
 				stripped := proto.Clone(grant).(*v2.Grant)
 				expansionBytes, needsExpansion := extractAndStripExpansion(stripped)
-				if expansionBytes != nil {
-					rec["expansion"] = expansionBytes
-				} else {
-					// Had annotation but no valid IDs — explicitly clear via sentinel.
-					rec["expansion"] = []byte{}
-				}
+				rec["expansion"] = expansionBytes
 				rec["needs_expansion"] = needsExpansion
 
 				strippedData, err := proto.MarshalOptions{Deterministic: true}.Marshal(stripped)
@@ -352,15 +385,38 @@ func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGran
 					return nil, fmt.Errorf("error marshaling grant after stripping expansion: %w", err)
 				}
 				rec["data"] = strippedData
-			}
 
-			return rec, nil
-		},
-		bulkGrants...,
-	)
-	if err != nil {
-		return err
+				return rec, nil
+			},
+			expansionWriteModeExplicit,
+			withExpandable...,
+		)
+		if err != nil {
+			return err
+		}
 	}
+
+	if len(withoutExpandable) > 0 {
+		err := f(ctx, c, grants.Name(),
+			func(grant *v2.Grant) (goqu.Record, error) {
+				return goqu.Record{
+					"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
+					"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
+					"entitlement_id":             grant.GetEntitlement().GetId(),
+					"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
+					"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
+					"expansion":                  nil,
+					"needs_expansion":            false,
+				}, nil
+			},
+			expansionWriteModeExplicit,
+			withoutExpandable...,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
 	c.dbUpdated = true
 	return nil
 }
@@ -534,18 +590,20 @@ func bulkPutGrants(
 	ctx context.Context, c *C1File,
 	tableName string,
 	extractFields func(m *v2.Grant) (goqu.Record, error),
+	mode expansionWriteMode,
 	msgs ...*v2.Grant,
 ) error {
-	return bulkPutGrantsInternal(ctx, c, tableName, extractFields, false, msgs...)
+	return bulkPutGrantsInternal(ctx, c, tableName, extractFields, false, mode, msgs...)
 }
 
 func bulkPutGrantsIfNewer(
 	ctx context.Context, c *C1File,
 	tableName string,
 	extractFields func(m *v2.Grant) (goqu.Record, error),
+	mode expansionWriteMode,
 	msgs ...*v2.Grant,
 ) error {
-	return bulkPutGrantsInternal(ctx, c, tableName, extractFields, true, msgs...)
+	return bulkPutGrantsInternal(ctx, c, tableName, extractFields, true, mode, msgs...)
 }
 
 func bulkPutGrantsInternal(
@@ -553,6 +611,7 @@ func bulkPutGrantsInternal(
 	tableName string,
 	extractFields func(m *v2.Grant) (goqu.Record, error),
 	ifNewer bool,
+	mode expansionWriteMode,
 	msgs ...*v2.Grant,
 ) error {
 	if len(msgs) == 0 {
@@ -572,34 +631,26 @@ func bulkPutGrantsInternal(
 	}
 
 	// Expansion column update logic:
-	// - NULL: "no opinion" — preserve existing expansion value. This happens when
-	//   the grant has no GrantExpandable annotation (e.g. expander updating sources).
-	// - Empty blob (X''): sentinel meaning "explicitly clear expansion". This happens
-	//   when a grant had a GrantExpandable annotation but it had no valid IDs.
-	//   Cleaned up to NULL after the upsert.
-	// - Non-empty: set expansion to this value.
+	// - Preserve mode: keep existing expansion/needs_expansion values on conflict.
+	// - Explicit mode: write EXCLUDED expansion/needs_expansion values on conflict.
+	//   This supports both setting and explicit clearing (expansion=NULL, needs_expansion=0).
 	expansionExpr := goqu.L(
 		`CASE
-			WHEN EXCLUDED.expansion IS NULL THEN ?.expansion
+			WHEN ? = ? THEN ?.expansion
 			ELSE EXCLUDED.expansion
 		END`,
-		goqu.I(tableName),
+		mode, expansionWriteModePreserve, goqu.I(tableName),
 	)
 
-	// needs_expansion update logic mirrors the expansion logic:
-	// - NULL: preserve existing needs_expansion (no opinion).
-	// - Empty blob: force to 0 (explicitly clearing expansion).
-	// - Non-empty, different from existing: set to 1.
-	// - Non-empty, same as existing: preserve existing.
 	needsExpansionExpr := goqu.L(
 		`CASE
-			WHEN EXCLUDED.expansion IS NULL THEN ?.needs_expansion
-			WHEN EXCLUDED.expansion = X'' THEN 0
+			WHEN ? = ? THEN ?.needs_expansion
+			WHEN EXCLUDED.expansion IS NULL THEN 0
 			WHEN ?.expansion IS NULL AND EXCLUDED.expansion IS NOT NULL THEN 1
 			WHEN ?.expansion IS NOT NULL AND EXCLUDED.expansion IS NOT NULL AND ?.expansion != EXCLUDED.expansion THEN 1
 			ELSE ?.needs_expansion
 		END`,
-		goqu.I(tableName), goqu.I(tableName), goqu.I(tableName), goqu.I(tableName), goqu.I(tableName),
+		mode, expansionWriteModePreserve, goqu.I(tableName), goqu.I(tableName), goqu.I(tableName), goqu.I(tableName), goqu.I(tableName),
 	)
 
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
@@ -625,18 +676,6 @@ func bulkPutGrantsInternal(
 	}
 
 	if err := executeChunkedInsert(ctx, c, tableName, rows, buildQueryFn); err != nil {
-		return err
-	}
-
-	// Clean up empty-blob sentinels to NULL. Fresh inserts (no conflict) will have
-	// the sentinel value X'' in the expansion column; convert these to NULL so they
-	// are correctly treated as non-expandable grants.
-	if err := c.validateDb(ctx); err != nil {
-		return err
-	}
-	if _, err := c.db.ExecContext(ctx, fmt.Sprintf(
-		`UPDATE %s SET expansion = NULL, needs_expansion = 0 WHERE expansion = X''`, tableName,
-	)); err != nil {
 		return err
 	}
 

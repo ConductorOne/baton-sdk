@@ -56,7 +56,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 
 		// Small delay to ensure different timestamps
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 
 		// Create applied database (newer timestamps)
 		appliedOpts := append(slices.Clone(opts), dotc1z.WithPragma("locking_mode", "normal"))
@@ -135,7 +135,7 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		require.NoError(t, err)
 
 		// Give enough clock separation for CI/Windows timer granularity.
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 
 		// Create base database after applied (newer timestamps)
 		baseDB, err := dotc1z.NewC1ZFile(ctx, baseFile, opts...)
