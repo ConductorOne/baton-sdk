@@ -156,8 +156,8 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		dotc1z.WithPragma("main.locking_mode", "EXCLUSIVE"),
 		// Use parallel decoding.
 		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
-		// Use parallel encoding.
-		dotc1z.WithEncoderConcurrency(0),
+		// Use single-threaded encoding for data integrity.
+		dotc1z.WithEncoderConcurrency(1),
 	}
 	if c.syncLimit > 0 {
 		opts = append(opts, dotc1z.WithSyncLimit(c.syncLimit))
