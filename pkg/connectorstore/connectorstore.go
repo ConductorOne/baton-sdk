@@ -51,6 +51,35 @@ type Reader interface {
 	Close(ctx context.Context) error
 }
 
+type InternalWriter interface {
+	Writer
+	// UpsertGrants writes grants with explicit conflict handling semantics.
+	// This is for internal sync workflows that need control over if-newer behavior
+	// and whether expansion columns are preserved.
+	UpsertGrants(ctx context.Context, opts GrantUpsertOptions, grants ...*v2.Grant) error
+	// ListGrantsInternal is the preferred internal listing API for grants.
+	// It returns a single list of rows with optional grant payload and expansion metadata.
+	ListGrantsInternal(ctx context.Context, opts GrantListOptions) (*InternalGrantListResponse, error)
+}
+
+// GrantUpsertMode controls how grant conflicts are resolved during upsert.
+type GrantUpsertMode int
+
+const (
+	// GrantUpsertModeReplace updates conflicting grants unconditionally.
+	GrantUpsertModeReplace GrantUpsertMode = iota
+	// GrantUpsertModeIfNewer updates conflicting grants only when EXCLUDED.discovered_at is newer.
+	GrantUpsertModeIfNewer
+	// GrantUpsertModePreserveExpansion updates grant data while preserving existing
+	// expansion and needs_expansion columns.
+	GrantUpsertModePreserveExpansion
+)
+
+// GrantUpsertOptions configures internal grant upsert behavior.
+type GrantUpsertOptions struct {
+	Mode GrantUpsertMode
+}
+
 // ConnectorStoreWriter defines an implementation for a connector v2 datasource writer. This is used to store sync data from an upstream provider.
 type Writer interface {
 	Reader
@@ -69,4 +98,67 @@ type Writer interface {
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
 	DeleteGrant(ctx context.Context, grantId string) error
+}
+
+// GrantListOptions configures ListGrantsInternal.
+//
+// There are two pagination models, depending on whether IncludeGrantPayload is set:
+//   - Expansion-only (IncludeGrantPayload=false): use PageToken, PageSize, SyncID directly.
+//   - Grant payload (IncludeGrantPayload=true): use Request, which carries its own pagination/filters.
+//
+// Setting both Request and PageToken/PageSize/SyncID is an error.
+type GrantListOptions struct {
+	// IncludeGrantPayload controls whether full grant protos are returned in each row.
+	IncludeGrantPayload bool
+	// IncludeExpansion controls whether expansion metadata is returned in each row.
+	IncludeExpansion bool
+	// NeedsExpansionOnly filters rows by needs_expansion=1.
+	// This is still needed because expansion workflows are incremental: once a grant
+	// has been expanded, needs_expansion is cleared to 0. On subsequent runs we only
+	// want rows marked 1 so we avoid rebuilding graph edges for already-processed grants.
+	// Requires IncludeExpansion.
+	NeedsExpansionOnly bool
+
+	// SyncID, PageToken, PageSize are used for expansion-only listing (no grant payload).
+	SyncID    string
+	PageToken string
+	PageSize  uint32
+
+	// Request is used when IncludeGrantPayload=true. It carries its own pagination and filters.
+	// Must not be combined with PageToken/PageSize/SyncID.
+	Request *v2.GrantsServiceListGrantsRequest
+}
+
+// InternalGrantRow is one row from ListGrantsInternal. Fields are optional
+// based on the requested list options.
+type InternalGrantRow struct {
+	Grant     *v2.Grant
+	Expansion *ExpandableGrantDef
+}
+
+// InternalGrantListResponse contains one row list plus a shared next page token.
+type InternalGrantListResponse struct {
+	Rows          []*InternalGrantRow
+	NextPageToken string
+}
+
+// ExpansionStore provides methods for grant expansion operations.
+// Not all store implementations support expansion; callers should type-assert.
+type ExpansionStore interface {
+	// SetSupportsDiff marks the sync as supporting diff operations.
+	SetSupportsDiff(ctx context.Context, syncID string) error
+}
+
+// ExpandableGrantDef is a lightweight representation of an expandable grant row,
+// using queryable columns instead of unmarshalling the full grant proto.
+type ExpandableGrantDef struct {
+	RowID                   int64
+	GrantExternalID         string
+	TargetEntitlementID     string
+	PrincipalResourceTypeID string
+	PrincipalResourceID     string
+	SourceEntitlementIDs    []string
+	Shallow                 bool
+	ResourceTypeIDs         []string
+	NeedsExpansion          bool
 }

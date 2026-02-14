@@ -63,11 +63,13 @@ func getRatelimitDescriptors(ctx context.Context, method string, in interface{},
 
 	// ListEntitlements, ListGrants
 	if req, ok := in.(hasResource); ok {
-		if resourceType := req.GetResource().GetId().GetResourceType(); resourceType != "" {
-			ret.SetEntries(append(ret.GetEntries(), ratelimitV1.RateLimitDescriptors_Entry_builder{
-				Key:   descriptorKeyConnectorResourceType,
-				Value: resourceType,
-			}.Build()))
+		if r := req.GetResource(); r != nil {
+			if resourceType := r.GetId().GetResourceType(); resourceType != "" {
+				ret.SetEntries(append(ret.GetEntries(), ratelimitV1.RateLimitDescriptors_Entry_builder{
+					Key:   descriptorKeyConnectorResourceType,
+					Value: resourceType,
+				}.Build()))
+			}
 		}
 		return ret
 	}
