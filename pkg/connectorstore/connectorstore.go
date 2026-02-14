@@ -53,6 +53,10 @@ type Reader interface {
 
 type InternalWriter interface {
 	Writer
+	// UpsertGrants writes grants with explicit conflict handling semantics.
+	// This is for internal sync workflows that need control over if-newer behavior
+	// and whether expansion columns are preserved.
+	UpsertGrants(ctx context.Context, opts GrantUpsertOptions, grants ...*v2.Grant) error
 	// ListExpandableGrants lists expandable grants directly from SQL columns,
 	// returning lightweight structs without unmarshalling full grant protos.
 	ListExpandableGrants(ctx context.Context, opts ...ListExpandableGrantsOption) ([]*ExpandableGrantDef, string, error)
@@ -61,6 +65,27 @@ type InternalWriter interface {
 	// expansion column. Each returned GrantWithExpansion contains the full grant proto
 	// plus an optional ExpandableGrantDef (nil if the grant is not expandable).
 	ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*GrantsWithExpansionResponse, error)
+	// ListGrantsInternal is the preferred internal listing API. It supports
+	// projection modes for lightweight expandable-grant reads and full grant+expansion reads.
+	ListGrantsInternal(ctx context.Context, opts GrantListOptions) (*InternalGrantListResponse, error)
+}
+
+// GrantUpsertMode controls how grant conflicts are resolved during upsert.
+type GrantUpsertMode int
+
+const (
+	// GrantUpsertModeReplace updates conflicting grants unconditionally.
+	GrantUpsertModeReplace GrantUpsertMode = iota
+	// GrantUpsertModeIfNewer updates conflicting grants only when EXCLUDED.discovered_at is newer.
+	GrantUpsertModeIfNewer
+	// GrantUpsertModePreserveExpansion updates grant data while preserving existing
+	// expansion and needs_expansion columns.
+	GrantUpsertModePreserveExpansion
+)
+
+// GrantUpsertOptions configures internal grant upsert behavior.
+type GrantUpsertOptions struct {
+	Mode GrantUpsertMode
 }
 
 // ConnectorStoreWriter defines an implementation for a connector v2 datasource writer. This is used to store sync data from an upstream provider.
@@ -77,10 +102,6 @@ type Writer interface {
 	Cleanup(ctx context.Context) error
 
 	PutGrants(ctx context.Context, grants ...*v2.Grant) error
-	// PutGrantsWithoutExpansionChange writes grants while preserving any existing
-	// expansion column values. Used by the expander when updating sources on
-	// existing grants — the grant's expandability hasn't changed.
-	PutGrantsWithoutExpansionChange(ctx context.Context, grants ...*v2.Grant) error
 	PutResourceTypes(ctx context.Context, resourceTypes ...*v2.ResourceType) error
 	PutResources(ctx context.Context, resources ...*v2.Resource) error
 	PutEntitlements(ctx context.Context, entitlements ...*v2.Entitlement) error
@@ -97,6 +118,32 @@ type GrantWithExpansion struct {
 type GrantsWithExpansionResponse struct {
 	List          []*GrantWithExpansion
 	NextPageToken string
+}
+
+// GrantListProjection controls which grant data shape is returned by ListGrantsInternal.
+type GrantListProjection int
+
+const (
+	GrantListProjectionExpandableOnly GrantListProjection = iota
+	GrantListProjectionProtoWithExpansion
+)
+
+// GrantListOptions configures ListGrantsInternal.
+type GrantListOptions struct {
+	Projection GrantListProjection
+
+	// For GrantListProjectionExpandableOnly.
+	Expandable ListExpandableGrantsOptions
+
+	// For GrantListProjectionProtoWithExpansion.
+	Request *v2.GrantsServiceListGrantsRequest
+}
+
+// InternalGrantListResponse contains one projection-specific list plus a shared next page token.
+type InternalGrantListResponse struct {
+	ExpandableDefs      []*ExpandableGrantDef
+	GrantsWithExpansion []*GrantWithExpansion
+	NextPageToken       string
 }
 
 // ExpansionStore provides methods for grant expansion operations.

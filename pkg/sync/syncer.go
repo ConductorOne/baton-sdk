@@ -1739,15 +1739,20 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 		s.handleInitialActionForStep(ctx, *s.state.Current())
 	}
 
-	// Use ListExpandableGrants to read expansion metadata directly from SQL columns,
-	// avoiding the cost of unmarshalling full grant protos.
-	defs, nextPageToken, err := s.store.ListExpandableGrants(ctx,
-		connectorstore.WithExpandableGrantsPageToken(pageToken),
-		connectorstore.WithExpandableGrantsNeedsExpansionOnly(true),
-	)
+	// Use the internal grant-list projection to read expansion metadata directly
+	// from SQL columns, avoiding the cost of unmarshalling full grant protos.
+	internalList, err := s.store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Projection: connectorstore.GrantListProjectionExpandableOnly,
+		Expandable: connectorstore.ListExpandableGrantsOptions{
+			PageToken:          pageToken,
+			NeedsExpansionOnly: true,
+		},
+	})
 	if err != nil {
 		return err
 	}
+	defs := internalList.ExpandableDefs
+	nextPageToken := internalList.NextPageToken
 
 	for _, def := range defs {
 		dstEntitlementID := def.TargetEntitlementID
@@ -2125,7 +2130,9 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		}
 	}
 
-	err = s.store.PutGrants(ctx, grants...)
+	err = s.store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModeReplace,
+	}, grants...)
 	if err != nil {
 		return err
 	}
@@ -2301,7 +2308,9 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 				return err
 			}
 			grantsForEntsCount += len(grants)
-			err = s.store.PutGrants(ctx, grants...)
+			err = s.store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+				Mode: connectorstore.GrantUpsertModeReplace,
+			}, grants...)
 			if err != nil {
 				return err
 			}
@@ -2415,7 +2424,9 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 				return err
 			}
 			grantsForEntsCount += len(grants)
-			err = s.store.PutGrants(ctx, grants...)
+			err = s.store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+				Mode: connectorstore.GrantUpsertModeReplace,
+			}, grants...)
 			if err != nil {
 				return err
 			}
@@ -2540,20 +2551,23 @@ func (s *syncer) listAllGrantsWithExpansion(ctx context.Context) iter.Seq2[[]*co
 	return func(yield func([]*connectorstore.GrantWithExpansion, error) bool) {
 		pageToken := ""
 		for {
-			resp, err := s.store.ListGrantsWithExpansion(ctx, v2.GrantsServiceListGrantsRequest_builder{
-				PageToken: pageToken,
-			}.Build())
+			internalList, err := s.store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+				Projection: connectorstore.GrantListProjectionProtoWithExpansion,
+				Request: v2.GrantsServiceListGrantsRequest_builder{
+					PageToken: pageToken,
+				}.Build(),
+			})
 			if err != nil {
 				_ = yield(nil, err)
 				return
 			}
 
-			if len(resp.List) > 0 {
-				if !yield(resp.List, nil) {
+			if len(internalList.GrantsWithExpansion) > 0 {
+				if !yield(internalList.GrantsWithExpansion, nil) {
 					return
 				}
 			}
-			pageToken = resp.NextPageToken
+			pageToken = internalList.NextPageToken
 			if pageToken == "" {
 				return
 			}
@@ -2805,7 +2819,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		newGrantIDs.Add(ng.GetId())
 	}
 
-	err := s.store.PutGrants(ctx, expandedGrants...)
+	err := s.store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModeReplace,
+	}, expandedGrants...)
 	if err != nil {
 		return err
 	}

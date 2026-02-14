@@ -6,6 +6,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -104,7 +105,7 @@ func (m *MockExpanderStore) PutGrants(_ context.Context, grants ...*v2.Grant) er
 	return nil
 }
 
-func (m *MockExpanderStore) PutGrantsWithoutExpansionChange(_ context.Context, grants ...*v2.Grant) error {
+func (m *MockExpanderStore) UpsertGrants(_ context.Context, _ connectorstore.GrantUpsertOptions, grants ...*v2.Grant) error {
 	return m.PutGrants(context.Background(), grants...)
 }
 

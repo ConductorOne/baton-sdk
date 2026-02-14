@@ -131,96 +131,17 @@ func (c *C1File) ListGrantsWithExpansion(ctx context.Context, request *v2.Grants
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsWithExpansion")
 	defer span.End()
 
-	grantProtos, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	resp, err := c.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Projection: connectorstore.GrantListProjectionProtoWithExpansion,
+		Request:    request,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants with expansion: %w", err)
 	}
 
-	if len(grantProtos) == 0 {
-		return &connectorstore.GrantsWithExpansionResponse{
-			NextPageToken: nextPageToken,
-		}, nil
-	}
-
-	// Batch-fetch expansion data for the returned grants.
-	ids := make([]interface{}, 0, len(grantProtos))
-	for _, g := range grantProtos {
-		ids = append(ids, g.GetId())
-	}
-
-	q := c.db.From(grants.Name()).Prepared(true).
-		Select("external_id", "entitlement_id", "principal_resource_type_id", "principal_resource_id", "expansion", "needs_expansion").
-		Where(goqu.C("external_id").In(ids...)).
-		Where(goqu.C("expansion").IsNotNull()).
-		Where(goqu.L("length(expansion) > 0"))
-
-	syncID, err := resolveSyncID(ctx, c, request)
-	if err != nil {
-		return nil, fmt.Errorf("error getting sync id for list grants with expansion: %w", err)
-	}
-
-	if syncID != "" {
-		q = q.Where(goqu.C("sync_id").Eq(syncID))
-	}
-
-	query, args, err := q.ToSQL()
-	if err != nil {
-		return nil, err
-	}
-
-	rows, err := c.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	expansionMap := make(map[string]*connectorstore.ExpandableGrantDef, len(grantProtos))
-	for rows.Next() {
-		var (
-			externalID    string
-			entID         string
-			principalRTID string
-			principalRID  string
-			expansionBlob []byte
-			needsExp      int
-		)
-		if err := rows.Scan(&externalID, &entID, &principalRTID, &principalRID, &expansionBlob, &needsExp); err != nil {
-			return nil, err
-		}
-		if len(expansionBlob) == 0 {
-			continue
-		}
-		ge := &v2.GrantExpandable{}
-		if err := proto.Unmarshal(expansionBlob, ge); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal grant expansion for %s: %w", externalID, err)
-		}
-		expansionMap[externalID] = &connectorstore.ExpandableGrantDef{
-			GrantExternalID:         externalID,
-			TargetEntitlementID:     entID,
-			PrincipalResourceTypeID: principalRTID,
-			PrincipalResourceID:     principalRID,
-			SourceEntitlementIDs:    ge.GetEntitlementIds(),
-			Shallow:                 ge.GetShallow(),
-			ResourceTypeIDs:         ge.GetResourceTypeIds(),
-			NeedsExpansion:          needsExp != 0,
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	// Build combined result.
-	result := make([]*connectorstore.GrantWithExpansion, 0, len(grantProtos))
-	for _, g := range grantProtos {
-		result = append(result, &connectorstore.GrantWithExpansion{
-			Grant:     g,
-			Expansion: expansionMap[g.GetId()],
-		})
-	}
-
 	return &connectorstore.GrantsWithExpansionResponse{
-		List:          result,
-		NextPageToken: nextPageToken,
+		List:          resp.GrantsWithExpansion,
+		NextPageToken: resp.NextPageToken,
 	}, nil
 }
 
@@ -300,7 +221,9 @@ func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrants")
 	defer span.End()
 
-	return c.putGrantsInternal(ctx, bulkPutGrants, bulkGrants...)
+	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModeReplace,
+	}, bulkGrants...)
 }
 
 // PutGrantsWithoutExpansionChange writes grants while preserving any existing expansion
@@ -310,35 +233,54 @@ func (c *C1File) PutGrantsWithoutExpansionChange(ctx context.Context, bulkGrants
 	ctx, span := tracer.Start(ctx, "C1File.PutGrantsWithoutExpansionChange")
 	defer span.End()
 
-	if c.readOnly {
-		return ErrReadOnly
-	}
-
-	err := bulkPutGrants(ctx, c, grants.Name(),
-		func(grant *v2.Grant) (goqu.Record, error) {
-			return goqu.Record{
-				"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
-				"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
-				"entitlement_id":             grant.GetEntitlement().GetId(),
-				"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
-				"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-			}, nil
-		},
-		expansionWriteModePreserve,
-		bulkGrants...,
-	)
-	if err != nil {
-		return err
-	}
-	c.dbUpdated = true
-	return nil
+	// Compatibility wrapper: preserve expansion behavior is now modeled via UpsertGrants options.
+	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModePreserveExpansion,
+	}, bulkGrants...)
 }
 
 func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrantsIfNewer")
 	defer span.End()
 
-	return c.putGrantsInternal(ctx, bulkPutGrantsIfNewer, bulkGrants...)
+	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModeIfNewer,
+	}, bulkGrants...)
+}
+
+// UpsertGrants writes grants with explicit conflict semantics.
+func (c *C1File) UpsertGrants(ctx context.Context, opts connectorstore.GrantUpsertOptions, bulkGrants ...*v2.Grant) error {
+	switch opts.Mode {
+	case connectorstore.GrantUpsertModeReplace:
+		return c.putGrantsInternal(ctx, bulkPutGrants, bulkGrants...)
+	case connectorstore.GrantUpsertModeIfNewer:
+		return c.putGrantsInternal(ctx, bulkPutGrantsIfNewer, bulkGrants...)
+	case connectorstore.GrantUpsertModePreserveExpansion:
+		if c.readOnly {
+			return ErrReadOnly
+		}
+
+		err := bulkPutGrants(ctx, c, grants.Name(),
+			func(grant *v2.Grant) (goqu.Record, error) {
+				return goqu.Record{
+					"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
+					"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
+					"entitlement_id":             grant.GetEntitlement().GetId(),
+					"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
+					"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
+				}, nil
+			},
+			expansionWriteModePreserve,
+			bulkGrants...,
+		)
+		if err != nil {
+			return err
+		}
+		c.dbUpdated = true
+		return nil
+	default:
+		return fmt.Errorf("unknown grant upsert mode: %d", opts.Mode)
+	}
 }
 
 type grantPutFunc func(context.Context, *C1File, string, func(m *v2.Grant) (goqu.Record, error), expansionWriteMode, ...*v2.Grant) error
