@@ -130,9 +130,8 @@ func TestGrantExpandableRoundTrip(t *testing.T) {
 			"ListGrants should not return GrantExpandable annotation (grant %s)", g.GetId())
 	}
 
-	// ListExpandableGrants should return the expandable grant with correct expansion data.
-	defs, _, err := c1f.ListExpandableGrants(ctx)
-	require.NoError(t, err)
+	// Internal expansion list should return the expandable grant with correct expansion data.
+	defs, _ := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{})
 	require.Len(t, defs, 1)
 	require.Equal(t, "grant-expandable", defs[0].GrantExternalID)
 	require.Equal(t, "ent2", defs[0].TargetEntitlementID)
@@ -196,8 +195,7 @@ func TestGrantExpandableSurvivesCloseReopen(t *testing.T) {
 	require.NoError(t, err)
 	defer c1f2.Close(ctx)
 
-	defs, _, err := c1f2.ListExpandableGrants(ctx)
-	require.NoError(t, err)
+	defs, _ := listExpansionDefs(ctx, t, c1f2, connectorstore.GrantListOptions{})
 	require.Len(t, defs, 1, "expansion should survive close/reopen")
 	require.Equal(t, "grant-expandable", defs[0].GrantExternalID)
 	require.Equal(t, []string{"ent1"}, defs[0].SourceEntitlementIDs)
@@ -522,8 +520,7 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	require.NoError(t, c1f.ViewSync(ctx, syncID))
 
 	// Verify backfill populated the expansion column via ListExpandableGrants.
-	defs, _, err := c1f.ListExpandableGrants(ctx, connectorstore.WithExpandableGrantsSyncID(syncID))
-	require.NoError(t, err)
+	defs, _ := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{SyncID: syncID})
 	require.Len(t, defs, 1, "backfill should produce exactly one expandable grant")
 	require.Equal(t, "grant-expandable", defs[0].GrantExternalID)
 	require.Equal(t, []string{"ent1"}, defs[0].SourceEntitlementIDs)
@@ -583,6 +580,28 @@ func getRawGrantRowForSync(ctx context.Context, t *testing.T, c1f *C1File, exter
 		r.expansion = nil
 	}
 	return r
+}
+
+func listExpansionDefs(
+	ctx context.Context,
+	t *testing.T,
+	c1f *C1File,
+	opts connectorstore.GrantListOptions,
+) ([]*connectorstore.ExpandableGrantDef, string) {
+	t.Helper()
+	opts.IncludeGrantPayload = false
+	opts.IncludeExpansion = true
+
+	resp, err := c1f.ListGrantsInternal(ctx, opts)
+	require.NoError(t, err)
+
+	defs := make([]*connectorstore.ExpandableGrantDef, 0, len(resp.Rows))
+	for _, row := range resp.Rows {
+		if row.Expansion != nil {
+			defs = append(defs, row.Expansion)
+		}
+	}
+	return defs, resp.NextPageToken
 }
 
 func requireExpansionSQLNullForSync(ctx context.Context, t *testing.T, c1f *C1File, externalID string, syncID string) {
@@ -688,8 +707,7 @@ func TestNeedsExpansion_ExpandableToNonExpandable(t *testing.T) {
 	require.Equal(t, 0, raw.needsExpansion, "needs_expansion must be 0 when expansion is cleared")
 
 	// Step 3: Verify ListExpandableGrants returns nothing.
-	defs, _, err := c1f.ListExpandableGrants(ctx, connectorstore.WithExpandableGrantsSyncID(syncID))
-	require.NoError(t, err)
+	defs, _ := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{SyncID: syncID})
 	require.Len(t, defs, 0, "no expandable grants should remain")
 }
 
@@ -740,8 +758,7 @@ func TestExpansionClearedOnUpsertWithoutAnnotation(t *testing.T) {
 		"needs_expansion should be 0 when expansion is cleared")
 
 	// Step 3: Verify ListExpandableGrants returns nothing for this grant.
-	defs, _, err := c1f.ListExpandableGrants(ctx)
-	require.NoError(t, err)
+	defs, _ := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{})
 	for _, d := range defs {
 		require.NotEqual(t, "grant-loses-expansion", d.GrantExternalID,
 			"grant should not appear in expandable grants after losing annotation")
@@ -938,8 +955,7 @@ func TestPutGrantsIfNewer_ExpansionColumnsUpdated(t *testing.T) {
 	require.True(t, ge.GetShallow())
 
 	// Step 3: Also verify via ListExpandableGrants.
-	defs, _, err := c1f.ListExpandableGrants(ctx)
-	require.NoError(t, err)
+	defs, _ := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{})
 	require.Len(t, defs, 1)
 	require.Equal(t, "grant-ifnewer", defs[0].GrantExternalID)
 	require.Equal(t, []string{"ent1", "ent2"}, defs[0].SourceEntitlementIDs)

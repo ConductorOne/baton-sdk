@@ -13,68 +13,77 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
-// ListGrantsInternal provides a single internal listing entrypoint with projection modes.
-func (c *C1File) ListGrantsInternal(ctx context.Context, opts connectorstore.GrantListOptions) (*connectorstore.GrantListResponse, error) {
-	switch opts.Projection {
-	case connectorstore.GrantListProjectionExpandableOnly:
-		defs, nextPageToken, err := c.listExpandableGrantsInternal(ctx, opts.Expandable)
+// ListGrantsInternal provides a single internal listing entrypoint with row shaping options.
+func (c *C1File) ListGrantsInternal(ctx context.Context, opts connectorstore.GrantListOptions) (*connectorstore.InternalGrantListResponse, error) {
+	if !opts.IncludeGrantPayload && !opts.IncludeExpansion {
+		return nil, fmt.Errorf("invalid grant list options: at least one of IncludeGrantPayload or IncludeExpansion must be true")
+	}
+	if opts.NeedsExpansionOnly && !opts.IncludeExpansion {
+		return nil, fmt.Errorf("invalid grant list options: NeedsExpansionOnly requires IncludeExpansion")
+	}
+
+	// Expansion-only path uses direct SQL column reads and does not unmarshal full grant protos.
+	if !opts.IncludeGrantPayload && opts.IncludeExpansion {
+		defs, nextPageToken, err := c.listExpandableGrantsInternal(ctx, opts)
 		if err != nil {
 			return nil, err
 		}
-		return &connectorstore.GrantListResponse{
-			ExpandableDefs: defs,
-			NextPageToken:  nextPageToken,
-		}, nil
-	case connectorstore.GrantListProjectionProtoWithExpansion:
-		req := opts.Request
-		if req == nil {
-			req = v2.GrantsServiceListGrantsRequest_builder{}.Build()
+		rows := make([]*connectorstore.InternalGrantRow, 0, len(defs))
+		for _, def := range defs {
+			rows = append(rows, &connectorstore.InternalGrantRow{
+				Expansion: def,
+			})
 		}
-		resp, err := c.listGrantsWithExpansionInternal(ctx, req)
+		return &connectorstore.InternalGrantListResponse{
+			Rows:          rows,
+			NextPageToken: nextPageToken,
+		}, nil
+	}
+
+	req := opts.Request
+	if req == nil {
+		req = v2.GrantsServiceListGrantsRequest_builder{
+			PageToken: opts.PageToken,
+			PageSize:  opts.PageSize,
+		}.Build()
+	}
+
+	if opts.IncludeExpansion {
+		if opts.SyncID != "" {
+			return nil, fmt.Errorf("invalid grant list options: SyncID is not supported with IncludeGrantPayload")
+		}
+		resp, err := c.listGrantsWithExpansionInternal(ctx, req, opts.NeedsExpansionOnly)
 		if err != nil {
 			return nil, err
 		}
-		return &connectorstore.GrantListResponse{
-			GrantsWithExpansion: resp.List,
-			NextPageToken:       resp.NextPageToken,
-		}, nil
-	default:
-		return nil, fmt.Errorf("unsupported grant list projection: %d", opts.Projection)
-	}
-}
-
-// ListExpandableGrants lists expandable grants using the grants table's queryable columns.
-// It reads the expansion column directly and returns lightweight ExpandableGrantDef structs,
-// avoiding the cost of unmarshalling full grant protos.
-func (c *C1File) ListExpandableGrants(ctx context.Context, opts ...connectorstore.ListExpandableGrantsOption) ([]*connectorstore.ExpandableGrantDef, string, error) {
-	ctx, span := tracer.Start(ctx, "C1File.ListExpandableGrants")
-	defer span.End()
-
-	o := &connectorstore.ListExpandableGrantsOptions{}
-	for _, opt := range opts {
-		opt(o)
+		return resp, nil
 	}
 
-	resp, err := c.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Projection: connectorstore.GrantListProjectionExpandableOnly,
-		Expandable: *o,
-	})
+	grantProtos, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), req, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
-		return nil, "", fmt.Errorf("error listing expandable grants: %w", err)
+		return nil, err
 	}
-
-	return resp.ExpandableDefs, resp.NextPageToken, nil
+	rows := make([]*connectorstore.InternalGrantRow, 0, len(grantProtos))
+	for _, g := range grantProtos {
+		rows = append(rows, &connectorstore.InternalGrantRow{
+			Grant: g,
+		})
+	}
+	return &connectorstore.InternalGrantListResponse{
+		Rows:          rows,
+		NextPageToken: nextPageToken,
+	}, nil
 }
 
 func (c *C1File) listExpandableGrantsInternal(
 	ctx context.Context,
-	o connectorstore.ListExpandableGrantsOptions,
+	opts connectorstore.GrantListOptions,
 ) ([]*connectorstore.ExpandableGrantDef, string, error) {
 	if err := c.validateDb(ctx); err != nil {
 		return nil, "", err
 	}
 
-	syncID, err := c.resolveSyncIDForInternalQuery(ctx, o.SyncID)
+	syncID, err := c.resolveSyncIDForInternalQuery(ctx, opts.SyncID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -92,19 +101,19 @@ func (c *C1File) listExpandableGrantsInternal(
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 	q = q.Where(goqu.C("expansion").IsNotNull())
 	q = q.Where(goqu.L("length(expansion) > 0"))
-	if o.NeedsExpansionOnly {
+	if opts.NeedsExpansionOnly {
 		q = q.Where(goqu.C("needs_expansion").Eq(1))
 	}
 
-	if o.PageToken != "" {
-		id, err := strconv.ParseInt(o.PageToken, 10, 64)
+	if opts.PageToken != "" {
+		id, err := strconv.ParseInt(opts.PageToken, 10, 64)
 		if err != nil {
-			return nil, "", fmt.Errorf("invalid expandable grants page token %q: %w", o.PageToken, err)
+			return nil, "", fmt.Errorf("invalid expandable grants page token %q: %w", opts.PageToken, err)
 		}
 		q = q.Where(goqu.C("id").Gte(id))
 	}
 
-	pageSize := o.PageSize
+	pageSize := opts.PageSize
 	if pageSize > maxPageSize || pageSize == 0 {
 		pageSize = maxPageSize
 	}
@@ -186,14 +195,16 @@ func (c *C1File) listExpandableGrantsInternal(
 func (c *C1File) listGrantsWithExpansionInternal(
 	ctx context.Context,
 	request *v2.GrantsServiceListGrantsRequest,
-) (*connectorstore.GrantsWithExpansionResponse, error) {
+	needsExpansionOnly bool,
+) (*connectorstore.InternalGrantListResponse, error) {
 	grantProtos, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants with expansion: %w", err)
 	}
 
 	if len(grantProtos) == 0 {
-		return &connectorstore.GrantsWithExpansionResponse{
+		return &connectorstore.InternalGrantListResponse{
+			Rows:          make([]*connectorstore.InternalGrantRow, 0),
 			NextPageToken: nextPageToken,
 		}, nil
 	}
@@ -264,16 +275,20 @@ func (c *C1File) listGrantsWithExpansionInternal(
 		return nil, err
 	}
 
-	result := make([]*connectorstore.GrantWithExpansion, 0, len(grantProtos))
+	result := make([]*connectorstore.InternalGrantRow, 0, len(grantProtos))
 	for _, g := range grantProtos {
-		result = append(result, &connectorstore.GrantWithExpansion{
+		row := &connectorstore.InternalGrantRow{
 			Grant:     g,
 			Expansion: expansionMap[g.GetId()],
-		})
+		}
+		if needsExpansionOnly && (row.Expansion == nil || !row.Expansion.NeedsExpansion) {
+			continue
+		}
+		result = append(result, row)
 	}
 
-	return &connectorstore.GrantsWithExpansionResponse{
-		List:          result,
+	return &connectorstore.InternalGrantListResponse{
+		Rows:          result,
 		NextPageToken: nextPageToken,
 	}, nil
 }

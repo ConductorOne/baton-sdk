@@ -87,17 +87,18 @@ func copyGraph(g *EntitlementGraph) *EntitlementGraph {
 	return newGraph
 }
 
-// loadEntitlementGraphFromC1Z builds the entitlement graph by reading expandable grant
-// metadata directly from SQL columns via ListExpandableGrants.
+// loadEntitlementGraphFromC1Z builds the entitlement graph by reading expansion
+// metadata directly from ListGrantsInternal rows.
 func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID string) (*EntitlementGraph, error) {
 	graph := NewEntitlementGraph(ctx)
 
 	pageToken := ""
 	for {
-		defs, nextPageToken, err := c1f.ListExpandableGrants(ctx,
-			connectorstore.WithExpandableGrantsPageToken(pageToken),
-			connectorstore.WithExpandableGrantsSyncID(syncID),
-		)
+		resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			IncludeExpansion: true,
+			SyncID:           syncID,
+			PageToken:        pageToken,
+		})
 		if errors.Is(err, sql.ErrNoRows) {
 			return graph, nil
 		}
@@ -106,7 +107,11 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID
 			return nil, err
 		}
 
-		for _, def := range defs {
+		for _, row := range resp.Rows {
+			def := row.Expansion
+			if def == nil {
+				continue
+			}
 			for _, srcEntitlementID := range def.SourceEntitlementIDs {
 				srcEntitlement, err := c1f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 					EntitlementId: srcEntitlementID,
@@ -126,7 +131,7 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID
 			}
 		}
 
-		pageToken = nextPageToken
+		pageToken = resp.NextPageToken
 		if pageToken == "" {
 			break
 		}

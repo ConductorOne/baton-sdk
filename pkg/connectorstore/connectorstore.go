@@ -57,16 +57,8 @@ type InternalWriter interface {
 	// This is for internal sync workflows that need control over if-newer behavior
 	// and whether expansion columns are preserved.
 	UpsertGrants(ctx context.Context, opts GrantUpsertOptions, grants ...*v2.Grant) error
-	// ListExpandableGrants lists expandable grants directly from SQL columns,
-	// returning lightweight structs without unmarshalling full grant protos.
-	ListExpandableGrants(ctx context.Context, opts ...ListExpandableGrantsOption) ([]*ExpandableGrantDef, string, error)
-
-	// ListGrantsWithExpansion lists grants and includes expansion metadata from the
-	// expansion column. Each returned GrantWithExpansion contains the full grant proto
-	// plus an optional ExpandableGrantDef (nil if the grant is not expandable).
-	ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*GrantsWithExpansionResponse, error)
-	// ListGrantsInternal is the preferred internal listing API. It supports
-	// projection modes for lightweight expandable-grant reads and full grant+expansion reads.
+	// ListGrantsInternal is the preferred internal listing API for grants.
+	// It returns a single list of rows with optional grant payload and expansion metadata.
 	ListGrantsInternal(ctx context.Context, opts GrantListOptions) (*InternalGrantListResponse, error)
 }
 
@@ -108,42 +100,38 @@ type Writer interface {
 	DeleteGrant(ctx context.Context, grantId string) error
 }
 
-// GrantWithExpansion pairs a grant proto with its optional expansion metadata.
-type GrantWithExpansion struct {
-	Grant     *v2.Grant
-	Expansion *ExpandableGrantDef // nil if grant is not expandable
-}
-
-// GrantsWithExpansionResponse is the response from ListGrantsWithExpansion.
-type GrantsWithExpansionResponse struct {
-	List          []*GrantWithExpansion
-	NextPageToken string
-}
-
-// GrantListProjection controls which grant data shape is returned by ListGrantsInternal.
-type GrantListProjection int
-
-const (
-	GrantListProjectionExpandableOnly GrantListProjection = iota
-	GrantListProjectionProtoWithExpansion
-)
-
 // GrantListOptions configures ListGrantsInternal.
 type GrantListOptions struct {
-	Projection GrantListProjection
-
-	// For GrantListProjectionExpandableOnly.
-	Expandable ListExpandableGrantsOptions
-
-	// For GrantListProjectionProtoWithExpansion.
+	// IncludeGrantPayload controls whether full grant protos are returned in each row.
+	IncludeGrantPayload bool
+	// IncludeExpansion controls whether expansion metadata is returned in each row.
+	IncludeExpansion bool
+	// NeedsExpansionOnly filters rows by needs_expansion=1.
+	// This is still needed because expansion workflows are incremental: once a grant
+	// has been expanded, needs_expansion is cleared to 0. On subsequent runs we only
+	// want rows marked 1 so we avoid rebuilding graph edges for already-processed grants.
+	// Requires IncludeExpansion.
+	NeedsExpansionOnly bool
+	// SyncID forces filtering to a specific sync when supported by the listing path.
+	SyncID string
+	// PageToken and PageSize control pagination.
+	PageToken string
+	PageSize  uint32
+	// Request is optional request-style filtering used when IncludeGrantPayload=true.
 	Request *v2.GrantsServiceListGrantsRequest
 }
 
-// InternalGrantListResponse contains one projection-specific list plus a shared next page token.
+// InternalGrantRow is one row from ListGrantsInternal. Fields are optional
+// based on the requested list options.
+type InternalGrantRow struct {
+	Grant     *v2.Grant
+	Expansion *ExpandableGrantDef
+}
+
+// InternalGrantListResponse contains one row list plus a shared next page token.
 type InternalGrantListResponse struct {
-	ExpandableDefs      []*ExpandableGrantDef
-	GrantsWithExpansion []*GrantWithExpansion
-	NextPageToken       string
+	Rows          []*InternalGrantRow
+	NextPageToken string
 }
 
 // ExpansionStore provides methods for grant expansion operations.
@@ -165,35 +153,4 @@ type ExpandableGrantDef struct {
 	Shallow                 bool
 	ResourceTypeIDs         []string
 	NeedsExpansion          bool
-}
-
-// ListExpandableGrantsOption configures a ListExpandableGrants query.
-type ListExpandableGrantsOption func(*ListExpandableGrantsOptions)
-
-// ListExpandableGrantsOptions holds the resolved options for ListExpandableGrants.
-type ListExpandableGrantsOptions struct {
-	PageToken          string
-	PageSize           uint32
-	NeedsExpansionOnly bool
-	SyncID             string
-}
-
-// WithExpandableGrantsPageToken sets the page token for pagination.
-func WithExpandableGrantsPageToken(t string) ListExpandableGrantsOption {
-	return func(o *ListExpandableGrantsOptions) { o.PageToken = t }
-}
-
-// WithExpandableGrantsPageSize sets the page size.
-func WithExpandableGrantsPageSize(n uint32) ListExpandableGrantsOption {
-	return func(o *ListExpandableGrantsOptions) { o.PageSize = n }
-}
-
-// WithExpandableGrantsNeedsExpansionOnly filters to grants that need expansion processing.
-func WithExpandableGrantsNeedsExpansionOnly(b bool) ListExpandableGrantsOption {
-	return func(o *ListExpandableGrantsOptions) { o.NeedsExpansionOnly = b }
-}
-
-// WithExpandableGrantsSyncID forces listing expandable grants for a specific sync ID.
-func WithExpandableGrantsSyncID(syncID string) ListExpandableGrantsOption {
-	return func(o *ListExpandableGrantsOptions) { o.SyncID = syncID }
 }

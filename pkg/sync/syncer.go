@@ -1739,22 +1739,23 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 		s.handleInitialActionForStep(ctx, *s.state.Current())
 	}
 
-	// Use the internal grant-list projection to read expansion metadata directly
+	// Use the internal grant-list rows to read expansion metadata directly
 	// from SQL columns, avoiding the cost of unmarshalling full grant protos.
 	internalList, err := s.store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Projection: connectorstore.GrantListProjectionExpandableOnly,
-		Expandable: connectorstore.ListExpandableGrantsOptions{
-			PageToken:          pageToken,
-			NeedsExpansionOnly: true,
-		},
+		IncludeExpansion:   true,
+		NeedsExpansionOnly: true,
+		PageToken:          pageToken,
 	})
 	if err != nil {
 		return err
 	}
-	defs := internalList.ExpandableDefs
 	nextPageToken := internalList.NextPageToken
 
-	for _, def := range defs {
+	for _, row := range internalList.Rows {
+		def := row.Expansion
+		if def == nil {
+			continue
+		}
 		dstEntitlementID := def.TargetEntitlementID
 
 		for _, srcEntitlementID := range def.SourceEntitlementIDs {
@@ -2547,12 +2548,13 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 	return resourceTypes, nil
 }
 
-func (s *syncer) listAllGrantsWithExpansion(ctx context.Context) iter.Seq2[[]*connectorstore.GrantWithExpansion, error] {
-	return func(yield func([]*connectorstore.GrantWithExpansion, error) bool) {
+func (s *syncer) listAllGrantsWithExpansion(ctx context.Context) iter.Seq2[[]*connectorstore.InternalGrantRow, error] {
+	return func(yield func([]*connectorstore.InternalGrantRow, error) bool) {
 		pageToken := ""
 		for {
 			internalList, err := s.store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-				Projection: connectorstore.GrantListProjectionProtoWithExpansion,
+				IncludeGrantPayload: true,
+				IncludeExpansion:    true,
 				Request: v2.GrantsServiceListGrantsRequest_builder{
 					PageToken: pageToken,
 				}.Build(),
@@ -2562,8 +2564,8 @@ func (s *syncer) listAllGrantsWithExpansion(ctx context.Context) iter.Seq2[[]*co
 				return
 			}
 
-			if len(internalList.GrantsWithExpansion) > 0 {
-				if !yield(internalList.GrantsWithExpansion, nil) {
+			if len(internalList.Rows) > 0 {
+				if !yield(internalList.Rows, nil) {
 					return
 				}
 			}
@@ -2612,13 +2614,13 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	grantsToDelete := make([]string, 0)
 	expandedGrants := make([]*v2.Grant, 0)
 
-	for grantsWithExp, err := range s.listAllGrantsWithExpansion(ctx) {
+	for grantRows, err := range s.listAllGrantsWithExpansion(ctx) {
 		if err != nil {
 			return err
 		}
 
-		for _, gwe := range grantsWithExp {
-			grant := gwe.Grant
+		for _, row := range grantRows {
+			grant := row.Grant
 			annos := annotations.Annotations(grant.GetAnnotations())
 			if !annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 				continue
@@ -2648,13 +2650,13 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 			}
 
 			// Look up expansion data from the expansion column (returned alongside
-			// the grant by ListGrantsWithExpansion).
+			// the grant by ListGrantsInternal with IncludeExpansion=true).
 			var expandableAnno *v2.GrantExpandable
-			if gwe.Expansion != nil {
+			if row.Expansion != nil {
 				expandableAnno = v2.GrantExpandable_builder{
-					EntitlementIds:  gwe.Expansion.SourceEntitlementIDs,
-					Shallow:         gwe.Expansion.Shallow,
-					ResourceTypeIds: gwe.Expansion.ResourceTypeIDs,
+					EntitlementIds:  row.Expansion.SourceEntitlementIDs,
+					Shallow:         row.Expansion.Shallow,
+					ResourceTypeIds: row.Expansion.ResourceTypeIDs,
 				}.Build()
 			}
 			expandableEntitlementsResourceMap := make(map[string][]string)

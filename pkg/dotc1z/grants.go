@@ -124,27 +124,6 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 	}.Build(), nil
 }
 
-// ListGrantsWithExpansion lists grants and includes expansion metadata from the expansion column.
-// This uses listConnectorObjects for the grant protos (no expansion re-attachment overhead),
-// then does a single batch query to fetch expansion data for the returned grants.
-func (c *C1File) ListGrantsWithExpansion(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*connectorstore.GrantsWithExpansionResponse, error) {
-	ctx, span := tracer.Start(ctx, "C1File.ListGrantsWithExpansion")
-	defer span.End()
-
-	resp, err := c.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Projection: connectorstore.GrantListProjectionProtoWithExpansion,
-		Request:    request,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("error listing grants with expansion: %w", err)
-	}
-
-	return &connectorstore.GrantsWithExpansionResponse{
-		List:          resp.GrantsWithExpansion,
-		NextPageToken: resp.NextPageToken,
-	}, nil
-}
-
 func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetGrant")
 	defer span.End()

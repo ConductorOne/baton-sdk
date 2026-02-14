@@ -1094,8 +1094,16 @@ func TestExternalResourceMatchIDWithExpandableRemapping(t *testing.T) {
 			g.GetPrincipal().GetId().GetResourceType(), g.GetPrincipal().GetId().GetResource())
 	}
 
-	defs, _, err := store.ListExpandableGrants(ctx)
+	internalList, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		IncludeExpansion: true,
+	})
 	require.NoError(t, err)
+	defs := make([]*connectorstore.ExpandableGrantDef, 0, len(internalList.Rows))
+	for _, row := range internalList.Rows {
+		if row.Expansion != nil {
+			defs = append(defs, row.Expansion)
+		}
+	}
 	t.Logf("Expandable grants: %d", len(defs))
 
 	// Find the expandable grant for the matched external group.

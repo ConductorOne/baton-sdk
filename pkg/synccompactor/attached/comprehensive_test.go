@@ -457,11 +457,19 @@ func TestCompactionPreservesGrantExpansionColumns(t *testing.T) {
 	compactor := NewAttachedCompactor(baseDB, appliedDB)
 	require.NoError(t, compactor.Compact(ctx))
 
-	// ========= Verify results via ListExpandableGrants (expansion column, not proto annotation) =========
+	// ========= Verify results via ListGrantsInternal expansion rows =========
 
 	// Build a map of expandable grants by external ID for easy lookup.
-	defs, _, err := baseDB.ListExpandableGrants(ctx)
+	resp, err := baseDB.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		IncludeExpansion: true,
+	})
 	require.NoError(t, err)
+	defs := make([]*connectorstore.ExpandableGrantDef, 0, len(resp.Rows))
+	for _, row := range resp.Rows {
+		if row.Expansion != nil {
+			defs = append(defs, row.Expansion)
+		}
+	}
 
 	defsByID := make(map[string]*connectorstore.ExpandableGrantDef)
 	for _, d := range defs {
