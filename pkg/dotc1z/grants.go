@@ -205,7 +205,6 @@ func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	}, bulkGrants...)
 }
 
-
 func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrantsIfNewer")
 	defer span.End()
@@ -223,11 +222,31 @@ func (c *C1File) UpsertGrants(ctx context.Context, opts connectorstore.GrantUpse
 	case connectorstore.GrantUpsertModeIfNewer:
 		return c.putGrantsInternal(ctx, bulkPutGrantsIfNewer, bulkGrants...)
 	case connectorstore.GrantUpsertModePreserveExpansion:
-		// Route through putGrantsInternal so GrantExpandable annotations are
-		// stripped from the data blob, matching Replace/IfNewer behavior.
-		// The expansionWriteModePreserve flag ensures existing expansion/needs_expansion
-		// columns are kept unchanged on conflict.
-		return c.putGrantsInternalWithMode(ctx, bulkPutGrants, expansionWriteModePreserve, bulkGrants...)
+		// Fast path: skip the expandable/non-expandable annotation split since
+		// preserve mode keeps existing expansion columns unchanged on conflict.
+		// The expander never writes grants with GrantExpandable annotations, so
+		// there is no annotation to strip. This avoids clone+strip+marshal overhead.
+		if c.readOnly {
+			return ErrReadOnly
+		}
+		err := bulkPutGrants(ctx, c, grants.Name(),
+			func(grant *v2.Grant) (goqu.Record, error) {
+				return goqu.Record{
+					"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
+					"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
+					"entitlement_id":             grant.GetEntitlement().GetId(),
+					"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
+					"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
+				}, nil
+			},
+			expansionWriteModePreserve,
+			bulkGrants...,
+		)
+		if err != nil {
+			return err
+		}
+		c.dbUpdated = true
+		return nil
 	default:
 		return fmt.Errorf("unknown grant upsert mode: %d", opts.Mode)
 	}
@@ -243,10 +262,6 @@ const (
 )
 
 func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGrants ...*v2.Grant) error {
-	return c.putGrantsInternalWithMode(ctx, f, expansionWriteModeExplicit, bulkGrants...)
-}
-
-func (c *C1File) putGrantsInternalWithMode(ctx context.Context, f grantPutFunc, mode expansionWriteMode, bulkGrants ...*v2.Grant) error {
 	if c.readOnly {
 		return ErrReadOnly
 	}
@@ -290,7 +305,7 @@ func (c *C1File) putGrantsInternalWithMode(ctx context.Context, f grantPutFunc, 
 
 				return rec, nil
 			},
-			mode,
+			expansionWriteModeExplicit,
 			withExpandable...,
 		)
 		if err != nil {
@@ -311,7 +326,7 @@ func (c *C1File) putGrantsInternalWithMode(ctx context.Context, f grantPutFunc, 
 					"needs_expansion":            false,
 				}, nil
 			},
-			mode,
+			expansionWriteModeExplicit,
 			withoutExpandable...,
 		)
 		if err != nil {
@@ -532,28 +547,29 @@ func bulkPutGrantsInternal(
 		return err
 	}
 
-	// Expansion column update logic:
-	// - Preserve mode: keep existing expansion/needs_expansion values on conflict.
-	// - Explicit mode: write EXCLUDED expansion/needs_expansion values on conflict.
-	//   This supports both setting and explicit clearing (expansion=NULL, needs_expansion=0).
-	expansionExpr := goqu.L(
-		`CASE
-			WHEN ? = ? THEN ?.expansion
-			ELSE EXCLUDED.expansion
-		END`,
-		mode, expansionWriteModePreserve, goqu.I(tableName),
-	)
+	// Expansion column update logic built conditionally in Go so the query planner
+	// sees simple expressions instead of parameterized CASE branches.
+	var expansionExpr goqu.Expression
+	var needsExpansionExpr goqu.Expression
 
-	needsExpansionExpr := goqu.L(
-		`CASE
-			WHEN ? = ? THEN ?.needs_expansion
-			WHEN EXCLUDED.expansion IS NULL OR EXCLUDED.expansion = X'' THEN 0
-			WHEN ?.expansion IS NULL AND EXCLUDED.expansion IS NOT NULL THEN 1
-			WHEN ?.expansion IS NOT NULL AND EXCLUDED.expansion IS NOT NULL AND ?.expansion != EXCLUDED.expansion THEN 1
-			ELSE ?.needs_expansion
-		END`,
-		mode, expansionWriteModePreserve, goqu.I(tableName), goqu.I(tableName), goqu.I(tableName), goqu.I(tableName), goqu.I(tableName),
-	)
+	switch mode {
+	case expansionWriteModePreserve:
+		// Keep existing expansion/needs_expansion values on conflict.
+		expansionExpr = goqu.L(fmt.Sprintf("%s.expansion", tableName))
+		needsExpansionExpr = goqu.L(fmt.Sprintf("%s.needs_expansion", tableName))
+	case expansionWriteModeExplicit:
+		// Write EXCLUDED expansion/needs_expansion values on conflict.
+		// This supports both setting and explicit clearing (expansion=NULL, needs_expansion=0).
+		expansionExpr = goqu.L("EXCLUDED.expansion")
+		needsExpansionExpr = goqu.L(
+			fmt.Sprintf(`CASE
+				WHEN EXCLUDED.expansion IS NULL OR EXCLUDED.expansion = X'' THEN 0
+				WHEN %[1]s.expansion IS NULL AND EXCLUDED.expansion IS NOT NULL THEN 1
+				WHEN %[1]s.expansion IS NOT NULL AND EXCLUDED.expansion IS NOT NULL AND %[1]s.expansion != EXCLUDED.expansion THEN 1
+				ELSE %[1]s.needs_expansion
+			END`, tableName),
+		)
+	}
 
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
 		update := goqu.Record{

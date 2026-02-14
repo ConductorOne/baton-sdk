@@ -106,7 +106,6 @@ func (c *C1File) listExpandableGrantsInternal(
 	)
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 	q = q.Where(goqu.C("expansion").IsNotNull())
-	q = q.Where(goqu.L("length(expansion) > 0"))
 	if opts.NeedsExpansionOnly {
 		q = q.Where(goqu.C("needs_expansion").Eq(1))
 	}
@@ -223,8 +222,7 @@ func (c *C1File) listGrantsWithExpansionInternal(
 	q := c.db.From(grants.Name()).Prepared(true).
 		Select("external_id", "entitlement_id", "principal_resource_type_id", "principal_resource_id", "expansion", "needs_expansion").
 		Where(goqu.C("external_id").In(ids...)).
-		Where(goqu.C("expansion").IsNotNull()).
-		Where(goqu.L("length(expansion) > 0"))
+		Where(goqu.C("expansion").IsNotNull())
 
 	if needsExpansionOnly {
 		q = q.Where(goqu.C("needs_expansion").Eq(1))
