@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -443,6 +444,7 @@ func TestGoCache_ServerIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get from server
+	//nolint:gosec // request is sent to an httptest server URL.
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -492,7 +494,7 @@ func TestGoCache_ConcurrentAccess(t *testing.T) {
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
 		go func(id int) {
-			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com/"+string(rune(id)), nil)
+			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://example.com/"+strconv.Itoa(id), nil)
 			resp := &http.Response{
 				Status:     "200 OK",
 				StatusCode: http.StatusOK,

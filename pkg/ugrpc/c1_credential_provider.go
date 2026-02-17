@@ -32,6 +32,7 @@ var (
 )
 
 type c1Token struct {
+	//nolint:gosec // OAuth2 response schema requires this field name and JSON tag.
 	AccessToken string `json:"access_token"`
 	TokenType   string `json:"token_type"`
 	Expiry      int    `json:"expires_in"`
@@ -126,6 +127,7 @@ func (c *c1TokenSource) Token() (*oauth2.Token, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	//nolint:gosec // token endpoint host is configured by baton client ID/env and is expected to be remote.
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
