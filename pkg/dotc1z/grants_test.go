@@ -1158,3 +1158,279 @@ func TestListGrantsInternal_PayloadWithExpansionPageSizeAndTokenFromOptions(t *t
 	require.Len(t, page2.Rows, 1)
 	require.Equal(t, "", page2.NextPageToken)
 }
+
+// TestUpsertGrants_PreserveExpansion verifies that upserting a grant with
+// GrantUpsertModePreserveExpansion keeps existing expansion and needs_expansion
+// columns unchanged, even when the incoming grant carries different data.
+func TestUpsertGrants_PreserveExpansion(t *testing.T) {
+	ctx := context.Background()
+	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	// Step 1: Insert a grant WITH expansion via normal PutGrants (Replace mode).
+	expandableGrant := v2.Grant_builder{
+		Id:          "grant-preserve",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        true,
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, expandableGrant))
+
+	// Verify initial state: expansion is set and needs_expansion is 1.
+	rawBefore := getRawGrantRowForSync(ctx, t, c1f, "grant-preserve", syncID)
+	require.NotNil(t, rawBefore.expansion, "initial insert should have non-nil expansion")
+	require.Equal(t, 1, rawBefore.needsExpansion, "initial insert should have needs_expansion=1")
+
+	// Step 2: Upsert the same grant via PreserveExpansion with NO expansion annotation.
+	// The grant data itself is different (no annotations), but expansion columns must not change.
+	plainGrant := v2.Grant_builder{
+		Id:          "grant-preserve",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+	require.NoError(t, c1f.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModePreserveExpansion,
+	}, plainGrant))
+
+	// Verify: expansion and needs_expansion are unchanged.
+	rawAfter := getRawGrantRowForSync(ctx, t, c1f, "grant-preserve", syncID)
+	require.NotNil(t, rawAfter.expansion, "expansion should be preserved after PreserveExpansion upsert")
+	require.Equal(t, rawBefore.expansion, rawAfter.expansion, "expansion bytes should be identical")
+	require.Equal(t, rawBefore.needsExpansion, rawAfter.needsExpansion, "needs_expansion should be identical")
+
+	// Step 3: Verify the reverse case — a non-expandable grant stays non-expandable.
+	plainGrant2 := v2.Grant_builder{
+		Id:          "grant-preserve-plain",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, plainGrant2))
+
+	rawPlainBefore := getRawGrantRowForSync(ctx, t, c1f, "grant-preserve-plain", syncID)
+	require.Nil(t, rawPlainBefore.expansion, "plain grant should have nil expansion")
+	require.Equal(t, 0, rawPlainBefore.needsExpansion, "plain grant should have needs_expansion=0")
+
+	// Upsert the plain grant via PreserveExpansion — columns stay nil/0.
+	require.NoError(t, c1f.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModePreserveExpansion,
+	}, plainGrant2))
+
+	rawPlainAfter := getRawGrantRowForSync(ctx, t, c1f, "grant-preserve-plain", syncID)
+	require.Nil(t, rawPlainAfter.expansion, "expansion should remain nil after PreserveExpansion upsert")
+	require.Equal(t, 0, rawPlainAfter.needsExpansion, "needs_expansion should remain 0 after PreserveExpansion upsert")
+}
+
+// TestPutGrantsIfNewer_StaleUpsertIsNoOp verifies that IfNewer mode rejects an
+// upsert when the existing row has a newer discovered_at timestamp. Both data
+// and expansion columns must remain unchanged.
+func TestPutGrantsIfNewer_StaleUpsertIsNoOp(t *testing.T) {
+	ctx := context.Background()
+	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	// Step 1: Insert grant with expansion.
+	original := v2.Grant_builder{
+		Id:          "grant-stale",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        true,
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, original))
+
+	rawBefore := getRawGrantRowForSync(ctx, t, c1f, "grant-stale", syncID)
+	require.NotNil(t, rawBefore.expansion)
+	require.Equal(t, 1, rawBefore.needsExpansion)
+
+	// Push discovered_at far into the future so any new upsert is "stale".
+	_, err := c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET discovered_at = '2099-01-01 00:00:00' WHERE external_id = ?",
+		"grant-stale",
+	)
+	require.NoError(t, err)
+
+	// Capture data blob before stale upsert.
+	var dataBefore []byte
+	require.NoError(t, c1f.db.QueryRowContext(ctx,
+		"SELECT data FROM "+grants.Name()+" WHERE external_id = ? AND sync_id = ?",
+		"grant-stale", syncID,
+	).Scan(&dataBefore))
+
+	// Step 2: Attempt IfNewer upsert with different expansion. It should be rejected.
+	stale := v2.Grant_builder{
+		Id:          "grant-stale",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent1", "ent2"},
+			Shallow:        false,
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrantsIfNewer(ctx, stale))
+
+	// Verify nothing changed.
+	rawAfter := getRawGrantRowForSync(ctx, t, c1f, "grant-stale", syncID)
+	require.Equal(t, rawBefore.expansion, rawAfter.expansion, "expansion should not change for stale upsert")
+	require.Equal(t, rawBefore.needsExpansion, rawAfter.needsExpansion, "needs_expansion should not change for stale upsert")
+
+	// Verify data blob is also unchanged.
+	var dataAfter []byte
+	require.NoError(t, c1f.db.QueryRowContext(ctx,
+		"SELECT data FROM "+grants.Name()+" WHERE external_id = ? AND sync_id = ?",
+		"grant-stale", syncID,
+	).Scan(&dataAfter))
+	require.Equal(t, dataBefore, dataAfter, "data blob should not change for stale upsert")
+}
+
+// TestPutGrantsIfNewer_PlainGrant verifies IfNewer mode works correctly for
+// grants without expansion annotations — both the accept and reject paths.
+func TestPutGrantsIfNewer_PlainGrant(t *testing.T) {
+	ctx := context.Background()
+	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	u2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+	require.NoError(t, c1f.PutResources(ctx, u2))
+
+	// Step 1: Insert a plain grant (no expansion) via Replace.
+	original := v2.Grant_builder{
+		Id:          "grant-ifnewer-plain",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, original))
+
+	rawBefore := getRawGrantRowForSync(ctx, t, c1f, "grant-ifnewer-plain", syncID)
+	require.Nil(t, rawBefore.expansion)
+	require.Equal(t, 0, rawBefore.needsExpansion)
+	var dataBeforeAccepted []byte
+	require.NoError(t, c1f.db.QueryRowContext(ctx,
+		"SELECT data FROM "+grants.Name()+" WHERE external_id = ? AND sync_id = ?",
+		"grant-ifnewer-plain", syncID,
+	).Scan(&dataBeforeAccepted))
+
+	// Step 2: IfNewer upsert with changed payload (different principal).
+	// This should be accepted and update the row data.
+	updated := v2.Grant_builder{
+		Id:          "grant-ifnewer-plain",
+		Entitlement: ent1,
+		Principal:   u2,
+	}.Build()
+	require.NoError(t, c1f.PutGrantsIfNewer(ctx, updated))
+
+	rawAfter := getRawGrantRowForSync(ctx, t, c1f, "grant-ifnewer-plain", syncID)
+	require.Nil(t, rawAfter.expansion, "plain grant should still have nil expansion after IfNewer upsert")
+	require.Equal(t, 0, rawAfter.needsExpansion, "plain grant should still have needs_expansion=0 after IfNewer upsert")
+	var dataAfterAccepted []byte
+	require.NoError(t, c1f.db.QueryRowContext(ctx,
+		"SELECT data FROM "+grants.Name()+" WHERE external_id = ? AND sync_id = ?",
+		"grant-ifnewer-plain", syncID,
+	).Scan(&dataAfterAccepted))
+	require.NotEqual(t, dataBeforeAccepted, dataAfterAccepted, "IfNewer accepted path should update data blob")
+
+	// Step 3: Push discovered_at into the future and verify stale IfNewer is rejected.
+	_, err := c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET discovered_at = '2099-01-01 00:00:00' WHERE external_id = ?",
+		"grant-ifnewer-plain",
+	)
+	require.NoError(t, err)
+
+	// Capture data blob before stale upsert.
+	var dataBefore []byte
+	require.NoError(t, c1f.db.QueryRowContext(ctx,
+		"SELECT data FROM "+grants.Name()+" WHERE external_id = ? AND sync_id = ?",
+		"grant-ifnewer-plain", syncID,
+	).Scan(&dataBefore))
+
+	stale := v2.Grant_builder{
+		Id:          "grant-ifnewer-plain",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+	require.NoError(t, c1f.PutGrantsIfNewer(ctx, stale))
+
+	var dataAfter []byte
+	require.NoError(t, c1f.db.QueryRowContext(ctx,
+		"SELECT data FROM "+grants.Name()+" WHERE external_id = ? AND sync_id = ?",
+		"grant-ifnewer-plain", syncID,
+	).Scan(&dataAfter))
+	require.Equal(t, dataBefore, dataAfter, "data blob should not change for stale plain IfNewer upsert")
+}
+
+// TestPutGrants_ReplaceOverwritesExpansion verifies that Replace mode unconditionally
+// overwrites expansion columns when the new grant has different expansion metadata.
+func TestPutGrants_ReplaceOverwritesExpansion(t *testing.T) {
+	ctx := context.Background()
+	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	// Step 1: Insert grant with expansion {ent2, shallow=true}.
+	grant1 := v2.Grant_builder{
+		Id:          "grant-replace",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent2"},
+			Shallow:        true,
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grant1))
+
+	rawBefore := getRawGrantRowForSync(ctx, t, c1f, "grant-replace", syncID)
+	require.NotNil(t, rawBefore.expansion)
+	geBefore := &v2.GrantExpandable{}
+	require.NoError(t, proto.Unmarshal(rawBefore.expansion, geBefore))
+	require.Equal(t, []string{"ent2"}, geBefore.GetEntitlementIds())
+	require.True(t, geBefore.GetShallow())
+
+	// Step 2: Replace with different expansion {ent1, ent2, shallow=false}.
+	grant2 := v2.Grant_builder{
+		Id:          "grant-replace",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{"ent1", "ent2"},
+			Shallow:        false,
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grant2))
+
+	rawAfter := getRawGrantRowForSync(ctx, t, c1f, "grant-replace", syncID)
+	require.NotNil(t, rawAfter.expansion)
+	geAfter := &v2.GrantExpandable{}
+	require.NoError(t, proto.Unmarshal(rawAfter.expansion, geAfter))
+	require.Equal(t, []string{"ent1", "ent2"}, geAfter.GetEntitlementIds(), "Replace should overwrite expansion entitlement IDs")
+	require.False(t, geAfter.GetShallow(), "Replace should overwrite expansion shallow flag")
+
+	// Step 3: Replace with NO expansion — should clear expansion to NULL.
+	grant3 := v2.Grant_builder{
+		Id:          "grant-replace",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grant3))
+
+	requireExpansionSQLNullForSync(ctx, t, c1f, "grant-replace", syncID)
+	rawCleared := getRawGrantRowForSync(ctx, t, c1f, "grant-replace", syncID)
+	require.Equal(t, 0, rawCleared.needsExpansion, "needs_expansion should be 0 after clearing expansion via Replace")
+}
