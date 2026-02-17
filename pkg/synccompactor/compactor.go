@@ -38,6 +38,7 @@ type Compactor struct {
 	destDir     string
 	runDuration time.Duration
 	syncLimit   int
+	c1zOptions  []dotc1z.C1ZOption
 }
 
 type CompactableSync struct {
@@ -57,6 +58,7 @@ func WithTmpDir(tempDir string) Option {
 	}
 }
 
+// Deprecated: There is now only one compactor type, so this option is no longer needed.
 func WithCompactorType(compactorType CompactorType) Option {
 	return func(c *Compactor) {
 		c.compactorType = compactorType
@@ -73,6 +75,14 @@ func WithRunDuration(runDuration time.Duration) Option {
 func WithSyncLimit(limit int) Option {
 	return func(c *Compactor) {
 		c.syncLimit = limit
+	}
+}
+
+// WithC1ZOptions sets the C1Z options to use for the compactor.
+// This allows tweaking C1Z opts such as encoder/decoder parallelism.
+func WithC1ZOptions(opts ...dotc1z.C1ZOption) Option {
+	return func(c *Compactor) {
+		c.c1zOptions = opts
 	}
 }
 
@@ -99,6 +109,25 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 		return nil, nil, err
 	}
 	c.tmpDir = tmpDir
+
+	defaultC1ZOptions := []dotc1z.C1ZOption{
+		dotc1z.WithTmpDir(c.tmpDir),
+		// Performance improvements:
+		// NOTE: We do not close this c1z after compaction, so syncer will have these pragmas when expanding grants.
+		// We should re-evaluate these pragmas when partial syncs sync grants.
+		// Disable journaling.
+		dotc1z.WithPragma("journal_mode", "OFF"),
+		// Disable synchronous writes
+		dotc1z.WithPragma("synchronous", "OFF"),
+		// Use exclusive locking.
+		dotc1z.WithPragma("main.locking_mode", "EXCLUSIVE"),
+		// Use parallel decoding.
+		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
+		// Use parallel encoding.
+		dotc1z.WithEncoderConcurrency(0),
+	}
+	// We would set the default options sooner, but we need to know the tmpDir first.
+	c.c1zOptions = append(defaultC1ZOptions, c.c1zOptions...)
 
 	cleanup := func() error {
 		if err := os.RemoveAll(c.tmpDir); err != nil {
@@ -143,22 +172,8 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	default:
 	}
 
-	opts := []dotc1z.C1ZOption{
-		dotc1z.WithTmpDir(c.tmpDir),
-		// Performance improvements:
-		// NOTE: We do not close this c1z after compaction, so syncer will have these pragmas when expanding grants.
-		// We should re-evaluate these pragmas when partial syncs sync grants.
-		// Disable journaling.
-		dotc1z.WithPragma("journal_mode", "OFF"),
-		// Disable synchronous writes
-		dotc1z.WithPragma("synchronous", "OFF"),
-		// Use exclusive locking.
-		dotc1z.WithPragma("main.locking_mode", "EXCLUSIVE"),
-		// Use parallel decoding.
-		dotc1z.WithDecoderOptions(dotc1z.WithDecoderConcurrency(-1)),
-		// Use parallel encoding.
-		dotc1z.WithEncoderConcurrency(0),
-	}
+	opts := make([]dotc1z.C1ZOption, len(c.c1zOptions))
+	copy(opts, c.c1zOptions)
 	if c.syncLimit > 0 {
 		opts = append(opts, dotc1z.WithSyncLimit(c.syncLimit))
 	}
