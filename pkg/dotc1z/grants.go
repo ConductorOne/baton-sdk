@@ -219,6 +219,13 @@ func (c *C1File) UpsertGrants(ctx context.Context, opts connectorstore.GrantUpse
 	if c.readOnly {
 		return ErrReadOnly
 	}
+	switch opts.Mode {
+	case connectorstore.GrantUpsertModeReplace,
+		connectorstore.GrantUpsertModeIfNewer,
+		connectorstore.GrantUpsertModePreserveExpansion:
+	default:
+		return fmt.Errorf("unknown grant upsert mode: %d", opts.Mode)
+	}
 
 	if err := upsertGrantsInternal(ctx, c, opts.Mode, bulkGrants...); err != nil {
 		return err
