@@ -324,16 +324,15 @@ func WithGenericResponse(response *map[string]any) DoOption {
 		}
 
 		if IsXMLContentType(resp.Header.Get(ContentType)) {
-			err = WithXMLResponse(response)(resp)
+			var xm xmlMap
+			err = WithXMLResponse(&xm)(resp)
 			if err != nil {
 				return err
 			}
-			if list, ok := v.([]any); ok {
-				(*response)["items"] = list
-			} else if vMap, ok := v.(map[string]any); ok {
+			if vMap, ok := xm.data.(map[string]any); ok {
 				*response = vMap
 			} else {
-				return status.Errorf(codes.Internal, "unsupported content type: %T", v)
+				return status.Errorf(codes.Internal, "unsupported XML structure: %T", xm.data)
 			}
 			return nil
 		}
