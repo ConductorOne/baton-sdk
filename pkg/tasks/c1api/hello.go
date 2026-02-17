@@ -3,6 +3,7 @@ package c1api
 import (
 	"context"
 	"errors"
+	"runtime"
 	"runtime/debug"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -38,8 +39,28 @@ func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloReq
 		info.VirtualizationSystem = "none"
 	}
 
+	if info.Hostname == "" {
+		info.Hostname = "unknown"
+	}
+
+	if info.Platform == "" {
+		info.Platform = info.OS
+	}
+
+	if info.PlatformFamily == "" {
+		info.PlatformFamily = info.Platform
+	}
+
+	if info.KernelVersion == "" {
+		info.KernelVersion = "unknown"
+	}
+
 	if info.PlatformVersion == "" {
 		info.PlatformVersion = info.KernelVersion
+	}
+
+	if info.KernelArch == "" {
+		info.KernelArch = runtime.GOARCH
 	}
 
 	return v1.BatonServiceHelloRequest_OSInfo_builder{
