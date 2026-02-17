@@ -13,18 +13,12 @@ import (
 	"time"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 type example struct {
-	Name string `json:"name"`
-	Age  int    `json:"age"`
-}
-
-type xmlExample struct {
-	Name string `xml:"name"`
-	Age  int    `xml:"age"`
+	Name string `json:"name" xml:"name"`
+	Age  int    `json:"age" xml:"age"`
 }
 
 var ctx = context.Background()
@@ -85,7 +79,7 @@ func TestWrapper_WithAcceptXMLHeader(t *testing.T) {
 }
 
 func TestWrapper_WithXMLBody(t *testing.T) {
-	exampleBody := xmlExample{
+	exampleBody := example{
 		Name: "John",
 		Age:  30,
 	}
@@ -176,7 +170,7 @@ func TestWrapper_WithJSONResponse(t *testing.T) {
 		}
 		err = WithJSONResponse(nil)(&wrapperResp)
 
-		require.Nil(t, err)
+		require.NoError(t, err)
 	})
 
 	t.Run("should marshal an empty JSON response (\"{}\")", func(t *testing.T) {
@@ -193,7 +187,7 @@ func TestWrapper_WithJSONResponse(t *testing.T) {
 		responseBody := empty{}
 		err = WithJSONResponse(&responseBody)(&wrapperResp)
 
-		require.Nil(t, err)
+		require.NoError(t, err)
 		require.Equal(t, empty{}, responseBody)
 	})
 }
@@ -257,7 +251,7 @@ func TestWrapper_WithXMLResponse(t *testing.T) {
 		}
 		err = WithXMLResponse(nil)(&wrapperResp)
 
-		require.Nil(t, err)
+		require.NoError(t, err)
 	})
 }
 
@@ -311,7 +305,7 @@ func TestWrapper_WithResponse(t *testing.T) {
 	}
 	err = option(&wrapperResp)
 
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.Equal(t, exampleResponse, responseBody)
 }
 
@@ -322,6 +316,102 @@ type ErrResponse struct {
 
 func (e *ErrResponse) Message() string {
 	return fmt.Sprintf("%s: %s", e.Title, e.Detail)
+}
+
+func TestWrapper_WithGenericResponse(t *testing.T) {
+	t.Run("should marshal a JSON response", func(t *testing.T) {
+		header := http.Header{}
+		header.Add("Content-Type", "application/json")
+		resp := WrapperResponse{
+			Header:     header,
+			StatusCode: http.StatusOK,
+		}
+		resp.Body = bytes.NewBufferString(`{"items": [{"name": "John", "age": 30}]}`).Bytes()
+		var respBody map[string]any
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"items": []any{map[string]any{"name": "John", "age": float64(30)}}}, respBody)
+	})
+
+	t.Run("should marshal an XML response", func(t *testing.T) {
+		exampleResponse := `<?xml version="1.0" encoding="UTF-8"?><response><items><item><name>John</name><age>30</age></item></items></response>`
+		header := http.Header{}
+		header.Add("Content-Type", "application/xml")
+		resp := WrapperResponse{
+			Header:     header,
+			StatusCode: http.StatusOK,
+		}
+		resp.Body = bytes.NewBufferString(exampleResponse).Bytes()
+		var respBody map[string]any
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"items": map[string]any{
+				"item": map[string]any{"name": "John", "age": "30"},
+			},
+		}, respBody)
+	})
+
+	t.Run("should marshal an XML array response", func(t *testing.T) {
+		exampleResponse := `<?xml version="1.0" encoding="UTF-8"?><response><items><item><name>John</name><age>30</age></item><item><name>Jane</name><age>25</age></item></items></response>`
+		header := http.Header{}
+		header.Add("Content-Type", "application/xml")
+		resp := WrapperResponse{
+			Header:     header,
+			StatusCode: http.StatusOK,
+		}
+		resp.Body = bytes.NewBufferString(exampleResponse).Bytes()
+		var respBody map[string]any
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{
+			"items": []map[string]any{
+				{
+					"item": map[string]any{
+						"name": "John",
+						"age":  "30",
+					},
+				},
+				{
+					"item": map[string]any{
+						"name": "Jane",
+						"age":  "25",
+					},
+				},
+			},
+		}, respBody)
+	})
+
+	t.Run("should return an error when the response is not JSON or XML", func(t *testing.T) {
+		header := http.Header{}
+		header.Add("Content-Type", "text/yaml")
+		resp := WrapperResponse{
+			Header:     header,
+			StatusCode: http.StatusOK,
+		}
+		yamlStr := `items:
+		- name: John
+			age: 30`
+		var respBody map[string]any
+		resp.Body = bytes.NewBufferString(yamlStr).Bytes()
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NotNil(t, err)
+		require.Contains(t, err.Error(), "unsupported content type: text/yaml")
+	})
+
+	t.Run("should handle an empty response (HTTP 204)", func(t *testing.T) {
+		header := http.Header{}
+		header.Add("Content-Type", "application/json")
+		resp := WrapperResponse{
+			Header:     header,
+			StatusCode: http.StatusNoContent,
+		}
+		resp.Body = []byte{}
+		var respBody map[string]any
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Empty(t, respBody)
+	})
 }
 
 func TestWrapper_WithErrorResponse(t *testing.T) {
@@ -342,7 +432,7 @@ func TestWrapper_WithErrorResponse(t *testing.T) {
 
 	resp.StatusCode = http.StatusOK
 	err = WithErrorResponse(&errResp)(&resp)
-	require.Nil(t, err)
+	require.NoError(t, err)
 }
 
 func TestWrapper_WithRateLimitData(t *testing.T) {
@@ -359,7 +449,7 @@ func TestWrapper_WithRateLimitData(t *testing.T) {
 	option := WithRatelimitData(rldata)
 	err := option(resp)
 
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.Equal(t, int64(100), rldata.GetLimit())
 	require.Equal(t, int64(50), rldata.GetRemaining())
 	require.Equal(t, n.Add(time.Second*60).Unix(), rldata.GetResetAt().AsTime().Unix())
@@ -424,7 +514,7 @@ func TestWrapper_NewRequest(t *testing.T) {
 			}
 
 			client, err := NewBaseHttpClientWithContext(ctx, http.DefaultClient)
-			assert.Nil(t, err)
+			require.NoError(t, err)
 
 			req, err := client.NewRequest(context.Background(), tc.method, u, tc.options...)
 			require.Equal(t, tc.expected.err, err)
