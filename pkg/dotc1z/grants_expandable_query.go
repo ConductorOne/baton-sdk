@@ -13,6 +13,14 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
+func parseGrantPageToken(pageToken string, tokenType string) (int64, error) {
+	id, err := strconv.ParseInt(pageToken, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s grants page token %q: %w", tokenType, pageToken, err)
+	}
+	return id, nil
+}
+
 // ListGrantsInternal provides a single internal listing entrypoint with row shaping options.
 func (c *C1File) ListGrantsInternal(ctx context.Context, opts connectorstore.GrantListOptions) (*connectorstore.InternalGrantListResponse, error) {
 	switch opts.Mode {
@@ -79,9 +87,9 @@ func (c *C1File) listExpandableGrantsInternal(
 	}
 
 	if opts.PageToken != "" {
-		id, err := strconv.ParseInt(opts.PageToken, 10, 64)
+		id, err := parseGrantPageToken(opts.PageToken, "expandable")
 		if err != nil {
-			return nil, "", fmt.Errorf("invalid expandable grants page token %q: %w", opts.PageToken, err)
+			return nil, "", err
 		}
 		q = q.Where(goqu.C("id").Gte(id))
 	}
@@ -200,7 +208,11 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		q = q.Where(goqu.C("expansion").IsNotNull())
 	}
 	if opts.PageToken != "" {
-		q = q.Where(goqu.C("id").Gte(opts.PageToken))
+		id, err := parseGrantPageToken(opts.PageToken, "payload")
+		if err != nil {
+			return nil, err
+		}
+		q = q.Where(goqu.C("id").Gte(id))
 	}
 
 	pageSize := opts.PageSize
@@ -227,7 +239,7 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 
 	var (
 		count   uint32
-		lastRow int
+		lastRow int64
 	)
 	result := make([]*connectorstore.InternalGrantRow, 0, pageSize)
 
@@ -238,7 +250,7 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		}
 
 		var (
-			rowID         int
+			rowID         int64
 			grantData     []byte
 			externalID    string
 			entID         string
@@ -295,7 +307,7 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 
 	nextPageToken := ""
 	if count > pageSize {
-		nextPageToken = strconv.Itoa(lastRow + 1)
+		nextPageToken = strconv.FormatInt(lastRow+1, 10)
 	}
 
 	return &connectorstore.InternalGrantListResponse{
@@ -323,7 +335,11 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		q = q.Where(goqu.C("sync_id").Eq(syncID))
 	}
 	if opts.PageToken != "" {
-		q = q.Where(goqu.C("id").Gte(opts.PageToken))
+		id, err := parseGrantPageToken(opts.PageToken, "payload")
+		if err != nil {
+			return nil, err
+		}
+		q = q.Where(goqu.C("id").Gte(id))
 	}
 
 	pageSize := opts.PageSize
@@ -349,7 +365,7 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 	result := make([]*connectorstore.InternalGrantRow, 0, pageSize)
 	var (
 		count   uint32
-		lastRow int
+		lastRow int64
 	)
 	for rows.Next() {
 		count++
@@ -358,7 +374,7 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		}
 
 		var (
-			rowID     int
+			rowID     int64
 			grantData []byte
 		)
 		if err := rows.Scan(&rowID, &grantData); err != nil {
@@ -378,7 +394,7 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 
 	nextPageToken := ""
 	if count > pageSize {
-		nextPageToken = strconv.Itoa(lastRow + 1)
+		nextPageToken = strconv.FormatInt(lastRow+1, 10)
 	}
 	return &connectorstore.InternalGrantListResponse{
 		Rows:          result,
