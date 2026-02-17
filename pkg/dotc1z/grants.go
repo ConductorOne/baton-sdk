@@ -216,126 +216,82 @@ func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) 
 
 // UpsertGrants writes grants with explicit conflict semantics.
 func (c *C1File) UpsertGrants(ctx context.Context, opts connectorstore.GrantUpsertOptions, bulkGrants ...*v2.Grant) error {
-	switch opts.Mode {
-	case connectorstore.GrantUpsertModeReplace:
-		return c.putGrantsInternal(ctx, bulkPutGrants, bulkGrants...)
-	case connectorstore.GrantUpsertModeIfNewer:
-		return c.putGrantsInternal(ctx, bulkPutGrantsIfNewer, bulkGrants...)
-	case connectorstore.GrantUpsertModePreserveExpansion:
-		// Fast path: skip the expandable/non-expandable annotation split since
-		// preserve mode keeps existing expansion columns unchanged on conflict.
-		// The expander never writes grants with GrantExpandable annotations, so
-		// there is no annotation to strip. This avoids clone+strip+marshal overhead.
-		if c.readOnly {
-			return ErrReadOnly
-		}
-		err := bulkPutGrants(ctx, c, grants.Name(),
-			func(grant *v2.Grant) (goqu.Record, error) {
-				return goqu.Record{
-					"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
-					"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
-					"entitlement_id":             grant.GetEntitlement().GetId(),
-					"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
-					"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-				}, nil
-			},
-			expansionWriteModePreserve,
-			bulkGrants...,
-		)
-		if err != nil {
-			return err
-		}
-		c.dbUpdated = true
-		return nil
-	default:
-		return fmt.Errorf("unknown grant upsert mode: %d", opts.Mode)
-	}
-}
-
-type grantPutFunc func(context.Context, *C1File, string, func(m *v2.Grant) (goqu.Record, error), expansionWriteMode, ...*v2.Grant) error
-
-type expansionWriteMode int
-
-const (
-	expansionWriteModePreserve expansionWriteMode = iota
-	expansionWriteModeExplicit
-)
-
-func (c *C1File) putGrantsInternal(ctx context.Context, f grantPutFunc, bulkGrants ...*v2.Grant) error {
 	if c.readOnly {
 		return ErrReadOnly
 	}
 
-	withExpandable := make([]*v2.Grant, 0, len(bulkGrants))
-	withoutExpandable := make([]*v2.Grant, 0, len(bulkGrants))
-	for _, grant := range bulkGrants {
-		if hasGrantExpandable(grant) {
-			withExpandable = append(withExpandable, grant)
-		} else {
-			withoutExpandable = append(withoutExpandable, grant)
-		}
-	}
-
-	if len(withExpandable) > 0 {
-		err := f(ctx, c, grants.Name(),
-			func(grant *v2.Grant) (goqu.Record, error) {
-				rec := goqu.Record{
-					"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
-					"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
-					"entitlement_id":             grant.GetEntitlement().GetId(),
-					"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
-					"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-				}
-
-				stripped := proto.Clone(grant).(*v2.Grant)
-				expansionBytes, needsExpansion := extractAndStripExpansion(stripped)
-				// Use untyped nil for SQL NULL to avoid driver-specific []byte(nil)->X'' coercion.
-				if expansionBytes == nil {
-					rec["expansion"] = nil
-				} else {
-					rec["expansion"] = expansionBytes
-				}
-				rec["needs_expansion"] = needsExpansion
-
-				strippedData, err := proto.MarshalOptions{Deterministic: true}.Marshal(stripped)
-				if err != nil {
-					return nil, fmt.Errorf("error marshaling grant after stripping expansion: %w", err)
-				}
-				rec["data"] = strippedData
-
-				return rec, nil
-			},
-			expansionWriteModeExplicit,
-			withExpandable...,
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	if len(withoutExpandable) > 0 {
-		err := f(ctx, c, grants.Name(),
-			func(grant *v2.Grant) (goqu.Record, error) {
-				return goqu.Record{
-					"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
-					"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
-					"entitlement_id":             grant.GetEntitlement().GetId(),
-					"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
-					"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
-					"expansion":                  nil,
-					"needs_expansion":            false,
-				}, nil
-			},
-			expansionWriteModeExplicit,
-			withoutExpandable...,
-		)
-		if err != nil {
-			return err
-		}
+	if err := upsertGrantsInternal(ctx, c, opts.Mode, bulkGrants...); err != nil {
+		return err
 	}
 
 	c.dbUpdated = true
 	return nil
+}
+
+func baseGrantRecord(grant *v2.Grant) goqu.Record {
+	return goqu.Record{
+		"resource_type_id":           grant.GetEntitlement().GetResource().GetId().GetResourceType(),
+		"resource_id":                grant.GetEntitlement().GetResource().GetId().GetResource(),
+		"entitlement_id":             grant.GetEntitlement().GetId(),
+		"principal_resource_type_id": grant.GetPrincipal().GetId().GetResourceType(),
+		"principal_resource_id":      grant.GetPrincipal().GetId().GetResource(),
+	}
+}
+
+func grantExtractFields(mode connectorstore.GrantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
+	return func(grant *v2.Grant) (goqu.Record, error) {
+		rec := baseGrantRecord(grant)
+		if mode == connectorstore.GrantUpsertModePreserveExpansion {
+			return rec, nil
+		}
+
+		if !hasGrantExpandable(grant) {
+			rec["expansion"] = nil
+			rec["needs_expansion"] = false
+			return rec, nil
+		}
+
+		stripped := proto.Clone(grant).(*v2.Grant)
+		expansionBytes, needsExpansion := extractAndStripExpansion(stripped)
+		// Use untyped nil for SQL NULL to avoid driver-specific []byte(nil)->X'' coercion.
+		if expansionBytes == nil {
+			rec["expansion"] = nil
+		} else {
+			rec["expansion"] = expansionBytes
+		}
+		rec["needs_expansion"] = needsExpansion
+
+		strippedData, err := protoMarshaler.Marshal(stripped)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling grant after stripping expansion: %w", err)
+		}
+		rec["data"] = strippedData
+		return rec, nil
+	}
+}
+
+func upsertGrantsInternal(
+	ctx context.Context,
+	c *C1File,
+	mode connectorstore.GrantUpsertMode,
+	msgs ...*v2.Grant,
+) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	ctx, span := tracer.Start(ctx, "C1File.bulkUpsertGrants")
+	defer span.End()
+
+	if err := c.validateSyncDb(ctx); err != nil {
+		return err
+	}
+
+	rows, err := prepareConnectorObjectRows(c, msgs, grantExtractFields(mode))
+	if err != nil {
+		return err
+	}
+
+	return executeGrantChunkedUpsert(ctx, c, rows, mode)
 }
 
 // hasGrantExpandable returns true if the grant has a GrantExpandable annotation.
@@ -503,61 +459,23 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 	return nil
 }
 
-func bulkPutGrants(
+func executeGrantChunkedUpsert(
 	ctx context.Context, c *C1File,
-	tableName string,
-	extractFields func(m *v2.Grant) (goqu.Record, error),
-	mode expansionWriteMode,
-	msgs ...*v2.Grant,
+	rows []*goqu.Record,
+	mode connectorstore.GrantUpsertMode,
 ) error {
-	return bulkPutGrantsInternal(ctx, c, tableName, extractFields, false, mode, msgs...)
-}
-
-func bulkPutGrantsIfNewer(
-	ctx context.Context, c *C1File,
-	tableName string,
-	extractFields func(m *v2.Grant) (goqu.Record, error),
-	mode expansionWriteMode,
-	msgs ...*v2.Grant,
-) error {
-	return bulkPutGrantsInternal(ctx, c, tableName, extractFields, true, mode, msgs...)
-}
-
-func bulkPutGrantsInternal(
-	ctx context.Context, c *C1File,
-	tableName string,
-	extractFields func(m *v2.Grant) (goqu.Record, error),
-	ifNewer bool,
-	mode expansionWriteMode,
-	msgs ...*v2.Grant,
-) error {
-	if len(msgs) == 0 {
-		return nil
-	}
-	ctx, span := tracer.Start(ctx, "C1File.bulkPutGrants")
-	defer span.End()
-
-	if err := c.validateSyncDb(ctx); err != nil {
-		return err
-	}
-
-	// Prepare rows.
-	rows, err := prepareConnectorObjectRows(c, msgs, extractFields)
-	if err != nil {
-		return err
-	}
-
+	tableName := grants.Name()
 	// Expansion column update logic built conditionally in Go so the query planner
 	// sees simple expressions instead of parameterized CASE branches.
 	var expansionExpr goqu.Expression
 	var needsExpansionExpr goqu.Expression
 
 	switch mode {
-	case expansionWriteModePreserve:
+	case connectorstore.GrantUpsertModePreserveExpansion:
 		// Keep existing expansion/needs_expansion values on conflict.
 		expansionExpr = goqu.L(fmt.Sprintf("%s.expansion", tableName))
 		needsExpansionExpr = goqu.L(fmt.Sprintf("%s.needs_expansion", tableName))
-	case expansionWriteModeExplicit:
+	default:
 		// Write EXCLUDED expansion/needs_expansion values on conflict.
 		// This supports both setting and explicit clearing (expansion=NULL, needs_expansion=0).
 		expansionExpr = goqu.L("EXCLUDED.expansion")
@@ -577,7 +495,7 @@ func bulkPutGrantsInternal(
 			"expansion":       expansionExpr,
 			"needs_expansion": needsExpansionExpr,
 		}
-		if ifNewer {
+		if mode == connectorstore.GrantUpsertModeIfNewer {
 			update["discovered_at"] = goqu.I("EXCLUDED.discovered_at")
 			return insertDs.
 				OnConflict(goqu.DoUpdate("external_id, sync_id", update).Where(
@@ -593,11 +511,7 @@ func bulkPutGrantsInternal(
 			Prepared(true), nil
 	}
 
-	if err := executeChunkedInsert(ctx, c, tableName, rows, buildQueryFn); err != nil {
-		return err
-	}
-
-	return nil
+	return executeChunkedInsert(ctx, c, tableName, rows, buildQueryFn)
 }
 
 func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {

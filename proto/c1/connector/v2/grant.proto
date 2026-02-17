@@ -48,7 +48,6 @@ message GrantsServiceListGrantsRequest {
     min_bytes: 1
     max_bytes: 1024
   }];
-
 }
 
 message GrantsServiceListGrantsResponse {
