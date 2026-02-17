@@ -429,13 +429,13 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 			require.Equal(t, tt.expectedRetry, shouldRetry, "retry decision should match expected")
 
 			if tt.expectedRetry {
-				calculatedWait := tt.resetAfter / time.Duration(tt.limit)
+				calculatedWait := tt.resetAfter / time.Duration(tt.remaining)
 				roundedWait := time.Second * time.Duration(int64((calculatedWait.Seconds() + 0.999)))
 				if roundedWait > tt.maxDelay {
 					roundedWait = tt.maxDelay
 				}
 
-				t.Logf("Calculated wait: %v (from %v / %d)", calculatedWait, tt.resetAfter, tt.limit)
+				t.Logf("Calculated wait: %v (from %v / %d)", calculatedWait, tt.resetAfter, tt.remaining)
 				t.Logf("Rounded wait: %v", roundedWait)
 				t.Logf("Actual wait: %v (expected %v-%v)", elapsed, tt.expectedMinWait, tt.expectedMaxWait)
 
