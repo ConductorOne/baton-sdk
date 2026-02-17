@@ -19,6 +19,7 @@ const (
 
 func defaultLogFormat() any {
 	// If stdout is a TTY, use console format, otherwise use JSON
+	//nolint:gosec // os.Stdout.Fd() is a process-owned fd and safe for terminal detection.
 	if term.IsTerminal(int(os.Stdout.Fd())) {
 		return logging.LogFormatConsole
 	}

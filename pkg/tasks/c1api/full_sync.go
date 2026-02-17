@@ -162,6 +162,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 
+	//nolint:gosec // c1zPath is created via os.CreateTemp above.
 	c1zF, err := os.Open(c1zPath)
 	if err != nil {
 		l.Error("failed to open sync asset prior to upload", zap.Error(err))
@@ -172,6 +173,7 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		if err != nil {
 			l.Error("failed to close sync asset", zap.Error(err), zap.String("path", f.Name()))
 		}
+		//nolint:gosec // removing the same temp file created/opened in this function.
 		err = os.Remove(f.Name())
 		if err != nil {
 			l.Error("failed to remove temp file", zap.Error(err), zap.String("path", f.Name()))

@@ -122,6 +122,7 @@ func TestHelpers_OAuth2_ClientCredentials_GetClient(t *testing.T) {
 		require.NotNil(t, client)
 
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://test-url", nil)
+		//nolint:gosec // test request intentionally targets httptest token endpoint.
 		res, _ := client.Do(req)
 		if res != nil {
 			defer res.Body.Close()
@@ -195,6 +196,7 @@ func TestHelpers_OAuth2_JWT_GetClient(t *testing.T) {
 
 		// To invoke token request
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://test-url", nil)
+		//nolint:gosec // test request intentionally targets httptest token endpoint.
 		res, _ := client.Do(req)
 		if res != nil {
 			defer res.Body.Close()
@@ -264,6 +266,7 @@ func TestHelpers_OAuth2_RefreshToken_GetClient(t *testing.T) {
 		cfg: &oauth2.Config{
 			ClientID:     "test-client-id",
 			ClientSecret: "test-client-secret",
+			// #nosec G101 -- static test endpoint, not a secret.
 			Endpoint: oauth2.Endpoint{
 				TokenURL: "https://test-token-url",
 			},

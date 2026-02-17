@@ -21,6 +21,7 @@ func TestDBCacheGettersAndSetters(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, req)
 
+	//nolint:gosec // integration test intentionally performs an external HTTP request.
 	resp, err := cli.Do(req)
 	require.Nil(t, err)
 	require.NotNil(t, resp)

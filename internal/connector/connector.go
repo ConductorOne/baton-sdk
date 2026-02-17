@@ -314,6 +314,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		return 0, err
 	}
 
+	//nolint:gosec // arg0 is the current executable path; args are passed directly without a shell.
 	cmd := exec.CommandContext(ctx, arg0, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

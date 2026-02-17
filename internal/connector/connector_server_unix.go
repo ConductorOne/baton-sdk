@@ -55,6 +55,9 @@ func (cw *wrapper) getListener(ctx context.Context, serverCfg *connectorwrapperV
 	if err != nil {
 		return nil, fmt.Errorf("invalid listener fd: %w", err)
 	}
+	if fd < 0 {
+		return nil, fmt.Errorf("invalid listener fd: must be non-negative")
+	}
 
 	l.Debug("listener fd", zap.Int("fd", fd))
 
