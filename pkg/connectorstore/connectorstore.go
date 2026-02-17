@@ -119,6 +119,9 @@ type GrantListOptions struct {
 	// Mode controls which row shape/filter is returned.
 	Mode GrantListMode
 
+	// Resource filters payload modes to grants on a specific resource.
+	Resource *v2.Resource
+
 	// ExpandableOnly filters rows to grants with expansion metadata.
 	// Used by payload+expansion mode.
 	ExpandableOnly bool
@@ -126,14 +129,11 @@ type GrantListOptions struct {
 	// Used by expansion-only modes.
 	NeedsExpansionOnly bool
 
-	// SyncID, PageToken, PageSize are used for expansion-only modes.
+	// PageToken and PageSize are used for pagination in all modes.
+	// SyncID is used for expansion-only modes.
 	SyncID    string
 	PageToken string
 	PageSize  uint32
-
-	// Request is used for payload modes. It carries its own pagination and filters.
-	// Must not be combined with PageToken/PageSize/SyncID.
-	Request *v2.GrantsServiceListGrantsRequest
 }
 
 // InternalGrantRow is one row from ListGrantsInternal. Fields are optional

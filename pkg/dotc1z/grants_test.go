@@ -974,55 +974,12 @@ func TestListGrantsInternal_ModeValidation(t *testing.T) {
 		errText string
 	}{
 		{
-			name: "request not allowed for expansion mode",
-			opts: connectorstore.GrantListOptions{
-				Mode:    connectorstore.GrantListModeExpansion,
-				Request: v2.GrantsServiceListGrantsRequest_builder{}.Build(),
-			},
-			errText: "Request is not supported for expansion-only modes",
-		},
-		{
-			name: "request not allowed for needs-only expansion mode",
-			opts: connectorstore.GrantListOptions{
-				Mode:    connectorstore.GrantListModeExpansionNeedsOnly,
-				Request: v2.GrantsServiceListGrantsRequest_builder{}.Build(),
-			},
-			errText: "Request is not supported for expansion-only modes",
-		},
-		{
-			name: "request must not combine with page token",
-			opts: connectorstore.GrantListOptions{
-				Mode:      connectorstore.GrantListModePayload,
-				Request:   v2.GrantsServiceListGrantsRequest_builder{}.Build(),
-				PageToken: "1",
-			},
-			errText: "Request must not be combined with PageToken/PageSize/SyncID",
-		},
-		{
-			name: "request must not combine with page size",
-			opts: connectorstore.GrantListOptions{
-				Mode:     connectorstore.GrantListModePayload,
-				Request:  v2.GrantsServiceListGrantsRequest_builder{}.Build(),
-				PageSize: 1,
-			},
-			errText: "Request must not be combined with PageToken/PageSize/SyncID",
-		},
-		{
-			name: "request must not combine with sync id",
-			opts: connectorstore.GrantListOptions{
-				Mode:    connectorstore.GrantListModePayload,
-				Request: v2.GrantsServiceListGrantsRequest_builder{}.Build(),
-				SyncID:  "sync-1",
-			},
-			errText: "Request must not be combined with PageToken/PageSize/SyncID",
-		},
-		{
 			name: "sync id not supported with payload mode",
 			opts: connectorstore.GrantListOptions{
 				Mode:   connectorstore.GrantListModePayload,
 				SyncID: "sync-1",
 			},
-			errText: "PageToken/PageSize/SyncID are only for expansion-only modes; use Request for payload modes",
+			errText: "SyncID is not supported for payload modes",
 		},
 		{
 			name: "sync id not supported with payload+expansion mode",
@@ -1030,7 +987,7 @@ func TestListGrantsInternal_ModeValidation(t *testing.T) {
 				Mode:   connectorstore.GrantListModePayloadWithExpansion,
 				SyncID: "sync-1",
 			},
-			errText: "PageToken/PageSize/SyncID are only for expansion-only modes; use Request for payload modes",
+			errText: "SyncID is not supported for payload modes",
 		},
 		{
 			name: "options needs-expansion-only not supported in payload mode",
@@ -1076,8 +1033,7 @@ func TestListGrantsInternal_WithPayloadAndExpansionIncludesAllGrantsWhenNeedsNot
 	require.NoError(t, c1f.PutGrants(ctx, expandableGrant, normalGrant))
 
 	resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode:    connectorstore.GrantListModePayloadWithExpansion,
-		Request: v2.GrantsServiceListGrantsRequest_builder{}.Build(),
+		Mode: connectorstore.GrantListModePayloadWithExpansion,
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Rows, 2)
@@ -1119,7 +1075,6 @@ func TestListGrantsInternal_RequestExpandableOnlyWithPayloadFiltersToExpandable(
 	resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
 		Mode:           connectorstore.GrantListModePayloadWithExpansion,
 		ExpandableOnly: true,
-		Request:        v2.GrantsServiceListGrantsRequest_builder{}.Build(),
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Rows, 1)
@@ -1168,4 +1123,37 @@ func TestListGrantsInternal_ExpansionOnlyPageSizeAndToken(t *testing.T) {
 	})
 	require.Len(t, page2, 1)
 	require.Equal(t, "", next2)
+}
+
+func TestListGrantsInternal_PayloadWithExpansionPageSizeAndTokenFromOptions(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	require.NoError(t, c1f.PutGrants(
+		ctx,
+		v2.Grant_builder{Id: "grant-payload-page-a", Entitlement: ent1, Principal: u1}.Build(),
+		v2.Grant_builder{Id: "grant-payload-page-b", Entitlement: ent1, Principal: u1}.Build(),
+	))
+
+	page1, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:     connectorstore.GrantListModePayloadWithExpansion,
+		PageSize: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.Rows, 1)
+	require.NotEmpty(t, page1.NextPageToken)
+
+	page2, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:      connectorstore.GrantListModePayloadWithExpansion,
+		PageSize:  1,
+		PageToken: page1.NextPageToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.Rows, 1)
+	require.Equal(t, "", page2.NextPageToken)
 }

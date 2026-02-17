@@ -2552,10 +2552,8 @@ func (s *syncer) listAllGrantsWithExpansion(ctx context.Context) iter.Seq2[[]*co
 		pageToken := ""
 		for {
 			internalList, err := s.store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-				Mode: connectorstore.GrantListModePayloadWithExpansion,
-				Request: v2.GrantsServiceListGrantsRequest_builder{
-					PageToken: pageToken,
-				}.Build(),
+				Mode:      connectorstore.GrantListModePayloadWithExpansion,
+				PageToken: pageToken,
 			})
 			if err != nil {
 				_ = yield(nil, err)

@@ -15,14 +15,8 @@ import (
 
 // ListGrantsInternal provides a single internal listing entrypoint with row shaping options.
 func (c *C1File) ListGrantsInternal(ctx context.Context, opts connectorstore.GrantListOptions) (*connectorstore.InternalGrantListResponse, error) {
-	if opts.Request != nil && (opts.PageToken != "" || opts.PageSize != 0 || opts.SyncID != "") {
-		return nil, fmt.Errorf("invalid grant list options: Request must not be combined with PageToken/PageSize/SyncID")
-	}
 	switch opts.Mode {
 	case connectorstore.GrantListModeExpansion, connectorstore.GrantListModeExpansionNeedsOnly:
-		if opts.Request != nil {
-			return nil, fmt.Errorf("invalid grant list options: Request is not supported for expansion-only modes")
-		}
 		defs, nextPageToken, err := c.listExpandableGrantsInternal(ctx, opts)
 		if err != nil {
 			return nil, err
@@ -37,33 +31,18 @@ func (c *C1File) ListGrantsInternal(ctx context.Context, opts connectorstore.Gra
 		}, nil
 
 	case connectorstore.GrantListModePayload, connectorstore.GrantListModePayloadWithExpansion:
-		if opts.PageToken != "" || opts.PageSize != 0 || opts.SyncID != "" {
-			return nil, fmt.Errorf("invalid grant list options: PageToken/PageSize/SyncID are only for expansion-only modes; use Request for payload modes")
-		}
-		req := opts.Request
-		if req == nil {
-			req = v2.GrantsServiceListGrantsRequest_builder{}.Build()
+		if opts.SyncID != "" {
+			return nil, fmt.Errorf("invalid grant list options: SyncID is not supported for payload modes")
 		}
 		if opts.NeedsExpansionOnly {
 			return nil, fmt.Errorf("invalid grant list options: NeedsExpansionOnly does not support payload modes")
 		}
 
 		if opts.Mode == connectorstore.GrantListModePayloadWithExpansion {
-			return c.listGrantsWithExpansionInternal(ctx, req, opts.ExpandableOnly)
+			return c.listGrantsWithExpansionInternal(ctx, opts)
 		}
 
-		grantProtos, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), req, func() *v2.Grant { return &v2.Grant{} })
-		if err != nil {
-			return nil, err
-		}
-		rows := make([]*connectorstore.InternalGrantRow, 0, len(grantProtos))
-		for _, g := range grantProtos {
-			rows = append(rows, &connectorstore.InternalGrantRow{Grant: g})
-		}
-		return &connectorstore.InternalGrantListResponse{
-			Rows:          rows,
-			NextPageToken: nextPageToken,
-		}, nil
+		return c.listGrantsPayloadInternal(ctx, opts)
 
 	default:
 		return nil, fmt.Errorf("invalid grant list options: unknown mode %d", opts.Mode)
@@ -186,16 +165,12 @@ func (c *C1File) listExpandableGrantsInternal(
 	return defs, nextPageToken, nil
 }
 
-func (c *C1File) listGrantsWithExpansionInternal(
-	ctx context.Context,
-	request *v2.GrantsServiceListGrantsRequest,
-	expandableOnly bool,
-) (*connectorstore.InternalGrantListResponse, error) {
+func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts connectorstore.GrantListOptions) (*connectorstore.InternalGrantListResponse, error) {
 	if err := c.validateDb(ctx); err != nil {
 		return nil, err
 	}
 
-	syncID, err := resolveSyncID(ctx, c, request)
+	syncID, err := c.resolveSyncIDForPayloadQuery(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("error getting sync id for list grants with expansion: %w", err)
 	}
@@ -212,7 +187,7 @@ func (c *C1File) listGrantsWithExpansionInternal(
 			"needs_expansion",
 		)
 
-	if resource := request.GetResource(); resource != nil {
+	if resource := opts.Resource; resource != nil {
 		q = q.Where(goqu.C("resource_id").Eq(resource.GetId().GetResource()))
 		q = q.Where(goqu.C("resource_type_id").Eq(resource.GetId().GetResourceType()))
 	}
@@ -221,14 +196,14 @@ func (c *C1File) listGrantsWithExpansionInternal(
 		q = q.Where(goqu.C("sync_id").Eq(syncID))
 	}
 
-	if expandableOnly {
+	if opts.ExpandableOnly {
 		q = q.Where(goqu.C("expansion").IsNotNull())
 	}
-	if request.GetPageToken() != "" {
-		q = q.Where(goqu.C("id").Gte(request.GetPageToken()))
+	if opts.PageToken != "" {
+		q = q.Where(goqu.C("id").Gte(opts.PageToken))
 	}
 
-	pageSize := request.GetPageSize()
+	pageSize := opts.PageSize
 	if pageSize > maxPageSize || pageSize == 0 {
 		pageSize = maxPageSize
 	}
@@ -327,6 +302,105 @@ func (c *C1File) listGrantsWithExpansionInternal(
 		Rows:          result,
 		NextPageToken: nextPageToken,
 	}, nil
+}
+
+func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorstore.GrantListOptions) (*connectorstore.InternalGrantListResponse, error) {
+	if err := c.validateDb(ctx); err != nil {
+		return nil, err
+	}
+
+	syncID, err := c.resolveSyncIDForPayloadQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	q := c.db.From(grants.Name()).Prepared(true).Select("id", "data")
+	if opts.Resource != nil {
+		q = q.Where(goqu.C("resource_id").Eq(opts.Resource.GetId().GetResource()))
+		q = q.Where(goqu.C("resource_type_id").Eq(opts.Resource.GetId().GetResourceType()))
+	}
+	if syncID != "" {
+		q = q.Where(goqu.C("sync_id").Eq(syncID))
+	}
+	if opts.PageToken != "" {
+		q = q.Where(goqu.C("id").Gte(opts.PageToken))
+	}
+
+	pageSize := opts.PageSize
+	if pageSize > maxPageSize || pageSize == 0 {
+		pageSize = maxPageSize
+	}
+	q = q.Order(goqu.C("id").Asc()).Limit(uint(pageSize + 1))
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	unmarshalerOptions := proto.UnmarshalOptions{
+		Merge:          true,
+		DiscardUnknown: true,
+	}
+	result := make([]*connectorstore.InternalGrantRow, 0, pageSize)
+	var (
+		count   uint32
+		lastRow int
+	)
+	for rows.Next() {
+		count++
+		if count > pageSize {
+			break
+		}
+
+		var (
+			rowID     int
+			grantData []byte
+		)
+		if err := rows.Scan(&rowID, &grantData); err != nil {
+			return nil, err
+		}
+		lastRow = rowID
+
+		grant := &v2.Grant{}
+		if err := unmarshalerOptions.Unmarshal(grantData, grant); err != nil {
+			return nil, err
+		}
+		result = append(result, &connectorstore.InternalGrantRow{Grant: grant})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	nextPageToken := ""
+	if count > pageSize {
+		nextPageToken = strconv.Itoa(lastRow + 1)
+	}
+	return &connectorstore.InternalGrantListResponse{
+		Rows:          result,
+		NextPageToken: nextPageToken,
+	}, nil
+}
+
+func (c *C1File) resolveSyncIDForPayloadQuery(ctx context.Context) (string, error) {
+	if c.currentSyncID != "" {
+		return c.currentSyncID, nil
+	}
+	if c.viewSyncID != "" {
+		return c.viewSyncID, nil
+	}
+	latestSyncRun, err := c.getCachedViewSyncRun(ctx)
+	if err != nil {
+		return "", err
+	}
+	if latestSyncRun != nil {
+		return latestSyncRun.ID, nil
+	}
+	return "", nil
 }
 
 func (c *C1File) resolveSyncIDForInternalQuery(ctx context.Context, forced string) (string, error) {
