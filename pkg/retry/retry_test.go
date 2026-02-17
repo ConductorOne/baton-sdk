@@ -102,7 +102,7 @@ func TestRetryWithHTTPResponse(t *testing.T) {
 				"X-Ratelimit-Reset":     {"3"},
 			},
 			expectedRetry:   true,
-			expectedMinWait: 0,
+			expectedMinWait: 1 * time.Second,
 			expectedMaxWait: 3 * time.Second,
 			buildRateLimitFn: func(resp *http.Response) error {
 				// Simulate what uhttp does - attach rate limit data to error
