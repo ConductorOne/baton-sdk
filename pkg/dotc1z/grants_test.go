@@ -658,6 +658,7 @@ func setupTestC1Z(ctx context.Context, t *testing.T) (*C1File, string, func()) {
 
 	cleanup := func() {
 		_ = c1f.Close(ctx)
+		// #nosec G703 -- tmpFile.Name() is created by os.CreateTemp in this test.
 		os.Remove(tmpFile.Name())
 	}
 	return c1f, syncID, cleanup

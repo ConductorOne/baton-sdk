@@ -87,17 +87,6 @@ type hasParentResourceIdListRequest interface {
 	listRequest
 	GetParentResourceId() *v2.ResourceId
 }
-
-type hasExpandableOnlyListRequest interface {
-	listRequest
-	GetExpandableOnly() bool
-}
-
-type hasNeedsExpansionOnlyListRequest interface {
-	listRequest
-	GetNeedsExpansionOnly() bool
-}
-
 type protoHasID interface {
 	proto.Message
 	GetId() string
@@ -223,14 +212,6 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		}
 	}
 
-	if expandableReq, ok := req.(hasExpandableOnlyListRequest); ok && expandableReq.GetExpandableOnly() {
-		q = q.Where(goqu.C("expansion").IsNotNull())
-	}
-
-	if needsExpansionReq, ok := req.(hasNeedsExpansionOnlyListRequest); ok && needsExpansionReq.GetNeedsExpansionOnly() {
-		q = q.Where(goqu.C("needs_expansion").Eq(1))
-	}
-
 	// If a sync is running, be sure we only select from the current values
 	if reqSyncID != "" {
 		q = q.Where(goqu.C("sync_id").Eq(reqSyncID))
@@ -330,11 +311,6 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 		fields = goqu.Record{}
 	}
 
-	messageBlob, err := protoMarshaler.Marshal(msg)
-	if err != nil {
-		return nil, err
-	}
-
 	if _, idSet := fields["external_id"]; !idSet {
 		idGetter, ok := any(msg).(protoHasID)
 		if !ok {
@@ -345,6 +321,10 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 	// Only set "data" if extractFields didn't already provide a pre-marshaled blob
 	// (e.g. grants strip GrantExpandable from a clone and marshal it themselves).
 	if _, dataSet := fields["data"]; !dataSet {
+		messageBlob, err := protoMarshaler.Marshal(msg)
+		if err != nil {
+			return nil, err
+		}
 		fields["data"] = messageBlob
 	}
 	fields["sync_id"] = c.currentSyncID
@@ -422,12 +402,6 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 					fields = goqu.Record{}
 				}
 
-				messageBlob, err := protoMarshallers[worker].Marshal(m)
-				if err != nil {
-					errs[i] = err
-					continue
-				}
-
 				if _, idSet := fields["external_id"]; !idSet {
 					idGetter, ok := any(m).(protoHasID)
 					if !ok {
@@ -437,6 +411,11 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 					fields["external_id"] = idGetter.GetId()
 				}
 				if _, dataSet := fields["data"]; !dataSet {
+					messageBlob, err := protoMarshallers[worker].Marshal(m)
+					if err != nil {
+						errs[i] = err
+						continue
+					}
 					fields["data"] = messageBlob
 				}
 				fields["sync_id"] = syncID
