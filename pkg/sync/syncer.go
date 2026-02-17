@@ -710,11 +710,9 @@ func (s *syncer) Sync(ctx context.Context) error {
 			entitlementGraph := s.state.EntitlementGraph(ctx)
 			isResumingExpansion := entitlementGraph.Loaded || len(entitlementGraph.Edges) > 0 || s.state.PageToken(ctx) != ""
 			if !isResumingExpansion {
-				if expansionStore, ok := s.store.(connectorstore.ExpansionStore); ok {
-					if err := expansionStore.SetSupportsDiff(ctx, s.syncID); err != nil {
-						l.Error("failed to set supports_diff marker", zap.Error(err))
-						return err
-					}
+				if err := s.store.SetSupportsDiff(ctx, s.syncID); err != nil {
+					l.Error("failed to set supports_diff marker", zap.Error(err))
+					return err
 				}
 			}
 

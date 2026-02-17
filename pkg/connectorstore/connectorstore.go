@@ -60,6 +60,8 @@ type InternalWriter interface {
 	// ListGrantsInternal is the preferred internal listing API for grants.
 	// It returns a single list of rows with optional grant payload and expansion metadata.
 	ListGrantsInternal(ctx context.Context, opts GrantListOptions) (*InternalGrantListResponse, error)
+	// SetSupportsDiff marks the sync as supporting diff operations.
+	SetSupportsDiff(ctx context.Context, syncID string) error
 }
 
 // GrantUpsertMode controls how grant conflicts are resolved during upsert.
@@ -147,13 +149,6 @@ type InternalGrantRow struct {
 type InternalGrantListResponse struct {
 	Rows          []*InternalGrantRow
 	NextPageToken string
-}
-
-// ExpansionStore provides methods for grant expansion operations.
-// Not all store implementations support expansion; callers should type-assert.
-type ExpansionStore interface {
-	// SetSupportsDiff marks the sync as supporting diff operations.
-	SetSupportsDiff(ctx context.Context, syncID string) error
 }
 
 // ExpandableGrantDef is a lightweight representation of an expandable grant row,
