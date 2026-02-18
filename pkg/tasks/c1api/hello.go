@@ -35,6 +35,7 @@ func (c *helloTaskHandler) osInfo(ctx context.Context) (*v1.BatonServiceHelloReq
 		return nil, err
 	}
 
+	// The Hello message requires these fields to be set. If any are empty, the connector will fail to register with C1.
 	if info.VirtualizationSystem == "" {
 		info.VirtualizationSystem = "none"
 	}
