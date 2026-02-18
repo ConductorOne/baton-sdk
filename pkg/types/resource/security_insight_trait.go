@@ -21,7 +21,7 @@ func WithRiskScore(value string) SecurityInsightTraitOption {
 			return fmt.Errorf("risk score value cannot be empty")
 		}
 		t.SetRiskScore(&v2.RiskScore{
-			Value: value, //nolint:staticcheck // deprecated field maintained for backward compatibility
+			Value: value,
 		})
 		return nil
 	}
@@ -52,7 +52,7 @@ func WithRiskScoreFactors(factors ...string) SecurityInsightTraitOption {
 		if rs == nil {
 			return fmt.Errorf("cannot set factors: insight is not a risk score type (use WithNormalizedRiskScore first)")
 		}
-		rs.SetFactors(factors) //nolint:staticcheck // deprecated field maintained for backward compatibility
+		rs.SetFactors(factors)
 		return nil
 	}
 }
@@ -334,7 +334,7 @@ func IsIssue(trait *v2.SecurityInsightTrait) bool {
 // GetInsightValue returns the legacy string value of the insight (either risk score or issue).
 func GetInsightValue(trait *v2.SecurityInsightTrait) string {
 	if rs := trait.GetRiskScore(); rs != nil {
-		return rs.GetValue() //nolint:staticcheck // deprecated field maintained for backward compatibility
+		return rs.GetValue()
 	}
 	if issue := trait.GetIssue(); issue != nil {
 		return issue.GetValue()
@@ -372,7 +372,7 @@ func GetIssueSeverity(trait *v2.SecurityInsightTrait) string {
 // GetRiskScoreFactors returns the legacy flat string factors from a risk score insight.
 func GetRiskScoreFactors(trait *v2.SecurityInsightTrait) []string {
 	if rs := trait.GetRiskScore(); rs != nil {
-		return rs.GetFactors() //nolint:staticcheck // deprecated field maintained for backward compatibility
+		return rs.GetFactors()
 	}
 	return nil
 }
