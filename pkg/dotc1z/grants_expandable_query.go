@@ -39,9 +39,9 @@ func (c *C1File) ListGrantsInternal(ctx context.Context, opts connectorstore.Gra
 		}, nil
 
 	case connectorstore.GrantListModePayload, connectorstore.GrantListModePayloadWithExpansion:
-		if opts.SyncID != "" {
-			return nil, fmt.Errorf("invalid grant list options: SyncID is not supported for payload modes")
-		}
+		// if opts.SyncID != "" {
+		// 	return nil, fmt.Errorf("invalid grant list options: SyncID is not supported for payload modes")
+		// }
 		if opts.NeedsExpansionOnly {
 			return nil, fmt.Errorf("invalid grant list options: NeedsExpansionOnly does not support payload modes")
 		}

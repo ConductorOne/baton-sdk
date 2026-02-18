@@ -974,22 +974,22 @@ func TestListGrantsInternal_ModeValidation(t *testing.T) {
 		opts    connectorstore.GrantListOptions
 		errText string
 	}{
-		{
-			name: "sync id not supported with payload mode",
-			opts: connectorstore.GrantListOptions{
-				Mode:   connectorstore.GrantListModePayload,
-				SyncID: "sync-1",
-			},
-			errText: "SyncID is not supported for payload modes",
-		},
-		{
-			name: "sync id not supported with payload+expansion mode",
-			opts: connectorstore.GrantListOptions{
-				Mode:   connectorstore.GrantListModePayloadWithExpansion,
-				SyncID: "sync-1",
-			},
-			errText: "SyncID is not supported for payload modes",
-		},
+		// {
+		// 	name: "sync id not supported with payload mode",
+		// 	opts: connectorstore.GrantListOptions{
+		// 		Mode:   connectorstore.GrantListModePayload,
+		// 		SyncID: "sync-1",
+		// 	},
+		// 	errText: "SyncID is not supported for payload modes",
+		// },
+		// {
+		// 	name: "sync id not supported with payload+expansion mode",
+		// 	opts: connectorstore.GrantListOptions{
+		// 		Mode:   connectorstore.GrantListModePayloadWithExpansion,
+		// 		SyncID: "sync-1",
+		// 	},
+		// 	errText: "SyncID is not supported for payload modes",
+		// },
 		{
 			name: "options needs-expansion-only not supported in payload mode",
 			opts: connectorstore.GrantListOptions{

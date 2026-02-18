@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 // AffectedEntitlements computes the forward-closure of entitlements potentially impacted by an edge delta.
@@ -12,7 +12,7 @@ import (
 //
 // The closure is computed over the current edge set for targetSyncID (read from expandable-grant columns),
 // following src -> dst direction.
-func AffectedEntitlements(ctx context.Context, store expandableGrantLister, targetSyncID string, delta *EdgeDelta) (map[string]struct{}, error) {
+func AffectedEntitlements(ctx context.Context, store connectorstore.InternalWriter, targetSyncID string, delta *EdgeDelta) (map[string]struct{}, error) {
 	if delta == nil {
 		return map[string]struct{}{}, nil
 	}
@@ -60,23 +60,32 @@ func AffectedEntitlements(ctx context.Context, store expandableGrantLister, targ
 	return affected, nil
 }
 
-func buildAdjacency(ctx context.Context, store expandableGrantLister, syncID string) (map[string][]string, error) {
+func buildAdjacency(ctx context.Context, store connectorstore.InternalWriter, syncID string) (map[string][]string, error) {
 	adj := make(map[string][]string, 1024)
 	pageToken := ""
 	for {
-		defs, next, err := store.ListExpandableGrants(
-			ctx,
-			dotc1z.WithExpandableGrantsSyncID(syncID),
-			dotc1z.WithExpandableGrantsPageToken(pageToken),
-			dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
-		)
+		resp, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			SyncID:         syncID,
+			PageToken:      pageToken,
+			ExpandableOnly: true,
+		})
+		// defs, next, err := store.ListExpandableGrants(
+		// 	ctx,
+		// 	dotc1z.WithExpandableGrantsSyncID(syncID),
+		// 	dotc1z.WithExpandableGrantsPageToken(pageToken),
+		// 	dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
+		// )
 		if err != nil {
 			return nil, fmt.Errorf("build adjacency: %w", err)
 		}
 
-		for _, def := range defs {
-			dst := def.DstEntitlementID
-			for _, src := range def.SrcEntitlementIDs {
+		for _, row := range resp.Rows {
+			def := row.Expansion
+			if def == nil {
+				continue
+			}
+			dst := def.TargetEntitlementID
+			for _, src := range def.SourceEntitlementIDs {
 				if src == "" || dst == "" {
 					continue
 				}
@@ -84,10 +93,10 @@ func buildAdjacency(ctx context.Context, store expandableGrantLister, syncID str
 			}
 		}
 
-		if next == "" {
+		if resp.NextPageToken == "" {
 			break
 		}
-		pageToken = next
+		pageToken = resp.NextPageToken
 	}
 	return adj, nil
 }

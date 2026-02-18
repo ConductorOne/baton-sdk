@@ -8,6 +8,7 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 )
@@ -32,23 +33,32 @@ func ExpandDirtySubgraph(ctx context.Context, c1f *dotc1z.C1File, syncID string)
 
 	pageToken := ""
 	for {
-		defs, next, err := c1f.ListExpandableGrants(
-			ctx,
-			dotc1z.WithExpandableGrantsSyncID(syncID),
-			dotc1z.WithExpandableGrantsPageToken(pageToken),
-			dotc1z.WithExpandableGrantsNeedsExpansionOnly(true),
-		)
+		resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			SyncID:             syncID,
+			PageToken:          pageToken,
+			NeedsExpansionOnly: true,
+		})
+		// defs, next, err := c1f.ListExpandableGrants(
+		// 	ctx,
+		// 	dotc1z.WithExpandableGrantsSyncID(syncID),
+		// 	dotc1z.WithExpandableGrantsPageToken(pageToken),
+		// 	dotc1z.WithExpandableGrantsNeedsExpansionOnly(true),
+		// )
 		if err != nil {
 			return err
 		}
 
-		for _, def := range defs {
+		for _, row := range resp.Rows {
+			def := row.Expansion
+			if def == nil {
+				continue
+			}
 			principalID := v2.ResourceId_builder{
 				ResourceType: def.PrincipalResourceTypeID,
 				Resource:     def.PrincipalResourceID,
 			}.Build()
 
-			for _, srcEntitlementID := range def.SrcEntitlementIDs {
+			for _, srcEntitlementID := range def.SourceEntitlementIDs {
 				srcEntitlement, err := c1f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 					EntitlementId: srcEntitlementID,
 				}.Build())
@@ -70,18 +80,18 @@ func ExpandDirtySubgraph(ctx context.Context, c1f *dotc1z.C1File, syncID string)
 					return fmt.Errorf("source entitlement resource id did not match grant principal id")
 				}
 
-				graph.AddEntitlementID(def.DstEntitlementID)
+				graph.AddEntitlementID(def.TargetEntitlementID)
 				graph.AddEntitlementID(srcEntitlementID)
-				if err := graph.AddEdge(ctx, srcEntitlementID, def.DstEntitlementID, def.Shallow, def.PrincipalResourceTypeIDs); err != nil {
+				if err := graph.AddEdge(ctx, srcEntitlementID, def.TargetEntitlementID, def.Shallow, def.ResourceTypeIDs); err != nil {
 					return fmt.Errorf("error adding edge to graph: %w", err)
 				}
 			}
 		}
 
-		if next == "" {
+		if resp.NextPageToken == "" {
 			break
 		}
-		pageToken = next
+		pageToken = resp.NextPageToken
 	}
 	graph.Loaded = true
 

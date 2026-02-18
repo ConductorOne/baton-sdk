@@ -30,28 +30,39 @@ func runFullExpansion(ctx context.Context, c1f *dotc1z.C1File, syncID string) er
 
 	pageToken := ""
 	for {
-		defs, next, err := c1f.ListExpandableGrants(
-			ctx,
-			dotc1z.WithExpandableGrantsSyncID(syncID),
-			dotc1z.WithExpandableGrantsPageToken(pageToken),
-			dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
-		)
+		resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			SyncID:         syncID,
+			PageToken:      pageToken,
+			ExpandableOnly: true,
+		})
 		if err != nil {
 			return err
 		}
-		for _, def := range defs {
-			for _, src := range def.SrcEntitlementIDs {
-				graph.AddEntitlementID(def.DstEntitlementID)
+		for _, row := range resp.Rows {
+			def := row.Expansion
+			if def == nil {
+				continue
+			}
+
+			// defs, next, err := c1f.ListExpandableGrants(
+			// 	ctx,
+			// 	dotc1z.WithExpandableGrantsSyncID(syncID),
+			// 	dotc1z.WithExpandableGrantsPageToken(pageToken),
+			// 	dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
+			// )
+
+			for _, src := range def.SourceEntitlementIDs {
+				graph.AddEntitlementID(def.TargetEntitlementID)
 				graph.AddEntitlementID(src)
-				if err := graph.AddEdge(ctx, src, def.DstEntitlementID, def.Shallow, def.PrincipalResourceTypeIDs); err != nil {
+				if err := graph.AddEdge(ctx, src, def.TargetEntitlementID, def.Shallow, def.ResourceTypeIDs); err != nil {
 					return err
 				}
 			}
 		}
-		if next == "" {
+		if resp.NextPageToken == "" {
 			break
 		}
-		pageToken = next
+		pageToken = resp.NextPageToken
 	}
 
 	graph.Loaded = true

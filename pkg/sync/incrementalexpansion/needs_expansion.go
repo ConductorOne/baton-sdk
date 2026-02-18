@@ -4,13 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
-
-type needsExpansionMarker interface {
-	expandableGrantLister
-	SetNeedsExpansionForGrants(ctx context.Context, syncID string, grantExternalIDs []string, needsExpansion bool) error
-}
 
 // MarkNeedsExpansionForAffectedEdges sets needs_expansion=1 for expandable grants whose edges are
 // in/leading into the affected subgraph.
@@ -18,7 +13,7 @@ type needsExpansionMarker interface {
 // With grant-column storage, we conservatively mark an expandable grant dirty if:
 // - its destination entitlement is affected, OR
 // - any of its source entitlement IDs is affected.
-func MarkNeedsExpansionForAffectedEdges(ctx context.Context, store needsExpansionMarker, targetSyncID string, affected map[string]struct{}) error {
+func MarkNeedsExpansionForAffectedEdges(ctx context.Context, store connectorstore.InternalWriter, targetSyncID string, affected map[string]struct{}) error {
 	if len(affected) == 0 {
 		return nil
 	}
@@ -27,21 +22,26 @@ func MarkNeedsExpansionForAffectedEdges(ctx context.Context, store needsExpansio
 	toMark := make([]string, 0, 1024)
 
 	for {
-		defs, next, err := store.ListExpandableGrants(
-			ctx,
-			dotc1z.WithExpandableGrantsSyncID(targetSyncID),
-			dotc1z.WithExpandableGrantsPageToken(pageToken),
-			dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
-		)
+		resp, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			SyncID:         targetSyncID,
+			PageToken:      pageToken,
+			ExpandableOnly: true,
+		})
+		// defs, next, err := store.ListGrantsInternal(
+		// 	ctx,
+		// 	dotc1z.WithExpandableGrantsSyncID(targetSyncID),
+		// 	dotc1z.WithExpandableGrantsPageToken(pageToken),
+		// 	dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
+		// )
 		if err != nil {
 			return err
 		}
 
-		for _, def := range defs {
-			_, dstAffected := affected[def.DstEntitlementID]
+		for _, def := range resp.Rows {
+			_, dstAffected := affected[def.Expansion.TargetEntitlementID]
 			srcAffected := false
 			if !dstAffected {
-				for _, src := range def.SrcEntitlementIDs {
+				for _, src := range def.Expansion.SourceEntitlementIDs {
 					if _, ok := affected[src]; ok {
 						srcAffected = true
 						break
@@ -49,14 +49,14 @@ func MarkNeedsExpansionForAffectedEdges(ctx context.Context, store needsExpansio
 				}
 			}
 			if dstAffected || srcAffected {
-				toMark = append(toMark, def.GrantExternalID)
+				toMark = append(toMark, def.Expansion.GrantExternalID)
 			}
 		}
 
-		if next == "" {
+		if resp.NextPageToken == "" {
 			break
 		}
-		pageToken = next
+		pageToken = resp.NextPageToken
 	}
 
 	// Apply in chunks to avoid huge IN() clauses.

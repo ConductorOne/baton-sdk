@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 // Edge represents an expansion edge from a source entitlement to a descendant entitlement,
@@ -38,16 +38,12 @@ type EdgeDelta struct {
 	Removed map[string]Edge
 }
 
-type expandableGrantLister interface {
-	ListExpandableGrants(ctx context.Context, opts ...dotc1z.ListExpandableGrantsOption) ([]*dotc1z.ExpandableGrantDef, string, error)
-}
-
 // EdgeDeltaFromDiffSyncs computes edge additions/removals from a paired diff sync:
 // - upsertsSyncID contains NEW versions (adds + modifications)
 // - deletionsSyncID contains OLD versions (deletes + OLD side of modifications)
 //
 // This function assumes diff generation inserts OLD versions of modified grants into the deletions sync.
-func EdgeDeltaFromDiffSyncs(ctx context.Context, store expandableGrantLister, upsertsSyncID, deletionsSyncID string) (*EdgeDelta, error) {
+func EdgeDeltaFromDiffSyncs(ctx context.Context, store connectorstore.InternalWriter, upsertsSyncID, deletionsSyncID string) (*EdgeDelta, error) {
 	added, err := edgeSetFromSync(ctx, store, upsertsSyncID)
 	if err != nil {
 		return nil, fmt.Errorf("edge delta: failed reading upserts sync %s: %w", upsertsSyncID, err)
@@ -59,34 +55,43 @@ func EdgeDeltaFromDiffSyncs(ctx context.Context, store expandableGrantLister, up
 	return &EdgeDelta{Added: added, Removed: removed}, nil
 }
 
-func edgeSetFromSync(ctx context.Context, store expandableGrantLister, syncID string) (map[string]Edge, error) {
+func edgeSetFromSync(ctx context.Context, store connectorstore.InternalWriter, syncID string) (map[string]Edge, error) {
 	out := make(map[string]Edge)
 	pageToken := ""
 	for {
-		defs, next, err := store.ListExpandableGrants(
-			ctx,
-			dotc1z.WithExpandableGrantsSyncID(syncID),
-			dotc1z.WithExpandableGrantsPageToken(pageToken),
-			dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
-		)
+		resp, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			SyncID:         syncID,
+			PageToken:      pageToken,
+			ExpandableOnly: true,
+		})
+		// defs, next, err := store.ListExpandableGrants(
+		// 	ctx,
+		// 	dotc1z.WithExpandableGrantsSyncID(syncID),
+		// 	dotc1z.WithExpandableGrantsPageToken(pageToken),
+		// 	dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
+		// )
 		if err != nil {
 			return nil, err
 		}
-		for _, def := range defs {
-			for _, src := range def.SrcEntitlementIDs {
+		for _, row := range resp.Rows {
+			def := row.Expansion
+			if def == nil {
+				continue
+			}
+			for _, src := range def.SourceEntitlementIDs {
 				e := Edge{
 					SrcEntitlementID:         src,
-					DstEntitlementID:         def.DstEntitlementID,
+					DstEntitlementID:         def.TargetEntitlementID,
 					Shallow:                  def.Shallow,
-					PrincipalResourceTypeIDs: def.PrincipalResourceTypeIDs,
+					PrincipalResourceTypeIDs: def.ResourceTypeIDs,
 				}
 				out[e.Key()] = e
 			}
 		}
-		if next == "" {
+		if resp.NextPageToken == "" {
 			break
 		}
-		pageToken = next
+		pageToken = resp.NextPageToken
 	}
 	return out, nil
 }

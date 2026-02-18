@@ -3,17 +3,12 @@ package incrementalexpansion
 import (
 	"context"
 
-	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
-
-type changedSourceInvalidator interface {
-	expandableGrantLister
-	InvalidationStore
-}
 
 // InvalidateChangedSourceEntitlements invalidates propagated sources for any entitlement whose grant-set changed.
 // It removes only the specific source key (the entitlement ID) from downstream grants along outgoing edges.
-func InvalidateChangedSourceEntitlements(ctx context.Context, store changedSourceInvalidator, targetSyncID string, changedSources map[string]struct{}) error {
+func InvalidateChangedSourceEntitlements(ctx context.Context, store connectorstore.InternalWriter, targetSyncID string, changedSources map[string]struct{}) error {
 	if len(changedSources) == 0 {
 		return nil
 	}
@@ -22,33 +17,36 @@ func InvalidateChangedSourceEntitlements(ctx context.Context, store changedSourc
 	outgoing := make(map[string]Edge)
 	pageToken := ""
 	for {
-		defs, next, err := store.ListExpandableGrants(
-			ctx,
-			dotc1z.WithExpandableGrantsSyncID(targetSyncID),
-			dotc1z.WithExpandableGrantsPageToken(pageToken),
-			dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
-		)
+		resp, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			SyncID:         targetSyncID,
+			PageToken:      pageToken,
+			ExpandableOnly: true,
+		})
 		if err != nil {
 			return err
 		}
-		for _, def := range defs {
-			for _, src := range def.SrcEntitlementIDs {
+		for _, row := range resp.Rows {
+			def := row.Expansion
+			if def == nil {
+				continue
+			}
+			for _, src := range def.SourceEntitlementIDs {
 				if _, ok := changedSources[src]; !ok {
 					continue
 				}
 				e := Edge{
 					SrcEntitlementID:         src,
-					DstEntitlementID:         def.DstEntitlementID,
+					DstEntitlementID:         def.TargetEntitlementID,
 					Shallow:                  def.Shallow,
-					PrincipalResourceTypeIDs: def.PrincipalResourceTypeIDs,
+					PrincipalResourceTypeIDs: def.ResourceTypeIDs,
 				}
 				outgoing[e.Key()] = e
 			}
 		}
-		if next == "" {
+		if resp.NextPageToken == "" {
 			break
 		}
-		pageToken = next
+		pageToken = resp.NextPageToken
 	}
 
 	if len(outgoing) == 0 {

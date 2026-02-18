@@ -62,6 +62,8 @@ type InternalWriter interface {
 	ListGrantsInternal(ctx context.Context, opts GrantListOptions) (*InternalGrantListResponse, error)
 	// SetSupportsDiff marks the sync as supporting diff operations.
 	SetSupportsDiff(ctx context.Context, syncID string) error
+	SetNeedsExpansionForGrants(ctx context.Context, syncID string, grantExternalIDs []string, needsExpansion bool) error
+	SetSyncID(_ context.Context, syncID string) error
 }
 
 // GrantUpsertMode controls how grant conflicts are resolved during upsert.

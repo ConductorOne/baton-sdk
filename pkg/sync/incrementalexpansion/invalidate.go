@@ -8,16 +8,8 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
-
-type InvalidationStore interface {
-	// Optional, but needed for dotc1z.C1File.DeleteGrant scoping.
-	SetSyncID(ctx context.Context, syncID string) error
-
-	ListGrantsForEntitlement(ctx context.Context, req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error)
-	PutGrants(ctx context.Context, grants ...*v2.Grant) error
-	DeleteGrant(ctx context.Context, grantId string) error
-}
 
 // InvalidateRemovedEdges removes only the specific source keys implied by removed edges.
 //
@@ -26,10 +18,11 @@ type InvalidationStore interface {
 // - remove sources[srcE] from those grants
 // - if a grant G becomes sourceless and is GrantImmutable, delete it
 // - otherwise, persist the updated sources map.
-func InvalidateRemovedEdges(ctx context.Context, store InvalidationStore, targetSyncID string, delta *EdgeDelta) error {
+func InvalidateRemovedEdges(ctx context.Context, store connectorstore.InternalWriter, targetSyncID string, delta *EdgeDelta) error {
 	if delta == nil || len(delta.Removed) == 0 {
 		return nil
 	}
+	// TODO: set back???
 	if err := store.SetSyncID(ctx, targetSyncID); err != nil {
 		return err
 	}
