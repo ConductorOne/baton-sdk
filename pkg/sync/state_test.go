@@ -159,9 +159,9 @@ func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
 	entitlement2 := &v2.Entitlement{Id: "ent2"}
 	entitlement3 := &v2.Entitlement{Id: "ent3"}
 
-	graph.AddEntitlement(entitlement1)
-	graph.AddEntitlement(entitlement2)
-	graph.AddEntitlement(entitlement3)
+	graph.AddEntitlementID(entitlement1.GetId())
+	graph.AddEntitlementID(entitlement2.GetId())
+	graph.AddEntitlementID(entitlement3.GetId())
 
 	// Add edges between entitlements
 	err := graph.AddEdge(ctx, "ent1", "ent2", false, []string{"user"})

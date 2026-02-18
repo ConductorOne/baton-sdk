@@ -231,7 +231,7 @@ type syncer struct {
 	c1zPath                             string
 	externalResourceC1ZPath             string
 	externalResourceEntitlementIdFilter string
-	store                               connectorstore.Writer
+	store                               connectorstore.InternalWriter
 	externalResourceReader              connectorstore.Reader
 	connector                           types.ConnectorClient
 	state                               State
@@ -704,6 +704,18 @@ func (s *syncer) Sync(ctx context.Context) error {
 			continue
 
 		case SyncGrantExpansionOp:
+			// Mark the sync as supporting diff, but only if we're starting fresh.
+			// If we're resuming (graph has edges or a page token), we may be continuing
+			// from old code that didn't have this marker, so we must not set it.
+			entitlementGraph := s.state.EntitlementGraph(ctx)
+			isResumingExpansion := entitlementGraph.Loaded || len(entitlementGraph.Edges) > 0 || s.state.PageToken(ctx) != ""
+			if !isResumingExpansion {
+				if err := s.store.SetSupportsDiff(ctx, s.syncID); err != nil {
+					l.Error("failed to set supports_diff marker", zap.Error(err))
+					return err
+				}
+			}
+
 			if s.dontExpandGrants || !s.state.NeedsExpansion() {
 				l.Debug("skipping grant expansion, no grants to expand")
 				s.state.FinishAction(ctx)
@@ -1714,7 +1726,7 @@ func (s *syncer) SyncGrantExpansion(ctx context.Context) error {
 	return nil
 }
 
-// loadEntitlementGraph loads one page of grants and adds expandable relationships to the graph.
+// loadEntitlementGraph loads one page of expandable grants and adds relationships to the graph.
 // This method handles pagination via the syncer's state machine.
 func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.EntitlementGraph) error {
 	l := ctxzap.Extract(ctx)
@@ -1725,131 +1737,81 @@ func (s *syncer) loadEntitlementGraph(ctx context.Context, graph *expand.Entitle
 		s.handleInitialActionForStep(ctx, *s.state.Current())
 	}
 
-	resp, err := s.store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageToken: pageToken}.Build())
+	// Use the internal grant-list rows to read expansion metadata directly
+	// from SQL columns, avoiding the cost of unmarshalling full grant protos.
+	internalList, err := s.store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:      connectorstore.GrantListModeExpansionNeedsOnly,
+		PageToken: pageToken,
+	})
 	if err != nil {
 		return err
+	}
+	nextPageToken := internalList.NextPageToken
+
+	for _, row := range internalList.Rows {
+		def := row.Expansion
+		if def == nil {
+			continue
+		}
+		dstEntitlementID := def.TargetEntitlementID
+
+		for _, srcEntitlementID := range def.SourceEntitlementIDs {
+			// Validate that the source entitlement's resource matches the grant's principal.
+			srcEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+				EntitlementId: srcEntitlementID,
+			}.Build())
+			if err != nil {
+				// Only skip not-found entitlements; propagate other errors
+				// to avoid silently dropping edges and yielding incorrect expansions.
+				if errors.Is(err, sql.ErrNoRows) {
+					l.Debug("source entitlement not found, skipping edge",
+						zap.String("src_entitlement_id", srcEntitlementID),
+						zap.String("dst_entitlement_id", dstEntitlementID),
+					)
+					continue
+				}
+				l.Error("error fetching source entitlement",
+					zap.String("src_entitlement_id", srcEntitlementID),
+					zap.String("dst_entitlement_id", dstEntitlementID),
+					zap.Error(err),
+				)
+				return err
+			}
+
+			sourceEntitlementResourceID := srcEntitlement.GetEntitlement().GetResource().GetId()
+			if sourceEntitlementResourceID == nil {
+				return fmt.Errorf("source entitlement resource id was nil")
+			}
+			if def.PrincipalResourceTypeID != sourceEntitlementResourceID.GetResourceType() ||
+				def.PrincipalResourceID != sourceEntitlementResourceID.GetResource() {
+				l.Error(
+					"source entitlement resource id did not match grant principal id",
+					zap.String("grant_principal_resource_type_id", def.PrincipalResourceTypeID),
+					zap.String("grant_principal_resource_id", def.PrincipalResourceID),
+					zap.String("source_entitlement_resource_id", sourceEntitlementResourceID.String()))
+
+				return fmt.Errorf("source entitlement resource id did not match grant principal id")
+			}
+
+			graph.AddEntitlementID(dstEntitlementID)
+			graph.AddEntitlementID(srcEntitlementID)
+			err = graph.AddEdge(ctx, srcEntitlementID, dstEntitlementID, def.Shallow, def.ResourceTypeIDs)
+			if err != nil {
+				return fmt.Errorf("error adding edge to graph: %w", err)
+			}
+		}
 	}
 
 	// Handle pagination
-	if resp.GetNextPageToken() != "" {
-		err = s.state.NextPage(ctx, resp.GetNextPageToken())
-		if err != nil {
+	if nextPageToken != "" {
+		if err := s.state.NextPage(ctx, nextPageToken); err != nil {
 			return err
 		}
 	} else {
-		l.Debug("Finished loading grants to expand")
 		graph.Loaded = true
-	}
-
-	// Process grants and add edges to the graph
-	updatedGrants := make([]*v2.Grant, 0)
-	for _, grant := range resp.GetList() {
-		err := s.processGrantForGraph(ctx, grant, graph)
-		if err != nil {
-			return err
-		}
-
-		// Remove expandable annotation from descendant grant now that we've added it to the graph.
-		// That way if this sync is part of a compaction, expanding grants at the end of compaction won't redo work.
-		newAnnos := make(annotations.Annotations, 0)
-		updated := false
-		for _, anno := range grant.GetAnnotations() {
-			if anno.MessageIs(&v2.GrantExpandable{}) {
-				updated = true
-			} else {
-				newAnnos = append(newAnnos, anno)
-			}
-		}
-		if !updated {
-			continue
-		}
-
-		grant.SetAnnotations(newAnnos)
-		l.Debug("removed expandable annotation from grant", zap.String("grant_id", grant.GetId()))
-		updatedGrants = append(updatedGrants, grant)
-		updatedGrants, err = expand.PutGrantsInChunks(ctx, s.store, updatedGrants, 10000)
-		if err != nil {
-			return err
-		}
-	}
-
-	_, err = expand.PutGrantsInChunks(ctx, s.store, updatedGrants, 0)
-	if err != nil {
-		return err
-	}
-
-	if graph.Loaded {
 		l.Info("Finished loading entitlement graph", zap.Int("edges", len(graph.Edges)))
 	}
-	return nil
-}
 
-// processGrantForGraph examines a grant for expandable annotations and adds edges to the graph.
-func (s *syncer) processGrantForGraph(ctx context.Context, grant *v2.Grant, graph *expand.EntitlementGraph) error {
-	l := ctxzap.Extract(ctx)
-
-	annos := annotations.Annotations(grant.GetAnnotations())
-	expandable := &v2.GrantExpandable{}
-	_, err := annos.Pick(expandable)
-	if err != nil {
-		return err
-	}
-	if len(expandable.GetEntitlementIds()) == 0 {
-		return nil
-	}
-
-	principalID := grant.GetPrincipal().GetId()
-	if principalID == nil {
-		return fmt.Errorf("principal id was nil")
-	}
-
-	for _, srcEntitlementID := range expandable.GetEntitlementIds() {
-		l.Debug(
-			"Expandable entitlement found",
-			zap.String("src_entitlement_id", srcEntitlementID),
-			zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
-		)
-
-		srcEntitlement, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-			EntitlementId: srcEntitlementID,
-		}.Build())
-		if err != nil {
-			l.Error("error fetching source entitlement",
-				zap.String("src_entitlement_id", srcEntitlementID),
-				zap.String("dst_entitlement_id", grant.GetEntitlement().GetId()),
-				zap.Error(err),
-			)
-			continue
-		}
-
-		// The expand annotation points at entitlements by id. Those entitlements' resource should match
-		// the current grant's principal, so we don't allow expanding arbitrary entitlements.
-		sourceEntitlementResourceID := srcEntitlement.GetEntitlement().GetResource().GetId()
-		if sourceEntitlementResourceID == nil {
-			return fmt.Errorf("source entitlement resource id was nil")
-		}
-		if principalID.GetResourceType() != sourceEntitlementResourceID.GetResourceType() ||
-			principalID.GetResource() != sourceEntitlementResourceID.GetResource() {
-			l.Error(
-				"source entitlement resource id did not match grant principal id",
-				zap.String("grant_principal_id", principalID.String()),
-				zap.String("source_entitlement_resource_id", sourceEntitlementResourceID.String()))
-
-			return fmt.Errorf("source entitlement resource id did not match grant principal id")
-		}
-
-		graph.AddEntitlement(grant.GetEntitlement())
-		graph.AddEntitlement(srcEntitlement.GetEntitlement())
-		err = graph.AddEdge(ctx,
-			srcEntitlement.GetEntitlement().GetId(),
-			grant.GetEntitlement().GetId(),
-			expandable.GetShallow(),
-			expandable.GetResourceTypeIds(),
-		)
-		if err != nil {
-			return fmt.Errorf("error adding edge to graph: %w", err)
-		}
-	}
 	return nil
 }
 
@@ -2166,7 +2128,9 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 		}
 	}
 
-	err = s.store.PutGrants(ctx, grants...)
+	err = s.store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModeReplace,
+	}, grants...)
 	if err != nil {
 		return err
 	}
@@ -2342,7 +2306,9 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 				return err
 			}
 			grantsForEntsCount += len(grants)
-			err = s.store.PutGrants(ctx, grants...)
+			err = s.store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+				Mode: connectorstore.GrantUpsertModeReplace,
+			}, grants...)
 			if err != nil {
 				return err
 			}
@@ -2456,7 +2422,9 @@ func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error 
 				return err
 			}
 			grantsForEntsCount += len(grants)
-			err = s.store.PutGrants(ctx, grants...)
+			err = s.store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+				Mode: connectorstore.GrantUpsertModeReplace,
+			}, grants...)
 			if err != nil {
 				return err
 			}
@@ -2577,24 +2545,25 @@ func (s *syncer) listExternalResourceTypes(ctx context.Context) ([]*v2.ResourceT
 	return resourceTypes, nil
 }
 
-func (s *syncer) listAllGrants(ctx context.Context) iter.Seq2[[]*v2.Grant, error] {
-	return func(yield func([]*v2.Grant, error) bool) {
+func (s *syncer) listAllGrantsWithExpansion(ctx context.Context) iter.Seq2[[]*connectorstore.InternalGrantRow, error] {
+	return func(yield func([]*connectorstore.InternalGrantRow, error) bool) {
 		pageToken := ""
 		for {
-			grantsResp, err := s.store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{
+			internalList, err := s.store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+				Mode:      connectorstore.GrantListModePayloadWithExpansion,
 				PageToken: pageToken,
-			}.Build())
+			})
 			if err != nil {
 				_ = yield(nil, err)
 				return
 			}
 
-			if len(grantsResp.GetList()) > 0 {
-				if !yield(grantsResp.GetList(), err) {
+			if len(internalList.Rows) > 0 {
+				if !yield(internalList.Rows, nil) {
 					return
 				}
 			}
-			pageToken = grantsResp.GetNextPageToken()
+			pageToken = internalList.NextPageToken
 			if pageToken == "" {
 				return
 			}
@@ -2639,12 +2608,13 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 	grantsToDelete := make([]string, 0)
 	expandedGrants := make([]*v2.Grant, 0)
 
-	for grants, err := range s.listAllGrants(ctx) {
+	for grantRows, err := range s.listAllGrantsWithExpansion(ctx) {
 		if err != nil {
 			return err
 		}
 
-		for _, grant := range grants {
+		for _, row := range grantRows {
+			grant := row.Grant
 			annos := annotations.Annotations(grant.GetAnnotations())
 			if !annos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 				continue
@@ -2673,11 +2643,17 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 				continue
 			}
 
-			expandableAnno, err := GetExpandableAnnotation(annos)
-			if err != nil {
-				return err
+			// Look up expansion data from the expansion column (returned alongside
+			// the grant by ListGrantsInternal with IncludeExpansion=true).
+			var expandableAnno *v2.GrantExpandable
+			if row.Expansion != nil {
+				expandableAnno = v2.GrantExpandable_builder{
+					EntitlementIds:  row.Expansion.SourceEntitlementIDs,
+					Shallow:         row.Expansion.Shallow,
+					ResourceTypeIds: row.Expansion.ResourceTypeIDs,
+				}.Build()
 			}
-			expandableEntitlementsResourceMap := make(map[string][]*v2.Entitlement)
+			expandableEntitlementsResourceMap := make(map[string][]string)
 			if expandableAnno != nil {
 				for _, entId := range expandableAnno.GetEntitlementIds() {
 					parsedEnt, err := bid.ParseEntitlementBid(entId)
@@ -2690,12 +2666,13 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 						l.Error("error making resource bid", zap.Any("parsedEnt.Resource", parsedEnt.GetResource()))
 						continue
 					}
-					entitlementMap, ok := expandableEntitlementsResourceMap[resourceBID]
+
+					slugs, ok := expandableEntitlementsResourceMap[resourceBID]
 					if !ok {
-						entitlementMap = make([]*v2.Entitlement, 0)
+						slugs = make([]string, 0)
 					}
-					entitlementMap = append(entitlementMap, parsedEnt)
-					expandableEntitlementsResourceMap[resourceBID] = entitlementMap
+					slugs = append(slugs, parsedEnt.GetSlug())
+					expandableEntitlementsResourceMap[resourceBID] = slugs
 				}
 			}
 
@@ -2719,9 +2696,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 							continue
 						}
 
-						principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
-						for _, expandableGrant := range principalEntitlements {
-							newExpandableEntId := entitlement.NewEntitlementID(principal, expandableGrant.GetSlug())
+						principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
+						for _, slug := range principalEntitlementSlugs {
+							newExpandableEntId := entitlement.NewEntitlementID(principal, slug)
 							_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
 							if err != nil {
 								if errors.Is(err, sql.ErrNoRows) {
@@ -2798,9 +2775,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 									continue
 								}
 
-								principalEntitlements := expandableEntitlementsResourceMap[groupPrincipalBID]
-								for _, expandableGrant := range principalEntitlements {
-									newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, expandableGrant.GetSlug())
+								principalEntitlementSlugs := expandableEntitlementsResourceMap[groupPrincipalBID]
+								for _, slug := range principalEntitlementSlugs {
+									newExpandableEntId := entitlement.NewEntitlementID(groupPrincipal, slug)
 									_, err := s.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{EntitlementId: newExpandableEntId}.Build())
 									if err != nil {
 										if errors.Is(err, sql.ErrNoRows) {
@@ -2838,7 +2815,9 @@ func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, princi
 		newGrantIDs.Add(ng.GetId())
 	}
 
-	err := s.store.PutGrants(ctx, expandedGrants...)
+	err := s.store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModeReplace,
+	}, expandedGrants...)
 	if err != nil {
 		return err
 	}
@@ -3035,7 +3014,7 @@ func WithProgressHandler(f func(s *Progress)) SyncOpt {
 	}
 }
 
-func WithConnectorStore(store connectorstore.Writer) SyncOpt {
+func WithConnectorStore(store connectorstore.InternalWriter) SyncOpt {
 	return func(s *syncer) {
 		s.store = store
 	}
