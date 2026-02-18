@@ -30,15 +30,16 @@ func WithRiskScore(value string) SecurityInsightTraitOption {
 // WithNormalizedRiskScore sets the insight type to a risk score with a normalized percentage value.
 // normalizedScore must be in the range [0, 100] where higher means more risk.
 // sourceScore is the original value from the source system (e.g., "0.48", "7.5/10 CVSS").
-func WithNormalizedRiskScore(normalizedScore float64, sourceScore string) SecurityInsightTraitOption {
+func WithNormalizedRiskScore(normalizedScore uint32, sourceScore string) SecurityInsightTraitOption {
 	return func(t *v2.SecurityInsightTrait) error {
-		if normalizedScore < 0 || normalizedScore > 100 {
-			return fmt.Errorf("normalized risk score must be between 0 and 100, got %f", normalizedScore)
+		if normalizedScore > 100 {
+			return fmt.Errorf("normalized risk score must be between 0 and 100, got %d", normalizedScore)
 		}
-		t.SetRiskScore(&v2.RiskScore{
-			NormalizedScore: normalizedScore,
-			SourceScore:     sourceScore,
-		})
+		rs := &v2.RiskScore{
+			SourceScore: sourceScore,
+		}
+		rs.SetNormalizedScore(normalizedScore)
+		t.SetRiskScore(rs)
 		return nil
 	}
 }
@@ -344,7 +345,7 @@ func GetInsightValue(trait *v2.SecurityInsightTrait) string {
 
 // GetNormalizedScore returns the normalized risk score (0-100) from a risk score insight,
 // or 0 if not set or not a risk score.
-func GetNormalizedScore(trait *v2.SecurityInsightTrait) float64 {
+func GetNormalizedScore(trait *v2.SecurityInsightTrait) uint32 {
 	if rs := trait.GetRiskScore(); rs != nil {
 		return rs.GetNormalizedScore()
 	}

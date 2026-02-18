@@ -151,7 +151,7 @@ type RiskScore struct {
 	state                      protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Value           string                 `protobuf:"bytes,1,opt,name=value,proto3"`
 	xxx_hidden_Factors         []string               `protobuf:"bytes,2,rep,name=factors,proto3"`
-	xxx_hidden_NormalizedScore float64                `protobuf:"fixed64,3,opt,name=normalized_score,json=normalizedScore,proto3"`
+	xxx_hidden_NormalizedScore uint32                 `protobuf:"varint,3,opt,name=normalized_score,json=normalizedScore,proto3"`
 	xxx_hidden_SourceScore     string                 `protobuf:"bytes,4,opt,name=source_score,json=sourceScore,proto3"`
 	xxx_hidden_RiskFactors     *[]*RiskFactor         `protobuf:"bytes,5,rep,name=risk_factors,json=riskFactors,proto3"`
 	unknownFields              protoimpl.UnknownFields
@@ -199,7 +199,7 @@ func (x *RiskScore) GetFactors() []string {
 	return nil
 }
 
-func (x *RiskScore) GetNormalizedScore() float64 {
+func (x *RiskScore) GetNormalizedScore() uint32 {
 	if x != nil {
 		return x.xxx_hidden_NormalizedScore
 	}
@@ -232,7 +232,7 @@ func (x *RiskScore) SetFactors(v []string) {
 	x.xxx_hidden_Factors = v
 }
 
-func (x *RiskScore) SetNormalizedScore(v float64) {
+func (x *RiskScore) SetNormalizedScore(v uint32) {
 	x.xxx_hidden_NormalizedScore = v
 }
 
@@ -255,9 +255,9 @@ type RiskScore_builder struct {
 	//
 	// Deprecated: Marked as deprecated in c1/connector/v2/annotation_security_insight.proto.
 	Factors []string
-	// Normalized risk score as a percentage [0, 100]. Higher means more risk.
+	// Required. Normalized risk score as a percentage [0, 100]. Higher means more risk.
 	// Connector authors must normalize their source system's score to this range.
-	NormalizedScore float64
+	NormalizedScore uint32
 	// The original score from the source system for reference/auditability (e.g., "0.48", "7.5/10").
 	SourceScore string
 	// Structured factors contributing to this risk score.
@@ -998,11 +998,11 @@ const file_c1_connector_v2_annotation_security_insight_proto_rawDesc = "" +
 	"\fSEVERITY_LOW\x10\x01\x12\x13\n" +
 	"\x0fSEVERITY_MEDIUM\x10\x02\x12\x11\n" +
 	"\rSEVERITY_HIGH\x10\x03\x12\x15\n" +
-	"\x11SEVERITY_CRITICAL\x10\x04\"\xea\x01\n" +
+	"\x11SEVERITY_CRITICAL\x10\x04\"\xdc\x01\n" +
 	"\tRiskScore\x12\x18\n" +
 	"\x05value\x18\x01 \x01(\tB\x02\x18\x01R\x05value\x12\x1c\n" +
-	"\afactors\x18\x02 \x03(\tB\x02\x18\x01R\afactors\x12B\n" +
-	"\x10normalized_score\x18\x03 \x01(\x01B\x17\xfaB\x14\x12\x12\x19\x00\x00\x00\x00\x00\x00Y@)\x00\x00\x00\x00\x00\x00\x00\x00R\x0fnormalizedScore\x12!\n" +
+	"\afactors\x18\x02 \x03(\tB\x02\x18\x01R\afactors\x124\n" +
+	"\x10normalized_score\x18\x03 \x01(\rB\t\xfaB\x06*\x04\x18d(\x00R\x0fnormalizedScore\x12!\n" +
 	"\fsource_score\x18\x04 \x01(\tR\vsourceScore\x12>\n" +
 	"\frisk_factors\x18\x05 \x03(\v2\x1b.c1.connector.v2.RiskFactorR\vriskFactors\"E\n" +
 	"\x05Issue\x12\x14\n" +
