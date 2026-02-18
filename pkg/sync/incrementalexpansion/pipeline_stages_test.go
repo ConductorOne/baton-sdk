@@ -2,6 +2,7 @@ package incrementalexpansion_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -443,6 +444,216 @@ func TestInvalidateChangedSources_EmptySet(t *testing.T) {
 
 	err := incrementalexpansion.InvalidateChangedSourceEntitlements(ctx, c1f, syncID, map[string]struct{}{})
 	require.NoError(t, err)
+}
+
+func TestInvalidateChangedSources_NonEmptyRemovesDownstreamDerived(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	dbPath := filepath.Join(tmpDir, "changed_sources_nonempty.c1z")
+	c1f, err := dotc1z.NewC1ZFile(ctx, dbPath)
+	require.NoError(t, err)
+	defer c1f.Close(ctx)
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
+
+	e1 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g1, "member"), Resource: g1, Slug: "member", DisplayName: "member"}.Build()
+	e2 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g2, "member"), Resource: g2, Slug: "member", DisplayName: "member"}.Build()
+
+	grantU1E1 := v2.Grant_builder{Id: batonGrant.NewGrantID(u1, e1), Entitlement: e1, Principal: u1}.Build()
+	grantG1E2 := v2.Grant_builder{
+		Id:          batonGrant.NewGrantID(g1, e2),
+		Entitlement: e2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{e1.GetId()},
+			Shallow:         false,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+
+	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, c1f.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, c1f.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, c1f.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, c1f.PutGrants(ctx, grantU1E1, grantG1E2))
+	require.NoError(t, c1f.EndSync(ctx))
+	require.NoError(t, runFullExpansion(ctx, c1f, syncID))
+
+	before, err := loadGrantSourcesByKey(ctx, c1f, syncID)
+	require.NoError(t, err)
+	require.Contains(t, before, "group:g2:member|user|u1", "derived grant should exist pre-invalidation")
+
+	err = incrementalexpansion.InvalidateChangedSourceEntitlements(ctx, c1f, syncID, map[string]struct{}{e1.GetId(): {}})
+	require.NoError(t, err)
+
+	after, err := loadGrantSourcesByKey(ctx, c1f, syncID)
+	require.NoError(t, err)
+	require.NotContains(t, after, "group:g2:member|user|u1", "changed source invalidation should remove downstream derived grant")
+}
+
+func TestMarkNeedsExpansion_ChunkBoundary5001(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	// Use one source entitlement and many destination entitlements so marking crosses
+	// the internal chunk boundary (5000 -> 5001).
+	srcResource := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g-src"}.Build(),
+		DisplayName: "G-Src",
+	}.Build()
+	srcEnt := v2.Entitlement_builder{
+		Id:          batonEntitlement.NewEntitlementID(srcResource, "member"),
+		Resource:    srcResource,
+		Slug:        "member",
+		DisplayName: "member",
+	}.Build()
+
+	resources := []*v2.Resource{srcResource}
+	entitlements := []*v2.Entitlement{srcEnt}
+	grants := make([]*v2.Grant, 0, 5001)
+
+	for i := 0; i < 5001; i++ {
+		dstResource := v2.Resource_builder{
+			Id:          v2.ResourceId_builder{ResourceType: "group", Resource: fmt.Sprintf("g-dst-%d", i)}.Build(),
+			DisplayName: fmt.Sprintf("G-Dst-%d", i),
+		}.Build()
+		dstEnt := v2.Entitlement_builder{
+			Id:          batonEntitlement.NewEntitlementID(dstResource, "member"),
+			Resource:    dstResource,
+			Slug:        "member",
+			DisplayName: "member",
+		}.Build()
+
+		resources = append(resources, dstResource)
+		entitlements = append(entitlements, dstEnt)
+		grants = append(grants, v2.Grant_builder{
+			Id:          batonGrant.NewGrantID(srcResource, dstEnt),
+			Entitlement: dstEnt,
+			Principal:   srcResource,
+			Annotations: annotations.New(v2.GrantExpandable_builder{
+				EntitlementIds:  []string{srcEnt.GetId()},
+				Shallow:         false,
+				ResourceTypeIds: []string{"user"},
+			}.Build()),
+		}.Build())
+	}
+
+	c1f, syncID := setupExpandableSync(ctx, t, tmpDir, "chunk_5001",
+		[]*v2.ResourceType{groupRT, userRT},
+		resources,
+		entitlements,
+		grants,
+	)
+	defer c1f.Close(ctx)
+
+	require.NoError(t, c1f.ClearNeedsExpansionForSync(ctx, syncID))
+
+	err := incrementalexpansion.MarkNeedsExpansionForAffectedEdges(ctx, c1f, syncID, map[string]struct{}{srcEnt.GetId(): {}})
+	require.NoError(t, err)
+
+	// Count marked rows and ensure all 5001 were marked.
+	pageToken := ""
+	count := 0
+	for {
+		resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			Mode:               connectorstore.GrantListModeExpansionNeedsOnly,
+			SyncID:             syncID,
+			PageToken:          pageToken,
+			NeedsExpansionOnly: true,
+		})
+		require.NoError(t, err)
+		count += len(resp.Rows)
+		if resp.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.NextPageToken
+	}
+	require.Equal(t, 5001, count, "all expandable grants should be marked across chunk boundary")
+}
+
+func TestEdgeDelta_PaginationOver10000Rows(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	// OLD has no edges.
+	walNormal := []dotc1z.C1ZOption{dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal")}
+	walOpts := []dotc1z.C1ZOption{dotc1z.WithPragma("journal_mode", "WAL")}
+	oldFile, oldSyncID := setupExpandableSync(ctx, t, tmpDir, "old_paged_delta",
+		[]*v2.ResourceType{groupRT, userRT}, nil, nil, nil, walNormal...)
+	defer oldFile.Close(ctx)
+
+	srcResource := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g-src"}.Build(),
+		DisplayName: "G-Src",
+	}.Build()
+	srcEnt := v2.Entitlement_builder{
+		Id:          batonEntitlement.NewEntitlementID(srcResource, "member"),
+		Resource:    srcResource,
+		Slug:        "member",
+		DisplayName: "member",
+	}.Build()
+
+	resources := []*v2.Resource{srcResource}
+	entitlements := []*v2.Entitlement{srcEnt}
+	grants := make([]*v2.Grant, 0, 10001)
+	for i := 0; i < 10001; i++ {
+		dstResource := v2.Resource_builder{
+			Id:          v2.ResourceId_builder{ResourceType: "group", Resource: fmt.Sprintf("g-delta-%d", i)}.Build(),
+			DisplayName: fmt.Sprintf("G-Delta-%d", i),
+		}.Build()
+		dstEnt := v2.Entitlement_builder{
+			Id:          batonEntitlement.NewEntitlementID(dstResource, "member"),
+			Resource:    dstResource,
+			Slug:        "member",
+			DisplayName: "member",
+		}.Build()
+
+		resources = append(resources, dstResource)
+		entitlements = append(entitlements, dstEnt)
+		grants = append(grants, v2.Grant_builder{
+			Id:          batonGrant.NewGrantID(srcResource, dstEnt),
+			Entitlement: dstEnt,
+			Principal:   srcResource,
+			Annotations: annotations.New(v2.GrantExpandable_builder{
+				EntitlementIds:  []string{srcEnt.GetId()},
+				Shallow:         false,
+				ResourceTypeIds: []string{"user"},
+			}.Build()),
+		}.Build())
+	}
+
+	newFile, newSyncID := setupExpandableSync(ctx, t, tmpDir, "new_paged_delta",
+		[]*v2.ResourceType{groupRT, userRT},
+		resources,
+		entitlements,
+		grants,
+		walOpts...)
+	defer newFile.Close(ctx)
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	delta, err := incrementalexpansion.EdgeDeltaFromDiffSyncs(ctx, newFile, upsertsSyncID, deletionsSyncID)
+	require.NoError(t, err)
+	require.Len(t, delta.Added, 10001, "all edges should be read across page boundaries")
+	require.Len(t, delta.Removed, 0)
 }
 
 // -----------------------------------------------------------------------

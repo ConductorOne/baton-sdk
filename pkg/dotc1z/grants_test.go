@@ -1159,6 +1159,160 @@ func TestListGrantsInternal_PayloadWithExpansionPageSizeAndTokenFromOptions(t *t
 	require.Equal(t, "", page2.NextPageToken)
 }
 
+func TestListGrantsInternal_PayloadWithExpansionHonorsSyncID(t *testing.T) {
+	ctx := context.Background()
+	c1f, sync1ID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	grantSync1 := v2.Grant_builder{Id: "grant-sync-1", Entitlement: ent1, Principal: u1}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grantSync1))
+	require.NoError(t, c1f.EndSync(ctx))
+
+	// Create a second sync with a different grant.
+	sync2ID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, c1f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build(), v2.ResourceType_builder{Id: "user"}.Build()))
+	require.NoError(t, c1f.PutResources(ctx, g1, u1))
+	require.NoError(t, c1f.PutEntitlements(ctx, ent1))
+	grantSync2 := v2.Grant_builder{Id: "grant-sync-2", Entitlement: ent1, Principal: u1}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grantSync2))
+	require.NoError(t, c1f.EndSync(ctx))
+
+	// Verify payload+expansion mode honors explicit SyncID and does not bleed across syncs.
+	resp1, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:   connectorstore.GrantListModePayloadWithExpansion,
+		SyncID: sync1ID,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp1.Rows, 1)
+	require.Equal(t, "grant-sync-1", resp1.Rows[0].Grant.GetId())
+
+	resp2, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:   connectorstore.GrantListModePayloadWithExpansion,
+		SyncID: sync2ID,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp2.Rows, 1)
+	require.Equal(t, "grant-sync-2", resp2.Rows[0].Grant.GetId())
+}
+
+func TestListGrantsInternal_PayloadWithExpansionSyncIDPagination(t *testing.T) {
+	ctx := context.Background()
+	c1f, sync1ID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	require.NoError(t, c1f.PutGrants(
+		ctx,
+		v2.Grant_builder{Id: "grant-sync1-a", Entitlement: ent1, Principal: u1}.Build(),
+		v2.Grant_builder{Id: "grant-sync1-b", Entitlement: ent1, Principal: u1}.Build(),
+	))
+	require.NoError(t, c1f.EndSync(ctx))
+
+	// Second sync with unrelated data.
+	_, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, c1f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build(), v2.ResourceType_builder{Id: "user"}.Build()))
+	require.NoError(t, c1f.PutResources(ctx, g1, u1))
+	require.NoError(t, c1f.PutEntitlements(ctx, ent1))
+	require.NoError(t, c1f.PutGrants(ctx, v2.Grant_builder{Id: "grant-sync2-only", Entitlement: ent1, Principal: u1}.Build()))
+	require.NoError(t, c1f.EndSync(ctx))
+
+	page1, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:     connectorstore.GrantListModePayloadWithExpansion,
+		SyncID:   sync1ID,
+		PageSize: 1,
+	})
+	require.NoError(t, err)
+	require.Len(t, page1.Rows, 1)
+	require.NotEmpty(t, page1.NextPageToken)
+
+	page2, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:      connectorstore.GrantListModePayloadWithExpansion,
+		SyncID:    sync1ID,
+		PageSize:  1,
+		PageToken: page1.NextPageToken,
+	})
+	require.NoError(t, err)
+	require.Len(t, page2.Rows, 1)
+	require.Equal(t, "", page2.NextPageToken)
+
+	ids := map[string]bool{
+		page1.Rows[0].Grant.GetId(): true,
+		page2.Rows[0].Grant.GetId(): true,
+	}
+	require.Contains(t, ids, "grant-sync1-a")
+	require.Contains(t, ids, "grant-sync1-b")
+	require.NotContains(t, ids, "grant-sync2-only")
+}
+
+func TestUpsertGrants_WithExplicitSyncID_WritesWithoutCurrentSync(t *testing.T) {
+	ctx := context.Background()
+	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	// End the active sync to clear currentSyncID, then write explicitly to syncID.
+	require.NoError(t, c1f.EndSync(ctx))
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+	grant := v2.Grant_builder{Id: "grant-explicit-sync-write", Entitlement: ent1, Principal: u1}.Build()
+
+	require.NoError(t, c1f.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode:   connectorstore.GrantUpsertModeReplace,
+		SyncID: syncID,
+	}, grant))
+
+	resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:   connectorstore.GrantListModePayload,
+		SyncID: syncID,
+	})
+	require.NoError(t, err)
+	found := false
+	for _, r := range resp.Rows {
+		if r.Grant.GetId() == "grant-explicit-sync-write" {
+			found = true
+			break
+		}
+	}
+	require.True(t, found)
+}
+
+func TestDeleteGrantInternal_WithExplicitSyncID_DeletesWithoutCurrentSync(t *testing.T) {
+	ctx := context.Background()
+	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+	grant := v2.Grant_builder{Id: "grant-explicit-sync-delete", Entitlement: ent1, Principal: u1}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grant))
+
+	// End active sync to clear currentSyncID before explicit delete.
+	require.NoError(t, c1f.EndSync(ctx))
+	require.NoError(t, c1f.DeleteGrantInternal(ctx, connectorstore.GrantDeleteOptions{
+		SyncID: syncID,
+	}, grant.GetId()))
+
+	resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:   connectorstore.GrantListModePayload,
+		SyncID: syncID,
+	})
+	require.NoError(t, err)
+	for _, r := range resp.Rows {
+		require.NotEqual(t, grant.GetId(), r.Grant.GetId())
+	}
+}
+
 // TestUpsertGrants_PreserveExpansion verifies that upserting a grant with
 // GrantUpsertModePreserveExpansion keeps existing expansion and needs_expansion
 // columns unchanged, even when the incoming grant carries different data.

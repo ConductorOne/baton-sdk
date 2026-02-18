@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -21,12 +22,6 @@ import (
 func InvalidateRemovedEdges(ctx context.Context, store connectorstore.InternalWriter, targetSyncID string, delta *EdgeDelta) error {
 	if delta == nil || len(delta.Removed) == 0 {
 		return nil
-	}
-	// SetSyncID is required because ListGrantsForEntitlement reads from the "current sync" context.
-	// Callers (ApplyIncrementalExpansionFromDiff) always pass targetSyncID consistently, and
-	// downstream steps (ExpandDirtySubgraph) call SetSyncID themselves, so no restore is needed.
-	if err := store.SetSyncID(ctx, targetSyncID); err != nil {
-		return err
 	}
 
 	type groupKey struct {
@@ -58,7 +53,10 @@ func InvalidateRemovedEdges(ctx context.Context, store connectorstore.InternalWr
 		if len(updates) == 0 {
 			return nil
 		}
-		if err := store.PutGrants(ctx, updates...); err != nil {
+		if err := store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+			Mode:   connectorstore.GrantUpsertModeReplace,
+			SyncID: targetSyncID,
+		}, updates...); err != nil {
 			return err
 		}
 		updates = updates[:0]
@@ -68,6 +66,7 @@ func InvalidateRemovedEdges(ctx context.Context, store connectorstore.InternalWr
 	for k, srcIDs := range removedByGroup {
 		// Entitlement is only used for filtering by entitlement_id; ID is sufficient.
 		ent := v2.Entitlement_builder{Id: k.dstEntitlementID}.Build()
+		reqAnnos := annotations.New(c1zpb.SyncDetails_builder{Id: targetSyncID}.Build())
 		var principalTypes []string
 		if k.principalTypes != "" {
 			principalTypes = strings.Split(k.principalTypes, "\x1f")
@@ -78,6 +77,7 @@ func InvalidateRemovedEdges(ctx context.Context, store connectorstore.InternalWr
 				Entitlement:              ent,
 				PageToken:                pageToken,
 				PrincipalResourceTypeIds: principalTypes,
+				Annotations:              reqAnnos,
 			}.Build())
 			if err != nil {
 				return err
@@ -112,7 +112,9 @@ func InvalidateRemovedEdges(ctx context.Context, store connectorstore.InternalWr
 				if len(srcs) == 0 {
 					annos := annotations.Annotations(g.GetAnnotations())
 					if annos.Contains(&v2.GrantImmutable{}) {
-						if err := store.DeleteGrant(ctx, g.GetId()); err != nil {
+						if err := store.DeleteGrantInternal(ctx, connectorstore.GrantDeleteOptions{
+							SyncID: targetSyncID,
+						}, g.GetId()); err != nil {
 							return err
 						}
 						continue

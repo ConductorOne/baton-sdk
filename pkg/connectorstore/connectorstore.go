@@ -63,7 +63,8 @@ type InternalWriter interface {
 	// SetSupportsDiff marks the sync as supporting diff operations.
 	SetSupportsDiff(ctx context.Context, syncID string) error
 	SetNeedsExpansionForGrants(ctx context.Context, syncID string, grantExternalIDs []string, needsExpansion bool) error
-	SetSyncID(_ context.Context, syncID string) error
+	// DeleteGrantInternal deletes a grant using optional explicit sync targeting.
+	DeleteGrantInternal(ctx context.Context, opts GrantDeleteOptions, grantID string) error
 }
 
 // GrantUpsertMode controls how grant conflicts are resolved during upsert.
@@ -81,7 +82,13 @@ const (
 
 // GrantUpsertOptions configures internal grant upsert behavior.
 type GrantUpsertOptions struct {
-	Mode GrantUpsertMode
+	Mode   GrantUpsertMode
+	SyncID string
+}
+
+// GrantDeleteOptions configures internal grant delete behavior.
+type GrantDeleteOptions struct {
+	SyncID string
 }
 
 // ConnectorStoreWriter defines an implementation for a connector v2 datasource writer. This is used to store sync data from an upstream provider.
@@ -134,7 +141,7 @@ type GrantListOptions struct {
 	NeedsExpansionOnly bool
 
 	// PageToken and PageSize are used for pagination in all modes.
-	// SyncID is used for expansion-only modes.
+	// SyncID scopes the query to a specific sync in all modes.
 	SyncID    string
 	PageToken string
 	PageSize  uint32

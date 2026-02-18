@@ -17,10 +17,6 @@ import (
 )
 
 func runFullExpansion(ctx context.Context, c1f *dotc1z.C1File, syncID string) error {
-	if err := c1f.SetSyncID(ctx, syncID); err != nil {
-		return err
-	}
-
 	// Mark the sync as supporting diff operations (SQL-layer data is ready).
 	if err := c1f.SetSupportsDiff(ctx, syncID); err != nil {
 		return err
@@ -71,7 +67,7 @@ func runFullExpansion(ctx context.Context, c1f *dotc1z.C1File, syncID string) er
 		return err
 	}
 
-	return expand.NewExpander(c1f, graph).Run(ctx)
+	return expand.NewExpander(c1f, graph).WithSyncID(syncID).Run(ctx)
 }
 
 func loadGrantSourcesByKey(ctx context.Context, c1f *dotc1z.C1File, syncID string) (map[string]map[string]bool, error) {

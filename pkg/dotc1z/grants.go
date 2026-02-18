@@ -227,7 +227,7 @@ func (c *C1File) UpsertGrants(ctx context.Context, opts connectorstore.GrantUpse
 		return fmt.Errorf("unknown grant upsert mode: %d", opts.Mode)
 	}
 
-	if err := upsertGrantsInternal(ctx, c, opts.Mode, bulkGrants...); err != nil {
+	if err := upsertGrantsInternal(ctx, c, opts.Mode, opts.SyncID, bulkGrants...); err != nil {
 		return err
 	}
 
@@ -281,6 +281,7 @@ func upsertGrantsInternal(
 	ctx context.Context,
 	c *C1File,
 	mode connectorstore.GrantUpsertMode,
+	syncID string,
 	msgs ...*v2.Grant,
 ) error {
 	if len(msgs) == 0 {
@@ -289,13 +290,24 @@ func upsertGrantsInternal(
 	ctx, span := tracer.Start(ctx, "C1File.bulkUpsertGrants")
 	defer span.End()
 
-	if err := c.validateSyncDb(ctx); err != nil {
-		return err
+	if syncID == "" {
+		if err := c.validateSyncDb(ctx); err != nil {
+			return err
+		}
+	} else {
+		if err := c.validateDb(ctx); err != nil {
+			return err
+		}
 	}
 
 	rows, err := prepareConnectorObjectRows(c, msgs, grantExtractFields(mode))
 	if err != nil {
 		return err
+	}
+	if syncID != "" {
+		for _, row := range rows {
+			(*row)["sync_id"] = syncID
+		}
 	}
 
 	return executeGrantChunkedUpsert(ctx, c, rows, mode)
@@ -525,23 +537,40 @@ func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
 	ctx, span := tracer.Start(ctx, "C1File.DeleteGrant")
 	defer span.End()
 
-	err := c.validateSyncDb(ctx)
-	if err != nil {
-		return err
-	}
+	return c.deleteGrantInternal(ctx, connectorstore.GrantDeleteOptions{}, grantId)
+}
 
-	q := c.db.Delete(grants.Name())
-	q = q.Where(goqu.C("external_id").Eq(grantId))
-	if c.currentSyncID != "" {
-		q = q.Where(goqu.C("sync_id").Eq(c.currentSyncID))
+func (c *C1File) DeleteGrantInternal(ctx context.Context, opts connectorstore.GrantDeleteOptions, grantId string) error {
+	ctx, span := tracer.Start(ctx, "C1File.DeleteGrantInternal")
+	defer span.End()
+
+	return c.deleteGrantInternal(ctx, opts, grantId)
+}
+
+func (c *C1File) deleteGrantInternal(ctx context.Context, opts connectorstore.GrantDeleteOptions, grantId string) error {
+	if opts.SyncID != "" {
+		if err := c.validateDb(ctx); err != nil {
+			return err
+		}
+	} else {
+		if err := c.validateSyncDb(ctx); err != nil {
+			return err
+		}
+	}
+	syncId := opts.SyncID
+	if syncId == "" {
+		syncId = c.currentSyncID
+	}
+	q := c.db.Delete(grants.Name()).Where(goqu.C("external_id").Eq(grantId))
+	if syncId != "" {
+		q = q.Where(goqu.C("sync_id").Eq(syncId))
 	}
 	query, args, err := q.ToSQL()
 	if err != nil {
 		return err
 	}
 
-	_, err = c.db.ExecContext(ctx, query, args...)
-	if err != nil {
+	if _, err := c.db.ExecContext(ctx, query, args...); err != nil {
 		return err
 	}
 

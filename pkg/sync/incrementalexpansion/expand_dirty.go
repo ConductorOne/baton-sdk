@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 
+	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
@@ -19,10 +21,6 @@ import (
 // NOTE: This expands only edges present in the loaded subgraph. Callers are responsible for
 // marking the correct edge-defining grants as needs_expansion based on the affected subgraph.
 func ExpandDirtySubgraph(ctx context.Context, c1f *dotc1z.C1File, syncID string) error {
-	if err := c1f.SetSyncID(ctx, syncID); err != nil {
-		return err
-	}
-
 	// Mark the sync as supporting diff operations (SQL-layer data is ready). This is idempotent - subsequent calls are no-ops.
 	// The marker is used to detect syncs that expanded with older code that dropped annotations.
 	if err := c1f.SetSupportsDiff(ctx, syncID); err != nil {
@@ -30,6 +28,7 @@ func ExpandDirtySubgraph(ctx context.Context, c1f *dotc1z.C1File, syncID string)
 	}
 
 	graph := expand.NewEntitlementGraph(ctx)
+	reqAnnos := annotations.New(c1zpb.SyncDetails_builder{Id: syncID}.Build())
 
 	pageToken := ""
 	for {
@@ -39,12 +38,6 @@ func ExpandDirtySubgraph(ctx context.Context, c1f *dotc1z.C1File, syncID string)
 			PageToken:          pageToken,
 			NeedsExpansionOnly: true,
 		})
-		// defs, next, err := c1f.ListExpandableGrants(
-		// 	ctx,
-		// 	dotc1z.WithExpandableGrantsSyncID(syncID),
-		// 	dotc1z.WithExpandableGrantsPageToken(pageToken),
-		// 	dotc1z.WithExpandableGrantsNeedsExpansionOnly(true),
-		// )
 		if err != nil {
 			return err
 		}
@@ -62,6 +55,7 @@ func ExpandDirtySubgraph(ctx context.Context, c1f *dotc1z.C1File, syncID string)
 			for _, srcEntitlementID := range def.SourceEntitlementIDs {
 				srcEntitlement, err := c1f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 					EntitlementId: srcEntitlementID,
+					Annotations:   reqAnnos,
 				}.Build())
 				if err != nil {
 					// Only skip not-found entitlements; propagate other errors
@@ -101,7 +95,7 @@ func ExpandDirtySubgraph(ctx context.Context, c1f *dotc1z.C1File, syncID string)
 		return err
 	}
 
-	expander := expand.NewExpander(c1f, graph)
+	expander := expand.NewExpander(c1f, graph).WithSyncID(syncID)
 	if err := expander.Run(ctx); err != nil {
 		return err
 	}

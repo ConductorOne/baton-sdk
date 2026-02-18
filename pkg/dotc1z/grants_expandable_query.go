@@ -39,9 +39,6 @@ func (c *C1File) ListGrantsInternal(ctx context.Context, opts connectorstore.Gra
 		}, nil
 
 	case connectorstore.GrantListModePayload, connectorstore.GrantListModePayloadWithExpansion:
-		// if opts.SyncID != "" {
-		// 	return nil, fmt.Errorf("invalid grant list options: SyncID is not supported for payload modes")
-		// }
 		if opts.NeedsExpansionOnly {
 			return nil, fmt.Errorf("invalid grant list options: NeedsExpansionOnly does not support payload modes")
 		}
@@ -178,7 +175,7 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		return nil, err
 	}
 
-	syncID, err := c.resolveSyncIDForPayloadQuery(ctx)
+	syncID, err := c.resolveSyncIDForInternalQuery(ctx, opts.SyncID)
 	if err != nil {
 		return nil, fmt.Errorf("error getting sync id for list grants with expansion: %w", err)
 	}
@@ -321,7 +318,7 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		return nil, err
 	}
 
-	syncID, err := c.resolveSyncIDForPayloadQuery(ctx)
+	syncID, err := c.resolveSyncIDForInternalQuery(ctx, opts.SyncID)
 	if err != nil {
 		return nil, err
 	}
@@ -400,23 +397,6 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		Rows:          result,
 		NextPageToken: nextPageToken,
 	}, nil
-}
-
-func (c *C1File) resolveSyncIDForPayloadQuery(ctx context.Context) (string, error) {
-	if c.currentSyncID != "" {
-		return c.currentSyncID, nil
-	}
-	if c.viewSyncID != "" {
-		return c.viewSyncID, nil
-	}
-	latestSyncRun, err := c.getCachedViewSyncRun(ctx)
-	if err != nil {
-		return "", err
-	}
-	if latestSyncRun != nil {
-		return latestSyncRun.ID, nil
-	}
-	return "", nil
 }
 
 func (c *C1File) resolveSyncIDForInternalQuery(ctx context.Context, forced string) (string, error) {
