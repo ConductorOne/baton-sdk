@@ -455,8 +455,10 @@ func (c *C1FileAttached) diffTableFromMainTx(ctx context.Context, tx *sql.Tx, ta
 	return err
 }
 
-// diffModifiedFromAttachedTx inserts the OLD version of rows that were modified between OLD (attached) and NEW (main).
-// This is used to make modifications behave like delete+insert when applying diffs.
+// diffModifiedFromAttachedTx finds rows that exist in both the OLD (attached) and NEW (main) syncs but whose
+// data has changed, and copies the OLD version of those rows into the deletions sync. This lets downstream
+// consumers treat a modification as a delete-of-the-old-row followed by an insert-of-the-new-row, so they
+// can compute accurate invalidation without querying the attached database.
 func (c *C1FileAttached) diffModifiedFromAttachedTx(ctx context.Context, tx *sql.Tx, tableName string, oldSyncID string, newSyncID string, targetSyncID string) error {
 	columns, err := c.getTableColumns(ctx, tx, tableName)
 	if err != nil {

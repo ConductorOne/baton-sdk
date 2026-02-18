@@ -156,14 +156,7 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	}
 
 	q := c.db.From(tableName).Prepared(true)
-	// Grants are special-cased because GrantExpandable is stored in a separate SQL column.
-	// List APIs intentionally do not re-attach GrantExpandable onto grant annotations.
-	withExpansion := tableName == grants.Name()
-	if withExpansion {
-		q = q.Select("id", "data", "expansion")
-	} else {
-		q = q.Select("id", "data")
-	}
+	q = q.Select("id", "data")
 
 	// If the request allows filtering by resource type, apply the filter
 	if resourceTypeReq, ok := req.(hasResourceTypeListRequest); ok {
@@ -276,20 +269,9 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		if count > pageSize {
 			break
 		}
-		var expansionBytes []byte
-		if withExpansion {
-			// IMPORTANT: keep expansion scoped to this row. Some drivers may not overwrite a []byte
-			// destination on NULL, which would cause us to accidentally reuse bytes from a previous row.
-			expansionBytes = nil
-			err := rows.Scan(&lastRow, &data, &expansionBytes)
-			if err != nil {
-				return nil, "", err
-			}
-		} else {
-			err := rows.Scan(&lastRow, &data)
-			if err != nil {
-				return nil, "", err
-			}
+		err := rows.Scan(&lastRow, &data)
+		if err != nil {
+			return nil, "", err
 		}
 		t := factory()
 		err = unmarshalerOptions.Unmarshal(data, t)
