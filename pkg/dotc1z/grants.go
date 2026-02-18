@@ -300,14 +300,14 @@ func upsertGrantsInternal(
 		}
 	}
 
-	rows, err := prepareConnectorObjectRows(c, msgs, grantExtractFields(mode))
+	resolvedSyncID := syncID
+	if resolvedSyncID == "" {
+		resolvedSyncID = c.currentSyncID
+	}
+
+	rows, err := prepareConnectorObjectRows(c, msgs, grantExtractFields(mode), resolvedSyncID)
 	if err != nil {
 		return err
-	}
-	if syncID != "" {
-		for _, row := range rows {
-			(*row)["sync_id"] = syncID
-		}
 	}
 
 	return executeGrantChunkedUpsert(ctx, c, rows, mode)

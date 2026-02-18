@@ -299,6 +299,7 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 	c *C1File,
 	msg T,
 	extractFields func(m T) (goqu.Record, error),
+	syncID string,
 ) (*goqu.Record, error) {
 	// Call extractFields before marshaling so that any mutations it makes
 	// (e.g. stripping GrantExpandable from grant annotations) are reflected
@@ -327,7 +328,7 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 		}
 		fields["data"] = messageBlob
 	}
-	fields["sync_id"] = c.currentSyncID
+	fields["sync_id"] = syncID
 	fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
 
 	return &fields, nil
@@ -338,10 +339,11 @@ func prepareConnectorObjectRowsSerial[T proto.Message](
 	c *C1File,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
+	syncID string,
 ) ([]*goqu.Record, error) {
 	rows := make([]*goqu.Record, len(msgs))
 	for i, m := range msgs {
-		row, err := prepareSingleConnectorObjectRow(c, m, extractFields)
+		row, err := prepareSingleConnectorObjectRow(c, m, extractFields, syncID)
 		if err != nil {
 			return nil, err
 		}
@@ -356,6 +358,7 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 	c *C1File,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
+	syncID string,
 ) ([]*goqu.Record, error) {
 	if len(msgs) == 0 {
 		return nil, nil
@@ -370,8 +373,6 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 	rows := make([]*goqu.Record, len(msgs))
 	errs := make([]error, len(msgs))
 
-	// Capture values that are the same for all rows (avoid repeated access)
-	syncID := c.currentSyncID
 	discoveredAt := time.Now().Format("2006-01-02 15:04:05.999999999")
 
 	chunkSize := (len(msgs) + numWorkers - 1) / numWorkers
@@ -443,11 +444,12 @@ func prepareConnectorObjectRows[T proto.Message](
 	c *C1File,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
+	syncID string,
 ) ([]*goqu.Record, error) {
 	if len(msgs) > bulkPutParallelThreshold {
-		return prepareConnectorObjectRowsParallel(c, msgs, extractFields)
+		return prepareConnectorObjectRowsParallel(c, msgs, extractFields, syncID)
 	}
-	return prepareConnectorObjectRowsSerial(c, msgs, extractFields)
+	return prepareConnectorObjectRowsSerial(c, msgs, extractFields, syncID)
 }
 
 // executeChunkedInsert executes the insert query in chunks.
@@ -533,7 +535,7 @@ func bulkPutConnectorObject[T proto.Message](
 	}
 
 	// Prepare rows
-	rows, err := prepareConnectorObjectRows(c, msgs, extractFields)
+	rows, err := prepareConnectorObjectRows(c, msgs, extractFields, c.currentSyncID)
 	if err != nil {
 		return err
 	}
@@ -569,7 +571,7 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 	}
 
 	// Prepare rows
-	rows, err := prepareConnectorObjectRows(c, msgs, extractFields)
+	rows, err := prepareConnectorObjectRows(c, msgs, extractFields, c.currentSyncID)
 	if err != nil {
 		return err
 	}
