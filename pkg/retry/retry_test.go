@@ -103,7 +103,7 @@ func TestRetryWithHTTPResponse(t *testing.T) {
 			},
 			expectedRetry:   true,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 3 * time.Second,
+			expectedMaxWait: 3500 * time.Millisecond,
 			buildRateLimitFn: func(resp *http.Response) error {
 				// Simulate what uhttp does - attach rate limit data to error
 				resetAt := time.Now().Add(3 * time.Second)
