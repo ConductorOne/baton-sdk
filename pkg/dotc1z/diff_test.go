@@ -1650,3 +1650,113 @@ func TestGenerateSyncDiffFromFile_WithExpansionMarker(t *testing.T) {
 	_ = oldFile.Close(ctx)
 	_ = newFile.Close(ctx)
 }
+
+// TestGenerateSyncDiffFromFile_ExpansionOnlyChange verifies that a grant whose
+// data blob is identical but whose expansion column changed is detected as a
+// modification in the cross-file diff.
+func TestGenerateSyncDiffFromFile_ExpansionOnlyChange(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_expansion_only_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_expansion_only_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+
+	e1 := v2.Entitlement_builder{Id: "group:g1:member", Resource: g1, Slug: "member", DisplayName: "member"}.Build()
+	e2 := v2.Entitlement_builder{Id: "group:g2:member", Resource: g2, Slug: "member", DisplayName: "member"}.Build()
+
+	grantID := "grant:g1:e2"
+
+	// OLD: grant with expansion shallow=false
+	grantOld := v2.Grant_builder{
+		Id:          grantID,
+		Entitlement: e2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{e1.GetId()},
+			Shallow:         false,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+
+	// NEW: same grant but expansion shallow=true (expansion column differs)
+	grantNew := v2.Grant_builder{
+		Id:          grantID,
+		Entitlement: e2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{e1.GetId()},
+			Shallow:         true,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+
+	// Create OLD file
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, oldFile.PutResources(ctx, g1, g2))
+	require.NoError(t, oldFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, oldFile.PutGrants(ctx, grantOld))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	// Create NEW file
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, newFile.PutResources(ctx, g1, g2))
+	require.NoError(t, newFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, newFile.PutGrants(ctx, grantNew))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	// Generate diff
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	// Verify the upserts sync has the NEW version (shallow=true).
+	upsertsRows, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:      connectorstore.GrantListModePayloadWithExpansion,
+		SyncID:    upsertsSyncID,
+		PageToken: "",
+	})
+	require.NoError(t, err)
+	require.Len(t, upsertsRows.Rows, 1, "upserts should contain the modified grant")
+	require.Equal(t, grantID, upsertsRows.Rows[0].Expansion.GrantExternalID)
+	require.True(t, upsertsRows.Rows[0].Expansion.Shallow, "upserts should contain NEW expansion version (shallow=true)")
+
+	// Verify the deletions sync has the OLD version (shallow=false).
+	deletionsRows, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:      connectorstore.GrantListModePayloadWithExpansion,
+		SyncID:    deletionsSyncID,
+		PageToken: "",
+	})
+	require.NoError(t, err)
+	require.Len(t, deletionsRows.Rows, 1, "deletions should contain the old version of the modified grant")
+	require.Equal(t, grantID, deletionsRows.Rows[0].Expansion.GrantExternalID)
+	require.False(t, deletionsRows.Rows[0].Expansion.Shallow, "deletions should contain OLD expansion version (shallow=false)")
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}

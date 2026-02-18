@@ -22,7 +22,9 @@ func InvalidateRemovedEdges(ctx context.Context, store connectorstore.InternalWr
 	if delta == nil || len(delta.Removed) == 0 {
 		return nil
 	}
-	// TODO: set back???
+	// SetSyncID is required because ListGrantsForEntitlement reads from the "current sync" context.
+	// Callers (ApplyIncrementalExpansionFromDiff) always pass targetSyncID consistently, and
+	// downstream steps (ExpandDirtySubgraph) call SetSyncID themselves, so no restore is needed.
 	if err := store.SetSyncID(ctx, targetSyncID); err != nil {
 		return err
 	}
