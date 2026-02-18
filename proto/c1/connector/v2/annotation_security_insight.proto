@@ -8,11 +8,41 @@ import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
+// RiskFactor represents a contributing factor to a risk score.
+message RiskFactor {
+  enum Severity {
+    SEVERITY_UNSPECIFIED = 0;
+    SEVERITY_LOW = 1;
+    SEVERITY_MEDIUM = 2;
+    SEVERITY_HIGH = 3;
+    SEVERITY_CRITICAL = 4;
+  }
+
+  string description = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 4096
+  }];
+
+  Severity severity = 2;
+}
+
 // RiskScore represents a risk score insight
 message RiskScore {
-  // The risk score value (e.g., "85", "High")
-  string value = 1;
-  repeated string factors = 2;
+  // Deprecated: Use source_score instead. The raw risk score value from the source system.
+  string value = 1 [deprecated = true];
+
+  // Deprecated: Use risk_factors instead. Flat string factors.
+  repeated string factors = 2 [deprecated = true];
+
+  // Normalized risk score as a percentage [0, 100]. Higher means more risk.
+  // Connector authors must normalize their source system's score to this range.
+  double normalized_score = 3 [(validate.rules).double = {gte: 0, lte: 100}];
+
+  // The original score from the source system for reference/auditability (e.g., "0.48", "7.5/10").
+  string source_score = 4;
+
+  // Structured factors contributing to this risk score.
+  repeated RiskFactor risk_factors = 5;
 }
 
 // Issue represents a security issue or vulnerability
