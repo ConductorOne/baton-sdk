@@ -1736,8 +1736,9 @@ func TestGenerateSyncDiffFromFile_ExpansionOnlyChange(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the upserts sync has the NEW version (shallow=true).
+	// Use Expansion mode because payload modes currently resolve sync from current/view context.
 	upsertsRows, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode:      connectorstore.GrantListModePayloadWithExpansion,
+		Mode:      connectorstore.GrantListModeExpansion,
 		SyncID:    upsertsSyncID,
 		PageToken: "",
 	})
@@ -1748,7 +1749,7 @@ func TestGenerateSyncDiffFromFile_ExpansionOnlyChange(t *testing.T) {
 
 	// Verify the deletions sync has the OLD version (shallow=false).
 	deletionsRows, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode:      connectorstore.GrantListModePayloadWithExpansion,
+		Mode:      connectorstore.GrantListModeExpansion,
 		SyncID:    deletionsSyncID,
 		PageToken: "",
 	})
