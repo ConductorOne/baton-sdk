@@ -22,13 +22,8 @@ func (c *C1File) SetNeedsExpansionForGrants(ctx context.Context, syncID string, 
 		return nil
 	}
 
-	val := 0
-	if needsExpansion {
-		val = 1
-	}
-
 	q := c.db.Update(grants.Name()).Prepared(true)
-	q = q.Set(goqu.Record{"needs_expansion": val})
+	q = q.Set(goqu.Record{"needs_expansion": needsExpansion})
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
 	q = q.Where(goqu.C("external_id").In(grantExternalIDs))
 

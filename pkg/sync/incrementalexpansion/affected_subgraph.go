@@ -70,12 +70,7 @@ func buildAdjacency(ctx context.Context, store connectorstore.InternalWriter, sy
 			PageToken:      pageToken,
 			ExpandableOnly: true,
 		})
-		// defs, next, err := store.ListExpandableGrants(
-		// 	ctx,
-		// 	dotc1z.WithExpandableGrantsSyncID(syncID),
-		// 	dotc1z.WithExpandableGrantsPageToken(pageToken),
-		// 	dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
-		// )
+
 		if err != nil {
 			return nil, fmt.Errorf("build adjacency: %w", err)
 		}

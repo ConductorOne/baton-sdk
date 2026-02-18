@@ -28,12 +28,6 @@ func MarkNeedsExpansionForAffectedEdges(ctx context.Context, store connectorstor
 			PageToken:      pageToken,
 			ExpandableOnly: true,
 		})
-		// defs, next, err := store.ListGrantsInternal(
-		// 	ctx,
-		// 	dotc1z.WithExpandableGrantsSyncID(targetSyncID),
-		// 	dotc1z.WithExpandableGrantsPageToken(pageToken),
-		// 	dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
-		// )
 		if err != nil {
 			return err
 		}

@@ -65,12 +65,7 @@ func edgeSetFromSync(ctx context.Context, store connectorstore.InternalWriter, s
 			PageToken:      pageToken,
 			ExpandableOnly: true,
 		})
-		// defs, next, err := store.ListExpandableGrants(
-		// 	ctx,
-		// 	dotc1z.WithExpandableGrantsSyncID(syncID),
-		// 	dotc1z.WithExpandableGrantsPageToken(pageToken),
-		// 	dotc1z.WithExpandableGrantsNeedsExpansionOnly(false),
-		// )
+
 		if err != nil {
 			return nil, err
 		}

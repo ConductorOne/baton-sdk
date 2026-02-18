@@ -48,9 +48,7 @@ func (r *entitlementsTable) Schema() (string, []interface{}) {
 	}
 }
 
-func (r *entitlementsTable) Migrations(ctx context.Context, db *goqu.Database) error {
-	_ = ctx
-	_ = db
+func (r *entitlementsTable) Migrations(_ context.Context, _ *goqu.Database) error {
 	return nil
 }
 
