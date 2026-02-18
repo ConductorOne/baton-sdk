@@ -34,6 +34,7 @@ func ExpandDirtySubgraph(ctx context.Context, c1f *dotc1z.C1File, syncID string)
 	pageToken := ""
 	for {
 		resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			Mode:               connectorstore.GrantListModeExpansionNeedsOnly,
 			SyncID:             syncID,
 			PageToken:          pageToken,
 			NeedsExpansionOnly: true,

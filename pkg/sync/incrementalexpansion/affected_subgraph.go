@@ -65,6 +65,7 @@ func buildAdjacency(ctx context.Context, store connectorstore.InternalWriter, sy
 	pageToken := ""
 	for {
 		resp, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			Mode:           connectorstore.GrantListModeExpansion,
 			SyncID:         syncID,
 			PageToken:      pageToken,
 			ExpandableOnly: true,

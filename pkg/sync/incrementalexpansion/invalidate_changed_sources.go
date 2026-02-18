@@ -18,6 +18,7 @@ func InvalidateChangedSourceEntitlements(ctx context.Context, store connectorsto
 	pageToken := ""
 	for {
 		resp, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			Mode:           connectorstore.GrantListModeExpansion,
 			SyncID:         targetSyncID,
 			PageToken:      pageToken,
 			ExpandableOnly: true,

@@ -31,6 +31,7 @@ func runFullExpansion(ctx context.Context, c1f *dotc1z.C1File, syncID string) er
 	pageToken := ""
 	for {
 		resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			Mode:           connectorstore.GrantListModeExpansion,
 			SyncID:         syncID,
 			PageToken:      pageToken,
 			ExpandableOnly: true,
@@ -102,6 +103,43 @@ func loadGrantSourcesByKey(ctx context.Context, c1f *dotc1z.C1File, syncID strin
 		if pageToken == "" {
 			break
 		}
+	}
+	return out, nil
+}
+
+// listGrantsWithStoredExpansion returns grants from the currently selected/viewed sync
+// and rehydrates GrantExpandable from internal expansion columns for test copy flows.
+func listGrantsWithStoredExpansion(ctx context.Context, c1f *dotc1z.C1File) ([]*v2.Grant, error) {
+	out := make([]*v2.Grant, 0, 1024)
+	pageToken := ""
+	for {
+		resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			Mode:      connectorstore.GrantListModePayloadWithExpansion,
+			PageToken: pageToken,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range resp.Rows {
+			g := row.Grant
+			if g == nil {
+				continue
+			}
+			if def := row.Expansion; def != nil {
+				annos := annotations.Annotations(g.GetAnnotations())
+				annos.Append(v2.GrantExpandable_builder{
+					EntitlementIds:  append([]string(nil), def.SourceEntitlementIDs...),
+					Shallow:         def.Shallow,
+					ResourceTypeIds: append([]string(nil), def.ResourceTypeIDs...),
+				}.Build())
+				g.SetAnnotations(annos)
+			}
+			out = append(out, g)
+		}
+		if resp.NextPageToken == "" {
+			break
+		}
+		pageToken = resp.NextPageToken
 	}
 	return out, nil
 }
@@ -297,20 +335,13 @@ func TestIncrementalExpansion_RemovedEdgeRemovesOnlyOneSource(t *testing.T) {
 
 	require.NoError(t, oldFile.SetSyncID(ctx, ""))
 	require.NoError(t, oldFile.ViewSync(ctx, oldSyncID))
-	pageToken := ""
-	for {
-		resp, err := oldFile.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageToken: pageToken}.Build())
-		require.NoError(t, err)
-		for _, g := range resp.GetList() {
-			if g.GetId() == nestingGrantID1 {
-				continue
-			}
-			require.NoError(t, newFile.PutGrants(ctx, g))
+	grantsToCopy, err := listGrantsWithStoredExpansion(ctx, oldFile)
+	require.NoError(t, err)
+	for _, g := range grantsToCopy {
+		if g.GetId() == nestingGrantID1 {
+			continue
 		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
-		}
+		require.NoError(t, newFile.PutGrants(ctx, g))
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
@@ -400,17 +431,10 @@ func TestIncrementalExpansion_NoChangesIsNoop(t *testing.T) {
 
 	require.NoError(t, oldFile.SetSyncID(ctx, ""))
 	require.NoError(t, oldFile.ViewSync(ctx, oldSyncID))
-	pageToken := ""
-	for {
-		resp, err := oldFile.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageToken: pageToken}.Build())
-		require.NoError(t, err)
-		for _, g := range resp.GetList() {
-			require.NoError(t, newFile.PutGrants(ctx, g))
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
-		}
+	grantsToCopy, err := listGrantsWithStoredExpansion(ctx, oldFile)
+	require.NoError(t, err)
+	for _, g := range grantsToCopy {
+		require.NoError(t, newFile.PutGrants(ctx, g))
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
@@ -1068,17 +1092,10 @@ func TestIncrementalExpansion_AddedDirectGrantPropagates(t *testing.T) {
 
 	require.NoError(t, oldFile.SetSyncID(ctx, ""))
 	require.NoError(t, oldFile.ViewSync(ctx, oldSyncID))
-	pageToken := ""
-	for {
-		resp, err := oldFile.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageToken: pageToken}.Build())
-		require.NoError(t, err)
-		for _, g := range resp.GetList() {
-			require.NoError(t, newFile.PutGrants(ctx, g))
-		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
-		}
+	grantsToCopy, err := listGrantsWithStoredExpansion(ctx, oldFile)
+	require.NoError(t, err)
+	for _, g := range grantsToCopy {
+		require.NoError(t, newFile.PutGrants(ctx, g))
 	}
 	// Add the new direct grant
 	require.NoError(t, newFile.PutGrants(ctx, grantU2E1))
@@ -1516,20 +1533,13 @@ func TestIncrementalExpansion_CycleEdgeRemoval(t *testing.T) {
 
 	require.NoError(t, oldFile.SetSyncID(ctx, ""))
 	require.NoError(t, oldFile.ViewSync(ctx, oldSyncID))
-	pageToken := ""
-	for {
-		resp, err := oldFile.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageToken: pageToken}.Build())
-		require.NoError(t, err)
-		for _, g := range resp.GetList() {
-			if g.GetId() == grantG2E1ID {
-				continue // remove E2 → E1 edge
-			}
-			require.NoError(t, newFile.PutGrants(ctx, g))
+	grantsToCopy, err := listGrantsWithStoredExpansion(ctx, oldFile)
+	require.NoError(t, err)
+	for _, g := range grantsToCopy {
+		if g.GetId() == grantG2E1ID {
+			continue // remove E2 → E1 edge
 		}
-		pageToken = resp.GetNextPageToken()
-		if pageToken == "" {
-			break
-		}
+		require.NoError(t, newFile.PutGrants(ctx, g))
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 

@@ -157,7 +157,7 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 
 	q := c.db.From(tableName).Prepared(true)
 	// Grants are special-cased because GrantExpandable is stored in a separate SQL column.
-	// When listing grants, we re-attach the GrantExpandable annotation to the returned proto.
+	// List APIs intentionally do not re-attach GrantExpandable onto grant annotations.
 	withExpansion := tableName == grants.Name()
 	if withExpansion {
 		q = q.Select("id", "data", "expansion")
@@ -295,17 +295,6 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		err = unmarshalerOptions.Unmarshal(data, t)
 		if err != nil {
 			return nil, "", err
-		}
-		if withExpansion && len(expansionBytes) > 0 {
-			if g, ok := any(t).(*v2.Grant); ok {
-				expandable := &v2.GrantExpandable{}
-				if err := proto.Unmarshal(expansionBytes, expandable); err != nil {
-					return nil, "", fmt.Errorf("failed to unmarshal grant expansion: %w", err)
-				}
-				annos := annotations.Annotations(g.GetAnnotations())
-				annos.Append(expandable)
-				g.SetAnnotations(annos)
-			}
 		}
 		ret = append(ret, t)
 	}

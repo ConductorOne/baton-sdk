@@ -23,6 +23,7 @@ func MarkNeedsExpansionForAffectedEdges(ctx context.Context, store connectorstor
 
 	for {
 		resp, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			Mode:           connectorstore.GrantListModeExpansion,
 			SyncID:         targetSyncID,
 			PageToken:      pageToken,
 			ExpandableOnly: true,

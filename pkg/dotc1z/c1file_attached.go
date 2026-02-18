@@ -480,6 +480,16 @@ func (c *C1FileAttached) diffModifiedFromAttachedTx(ctx context.Context, tx *sql
 	}
 
 	// Insert OLD rows for modified records.
+	//
+	// For grants, compare both data AND expansion columns since GrantExpandable
+	// metadata is persisted in expansion (not only in data).
+	var dataCompare string
+	if tableName == grants.Name() {
+		dataCompare = "(a.data != m.data OR IFNULL(a.expansion, X'') != IFNULL(m.expansion, X''))"
+	} else {
+		dataCompare = "a.data != m.data"
+	}
+
 	//nolint:gosec // table names are from hardcoded list, not user input
 	query := fmt.Sprintf(`
 		INSERT INTO main.%s (%s)
@@ -490,9 +500,9 @@ func (c *C1FileAttached) diffModifiedFromAttachedTx(ctx context.Context, tx *sql
 		    SELECT 1 FROM main.%s AS m
 		    WHERE m.external_id = a.external_id
 		      AND m.sync_id = ?
-		      AND a.data != m.data
+		      AND %s
 		  )
-	`, tableName, columnList, selectList, tableName, tableName)
+	`, tableName, columnList, selectList, tableName, tableName, dataCompare)
 
 	_, err = tx.ExecContext(ctx, query, targetSyncID, oldSyncID, newSyncID)
 	return err

@@ -60,6 +60,7 @@ func edgeSetFromSync(ctx context.Context, store connectorstore.InternalWriter, s
 	pageToken := ""
 	for {
 		resp, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+			Mode:           connectorstore.GrantListModeExpansion,
 			SyncID:         syncID,
 			PageToken:      pageToken,
 			ExpandableOnly: true,
