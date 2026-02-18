@@ -563,11 +563,11 @@ func (c *C1File) AttachFile(other *C1File, dbName string) (*C1FileAttached, erro
 	// The other file is likely opened with EXCLUSIVE locking (the default).
 	// Downgrade to NORMAL and execute a read transaction so SQLite actually
 	// releases the file-level lock, allowing this connection to ATTACH it.
-	if _, err := other.rawDb.Exec("PRAGMA main.locking_mode = NORMAL"); err != nil {
+	if _, err := other.rawDb.ExecContext(context.Background(), "PRAGMA main.locking_mode = NORMAL"); err != nil {
 		return nil, fmt.Errorf("failed to set normal locking on file to attach: %w", err)
 	}
 	var dummy int
-	if err := other.rawDb.QueryRow("SELECT 1").Scan(&dummy); err != nil {
+	if err := other.rawDb.QueryRowContext(context.Background(), "SELECT 1").Scan(&dummy); err != nil {
 		return nil, fmt.Errorf("failed to release exclusive lock on file to attach: %w", err)
 	}
 

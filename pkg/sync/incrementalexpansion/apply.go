@@ -19,11 +19,11 @@ func ApplyIncrementalExpansionFromDiff(ctx context.Context, c1f *dotc1z.C1File, 
 		return err
 	}
 	if os.Getenv("BATON_DEBUG_INCREMENTAL") != "" {
-		fmt.Printf("incremental: delta added=%d removed=%d\n", len(delta.Added), len(delta.Removed))
+		_, _ = fmt.Fprintf(os.Stderr, "incremental: delta added=%d removed=%d\n", len(delta.Added), len(delta.Removed))
 		// Print a small sample for debugging.
 		i := 0
 		for _, e := range delta.Added {
-			fmt.Printf("  added: %s -> %s\n", e.SrcEntitlementID, e.DstEntitlementID)
+			_, _ = fmt.Fprintf(os.Stderr, "  added: %s -> %s\n", e.SrcEntitlementID, e.DstEntitlementID)
 			i++
 			if i >= 10 {
 				break
@@ -31,7 +31,7 @@ func ApplyIncrementalExpansionFromDiff(ctx context.Context, c1f *dotc1z.C1File, 
 		}
 		i = 0
 		for _, e := range delta.Removed {
-			fmt.Printf("  removed: %s -> %s\n", e.SrcEntitlementID, e.DstEntitlementID)
+			_, _ = fmt.Fprintf(os.Stderr, "  removed: %s -> %s\n", e.SrcEntitlementID, e.DstEntitlementID)
 			i++
 			if i >= 10 {
 				break
