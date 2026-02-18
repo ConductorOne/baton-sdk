@@ -415,7 +415,9 @@ func (c *C1File) init(ctx context.Context) error {
 		}
 	}
 	if !hasLockingPragma {
-		_, err = c.db.ExecContext(ctx, "PRAGMA main.locking_mode = EXCLUSIVE")
+		// Default to NORMAL locking so multiple handles can coexist (for example,
+		// when attaching one open c1z DB into another for diff generation).
+		_, err = c.db.ExecContext(ctx, "PRAGMA main.locking_mode = NORMAL")
 		if err != nil {
 			return err
 		}
@@ -560,15 +562,6 @@ func (c *C1File) OutputFilepath() (string, error) {
 }
 
 func (c *C1File) AttachFile(other *C1File, dbName string) (*C1FileAttached, error) {
-	// Attach requires multiple open handles to the same sqlite file graph.
-	// Force NORMAL locking for both connections involved in this operation.
-	if _, err := c.db.Exec("PRAGMA main.locking_mode = NORMAL"); err != nil {
-		return nil, err
-	}
-	if _, err := other.db.Exec("PRAGMA main.locking_mode = NORMAL"); err != nil {
-		return nil, err
-	}
-
 	_, err := c.db.Exec(`ATTACH DATABASE ? AS ?`, other.dbFilePath, dbName)
 	if err != nil {
 		return nil, err

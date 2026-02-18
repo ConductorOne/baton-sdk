@@ -32,7 +32,7 @@ message Grant {
 }
 
 message GrantsServiceListGrantsRequest {
-  c1.connector.v2.Resource resource = 1;
+  c1.connector.v2.Resource resource = 1 [(validate.rules).message = {required: true}];
   uint32 page_size = 2 [(validate.rules).uint32 = {
     ignore_empty: true
     lte: 250
@@ -48,10 +48,6 @@ message GrantsServiceListGrantsRequest {
     min_bytes: 1
     max_bytes: 1024
   }];
-  // If true, only return grants that are expandable (have GrantExpandable annotation).
-  bool expandable_only = 6;
-  // If true, only return grants that need expansion processing.
-  bool needs_expansion_only = 7;
 }
 
 message GrantsServiceListGrantsResponse {

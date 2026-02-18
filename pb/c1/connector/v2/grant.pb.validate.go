@@ -454,6 +454,17 @@ func (m *GrantsServiceListGrantsRequest) validate(all bool) error {
 
 	var errors []error
 
+	if m.GetResource() == nil {
+		err := GrantsServiceListGrantsRequestValidationError{
+			field:  "Resource",
+			reason: "value is required",
+		}
+		if !all {
+			return err
+		}
+		errors = append(errors, err)
+	}
+
 	if all {
 		switch v := interface{}(m.GetResource()).(type) {
 		case interface{ ValidateAll() error }:
@@ -561,10 +572,6 @@ func (m *GrantsServiceListGrantsRequest) validate(all bool) error {
 		}
 
 	}
-
-	// no validation rules for ExpandableOnly
-
-	// no validation rules for NeedsExpansionOnly
 
 	if len(errors) > 0 {
 		return GrantsServiceListGrantsRequestMultiError(errors)

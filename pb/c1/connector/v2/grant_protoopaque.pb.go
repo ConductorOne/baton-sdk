@@ -230,16 +230,14 @@ func (b0 Grant_builder) Build() *Grant {
 }
 
 type GrantsServiceListGrantsRequest struct {
-	state                         protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Resource           *Resource              `protobuf:"bytes,1,opt,name=resource,proto3"`
-	xxx_hidden_PageSize           uint32                 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3"`
-	xxx_hidden_PageToken          string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3"`
-	xxx_hidden_Annotations        *[]*anypb.Any          `protobuf:"bytes,4,rep,name=annotations,proto3"`
-	xxx_hidden_ActiveSyncId       string                 `protobuf:"bytes,5,opt,name=active_sync_id,json=activeSyncId,proto3"`
-	xxx_hidden_ExpandableOnly     bool                   `protobuf:"varint,6,opt,name=expandable_only,json=expandableOnly,proto3"`
-	xxx_hidden_NeedsExpansionOnly bool                   `protobuf:"varint,7,opt,name=needs_expansion_only,json=needsExpansionOnly,proto3"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	state                   protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Resource     *Resource              `protobuf:"bytes,1,opt,name=resource,proto3"`
+	xxx_hidden_PageSize     uint32                 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3"`
+	xxx_hidden_PageToken    string                 `protobuf:"bytes,3,opt,name=page_token,json=pageToken,proto3"`
+	xxx_hidden_Annotations  *[]*anypb.Any          `protobuf:"bytes,4,rep,name=annotations,proto3"`
+	xxx_hidden_ActiveSyncId string                 `protobuf:"bytes,5,opt,name=active_sync_id,json=activeSyncId,proto3"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *GrantsServiceListGrantsRequest) Reset() {
@@ -304,20 +302,6 @@ func (x *GrantsServiceListGrantsRequest) GetActiveSyncId() string {
 	return ""
 }
 
-func (x *GrantsServiceListGrantsRequest) GetExpandableOnly() bool {
-	if x != nil {
-		return x.xxx_hidden_ExpandableOnly
-	}
-	return false
-}
-
-func (x *GrantsServiceListGrantsRequest) GetNeedsExpansionOnly() bool {
-	if x != nil {
-		return x.xxx_hidden_NeedsExpansionOnly
-	}
-	return false
-}
-
 func (x *GrantsServiceListGrantsRequest) SetResource(v *Resource) {
 	x.xxx_hidden_Resource = v
 }
@@ -336,14 +320,6 @@ func (x *GrantsServiceListGrantsRequest) SetAnnotations(v []*anypb.Any) {
 
 func (x *GrantsServiceListGrantsRequest) SetActiveSyncId(v string) {
 	x.xxx_hidden_ActiveSyncId = v
-}
-
-func (x *GrantsServiceListGrantsRequest) SetExpandableOnly(v bool) {
-	x.xxx_hidden_ExpandableOnly = v
-}
-
-func (x *GrantsServiceListGrantsRequest) SetNeedsExpansionOnly(v bool) {
-	x.xxx_hidden_NeedsExpansionOnly = v
 }
 
 func (x *GrantsServiceListGrantsRequest) HasResource() bool {
@@ -365,10 +341,6 @@ type GrantsServiceListGrantsRequest_builder struct {
 	PageToken    string
 	Annotations  []*anypb.Any
 	ActiveSyncId string
-	// If true, only return grants that are expandable (have GrantExpandable annotation).
-	ExpandableOnly bool
-	// If true, only return grants that need expansion processing.
-	NeedsExpansionOnly bool
 }
 
 func (b0 GrantsServiceListGrantsRequest_builder) Build() *GrantsServiceListGrantsRequest {
@@ -380,8 +352,6 @@ func (b0 GrantsServiceListGrantsRequest_builder) Build() *GrantsServiceListGrant
 	x.xxx_hidden_PageToken = b.PageToken
 	x.xxx_hidden_Annotations = &b.Annotations
 	x.xxx_hidden_ActiveSyncId = b.ActiveSyncId
-	x.xxx_hidden_ExpandableOnly = b.ExpandableOnly
-	x.xxx_hidden_NeedsExpansionOnly = b.NeedsExpansionOnly
 	return m0
 }
 
@@ -876,18 +846,16 @@ const file_c1_connector_v2_grant_proto_rawDesc = "" +
 	"\x02id\x18\x03 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x12A\n" +
 	"\asources\x18\x05 \x01(\v2\x1d.c1.connector.v2.GrantSourcesB\b\xfaB\x05\x8a\x01\x02\x10\x00R\asources\x126\n" +
-	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xf7\x02\n" +
-	"\x1eGrantsServiceListGrantsRequest\x125\n" +
-	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceR\bresource\x12'\n" +
+	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xa6\x02\n" +
+	"\x1eGrantsServiceListGrantsRequest\x12?\n" +
+	"\bresource\x18\x01 \x01(\v2\x19.c1.connector.v2.ResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\bresource\x12'\n" +
 	"\tpage_size\x18\x02 \x01(\rB\n" +
 	"\xfaB\a*\x05\x18\xfa\x01@\x01R\bpageSize\x12-\n" +
 	"\n" +
 	"page_token\x18\x03 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\tpageToken\x126\n" +
 	"\vannotations\x18\x04 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x123\n" +
 	"\x0eactive_sync_id\x18\x05 \x01(\tB\r\xfaB\n" +
-	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\x12'\n" +
-	"\x0fexpandable_only\x18\x06 \x01(\bR\x0eexpandableOnly\x120\n" +
-	"\x14needs_expansion_only\x18\a \x01(\bR\x12needsExpansionOnly\"\xbd\x01\n" +
+	"r\b \x01(\x80\b\xd0\x01\x01R\factiveSyncId\"\xbd\x01\n" +
 	"\x1fGrantsServiceListGrantsResponse\x12*\n" +
 	"\x04list\x18\x01 \x03(\v2\x16.c1.connector.v2.GrantR\x04list\x126\n" +
 	"\x0fnext_page_token\x18\x02 \x01(\tB\x0e\xfaB\vr\t \x01(\x80\x80@\xd0\x01\x01R\rnextPageToken\x126\n" +
