@@ -81,11 +81,14 @@ func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 				if waitResetAt <= 0 {
 					continue
 				}
-				duration := time.Duration(rlData.GetLimit())
-				if duration <= 0 {
-					continue
+				remaining := rlData.GetRemaining()
+				if remaining <= 0 {
+					// No requests remaining, so we need to wait until the reset time.
+					wait = waitResetAt
+					break
 				}
-				waitResetAt /= duration
+				// Divide the wait time by the remaining requests to get the time to wait per request.
+				waitResetAt /= time.Duration(remaining)
 				// Round up to the nearest second to make sure we don't hit the rate limit again
 				waitResetAt = time.Duration(math.Ceil(waitResetAt.Seconds())) * time.Second
 				if waitResetAt > 0 {

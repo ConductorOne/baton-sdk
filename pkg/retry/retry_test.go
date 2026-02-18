@@ -15,7 +15,7 @@ import (
 )
 
 func TestBasicRetry(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	retryer := NewRetryer(ctx, RetryConfig{
 		MaxAttempts:  3,
 		InitialDelay: 100 * time.Millisecond,
@@ -53,7 +53,7 @@ func TestBasicRetry(t *testing.T) {
 }
 
 func TestRetryWithRateLimitData(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	retryer := NewRetryer(ctx, RetryConfig{
 		MaxAttempts:  3,
 		InitialDelay: 100 * time.Millisecond,
@@ -64,7 +64,7 @@ func TestRetryWithRateLimitData(t *testing.T) {
 	resetAt := time.Now().Add(5 * time.Second)
 	rlData := &v2.RateLimitDescription{
 		Limit:     100,
-		Remaining: 0,
+		Remaining: 100,
 		ResetAt:   timestamppb.New(resetAt),
 	}
 
@@ -99,14 +99,14 @@ func TestRetryWithHTTPResponse(t *testing.T) {
 			headers: map[string][]string{
 				"X-Ratelimit-Limit":     {"100"},
 				"X-Ratelimit-Remaining": {"0"},
-				"X-Ratelimit-Reset":     {"60"},
+				"X-Ratelimit-Reset":     {"3"},
 			},
 			expectedRetry:   true,
-			expectedMinWait: 0,
-			expectedMaxWait: 2 * time.Second,
+			expectedMinWait: 1 * time.Second,
+			expectedMaxWait: 3500 * time.Millisecond,
 			buildRateLimitFn: func(resp *http.Response) error {
 				// Simulate what uhttp does - attach rate limit data to error
-				resetAt := time.Now().Add(60 * time.Second)
+				resetAt := time.Now().Add(3 * time.Second)
 				rlData := &v2.RateLimitDescription{
 					Limit:     100,
 					Remaining: 0,
@@ -168,7 +168,7 @@ func TestRetryWithHTTPResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			retryer := NewRetryer(ctx, RetryConfig{
 				MaxAttempts:  3,
 				InitialDelay: 100 * time.Millisecond,
@@ -206,7 +206,7 @@ func TestRetryWithHTTPResponse(t *testing.T) {
 }
 
 func TestRetryContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	retryer := NewRetryer(ctx, RetryConfig{
 		MaxAttempts:  5,
 		InitialDelay: 2 * time.Second,
@@ -234,7 +234,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 	tests := []struct {
 		name            string
 		resetAfter      time.Duration
-		limit           int64
+		remaining       int64
 		maxDelay        time.Duration
 		expectedMinWait time.Duration
 		expectedMaxWait time.Duration
@@ -242,7 +242,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 		{
 			name:            "Short reset with high limit - rounds up to 1s",
 			resetAfter:      5 * time.Second,
-			limit:           100,
+			remaining:       100,
 			maxDelay:        10 * time.Second,
 			expectedMinWait: 1 * time.Second,
 			expectedMaxWait: 1500 * time.Millisecond,
@@ -250,7 +250,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 		{
 			name:            "Longer reset with lower limit - rounds up to 1s",
 			resetAfter:      10 * time.Second,
-			limit:           50,
+			remaining:       50,
 			maxDelay:        10 * time.Second,
 			expectedMinWait: 1 * time.Second,
 			expectedMaxWait: 1500 * time.Millisecond,
@@ -258,7 +258,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 		{
 			name:            "Very short reset with limit 1",
 			resetAfter:      500 * time.Millisecond,
-			limit:           1,
+			remaining:       1,
 			maxDelay:        10 * time.Second,
 			expectedMinWait: 1 * time.Second,
 			expectedMaxWait: 1500 * time.Millisecond,
@@ -266,7 +266,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 		{
 			name:            "Long reset capped by maxDelay",
 			resetAfter:      100 * time.Second,
-			limit:           1,
+			remaining:       1,
 			maxDelay:        2 * time.Second,
 			expectedMinWait: 2 * time.Second,
 			expectedMaxWait: 2500 * time.Millisecond,
@@ -275,7 +275,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			retryer := NewRetryer(ctx, RetryConfig{
 				MaxAttempts:  3,
 				InitialDelay: 100 * time.Millisecond,
@@ -284,8 +284,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 
 			resetAt := time.Now().Add(tt.resetAfter)
 			rlData := &v2.RateLimitDescription{
-				Limit:     tt.limit,
-				Remaining: 0,
+				Remaining: tt.remaining,
 				ResetAt:   timestamppb.New(resetAt),
 			}
 
@@ -298,8 +297,8 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 			elapsed := time.Since(startTime)
 
 			require.True(t, shouldRetry)
-			t.Logf("Reset: %v, Limit: %d, MaxDelay: %v → Actual wait: %v (expected %v-%v)",
-				tt.resetAfter, tt.limit, tt.maxDelay, elapsed, tt.expectedMinWait, tt.expectedMaxWait)
+			t.Logf("Reset: %v, Remaining: %d, MaxDelay: %v → Actual wait: %v (expected %v-%v)",
+				tt.resetAfter, tt.remaining, tt.maxDelay, elapsed, tt.expectedMinWait, tt.expectedMaxWait)
 			require.GreaterOrEqual(t, elapsed, tt.expectedMinWait, "wait time too short")
 			require.LessOrEqual(t, elapsed, tt.expectedMaxWait, "wait time too long")
 		})
@@ -321,7 +320,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 		{
 			name:            "GitHub typical rate limit - 5000 limit with 1 hour reset",
 			limit:           5000,
-			remaining:       0,
+			remaining:       5000,
 			resetAfter:      3600 * time.Second, // 1 hour
 			maxDelay:        60 * time.Second,
 			expectedRetry:   true,
@@ -332,7 +331,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 		{
 			name:            "GitHub secondary rate limit - 5000 limit with 30 min reset",
 			limit:           5000,
-			remaining:       100,
+			remaining:       5000,
 			resetAfter:      1800 * time.Second, // 30 minutes
 			maxDelay:        60 * time.Second,
 			expectedRetry:   true,
@@ -343,7 +342,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 		{
 			name:            "GitHub abuse detection - 1000 limit with 1 min reset",
 			limit:           1000,
-			remaining:       0,
+			remaining:       1000,
 			resetAfter:      60 * time.Second,
 			maxDelay:        2 * time.Second,
 			expectedRetry:   true,
@@ -354,7 +353,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 		{
 			name:            "GitHub search API - 30 requests per minute",
 			limit:           30,
-			remaining:       0,
+			remaining:       30,
 			resetAfter:      60 * time.Second,
 			maxDelay:        10 * time.Second,
 			expectedRetry:   true,
@@ -365,7 +364,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 		{
 			name:            "GitHub GraphQL - 5000 points per hour",
 			limit:           5000,
-			remaining:       0,
+			remaining:       5000,
 			resetAfter:      3600 * time.Second,
 			maxDelay:        30 * time.Second,
 			expectedRetry:   true,
@@ -376,7 +375,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 		{
 			name:            "GitHub Enterprise - custom limit 10000",
 			limit:           10000,
-			remaining:       50,
+			remaining:       10000,
 			resetAfter:      3600 * time.Second,
 			maxDelay:        60 * time.Second,
 			expectedRetry:   true,
@@ -387,7 +386,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 		{
 			name:            "GitHub near reset - 5 seconds remaining",
 			limit:           5000,
-			remaining:       0,
+			remaining:       5000,
 			resetAfter:      5 * time.Second,
 			maxDelay:        60 * time.Second,
 			expectedRetry:   true,
@@ -399,7 +398,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := t.Context()
 			retryer := NewRetryer(ctx, RetryConfig{
 				MaxAttempts:  3,
 				InitialDelay: 100 * time.Millisecond,
@@ -430,13 +429,13 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 			require.Equal(t, tt.expectedRetry, shouldRetry, "retry decision should match expected")
 
 			if tt.expectedRetry {
-				calculatedWait := tt.resetAfter / time.Duration(tt.limit)
+				calculatedWait := tt.resetAfter / time.Duration(tt.remaining)
 				roundedWait := time.Second * time.Duration(int64((calculatedWait.Seconds() + 0.999)))
 				if roundedWait > tt.maxDelay {
 					roundedWait = tt.maxDelay
 				}
 
-				t.Logf("Calculated wait: %v (from %v / %d)", calculatedWait, tt.resetAfter, tt.limit)
+				t.Logf("Calculated wait: %v (from %v / %d)", calculatedWait, tt.resetAfter, tt.remaining)
 				t.Logf("Rounded wait: %v", roundedWait)
 				t.Logf("Actual wait: %v (expected %v-%v)", elapsed, tt.expectedMinWait, tt.expectedMaxWait)
 
