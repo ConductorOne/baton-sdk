@@ -184,7 +184,7 @@ func TestIncrementalExpansion_RemovedEdgeDeletesDerivedGrant(t *testing.T) {
 	}.Build()
 
 	// OLD (expanded)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -310,7 +310,7 @@ func TestIncrementalExpansion_RemovedEdgeRemovesOnlyOneSource(t *testing.T) {
 		}.Build()),
 	}.Build()
 
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -405,7 +405,7 @@ func TestIncrementalExpansion_NoChangesIsNoop(t *testing.T) {
 	}.Build()
 
 	// OLD (expanded)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -509,7 +509,7 @@ func TestIncrementalExpansion_MultipleDisjointSubgraphs(t *testing.T) {
 	}.Build()
 
 	// OLD (expanded)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -627,7 +627,7 @@ func TestIncrementalExpansion_EntitlementDeleted(t *testing.T) {
 	}.Build()
 
 	// OLD (expanded)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -737,7 +737,7 @@ func TestIncrementalExpansion_GrantNoLongerExpandable(t *testing.T) {
 	}.Build()
 
 	// OLD (expanded)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -855,7 +855,7 @@ func TestIncrementalExpansion_ResourceDeleted(t *testing.T) {
 	}.Build()
 
 	// OLD (expanded)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -960,7 +960,7 @@ func TestIncrementalExpansion_AddedEdgeCreatesNewDerivedGrant(t *testing.T) {
 	}.Build()
 
 	// OLD: just the direct grant, no edges, expanded (nothing to expand)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -1066,7 +1066,7 @@ func TestIncrementalExpansion_AddedDirectGrantPropagates(t *testing.T) {
 	}.Build()
 
 	// OLD: U1 → E1, edge E1 → E2, expanded (U1 → E2 derived)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -1164,7 +1164,7 @@ func TestIncrementalExpansion_ShallowEdgeRemoval(t *testing.T) {
 	}.Build()
 
 	// OLD: U1 → E1, shallow edge E1 → E2, expanded (U1 → E2 derived)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -1269,7 +1269,7 @@ func TestIncrementalExpansion_DirectGrantRemovedFromSource(t *testing.T) {
 	}.Build()
 
 	// OLD: U1 → E1, edge E1 → E2, expanded (U1 → E2 derived)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -1385,7 +1385,7 @@ func TestIncrementalExpansion_DirectGrantBecomesSourceless(t *testing.T) {
 
 	// OLD: U1 → E1 (direct), U1 → E2 (direct), edge E1 → E2
 	// After expansion: U1 → E2 acquires sources={E1}
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -1507,7 +1507,7 @@ func TestIncrementalExpansion_CycleEdgeRemoval(t *testing.T) {
 	}.Build()
 
 	// OLD: U1 → E1, edges E1 → E2 and E2 → E1 (cycle)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -1613,7 +1613,7 @@ func TestIncrementalExpansion_PrincipalTypeFilterMismatch(t *testing.T) {
 
 	// OLD: U1 → E1, G3 → E1, edge E1 → E2 (filter=user)
 	// After expansion: only U1 → E2 (G3 is excluded by filter)
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 
@@ -1766,7 +1766,7 @@ func TestIncrementalExpansion_FullPartialCompactDiff(t *testing.T) {
 	// STEP 2: Create FIRST PARTIAL sync with new user U2 as member of G1
 	// Partial syncs don't run expansion.
 	// ==========================================================================
-	partial1File, err := dotc1z.NewC1ZFile(ctx, partial1Path)
+	partial1File, err := dotc1z.NewC1ZFile(ctx, partial1Path, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer partial1File.Close(ctx)
 
@@ -1795,7 +1795,7 @@ func TestIncrementalExpansion_FullPartialCompactDiff(t *testing.T) {
 	// ==========================================================================
 	// STEP 4: Create SECOND PARTIAL sync with new user U3 as member of G1
 	// ==========================================================================
-	partial2File, err := dotc1z.NewC1ZFile(ctx, partial2Path)
+	partial2File, err := dotc1z.NewC1ZFile(ctx, partial2Path, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer partial2File.Close(ctx)
 
@@ -1837,7 +1837,7 @@ func TestIncrementalExpansion_FullPartialCompactDiff(t *testing.T) {
 	// ==========================================================================
 	// For this test, we'll create a separate "old" file representing pre-compaction state
 	oldPath := filepath.Join(tmpDir, "old_snapshot.c1z")
-	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath)
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
 	require.NoError(t, err)
 	defer oldFile.Close(ctx)
 

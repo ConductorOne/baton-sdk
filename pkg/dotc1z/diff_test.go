@@ -1458,9 +1458,10 @@ func TestGenerateSyncDiffFromFile_MissingExpansionMarker(t *testing.T) {
 	defer os.Remove(newPath)
 
 	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
 
 	// Create the OLD file with an expandable grant (but WITHOUT setting expansion marker)
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
@@ -1558,9 +1559,10 @@ func TestGenerateSyncDiffFromFile_WithExpansionMarker(t *testing.T) {
 	defer os.Remove(newPath)
 
 	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
 
 	// Create the OLD file with an expandable grant AND set expansion marker
-	oldFile, err := NewC1ZFile(ctx, oldPath, opts...)
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
 
 	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
