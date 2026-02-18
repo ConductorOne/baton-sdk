@@ -1761,3 +1761,460 @@ func TestGenerateSyncDiffFromFile_ExpansionOnlyChange(t *testing.T) {
 	_ = oldFile.Close(ctx)
 	_ = newFile.Close(ctx)
 }
+
+// TestGenerateSyncDiffFromFile_GrantDataModification verifies that modifying a grant's
+// data blob (not expansion) emits the NEW version in upserts and the OLD version in deletions.
+func TestGenerateSyncDiffFromFile_GrantDataModification(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_grant_data_mod_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_grant_data_mod_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	rt := v2.ResourceType_builder{Id: "group"}.Build()
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	grantOld := v2.Grant_builder{
+		Id: "grant-mod", Entitlement: ent, Principal: u1,
+	}.Build()
+	grantNew := v2.Grant_builder{
+		Id: "grant-mod", Entitlement: ent, Principal: u1,
+		Sources: v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
+			"ent1": {IsDirect: true},
+		}}.Build(),
+	}.Build()
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, oldFile.PutResources(ctx, g1, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, ent))
+	require.NoError(t, oldFile.PutGrants(ctx, grantOld))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, newFile.PutResources(ctx, g1, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, ent))
+	require.NoError(t, newFile.PutGrants(ctx, grantNew))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	upserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Len(t, upserts.Rows, 1, "upserts should contain the modified grant")
+	require.Equal(t, "grant-mod", upserts.Rows[0].Grant.GetId())
+	require.NotNil(t, upserts.Rows[0].Grant.GetSources(), "upserts grant should have the NEW Sources field")
+
+	deletions, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: deletionsSyncID,
+	})
+	require.NoError(t, err)
+	require.Len(t, deletions.Rows, 1, "deletions should contain the old version of the modified grant")
+	require.Equal(t, "grant-mod", deletions.Rows[0].Grant.GetId())
+	require.Nil(t, deletions.Rows[0].Grant.GetSources(), "deletions grant should have the OLD version (no Sources)")
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestGenerateSyncDiffFromFile_GrantMixedChanges tests add + modify + delete + unchanged grants in one diff.
+func TestGenerateSyncDiffFromFile_GrantMixedChanges(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_grant_mixed_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_grant_mixed_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	rt := v2.ResourceType_builder{Id: "group"}.Build()
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	u2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build()}.Build()
+	u3 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u3"}.Build()}.Build()
+	u4 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u4"}.Build()}.Build()
+	ent := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	grantA := v2.Grant_builder{Id: "grant-A", Entitlement: ent, Principal: u1}.Build()
+	grantBOld := v2.Grant_builder{Id: "grant-B", Entitlement: ent, Principal: u2}.Build()
+	grantBNew := v2.Grant_builder{
+		Id: "grant-B", Entitlement: ent, Principal: u2,
+		Sources: v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{"ent1": {IsDirect: true}}}.Build(),
+	}.Build()
+	grantC := v2.Grant_builder{Id: "grant-C", Entitlement: ent, Principal: u3}.Build()
+	grantD := v2.Grant_builder{Id: "grant-D", Entitlement: ent, Principal: u4}.Build()
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, oldFile.PutResources(ctx, g1, u1, u2, u3, u4))
+	require.NoError(t, oldFile.PutEntitlements(ctx, ent))
+	require.NoError(t, oldFile.PutGrants(ctx, grantA, grantBOld, grantC))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, newFile.PutResources(ctx, g1, u1, u2, u3, u4))
+	require.NoError(t, newFile.PutEntitlements(ctx, ent))
+	require.NoError(t, newFile.PutGrants(ctx, grantA, grantBNew, grantD))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	upserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	upsertIDs := map[string]bool{}
+	for _, r := range upserts.Rows {
+		upsertIDs[r.Grant.GetId()] = true
+	}
+	require.Len(t, upsertIDs, 2)
+	require.True(t, upsertIDs["grant-B"], "modified grant should be in upserts")
+	require.True(t, upsertIDs["grant-D"], "added grant should be in upserts")
+	require.False(t, upsertIDs["grant-A"], "unchanged grant should NOT be in upserts")
+
+	deletions, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: deletionsSyncID,
+	})
+	require.NoError(t, err)
+	deletionIDs := map[string]bool{}
+	for _, r := range deletions.Rows {
+		deletionIDs[r.Grant.GetId()] = true
+	}
+	require.Len(t, deletionIDs, 2)
+	require.True(t, deletionIDs["grant-C"], "deleted grant should be in deletions")
+	require.True(t, deletionIDs["grant-B"], "old version of modified grant should be in deletions")
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestGenerateSyncDiffFromFile_NeedsExpansionPreserved verifies that the needs_expansion
+// column value is preserved in diff output rows.
+func TestGenerateSyncDiffFromFile_NeedsExpansionPreserved(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_needs_exp_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_needs_exp_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	rt := v2.ResourceType_builder{Id: "group"}.Build()
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "group:g1:member", Resource: g1}.Build()
+	ent2 := v2.Entitlement_builder{Id: "group:g2:member", Resource: g2}.Build()
+
+	expandableGrant := v2.Grant_builder{
+		Id: "grant-expandable", Entitlement: ent2, Principal: g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{ent1.GetId()}, Shallow: false, ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, newFile.PutResources(ctx, g1, g2))
+	require.NoError(t, newFile.PutEntitlements(ctx, ent1, ent2))
+	require.NoError(t, newFile.PutGrants(ctx, expandableGrant))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, _, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	upserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:   connectorstore.GrantListModeExpansion,
+		SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Len(t, upserts.Rows, 1)
+	require.True(t, upserts.Rows[0].Expansion.NeedsExpansion, "needs_expansion should be preserved as true in upserts")
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestGenerateSyncDiffFromFile_ModifiedResourceNoOldRowInDeletions verifies that
+// diffModifiedFromAttachedTx only runs for grants. Modified resources and entitlements
+// should appear in upserts but their OLD versions should NOT appear in deletions.
+func TestGenerateSyncDiffFromFile_ModifiedResourceNoOldRowInDeletions(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_mod_res_no_old_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_mod_res_no_old_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+	rt := v2.ResourceType_builder{Id: "group"}.Build()
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, oldFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "Old Name",
+	}.Build()))
+	require.NoError(t, oldFile.PutEntitlements(ctx, v2.Entitlement_builder{
+		Id: "ent-old", Resource: v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build(),
+		DisplayName: "Old Ent",
+	}.Build()))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, newFile.PutResources(ctx, v2.Resource_builder{
+		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "New Name",
+	}.Build()))
+	require.NoError(t, newFile.PutEntitlements(ctx, v2.Entitlement_builder{
+		Id: "ent-old", Resource: v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build(),
+		DisplayName: "New Ent",
+	}.Build()))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	require.NoError(t, newFile.ViewSync(ctx, upsertsSyncID))
+	resources, err := newFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{ResourceTypeId: "group"}.Build())
+	require.NoError(t, err)
+	require.Len(t, resources.GetList(), 1)
+	require.Equal(t, "New Name", resources.GetList()[0].GetDisplayName())
+
+	ents, err := newFile.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, ents.GetList(), 1)
+	require.Equal(t, "New Ent", ents.GetList()[0].GetDisplayName())
+
+	require.NoError(t, newFile.ViewSync(ctx, deletionsSyncID))
+	delResources, err := newFile.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{ResourceTypeId: "group"}.Build())
+	require.NoError(t, err)
+	require.Len(t, delResources.GetList(), 0, "modified resources should NOT have OLD rows in deletions")
+
+	delEnts, err := newFile.ListEntitlements(ctx, v2.EntitlementsServiceListEntitlementsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, delEnts.GetList(), 0, "modified entitlements should NOT have OLD rows in deletions")
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestGenerateSyncDiffFromFile_ResourceTypesAlwaysCopied verifies that resource types
+// are always fully copied into the upserts sync even when unchanged, and never appear in deletions.
+func TestGenerateSyncDiffFromFile_ResourceTypesAlwaysCopied(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_rt_copy_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_rt_copy_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	rtA := v2.ResourceType_builder{Id: "typeA", DisplayName: "Type A"}.Build()
+	rtB := v2.ResourceType_builder{Id: "typeB", DisplayName: "Type B"}.Build()
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, rtA, rtB))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, rtA))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	require.NoError(t, newFile.ViewSync(ctx, upsertsSyncID))
+	rts, err := newFile.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
+	require.NoError(t, err)
+	rtIDs := map[string]bool{}
+	for _, r := range rts.GetList() {
+		rtIDs[r.GetId()] = true
+	}
+	require.True(t, rtIDs["typeA"], "unchanged resource type should still be in upserts (full copy)")
+
+	require.NoError(t, newFile.ViewSync(ctx, deletionsSyncID))
+	delRts, err := newFile.ListResourceTypes(ctx, v2.ResourceTypesServiceListResourceTypesRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, delRts.GetList(), 0, "resource types should never appear in deletions")
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestGenerateSyncDiffFromFile_ExpansionNullEdgeCases tests NULL expansion transitions:
+// NULL->non-NULL (grant becomes expandable), non-NULL->NULL (stops being expandable),
+// and NULL->NULL (should NOT be detected as a modification).
+func TestGenerateSyncDiffFromFile_ExpansionNullEdgeCases(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_exp_null_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_exp_null_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	rt := v2.ResourceType_builder{Id: "group"}.Build()
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "group:g1:member", Resource: g1}.Build()
+	ent2 := v2.Entitlement_builder{Id: "group:g2:member", Resource: g2}.Build()
+
+	expandAnno := annotations.New(v2.GrantExpandable_builder{
+		EntitlementIds: []string{ent1.GetId()}, Shallow: false, ResourceTypeIds: []string{"user"},
+	}.Build())
+
+	grantBecomeExpandableOld := v2.Grant_builder{Id: "grant-becomes-expandable", Entitlement: ent2, Principal: g1}.Build()
+	grantBecomeExpandableNew := v2.Grant_builder{Id: "grant-becomes-expandable", Entitlement: ent2, Principal: g1, Annotations: expandAnno}.Build()
+
+	grantStopsExpandableOld := v2.Grant_builder{Id: "grant-stops-expandable", Entitlement: ent2, Principal: g1, Annotations: expandAnno}.Build()
+	grantStopsExpandableNew := v2.Grant_builder{Id: "grant-stops-expandable", Entitlement: ent2, Principal: g1}.Build()
+
+	grantAlwaysPlain := v2.Grant_builder{Id: "grant-always-plain", Entitlement: ent2, Principal: u1}.Build()
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, oldFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, ent1, ent2))
+	require.NoError(t, oldFile.PutGrants(ctx, grantBecomeExpandableOld, grantStopsExpandableOld, grantAlwaysPlain))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, newFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, ent1, ent2))
+	require.NoError(t, newFile.PutGrants(ctx, grantBecomeExpandableNew, grantStopsExpandableNew, grantAlwaysPlain))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	upserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayloadWithExpansion, SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	upsertIDs := map[string]bool{}
+	for _, r := range upserts.Rows {
+		upsertIDs[r.Grant.GetId()] = true
+		if r.Grant.GetId() == "grant-becomes-expandable" {
+			require.NotNil(t, r.Expansion, "NULL->non-NULL: upserts should have expansion metadata")
+		}
+		if r.Grant.GetId() == "grant-stops-expandable" {
+			require.Nil(t, r.Expansion, "non-NULL->NULL: upserts should have no expansion metadata")
+		}
+	}
+	require.True(t, upsertIDs["grant-becomes-expandable"], "NULL->non-NULL grant should be in upserts")
+	require.True(t, upsertIDs["grant-stops-expandable"], "non-NULL->NULL grant should be in upserts")
+	require.False(t, upsertIDs["grant-always-plain"], "NULL->NULL unchanged grant should NOT be in upserts")
+
+	deletions, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayloadWithExpansion, SyncID: deletionsSyncID,
+	})
+	require.NoError(t, err)
+	deletionIDs := map[string]bool{}
+	for _, r := range deletions.Rows {
+		deletionIDs[r.Grant.GetId()] = true
+		if r.Grant.GetId() == "grant-becomes-expandable" {
+			require.Nil(t, r.Expansion, "NULL->non-NULL: deletions (OLD) should have no expansion")
+		}
+		if r.Grant.GetId() == "grant-stops-expandable" {
+			require.NotNil(t, r.Expansion, "non-NULL->NULL: deletions (OLD) should have expansion")
+		}
+	}
+	require.True(t, deletionIDs["grant-becomes-expandable"], "NULL->non-NULL OLD version should be in deletions")
+	require.True(t, deletionIDs["grant-stops-expandable"], "non-NULL->NULL OLD version should be in deletions")
+	require.False(t, deletionIDs["grant-always-plain"], "NULL->NULL unchanged grant should NOT be in deletions")
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
