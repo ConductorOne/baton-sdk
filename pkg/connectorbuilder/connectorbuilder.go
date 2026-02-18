@@ -20,7 +20,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/metrics"
-	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
@@ -285,30 +284,13 @@ func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceG
 
 // Validate validates the connector.
 func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceValidateRequest) (*v2.ConnectorServiceValidateResponse, error) {
-	ctx, span := tracer.Start(ctx, "builder.Validate")
+	_, span := tracer.Start(ctx, "builder.Validate")
 	defer span.End()
 
-	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
-		MaxAttempts:  5,
-		InitialDelay: 1 * time.Second,
-		MaxDelay:     0,
-	})
-
-	for {
-		annos, err := b.validateProvider.Validate(ctx)
-		if err == nil {
-			return v2.ConnectorServiceValidateResponse_builder{
-				Annotations: annos,
-				SdkVersion:  sdk.Version,
-			}.Build(), nil
-		}
-
-		if retryer.ShouldWaitAndRetry(ctx, err) {
-			continue
-		}
-
-		return nil, fmt.Errorf("validate failed: %w", err)
-	}
+	return v2.ConnectorServiceValidateResponse_builder{
+		Annotations: nil,
+		SdkVersion:  sdk.Version,
+	}.Build(), nil
 }
 
 func (b *builder) Cleanup(ctx context.Context, request *v2.ConnectorServiceCleanupRequest) (*v2.ConnectorServiceCleanupResponse, error) {
