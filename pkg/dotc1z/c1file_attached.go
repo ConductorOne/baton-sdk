@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"time"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/doug-martin/goqu/v9"
 	"github.com/segmentio/ksuid"
+	"google.golang.org/protobuf/proto"
 )
 
 type C1FileAttached struct {
@@ -301,15 +303,6 @@ func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID
 		if err := c.diffTableFromMainTx(ctx, tx, tableName, oldSyncID, newSyncID, upsertsSyncID); err != nil {
 			return "", "", fmt.Errorf("failed to generate upserts for %s: %w", tableName, err)
 		}
-		// For grants, also include the OLD version of modified rows in the deletions sync.
-		// This allows downstream consumers (including incremental expansion) to treat modifications
-		// as delete+insert and compute accurate edge/source invalidation without looking back into
-		// the attached database later.
-		if tableName == "v1_grants" {
-			if err := c.diffModifiedFromAttachedTx(ctx, tx, tableName, oldSyncID, newSyncID, deletionsSyncID); err != nil {
-				return "", "", fmt.Errorf("failed to generate modified-row deletions for %s: %w", tableName, err)
-			}
-		}
 	}
 
 	// End the syncs (deletions first, then upserts)
@@ -455,59 +448,171 @@ func (c *C1FileAttached) diffTableFromMainTx(ctx context.Context, tx *sql.Tx, ta
 	return err
 }
 
-// diffModifiedFromAttachedTx finds rows that exist in both the OLD (attached) and NEW (main) syncs but whose
-// data has changed, and copies the OLD version of those rows into the deletions sync. This lets downstream
-// consumers treat a modification as a delete-of-the-old-row followed by an insert-of-the-new-row, so they
-// can compute accurate invalidation without querying the attached database.
-func (c *C1FileAttached) diffModifiedFromAttachedTx(ctx context.Context, tx *sql.Tx, tableName string, oldSyncID string, newSyncID string, targetSyncID string) error {
-	columns, err := c.getTableColumns(ctx, tx, tableName)
-	if err != nil {
-		return err
+// TestOnlyComputeRemovedExpandableGrants returns expansion metadata for grants that were removed or had their
+// expansion column changed between the OLD sync (attached) and the NEW sync (main).
+// This is the "removed edges" set for incremental expansion.
+//
+// Test-only helper: this API is intended for tests and is not part of the production runtime path.
+func (c *C1FileAttached) TestOnlyComputeRemovedExpandableGrants(ctx context.Context, oldSyncID, newSyncID string) ([]*connectorstore.ExpandableGrantDef, error) {
+	if !c.safe {
+		return nil, errors.New("database has been detached")
 	}
+	tableName := grants.Name()
 
-	// Build column lists
-	columnList := ""
-	selectList := ""
-	for i, col := range columns {
-		if i > 0 {
-			columnList += ", "
-			selectList += ", "
-		}
-		columnList += col
-		if col == "sync_id" {
-			selectList += "? as sync_id"
-		} else {
-			selectList += col
-		}
-	}
-
-	// Insert OLD rows for modified records.
-	//
-	// For grants, compare both data AND expansion columns since GrantExpandable
-	// metadata is persisted in expansion (not only in data).
-	var dataCompare string
-	if tableName == grants.Name() {
-		dataCompare = "(a.data != m.data OR IFNULL(a.expansion, X'') != IFNULL(m.expansion, X''))"
-	} else {
-		dataCompare = "a.data != m.data"
-	}
-
-	//nolint:gosec // table names are from hardcoded list, not user input
 	query := fmt.Sprintf(`
-		INSERT INTO main.%s (%s)
-		SELECT %s
-		FROM attached.%s AS a
+		SELECT a.external_id, a.entitlement_id, a.principal_resource_type_id, a.principal_resource_id, a.expansion
+		FROM attached.%[1]s AS a
 		WHERE a.sync_id = ?
-		  AND EXISTS (
-		    SELECT 1 FROM main.%s AS m
-		    WHERE m.external_id = a.external_id
-		      AND m.sync_id = ?
-		      AND %s
+		  AND a.expansion IS NOT NULL
+		  AND (
+		    NOT EXISTS (
+		      SELECT 1 FROM main.%[1]s AS m
+		      WHERE m.external_id = a.external_id AND m.sync_id = ?
+		    )
+		    OR EXISTS (
+		      SELECT 1 FROM main.%[1]s AS m
+		      WHERE m.external_id = a.external_id AND m.sync_id = ?
+		        AND (
+		          IFNULL(a.expansion, X'') != IFNULL(m.expansion, X'')
+		          OR IFNULL(a.entitlement_id, '') != IFNULL(m.entitlement_id, '')
+		          OR IFNULL(a.principal_resource_type_id, '') != IFNULL(m.principal_resource_type_id, '')
+		          OR IFNULL(a.principal_resource_id, '') != IFNULL(m.principal_resource_id, '')
+		        )
+		    )
 		  )
-	`, tableName, columnList, selectList, tableName, tableName, dataCompare)
+	`, tableName)
 
-	_, err = tx.ExecContext(ctx, query, targetSyncID, oldSyncID, newSyncID)
-	return err
+	rows, err := c.file.db.QueryContext(ctx, query, oldSyncID, newSyncID, newSyncID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanExpandableRows(rows)
+}
+
+// TestOnlyComputeAddedExpandableGrants returns expansion metadata for grants that were added or had their
+// expansion column changed between the OLD sync (attached) and the NEW sync (main).
+// This is the "added edges" set for incremental expansion.
+//
+// Test-only helper: this API is intended for tests and is not part of the production runtime path.
+func (c *C1FileAttached) TestOnlyComputeAddedExpandableGrants(ctx context.Context, oldSyncID, newSyncID string) ([]*connectorstore.ExpandableGrantDef, error) {
+	if !c.safe {
+		return nil, errors.New("database has been detached")
+	}
+	tableName := grants.Name()
+
+	query := fmt.Sprintf(`
+		SELECT m.external_id, m.entitlement_id, m.principal_resource_type_id, m.principal_resource_id, m.expansion
+		FROM main.%[1]s AS m
+		WHERE m.sync_id = ?
+		  AND m.expansion IS NOT NULL
+		  AND (
+		    NOT EXISTS (
+		      SELECT 1 FROM attached.%[1]s AS a
+		      WHERE a.external_id = m.external_id AND a.sync_id = ?
+		    )
+		    OR EXISTS (
+		      SELECT 1 FROM attached.%[1]s AS a
+		      WHERE a.external_id = m.external_id AND a.sync_id = ?
+		        AND (
+		          IFNULL(a.expansion, X'') != IFNULL(m.expansion, X'')
+		          OR IFNULL(a.entitlement_id, '') != IFNULL(m.entitlement_id, '')
+		          OR IFNULL(a.principal_resource_type_id, '') != IFNULL(m.principal_resource_type_id, '')
+		          OR IFNULL(a.principal_resource_id, '') != IFNULL(m.principal_resource_id, '')
+		        )
+		    )
+		  )
+	`, tableName)
+
+	rows, err := c.file.db.QueryContext(ctx, query, newSyncID, oldSyncID, oldSyncID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return scanExpandableRows(rows)
+}
+
+// TestOnlyComputeChangedGrantEntitlementIDs returns the set of entitlement IDs that have any grant
+// changes (added, removed, or modified) between the OLD sync (attached) and the NEW sync (main).
+//
+// Test-only helper: this API is intended for tests and is not part of the production runtime path.
+func (c *C1FileAttached) TestOnlyComputeChangedGrantEntitlementIDs(ctx context.Context, oldSyncID, newSyncID string) ([]string, error) {
+	if !c.safe {
+		return nil, errors.New("database has been detached")
+	}
+	tableName := grants.Name()
+
+	query := fmt.Sprintf(`
+		SELECT DISTINCT entitlement_id FROM (
+			SELECT a.entitlement_id FROM attached.%[1]s AS a
+			WHERE a.sync_id = ?
+			  AND NOT EXISTS (
+			    SELECT 1 FROM main.%[1]s AS m
+			    WHERE m.external_id = a.external_id AND m.sync_id = ?
+			      AND a.data = m.data
+			      AND IFNULL(a.expansion, X'') = IFNULL(m.expansion, X'')
+			  )
+			UNION
+			SELECT m.entitlement_id FROM main.%[1]s AS m
+			WHERE m.sync_id = ?
+			  AND NOT EXISTS (
+			    SELECT 1 FROM attached.%[1]s AS a
+			    WHERE a.external_id = m.external_id AND a.sync_id = ?
+			      AND a.data = m.data
+			      AND IFNULL(a.expansion, X'') = IFNULL(m.expansion, X'')
+			  )
+		)
+	`, tableName)
+
+	sqlRows, err := c.file.db.QueryContext(ctx, query, oldSyncID, newSyncID, newSyncID, oldSyncID)
+	if err != nil {
+		return nil, err
+	}
+	defer sqlRows.Close()
+
+	var out []string
+	for sqlRows.Next() {
+		var id string
+		if err := sqlRows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if id != "" {
+			out = append(out, id)
+		}
+	}
+	return out, sqlRows.Err()
+}
+
+func scanExpandableRows(rows *sql.Rows) ([]*connectorstore.ExpandableGrantDef, error) {
+	var defs []*connectorstore.ExpandableGrantDef
+	for rows.Next() {
+		var (
+			externalID    string
+			entID         string
+			principalRTID string
+			principalRID  string
+			expansionBlob []byte
+		)
+		if err := rows.Scan(&externalID, &entID, &principalRTID, &principalRID, &expansionBlob); err != nil {
+			return nil, err
+		}
+		ge := &v2.GrantExpandable{}
+		if err := proto.Unmarshal(expansionBlob, ge); err != nil {
+			return nil, fmt.Errorf("invalid expansion data for %q: %w", externalID, err)
+		}
+		defs = append(defs, &connectorstore.ExpandableGrantDef{
+			GrantExternalID:         externalID,
+			TargetEntitlementID:     entID,
+			PrincipalResourceTypeID: principalRTID,
+			PrincipalResourceID:     principalRID,
+			SourceEntitlementIDs:    ge.GetEntitlementIds(),
+			Shallow:                 ge.GetShallow(),
+			ResourceTypeIDs:         ge.GetResourceTypeIds(),
+		})
+	}
+	return defs, rows.Err()
 }
 
 // copyTableFromMainTx copies all rows for newSyncID (NEW) into targetSyncID. This is used for tables where we

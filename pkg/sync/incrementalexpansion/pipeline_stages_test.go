@@ -54,7 +54,7 @@ func setupExpandableSync(
 }
 
 // -----------------------------------------------------------------------
-// EdgeDeltaFromDiffSyncs unit tests
+// EdgeDelta unit tests (cross-DB attached queries)
 // -----------------------------------------------------------------------
 
 func TestEdgeDelta_EmptySyncs(t *testing.T) {
@@ -78,13 +78,14 @@ func TestEdgeDelta_EmptySyncs(t *testing.T) {
 	// Generate diff with no grants in either sync
 	attached, err := newFile.AttachFile(oldFile, "attached")
 	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	_, err = attached.DetachFile("attached")
 	require.NoError(t, err)
 
-	delta, err := incrementalexpansion.EdgeDeltaFromDiffSyncs(ctx, newFile, upsertsSyncID, deletionsSyncID)
-	require.NoError(t, err)
+	delta := incrementalexpansion.EdgeDeltaFromExpandableGrants(addedDefs, removedDefs)
 	require.Empty(t, delta.Added)
 	require.Empty(t, delta.Removed)
 }
@@ -141,13 +142,14 @@ func TestEdgeDelta_AddsAndRemoves(t *testing.T) {
 
 	attached, err := newFile.AttachFile(oldFile, "attached")
 	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	_, err = attached.DetachFile("attached")
 	require.NoError(t, err)
 
-	delta, err := incrementalexpansion.EdgeDeltaFromDiffSyncs(ctx, newFile, upsertsSyncID, deletionsSyncID)
-	require.NoError(t, err)
+	delta := incrementalexpansion.EdgeDeltaFromExpandableGrants(addedDefs, removedDefs)
 
 	require.Len(t, delta.Added, 1, "should have one added edge (E2→E3)")
 	require.Len(t, delta.Removed, 1, "should have one removed edge (E1→E2)")
@@ -213,13 +215,14 @@ func TestEdgeDelta_ShallowFlagCreatesDistinctKeys(t *testing.T) {
 
 	attached, err := newFile.AttachFile(oldFile, "attached")
 	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	_, err = attached.DetachFile("attached")
 	require.NoError(t, err)
 
-	delta, err := incrementalexpansion.EdgeDeltaFromDiffSyncs(ctx, newFile, upsertsSyncID, deletionsSyncID)
-	require.NoError(t, err)
+	delta := incrementalexpansion.EdgeDeltaFromExpandableGrants(addedDefs, removedDefs)
 
 	// Shallow→deep means the old shallow edge is removed and a new deep edge is added
 	require.Len(t, delta.Added, 1, "new deep edge should be in Added")
@@ -645,13 +648,14 @@ func TestEdgeDelta_PaginationOver10000Rows(t *testing.T) {
 
 	attached, err := newFile.AttachFile(oldFile, "attached")
 	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	_, err = attached.DetachFile("attached")
 	require.NoError(t, err)
 
-	delta, err := incrementalexpansion.EdgeDeltaFromDiffSyncs(ctx, newFile, upsertsSyncID, deletionsSyncID)
-	require.NoError(t, err)
+	delta := incrementalexpansion.EdgeDeltaFromExpandableGrants(addedDefs, removedDefs)
 	require.Len(t, delta.Added, 10001, "all edges should be read across page boundaries")
 	require.Len(t, delta.Removed, 0)
 }
@@ -734,14 +738,7 @@ func TestIncrementalExpansion_ImmutableSourcelessGrantDeleted(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: derived U1→E2 (GrantImmutable) should be DELETED since it became sourceless
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -841,14 +838,7 @@ func TestIncrementalExpansion_NonImmutableSourcelessGrantKept(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: U1→E2 persists (non-immutable direct grant) with sources=nil
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)

@@ -16,6 +16,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// diffAndApplyIncremental is a test helper that generates a diff, computes edge deltas and
+// changed grants via cross-DB queries on the attached file, detaches, then applies incremental expansion.
+func diffAndApplyIncremental(t *testing.T, ctx context.Context, newFile *dotc1z.C1File, oldFile *dotc1z.C1File, oldSyncID, newSyncID string) {
+	t.Helper()
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	changedEntIDs, err := attached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	delta := incrementalexpansion.EdgeDeltaFromExpandableGrants(addedDefs, removedDefs)
+	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, delta, changedEntIDs, upsertsSyncID, deletionsSyncID))
+}
+
 func runFullExpansion(ctx context.Context, c1f *dotc1z.C1File, syncID string) error {
 	// Mark the sync as supporting diff operations (SQL-layer data is ready).
 	if err := c1f.SetSupportsDiff(ctx, syncID); err != nil {
@@ -227,15 +248,7 @@ func TestIncrementalExpansion_RemovedEdgeDeletesDerivedGrant(t *testing.T) {
 	require.NoError(t, newFile.EndSync(ctx))
 
 	// Generate diff syncs: main=NEW, attached=OLD
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	// Incremental invalidation + expansion on NEW
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: start from connector truth after removal (no nesting grant), then expand fully.
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -341,14 +354,7 @@ func TestIncrementalExpansion_RemovedEdgeRemovesOnlyOneSource(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
 	require.NoError(t, err)
@@ -434,15 +440,8 @@ func TestIncrementalExpansion_NoChangesIsNoop(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
 	// Should be a no-op.
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	got, err := loadGrantSourcesByKey(ctx, newFile, newSyncID)
 	require.NoError(t, err)
@@ -548,14 +547,7 @@ func TestIncrementalExpansion_MultipleDisjointSubgraphs(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: connector truth after removal (no nesting grants), fully expanded.
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -666,14 +658,7 @@ func TestIncrementalExpansion_EntitlementDeleted(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: connector truth with e2 removed (no grants on e2), expanded fully.
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -776,14 +761,7 @@ func TestIncrementalExpansion_GrantNoLongerExpandable(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: connector truth with nesting grant non-expandable, expanded fully.
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -894,14 +872,7 @@ func TestIncrementalExpansion_ResourceDeleted(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: connector truth with g2/e2 removed (no grants on e2), expanded fully.
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -999,14 +970,7 @@ func TestIncrementalExpansion_AddedEdgeCreatesNewDerivedGrant(t *testing.T) {
 	require.NoError(t, newFile.PutGrants(ctx, grantG1E2))
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: connector truth with new edge, fully expanded
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -1097,14 +1061,7 @@ func TestIncrementalExpansion_AddedDirectGrantPropagates(t *testing.T) {
 	require.NoError(t, newFile.PutGrants(ctx, grantU2E1))
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: connector truth with both direct grants, fully expanded (U2 → E2 derived)
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -1203,14 +1160,7 @@ func TestIncrementalExpansion_ShallowEdgeRemoval(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: connector truth without edge, fully expanded (no derived grants)
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -1308,14 +1258,7 @@ func TestIncrementalExpansion_DirectGrantRemovedFromSource(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: connector truth without the direct grant, fully expanded (U1 → E2 should be gone)
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -1425,14 +1368,7 @@ func TestIncrementalExpansion_DirectGrantBecomesSourceless(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: U1 → E2 still exists (it's a direct grant), but with no sources
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -1539,14 +1475,7 @@ func TestIncrementalExpansion_CycleEdgeRemoval(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: connector truth with only E1 → E2 edge (no cycle), fully expanded
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -1653,14 +1582,7 @@ func TestIncrementalExpansion_PrincipalTypeFilterMismatch(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: connector truth without edge, fully expanded
 	// U1 → E1 remains, G3 → E1 remains, no derived grants
@@ -1847,10 +1769,15 @@ func TestIncrementalExpansion_FullPartialCompactDiff(t *testing.T) {
 	require.NoError(t, runFullExpansion(ctx, oldFile, oldSyncID))
 
 	// Now generate diff: base (compacted) is NEW, oldFile is OLD
-	// Note: GenerateSyncDiffFromFile uses hardcoded "attached" as the database alias.
 	diffAttached, err := baseFile.AttachFile(oldFile, "attached")
 	require.NoError(t, err)
 	upsertsSyncID, deletionsSyncID, err := diffAttached.GenerateSyncDiffFromFile(ctx, oldSyncID, baseSyncID)
+	require.NoError(t, err)
+	addedDefs, err := diffAttached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, baseSyncID)
+	require.NoError(t, err)
+	removedDefs, err := diffAttached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, baseSyncID)
+	require.NoError(t, err)
+	changedEntIDs, err := diffAttached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, baseSyncID)
 	require.NoError(t, err)
 	_, err = diffAttached.DetachFile("attached")
 	require.NoError(t, err)
@@ -1864,11 +1791,8 @@ func TestIncrementalExpansion_FullPartialCompactDiff(t *testing.T) {
 	require.NotContains(t, upserts, "group:g2:member|user|u2")
 	require.NotContains(t, upserts, "group:g2:member|user|u3")
 
-	// ==========================================================================
-	// STEP 7: Apply incremental expansion using the diff
-	// This should detect the new grants U2→E1 and U3→E1 and propagate them through the expansion graph.
-	// ==========================================================================
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, baseFile, baseSyncID, upsertsSyncID, deletionsSyncID))
+	delta := incrementalexpansion.EdgeDeltaFromExpandableGrants(addedDefs, removedDefs)
+	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, baseFile, baseSyncID, delta, changedEntIDs, upsertsSyncID, deletionsSyncID))
 
 	// ==========================================================================
 	// STEP 8: Create EXPECTED file with fresh full expansion of the compacted state
@@ -1997,14 +1921,7 @@ func TestIncrementalExpansion_DiamondGraph(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: U1→E3 still exists (via E2→E3 path), with correct sources
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -2124,14 +2041,7 @@ func TestIncrementalExpansion_ShallowToDeepToggle(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: E2→E3 is now deep, so U1 should propagate through to E3
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -2241,14 +2151,7 @@ func TestIncrementalExpansion_ResourceTypeFilterChange(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: both U1 and SA1 should now have derived membership in E2
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -2364,14 +2267,7 @@ func TestIncrementalExpansion_ConvergingEdgesRemoval(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: U1→E3 remains (via E1), U2→E3 removed
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -2468,14 +2364,7 @@ func TestIncrementalExpansion_GrantReplacementAtSource(t *testing.T) {
 	require.NoError(t, newFile.PutGrants(ctx, grantU2E1)) // add U2→E1
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: U2→E1, edge E1→E2, expanded (U2→E2 derived, no U1→E2)
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -2580,14 +2469,7 @@ func TestIncrementalExpansion_AddNewEdgeAtEndOfChain(t *testing.T) {
 	require.NoError(t, newFile.PutGrants(ctx, grantG2E3))
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: U1→E1, E1→E2, E2→E3, expanded (U1→E2, U1→E3 both derived)
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
@@ -2703,14 +2585,7 @@ func TestIncrementalExpansion_SourceListChange(t *testing.T) {
 	}
 	require.NoError(t, newFile.EndSync(ctx))
 
-	attached, err := newFile.AttachFile(oldFile, "attached")
-	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, upsertsSyncID, deletionsSyncID))
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
 
 	// EXPECTED: U1→E2 (via e1_member) AND U2→E2 (via e1_admin) should be derived
 	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)

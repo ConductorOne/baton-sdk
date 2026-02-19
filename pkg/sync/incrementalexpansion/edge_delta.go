@@ -1,8 +1,6 @@
 package incrementalexpansion
 
 import (
-	"context"
-	"fmt"
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -38,56 +36,30 @@ type EdgeDelta struct {
 	Removed map[string]Edge
 }
 
-// EdgeDeltaFromDiffSyncs computes edge additions/removals from a paired diff sync:
-// - upsertsSyncID contains NEW versions (adds + modifications)
-// - deletionsSyncID contains OLD versions (deletes + OLD side of modifications)
-//
-// This function assumes diff generation inserts OLD versions of modified grants into the deletions sync.
-func EdgeDeltaFromDiffSyncs(ctx context.Context, store connectorstore.InternalWriter, upsertsSyncID, deletionsSyncID string) (*EdgeDelta, error) {
-	added, err := edgeSetFromSync(ctx, store, upsertsSyncID)
-	if err != nil {
-		return nil, fmt.Errorf("edge delta: failed reading upserts sync %s: %w", upsertsSyncID, err)
+// EdgeDeltaFromExpandableGrants builds an EdgeDelta from pre-computed lists of added/removed
+// expandable grant definitions (typically from cross-database queries on the attached file).
+func EdgeDeltaFromExpandableGrants(added, removed []*connectorstore.ExpandableGrantDef) *EdgeDelta {
+	return &EdgeDelta{
+		Added:   edgeSetFromDefs(added),
+		Removed: edgeSetFromDefs(removed),
 	}
-	removed, err := edgeSetFromSync(ctx, store, deletionsSyncID)
-	if err != nil {
-		return nil, fmt.Errorf("edge delta: failed reading deletions sync %s: %w", deletionsSyncID, err)
-	}
-	return &EdgeDelta{Added: added, Removed: removed}, nil
 }
 
-func edgeSetFromSync(ctx context.Context, store connectorstore.InternalWriter, syncID string) (map[string]Edge, error) {
-	out := make(map[string]Edge)
-	pageToken := ""
-	for {
-		resp, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-			Mode:           connectorstore.GrantListModeExpansion,
-			SyncID:         syncID,
-			PageToken:      pageToken,
-			ExpandableOnly: true,
-		})
-
-		if err != nil {
-			return nil, err
+func edgeSetFromDefs(defs []*connectorstore.ExpandableGrantDef) map[string]Edge {
+	out := make(map[string]Edge, len(defs))
+	for _, def := range defs {
+		if def == nil {
+			continue
 		}
-		for _, row := range resp.Rows {
-			def := row.Expansion
-			if def == nil {
-				continue
+		for _, src := range def.SourceEntitlementIDs {
+			e := Edge{
+				SrcEntitlementID:         src,
+				DstEntitlementID:         def.TargetEntitlementID,
+				Shallow:                  def.Shallow,
+				PrincipalResourceTypeIDs: def.ResourceTypeIDs,
 			}
-			for _, src := range def.SourceEntitlementIDs {
-				e := Edge{
-					SrcEntitlementID:         src,
-					DstEntitlementID:         def.TargetEntitlementID,
-					Shallow:                  def.Shallow,
-					PrincipalResourceTypeIDs: def.ResourceTypeIDs,
-				}
-				out[e.Key()] = e
-			}
+			out[e.Key()] = e
 		}
-		if resp.NextPageToken == "" {
-			break
-		}
-		pageToken = resp.NextPageToken
 	}
-	return out, nil
+	return out
 }

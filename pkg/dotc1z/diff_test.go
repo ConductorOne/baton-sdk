@@ -1729,34 +1729,130 @@ func TestGenerateSyncDiffFromFile_ExpansionOnlyChange(t *testing.T) {
 	attached, err := newFile.AttachFile(oldFile, "attached")
 	require.NoError(t, err)
 
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	upsertsSyncID, _, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
+
+	// Verify added edges via cross-DB query (NEW version: shallow=true).
+	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	require.Len(t, addedDefs, 1, "should have one added expandable grant")
+	require.True(t, addedDefs[0].Shallow, "added grant should have NEW expansion (shallow=true)")
+
+	// Verify removed edges via cross-DB query (OLD version: shallow=false).
+	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	require.Len(t, removedDefs, 1, "should have one removed expandable grant")
+	require.False(t, removedDefs[0].Shallow, "removed grant should have OLD expansion (shallow=false)")
 
 	_, err = attached.DetachFile("attached")
 	require.NoError(t, err)
 
-	// Verify the upserts sync has the NEW version (shallow=true).
-	// Use Expansion mode because payload modes currently resolve sync from current/view context.
+	// Also verify the upserts sync in main has the NEW version.
 	upsertsRows, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode:      connectorstore.GrantListModeExpansion,
-		SyncID:    upsertsSyncID,
-		PageToken: "",
+		Mode:   connectorstore.GrantListModeExpansion,
+		SyncID: upsertsSyncID,
 	})
 	require.NoError(t, err)
 	require.Len(t, upsertsRows.Rows, 1, "upserts should contain the modified grant")
 	require.Equal(t, grantID, upsertsRows.Rows[0].Expansion.GrantExternalID)
 	require.True(t, upsertsRows.Rows[0].Expansion.Shallow, "upserts should contain NEW expansion version (shallow=true)")
 
-	// Verify the deletions sync has the OLD version (shallow=false).
-	deletionsRows, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode:      connectorstore.GrantListModeExpansion,
-		SyncID:    deletionsSyncID,
-		PageToken: "",
-	})
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestComputeExpandableGrants_StableExternalIDRetarget verifies that moving an expandable grant
+// to a different entitlement with the same external_id is surfaced as remove+add edge delta.
+func TestComputeExpandableGrants_StableExternalIDRetarget(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_expandable_retarget_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_expandable_retarget_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	groupRT := v2.ResourceType_builder{Id: "group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user"}.Build()
+
+	g1 := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
+		DisplayName: "G1",
+	}.Build()
+	g2 := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(),
+		DisplayName: "G2",
+	}.Build()
+	g3 := v2.Resource_builder{
+		Id:          v2.ResourceId_builder{ResourceType: "group", Resource: "g3"}.Build(),
+		DisplayName: "G3",
+	}.Build()
+
+	eSrc := v2.Entitlement_builder{Id: "group:g1:member", Resource: g1, Slug: "member", DisplayName: "member"}.Build()
+	eOld := v2.Entitlement_builder{Id: "group:g2:member", Resource: g2, Slug: "member", DisplayName: "member"}.Build()
+	eNew := v2.Entitlement_builder{Id: "group:g3:member", Resource: g3, Slug: "member", DisplayName: "member"}.Build()
+
+	grantID := "grant:stable-retarget"
+	expandable := annotations.New(v2.GrantExpandable_builder{
+		EntitlementIds:  []string{eSrc.GetId()},
+		Shallow:         false,
+		ResourceTypeIds: []string{"user"},
+	}.Build())
+
+	grantOld := v2.Grant_builder{
+		Id:          grantID,
+		Entitlement: eOld,
+		Principal:   g1,
+		Annotations: expandable,
+	}.Build()
+	grantNew := v2.Grant_builder{
+		Id:          grantID,
+		Entitlement: eNew,
+		Principal:   g1,
+		Annotations: expandable,
+	}.Build()
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
 	require.NoError(t, err)
-	require.Len(t, deletionsRows.Rows, 1, "deletions should contain the old version of the modified grant")
-	require.Equal(t, grantID, deletionsRows.Rows[0].Expansion.GrantExternalID)
-	require.False(t, deletionsRows.Rows[0].Expansion.Shallow, "deletions should contain OLD expansion version (shallow=false)")
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, oldFile.PutResources(ctx, g1, g2, g3))
+	require.NoError(t, oldFile.PutEntitlements(ctx, eSrc, eOld, eNew))
+	require.NoError(t, oldFile.PutGrants(ctx, grantOld))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, newFile.PutResources(ctx, g1, g2, g3))
+	require.NoError(t, newFile.PutEntitlements(ctx, eSrc, eOld, eNew))
+	require.NoError(t, newFile.PutGrants(ctx, grantNew))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+
+	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	require.Len(t, addedDefs, 1, "retarget should add one edge definition for the NEW destination")
+	require.Equal(t, grantID, addedDefs[0].GrantExternalID)
+	require.Equal(t, eNew.GetId(), addedDefs[0].TargetEntitlementID)
+
+	require.Len(t, removedDefs, 1, "retarget should remove one edge definition for the OLD destination")
+	require.Equal(t, grantID, removedDefs[0].GrantExternalID)
+	require.Equal(t, eOld.GetId(), removedDefs[0].TargetEntitlementID)
 
 	_ = oldFile.Close(ctx)
 	_ = newFile.Close(ctx)
@@ -1813,8 +1909,14 @@ func TestGenerateSyncDiffFromFile_GrantDataModification(t *testing.T) {
 
 	attached, err := newFile.AttachFile(oldFile, "attached")
 	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	upsertsSyncID, _, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
+
+	// Verify changed grant entitlement IDs via cross-DB query.
+	changedIDs, err := attached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	require.Contains(t, changedIDs, "ent1", "modified grant's entitlement should appear in changed IDs")
+
 	_, err = attached.DetachFile("attached")
 	require.NoError(t, err)
 
@@ -1825,14 +1927,6 @@ func TestGenerateSyncDiffFromFile_GrantDataModification(t *testing.T) {
 	require.Len(t, upserts.Rows, 1, "upserts should contain the modified grant")
 	require.Equal(t, "grant-mod", upserts.Rows[0].Grant.GetId())
 	require.NotNil(t, upserts.Rows[0].Grant.GetSources(), "upserts grant should have the NEW Sources field")
-
-	deletions, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode: connectorstore.GrantListModePayload, SyncID: deletionsSyncID,
-	})
-	require.NoError(t, err)
-	require.Len(t, deletions.Rows, 1, "deletions should contain the old version of the modified grant")
-	require.Equal(t, "grant-mod", deletions.Rows[0].Grant.GetId())
-	require.Nil(t, deletions.Rows[0].Grant.GetSources(), "deletions grant should have the OLD version (no Sources)")
 
 	_ = oldFile.Close(ctx)
 	_ = newFile.Close(ctx)
@@ -1892,9 +1986,16 @@ func TestGenerateSyncDiffFromFile_GrantMixedChanges(t *testing.T) {
 	require.NoError(t, err)
 	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
+
+	// Verify changed grants via cross-DB query (should include B's entitlement and C's entitlement).
+	changedIDs, err := attached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	require.Contains(t, changedIDs, "ent1")
+
 	_, err = attached.DetachFile("attached")
 	require.NoError(t, err)
 
+	// Upserts: grant-B (modified NEW) and grant-D (added). NOT grant-A (unchanged).
 	upserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
 		Mode: connectorstore.GrantListModePayload, SyncID: upsertsSyncID,
 	})
@@ -1908,6 +2009,7 @@ func TestGenerateSyncDiffFromFile_GrantMixedChanges(t *testing.T) {
 	require.True(t, upsertIDs["grant-D"], "added grant should be in upserts")
 	require.False(t, upsertIDs["grant-A"], "unchanged grant should NOT be in upserts")
 
+	// Deletions: only grant-C (purely deleted). Modified grants' OLD rows are no longer copied here.
 	deletions, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
 		Mode: connectorstore.GrantListModePayload, SyncID: deletionsSyncID,
 	})
@@ -1916,9 +2018,8 @@ func TestGenerateSyncDiffFromFile_GrantMixedChanges(t *testing.T) {
 	for _, r := range deletions.Rows {
 		deletionIDs[r.Grant.GetId()] = true
 	}
-	require.Len(t, deletionIDs, 2)
+	require.Len(t, deletionIDs, 1)
 	require.True(t, deletionIDs["grant-C"], "deleted grant should be in deletions")
-	require.True(t, deletionIDs["grant-B"], "old version of modified grant should be in deletions")
 
 	_ = oldFile.Close(ctx)
 	_ = newFile.Close(ctx)
@@ -2174,11 +2275,39 @@ func TestGenerateSyncDiffFromFile_ExpansionNullEdgeCases(t *testing.T) {
 
 	attached, err := newFile.AttachFile(oldFile, "attached")
 	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	upsertsSyncID, _, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
+
+	// Verify via cross-DB queries: added and removed expandable grants.
+	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	addedByID := map[string]bool{}
+	for _, d := range addedDefs {
+		addedByID[d.GrantExternalID] = true
+	}
+	require.True(t, addedByID["grant-becomes-expandable"], "NULL->non-NULL should appear in added expandable grants")
+	require.False(t, addedByID["grant-stops-expandable"], "non-NULL->NULL should NOT appear in added expandable grants")
+	require.False(t, addedByID["grant-always-plain"], "NULL->NULL should NOT appear in added expandable grants")
+
+	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	removedByID := map[string]bool{}
+	for _, d := range removedDefs {
+		removedByID[d.GrantExternalID] = true
+	}
+	require.False(t, removedByID["grant-becomes-expandable"], "NULL->non-NULL should NOT appear in removed expandable grants")
+	require.True(t, removedByID["grant-stops-expandable"], "non-NULL->NULL should appear in removed expandable grants")
+	require.False(t, removedByID["grant-always-plain"], "NULL->NULL should NOT appear in removed expandable grants")
+
+	// Verify changed grant entitlement IDs includes both modified grants.
+	changedIDs, err := attached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	require.Contains(t, changedIDs, ent2.GetId(), "changed IDs should include entitlement of modified grants")
+
 	_, err = attached.DetachFile("attached")
 	require.NoError(t, err)
 
+	// Verify upserts in main still have both modified grants with correct expansion state.
 	upserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
 		Mode: connectorstore.GrantListModePayloadWithExpansion, SyncID: upsertsSyncID,
 	})
@@ -2196,24 +2325,6 @@ func TestGenerateSyncDiffFromFile_ExpansionNullEdgeCases(t *testing.T) {
 	require.True(t, upsertIDs["grant-becomes-expandable"], "NULL->non-NULL grant should be in upserts")
 	require.True(t, upsertIDs["grant-stops-expandable"], "non-NULL->NULL grant should be in upserts")
 	require.False(t, upsertIDs["grant-always-plain"], "NULL->NULL unchanged grant should NOT be in upserts")
-
-	deletions, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode: connectorstore.GrantListModePayloadWithExpansion, SyncID: deletionsSyncID,
-	})
-	require.NoError(t, err)
-	deletionIDs := map[string]bool{}
-	for _, r := range deletions.Rows {
-		deletionIDs[r.Grant.GetId()] = true
-		if r.Grant.GetId() == "grant-becomes-expandable" {
-			require.Nil(t, r.Expansion, "NULL->non-NULL: deletions (OLD) should have no expansion")
-		}
-		if r.Grant.GetId() == "grant-stops-expandable" {
-			require.NotNil(t, r.Expansion, "non-NULL->NULL: deletions (OLD) should have expansion")
-		}
-	}
-	require.True(t, deletionIDs["grant-becomes-expandable"], "NULL->non-NULL OLD version should be in deletions")
-	require.True(t, deletionIDs["grant-stops-expandable"], "non-NULL->NULL OLD version should be in deletions")
-	require.False(t, deletionIDs["grant-always-plain"], "NULL->NULL unchanged grant should NOT be in deletions")
 
 	_ = oldFile.Close(ctx)
 	_ = newFile.Close(ctx)

@@ -290,19 +290,9 @@ func upsertGrantsInternal(
 	ctx, span := tracer.Start(ctx, "C1File.bulkUpsertGrants")
 	defer span.End()
 
-	if syncID == "" {
-		if err := c.validateSyncDb(ctx); err != nil {
-			return err
-		}
-	} else {
-		if err := c.validateDb(ctx); err != nil {
-			return err
-		}
-	}
-
-	resolvedSyncID := syncID
-	if resolvedSyncID == "" {
-		resolvedSyncID = c.currentSyncID
+	resolvedSyncID, err := c.resolveGrantWriteSyncID(ctx, syncID)
+	if err != nil {
+		return err
 	}
 
 	rows, err := prepareConnectorObjectRows(c, msgs, grantExtractFields(mode), resolvedSyncID)
@@ -311,6 +301,23 @@ func upsertGrantsInternal(
 	}
 
 	return executeGrantChunkedUpsert(ctx, c, rows, mode)
+}
+
+// resolveGrantWriteSyncID validates write preconditions and returns the sync ID to write against.
+// If explicitSyncID is empty, it requires an active sync and uses c.currentSyncID.
+// If explicitSyncID is set, it only requires an open DB and returns explicitSyncID.
+func (c *C1File) resolveGrantWriteSyncID(ctx context.Context, explicitSyncID string) (string, error) {
+	if explicitSyncID != "" {
+		if err := c.validateDb(ctx); err != nil {
+			return "", err
+		}
+		return explicitSyncID, nil
+	}
+
+	if err := c.validateSyncDb(ctx); err != nil {
+		return "", err
+	}
+	return c.currentSyncID, nil
 }
 
 // hasGrantExpandable returns true if the grant has a GrantExpandable annotation.
@@ -548,18 +555,9 @@ func (c *C1File) DeleteGrantInternal(ctx context.Context, opts connectorstore.Gr
 }
 
 func (c *C1File) deleteGrantInternal(ctx context.Context, opts connectorstore.GrantDeleteOptions, grantId string) error {
-	if opts.SyncID != "" {
-		if err := c.validateDb(ctx); err != nil {
-			return err
-		}
-	} else {
-		if err := c.validateSyncDb(ctx); err != nil {
-			return err
-		}
-	}
-	syncId := opts.SyncID
-	if syncId == "" {
-		syncId = c.currentSyncID
+	syncId, err := c.resolveGrantWriteSyncID(ctx, opts.SyncID)
+	if err != nil {
+		return err
 	}
 	q := c.db.Delete(grants.Name()).Where(goqu.C("external_id").Eq(grantId))
 	if syncId != "" {
