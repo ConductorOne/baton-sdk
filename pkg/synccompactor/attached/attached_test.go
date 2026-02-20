@@ -262,6 +262,7 @@ func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
 
 	oldSyncID, err := oldDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
+	require.NoError(t, oldDB.SetSupportsDiff(ctx, oldSyncID))
 	require.NoError(t, oldDB.EndSync(ctx))
 
 	// Applied DB: create a full sync, then generate diff syncs, then delete the full sync.

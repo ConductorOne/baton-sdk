@@ -11,6 +11,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 
+	c1zpb "github.com/conductorone/baton-sdk/pb/c1/c1z/v1"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
@@ -35,8 +36,9 @@ type ExpanderStore interface {
 // Expander handles the grant expansion algorithm.
 // It can be used standalone for testing or called from the syncer.
 type Expander struct {
-	store ExpanderStore
-	graph *EntitlementGraph
+	store  ExpanderStore
+	graph  *EntitlementGraph
+	syncID string
 }
 
 // NewExpander creates a new Expander with the given store and graph.
@@ -45,6 +47,19 @@ func NewExpander(store ExpanderStore, graph *EntitlementGraph) *Expander {
 		store: store,
 		graph: graph,
 	}
+}
+
+// WithSyncID scopes expander reads/writes to a specific sync.
+func (e *Expander) WithSyncID(syncID string) *Expander {
+	e.syncID = syncID
+	return e
+}
+
+func (e *Expander) requestAnnotations() annotations.Annotations {
+	if e.syncID == "" {
+		return nil
+	}
+	return annotations.New(c1zpb.SyncDetails_builder{Id: e.syncID}.Build())
 }
 
 // Graph returns the entitlement graph.
@@ -148,8 +163,10 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 	)
 
 	// Fetch source and descendant entitlement
+	reqAnnos := e.requestAnnotations()
 	sourceEntitlement, err := e.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: action.SourceEntitlementID,
+		Annotations:   reqAnnos,
 	}.Build())
 	if err != nil {
 		l.Error("runAction: error fetching source entitlement", zap.Error(err))
@@ -158,6 +175,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 
 	descendantEntitlement, err := e.store.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 		EntitlementId: action.DescendantEntitlementID,
+		Annotations:   reqAnnos,
 	}.Build())
 	if err != nil {
 		l.Error("runAction: error fetching descendant entitlement", zap.Error(err))
@@ -169,6 +187,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		Entitlement:              sourceEntitlement.GetEntitlement(),
 		PageToken:                action.PageToken,
 		PrincipalResourceTypeIds: action.ResourceTypeIDs,
+		Annotations:              reqAnnos,
 	}.Build())
 	if err != nil {
 		l.Error("runAction: error fetching source grants", zap.Error(err))
@@ -206,7 +225,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 				Entitlement: descendantEntitlement.GetEntitlement(),
 				PrincipalId: sourceGrant.GetPrincipal().GetId(),
 				PageToken:   pageToken,
-				Annotations: nil,
+				Annotations: reqAnnos,
 			}.Build()
 
 			resp, err := e.store.ListGrantsForEntitlement(ctx, req)
@@ -224,7 +243,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 					return "", fmt.Errorf("runAction: error creating new grant: %w", err)
 				}
 				newGrants = append(newGrants, descendantGrant)
-				newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000)
+				newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000, e.syncID)
 				if err != nil {
 					l.Error("runAction: error updating descendant grants", zap.Error(err))
 					return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
@@ -261,7 +280,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 			}
 			newGrants = append(newGrants, grantsToUpdate...)
 
-			newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000)
+			newGrants, err = PutGrantsInChunks(ctx, e.store, newGrants, 10000, e.syncID)
 			if err != nil {
 				l.Error("runAction: error updating descendant grants", zap.Error(err))
 				return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
@@ -274,7 +293,7 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 		}
 	}
 
-	_, err = PutGrantsInChunks(ctx, e.store, newGrants, 0)
+	_, err = PutGrantsInChunks(ctx, e.store, newGrants, 0, e.syncID)
 	if err != nil {
 		l.Error("runAction: error updating descendant grants", zap.Error(err))
 		return "", fmt.Errorf("runAction: error updating descendant grants: %w", err)
@@ -285,13 +304,14 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 
 // PutGrantsInChunks accumulates grants until the buffer exceeds minChunkSize,
 // then writes all grants to the store at once.
-func PutGrantsInChunks(ctx context.Context, store ExpanderStore, grants []*v2.Grant, minChunkSize int) ([]*v2.Grant, error) {
+func PutGrantsInChunks(ctx context.Context, store ExpanderStore, grants []*v2.Grant, minChunkSize int, syncID string) ([]*v2.Grant, error) {
 	if len(grants) < minChunkSize {
 		return grants, nil
 	}
 
 	err := store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
-		Mode: connectorstore.GrantUpsertModePreserveExpansion,
+		Mode:   connectorstore.GrantUpsertModePreserveExpansion,
+		SyncID: syncID,
 	}, grants...)
 	if err != nil {
 		return nil, fmt.Errorf("PutGrantsInChunks: error putting grants: %w", err)
