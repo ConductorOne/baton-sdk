@@ -1103,6 +1103,59 @@ func TestNeedsExpansion_ExpansionChangeSetsFlag(t *testing.T) {
 		"upsert with changed expansion should set needs_expansion=1")
 }
 
+// TestNeedsExpansion_ReorderedResourceTypeIDsKeepsExistingFlag verifies that upserting
+// a grant whose GrantExpandable annotation has the same ResourceTypeIds in a different
+// order does not spuriously flip needs_expansion back to 1.
+func TestNeedsExpansion_ReorderedResourceTypeIDsKeepsExistingFlag(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	grant := v2.Grant_builder{
+		Id:          "grant-reorder",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{"ent2"},
+			Shallow:         true,
+			ResourceTypeIds: []string{"typeA", "typeB", "typeC"},
+		}.Build()),
+	}.Build()
+
+	require.NoError(t, c1f.PutGrants(ctx, grant))
+	raw := getRawGrantRow(ctx, t, c1f, "grant-reorder")
+	require.Equal(t, 1, raw.needsExpansion, "initial insert should have needs_expansion=1")
+
+	// Simulate post-expansion: clear the flag.
+	_, err := c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET needs_expansion=0 WHERE external_id='grant-reorder'",
+	)
+	require.NoError(t, err)
+	raw = getRawGrantRow(ctx, t, c1f, "grant-reorder")
+	require.Equal(t, 0, raw.needsExpansion, "sanity check: needs_expansion should be 0 after manual update")
+
+	// Upsert with the same ResourceTypeIds in a different order.
+	reorderedGrant := v2.Grant_builder{
+		Id:          "grant-reorder",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{"ent2"},
+			Shallow:         true,
+			ResourceTypeIds: []string{"typeC", "typeA", "typeB"},
+		}.Build()),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, reorderedGrant))
+
+	raw = getRawGrantRow(ctx, t, c1f, "grant-reorder")
+	require.Equal(t, 0, raw.needsExpansion,
+		"reordered ResourceTypeIds should not flip needs_expansion back to 1")
+}
+
 // TestNeedsExpansion_NonExpandableToExpandable verifies that when a grant transitions
 // from non-expandable to expandable, needs_expansion is set to 1.
 func TestNeedsExpansion_NonExpandableToExpandable(t *testing.T) {

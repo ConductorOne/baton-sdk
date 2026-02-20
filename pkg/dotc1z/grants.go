@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/doug-martin/goqu/v9"
@@ -419,8 +420,9 @@ func extractAndStripExpansion(grant *v2.Grant) ([]byte, bool) {
 	if !hasValid {
 		return nil, false
 	}
+	// Note:modify by reference, nil is OK.
+	slices.Sort(expandable.GetResourceTypeIds())
 
-	// Serialize the expandable annotation.
 	data, err := proto.Marshal(expandable)
 	if err != nil {
 		return nil, false
