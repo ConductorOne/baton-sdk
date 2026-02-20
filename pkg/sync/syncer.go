@@ -1899,6 +1899,10 @@ type latestSyncFetcher interface {
 	LatestFinishedSync(ctx context.Context, syncType connectorstore.SyncType) (string, error)
 }
 
+type needsExpansionCleaner interface {
+	ClearNeedsExpansionForSync(ctx context.Context, syncID string) error
+}
+
 func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v2.ResourceId) (string, *v2.ETag, error) {
 	ctx, span := tracer.Start(ctx, "syncer.fetchResourceForPreviousSync")
 	defer span.End()
@@ -2913,6 +2917,15 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context) error {
 
 	if expander.IsDone(ctx) {
 		l.Debug("expandGrantsForEntitlements: graph is expanded")
+		// Full expansion completed for this sync; clear dirty-edge flags so future
+		// incremental runs only process newly marked edges.
+		if cleaner, ok := s.store.(needsExpansionCleaner); ok {
+			if err := cleaner.ClearNeedsExpansionForSync(ctx, s.syncID); err != nil {
+				return err
+			}
+		} else {
+			l.Debug("expandGrantsForEntitlements: store does not support clearing needs_expansion")
+		}
 		s.state.FinishAction(ctx)
 	}
 

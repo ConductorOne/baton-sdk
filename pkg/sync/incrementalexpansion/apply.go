@@ -25,6 +25,7 @@ type RunResult struct {
 
 // Run computes grant/edge diffs from old->new and applies incremental expansion for NewSyncID.
 // TODO(kans): pagination, checkpointing, resumability.
+// TODO(kans): investigate if past some threshold, a full expansion pass is faster than an incremental one.
 func Run(
 	ctx context.Context,
 	newFile *dotc1z.C1File,

@@ -91,7 +91,10 @@ func runFullExpansion(ctx context.Context, c1f *dotc1z.C1File, syncID string) er
 	}
 
 	expander := expand.NewExpander(c1f, graph).WithSyncID(syncID)
-	return expander.Run(ctx)
+	if err := expander.Run(ctx); err != nil {
+		return err
+	}
+	return c1f.ClearNeedsExpansionForSync(ctx, syncID)
 }
 
 func loadGrantSourcesByKey(ctx context.Context, c1f *dotc1z.C1File, syncID string) (map[string]map[string]bool, error) {
