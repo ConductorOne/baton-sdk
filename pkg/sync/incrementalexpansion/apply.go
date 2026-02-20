@@ -25,6 +25,8 @@ func ApplyIncrementalExpansionFromDiff(
 	upsertsSyncID string,
 	deletionsSyncID string,
 ) error {
+	// Treat a nil delta as "no edge-definition changes" to keep callers simple.
+	// The rest of the pipeline can operate on empty Added/Removed sets safely.
 	if delta == nil {
 		delta = &EdgeDelta{
 			Added:   map[string]Edge{},
@@ -32,6 +34,8 @@ func ApplyIncrementalExpansionFromDiff(
 		}
 	}
 
+	// Optional debug logging: print a bounded sample so we can inspect what changed
+	// without flooding logs on large diffs.
 	if os.Getenv("BATON_DEBUG_INCREMENTAL") != "" {
 		_, _ = fmt.Fprintf(os.Stderr, "incremental: delta added=%d removed=%d\n", len(delta.Added), len(delta.Removed))
 		i := 0
@@ -52,6 +56,8 @@ func ApplyIncrementalExpansionFromDiff(
 		}
 	}
 
+	// Seed the set of "changed sources" from grant-level diffs. These are source
+	// entitlements whose grants changed and therefore may need propagation updates.
 	changedSources := make(map[string]struct{}, len(changedGrantEntitlementIDs))
 	for _, id := range changedGrantEntitlementIDs {
 		if id != "" {
@@ -80,27 +86,38 @@ func ApplyIncrementalExpansionFromDiff(
 	}
 	addSeeds(ids)
 
+	// Compute the transitive entitlement closure impacted by edge-definition changes
+	// (added/removed expandable edges). This closure is used for dirty marking.
 	affected, err := AffectedEntitlements(ctx, c1f, targetSyncID, delta)
 	if err != nil {
 		return err
 	}
 
+	// Stage 1: remove stale propagated sources implied by removed edges.
+	// This may delete derived immutable grants that became sourceless.
 	if err := InvalidateRemovedEdges(ctx, c1f, targetSyncID, delta); err != nil {
 		return err
 	}
 
+	// Stage 2: invalidate grants for source entitlements whose grants changed
+	// (add/remove/modify), even if edge definitions themselves did not change.
 	if err := InvalidateChangedSourceEntitlements(ctx, c1f, targetSyncID, changedSources); err != nil {
 		return err
 	}
 
+	// Changed sources themselves must be marked affected so outgoing propagation
+	// is recomputed from these nodes during dirty expansion.
 	for id := range changedSources {
 		affected[id] = struct{}{}
 	}
 
+	// Mark only grants on affected nodes as needing expansion. This bounds the
+	// subsequent expansion pass to the dirty subgraph instead of full recompute.
 	if err := MarkNeedsExpansionForAffectedEdges(ctx, c1f, targetSyncID, affected); err != nil {
 		return err
 	}
 
+	// Re-expand just the dirty subgraph and clear needs_expansion flags when done.
 	if err := ExpandDirtySubgraph(ctx, c1f, targetSyncID); err != nil {
 		return fmt.Errorf("expand dirty subgraph: %w", err)
 	}
