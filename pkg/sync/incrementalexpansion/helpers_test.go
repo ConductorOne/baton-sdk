@@ -94,7 +94,7 @@ func runFullExpansion(ctx context.Context, c1f *dotc1z.C1File, syncID string) er
 	if err := expander.Run(ctx); err != nil {
 		return err
 	}
-	return c1f.ClearNeedsExpansionForSync(ctx, syncID)
+	return nil
 }
 
 func loadGrantSourcesByKey(ctx context.Context, c1f *dotc1z.C1File, syncID string) (map[string]map[string]bool, error) {
@@ -116,8 +116,8 @@ func loadGrantSourcesByKey(ctx context.Context, c1f *dotc1z.C1File, syncID strin
 		for _, g := range resp.GetList() {
 			key := g.GetEntitlement().GetId() + "|" + g.GetPrincipal().GetId().GetResourceType() + "|" + g.GetPrincipal().GetId().GetResource()
 			srcs := make(map[string]bool)
-			for s := range g.GetSources().GetSources() {
-				srcs[s] = true
+			for s, src := range g.GetSources().GetSources() {
+				srcs[s] = src.GetIsDirect()
 			}
 			out[key] = srcs
 		}
