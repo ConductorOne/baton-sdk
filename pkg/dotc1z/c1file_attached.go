@@ -448,12 +448,10 @@ func (c *C1FileAttached) diffTableFromMainTx(ctx context.Context, tx *sql.Tx, ta
 	return err
 }
 
-// TestOnlyComputeRemovedExpandableGrants returns expansion metadata for grants that were removed or had their
+// ComputeRemovedExpandableGrants returns expansion metadata for grants that were removed or had their
 // expansion column changed between the OLD sync (attached) and the NEW sync (main).
 // This is the "removed edges" set for incremental expansion.
-//
-// Test-only helper: this API is intended for tests and is not part of the production runtime path.
-func (c *C1FileAttached) TestOnlyComputeRemovedExpandableGrants(ctx context.Context, oldSyncID, newSyncID string) ([]*connectorstore.ExpandableGrantDef, error) {
+func (c *C1FileAttached) ComputeRemovedExpandableGrants(ctx context.Context, oldSyncID, newSyncID string) ([]*connectorstore.ExpandableGrantDef, error) {
 	if !c.safe {
 		return nil, errors.New("database has been detached")
 	}
@@ -491,12 +489,10 @@ func (c *C1FileAttached) TestOnlyComputeRemovedExpandableGrants(ctx context.Cont
 	return scanExpandableRows(rows)
 }
 
-// TestOnlyComputeAddedExpandableGrants returns expansion metadata for grants that were added or had their
+// ComputeAddedExpandableGrants returns expansion metadata for grants that were added or had their
 // expansion column changed between the OLD sync (attached) and the NEW sync (main).
 // This is the "added edges" set for incremental expansion.
-//
-// Test-only helper: this API is intended for tests and is not part of the production runtime path.
-func (c *C1FileAttached) TestOnlyComputeAddedExpandableGrants(ctx context.Context, oldSyncID, newSyncID string) ([]*connectorstore.ExpandableGrantDef, error) {
+func (c *C1FileAttached) ComputeAddedExpandableGrants(ctx context.Context, oldSyncID, newSyncID string) ([]*connectorstore.ExpandableGrantDef, error) {
 	if !c.safe {
 		return nil, errors.New("database has been detached")
 	}
@@ -534,11 +530,9 @@ func (c *C1FileAttached) TestOnlyComputeAddedExpandableGrants(ctx context.Contex
 	return scanExpandableRows(rows)
 }
 
-// TestOnlyComputeChangedGrantEntitlementIDs returns the set of entitlement IDs that have any grant
+// ComputeChangedGrantEntitlementIDs returns the set of entitlement IDs that have any grant
 // changes (added, removed, or modified) between the OLD sync (attached) and the NEW sync (main).
-//
-// Test-only helper: this API is intended for tests and is not part of the production runtime path.
-func (c *C1FileAttached) TestOnlyComputeChangedGrantEntitlementIDs(ctx context.Context, oldSyncID, newSyncID string) ([]string, error) {
+func (c *C1FileAttached) ComputeChangedGrantEntitlementIDs(ctx context.Context, oldSyncID, newSyncID string) ([]string, error) {
 	if !c.safe {
 		return nil, errors.New("database has been detached")
 	}

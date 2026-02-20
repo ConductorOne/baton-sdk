@@ -16,25 +16,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// diffAndApplyIncremental is a test helper that generates a diff, computes edge deltas and
-// changed grants via cross-DB queries on the attached file, detaches, then applies incremental expansion.
+// diffAndApplyIncremental is a test helper that runs the full incremental expansion pipeline.
 func diffAndApplyIncremental(t *testing.T, ctx context.Context, newFile *dotc1z.C1File, oldFile *dotc1z.C1File, oldSyncID, newSyncID string) {
 	t.Helper()
-	attached, err := newFile.AttachFile(oldFile, "attached")
+	_, err := incrementalexpansion.Run(ctx, newFile, incrementalexpansion.RunParams{
+		OldFile:   oldFile,
+		OldSyncID: oldSyncID,
+		NewSyncID: newSyncID,
+	})
 	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	changedEntIDs, err := attached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
-	require.NoError(t, err)
-	_, err = attached.DetachFile("attached")
-	require.NoError(t, err)
-
-	delta := incrementalexpansion.EdgeDeltaFromExpandableGrants(addedDefs, removedDefs)
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, newFile, newSyncID, delta, changedEntIDs, upsertsSyncID, deletionsSyncID))
 }
 
 func runFullExpansion(ctx context.Context, c1f *dotc1z.C1File, syncID string) error {
@@ -1769,18 +1759,13 @@ func TestIncrementalExpansion_FullPartialCompactDiff(t *testing.T) {
 	require.NoError(t, runFullExpansion(ctx, oldFile, oldSyncID))
 
 	// Now generate diff: base (compacted) is NEW, oldFile is OLD
-	diffAttached, err := baseFile.AttachFile(oldFile, "attached")
+	result, err := incrementalexpansion.Run(ctx, baseFile, incrementalexpansion.RunParams{
+		OldFile:   oldFile,
+		OldSyncID: oldSyncID,
+		NewSyncID: baseSyncID,
+	})
 	require.NoError(t, err)
-	upsertsSyncID, deletionsSyncID, err := diffAttached.GenerateSyncDiffFromFile(ctx, oldSyncID, baseSyncID)
-	require.NoError(t, err)
-	addedDefs, err := diffAttached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, baseSyncID)
-	require.NoError(t, err)
-	removedDefs, err := diffAttached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, baseSyncID)
-	require.NoError(t, err)
-	changedEntIDs, err := diffAttached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, baseSyncID)
-	require.NoError(t, err)
-	_, err = diffAttached.DetachFile("attached")
-	require.NoError(t, err)
+	upsertsSyncID := result.UpsertsSyncID
 
 	// Sanity-check the upserts diff: it should include the NEW direct grants (U2/U3→E1),
 	// but it should not already contain the derived grants (U2/U3→E2).
@@ -1790,9 +1775,6 @@ func TestIncrementalExpansion_FullPartialCompactDiff(t *testing.T) {
 	require.Contains(t, upserts, "group:g1:member|user|u3")
 	require.NotContains(t, upserts, "group:g2:member|user|u2")
 	require.NotContains(t, upserts, "group:g2:member|user|u3")
-
-	delta := incrementalexpansion.EdgeDeltaFromExpandableGrants(addedDefs, removedDefs)
-	require.NoError(t, incrementalexpansion.ApplyIncrementalExpansionFromDiff(ctx, baseFile, baseSyncID, delta, changedEntIDs, upsertsSyncID, deletionsSyncID))
 
 	// ==========================================================================
 	// STEP 8: Create EXPECTED file with fresh full expansion of the compacted state
@@ -2686,7 +2668,7 @@ func TestIncrementalExpansion_SourcesInDataBlobNoop(t *testing.T) {
 	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 
-	changedEntIDs, err := attached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
+	changedEntIDs, err := attached.ComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 
 	// The connector produced identical grants, so the diff should report no changed entitlements.
@@ -2709,4 +2691,193 @@ func TestIncrementalExpansion_SourcesInDataBlobNoop(t *testing.T) {
 
 	_, err = attached.DetachFile("attached")
 	require.NoError(t, err)
+}
+
+// -----------------------------------------------------------------------
+// GrantImmutable vs non-immutable sourceless behavior
+// -----------------------------------------------------------------------
+
+func TestIncrementalExpansion_ImmutableSourcelessGrantDeleted(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	oldPath := filepath.Join(tmpDir, "old_immutable.c1z")
+	newPath := filepath.Join(tmpDir, "new_immutable.c1z")
+	expectedPath := filepath.Join(tmpDir, "expected_immutable.c1z")
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
+
+	e1 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g1, "member"), Resource: g1, Slug: "member", DisplayName: "member"}.Build()
+	e2 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g2, "member"), Resource: g2, Slug: "member", DisplayName: "member"}.Build()
+
+	grantU1E1 := v2.Grant_builder{Id: batonGrant.NewGrantID(u1, e1), Entitlement: e1, Principal: u1}.Build()
+
+	nestingID := batonGrant.NewGrantID(g1, e2)
+	grantG1E2 := v2.Grant_builder{
+		Id:          nestingID,
+		Entitlement: e2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{e1.GetId()},
+			Shallow:         false,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
+	require.NoError(t, err)
+	defer oldFile.Close(ctx)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, oldFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, oldFile.PutGrants(ctx, grantU1E1, grantG1E2))
+	require.NoError(t, oldFile.EndSync(ctx))
+	require.NoError(t, runFullExpansion(ctx, oldFile, oldSyncID))
+
+	oldGrants, err := loadGrantSourcesByKey(ctx, oldFile, oldSyncID)
+	require.NoError(t, err)
+	require.Contains(t, oldGrants, "group:g2:member|user|u1", "derived grant U1→E2 should exist after expansion")
+
+	newFile, err := dotc1z.NewC1ZFile(ctx, newPath)
+	require.NoError(t, err)
+	defer newFile.Close(ctx)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, newFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, e1, e2))
+
+	require.NoError(t, oldFile.SetSyncID(ctx, ""))
+	require.NoError(t, oldFile.ViewSync(ctx, oldSyncID))
+	grantsToCopy, err := listGrantsWithStoredExpansion(ctx, oldFile)
+	require.NoError(t, err)
+	for _, g := range grantsToCopy {
+		if g.GetId() == nestingID {
+			continue
+		}
+		require.NoError(t, newFile.PutGrants(ctx, g))
+	}
+	require.NoError(t, newFile.EndSync(ctx))
+
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
+
+	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
+	require.NoError(t, err)
+	defer expectedFile.Close(ctx)
+	expectedSyncID, err := expectedFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, expectedFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, expectedFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, expectedFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, expectedFile.PutGrants(ctx, grantU1E1))
+	require.NoError(t, expectedFile.EndSync(ctx))
+	require.NoError(t, runFullExpansion(ctx, expectedFile, expectedSyncID))
+
+	got, err := loadGrantSourcesByKey(ctx, newFile, newSyncID)
+	require.NoError(t, err)
+	want, err := loadGrantSourcesByKey(ctx, expectedFile, expectedSyncID)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+
+	require.NotContains(t, got, "group:g2:member|user|u1", "immutable derived grant should be deleted when sourceless")
+}
+
+func TestIncrementalExpansion_NonImmutableSourcelessGrantKept(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	oldPath := filepath.Join(tmpDir, "old_nonimmutable.c1z")
+	newPath := filepath.Join(tmpDir, "new_nonimmutable.c1z")
+	expectedPath := filepath.Join(tmpDir, "expected_nonimmutable.c1z")
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
+
+	e1 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g1, "member"), Resource: g1, Slug: "member", DisplayName: "member"}.Build()
+	e2 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g2, "member"), Resource: g2, Slug: "member", DisplayName: "member"}.Build()
+
+	grantU1E1 := v2.Grant_builder{Id: batonGrant.NewGrantID(u1, e1), Entitlement: e1, Principal: u1}.Build()
+	grantU1E2 := v2.Grant_builder{Id: batonGrant.NewGrantID(u1, e2), Entitlement: e2, Principal: u1}.Build()
+
+	nestingID := batonGrant.NewGrantID(g1, e2)
+	grantG1E2 := v2.Grant_builder{
+		Id:          nestingID,
+		Entitlement: e2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{e1.GetId()},
+			Shallow:         false,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
+	require.NoError(t, err)
+	defer oldFile.Close(ctx)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, oldFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, oldFile.PutGrants(ctx, grantU1E1, grantU1E2, grantG1E2))
+	require.NoError(t, oldFile.EndSync(ctx))
+	require.NoError(t, runFullExpansion(ctx, oldFile, oldSyncID))
+
+	newFile, err := dotc1z.NewC1ZFile(ctx, newPath)
+	require.NoError(t, err)
+	defer newFile.Close(ctx)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, newFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, e1, e2))
+
+	require.NoError(t, oldFile.SetSyncID(ctx, ""))
+	require.NoError(t, oldFile.ViewSync(ctx, oldSyncID))
+	grantsToCopy, err := listGrantsWithStoredExpansion(ctx, oldFile)
+	require.NoError(t, err)
+	for _, g := range grantsToCopy {
+		if g.GetId() == nestingID {
+			continue
+		}
+		require.NoError(t, newFile.PutGrants(ctx, g))
+	}
+	require.NoError(t, newFile.EndSync(ctx))
+
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
+
+	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
+	require.NoError(t, err)
+	defer expectedFile.Close(ctx)
+	expectedSyncID, err := expectedFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, expectedFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, expectedFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, expectedFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, expectedFile.PutGrants(ctx, grantU1E1, grantU1E2))
+	require.NoError(t, expectedFile.EndSync(ctx))
+	require.NoError(t, runFullExpansion(ctx, expectedFile, expectedSyncID))
+
+	got, err := loadGrantSourcesByKey(ctx, newFile, newSyncID)
+	require.NoError(t, err)
+	want, err := loadGrantSourcesByKey(ctx, expectedFile, expectedSyncID)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+
+	require.Contains(t, got, "group:g2:member|user|u1", "non-immutable direct grant should persist when sourceless")
 }

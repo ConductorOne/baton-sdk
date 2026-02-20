@@ -1733,13 +1733,13 @@ func TestGenerateSyncDiffFromFile_ExpansionOnlyChange(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify added edges via cross-DB query (NEW version: shallow=true).
-	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	addedDefs, err := attached.ComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	require.Len(t, addedDefs, 1, "should have one added expandable grant")
 	require.True(t, addedDefs[0].Shallow, "added grant should have NEW expansion (shallow=true)")
 
 	// Verify removed edges via cross-DB query (OLD version: shallow=false).
-	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
+	removedDefs, err := attached.ComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	require.Len(t, removedDefs, 1, "should have one removed expandable grant")
 	require.False(t, removedDefs[0].Shallow, "removed grant should have OLD expansion (shallow=false)")
@@ -1838,9 +1838,9 @@ func TestComputeExpandableGrants_StableExternalIDRetarget(t *testing.T) {
 	attached, err := newFile.AttachFile(oldFile, "attached")
 	require.NoError(t, err)
 
-	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	addedDefs, err := attached.ComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
-	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
+	removedDefs, err := attached.ComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 
 	_, err = attached.DetachFile("attached")
@@ -1911,7 +1911,7 @@ func TestGenerateSyncDiffFromFile_GrantDataModification(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify changed grant entitlement IDs via cross-DB query.
-	changedIDs, err := attached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
+	changedIDs, err := attached.ComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	require.Contains(t, changedIDs, "ent1", "modified grant's entitlement should appear in changed IDs")
 
@@ -1985,7 +1985,7 @@ func TestGenerateSyncDiffFromFile_GrantMixedChanges(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify changed grants via cross-DB query (should include B's entitlement and C's entitlement).
-	changedIDs, err := attached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
+	changedIDs, err := attached.ComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	require.Contains(t, changedIDs, "ent1")
 
@@ -2276,7 +2276,7 @@ func TestGenerateSyncDiffFromFile_ExpansionNullEdgeCases(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify via cross-DB queries: added and removed expandable grants.
-	addedDefs, err := attached.TestOnlyComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	addedDefs, err := attached.ComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	addedByID := map[string]bool{}
 	for _, d := range addedDefs {
@@ -2286,7 +2286,7 @@ func TestGenerateSyncDiffFromFile_ExpansionNullEdgeCases(t *testing.T) {
 	require.False(t, addedByID["grant-stops-expandable"], "non-NULL->NULL should NOT appear in added expandable grants")
 	require.False(t, addedByID["grant-always-plain"], "NULL->NULL should NOT appear in added expandable grants")
 
-	removedDefs, err := attached.TestOnlyComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
+	removedDefs, err := attached.ComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	removedByID := map[string]bool{}
 	for _, d := range removedDefs {
@@ -2297,7 +2297,7 @@ func TestGenerateSyncDiffFromFile_ExpansionNullEdgeCases(t *testing.T) {
 	require.False(t, removedByID["grant-always-plain"], "NULL->NULL should NOT appear in removed expandable grants")
 
 	// Verify changed grant entitlement IDs includes both modified grants.
-	changedIDs, err := attached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
+	changedIDs, err := attached.ComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
 	require.NoError(t, err)
 	require.Contains(t, changedIDs, ent2.GetId(), "changed IDs should include entitlement of modified grants")
 

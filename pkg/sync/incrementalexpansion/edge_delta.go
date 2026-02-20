@@ -6,59 +6,56 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
-// Edge represents an expansion edge from a source entitlement to a descendant entitlement,
-// with expansion constraints.
-type Edge struct {
-	SrcEntitlementID string
-	DstEntitlementID string
-	Shallow          bool
-	// PrincipalResourceTypeIDs is the filter applied when listing source grants to propagate.
-	PrincipalResourceTypeIDs []string
+type edge struct {
+	srcEntitlementID string
+	dstEntitlementID string
+	shallow          bool
+	// principalResourceTypeIDs is the filter applied when listing source grants to propagate.
+	principalResourceTypeIDs []string
 }
 
-func (e Edge) Key() string {
-	// Use an unlikely separator to avoid accidental collisions.
+func (e edge) key() string {
 	sep := "\x1f"
 	shallow := "0"
-	if e.Shallow {
+	if e.shallow {
 		shallow = "1"
 	}
 	return strings.Join([]string{
-		e.SrcEntitlementID,
-		e.DstEntitlementID,
+		e.srcEntitlementID,
+		e.dstEntitlementID,
 		shallow,
-		strings.Join(e.PrincipalResourceTypeIDs, sep),
+		strings.Join(e.principalResourceTypeIDs, sep),
 	}, sep)
 }
 
-type EdgeDelta struct {
-	Added   map[string]Edge
-	Removed map[string]Edge
+type edgeDelta struct {
+	added   map[string]edge
+	removed map[string]edge
 }
 
-// EdgeDeltaFromExpandableGrants builds an EdgeDelta from pre-computed lists of added/removed
-// expandable grant definitions (typically from cross-database queries on the attached file).
-func EdgeDeltaFromExpandableGrants(added, removed []*connectorstore.ExpandableGrantDef) *EdgeDelta {
-	return &EdgeDelta{
-		Added:   edgeSetFromDefs(added),
-		Removed: edgeSetFromDefs(removed),
+// edgeDeltaFromExpandableGrants builds an edgeDelta from added/removed expandable grant definitions.
+// The returned delta always has non-nil maps.
+func edgeDeltaFromExpandableGrants(added, removed []*connectorstore.ExpandableGrantDef) *edgeDelta {
+	return &edgeDelta{
+		added:   edgeSetFromDefs(added),
+		removed: edgeSetFromDefs(removed),
 	}
 }
 
-func edgeSetFromDefs(defs []*connectorstore.ExpandableGrantDef) map[string]Edge {
-	out := make(map[string]Edge, len(defs))
+func edgeSetFromDefs(defs []*connectorstore.ExpandableGrantDef) map[string]edge {
+	out := make(map[string]edge, len(defs))
 	for _, def := range defs {
 		if def == nil {
 			continue
 		}
 		for _, src := range def.SourceEntitlementIDs {
-			e := Edge{
-				SrcEntitlementID:         src,
-				DstEntitlementID:         def.TargetEntitlementID,
-				Shallow:                  def.Shallow,
-				PrincipalResourceTypeIDs: def.ResourceTypeIDs,
+			e := edge{
+				srcEntitlementID:         src,
+				dstEntitlementID:         def.TargetEntitlementID,
+				shallow:                  def.Shallow,
+				principalResourceTypeIDs: def.ResourceTypeIDs,
 			}
-			out[e.Key()] = e
+			out[e.key()] = e
 		}
 	}
 	return out
