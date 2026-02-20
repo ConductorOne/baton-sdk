@@ -386,7 +386,7 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 	require.NoError(t, oldFile.PutGrants(ctx, oldGrant))
 	require.NoError(t, oldFile.EndSync(ctx))
 
-	// NEW: same expansion, but grant now has sources (data blob changes).
+	// NEW: same expansion, but grant now has an extra annotation (data blob changes).
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
 	require.NoError(t, err)
 
@@ -400,12 +400,7 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 		Id:          "grant-1",
 		Entitlement: ent2,
 		Principal:   u1,
-		Annotations: annotations.New(sharedExpandable),
-		Sources: v2.GrantSources_builder{
-			Sources: map[string]*v2.GrantSources_GrantSource{
-				"ent1": {},
-			},
-		}.Build(),
+		Annotations: annotations.New(sharedExpandable, &v2.GrantImmutable{}),
 	}.Build()
 	require.NoError(t, newFile.PutGrants(ctx, newGrant))
 	require.NoError(t, newFile.EndSync(ctx))

@@ -1881,9 +1881,7 @@ func TestGenerateSyncDiffFromFile_GrantDataModification(t *testing.T) {
 	}.Build()
 	grantNew := v2.Grant_builder{
 		Id: "grant-mod", Entitlement: ent, Principal: u1,
-		Sources: v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{
-			"ent1": {IsDirect: true},
-		}}.Build(),
+		Annotations: annotations.New(&v2.GrantImmutable{}),
 	}.Build()
 
 	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
@@ -1926,7 +1924,6 @@ func TestGenerateSyncDiffFromFile_GrantDataModification(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, upserts.Rows, 1, "upserts should contain the modified grant")
 	require.Equal(t, "grant-mod", upserts.Rows[0].Grant.GetId())
-	require.NotNil(t, upserts.Rows[0].Grant.GetSources(), "upserts grant should have the NEW Sources field")
 
 	_ = oldFile.Close(ctx)
 	_ = newFile.Close(ctx)
@@ -1956,7 +1953,7 @@ func TestGenerateSyncDiffFromFile_GrantMixedChanges(t *testing.T) {
 	grantBOld := v2.Grant_builder{Id: "grant-B", Entitlement: ent, Principal: u2}.Build()
 	grantBNew := v2.Grant_builder{
 		Id: "grant-B", Entitlement: ent, Principal: u2,
-		Sources: v2.GrantSources_builder{Sources: map[string]*v2.GrantSources_GrantSource{"ent1": {IsDirect: true}}}.Build(),
+		Annotations: annotations.New(&v2.GrantImmutable{}),
 	}.Build()
 	grantC := v2.Grant_builder{Id: "grant-C", Entitlement: ent, Principal: u3}.Build()
 	grantD := v2.Grant_builder{Id: "grant-D", Entitlement: ent, Principal: u4}.Build()

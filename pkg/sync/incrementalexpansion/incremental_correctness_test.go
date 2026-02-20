@@ -2606,3 +2606,107 @@ func TestIncrementalExpansion_SourceListChange(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, want, got)
 }
+
+// TestIncrementalExpansion_SourcesInDataBlobNoop verifies that when a connector produces
+// identical grants across two syncs (a true no-op), the diff does not report false-positive
+// changed grant entitlements caused by expansion having written Sources into the data blob.
+//
+// Scenario:
+//   - U1 has a direct grant on both E1 and E2 (destination of edge E1→E2).
+//   - After full expansion of the old sync, U1→E2 acquires Sources={E2, E1} in its data blob.
+//   - The new sync has the same connector-provided grants (no Sources, since the connector
+//     never sets them).
+//   - The diff should detect zero changed grant entitlements because nothing changed from the
+//     connector's perspective.
+//
+// Regression target: when Sources leaked into grant data blobs, this scenario falsely reported
+// E2 as changed even though connector-provided grants were identical.
+func TestIncrementalExpansion_SourcesInDataBlobNoop(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	oldPath := filepath.Join(tmpDir, "old_sources_noop.c1z")
+	newPath := filepath.Join(tmpDir, "new_sources_noop.c1z")
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
+
+	e1 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g1, "member"), Resource: g1, Slug: "member", DisplayName: "member"}.Build()
+	e2 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g2, "member"), Resource: g2, Slug: "member", DisplayName: "member"}.Build()
+
+	grantU1E1 := v2.Grant_builder{Id: batonGrant.NewGrantID(u1, e1), Entitlement: e1, Principal: u1}.Build()
+	grantU1E2 := v2.Grant_builder{Id: batonGrant.NewGrantID(u1, e2), Entitlement: e2, Principal: u1}.Build()
+	grantG1E2 := v2.Grant_builder{
+		Id:          batonGrant.NewGrantID(g1, e2),
+		Entitlement: e2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{e1.GetId()},
+			Shallow:         false,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+
+	// OLD: connector grants + full expansion.
+	// After expansion U1→E2 acquires Sources={E2: IsDirect=true, E1: IsDirect=true}
+	// baked into its data blob.
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
+	require.NoError(t, err)
+	defer oldFile.Close(ctx)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, oldFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, oldFile.PutGrants(ctx, grantU1E1, grantU1E2, grantG1E2))
+	require.NoError(t, oldFile.EndSync(ctx))
+	require.NoError(t, runFullExpansion(ctx, oldFile, oldSyncID))
+
+	// NEW: exact same connector grants, fresh (no Sources).
+	newFile, err := dotc1z.NewC1ZFile(ctx, newPath)
+	require.NoError(t, err)
+	defer newFile.Close(ctx)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, newFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, newFile.PutGrants(ctx, grantU1E1, grantU1E2, grantG1E2))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+
+	changedEntIDs, err := attached.TestOnlyComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+
+	// The connector produced identical grants, so the diff should report no changed entitlements.
+	require.Empty(t, changedEntIDs, "diff should report no changed grant entitlements for a connector-level no-op")
+
+	// Grant-level diffs should also be empty (no false-positive upserts/deletions).
+	upserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:   connectorstore.GrantListModePayload,
+		SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Empty(t, upserts.Rows, "grant upserts should be empty for connector-level no-op")
+
+	deletions, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:   connectorstore.GrantListModePayload,
+		SyncID: deletionsSyncID,
+	})
+	require.NoError(t, err)
+	require.Empty(t, deletions.Rows, "grant deletions should be empty for connector-level no-op")
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+}

@@ -184,6 +184,7 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		Select(
 			"id",
 			"data",
+			"sources",
 			"external_id",
 			"entitlement_id",
 			"principal_resource_type_id",
@@ -249,6 +250,7 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		var (
 			rowID         int64
 			grantData     []byte
+			sourcesBlob   []byte
 			externalID    string
 			entID         string
 			principalRTID string
@@ -259,6 +261,7 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		if err := rows.Scan(
 			&rowID,
 			&grantData,
+			&sourcesBlob,
 			&externalID,
 			&entID,
 			&principalRTID,
@@ -274,6 +277,7 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		if err := unmarshalerOptions.Unmarshal(grantData, grant); err != nil {
 			return nil, err
 		}
+		rehydrateGrantSources(grant, sourcesBlob)
 
 		var expansion *connectorstore.ExpandableGrantDef
 		if len(expansionBlob) > 0 {
@@ -323,7 +327,7 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		return nil, err
 	}
 
-	q := c.db.From(grants.Name()).Prepared(true).Select("id", "data")
+	q := c.db.From(grants.Name()).Prepared(true).Select("id", "data", "sources")
 	if opts.Resource != nil {
 		q = q.Where(goqu.C("resource_id").Eq(opts.Resource.GetId().GetResource()))
 		q = q.Where(goqu.C("resource_type_id").Eq(opts.Resource.GetId().GetResourceType()))
@@ -371,10 +375,11 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		}
 
 		var (
-			rowID     int64
-			grantData []byte
+			rowID       int64
+			grantData   []byte
+			sourcesBlob []byte
 		)
-		if err := rows.Scan(&rowID, &grantData); err != nil {
+		if err := rows.Scan(&rowID, &grantData, &sourcesBlob); err != nil {
 			return nil, err
 		}
 		lastRow = rowID
@@ -383,6 +388,7 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		if err := unmarshalerOptions.Unmarshal(grantData, grant); err != nil {
 			return nil, err
 		}
+		rehydrateGrantSources(grant, sourcesBlob)
 		result = append(result, &connectorstore.InternalGrantRow{Grant: grant})
 	}
 	if err := rows.Err(); err != nil {

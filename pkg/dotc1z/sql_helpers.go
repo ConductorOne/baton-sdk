@@ -156,7 +156,12 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	}
 
 	q := c.db.From(tableName).Prepared(true)
-	q = q.Select("id", "data")
+	isGrants := tableName == grants.Name()
+	if isGrants {
+		q = q.Select("id", "data", "sources")
+	} else {
+		q = q.Select("id", "data")
+	}
 
 	// If the request allows filtering by resource type, apply the filter
 	if resourceTypeReq, ok := req.(hasResourceTypeListRequest); ok {
@@ -263,13 +268,19 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	var count uint32 = 0
 	lastRow := 0
 	var data sql.RawBytes
+	var sourcesBlob sql.RawBytes
 	var ret []T
 	for rows.Next() {
 		count++
 		if count > pageSize {
 			break
 		}
-		err := rows.Scan(&lastRow, &data)
+		var err error
+		if isGrants {
+			err = rows.Scan(&lastRow, &data, &sourcesBlob)
+		} else {
+			err = rows.Scan(&lastRow, &data)
+		}
 		if err != nil {
 			return nil, "", err
 		}
@@ -277,6 +288,11 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		err = unmarshalerOptions.Unmarshal(data, t)
 		if err != nil {
 			return nil, "", err
+		}
+		if isGrants && len(sourcesBlob) > 0 {
+			if g, ok := any(t).(*v2.Grant); ok {
+				rehydrateGrantSources(g, sourcesBlob)
+			}
 		}
 		ret = append(ret, t)
 	}
@@ -665,8 +681,13 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 		return err
 	}
 
+	isGrants := tableName == grants.Name()
 	q := c.db.From(tableName).Prepared(true)
-	q = q.Select("data")
+	if isGrants {
+		q = q.Select("data", "sources")
+	} else {
+		q = q.Select("data")
+	}
 	q = q.Where(goqu.C("external_id").Eq(id))
 
 	switch {
@@ -702,8 +723,13 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	}
 
 	var data []byte
+	var sourcesBlob []byte
 	row := c.db.QueryRowContext(ctx, query, args...)
-	err = row.Scan(&data)
+	if isGrants {
+		err = row.Scan(&data, &sourcesBlob)
+	} else {
+		err = row.Scan(&data)
+	}
 	if err != nil {
 		return err
 	}
@@ -711,6 +737,12 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	err = proto.Unmarshal(data, m)
 	if err != nil {
 		return err
+	}
+
+	if isGrants && len(sourcesBlob) > 0 {
+		if g, ok := m.(*v2.Grant); ok {
+			rehydrateGrantSources(g, sourcesBlob)
+		}
 	}
 
 	return nil
