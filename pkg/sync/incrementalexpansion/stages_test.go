@@ -351,6 +351,187 @@ func TestMarkNeedsExpansion_MarksCorrectGrants(t *testing.T) {
 	require.False(t, markedIDs[grantE2E3.GetId()], "E2→E3 should NOT be marked (neither E2 nor E3 is in affected set)")
 }
 
+// Regression coverage for "expand too much" bugs:
+// - verifies mixed edge delta shapes (add/remove/source-list/shallow/filter changes),
+// - verifies the exact affected entitlement closure,
+// - verifies exact dirty expandable grants (no extras) are marked for re-expansion.
+func TestMarkNeedsExpansion_WhitelistExpectedDirtySubgraph(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	walNormal := []dotc1z.C1ZOption{dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal")}
+	walOpts := []dotc1z.C1ZOption{dotc1z.WithPragma("journal_mode", "WAL")}
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	g3 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g3"}.Build(), DisplayName: "G3"}.Build()
+	g4 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g4"}.Build(), DisplayName: "G4"}.Build()
+	g5 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g5"}.Build(), DisplayName: "G5"}.Build()
+	g6 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g6"}.Build(), DisplayName: "G6"}.Build()
+	g7 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g7"}.Build(), DisplayName: "G7"}.Build()
+	g8 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g8"}.Build(), DisplayName: "G8"}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
+	u2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u2"}.Build(), DisplayName: "U2"}.Build()
+
+	e1 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g1, "member"), Resource: g1, Slug: "member", DisplayName: "member"}.Build()
+	e2m := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g2, "member"), Resource: g2, Slug: "member", DisplayName: "member"}.Build()
+	e2a := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g2, "admin"), Resource: g2, Slug: "admin", DisplayName: "admin"}.Build()
+	e3 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g3, "member"), Resource: g3, Slug: "member", DisplayName: "member"}.Build()
+	e4 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g4, "member"), Resource: g4, Slug: "member", DisplayName: "member"}.Build()
+	e5 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g5, "member"), Resource: g5, Slug: "member", DisplayName: "member"}.Build()
+	e6 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g6, "member"), Resource: g6, Slug: "member", DisplayName: "member"}.Build()
+	e7 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g7, "member"), Resource: g7, Slug: "member", DisplayName: "member"}.Build()
+	e8 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g8, "member"), Resource: g8, Slug: "member", DisplayName: "member"}.Build()
+
+	// Old graph edges:
+	// e1->e2m, e2m->e3(deep), e3->e4(filter=user), e2m->e5, e5->e6, e7->e8(unaffected branch)
+	oldEdge12 := v2.Grant_builder{
+		Id: batonGrant.NewGrantID(g1, e2m), Entitlement: e2m, Principal: g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{e1.GetId()}, ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	oldEdge23 := v2.Grant_builder{
+		Id: batonGrant.NewGrantID(g2, e3), Entitlement: e3, Principal: g2,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{e2m.GetId()}, Shallow: false, ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	oldEdge34 := v2.Grant_builder{
+		Id: batonGrant.NewGrantID(g3, e4), Entitlement: e4, Principal: g3,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{e3.GetId()}, ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	oldEdge25 := v2.Grant_builder{
+		Id: batonGrant.NewGrantID(g2, e5), Entitlement: e5, Principal: g2,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{e2m.GetId()}, ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	oldEdge56 := v2.Grant_builder{
+		Id: batonGrant.NewGrantID(g5, e6), Entitlement: e6, Principal: g5,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{e5.GetId()}, ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	oldEdge78 := v2.Grant_builder{
+		Id: batonGrant.NewGrantID(g7, e8), Entitlement: e8, Principal: g7,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{e7.GetId()}, ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	oldDirectU1E1 := v2.Grant_builder{Id: batonGrant.NewGrantID(u1, e1), Entitlement: e1, Principal: u1}.Build()
+
+	oldFile, oldSyncID := setupExpandableSync(ctx, t, tmpDir, "old_whitelist",
+		[]*v2.ResourceType{groupRT, userRT},
+		[]*v2.Resource{g1, g2, g3, g4, g5, g6, g7, g8, u1, u2},
+		[]*v2.Entitlement{e1, e2m, e2a, e3, e4, e5, e6, e7, e8},
+		[]*v2.Grant{oldDirectU1E1, oldEdge12, oldEdge23, oldEdge34, oldEdge25, oldEdge56, oldEdge78},
+		walNormal...)
+	defer oldFile.Close(ctx)
+
+	// New graph edges:
+	// - keep e1->e2m
+	// - toggle e2m->e3 to shallow=true
+	// - change e3->e4 filter to user+group
+	// - source-list replacement e2m->e5 -> e2a->e5
+	// - remove e5->e6
+	// - add e4->e6
+	// - keep unaffected e7->e8
+	newEdge12 := oldEdge12
+	newEdge23 := v2.Grant_builder{
+		Id: oldEdge23.GetId(), Entitlement: e3, Principal: g2,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{e2m.GetId()}, Shallow: true, ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	newEdge34 := v2.Grant_builder{
+		Id: oldEdge34.GetId(), Entitlement: e4, Principal: g3,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{e3.GetId()}, ResourceTypeIds: []string{"user", "group"},
+		}.Build()),
+	}.Build()
+	newEdge25 := v2.Grant_builder{
+		Id: oldEdge25.GetId(), Entitlement: e5, Principal: g2,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{e2a.GetId()}, ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	newEdge46 := v2.Grant_builder{
+		Id: batonGrant.NewGrantID(g4, e6), Entitlement: e6, Principal: g4,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{e4.GetId()}, ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+	newEdge78 := oldEdge78
+	// Source-grant change independent of edge-definition changes: add direct grant on e1.
+	newDirectU2E1 := v2.Grant_builder{Id: batonGrant.NewGrantID(u2, e1), Entitlement: e1, Principal: u2}.Build()
+
+	newFile, newSyncID := setupExpandableSync(ctx, t, tmpDir, "new_whitelist",
+		[]*v2.ResourceType{groupRT, userRT},
+		[]*v2.Resource{g1, g2, g3, g4, g5, g6, g7, g8, u1, u2},
+		[]*v2.Entitlement{e1, e2m, e2a, e3, e4, e5, e6, e7, e8},
+		[]*v2.Grant{oldDirectU1E1, newDirectU2E1, newEdge12, newEdge23, newEdge34, newEdge25, newEdge46, newEdge78},
+		walOpts...)
+	defer newFile.Close(ctx)
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	addedDefs, err := attached.ComputeAddedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	removedDefs, err := attached.ComputeRemovedExpandableGrants(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	delta := edgeDeltaFromExpandableGrants(addedDefs, removedDefs)
+	require.Len(t, delta.added, 4, "expected added edges: e2a->e5, e2m->e3(shallow), e3->e4(filter), e4->e6")
+	require.Len(t, delta.removed, 4, "expected removed edges: e2m->e5, e2m->e3(old shallow), e3->e4(old filter), e5->e6")
+
+	affected, err := affectedEntitlements(ctx, newFile, newSyncID, delta)
+	require.NoError(t, err)
+
+	wantAffected := map[string]struct{}{
+		e2a.GetId(): {},
+		e5.GetId():  {},
+		e4.GetId():  {},
+		e6.GetId():  {},
+		e2m.GetId(): {},
+		e3.GetId():  {},
+	}
+	require.Equal(t, wantAffected, affected, "affected entitlement closure should match exact whitelist")
+
+	// Add a changed source seed (grant-set change on e1) as Apply/Run do.
+	affected[e1.GetId()] = struct{}{}
+
+	require.NoError(t, newFile.ClearNeedsExpansionForSync(ctx, newSyncID))
+	require.NoError(t, markNeedsExpansionForAffectedEdges(ctx, newFile, newSyncID, affected))
+
+	resp, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:               connectorstore.GrantListModeExpansionNeedsOnly,
+		SyncID:             newSyncID,
+		NeedsExpansionOnly: true,
+	})
+	require.NoError(t, err)
+
+	gotMarked := make(map[string]struct{}, len(resp.Rows))
+	for _, row := range resp.Rows {
+		gotMarked[row.Expansion.GrantExternalID] = struct{}{}
+	}
+	wantMarked := map[string]struct{}{
+		newEdge12.GetId(): {},
+		newEdge23.GetId(): {},
+		newEdge34.GetId(): {},
+		newEdge25.GetId(): {},
+		newEdge46.GetId(): {},
+	}
+	require.Equal(t, wantMarked, gotMarked, "dirty expandable grants should match exact whitelist (no over-marking)")
+}
+
 // -----------------------------------------------------------------------
 // invalidateRemovedEdges unit tests
 // -----------------------------------------------------------------------
