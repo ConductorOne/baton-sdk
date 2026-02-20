@@ -27,6 +27,7 @@ enum ConstraintKind {
   CONSTRAINT_KIND_AT_LEAST_ONE = 2;
   CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE = 3;
   CONSTRAINT_KIND_DEPENDENT_ON = 4;
+  CONSTRAINT_KIND_ALLOWED_OPTIONS = 5;
 }
 
 message Constraint {
@@ -36,6 +37,7 @@ message Constraint {
   string name = 4; // optional
   string help_text = 5; // optional
   bool is_field_group = 6;
+  repeated string allowed_option_values = 7;
 }
 
 message FieldGroup {

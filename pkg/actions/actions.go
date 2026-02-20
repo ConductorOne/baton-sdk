@@ -563,14 +563,14 @@ func validateActionConstraints(constraints []*config.Constraint, args *structpb.
 
 	// Validate each constraint
 	for _, constraint := range constraints {
-		if err := validateConstraint(constraint, present); err != nil {
+		if err := validateConstraint(constraint, present, args); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func validateConstraint(c *config.Constraint, present map[string]bool) error {
+func validateConstraint(c *config.Constraint, present map[string]bool, args *structpb.Struct) error {
 	// Deduplicate field names to handle cases where the same field is listed multiple times
 	uniqueFieldNames := deduplicateStrings(c.GetFieldNames())
 
@@ -602,6 +602,36 @@ func validateConstraint(c *config.Constraint, present map[string]bool) error {
 			for _, name := range uniqueSecondaryFieldNames {
 				if !present[name] {
 					return fmt.Errorf("fields %v depend on %v which must also be present", uniqueFieldNames, uniqueSecondaryFieldNames)
+				}
+			}
+		}
+	case config.ConstraintKind_CONSTRAINT_KIND_ALLOWED_OPTIONS:
+		if primaryPresent > 0 {
+			// When secondary fields are set, only allowed option values are permitted
+			uniqueSecondaryFieldNames := deduplicateStrings(c.GetSecondaryFieldNames())
+			anySecondaryPresent := false
+			for _, name := range uniqueSecondaryFieldNames {
+				if present[name] {
+					anySecondaryPresent = true
+					break
+				}
+			}
+			if anySecondaryPresent {
+				allowedValues := make(map[string]bool)
+				for _, v := range c.GetAllowedOptionValues() {
+					allowedValues[v] = true
+				}
+				if args != nil {
+					for _, fieldName := range uniqueFieldNames {
+						if val, ok := args.GetFields()[fieldName]; ok {
+							if strVal, ok := val.GetKind().(*structpb.Value_StringValue); ok {
+								if !allowedValues[strVal.StringValue] {
+									return fmt.Errorf("option %q for field %q is not allowed when %v is set; allowed values: %v",
+										strVal.StringValue, fieldName, uniqueSecondaryFieldNames, c.GetAllowedOptionValues())
+								}
+							}
+						}
+					}
 				}
 			}
 		}
