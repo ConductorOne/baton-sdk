@@ -248,6 +248,91 @@ func TestGrantExpandableStrippedFromDataBlob(t *testing.T) {
 	require.True(t, ge.GetShallow())
 }
 
+// TestGrantSourcesStrippedFromDataBlob verifies that Grant.Sources is stripped
+// from the data blob on write and stored only in the dedicated sources column.
+func TestGrantSourcesStrippedFromDataBlob(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	grantWithSources := v2.Grant_builder{
+		Id:          "grant-sources-blob-check",
+		Entitlement: ent1,
+		Principal:   u1,
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{
+				"ent1": {IsDirect: true},
+				"ent2": {IsDirect: false},
+			},
+		}.Build(),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grantWithSources))
+
+	raw := getRawGrantRowWithDataAndSources(ctx, t, c1f, "grant-sources-blob-check")
+
+	// The serialized data blob should NOT contain sources.
+	rawGrant := &v2.Grant{}
+	require.NoError(t, proto.Unmarshal(raw.data, rawGrant))
+	require.Nil(t, rawGrant.GetSources(), "data blob should not contain Grant.Sources")
+
+	// Sources must be present in the dedicated sources column.
+	require.NotNil(t, raw.sources, "sources column should be populated")
+	storedSources := &v2.GrantSources{}
+	require.NoError(t, proto.Unmarshal(raw.sources, storedSources))
+	require.Len(t, storedSources.GetSources(), 2)
+	require.True(t, storedSources.GetSources()["ent1"].GetIsDirect())
+	require.False(t, storedSources.GetSources()["ent2"].GetIsDirect())
+}
+
+// TestGrantSourcesRoundTrip verifies that sources stored in the dedicated SQL
+// column are rehydrated on read APIs.
+func TestGrantSourcesRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	grantWithSources := v2.Grant_builder{
+		Id:          "grant-sources-roundtrip",
+		Entitlement: ent1,
+		Principal:   u1,
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{
+				"ent1": {IsDirect: true},
+				"ent2": {IsDirect: false},
+			},
+		}.Build(),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grantWithSources))
+
+	// Public read API.
+	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, resp.GetList(), 1)
+	readGrant := resp.GetList()[0]
+	require.Len(t, readGrant.GetSources().GetSources(), 2)
+	require.True(t, readGrant.GetSources().GetSources()["ent1"].GetIsDirect())
+	require.False(t, readGrant.GetSources().GetSources()["ent2"].GetIsDirect())
+
+	// Internal payload mode should rehydrate identically.
+	internal, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload,
+	})
+	require.NoError(t, err)
+	require.Len(t, internal.Rows, 1)
+	internalGrant := internal.Rows[0].Grant
+	require.Len(t, internalGrant.GetSources().GetSources(), 2)
+	require.True(t, internalGrant.GetSources().GetSources()["ent1"].GetIsDirect())
+	require.False(t, internalGrant.GetSources().GetSources()["ent2"].GetIsDirect())
+}
+
 // TestDiffDetectsExpansionAnnotationChange verifies that when only the expansion annotation
 // changes (not the rest of the grant data), the diff correctly detects the grant as modified.
 func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {
@@ -538,10 +623,156 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	}
 }
 
+// TestBackfillMigration_OldSyncGetsSourcesColumn verifies that opening a c1z file
+// where grants still have Sources embedded in the data blob (old format) correctly
+// backfills the dedicated sources column and strips sources from data.
+func TestBackfillMigration_OldSyncGetsSourcesColumn(t *testing.T) {
+	ctx := context.Background()
+
+	tmpFile, err := os.CreateTemp("", "test-backfill-sources-*.c1z")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	c1f, err := NewC1ZFile(ctx, tmpFile.Name())
+	require.NoError(t, err)
+	defer c1f.Close(ctx)
+
+	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	groupRT := v2.ResourceType_builder{Id: "group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user"}.Build()
+	require.NoError(t, c1f.PutResourceTypes(ctx, groupRT, userRT))
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	require.NoError(t, c1f.PutResources(ctx, g1, u1))
+
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+	require.NoError(t, c1f.PutEntitlements(ctx, ent1))
+
+	grantWithSources := v2.Grant_builder{
+		Id:          "grant-sources-backfill",
+		Entitlement: ent1,
+		Principal:   u1,
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{
+				"ent1": {IsDirect: true},
+			},
+		}.Build(),
+	}.Build()
+	grantNoSources := v2.Grant_builder{
+		Id:          "grant-no-sources-backfill",
+		Entitlement: ent1,
+		Principal:   g1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grantWithSources, grantNoSources))
+
+	// Mark this sync as supports_diff=1 to match the migration's filter.
+	require.NoError(t, c1f.SetSupportsDiff(ctx, syncID))
+	require.NoError(t, c1f.EndSync(ctx))
+
+	// Simulate old format: sources embedded in data blob, sources column NULL.
+	oldFormatGrant := v2.Grant_builder{
+		Id:          "grant-sources-backfill",
+		Entitlement: ent1,
+		Principal:   u1,
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{
+				"ent1": {IsDirect: true},
+			},
+		}.Build(),
+	}.Build()
+	oldFormatData, err := proto.MarshalOptions{Deterministic: true}.Marshal(oldFormatGrant)
+	require.NoError(t, err)
+
+	_, err = c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET data=?, sources=NULL WHERE external_id='grant-sources-backfill' AND sync_id=?",
+		oldFormatData, syncID,
+	)
+	require.NoError(t, err)
+
+	_, err = c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET sources=NULL WHERE external_id='grant-no-sources-backfill' AND sync_id=?",
+		syncID,
+	)
+	require.NoError(t, err)
+
+	// Run the backfill explicitly.
+	require.NoError(t, backfillGrantSourcesColumn(ctx, c1f.db, grants.Name()))
+
+	// Verify migrated row: sources moved to column and stripped from data.
+	withSources := getRawGrantRowWithDataAndSourcesForSync(ctx, t, c1f, "grant-sources-backfill", syncID)
+	require.NotNil(t, withSources.sources, "sources column should be populated after backfill")
+	migratedSources := &v2.GrantSources{}
+	require.NoError(t, proto.Unmarshal(withSources.sources, migratedSources))
+	require.True(t, migratedSources.GetSources()["ent1"].GetIsDirect())
+
+	migratedDataGrant := &v2.Grant{}
+	require.NoError(t, proto.Unmarshal(withSources.data, migratedDataGrant))
+	require.Nil(t, migratedDataGrant.GetSources(), "data blob should have sources stripped after backfill")
+
+	// Verify row with no sources remains SQL NULL in sources column.
+	requireSourcesSQLNullForSync(ctx, t, c1f, "grant-no-sources-backfill", syncID)
+
+	// Verify API rehydration still returns the expected sources.
+	c1f.currentSyncID = ""
+	require.NoError(t, c1f.ViewSync(ctx, syncID))
+	listResp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.Len(t, listResp.GetList(), 2)
+
+	byID := map[string]*v2.Grant{}
+	for _, g := range listResp.GetList() {
+		byID[g.GetId()] = g
+	}
+	require.Len(t, byID["grant-sources-backfill"].GetSources().GetSources(), 1)
+	require.True(t, byID["grant-sources-backfill"].GetSources().GetSources()["ent1"].GetIsDirect())
+	require.Nil(t, byID["grant-no-sources-backfill"].GetSources())
+}
+
 // grantRawRow holds the raw SQL column values for a grant row.
 type grantRawRow struct {
+	data           []byte
 	expansion      []byte
+	sources        []byte
 	needsExpansion int
+}
+
+// getRawGrantRowWithDataAndSources reads raw data + sources columns for a grant row.
+func getRawGrantRowWithDataAndSources(ctx context.Context, t *testing.T, c1f *C1File, externalID string) grantRawRow {
+	t.Helper()
+	var r grantRawRow
+	err := c1f.db.QueryRowContext(ctx,
+		"SELECT data, sources, expansion, needs_expansion FROM "+grants.Name()+" WHERE external_id=?", externalID,
+	).Scan(&r.data, &r.sources, &r.expansion, &r.needsExpansion)
+	require.NoError(t, err)
+	if len(r.expansion) == 0 {
+		r.expansion = nil
+	}
+	if len(r.sources) == 0 {
+		r.sources = nil
+	}
+	return r
+}
+
+func getRawGrantRowWithDataAndSourcesForSync(ctx context.Context, t *testing.T, c1f *C1File, externalID string, syncID string) grantRawRow {
+	t.Helper()
+	var r grantRawRow
+	err := c1f.db.QueryRowContext(ctx,
+		"SELECT data, sources, expansion, needs_expansion FROM "+grants.Name()+" WHERE external_id=? AND sync_id=?",
+		externalID,
+		syncID,
+	).Scan(&r.data, &r.sources, &r.expansion, &r.needsExpansion)
+	require.NoError(t, err)
+	if len(r.expansion) == 0 {
+		r.expansion = nil
+	}
+	if len(r.sources) == 0 {
+		r.sources = nil
+	}
+	return r
 }
 
 // getRawGrantRow reads the raw expansion and needs_expansion columns for a grant by external_id.
@@ -623,6 +854,19 @@ func requireExpansionSQLNull(ctx context.Context, t *testing.T, c1f *C1File, ext
 	).Scan(&isNull)
 	require.NoError(t, err)
 	require.Equal(t, 1, isNull, "expansion must be SQL NULL, not empty blob")
+}
+
+func requireSourcesSQLNullForSync(ctx context.Context, t *testing.T, c1f *C1File, externalID string, syncID string) {
+	t.Helper()
+	var isNull int
+	err := c1f.db.QueryRowContext(
+		ctx,
+		"SELECT sources IS NULL FROM "+grants.Name()+" WHERE external_id=? AND sync_id=?",
+		externalID,
+		syncID,
+	).Scan(&isNull)
+	require.NoError(t, err)
+	require.Equal(t, 1, isNull, "sources must be SQL NULL, not empty blob")
 }
 
 // setupTestC1Z creates a fresh c1z with a started full sync and common resource types,
