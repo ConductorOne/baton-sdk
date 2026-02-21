@@ -463,6 +463,13 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 		return err
 	}
 
+	// Mark old syncs as backfilled so this migration is not re-run on next open.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		`UPDATE %s SET supports_diff = 1 WHERE supports_diff = 0`, syncRuns.Name(),
+	)); err != nil {
+		return err
+	}
+
 	return nil
 }
 
