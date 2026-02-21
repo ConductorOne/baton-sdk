@@ -358,9 +358,9 @@ func extractAndStripExpansion(grant *v2.Grant) ([]byte, bool) {
 }
 
 func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableName string) error {
-	// Only backfill grants from syncs that don't support diff (old syncs created before
-	// this code change). New syncs set supports_diff=1 at creation and write grants with
-	// the expansion column populated correctly, so they don't need backfilling.
+	// Backfill grants only for syncs that have not yet been processed.
+	// The grants_backfilled flag is the single source of truth for whether
+	// this migration work still needs to run for a sync.
 	//
 	// We unmarshal every grant with expansion IS NULL from old syncs, extract the
 	// GrantExpandable annotation (if present), and populate the expansion column.
@@ -376,7 +376,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			 JOIN %s sr ON g.sync_id = sr.sync_id
 			 WHERE g.id > ?
 			   AND g.expansion IS NULL
-			   AND sr.supports_diff = 0
+			   AND sr.grants_backfilled = 0
 			 ORDER BY g.id
 			 LIMIT 1000`,
 			tableName, syncRuns.Name(),
@@ -467,6 +467,13 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 	// Convert empty-blob sentinels back to NULL.
 	if _, err := db.ExecContext(ctx, fmt.Sprintf(
 		`UPDATE %s SET expansion = NULL WHERE expansion = X''`, tableName,
+	)); err != nil {
+		return err
+	}
+	// Mark all not-yet-processed syncs as backfilled so migration work only runs once.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		`UPDATE %s SET grants_backfilled = 1 WHERE grants_backfilled = 0`,
+		syncRuns.Name(),
 	)); err != nil {
 		return err
 	}
