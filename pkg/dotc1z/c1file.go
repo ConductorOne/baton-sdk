@@ -225,7 +225,7 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 		opt(options)
 	}
 	if options.encoderConcurrency < 0 {
-		return nil, fmt.Errorf("encoder concurrency must be greater than 0")
+		return nil, fmt.Errorf("encoder concurrency must not be negative: %d", options.encoderConcurrency)
 	}
 
 	dbFilePath, _, err := decompressC1z(outputFilePath, options.tmpDir, options.decoderOptions...)
