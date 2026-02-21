@@ -224,6 +224,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	for _, opt := range opts {
 		opt(options)
 	}
+	if options.encoderConcurrency < 0 {
+		return nil, fmt.Errorf("encoder concurrency must be greater than 0")
+	}
 
 	dbFilePath, _, err := decompressC1z(outputFilePath, options.tmpDir, options.decoderOptions...)
 	if err != nil {
@@ -242,9 +245,6 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	if options.readOnly {
 		c1fopts = append(c1fopts, WithC1FReadOnly(true))
 	}
-	if options.encoderConcurrency < 0 {
-		return nil, fmt.Errorf("encoder concurrency must be greater than 0")
-	}
 	c1fopts = append(c1fopts, WithC1FEncoderConcurrency(options.encoderConcurrency))
 	if options.syncLimit > 0 {
 		c1fopts = append(c1fopts, WithC1FSyncCountLimit(options.syncLimit))
@@ -252,7 +252,7 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)
 	if err != nil {
-		return nil, err
+		return nil, cleanupDbDir(dbFilePath, err)
 	}
 
 	c1File.outputFilePath = outputFilePath
@@ -261,7 +261,7 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 }
 
 func cleanupDbDir(dbFilePath string, err error) error {
-	cleanupErr := os.RemoveAll(filepath.Dir(dbFilePath))
+	cleanupErr := os.RemoveAll(filepath.Dir(dbFilePath)) //nolint:gosec // G703 -- dbFilePath is a caller-provided path by design.
 	if cleanupErr != nil {
 		err = errors.Join(err, cleanupErr)
 	}
