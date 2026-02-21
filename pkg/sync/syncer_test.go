@@ -2039,3 +2039,92 @@ func TestSyncGrants_NoMatchPaginates(t *testing.T) {
 
 	require.Equal(t, []string{"", "next"}, mc.callTokens)
 }
+
+// cancelOnResourcesMockConnector wraps a mockConnector and cancels a context
+// when ListResources is called, simulating a worker shutdown mid-sync.
+type cancelOnResourcesMockConnector struct {
+	*mockConnector
+	cancelFunc context.CancelFunc
+	cancelled  bool
+}
+
+func (mc *cancelOnResourcesMockConnector) ListResources(ctx context.Context, in *v2.ResourcesServiceListResourcesRequest, opts ...grpc.CallOption) (*v2.ResourcesServiceListResourcesResponse, error) {
+	if !mc.cancelled {
+		mc.cancelled = true
+		mc.cancelFunc()
+	}
+	return mc.mockConnector.ListResources(ctx, in, opts...)
+}
+
+func TestCancellationCheckpoints(t *testing.T) {
+	ctx := t.Context()
+
+	tempDir, err := os.MkdirTemp("", "baton-cancel-checkpoint-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "cancel-checkpoint.c1z")
+
+	mc := newMockConnector()
+	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+
+	group, _, err := mc.AddGroup(ctx, "test_group")
+	require.NoError(t, err)
+
+	user, err := mc.AddUser(ctx, "test_user")
+	require.NoError(t, err)
+
+	mc.AddGroupMember(ctx, group, user)
+
+	// Create a cancellable context that will be cancelled when ListResources is called.
+	// This simulates a worker receiving SIGTERM mid-sync.
+	syncCtx, syncCancel := context.WithCancel(ctx)
+	cancelMC := &cancelOnResourcesMockConnector{
+		mockConnector: mc,
+		cancelFunc:    syncCancel,
+	}
+
+	syncer1, err := NewSyncer(ctx, cancelMC, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+
+	// Sync should return a cancellation error, but checkpoint state first.
+	err = syncer1.Sync(syncCtx)
+	require.Error(t, err, "sync should fail due to context cancellation")
+	require.ErrorIs(t, err, context.Canceled)
+
+	// Close the syncer to flush the c1z (use a fresh context since syncCtx is cancelled).
+	err = syncer1.Close(ctx)
+	require.NoError(t, err)
+
+	// Resume the sync with a non-cancelling connector — it should complete successfully,
+	// picking up from the checkpointed state (not starting from scratch).
+	syncer2, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+
+	err = syncer2.Sync(ctx)
+	require.NoError(t, err, "resumed sync should complete successfully")
+
+	err = syncer2.Close(ctx)
+	require.NoError(t, err)
+
+	// Verify the completed sync has all the data.
+	c1zManager2, err := manager.New(ctx, c1zPath)
+	require.NoError(t, err)
+	store2, err := c1zManager2.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	resources, err := store2.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: groupResourceType.GetId(),
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resources.GetList(), 1, "group should be synced after resume")
+
+	resources, err = store2.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{
+		ResourceTypeId: userResourceType.GetId(),
+	}.Build())
+	require.NoError(t, err)
+	require.Len(t, resources.GetList(), 1, "user should be synced after resume")
+
+	err = store2.Close(ctx)
+	require.NoError(t, err)
+}
