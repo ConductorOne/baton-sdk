@@ -141,7 +141,11 @@ func (l *localManager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 	return dotc1z.NewC1ZFile(ctx, l.tmpPath, opts...)
 }
 
-// SaveC1Z saves the C1Z file to the local file system.
+// SaveC1Z saves the C1Z file to the local file system using atomic rename
+// to prevent data loss if the process is killed mid-write. Previously this
+// used os.Create() which truncates the destination immediately — a crash
+// during io.Copy would leave a truncated file with a valid c1z header but
+// incomplete zstd stream, causing all subsequent sync attempts to fail.
 func (l *localManager) SaveC1Z(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "localManager.SaveC1Z")
 	defer span.End()
@@ -162,22 +166,41 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	}
 	defer tmpFile.Close()
 
-	dstFile, err := os.Create(l.filePath)
+	// Write to a staging file, fsync, then atomic rename to the destination.
+	stagingPath := l.filePath + ".tmp"
+	dstFile, err := os.OpenFile(stagingPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create staging file: %w", err)
 	}
-	defer dstFile.Close()
+
+	success := false
+	defer func() {
+		if dstFile != nil {
+			dstFile.Close()
+		}
+		if !success {
+			os.Remove(stagingPath)
+		}
+	}()
 
 	size, err := io.Copy(dstFile, tmpFile)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to copy to staging file: %w", err)
 	}
 
-	// CRITICAL: Sync to ensure data is written before function returns.
-	// This is especially important on ZFS ARC where writes may be cached.
 	if err := dstFile.Sync(); err != nil {
-		return fmt.Errorf("failed to sync destination file: %w", err)
+		return fmt.Errorf("failed to sync staging file: %w", err)
 	}
+
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("failed to close staging file: %w", err)
+	}
+	dstFile = nil
+
+	if err := os.Rename(stagingPath, l.filePath); err != nil {
+		return fmt.Errorf("failed to rename staging file to destination: %w", err)
+	}
+	success = true
 
 	log.Debug(
 		"successfully saved c1z locally",
