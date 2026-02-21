@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 // cloneTableColumns returns the non-autoincrement column names for tableName
@@ -145,7 +147,13 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) (
 		}
 	}
 
-	// Really be sure that our connection is closed and the db won't be mutated
+	// Detach the clone database before releasing the connection. On Windows,
+	// open file handles prevent deletion; without DETACH the source connection
+	// pool retains a handle on the clone db file, causing os.RemoveAll to fail.
+	_, err = conn.ExecContext(qCtx, "DETACH clone")
+	if err != nil {
+		ctxzap.Extract(ctx).Error("error detaching clone database", zap.Error(err))
+	}
 	canc()
 	_ = conn.Close()
 
