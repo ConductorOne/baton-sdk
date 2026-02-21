@@ -279,6 +279,26 @@ func TestC1ZInvalidFile(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidFile)
 }
 
+func TestNewC1FileRejectsMigratedGrantSchemaIndexes(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "unsupported-schema.db")
+
+	f, err := NewC1File(ctx, dbPath)
+	require.NoError(t, err)
+
+	_, err = f.db.ExecContext(ctx,
+		fmt.Sprintf("CREATE INDEX idx_grants_sync_expansion_v%s ON %s (sync_id)", grants.Version(), grants.Name()))
+	require.NoError(t, err)
+
+	require.NoError(t, f.rawDb.Close())
+	f.rawDb = nil
+	f.db = nil
+
+	_, err = NewC1File(ctx, dbPath)
+	require.ErrorIs(t, err, ErrUnsupportedMigratedGrantSchema)
+}
+
 func TestC1ZStats(t *testing.T) {
 	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-stats.c1z")

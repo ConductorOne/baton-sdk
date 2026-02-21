@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -15,12 +16,11 @@ import (
 	"go.uber.org/zap"
 )
 
-// cloneTableColumns returns the non-autoincrement column names for tableName
-// by querying PRAGMA table_info on the given connection. The column names are
-// returned in schema-definition order for the source table, which may differ
-// from a freshly-created table when columns were added via ALTER TABLE.
-func cloneTableColumns(ctx context.Context, conn *sql.Conn, tableName string) ([]string, error) {
-	rows, err := conn.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", tableName))
+// cloneTableColumns returns the non-autoincrement column names for schema.tableName
+// by querying PRAGMA table_info on the given connection.
+func cloneTableColumns(ctx context.Context, conn *sql.Conn, schema string, tableName string) ([]string, error) {
+	pragma := fmt.Sprintf("PRAGMA %s.table_info(%s)", schema, tableName)
+	rows, err := conn.QueryContext(ctx, pragma)
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +41,27 @@ func cloneTableColumns(ctx context.Context, conn *sql.Conn, tableName string) ([
 		}
 	}
 	return columns, rows.Err()
+}
+
+// cloneCommonColumns returns columns that exist in both source (main) and
+// destination (clone) schemas, preserving destination order for INSERT.
+func cloneCommonColumns(ctx context.Context, conn *sql.Conn, tableName string) ([]string, error) {
+	srcColumns, err := cloneTableColumns(ctx, conn, "main", tableName)
+	if err != nil {
+		return nil, err
+	}
+	dstColumns, err := cloneTableColumns(ctx, conn, "clone", tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	var columns []string
+	for _, col := range dstColumns {
+		if slices.Contains(srcColumns, col) {
+			columns = append(columns, col)
+		}
+	}
+	return columns, nil
 }
 
 // cloneTableQuery builds an INSERT ... SELECT that copies rows by explicit
@@ -136,7 +157,7 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) (
 	}
 
 	for _, t := range allTableDescriptors {
-		columns, err := cloneTableColumns(qCtx, conn, t.Name())
+		columns, err := cloneCommonColumns(qCtx, conn, t.Name())
 		if err != nil {
 			return fmt.Errorf("clone-sync: error reading columns for %s: %w", t.Name(), err)
 		}

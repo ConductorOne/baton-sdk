@@ -32,6 +32,7 @@ import (
 )
 
 var ErrDbNotOpen = errors.New("c1file: database has not been opened")
+var ErrUnsupportedMigratedGrantSchema = errors.New("c1z: unsupported migrated grant schema")
 
 type pragma struct {
 	name  string
@@ -379,6 +380,14 @@ func (c *C1File) init(ctx context.Context) error {
 		return err
 	}
 
+	// Reject c1z files created by migrated grant schema variants that this
+	// branch no longer supports. We detect those files via migration-introduced
+	// index names.
+	err = c.validateSupportedGrantSchema(ctx)
+	if err != nil {
+		return err
+	}
+
 	err = c.InitTables(ctx)
 	if err != nil {
 		return err
@@ -417,6 +426,23 @@ func (c *C1File) init(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (c *C1File) validateSupportedGrantSchema(ctx context.Context) error {
+	var migratedIdxCount int
+	err := c.rawDb.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM sqlite_master
+		WHERE type = 'index'
+		  AND name IN ('idx_grants_sync_expansion_v1', 'idx_grants_sync_needs_expansion_v1')
+	`).Scan(&migratedIdxCount)
+	if err != nil {
+		return err
+	}
+	if migratedIdxCount > 0 {
+		return ErrUnsupportedMigratedGrantSchema
 	}
 
 	return nil

@@ -14,24 +14,20 @@ import (
 )
 
 // TestCloneSyncMigratedColumnOrder verifies that CloneSync correctly handles
-// a source database whose column order differs from a freshly-created schema.
+// a source database that has legacy extra columns from a reverted schema.
 //
-// When a c1z file is created by an older version of the code and then migrated,
-// ALTER TABLE ADD COLUMN appends new columns to the end. The current schema
-// definition places expansion and needs_expansion between external_id and data.
-// A freshly-created table has them inline; a migrated table has them at the end.
+// A file produced by a previous SDK version may include expansion-related grant
+// columns that no longer exist in the current schema.
 //
-// CloneSync uses INSERT INTO clone.t SELECT * FROM t, which matches columns by
-// ordinal position. If the source and destination have different physical column
-// orders, the data is silently written into the wrong columns.
+// CloneSync must ignore source-only columns when copying into the destination
+// schema, while still preserving the current sync's data.
 func TestCloneSyncMigratedColumnOrder(t *testing.T) {
 	ctx := context.Background()
 
 	srcDir := t.TempDir()
 	srcDBPath := filepath.Join(srcDir, "source.db")
 
-	// Step 1: Create a C1File normally — this creates grants with the current
-	// schema where expansion/needs_expansion are inline (between external_id and data).
+	// Step 1: Create a C1File normally.
 	srcFile, err := NewC1File(ctx, srcDBPath, WithC1FTmpDir(srcDir))
 	require.NoError(t, err)
 
