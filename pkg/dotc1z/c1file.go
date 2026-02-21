@@ -432,20 +432,21 @@ func (c *C1File) init(ctx context.Context) error {
 }
 
 func (c *C1File) validateSupportedGrantSchema(ctx context.Context) error {
-	var migratedIdxCount int
+	var hasMigratedIdx int
 	err := c.rawDb.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM sqlite_master
+		SELECT 1 FROM sqlite_master
 		WHERE type = 'index'
-		  AND name IN ('idx_grants_sync_expansion_v1', 'idx_grants_sync_needs_expansion_v1')
-	`).Scan(&migratedIdxCount)
+		  AND name = 'idx_grants_sync_expansion_v1'
+		LIMIT 1
+	`).Scan(&hasMigratedIdx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
-	if migratedIdxCount > 0 {
-		return ErrUnsupportedMigratedGrantSchema
-	}
 
-	return nil
+	return ErrUnsupportedMigratedGrantSchema
 }
 
 func (c *C1File) InitTables(ctx context.Context) error {
