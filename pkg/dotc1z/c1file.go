@@ -114,8 +114,12 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 
 	rawDB, err := sql.Open("sqlite", dbFilePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("new-c1-file: error opening raw db: %w", err)
 	}
+	l := ctxzap.Extract(ctx)
+	l.Debug("new-c1-file: opened raw db",
+		zap.String("db_file_path", dbFilePath),
+	)
 
 	// Limit to a single connection so idle pool connections don't hold WAL
 	// read locks that prevent PRAGMA wal_checkpoint(TRUNCATE) from completing
@@ -147,7 +151,7 @@ func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1Fi
 
 	err = c1File.init(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("new-c1-file: error initializing c1file: %w", err)
 	}
 
 	return c1File, nil
@@ -225,6 +229,11 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	if err != nil {
 		return nil, err
 	}
+	l := ctxzap.Extract(ctx)
+	l.Debug("new-c1z-file: decompressed c1z",
+		zap.String("db_file_path", dbFilePath),
+		zap.String("output_file_path", outputFilePath),
+	)
 
 	var c1fopts []C1FOption
 	for _, pragma := range options.pragmas {
@@ -383,14 +392,18 @@ func (c *C1File) init(ctx context.Context) error {
 
 	err = c.InitTables(ctx)
 	if err != nil {
+		l.Error("c1file-init: error initializing tables", zap.Error(err))
 		return err
 	}
+	l.Debug("c1file-init: initialized tables",
+		zap.String("db_file_path", c.dbFilePath),
+	)
 
 	// // Checkpoint the WAL after migrations. Migrations like backfillGrantExpansionColumn
 	// // can update many rows, filling the WAL. Without a checkpoint, subsequent reads are
 	// // slow because SQLite must scan the WAL hash table for every page read.
 	if _, err = c.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-		l.Warn("WAL checkpoint after init failed", zap.Error(err))
+		l.Warn("c1file-init: WAL checkpoint after init failed", zap.Error(err))
 	}
 
 	if c.readOnly {
@@ -415,16 +428,17 @@ func (c *C1File) init(ctx context.Context) error {
 		}
 	}
 	if !hasLockingPragma {
+		l.Debug("c1file-init: setting locking mode to EXCLUSIVE", zap.String("db_file_path", c.dbFilePath))
 		_, err = c.db.ExecContext(ctx, "PRAGMA main.locking_mode = EXCLUSIVE")
 		if err != nil {
-			return err
+			return fmt.Errorf("c1file-init: error setting locking mode to EXCLUSIVE: %w", err)
 		}
 	}
 
 	for _, pragma := range c.pragmas {
 		_, err := c.db.ExecContext(ctx, fmt.Sprintf("PRAGMA %s = %s", pragma.name, pragma.value))
 		if err != nil {
-			return err
+			return fmt.Errorf("c1file-init: error setting pragma %s = %s: %w", pragma.name, pragma.value, err)
 		}
 	}
 
@@ -440,16 +454,23 @@ func (c *C1File) InitTables(ctx context.Context) error {
 		return err
 	}
 
+	l := ctxzap.Extract(ctx).With(zap.String("db_file_path", c.dbFilePath))
 	for _, t := range allTableDescriptors {
 		query, args := t.Schema()
 		_, err = c.db.ExecContext(ctx, fmt.Sprintf(query, args...))
 		if err != nil {
-			return err
+			return fmt.Errorf("c1file-init-tables: error initializing table %s: %w", t.Name(), err)
 		}
+		l.Debug("c1file-init-tables: initialized table schema, running migrations",
+			zap.String("table_name", t.Name()),
+		)
 		err = t.Migrations(ctx, c.db)
 		if err != nil {
-			return err
+			return fmt.Errorf("c1file-init-tables: error running migration for table %s: %w", t.Name(), err)
 		}
+		l.Debug("c1file-init-tables: ran migrations for table",
+			zap.String("table_name", t.Name()),
+		)
 	}
 
 	return nil

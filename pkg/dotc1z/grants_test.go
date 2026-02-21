@@ -148,8 +148,12 @@ func TestGrantExpandableSurvivesCloseReopen(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "test-expansion-reopen-*.c1z")
 	require.NoError(t, err)
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
+	err = tmpFile.Close()
+	require.NoError(t, err)
+	defer func() {
+		err := os.Remove(tmpPath)
+		require.NoError(t, err)
+	}()
 
 	// Phase 1: Create store, write expandable grant, close.
 	func() {
@@ -444,8 +448,12 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 
 	tmpFile, err := os.CreateTemp("", "test-backfill-*.c1z")
 	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
+	defer func() {
+		err := os.Remove(tmpFile.Name()) //nolint:gosec // G703 -- tmpFile.Name() is created by os.CreateTemp in this test.
+		require.NoError(t, err)
+	}()
+	err = tmpFile.Close()
+	require.NoError(t, err)
 
 	// Step 1: Create a c1z and write grants the "new" way (expansion column populated).
 	c1f, err := NewC1ZFile(ctx, tmpFile.Name())
@@ -636,7 +644,8 @@ func setupTestC1Z(ctx context.Context, t *testing.T) (*C1File, string, func()) {
 	t.Helper()
 	tmpFile, err := os.CreateTemp("", "test-grants-*.c1z")
 	require.NoError(t, err)
-	tmpFile.Close()
+	err = tmpFile.Close()
+	require.NoError(t, err)
 
 	c1f, err := NewC1ZFile(ctx, tmpFile.Name())
 	require.NoError(t, err)
@@ -657,9 +666,10 @@ func setupTestC1Z(ctx context.Context, t *testing.T) (*C1File, string, func()) {
 	require.NoError(t, c1f.PutEntitlements(ctx, ent1, ent2))
 
 	cleanup := func() {
-		_ = c1f.Close(ctx)
-		// #nosec G703 -- tmpFile.Name() is created by os.CreateTemp in this test.
-		os.Remove(tmpFile.Name())
+		err := c1f.Close(ctx)
+		require.NoError(t, err)
+		err = os.Remove(tmpFile.Name()) //nolint:gosec // G703 -- tmpFile.Name() is created by os.CreateTemp in this test.
+		require.NoError(t, err)
 	}
 	return c1f, syncID, cleanup
 }
