@@ -366,15 +366,18 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 	// GrantExpandable annotation (if present), and populate the expansion column.
 	// Non-expandable grants get an empty-blob sentinel to avoid re-processing,
 	// which is cleaned up to NULL at the end.
+	var lastID int64
 	for {
 		rows, err := db.QueryContext(ctx, fmt.Sprintf(
 			`SELECT g.id, g.data FROM %s g
 			 JOIN %s sr ON g.sync_id = sr.sync_id
 			 WHERE g.expansion IS NULL
 			   AND sr.supports_diff = 0
+			   AND g.id > ?
+			 ORDER BY g.id
 			 LIMIT 1000`,
 			tableName, syncRuns.Name(),
-		))
+		), lastID)
 		if err != nil {
 			return err
 		}
@@ -401,6 +404,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 		if len(batch) == 0 {
 			break
 		}
+		lastID = batch[len(batch)-1].id
 
 		tx, err := db.BeginTx(ctx, nil)
 		if err != nil {
