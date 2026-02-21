@@ -14,7 +14,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 )
 
 const defaultMaxDepth int64 = 20
@@ -29,7 +28,7 @@ var ErrMaxDepthExceeded = errors.New("max depth exceeded")
 type ExpanderStore interface {
 	GetEntitlement(ctx context.Context, req *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error)
 	ListGrantsForEntitlement(ctx context.Context, req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error)
-	UpsertGrants(ctx context.Context, opts connectorstore.GrantUpsertOptions, grants ...*v2.Grant) error
+	PutGrants(ctx context.Context, grants ...*v2.Grant) error
 }
 
 // Expander handles the grant expansion algorithm.
@@ -290,9 +289,7 @@ func PutGrantsInChunks(ctx context.Context, store ExpanderStore, grants []*v2.Gr
 		return grants, nil
 	}
 
-	err := store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
-		Mode: connectorstore.GrantUpsertModePreserveExpansion,
-	}, grants...)
+	err := store.PutGrants(ctx, grants...)
 	if err != nil {
 		return nil, fmt.Errorf("PutGrantsInChunks: error putting grants: %w", err)
 	}

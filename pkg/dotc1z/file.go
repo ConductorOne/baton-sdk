@@ -60,14 +60,12 @@ func decompressC1z(c1zPath string, workingDir string, opts ...DecoderOption) (st
 		return "", tmpDir, cleanupDir(err)
 	}
 
-	// #nosec G703 -- c1zPath is an explicit caller-provided local file path by design.
 	stat, err := os.Stat(c1zPath)
 	if err != nil || stat.Size() == 0 {
 		// TODO(kans): it would be nice to know more about the error....
 		return dbFilePath, tmpDir, cleanupDir(nil)
 	}
 
-	// #nosec G703 -- opening the caller-provided c1z file is the expected behavior.
 	c1zFile, err = os.Open(c1zPath)
 	if err != nil {
 		return "", tmpDir, cleanupDir(err)

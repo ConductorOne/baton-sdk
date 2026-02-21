@@ -2,8 +2,6 @@ package expand
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -12,8 +10,9 @@ import (
 	"slices"
 	"testing"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
 )
@@ -87,32 +86,30 @@ func copyGraph(g *EntitlementGraph) *EntitlementGraph {
 	return newGraph
 }
 
-// loadEntitlementGraphFromC1Z builds the entitlement graph by reading expansion
-// metadata directly from ListGrantsInternal rows.
-func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID string) (*EntitlementGraph, error) {
+// loadEntitlementGraphFromC1Z builds the entitlement graph by scanning all grants
+// and looking for GrantExpandable annotations.
+func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File) (*EntitlementGraph, error) {
 	graph := NewEntitlementGraph(ctx)
 
 	pageToken := ""
 	for {
-		resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-			Mode:      connectorstore.GrantListModeExpansion,
-			SyncID:    syncID,
-			PageToken: pageToken,
-		})
-		if errors.Is(err, sql.ErrNoRows) {
-			return graph, nil
-		}
-
+		resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageToken: pageToken}.Build())
 		if err != nil {
 			return nil, err
 		}
 
-		for _, row := range resp.Rows {
-			def := row.Expansion
-			if def == nil {
+		for _, grant := range resp.GetList() {
+			annos := annotations.Annotations(grant.GetAnnotations())
+			expandable := &v2.GrantExpandable{}
+			_, err := annos.Pick(expandable)
+			if err != nil {
+				return nil, err
+			}
+			if len(expandable.GetEntitlementIds()) == 0 {
 				continue
 			}
-			for _, srcEntitlementID := range def.SourceEntitlementIDs {
+
+			for _, srcEntitlementID := range expandable.GetEntitlementIds() {
 				srcEntitlement, err := c1f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
 					EntitlementId: srcEntitlementID,
 				}.Build())
@@ -120,18 +117,18 @@ func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID
 					continue // Skip if source entitlement not found
 				}
 
-				graph.AddEntitlementID(def.TargetEntitlementID)
-				graph.AddEntitlementID(srcEntitlement.GetEntitlement().GetId())
+				graph.AddEntitlement(grant.GetEntitlement())
+				graph.AddEntitlement(srcEntitlement.GetEntitlement())
 				_ = graph.AddEdge(ctx,
 					srcEntitlement.GetEntitlement().GetId(),
-					def.TargetEntitlementID,
-					def.Shallow,
-					def.ResourceTypeIDs,
+					grant.GetEntitlement().GetId(),
+					expandable.GetShallow(),
+					expandable.GetResourceTypeIds(),
 				)
 			}
 		}
 
-		pageToken = resp.NextPageToken
+		pageToken = resp.GetNextPageToken()
 		if pageToken == "" {
 			break
 		}
@@ -155,7 +152,7 @@ func benchmarkExpand(b *testing.B, syncID string) {
 	defer c1f.Close(ctx)
 
 	// Load the graph
-	graph, err := loadEntitlementGraphFromC1Z(ctx, c1f, syncID)
+	graph, err := loadEntitlementGraphFromC1Z(ctx, c1f)
 	require.NoError(b, err)
 
 	b.Logf("Graph loaded: %d nodes, %d edges", len(graph.Nodes), len(graph.Edges))

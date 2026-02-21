@@ -11,7 +11,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/logging"
@@ -109,8 +108,13 @@ func TestExpandGrants(t *testing.T) {
 		}
 	}
 	require.Len(t, allGrants, expectedGrantCount, "should have %d grants but got %d", expectedGrantCount, len(allGrants))
-	// Note: We no longer strip GrantExpandable from stored grants during expansion.
-	// Expansion bookkeeping lives outside the grant proto so diffs can safely compare data bytes.
+	for _, grant := range allGrants {
+		annos := annotations.Annotations(grant.GetAnnotations())
+		expandable := &v2.GrantExpandable{}
+		ok, err := annos.Pick(expandable)
+		require.NoError(t, err)
+		require.False(t, ok, "grants are expanded, but grant %s has expandable annotation with entitlement ids %v", grant.GetId(), expandable.GetEntitlementIds())
+	}
 }
 
 func TestInvalidResourceTypeFilter(t *testing.T) {
@@ -991,143 +995,6 @@ func TestExternalResourceMatchID(t *testing.T) {
 	require.Equal(t, externalUser.GetId().GetResource(), allGrants.GetList()[0].GetPrincipal().GetId().GetResource())
 }
 
-// TestExternalResourceMatchIDWithExpandableRemapping verifies that when a grant has both
-// ExternalResourceMatchID and GrantExpandable annotations, the remapping code in
-// processGrantsWithExternalPrincipals correctly reads the expansion annotation and
-// creates remapped entitlement IDs for the matched external principal.
-func TestExternalResourceMatchIDWithExpandableRemapping(t *testing.T) {
-	ctx := t.Context()
-
-	tempDir, err := os.MkdirTemp("", "baton-external-match-id-expandable-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	internalMc := newMockConnector()
-	internalMc.rtDB = append(internalMc.rtDB, userResourceType, groupResourceType)
-
-	externalMc := newMockConnector()
-	externalMc.rtDB = append(externalMc.rtDB, userResourceType, groupResourceType)
-
-	// Create an external group (role). Groups have entitlements synced by
-	// SyncExternalResourcesUsersAndGroups, so the remapped entitlement ID will exist.
-	_, extGroupEnt, err := externalMc.AddGroup(ctx, "ext_role")
-	require.NoError(t, err)
-
-	// Create internal group with entitlement
-	internalGroup, _, err := internalMc.AddGroup(ctx, "internal_group")
-	require.NoError(t, err)
-
-	// Create a PLACEHOLDER resource that differs from the external group.
-	// The GrantExpandable references an entitlement on this placeholder.
-	// After matching, the remapping should replace the placeholder's entitlement IDs
-	// with ones on the matched external principal (ext_role).
-	placeholderResource := v2.Resource_builder{
-		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "placeholder_role"}.Build(),
-	}.Build()
-	placeholderEntID, err := bid.MakeBid(v2.Entitlement_builder{
-		Resource: placeholderResource,
-		Slug:     "member",
-	}.Build())
-	require.NoError(t, err)
-
-	// Create a grant with BOTH ExternalResourceMatchID AND GrantExpandable.
-	// The GrantExpandable references an entitlement on the PLACEHOLDER resource.
-	// After matching ext_role by ID, the remapping code should:
-	// 1. Parse the placeholder entitlement ID to get the slug ("member")
-	// 2. Create a new entitlement ID: entitlement.NewEntitlementID(ext_role, "member")
-	// 3. Verify that entitlement exists in the store (it does, synced from external)
-	// 4. Create a new GrantExpandable with the remapped entitlement ID
-	internalMc.grantDB[internalGroup.GetId().GetResource()] = []*v2.Grant{
-		gt.NewGrant(
-			internalGroup,
-			"member",
-			placeholderResource.GetId(),
-			gt.WithAnnotation(v2.ExternalResourceMatchID_builder{
-				Id: "ext_role",
-			}.Build()),
-			gt.WithAnnotation(v2.GrantExpandable_builder{
-				EntitlementIds:  []string{placeholderEntID},
-				Shallow:         true,
-				ResourceTypeIds: []string{"user"},
-			}.Build()),
-		),
-	}
-
-	// Sync external resources
-	externalC1zpath := filepath.Join(tempDir, "external.c1z")
-	externalSyncer, err := NewSyncer(ctx, externalMc, WithC1ZPath(externalC1zpath), WithTmpDir(tempDir))
-	require.NoError(t, err)
-	err = externalSyncer.Sync(ctx)
-	require.NoError(t, err)
-	err = externalSyncer.Close(ctx)
-	require.NoError(t, err)
-
-	// Sync internal with external reference. Skip expansion to isolate the
-	// external resource annotation propagation behavior.
-	internalC1zpath := filepath.Join(tempDir, "internal.c1z")
-	internalSyncer, err := NewSyncer(ctx, internalMc,
-		WithC1ZPath(internalC1zpath),
-		WithTmpDir(tempDir),
-		WithExternalResourceC1ZPath(externalC1zpath),
-		WithDontExpandGrants(),
-	)
-	require.NoError(t, err)
-	err = internalSyncer.Sync(ctx)
-	require.NoError(t, err)
-	err = internalSyncer.Close(ctx)
-	require.NoError(t, err)
-
-	// Verify the matched grant has a REMAPPED GrantExpandable.
-	// The remapping should produce an entitlement ID using the matched external
-	// group's resource, which is the same as the original in this case but was
-	// generated via entitlement.NewEntitlementID(matchedPrincipal, slug).
-	c1zManager, err := manager.New(ctx, internalC1zpath)
-	require.NoError(t, err)
-	store, err := c1zManager.LoadC1Z(ctx)
-	require.NoError(t, err)
-
-	allGrants, err := store.ListGrants(ctx, &v2.GrantsServiceListGrantsRequest{})
-	require.NoError(t, err)
-	t.Logf("Total grants: %d", len(allGrants.GetList()))
-	for _, g := range allGrants.GetList() {
-		t.Logf("  grant %s: ent=%s principal=%s/%s", g.GetId(), g.GetEntitlement().GetId(),
-			g.GetPrincipal().GetId().GetResourceType(), g.GetPrincipal().GetId().GetResource())
-	}
-
-	internalList, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode: connectorstore.GrantListModeExpansion,
-	})
-	require.NoError(t, err)
-	defs := make([]*connectorstore.ExpandableGrantDef, 0, len(internalList.Rows))
-	for _, row := range internalList.Rows {
-		if row.Expansion != nil {
-			defs = append(defs, row.Expansion)
-		}
-	}
-	t.Logf("Expandable grants: %d", len(defs))
-
-	// Find the expandable grant for the matched external group.
-	// The remapped entitlement ID should reference extGroupEnt (the external group's
-	// member entitlement, e.g. "group:ext_role:member"), NOT the placeholder's
-	// entitlement ("group:placeholder_role:member"). This proves the remapping ran.
-	found := false
-	for _, def := range defs {
-		t.Logf("expandable: external_id=%s target_ent=%s source_ents=%v shallow=%v resource_type_ids=%v",
-			def.GrantExternalID, def.TargetEntitlementID, def.SourceEntitlementIDs, def.Shallow, def.ResourceTypeIDs)
-		for _, srcEntID := range def.SourceEntitlementIDs {
-			// Must be the REMAPPED entitlement (ext_role), not the placeholder
-			require.NotEqual(t, placeholderEntID, srcEntID,
-				"expansion should have remapped entitlement IDs, not placeholder IDs")
-			if srcEntID == extGroupEnt.GetId() {
-				found = true
-				require.True(t, def.Shallow, "expansion should preserve shallow flag")
-				require.Equal(t, []string{"user"}, def.ResourceTypeIDs, "expansion should preserve resource type IDs")
-			}
-		}
-	}
-	require.True(t, found, "should find expandable grant with remapped entitlement ID %q referencing the external group's entitlement", extGroupEnt.GetId())
-}
-
 func TestExternalResourceEmailMatch(t *testing.T) {
 	ctx := t.Context()
 
@@ -1753,11 +1620,7 @@ func (mc *mockConnector) ListStaticEntitlements(
 }
 
 func (mc *mockConnector) ListGrants(ctx context.Context, in *v2.GrantsServiceListGrantsRequest, opts ...grpc.CallOption) (*v2.GrantsServiceListGrantsResponse, error) {
-	var key string
-	if r := in.GetResource(); r != nil {
-		key = r.GetId().GetResource()
-	}
-	return v2.GrantsServiceListGrantsResponse_builder{List: mc.grantDB[key]}.Build(), nil
+	return v2.GrantsServiceListGrantsResponse_builder{List: mc.grantDB[in.GetResource().GetId().GetResource()]}.Build(), nil
 }
 
 func (mc *mockConnector) GetMetadata(ctx context.Context, in *v2.ConnectorServiceGetMetadataRequest, opts ...grpc.CallOption) (*v2.ConnectorServiceGetMetadataResponse, error) {
@@ -1862,12 +1725,8 @@ func (mc *etagMockConnector) ListGrants(ctx context.Context, in *v2.GrantsServic
 		}.Build(), nil
 	}
 
-	var key string
-	if r := in.GetResource(); r != nil {
-		key = r.GetId().GetResource()
-	}
 	return v2.GrantsServiceListGrantsResponse_builder{
-		List: mc.grantDB[key],
+		List: mc.grantDB[in.GetResource().GetId().GetResource()],
 		Annotations: annotations.New(&v2.ETag{
 			Value:         mc.etagValue,
 			EntitlementId: mc.entitlementID,

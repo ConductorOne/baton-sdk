@@ -68,7 +68,7 @@ type C1File struct {
 	syncLimit int
 }
 
-var _ connectorstore.InternalWriter = (*C1File)(nil)
+var _ connectorstore.Writer = (*C1File)(nil)
 
 type C1FOption func(*C1File)
 
@@ -374,8 +374,6 @@ func (c *C1File) init(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.init")
 	defer span.End()
 
-	l := ctxzap.Extract(ctx)
-
 	err := c.validateDb(ctx)
 	if err != nil {
 		return err
@@ -384,13 +382,6 @@ func (c *C1File) init(ctx context.Context) error {
 	err = c.InitTables(ctx)
 	if err != nil {
 		return err
-	}
-
-	// // Checkpoint the WAL after migrations. Migrations like backfillGrantExpansionColumn
-	// // can update many rows, filling the WAL. Without a checkpoint, subsequent reads are
-	// // slow because SQLite must scan the WAL hash table for every page read.
-	if _, err = c.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-		l.Warn("WAL checkpoint after init failed", zap.Error(err))
 	}
 
 	if c.readOnly {
