@@ -141,7 +141,6 @@ func TestCloneSyncMigratedColumnOrder(t *testing.T) {
 	// Step 5: Open the clone and verify grants survived intact.
 	cloneFile, err := NewC1ZFile(ctx, clonePath)
 	require.NoError(t, err)
-	defer cloneFile.Close(ctx)
 
 	cloneSyncID, err := cloneFile.LatestSyncID(ctx, connectorstore.SyncTypeFull)
 	require.NoError(t, err)
@@ -172,4 +171,9 @@ func TestCloneSyncMigratedColumnOrder(t *testing.T) {
 	require.Equal(t, "ent1", expandableClone.GetEntitlement().GetId())
 	require.Equal(t, "user", expandableClone.GetPrincipal().GetId().GetResourceType())
 	require.Equal(t, "u1", expandableClone.GetPrincipal().GetId().GetResource())
+
+	// srcFile is a raw C1File with no outputFilePath, so Close() would fail
+	// trying to saveC1z. Just release the database handle directly.
+	require.NoError(t, srcFile.rawDb.Close())
+	require.NoError(t, cloneFile.Close(ctx))
 }
