@@ -2,6 +2,7 @@ package dotc1z
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,38 +11,47 @@ import (
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
-func cloneTableQuery(tableName string) (string, error) {
-	var sb strings.Builder
-	var err error
-
-	_, err = sb.WriteString("INSERT INTO clone.")
+// cloneTableColumns returns the non-autoincrement column names for tableName
+// by querying PRAGMA table_info on the given connection. The column names are
+// returned in schema-definition order for the source table, which may differ
+// from a freshly-created table when columns were added via ALTER TABLE.
+func cloneTableColumns(ctx context.Context, conn *sql.Conn, tableName string) ([]string, error) {
+	rows, err := conn.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", tableName))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
+	defer rows.Close()
 
-	_, err = sb.WriteString(tableName)
-	if err != nil {
-		return "", err
+	var columns []string
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, pk int
+		var defaultValue any
+
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return nil, err
+		}
+		if name != "id" {
+			columns = append(columns, name)
+		}
 	}
+	return columns, rows.Err()
+}
 
-	_, err = sb.WriteString(" SELECT * FROM ")
-	if err != nil {
-		return "", err
-	}
-
-	_, err = sb.WriteString(tableName)
-	if err != nil {
-		return "", err
-	}
-
-	_, err = sb.WriteString(" WHERE sync_id=?")
-	if err != nil {
-		return "", err
-	}
-
-	return sb.String(), nil
+// cloneTableQuery builds an INSERT ... SELECT that copies rows by explicit
+// column name rather than relying on SELECT *, which is sensitive to the
+// physical column order of the source vs destination tables.
+func cloneTableQuery(tableName string, columns []string) string {
+	colList := strings.Join(columns, ", ")
+	return fmt.Sprintf(
+		"INSERT INTO clone.%s (%s) SELECT %s FROM %s WHERE sync_id=?",
+		tableName, colList, colList, tableName,
+	)
 }
 
 // CloneSync uses sqlite hackery to directly copy the pertinent rows into a new database.
@@ -126,17 +136,24 @@ func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) (
 	}
 
 	for _, t := range allTableDescriptors {
-		q, err := cloneTableQuery(t.Name())
+		columns, err := cloneTableColumns(qCtx, conn, t.Name())
 		if err != nil {
-			return err
+			return fmt.Errorf("clone-sync: error reading columns for %s: %w", t.Name(), err)
 		}
+		q := cloneTableQuery(t.Name(), columns)
 		_, err = conn.ExecContext(qCtx, q, syncID)
 		if err != nil {
 			return err
 		}
 	}
 
-	// Really be sure that our connection is closed and the db won't be mutated
+	// Detach the clone database before releasing the connection. On Windows,
+	// open file handles prevent deletion; without DETACH the source connection
+	// pool retains a handle on the clone db file, causing os.RemoveAll to fail.
+	_, err = conn.ExecContext(qCtx, "DETACH clone")
+	if err != nil {
+		ctxzap.Extract(ctx).Error("error detaching clone database", zap.Error(err))
+	}
 	canc()
 	_ = conn.Close()
 
