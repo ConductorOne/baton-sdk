@@ -134,7 +134,7 @@ func TestExpandCorrectness(t *testing.T) {
 			require.NoError(t, err)
 
 			// Load graph and run expansion
-			graph, err := loadEntitlementGraphFromC1Z(ctx, actualC1f, tc.syncID)
+			graph, err := loadEntitlementGraphFromC1Z(ctx, actualC1f)
 			require.NoError(t, err)
 
 			t.Logf("Graph loaded: %d nodes, %d edges", len(graph.Nodes), len(graph.Edges))

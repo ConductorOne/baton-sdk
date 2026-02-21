@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/require"
 )
@@ -47,7 +48,7 @@ func parseExpression(
 		for _, entitlementID := range entitlementIDs {
 			// Create the entitlement if it hasn't already been created.
 			if !entitlementIDSet.Contains(entitlementID) {
-				graph.AddEntitlementID(entitlementID)
+				graph.AddEntitlement(v2.Entitlement_builder{Id: entitlementID}.Build())
 			}
 			// Add an edge if from left side to right side.
 			if previousEntitlementID != dummyID {

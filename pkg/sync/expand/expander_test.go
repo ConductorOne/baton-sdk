@@ -6,7 +6,6 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/stretchr/testify/require"
 )
 
@@ -105,10 +104,6 @@ func (m *MockExpanderStore) PutGrants(_ context.Context, grants ...*v2.Grant) er
 	return nil
 }
 
-func (m *MockExpanderStore) UpsertGrants(_ context.Context, _ connectorstore.GrantUpsertOptions, grants ...*v2.Grant) error {
-	return m.PutGrants(context.Background(), grants...)
-}
-
 // Helper functions for creating test data
 
 func makeResourceID(resourceType, resource string) *v2.ResourceId {
@@ -163,8 +158,8 @@ func TestExpanderWithMockStore(t *testing.T) {
 	// Build the entitlement graph with an edge from A -> B
 	// This means: principals who have entitlement A should also get entitlement B
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(entA.GetId())
-	graph.AddEntitlementID(entB.GetId())
+	graph.AddEntitlement(entA)
+	graph.AddEntitlement(entB)
 	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 
@@ -211,8 +206,8 @@ func TestExpanderStepByStep(t *testing.T) {
 
 	// Build graph
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(entA.GetId())
-	graph.AddEntitlementID(entB.GetId())
+	graph.AddEntitlement(entA)
+	graph.AddEntitlement(entB)
 	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 
@@ -259,8 +254,8 @@ func TestExpanderWithCycle(t *testing.T) {
 
 	// Build graph with a cycle: A -> B -> A
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(entA.GetId())
-	graph.AddEntitlementID(entB.GetId())
+	graph.AddEntitlement(entA)
+	graph.AddEntitlement(entB)
 	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 	err = graph.AddEdge(ctx, entB.GetId(), entA.GetId(), false, []string{"user"})
@@ -303,9 +298,9 @@ func TestExpanderMultiLevel(t *testing.T) {
 
 	// Build graph
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(entA.GetId())
-	graph.AddEntitlementID(entB.GetId())
-	graph.AddEntitlementID(entC.GetId())
+	graph.AddEntitlement(entA)
+	graph.AddEntitlement(entB)
+	graph.AddEntitlement(entC)
 	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 	err = graph.AddEdge(ctx, entB.GetId(), entC.GetId(), false, []string{"user"})
@@ -366,9 +361,9 @@ func TestExpanderDiamondGraph(t *testing.T) {
 
 	// Both A and B expand to C.
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(entA.GetId())
-	graph.AddEntitlementID(entB.GetId())
-	graph.AddEntitlementID(entC.GetId())
+	graph.AddEntitlement(entA)
+	graph.AddEntitlement(entB)
+	graph.AddEntitlement(entC)
 	err := graph.AddEdge(ctx, entA.GetId(), entC.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 	err = graph.AddEdge(ctx, entB.GetId(), entC.GetId(), false, []string{"user"})
@@ -422,9 +417,9 @@ func TestExpanderMixedDirectness(t *testing.T) {
 
 	// A → B and A → C, B → C (so C is reachable from A directly and from B transitively).
 	graph := NewEntitlementGraph(ctx)
-	graph.AddEntitlementID(entA.GetId())
-	graph.AddEntitlementID(entB.GetId())
-	graph.AddEntitlementID(entC.GetId())
+	graph.AddEntitlement(entA)
+	graph.AddEntitlement(entB)
+	graph.AddEntitlement(entC)
 	err := graph.AddEdge(ctx, entA.GetId(), entB.GetId(), false, []string{"user"})
 	require.NoError(t, err)
 	err = graph.AddEdge(ctx, entA.GetId(), entC.GetId(), false, []string{"user"})

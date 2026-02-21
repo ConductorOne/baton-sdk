@@ -286,13 +286,6 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 
 	start := b.nowFunc()
 	tt := tasks.ListGrantsType
-
-	if request.GetResource() == nil {
-		err := fmt.Errorf("error: list grants requires a resource")
-		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, err
-	}
-
 	rid := request.GetResource().GetId()
 	rb, ok := b.resourceSyncers[rid.GetResourceType()]
 	if !ok {
