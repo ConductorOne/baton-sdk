@@ -138,6 +138,8 @@ func TestGenerateSyncDiffFromFile_Additions(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create the NEW file with old resource + a new resource
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -168,6 +170,8 @@ func TestGenerateSyncDiffFromFile_Additions(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Attach the OLD file to the NEW file (main=NEW, attached=OLD)
@@ -271,6 +275,8 @@ func TestGenerateSyncDiffFromFile_Deletions(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create the NEW file with only one resource (B is deleted)
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -292,6 +298,8 @@ func TestGenerateSyncDiffFromFile_Deletions(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Attach OLD to NEW (main=NEW, attached=OLD)
@@ -362,6 +370,8 @@ func TestGenerateSyncDiffFromFile_Modifications(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create the NEW file with the same resource but modified
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -383,6 +393,8 @@ func TestGenerateSyncDiffFromFile_Modifications(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Attach OLD to NEW (main=NEW, attached=OLD)
@@ -456,6 +468,8 @@ func TestGenerateSyncDiffFromFile_MixedChanges(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create NEW file:
 	// - A: modified (DisplayName changed)
@@ -504,6 +518,8 @@ func TestGenerateSyncDiffFromFile_MixedChanges(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Generate diff
@@ -583,6 +599,8 @@ func TestGenerateSyncDiffFromFile_NoChanges(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create NEW file with identical resource A
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -604,6 +622,8 @@ func TestGenerateSyncDiffFromFile_NoChanges(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Generate diff
@@ -676,6 +696,8 @@ func TestGenerateSyncDiffFromFile_EntitlementsOnly(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create NEW file with entitlement A + new entitlement B
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -712,6 +734,8 @@ func TestGenerateSyncDiffFromFile_EntitlementsOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Generate diff
@@ -789,6 +813,8 @@ func TestGenerateSyncDiffFromFile_GrantsOnly(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create NEW file with grant A (unchanged) + grant B (new)
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -841,6 +867,8 @@ func TestGenerateSyncDiffFromFile_GrantsOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Generate diff
@@ -900,6 +928,8 @@ func TestGenerateSyncDiffFromFile_EmptyBase(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create NEW file with resources A and B
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -930,6 +960,8 @@ func TestGenerateSyncDiffFromFile_EmptyBase(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Generate diff
@@ -1016,6 +1048,8 @@ func TestGenerateSyncDiffFromFile_EmptyNew(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create NEW file with empty sync (no resources)
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -1030,6 +1064,8 @@ func TestGenerateSyncDiffFromFile_EmptyNew(t *testing.T) {
 	// No resources added - empty sync
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Generate diff
@@ -1122,6 +1158,8 @@ func TestGenerateSyncDiffFromFile_EntitlementsDeletions(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create NEW file with only entitlement A (B is deleted)
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -1146,6 +1184,8 @@ func TestGenerateSyncDiffFromFile_EntitlementsDeletions(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Generate diff
@@ -1215,6 +1255,8 @@ func TestGenerateSyncDiffFromFile_EntitlementsModifications(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create NEW file with modified entitlement A
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -1239,6 +1281,8 @@ func TestGenerateSyncDiffFromFile_EntitlementsModifications(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Generate diff
@@ -1337,6 +1381,8 @@ func TestGenerateSyncDiffFromFile_GrantsDeletions(t *testing.T) {
 
 	err = oldFile.EndSync(ctx)
 	require.NoError(t, err)
+	err = oldFile.SetSupportsDiff(ctx, oldSyncID)
+	require.NoError(t, err)
 
 	// Create NEW file with only grant A (B is deleted)
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -1369,6 +1415,8 @@ func TestGenerateSyncDiffFromFile_GrantsDeletions(t *testing.T) {
 	require.NoError(t, err)
 
 	err = newFile.EndSync(ctx)
+	require.NoError(t, err)
+	err = newFile.SetSupportsDiff(ctx, newSyncID)
 	require.NoError(t, err)
 
 	// Generate diff
