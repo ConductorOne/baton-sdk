@@ -296,6 +296,7 @@ func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {
 	}.Build()
 	require.NoError(t, oldFile.PutGrants(ctx, oldGrant))
 	require.NoError(t, oldFile.EndSync(ctx))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
 
 	// NEW: same grant but expansion annotation now has Shallow=true (different expansion).
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -318,6 +319,7 @@ func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {
 	}.Build()
 	require.NoError(t, newFile.PutGrants(ctx, newGrant))
 	require.NoError(t, newFile.EndSync(ctx))
+	require.NoError(t, newFile.SetSupportsDiff(ctx, newSyncID))
 
 	// Generate diff.
 	attached, err := newFile.AttachFile(oldFile, "attached")
@@ -389,6 +391,7 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 	}.Build()
 	require.NoError(t, oldFile.PutGrants(ctx, oldGrant))
 	require.NoError(t, oldFile.EndSync(ctx))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
 
 	// NEW: same expansion, but grant now has sources (data blob changes).
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -413,6 +416,7 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 	}.Build()
 	require.NoError(t, newFile.PutGrants(ctx, newGrant))
 	require.NoError(t, newFile.EndSync(ctx))
+	require.NoError(t, newFile.SetSupportsDiff(ctx, newSyncID))
 
 	// Generate diff.
 	attached, err := newFile.AttachFile(oldFile, "attached")
