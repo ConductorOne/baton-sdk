@@ -263,6 +263,7 @@ func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
 	oldSyncID, err := oldDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, oldDB.EndSync(ctx))
+	require.NoError(t, oldDB.SetSupportsDiff(ctx, oldSyncID))
 
 	// Applied DB: create a full sync, then generate diff syncs, then delete the full sync.
 	appliedFile := filepath.Join(tmpDir, "applied.c1z")
@@ -272,6 +273,7 @@ func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
 	appliedFullSyncID, err := appliedDB.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 	require.NoError(t, appliedDB.EndSync(ctx))
+	require.NoError(t, appliedDB.SetSupportsDiff(ctx, appliedFullSyncID))
 
 	attached, err := appliedDB.AttachFile(oldDB, "attached")
 	require.NoError(t, err)

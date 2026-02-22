@@ -369,18 +369,52 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 	//
 	// Uses cursor-based pagination (g.id > ?) so each query jumps to unprocessed
 	// rows via the primary key index instead of rescanning from the start.
+
+	// Collect un-backfilled sync IDs upfront. sync_runs is tiny, so this is
+	// cheap and lets us skip the grants scan entirely when there's nothing to do.
+	syncRows, err := db.QueryContext(ctx, fmt.Sprintf(
+		`SELECT sync_id FROM %s WHERE grants_backfilled = 0`, syncRuns.Name(),
+	))
+	if err != nil {
+		return err
+	}
+	var pendingSyncIDs []interface{}
+	for syncRows.Next() {
+		var sid string
+		if err := syncRows.Scan(&sid); err != nil {
+			_ = syncRows.Close()
+			return err
+		}
+		pendingSyncIDs = append(pendingSyncIDs, sid)
+	}
+	if err := syncRows.Err(); err != nil {
+		_ = syncRows.Close()
+		return err
+	}
+	_ = syncRows.Close()
+
+	if len(pendingSyncIDs) == 0 {
+		return nil
+	}
+
+	placeholders := strings.Repeat("?,", len(pendingSyncIDs))
+	placeholders = placeholders[:len(placeholders)-1] // trim trailing comma
+
 	var lastID int64
 	for {
+		args := make([]interface{}, 0, len(pendingSyncIDs)+1)
+		args = append(args, lastID)
+		args = append(args, pendingSyncIDs...)
+
 		rows, err := db.QueryContext(ctx, fmt.Sprintf(
 			`SELECT g.id, g.data FROM %s g
-			 JOIN %s sr ON g.sync_id = sr.sync_id
 			 WHERE g.id > ?
 			   AND g.expansion IS NULL
-			   AND sr.grants_backfilled = 0
+			   AND g.sync_id IN (%s)
 			 ORDER BY g.id
 			 LIMIT 1000`,
-			tableName, syncRuns.Name(),
-		), lastID)
+			tableName, placeholders,
+		), args...)
 		if err != nil {
 			return err
 		}
