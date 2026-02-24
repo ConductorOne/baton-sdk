@@ -25,6 +25,10 @@ protofmt:
 test:
 	go test -tags=baton_lambda_support -v ./...
 
+.PHONY: test-regression
+test-regression:
+	go test -run=TestRegression -v -timeout=10m -count=1 ./pkg/dotc1z/... ./pkg/sync/expand/...
+
 .PHONY: pkg/sdk/version.go
 pkg/sdk/version.go:
 	echo $(VERSION)
