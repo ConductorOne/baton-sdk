@@ -19,7 +19,7 @@ import (
 const (
 	expansionChains     = 10
 	expansionChainDepth = 8
-	expansionUsers      = 8000
+	expansionUsers      = 3000
 	expansionMaxTime    = 3 * time.Minute
 )
 

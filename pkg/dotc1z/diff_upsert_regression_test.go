@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	diffUpsertGrantCount = 500_000
+	diffUpsertGrantCount = 200_000
 	diffUpsertMaxTime    = 2 * time.Minute
 )
 

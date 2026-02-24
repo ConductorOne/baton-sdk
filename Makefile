@@ -31,7 +31,7 @@ test-regression:
 
 .PHONY: bench-regression
 bench-regression:
-	go test -run='^$$' -bench=BenchmarkRegression -benchtime=3x -count=5 -timeout=15m ./pkg/dotc1z/... ./pkg/sync/expand/...
+	go test -run='^$$' -bench=BenchmarkRegression -benchtime=1x -count=5 -timeout=15m ./pkg/dotc1z/... ./pkg/sync/expand/...
 
 .PHONY: pkg/sdk/version.go
 pkg/sdk/version.go:

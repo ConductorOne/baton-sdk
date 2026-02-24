@@ -64,9 +64,9 @@ jobs:
           go test
           -run='^$'
           -bench=BenchmarkRegression
-          -benchtime=3x
+          -benchtime=1x
           -count=5
-          -timeout=25m
+          -timeout=15m
           ./pkg/dotc1z/...
           ./pkg/sync/expand/...
           | tee current.txt

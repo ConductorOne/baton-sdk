@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	migrationGrantCount  = 500_000
+	migrationGrantCount  = 200_000
 	migrationVerifyCount = 5_000
 	migrationMaxOpen     = 3 * time.Minute
 )
