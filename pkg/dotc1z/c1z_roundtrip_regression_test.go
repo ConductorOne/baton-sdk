@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	roundtripGrantCount = 500_000
+	roundtripGrantCount = 200_000
 	roundtripMaxClose   = 2 * time.Minute
 	roundtripMaxOpen    = 2 * time.Minute
 )
