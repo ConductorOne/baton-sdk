@@ -108,14 +108,12 @@ func TestRegression_DiffUpsertIfNewerPerformance(t *testing.T) {
 		require.NoError(t, c1f.PutGrantsIfNewer(ctx, stale[i:end]...))
 	}
 
-	// Verify stale upsert was a no-op by checking that the data still contains
-	// the "updated" prefix, not "stale".
-	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 50}.Build())
+	// Verify stale upsert was a no-op across ALL grants, not just the first page.
+	var staleCount int
+	err = c1f.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM "+grants.Name()+" WHERE data LIKE '%stale%'",
+	).Scan(&staleCount)
 	require.NoError(t, err)
-	require.NotEmpty(t, resp.GetList())
-	for _, g := range resp.GetList() {
-		dn := g.GetPrincipal().GetDisplayName()
-		require.Contains(t, dn, "updated",
-			"stale upsert should not have overwritten grant data, got DisplayName=%q", dn)
-	}
+	require.Equal(t, 0, staleCount,
+		"expected zero grants with stale data, found %d", staleCount)
 }
