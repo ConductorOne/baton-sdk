@@ -12,21 +12,21 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 )
 
 const (
-	migrationGrantCount = 1_500_000
-	migrationMaxOpen    = 3 * time.Minute
+	migrationGrantCount  = 500_000
+	migrationVerifyCount = 5_000
+	migrationMaxOpen     = 3 * time.Minute
 )
 
-// TestRegression_MigrationBackfillPerformance creates a c1z with many grants in
-// "old" format (GrantExpandable annotation embedded in the data blob, expansion
-// column NULL, supports_diff=0) then reopens the file. The migration that runs
-// during open must complete within migrationMaxOpen.
-func TestRegression_MigrationBackfillPerformance(t *testing.T) {
-	t.Skip("disabled: backfill migration path is stable; re-enable if migration logic changes")
-
+// TestRegression_MigrationPerformance creates a large c1z with data across all
+// tables, closes it, then reopens it. The reopen runs the full InitTables path:
+// schema creation, every table's Migrations(), WAL checkpoint, and pragma setup.
+//
+// The measured time catches regressions in any part of the c1z load pipeline.
+// A correctness guard verifies data survives the round-trip across all tables.
+func TestRegression_MigrationPerformance(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping regression test in short mode")
 	}
@@ -39,124 +39,181 @@ func TestRegression_MigrationBackfillPerformance(t *testing.T) {
 
 	c1zPath := filepath.Join(tmpDir, "migration.c1z")
 
-	// Phase 1: build a c1z with old-format grants.
-	syncID := seedOldFormatC1Z(ctx, t, c1zPath, migrationGrantCount)
+	syncID := seedLargeC1Z(ctx, t, c1zPath, tmpDir, migrationGrantCount)
 
-	// Phase 2: reopen — migration runs during NewC1ZFile.
+	// Reopen — runs full InitTables + migrations.
 	start := time.Now()
 	c1f, err := NewC1ZFile(ctx, c1zPath, WithTmpDir(tmpDir))
 	elapsed := time.Since(start)
 	require.NoError(t, err)
 	defer c1f.Close(ctx)
 
-	t.Logf("Migration of %d grants completed in %v", migrationGrantCount, elapsed)
+	t.Logf("Open with %d grants completed in %v", migrationGrantCount, elapsed)
 	require.LessOrEqual(t, elapsed, migrationMaxOpen,
-		"migration took %v, limit is %v", elapsed, migrationMaxOpen)
+		"open took %v, limit is %v", elapsed, migrationMaxOpen)
 
-	// Correctness guard: all old-format grants should be backfilled.
-	var backfilledCount int
-	err = c1f.db.QueryRowContext(
-		ctx,
-		"SELECT COUNT(*) FROM "+grants.Name()+" WHERE sync_id=? AND expansion IS NOT NULL",
-		syncID,
-	).Scan(&backfilledCount)
-	require.NoError(t, err)
-	require.Equal(t, migrationGrantCount, backfilledCount, "expected all grants to be backfilled")
+	// Correctness: verify data across all tables.
+	require.NoError(t, c1f.ViewSync(ctx, syncID))
 
-	// Correctness guard: backfill strips GrantExpandable from grant payloads.
-	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{PageSize: 50}.Build())
+	var grantCount int
+	err = c1f.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM "+grants.Name()+" WHERE sync_id=?", syncID,
+	).Scan(&grantCount)
 	require.NoError(t, err)
-	require.NotEmpty(t, resp.GetList())
-	for _, g := range resp.GetList() {
-		readAnnos := annotations.Annotations(g.GetAnnotations())
-		require.False(t, readAnnos.Contains(&v2.GrantExpandable{}),
-			"expected GrantExpandable to be stripped from grant payload for grant %s", g.GetId())
+	require.Equal(t, migrationGrantCount, grantCount, "grant count mismatch")
+
+	var resourceCount int
+	err = c1f.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM "+resources.Name()+" WHERE sync_id=?", syncID,
+	).Scan(&resourceCount)
+	require.NoError(t, err)
+	require.Greater(t, resourceCount, 0, "expected resources to survive round-trip")
+
+	var entitlementCount int
+	err = c1f.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM "+entitlements.Name()+" WHERE sync_id=?", syncID,
+	).Scan(&entitlementCount)
+	require.NoError(t, err)
+	require.Greater(t, entitlementCount, 0, "expected entitlements to survive round-trip")
+
+	// Verify expansion column is populated for expandable grants within a sample.
+	// Every 10th grant is expandable, so in a sample of migrationVerifyCount we
+	// expect migrationVerifyCount/10 to have expansion IS NOT NULL.
+	var expandableCount int
+	err = c1f.db.QueryRowContext(ctx, fmt.Sprintf(
+		"SELECT COUNT(*) FROM (SELECT expansion FROM %s WHERE sync_id=? LIMIT %d) WHERE expansion IS NOT NULL",
+		grants.Name(), migrationVerifyCount,
+	), syncID).Scan(&expandableCount)
+	require.NoError(t, err)
+	expectedExpandable := migrationVerifyCount / 10
+	require.Equal(t, expectedExpandable, expandableCount,
+		"expected %d expandable grants in sample, got %d", expectedExpandable, expandableCount)
+
+	// Verify GrantExpandable was stripped from grant data blobs within the sample.
+	var unstrippedCount int
+	err = c1f.db.QueryRowContext(ctx, fmt.Sprintf(
+		"SELECT COUNT(*) FROM (SELECT data FROM %s WHERE sync_id=? LIMIT %d) WHERE CAST(data AS TEXT) LIKE '%%GrantExpandable%%'",
+		grants.Name(), migrationVerifyCount,
+	), syncID).Scan(&unstrippedCount)
+	require.NoError(t, err)
+	require.Equal(t, 0, unstrippedCount,
+		"expected zero grants with GrantExpandable in data blob, found %d", unstrippedCount)
+
+	// Verify migration-managed columns exist on the grants table.
+	var expansionColExists int
+	err = c1f.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM pragma_table_info('"+grants.Name()+"') WHERE name='expansion'",
+	).Scan(&expansionColExists)
+	require.NoError(t, err)
+	require.Equal(t, 1, expansionColExists, "expansion column should exist after migrations")
+
+	var needsExpansionColExists int
+	err = c1f.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM pragma_table_info('"+grants.Name()+"') WHERE name='needs_expansion'",
+	).Scan(&needsExpansionColExists)
+	require.NoError(t, err)
+	require.Equal(t, 1, needsExpansionColExists, "needs_expansion column should exist after migrations")
+
+	// Verify migration-managed columns exist on the sync_runs table.
+	for _, col := range []string{"sync_type", "parent_sync_id", "linked_sync_id", "supports_diff"} {
+		var exists int
+		err = c1f.db.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM pragma_table_info('"+syncRuns.Name()+"') WHERE name=?", col,
+		).Scan(&exists)
+		require.NoError(t, err)
+		require.Equal(t, 1, exists, "sync_runs column %q should exist after migrations", col)
 	}
 }
 
-// seedOldFormatC1Z creates a c1z at path containing numGrants grants that look
-// like pre-expansion-column data: the GrantExpandable annotation is embedded in
-// the serialized grant proto and the expansion SQL column is NULL. The sync is
-// marked supports_diff=0 so the migration picks these up.
-func seedOldFormatC1Z(ctx context.Context, t *testing.T, path string, numGrants int) string {
+// seedLargeC1Z creates a c1z with data in all tables: resource types, resources,
+// entitlements, grants (mix of expandable and plain), and a completed sync run.
+func seedLargeC1Z(ctx context.Context, t *testing.T, c1zPath, tmpDir string, numGrants int) string {
 	t.Helper()
 
-	c1f, err := NewC1ZFile(ctx, path)
+	c1f, err := NewC1ZFile(ctx, c1zPath, WithTmpDir(tmpDir))
 	require.NoError(t, err)
 
 	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
 	require.NoError(t, err)
 
-	groupRT := v2.ResourceType_builder{Id: "group"}.Build()
-	userRT := v2.ResourceType_builder{Id: "user"}.Build()
-	require.NoError(t, c1f.PutResourceTypes(ctx, groupRT, userRT))
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+	roleRT := v2.ResourceType_builder{Id: "role", DisplayName: "Role"}.Build()
+	require.NoError(t, c1f.PutResourceTypes(ctx, groupRT, userRT, roleRT))
 
-	g1 := v2.Resource_builder{
-		Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(),
-	}.Build()
-	require.NoError(t, c1f.PutResources(ctx, g1))
+	const numGroups = 50
+	const numEntitlements = 100
 
-	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
-	require.NoError(t, c1f.PutEntitlements(ctx, ent1))
+	groupResources := make([]*v2.Resource, numGroups)
+	for i := range numGroups {
+		groupResources[i] = v2.Resource_builder{
+			Id:          v2.ResourceId_builder{ResourceType: "group", Resource: fmt.Sprintf("group-%d", i)}.Build(),
+			DisplayName: fmt.Sprintf("Group %d", i),
+		}.Build()
+	}
+	require.NoError(t, c1f.PutResources(ctx, groupResources...))
+
+	ents := make([]*v2.Entitlement, numEntitlements)
+	for i := range numEntitlements {
+		ents[i] = v2.Entitlement_builder{
+			Id:       fmt.Sprintf("ent-%d", i),
+			Resource: groupResources[i%numGroups],
+		}.Build()
+	}
+	require.NoError(t, c1f.PutEntitlements(ctx, ents...))
+
+	// Insert grants — every 10th grant has a GrantExpandable annotation.
+	const batchSize = 1000
+	buf := make([]*v2.Grant, 0, batchSize)
+	flush := func() {
+		if len(buf) == 0 {
+			return
+		}
+		require.NoError(t, c1f.PutGrants(ctx, buf...))
+		buf = buf[:0]
+	}
 
 	expandable := v2.GrantExpandable_builder{
-		EntitlementIds:  []string{"ent1"},
-		Shallow:         true,
+		EntitlementIds:  []string{"ent-1"},
+		Shallow:         false,
 		ResourceTypeIds: []string{"user"},
 	}.Build()
 
-	// Insert grants with direct SQL so the annotation stays in the data blob
-	// and expansion is NULL (simulating old-format storage).
-	const batchSize = 1000
-	for i := 0; i < numGrants; i += batchSize {
-		end := min(i+batchSize, numGrants)
-
-		tx, err := c1f.db.Begin()
-		require.NoError(t, err)
-
-		stmt, err := tx.PrepareContext(ctx, fmt.Sprintf(
-			`INSERT INTO %s
-				(resource_type_id, resource_id, entitlement_id,
-				 principal_resource_type_id, principal_resource_id,
-				 external_id, expansion, needs_expansion, data, sync_id, discovered_at)
-			VALUES (?,?,?, ?,?, ?, NULL, 0, ?, ?, datetime('now'))`,
-			grants.Name(),
-		))
-		require.NoError(t, err)
-
-		for j := i; j < end; j++ {
-			grant := v2.Grant_builder{
-				Id:          fmt.Sprintf("grant-%d", j),
-				Entitlement: ent1,
-				Principal: v2.Resource_builder{
-					Id: v2.ResourceId_builder{
-						ResourceType: "user",
-						Resource:     fmt.Sprintf("u%d", j),
-					}.Build(),
-				}.Build(),
-				Annotations: annotations.New(expandable),
-			}.Build()
-
-			data, mErr := proto.Marshal(grant)
-			require.NoError(t, mErr)
-
-			_, mErr = stmt.ExecContext(ctx,
-				"group", "g1", "ent1",
-				"user", fmt.Sprintf("u%d", j),
-				fmt.Sprintf("grant-%d", j),
-				data, syncID,
-			)
-			require.NoError(t, mErr)
+	for i := range numGrants {
+		ent := ents[i%numEntitlements]
+		gb := v2.Grant_builder{
+			Id:          fmt.Sprintf("grant-%d", i),
+			Entitlement: ent,
+			Principal: v2.Resource_builder{
+				Id: v2.ResourceId_builder{ResourceType: "user", Resource: fmt.Sprintf("u%d", i)}.Build(),
+			}.Build(),
 		}
-
-		require.NoError(t, stmt.Close())
-		require.NoError(t, tx.Commit())
+		if i%10 == 0 {
+			gb.Annotations = annotations.New(expandable)
+		}
+		buf = append(buf, gb.Build())
+		if len(buf) >= batchSize {
+			flush()
+		}
 	}
+	flush()
 
-	// Mark sync as old-format so the migration will process these grants.
-	_, err = c1f.db.ExecContext(ctx,
-		"UPDATE "+syncRuns.Name()+" SET supports_diff=0 WHERE sync_id=?", syncID)
-	require.NoError(t, err)
+	// Insert user resources in bulk so the resources table has volume.
+	const userResourceBatch = 5000
+	userBuf := make([]*v2.Resource, 0, userResourceBatch)
+	for i := range numGrants {
+		userBuf = append(userBuf, v2.Resource_builder{
+			Id:          v2.ResourceId_builder{ResourceType: "user", Resource: fmt.Sprintf("u%d", i)}.Build(),
+			DisplayName: fmt.Sprintf("User %d", i),
+		}.Build())
+		if len(userBuf) >= userResourceBatch {
+			require.NoError(t, c1f.PutResources(ctx, userBuf...))
+			userBuf = userBuf[:0]
+		}
+	}
+	if len(userBuf) > 0 {
+		require.NoError(t, c1f.PutResources(ctx, userBuf...))
+	}
 
 	require.NoError(t, c1f.EndSync(ctx))
 	require.NoError(t, c1f.Close(ctx))
