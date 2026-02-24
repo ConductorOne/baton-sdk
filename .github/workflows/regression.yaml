@@ -1,0 +1,42 @@
+name: regression tests
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.2
+      - name: Run regression tests
+        run: >
+          go test
+          -run=TestRegression
+          -v
+          -timeout=10m
+          -count=1
+          -json
+          ./pkg/dotc1z/...
+          ./pkg/sync/expand/...
+          > regression.json
+      - name: Print results
+        if: always()
+        run: cat regression.json
+      - name: Annotate results
+        if: always()
+        uses: guyarb/golang-test-annotations@v0.8.0
+        with:
+          test-results: regression.json
