@@ -378,7 +378,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 	if err != nil {
 		return err
 	}
-	var pendingSyncIDs []interface{}
+	var pendingSyncIDs []any
 	for syncRows.Next() {
 		var sid string
 		if err := syncRows.Scan(&sid); err != nil {
@@ -402,7 +402,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 
 	var lastID int64
 	for {
-		args := make([]interface{}, 0, len(pendingSyncIDs)+1)
+		args := make([]any, 0, len(pendingSyncIDs)+1)
 		args = append(args, lastID)
 		args = append(args, pendingSyncIDs...)
 
@@ -446,7 +446,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 
 		// Split grants into expandable (need full data rewrite) and
 		// non-expandable (just need sentinel marker).
-		var sentinelIDs []interface{}
+		var sentinelIDs []any
 		type expandableRow struct {
 			id             int64
 			expansionBytes []byte
@@ -521,17 +521,26 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 		}
 	}
 
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
 	// Convert empty-blob sentinels back to NULL.
-	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(
 		`UPDATE %s SET expansion = NULL WHERE expansion = X''`, tableName,
 	)); err != nil {
+		_ = tx.Rollback()
 		return err
 	}
 	// Mark all not-yet-processed syncs as backfilled so migration work only runs once.
-	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(
 		`UPDATE %s SET grants_backfilled = 1 WHERE grants_backfilled = 0`,
 		syncRuns.Name(),
 	)); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := tx.Commit(); err != nil {
 		return err
 	}
 
