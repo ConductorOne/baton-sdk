@@ -36,7 +36,10 @@ message RiskScore {
 
   // Normalized risk score as a percentage [0, 100]. Higher means more risk.
   // Connector authors must normalize their source system's score to this range.
-  uint32 normalized_score = 3 [(validate.rules).uint32 = {gte: 0, lte: 100}];
+  uint32 normalized_score = 3 [(validate.rules).uint32 = {
+    gte: 0
+    lte: 100
+  }];
 
   // The original score from the source system for reference/auditability (e.g., "0.48", "7.5/10").
   string source_score = 4;
