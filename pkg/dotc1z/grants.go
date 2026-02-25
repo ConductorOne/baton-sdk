@@ -412,7 +412,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			   AND g.expansion IS NULL
 			   AND g.sync_id IN (%s)
 			 ORDER BY g.id
-			 LIMIT 500`,
+			 LIMIT 1000`,
 			tableName, placeholders,
 		), args...)
 		if err != nil {
@@ -423,7 +423,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			id   int64
 			data []byte
 		}
-		batch := make([]row, 0, 500)
+		batch := make([]row, 0, 1000)
 		for rows.Next() {
 			var r row
 			if err := rows.Scan(&r.id, &r.data); err != nil {
