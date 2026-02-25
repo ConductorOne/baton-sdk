@@ -34,7 +34,8 @@ create table if not exists %s (
     sync_type text not null default 'full',
     parent_sync_id text not null default '',
     linked_sync_id text not null default '',
-    supports_diff integer not null default 0
+    supports_diff integer not null default 0,
+    grants_backfilled integer not null default 0
 );
 create unique index if not exists %s on %s (sync_id);`
 
@@ -100,6 +101,10 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) error
 
 	// Add supports_diff column if missing (for older files).
 	if _, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column supports_diff integer not null default 0", r.Name())); err != nil && !isAlreadyExistsError(err) {
+		return err
+	}
+	// Track whether grant expansion backfill has completed for this sync.
+	if _, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column grants_backfilled integer not null default 0", r.Name())); err != nil && !isAlreadyExistsError(err) {
 		return err
 	}
 
@@ -595,13 +600,13 @@ func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncT
 
 	q := c.db.Insert(syncRuns.Name())
 	q = q.Rows(goqu.Record{
-		"sync_id":        syncID,
-		"started_at":     time.Now().Format("2006-01-02 15:04:05.999999999"),
-		"sync_token":     "",
-		"sync_type":      syncType,
-		"parent_sync_id": parentSyncID,
-		"linked_sync_id": linkedSyncID,
-		"supports_diff":  1, // New code writes grants with expansion column populated correctly.
+		"sync_id":           syncID,
+		"started_at":        time.Now().Format("2006-01-02 15:04:05.999999999"),
+		"sync_token":        "",
+		"sync_type":         syncType,
+		"parent_sync_id":    parentSyncID,
+		"linked_sync_id":    linkedSyncID,
+		"grants_backfilled": 1, // New syncs do not require grants backfill.
 	})
 
 	query, args, err := q.ToSQL()
@@ -686,7 +691,6 @@ func (c *C1File) SetSupportsDiff(ctx context.Context, syncID string) error {
 		"supports_diff": 1,
 	})
 	q = q.Where(goqu.C("sync_id").Eq(syncID))
-	q = q.Where(goqu.C("supports_diff").Eq(0))
 
 	query, args, err := q.ToSQL()
 	if err != nil {

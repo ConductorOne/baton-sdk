@@ -296,6 +296,7 @@ func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {
 	}.Build()
 	require.NoError(t, oldFile.PutGrants(ctx, oldGrant))
 	require.NoError(t, oldFile.EndSync(ctx))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
 
 	// NEW: same grant but expansion annotation now has Shallow=true (different expansion).
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -318,6 +319,7 @@ func TestDiffDetectsExpansionAnnotationChange(t *testing.T) {
 	}.Build()
 	require.NoError(t, newFile.PutGrants(ctx, newGrant))
 	require.NoError(t, newFile.EndSync(ctx))
+	require.NoError(t, newFile.SetSupportsDiff(ctx, newSyncID))
 
 	// Generate diff.
 	attached, err := newFile.AttachFile(oldFile, "attached")
@@ -389,6 +391,7 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 	}.Build()
 	require.NoError(t, oldFile.PutGrants(ctx, oldGrant))
 	require.NoError(t, oldFile.EndSync(ctx))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
 
 	// NEW: same expansion, but grant now has sources (data blob changes).
 	newFile, err := NewC1ZFile(ctx, newPath, opts...)
@@ -413,6 +416,7 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 	}.Build()
 	require.NoError(t, newFile.PutGrants(ctx, newGrant))
 	require.NoError(t, newFile.EndSync(ctx))
+	require.NoError(t, newFile.SetSupportsDiff(ctx, newSyncID))
 
 	// Generate diff.
 	attached, err := newFile.AttachFile(oldFile, "attached")
@@ -442,7 +446,7 @@ func TestDiffDetectsDataOnlyChange(t *testing.T) {
 // the expansion column and strips the annotation from data.
 //
 // It creates a small file, manually reverts a grant row to old format (annotation in data,
-// expansion=NULL, supports_diff=0), then re-opens the file and verifies the migration ran.
+// expansion=NULL, grants_backfilled=0), then re-opens the file and verifies the migration ran.
 func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	ctx := context.Background()
 
@@ -494,7 +498,7 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	require.NoError(t, c1f.EndSync(ctx))
 
 	// Step 2: Simulate "old format" by manually moving GrantExpandable back into data blob
-	// and clearing the expansion column + supports_diff. This mimics what an old c1z would look like.
+	// and clearing the expansion column + grants_backfilled. This mimics what an old c1z would look like.
 
 	// Re-serialize expandableGrant WITH the annotation in data blob.
 	origExpandable := v2.GrantExpandable_builder{
@@ -515,8 +519,8 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	_, err = c1f.db.ExecContext(ctx, "UPDATE "+grants.Name()+" SET data=?, expansion=NULL WHERE external_id='grant-expandable' AND sync_id=?", oldFormatData, syncID)
 	require.NoError(t, err)
 
-	// Mark the sync as NOT supporting diff (old sync).
-	_, err = c1f.db.ExecContext(ctx, "UPDATE "+syncRuns.Name()+" SET supports_diff=0 WHERE sync_id=?", syncID)
+	// Mark the sync as not yet backfilled.
+	_, err = c1f.db.ExecContext(ctx, "UPDATE "+syncRuns.Name()+" SET grants_backfilled=0 WHERE sync_id=?", syncID)
 	require.NoError(t, err)
 
 	// Step 3: Run the backfill explicitly (as the migration would on re-open).
@@ -549,6 +553,11 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 		require.False(t, readAnnos.Contains(&v2.GrantExpandable{}),
 			"ListGrants should not return GrantExpandable annotation after backfill (grant %s)", g.GetId())
 	}
+
+	var grantsBackfilled int
+	err = c1f.db.QueryRowContext(ctx, "SELECT grants_backfilled FROM "+syncRuns.Name()+" WHERE sync_id=?", syncID).Scan(&grantsBackfilled)
+	require.NoError(t, err)
+	require.Equal(t, 1, grantsBackfilled, "backfill should mark the sync as grants_backfilled=1")
 }
 
 // grantRawRow holds the raw SQL column values for a grant row.
