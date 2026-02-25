@@ -31,6 +31,7 @@ const (
 	ConstraintKind_CONSTRAINT_KIND_AT_LEAST_ONE       ConstraintKind = 2
 	ConstraintKind_CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE ConstraintKind = 3
 	ConstraintKind_CONSTRAINT_KIND_DEPENDENT_ON       ConstraintKind = 4
+	ConstraintKind_CONSTRAINT_KIND_ALLOWED_OPTIONS    ConstraintKind = 5
 )
 
 // Enum value maps for ConstraintKind.
@@ -41,6 +42,7 @@ var (
 		2: "CONSTRAINT_KIND_AT_LEAST_ONE",
 		3: "CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE",
 		4: "CONSTRAINT_KIND_DEPENDENT_ON",
+		5: "CONSTRAINT_KIND_ALLOWED_OPTIONS",
 	}
 	ConstraintKind_value = map[string]int32{
 		"CONSTRAINT_KIND_UNSPECIFIED":        0,
@@ -48,6 +50,7 @@ var (
 		"CONSTRAINT_KIND_AT_LEAST_ONE":       2,
 		"CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE": 3,
 		"CONSTRAINT_KIND_DEPENDENT_ON":       4,
+		"CONSTRAINT_KIND_ALLOWED_OPTIONS":    5,
 	}
 )
 
@@ -314,6 +317,7 @@ type Constraint struct {
 	Name                string                 `protobuf:"bytes,4,opt,name=name,proto3" json:"name,omitempty"`                         // optional
 	HelpText            string                 `protobuf:"bytes,5,opt,name=help_text,json=helpText,proto3" json:"help_text,omitempty"` // optional
 	IsFieldGroup        bool                   `protobuf:"varint,6,opt,name=is_field_group,json=isFieldGroup,proto3" json:"is_field_group,omitempty"`
+	AllowedOptionValues []string               `protobuf:"bytes,7,rep,name=allowed_option_values,json=allowedOptionValues,proto3" json:"allowed_option_values,omitempty"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -385,6 +389,13 @@ func (x *Constraint) GetIsFieldGroup() bool {
 	return false
 }
 
+func (x *Constraint) GetAllowedOptionValues() []string {
+	if x != nil {
+		return x.AllowedOptionValues
+	}
+	return nil
+}
+
 func (x *Constraint) SetKind(v ConstraintKind) {
 	x.Kind = v
 }
@@ -409,6 +420,10 @@ func (x *Constraint) SetIsFieldGroup(v bool) {
 	x.IsFieldGroup = v
 }
 
+func (x *Constraint) SetAllowedOptionValues(v []string) {
+	x.AllowedOptionValues = v
+}
+
 type Constraint_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -418,6 +433,7 @@ type Constraint_builder struct {
 	Name                string
 	HelpText            string
 	IsFieldGroup        bool
+	AllowedOptionValues []string
 }
 
 func (b0 Constraint_builder) Build() *Constraint {
@@ -430,6 +446,7 @@ func (b0 Constraint_builder) Build() *Constraint {
 	x.Name = b.Name
 	x.HelpText = b.HelpText
 	x.IsFieldGroup = b.IsFieldGroup
+	x.AllowedOptionValues = b.AllowedOptionValues
 	return m0
 }
 
@@ -2735,7 +2752,7 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x1bsupports_external_resources\x18\t \x01(\bR\x19supportsExternalResources\x12>\n" +
 	"\x1brequires_external_connector\x18\n" +
 	" \x01(\bR\x19requiresExternalConnector\x12;\n" +
-	"\ffield_groups\x18\v \x03(\v2\x18.c1.config.v1.FieldGroupR\vfieldGroups\"\xea\x01\n" +
+	"\ffield_groups\x18\v \x03(\v2\x18.c1.config.v1.FieldGroupR\vfieldGroups\"\x9e\x02\n" +
 	"\n" +
 	"Constraint\x120\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x1c.c1.config.v1.ConstraintKindR\x04kind\x12\x1f\n" +
@@ -2744,7 +2761,8 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x15secondary_field_names\x18\x03 \x03(\tR\x13secondaryFieldNames\x12\x12\n" +
 	"\x04name\x18\x04 \x01(\tR\x04name\x12\x1b\n" +
 	"\thelp_text\x18\x05 \x01(\tR\bhelpText\x12$\n" +
-	"\x0eis_field_group\x18\x06 \x01(\bR\fisFieldGroup\"\x92\x01\n" +
+	"\x0eis_field_group\x18\x06 \x01(\bR\fisFieldGroup\x122\n" +
+	"\x15allowed_option_values\x18\a \x03(\tR\x13allowedOptionValues\"\x92\x01\n" +
 	"\n" +
 	"FieldGroup\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12!\n" +
@@ -2847,13 +2865,14 @@ const file_c1_config_v1_config_proto_rawDesc = "" +
 	"\x04type\x18\x03 \x01(\x0e2\x1d.c1.config.v1.StringFieldTypeR\x04type\x12-\n" +
 	"\x12allowed_extensions\x18\x04 \x03(\tR\x11allowedExtensions\x129\n" +
 	"\aoptions\x18\x05 \x03(\v2\x1f.c1.config.v1.StringFieldOptionR\aoptionsB\b\n" +
-	"\x06_rules*\xc4\x01\n" +
+	"\x06_rules*\xe9\x01\n" +
 	"\x0eConstraintKind\x12\x1f\n" +
 	"\x1bCONSTRAINT_KIND_UNSPECIFIED\x10\x00\x12%\n" +
 	"!CONSTRAINT_KIND_REQUIRED_TOGETHER\x10\x01\x12 \n" +
 	"\x1cCONSTRAINT_KIND_AT_LEAST_ONE\x10\x02\x12&\n" +
 	"\"CONSTRAINT_KIND_MUTUALLY_EXCLUSIVE\x10\x03\x12 \n" +
-	"\x1cCONSTRAINT_KIND_DEPENDENT_ON\x10\x04*\xc9\x01\n" +
+	"\x1cCONSTRAINT_KIND_DEPENDENT_ON\x10\x04\x12#\n" +
+	"\x1fCONSTRAINT_KIND_ALLOWED_OPTIONS\x10\x05*\xc9\x01\n" +
 	"\x0fStringFieldType\x12&\n" +
 	"\"STRING_FIELD_TYPE_TEXT_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18STRING_FIELD_TYPE_RANDOM\x10\x01\x12\x1c\n" +

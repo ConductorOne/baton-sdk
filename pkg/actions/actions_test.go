@@ -465,6 +465,111 @@ func TestConstraintValidation(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("Value allowed when secondary field present passes - AllowedOptions", func(t *testing.T) {
+		// If field_a is set to value_a and field_b is set to value_b,
+		// then value_a is allowed because it is in the allowed option values.
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_ALLOWED_OPTIONS,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b"},
+				AllowedOptionValues: []string{"value_a", "value_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("Disallowed value when secondary field present fails - AllowedOptions", func(t *testing.T) {
+		// If field_a is set to value_c and field_b is set to value_b,
+		// then value_c is not allowed because it is not in the allowed option values.
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_ALLOWED_OPTIONS,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b"},
+				AllowedOptionValues: []string{"value_a", "value_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_c"),
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not allowed")
+	})
+
+	t.Run("Any value allowed when secondary field absent - AllowedOptions", func(t *testing.T) {
+		// If field_a is set to value_c and field_b is not set,
+		// then value_c is allowed because the constraint is not applied.
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_ALLOWED_OPTIONS,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b"},
+				AllowedOptionValues: []string{"value_a", "value_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_c"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("Primary field absent passes regardless - AllowedOptions", func(t *testing.T) {
+		// If field_a is not set and field_b is set to value_b,
+		// then the constraint is not applied because the primary field is not set.
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_ALLOWED_OPTIONS,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b"},
+				AllowedOptionValues: []string{"value_a", "value_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_b": structpb.NewStringValue("value_b"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
+	t.Run("Multiple secondary fields checked - AllowedOptions", func(t *testing.T) {
+		// If field_a is set to value_a, field_b and field_c are also set
+		// then the constraint is applied to field_a because field_b and field_c are set.
+		constraints := []*config.Constraint{
+			config.Constraint_builder{
+				Kind:                config.ConstraintKind_CONSTRAINT_KIND_ALLOWED_OPTIONS,
+				FieldNames:          []string{"field_a"},
+				SecondaryFieldNames: []string{"field_b", "field_c"},
+				AllowedOptionValues: []string{"value_a", "value_b"},
+			}.Build(),
+		}
+		args := &structpb.Struct{
+			Fields: map[string]*structpb.Value{
+				"field_a": structpb.NewStringValue("value_a"),
+				"field_b": structpb.NewStringValue("value_b"),
+				"field_c": structpb.NewStringValue("value_c"),
+			},
+		}
+		err := validateActionConstraints(constraints, args)
+		require.NoError(t, err)
+	})
+
 	t.Run("duplicate secondary field names are deduplicated - DependentOn", func(t *testing.T) {
 		// Secondary field names should also be deduplicated
 		constraints := []*config.Constraint{
