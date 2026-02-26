@@ -366,18 +366,18 @@ func (s *syncer) parallelSync(
 				continue
 			}
 			resourceActions := s.state.PeekMatchingActions(ctx, SyncResourcesOp)
-			w, resourceErr := s.syncParallel(ctx, resourceActions, s.SyncResources)
+			w, resourceErr := s.syncParallel(ctx, retryer, resourceActions, s.SyncResources)
 			warnings = append(warnings, w...)
-			if !retryer.ShouldWaitAndRetry(ctx, resourceErr) {
+			if resourceErr != nil {
 				return warnings, resourceErr
 			}
 			continue
 
 		case SyncTargetedResourceOp:
 			targetedResourceActions := s.state.PeekMatchingActions(ctx, SyncTargetedResourceOp)
-			w, targetedResourceErr := s.syncParallel(ctx, targetedResourceActions, s.SyncTargetedResource)
+			w, targetedResourceErr := s.syncParallel(ctx, retryer, targetedResourceActions, s.SyncTargetedResource)
 			warnings = append(warnings, w...)
-			if !retryer.ShouldWaitAndRetry(ctx, targetedResourceErr) {
+			if targetedResourceErr != nil {
 				return warnings, targetedResourceErr
 			}
 			continue
@@ -409,9 +409,9 @@ func (s *syncer) parallelSync(
 				continue
 			}
 			entitlementActions := s.state.PeekMatchingActions(ctx, SyncEntitlementsOp)
-			w, entitlementErr := s.syncParallel(ctx, entitlementActions, s.SyncEntitlements)
+			w, entitlementErr := s.syncParallel(ctx, retryer, entitlementActions, s.SyncEntitlements)
 			warnings = append(warnings, w...)
-			if !retryer.ShouldWaitAndRetry(ctx, entitlementErr) {
+			if entitlementErr != nil {
 				return warnings, entitlementErr
 			}
 			continue
@@ -432,9 +432,9 @@ func (s *syncer) parallelSync(
 			}
 
 			grantActions := s.state.PeekMatchingActions(ctx, SyncGrantsOp)
-			w, grantErr := s.syncParallel(ctx, grantActions, s.SyncGrants)
+			w, grantErr := s.syncParallel(ctx, retryer, grantActions, s.SyncGrants)
 			warnings = append(warnings, w...)
-			if !retryer.ShouldWaitAndRetry(ctx, grantErr) {
+			if grantErr != nil {
 				return warnings, grantErr
 			}
 			continue
@@ -484,11 +484,11 @@ func (s *syncer) parallelSync(
 }
 
 type workerResult struct {
-	warnings []error
-	err      error
+	warning error
+	err     error
 }
 
-func (s *syncer) syncParallel(ctx context.Context, actions []*Action, f func(ctx context.Context, action *Action) error) ([]error, error) {
+func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actions []*Action, f func(ctx context.Context, action *Action) error) ([]error, error) {
 	l := ctxzap.Extract(ctx)
 	l.Info("syncing in parallel", zap.Int("actions", len(actions)), zap.Int("workers", s.workerCount))
 
@@ -507,10 +507,10 @@ func (s *syncer) syncParallel(ctx context.Context, actions []*Action, f func(ctx
 	for i := 0; i < s.workerCount; i++ {
 		wg.Go(func() {
 			for action := range actionCh {
-				r := s.syncOneAction(ctx, l, action, f)
+				r := s.syncOneAction(ctx, l, retryer, action, f)
 				resultCh <- r
 				if r.err != nil {
-					cancel(r.err)
+					cancel(fmt.Errorf("cancelling context due to error in action %v: %w", action, r.err))
 					return
 				}
 			}
@@ -523,7 +523,9 @@ func (s *syncer) syncParallel(ctx context.Context, actions []*Action, f func(ctx
 	var warnings []error
 	var errs []error
 	for r := range resultCh {
-		warnings = append(warnings, r.warnings...)
+		if r.warning != nil {
+			warnings = append(warnings, r.warning)
+		}
 		if r.err != nil {
 			errs = append(errs, r.err)
 		}
@@ -534,15 +536,19 @@ func (s *syncer) syncParallel(ctx context.Context, actions []*Action, f func(ctx
 
 // syncOneAction processes a single action to completion,
 // handling pagination by re-reading the action from state after each call.
-func (s *syncer) syncOneAction(ctx context.Context, l *zap.Logger, action *Action, f func(ctx context.Context, action *Action) error) workerResult {
+func (s *syncer) syncOneAction(ctx context.Context, l *zap.Logger, retryer *retry.Retryer, action *Action, f func(ctx context.Context, action *Action) error) workerResult {
 	for {
 		err := f(ctx, action)
 		if isWarning(ctx, err) {
 			l.Warn("skipping sync action", zap.Any("action", action), zap.Error(err))
 			s.state.FinishAction(ctx, action)
-			return workerResult{warnings: []error{err}}
+			return workerResult{warning: err}
 		}
 		if err != nil {
+			if retryer.ShouldWaitAndRetry(ctx, err) {
+				continue
+			}
+
 			return workerResult{err: err}
 		}
 
