@@ -43,7 +43,7 @@ func (r *resourceTypesTable) Schema() (string, []interface{}) {
 	}
 }
 
-func (r *resourceTypesTable) Migrations(ctx context.Context, db *goqu.Database) error {
+func (r *resourceTypesTable) Migrations(_ context.Context, _ *goqu.Database) error {
 	return nil
 }
 

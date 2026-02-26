@@ -156,7 +156,12 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	}
 
 	q := c.db.From(tableName).Prepared(true)
-	q = q.Select("id", "data")
+	isGrants := tableName == grants.Name()
+	if isGrants {
+		q = q.Select("id", "data", "sources")
+	} else {
+		q = q.Select("id", "data")
+	}
 
 	// If the request allows filtering by resource type, apply the filter
 	if resourceTypeReq, ok := req.(hasResourceTypeListRequest); ok {
@@ -263,13 +268,19 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 	var count uint32 = 0
 	lastRow := 0
 	var data sql.RawBytes
+	var sourcesBlob sql.RawBytes
 	var ret []T
 	for rows.Next() {
 		count++
 		if count > pageSize {
 			break
 		}
-		err := rows.Scan(&lastRow, &data)
+		var err error
+		if isGrants {
+			err = rows.Scan(&lastRow, &data, &sourcesBlob)
+		} else {
+			err = rows.Scan(&lastRow, &data)
+		}
 		if err != nil {
 			return nil, "", err
 		}
@@ -277,6 +288,11 @@ func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, table
 		err = unmarshalerOptions.Unmarshal(data, t)
 		if err != nil {
 			return nil, "", err
+		}
+		if isGrants && len(sourcesBlob) > 0 {
+			if g, ok := any(t).(*v2.Grant); ok {
+				rehydrateGrantSources(g, sourcesBlob)
+			}
 		}
 		ret = append(ret, t)
 	}
@@ -299,6 +315,7 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 	c *C1File,
 	msg T,
 	extractFields func(m T) (goqu.Record, error),
+	syncID string,
 ) (*goqu.Record, error) {
 	// Call extractFields before marshaling so that any mutations it makes
 	// (e.g. stripping GrantExpandable from grant annotations) are reflected
@@ -327,7 +344,7 @@ func prepareSingleConnectorObjectRow[T proto.Message](
 		}
 		fields["data"] = messageBlob
 	}
-	fields["sync_id"] = c.currentSyncID
+	fields["sync_id"] = syncID
 	fields["discovered_at"] = time.Now().Format("2006-01-02 15:04:05.999999999")
 
 	return &fields, nil
@@ -338,10 +355,11 @@ func prepareConnectorObjectRowsSerial[T proto.Message](
 	c *C1File,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
+	syncID string,
 ) ([]*goqu.Record, error) {
 	rows := make([]*goqu.Record, len(msgs))
 	for i, m := range msgs {
-		row, err := prepareSingleConnectorObjectRow(c, m, extractFields)
+		row, err := prepareSingleConnectorObjectRow(c, m, extractFields, syncID)
 		if err != nil {
 			return nil, err
 		}
@@ -356,6 +374,7 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 	c *C1File,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
+	syncID string,
 ) ([]*goqu.Record, error) {
 	if len(msgs) == 0 {
 		return nil, nil
@@ -370,8 +389,6 @@ func prepareConnectorObjectRowsParallel[T proto.Message](
 	rows := make([]*goqu.Record, len(msgs))
 	errs := make([]error, len(msgs))
 
-	// Capture values that are the same for all rows (avoid repeated access)
-	syncID := c.currentSyncID
 	discoveredAt := time.Now().Format("2006-01-02 15:04:05.999999999")
 
 	chunkSize := (len(msgs) + numWorkers - 1) / numWorkers
@@ -443,11 +460,12 @@ func prepareConnectorObjectRows[T proto.Message](
 	c *C1File,
 	msgs []T,
 	extractFields func(m T) (goqu.Record, error),
+	syncID string,
 ) ([]*goqu.Record, error) {
 	if len(msgs) > bulkPutParallelThreshold {
-		return prepareConnectorObjectRowsParallel(c, msgs, extractFields)
+		return prepareConnectorObjectRowsParallel(c, msgs, extractFields, syncID)
 	}
-	return prepareConnectorObjectRowsSerial(c, msgs, extractFields)
+	return prepareConnectorObjectRowsSerial(c, msgs, extractFields, syncID)
 }
 
 // executeChunkedInsert executes the insert query in chunks.
@@ -533,15 +551,16 @@ func bulkPutConnectorObject[T proto.Message](
 	}
 
 	// Prepare rows
-	rows, err := prepareConnectorObjectRows(c, msgs, extractFields)
+	rows, err := prepareConnectorObjectRows(c, msgs, extractFields, c.currentSyncID)
 	if err != nil {
 		return err
 	}
 
 	// Define query building function
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
+		update := goqu.Record{"data": goqu.I("EXCLUDED.data")}
 		return insertDs.
-			OnConflict(goqu.DoUpdate("external_id, sync_id", goqu.C("data").Set(goqu.I("EXCLUDED.data")))).
+			OnConflict(goqu.DoUpdate("external_id, sync_id", update)).
 			Rows(chunkedRows).
 			Prepared(true), nil
 	}
@@ -568,19 +587,20 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 	}
 
 	// Prepare rows
-	rows, err := prepareConnectorObjectRows(c, msgs, extractFields)
+	rows, err := prepareConnectorObjectRows(c, msgs, extractFields, c.currentSyncID)
 	if err != nil {
 		return err
 	}
 
 	// Define query building function
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
+		update := goqu.Record{
+			"data":          goqu.I("EXCLUDED.data"),
+			"discovered_at": goqu.I("EXCLUDED.discovered_at"),
+		}
 		return insertDs.
 			OnConflict(goqu.DoUpdate("external_id, sync_id",
-				goqu.Record{
-					"data":          goqu.I("EXCLUDED.data"),
-					"discovered_at": goqu.I("EXCLUDED.discovered_at"),
-				}).Where(
+				update).Where(
 				goqu.L("EXCLUDED.discovered_at > ?.discovered_at", goqu.I(tableName)),
 			)).
 			Rows(chunkedRows).
@@ -661,8 +681,13 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 		return err
 	}
 
+	isGrants := tableName == grants.Name()
 	q := c.db.From(tableName).Prepared(true)
-	q = q.Select("data")
+	if isGrants {
+		q = q.Select("data", "sources")
+	} else {
+		q = q.Select("data")
+	}
 	q = q.Where(goqu.C("external_id").Eq(id))
 
 	switch {
@@ -698,8 +723,13 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	}
 
 	var data []byte
+	var sourcesBlob []byte
 	row := c.db.QueryRowContext(ctx, query, args...)
-	err = row.Scan(&data)
+	if isGrants {
+		err = row.Scan(&data, &sourcesBlob)
+	} else {
+		err = row.Scan(&data)
+	}
 	if err != nil {
 		return err
 	}
@@ -707,6 +737,12 @@ func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id st
 	err = proto.Unmarshal(data, m)
 	if err != nil {
 		return err
+	}
+
+	if isGrants && len(sourcesBlob) > 0 {
+		if g, ok := m.(*v2.Grant); ok {
+			rehydrateGrantSources(g, sourcesBlob)
+		}
 	}
 
 	return nil

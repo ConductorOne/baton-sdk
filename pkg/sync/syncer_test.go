@@ -113,6 +113,48 @@ func TestExpandGrants(t *testing.T) {
 	// Expansion bookkeeping lives outside the grant proto so diffs can safely compare data bytes.
 }
 
+func TestSyncClearsNeedsExpansionFlagsAfterFullExpansion(t *testing.T) {
+	ctx := t.Context()
+
+	mc := newMockConnector()
+	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+
+	g1, g1Ent, err := mc.AddGroup(ctx, "test_group_1")
+	require.NoError(t, err)
+	g2, _, err := mc.AddGroup(ctx, "test_group_2")
+	require.NoError(t, err)
+	u1, err := mc.AddUser(ctx, "user_1")
+	require.NoError(t, err)
+
+	// Direct membership and one expandable edge so full expansion actually runs.
+	_ = mc.AddGroupMember(ctx, g1, u1)
+	_ = mc.AddGroupMember(ctx, g2, g1, g1Ent)
+
+	tempDir, err := os.MkdirTemp("", "baton-needs-expansion-clear")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	c1zPath := filepath.Join(tempDir, "needs-expansion-clear.c1z")
+	s, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+
+	syncerImpl, ok := s.(*syncer)
+	require.True(t, ok, "expected concrete syncer implementation")
+
+	require.NoError(t, s.Sync(ctx))
+	require.NotEmpty(t, syncerImpl.syncID, "sync id should be set after sync")
+
+	resp, err := syncerImpl.store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:               connectorstore.GrantListModeExpansionNeedsOnly,
+		SyncID:             syncerImpl.syncID,
+		NeedsExpansionOnly: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Rows, 0, "full expansion should clear needs_expansion flags")
+
+	require.NoError(t, s.Close(ctx))
+}
+
 func TestInvalidResourceTypeFilter(t *testing.T) {
 	ctx := t.Context()
 
