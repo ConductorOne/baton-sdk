@@ -2682,7 +2682,9 @@ func WithTransitionHandler(f func(s Action)) SyncOpt {
 	}
 }
 
-// WithProgress sets a `progressHandler` for `NewSyncer` Options.
+// WithProgressHandler sets a `progressHandler` for `NewSyncer` Options.
+// The progress handler is called for sync action, such as listing resources, entitlements, grants, etc.
+// If running in parallel mode, this function must be thread-safe.
 func WithProgressHandler(f func(s *Progress)) SyncOpt {
 	return func(s *syncer) {
 		if f != nil {
