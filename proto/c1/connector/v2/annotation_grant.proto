@@ -3,6 +3,7 @@ syntax = "proto3";
 package c1.connector.v2;
 
 import "google/protobuf/struct.proto";
+import "validate/validate.proto";
 
 option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
 
@@ -11,7 +12,10 @@ message GrantMetadata {
 }
 
 message GrantExpandable {
-  repeated string entitlement_ids = 1;
+  repeated string entitlement_ids = 1 [(validate.rules).repeated = {
+    min_items: 1
+    unique: true
+  }];
   bool shallow = 2;
   repeated string resource_type_ids = 3;
 }
