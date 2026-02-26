@@ -195,7 +195,7 @@ func invalidateRemovedEdges(ctx context.Context, store connectorstore.InternalWr
 			return nil
 		}
 		if err := store.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
-			Mode:   connectorstore.GrantUpsertModeReplace,
+			Mode:   connectorstore.GrantUpsertModePreserveExpansion,
 			SyncID: targetSyncID,
 		}, updates...); err != nil {
 			return err

@@ -2881,3 +2881,129 @@ func TestIncrementalExpansion_NonImmutableSourcelessGrantKept(t *testing.T) {
 
 	require.Contains(t, got, "group:g2:member|user|u1", "non-immutable direct grant should persist when sourceless")
 }
+
+// TestIncrementalExpansion_InvalidateShouldPreserveExpansionColumn tests that the
+// invalidation step does not clobber the expansion column of an expandable grant
+// when that grant also has Sources set from a previous expansion.
+//
+// Topology (OLD):
+//
+//	GA ──self-membership──▶ EA ◀── GB (direct)
+//	                          │
+//	                       edge EA→EB (no type filter)
+//	                          │
+//	                          ▼
+//	              GA ──────▶ EB (expandable grant, principal=GA)
+//
+// After full expansion of OLD, the expandable grant (GA on EB) picks up Sources
+// because GA's self-membership on EA causes expansion EA→EB to reach GA on EB.
+// GB also gets an expanded grant on EB from the EA→EB edge.
+//
+// NEW: same as OLD, but GA's self-membership on EA is removed.
+//
+// The incremental pipeline should:
+//  1. Detect EA changed (self-membership removed).
+//  2. Invalidate downstream grants via EA→EB, removing stale sources.
+//  3. Preserve the EA→EB edge (expansion column on GA's grant on EB).
+//  4. Re-expand the dirty subgraph, creating GB on EB.
+func TestIncrementalExpansion_InvalidateShouldPreserveExpansionColumn(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	oldPath := filepath.Join(tmpDir, "old_preserve_exp.c1z")
+	newPath := filepath.Join(tmpDir, "new_preserve_exp.c1z")
+	expectedPath := filepath.Join(tmpDir, "expected_preserve_exp.c1z")
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+
+	ga := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "ga"}.Build(), DisplayName: "GA"}.Build()
+	gb := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "gb"}.Build(), DisplayName: "GB"}.Build()
+
+	ea := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(ga, "member"), Resource: ga, Slug: "member", DisplayName: "member"}.Build()
+	eb := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(gb, "member"), Resource: gb, Slug: "member", DisplayName: "member"}.Build()
+
+	// GA is member of GA (self-membership). This is the grant removed in the NEW state.
+	selfMembershipID := batonGrant.NewGrantID(ga, ea)
+	grantSelfMembership := v2.Grant_builder{
+		Id: selfMembershipID, Entitlement: ea, Principal: ga,
+	}.Build()
+
+	// GB is member of GA (direct).
+	grantGBonEA := v2.Grant_builder{
+		Id: batonGrant.NewGrantID(gb, ea), Entitlement: ea, Principal: gb,
+	}.Build()
+
+	// GA is member of GB (expandable: EA→EB, NO resource type filter).
+	// After expansion, this grant picks up Sources because GA is also on EA.
+	grantGAonEB := v2.Grant_builder{
+		Id:          batonGrant.NewGrantID(ga, eb),
+		Entitlement: eb,
+		Principal:   ga,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds: []string{ea.GetId()},
+			Shallow:        false,
+		}.Build()),
+	}.Build()
+
+	// ── OLD (expanded) ──
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
+	require.NoError(t, err)
+	defer oldFile.Close(ctx)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, groupRT))
+	require.NoError(t, oldFile.PutResources(ctx, ga, gb))
+	require.NoError(t, oldFile.PutEntitlements(ctx, ea, eb))
+	require.NoError(t, oldFile.PutGrants(ctx, grantSelfMembership, grantGBonEA, grantGAonEB))
+	require.NoError(t, oldFile.EndSync(ctx))
+	require.NoError(t, runFullExpansion(ctx, oldFile, oldSyncID))
+
+	// ── NEW (connector truth: self-membership removed) ──
+	newFile, err := dotc1z.NewC1ZFile(ctx, newPath)
+	require.NoError(t, err)
+	defer newFile.Close(ctx)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, groupRT))
+	require.NoError(t, newFile.PutResources(ctx, ga, gb))
+	require.NoError(t, newFile.PutEntitlements(ctx, ea, eb))
+
+	// Copy expanded grants from old, skipping self-membership.
+	require.NoError(t, oldFile.SetSyncID(ctx, ""))
+	require.NoError(t, oldFile.ViewSync(ctx, oldSyncID))
+	grantsToCopy, err := listGrantsWithStoredExpansion(ctx, oldFile)
+	require.NoError(t, err)
+	for _, g := range grantsToCopy {
+		if g.GetId() == selfMembershipID {
+			continue
+		}
+		require.NoError(t, newFile.PutGrants(ctx, g))
+	}
+	require.NoError(t, newFile.EndSync(ctx))
+
+	// ── Incremental expansion ──
+	diffAndApplyIncremental(t, ctx, newFile, oldFile, oldSyncID, newSyncID)
+
+	// ── EXPECTED (full expansion from new connector truth) ──
+	expectedFile, err := dotc1z.NewC1ZFile(ctx, expectedPath)
+	require.NoError(t, err)
+	defer expectedFile.Close(ctx)
+
+	expectedSyncID, err := expectedFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, expectedFile.PutResourceTypes(ctx, groupRT))
+	require.NoError(t, expectedFile.PutResources(ctx, ga, gb))
+	require.NoError(t, expectedFile.PutEntitlements(ctx, ea, eb))
+	require.NoError(t, expectedFile.PutGrants(ctx, grantGBonEA, grantGAonEB))
+	require.NoError(t, expectedFile.EndSync(ctx))
+	require.NoError(t, runFullExpansion(ctx, expectedFile, expectedSyncID))
+
+	got, err := loadGrantSourcesByKey(ctx, newFile, newSyncID)
+	require.NoError(t, err)
+	want, err := loadGrantSourcesByKey(ctx, expectedFile, expectedSyncID)
+	require.NoError(t, err)
+
+	require.Equal(t, want, got, "incremental expansion should match full expansion after removing self-membership")
+}

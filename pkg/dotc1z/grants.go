@@ -420,7 +420,7 @@ func extractAndStripExpansion(grant *v2.Grant) ([]byte, bool) {
 	if !hasValid {
 		return nil, false
 	}
-	// Note:modify by reference, nil is OK.
+	slices.Sort(expandable.GetEntitlementIds())
 	slices.Sort(expandable.GetResourceTypeIds())
 
 	data, err := proto.Marshal(expandable)
@@ -685,7 +685,7 @@ func backfillGrantSourcesColumn(ctx context.Context, db *goqu.Database, tableNam
 
 			sourcesBytes := extractAndClearSources(g)
 
-			newData, err := proto.Marshal(g)
+			newData, err := protoMarshaler.Marshal(g)
 			if err != nil {
 				_ = stmt.Close()
 				_ = tx.Rollback()
@@ -812,5 +812,6 @@ func (c *C1File) deleteGrantInternal(ctx context.Context, opts connectorstore.Gr
 		return err
 	}
 
+	c.dbUpdated = true
 	return nil
 }
