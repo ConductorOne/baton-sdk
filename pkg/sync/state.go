@@ -232,6 +232,8 @@ func (st *state) GetAction(id string) *Action {
 	return &a
 }
 
+const maxPeekActionsCount = 100
+
 // PeekMatchingActions returns copies of all consecutive actions from the top of
 // the stack that match the given op. Actions are returned in stack order (top first).
 func (st *state) PeekMatchingActions(ctx context.Context, op ActionOp) []*Action {
@@ -242,7 +244,7 @@ func (st *state) PeekMatchingActions(ctx context.Context, op ActionOp) []*Action
 	for i := len(st.actionOrder) - 1; i >= 0; i-- {
 		id := st.actionOrder[i]
 		action := st.actions[id]
-		if action.Op != op {
+		if action.Op != op || len(actions) >= maxPeekActionsCount {
 			break
 		}
 		a := action
