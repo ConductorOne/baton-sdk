@@ -553,7 +553,14 @@ func (s *syncer) Sync(ctx context.Context) error {
 				}
 				return errors.Join(checkpointErr, ErrSyncNotComplete)
 			default:
-				l.Error("sync context cancelled", zap.String("sync_id", syncID), zap.Error(err))
+				l.Info("sync context cancelled, checkpointing before exit", zap.String("sync_id", syncID), zap.Error(err))
+				// Use a background context for the checkpoint since the caller's
+				// context may already be cancelled (e.g. worker shutdown SIGTERM).
+				checkpointCtx, checkpointCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer checkpointCancel()
+				if checkpointErr := s.Checkpoint(checkpointCtx, true); checkpointErr != nil {
+					l.Error("error checkpointing before exiting cancelled sync", zap.Error(checkpointErr))
+				}
 				return err
 			}
 		default:
