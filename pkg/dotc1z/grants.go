@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/doug-martin/goqu/v9"
@@ -27,6 +28,7 @@ create table if not exists %s (
     external_id text not null,
     expansion blob,                             -- Serialized GrantExpandable proto; NULL if grant is not expandable.
     needs_expansion integer not null default 0, -- 1 if grant should be processed during expansion.
+    sources blob,                               -- Serialized GrantSources proto; NULL if grant has no sources. Stored outside data to keep diffs clean.
     data blob not null,
     sync_id text not null,
     discovered_at datetime not null
@@ -105,8 +107,20 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 		return err
 	}
 
+	// Add sources column if missing (for older files).
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		"alter table %s add column sources blob", r.Name(),
+	)); err != nil && !isAlreadyExistsError(err) {
+		return err
+	}
+
 	// Backfill expansion column from stored grant bytes.
-	return backfillGrantExpansionColumn(ctx, db, r.Name())
+	if err := backfillGrantExpansionColumn(ctx, db, r.Name()); err != nil {
+		return err
+	}
+
+	// Backfill sources column: strip Sources from data blobs and store them in the sources column.
+	return backfillGrantSourcesColumn(ctx, db, r.Name())
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
@@ -227,7 +241,7 @@ func (c *C1File) UpsertGrants(ctx context.Context, opts connectorstore.GrantUpse
 		return fmt.Errorf("unknown grant upsert mode: %d", opts.Mode)
 	}
 
-	if err := upsertGrantsInternal(ctx, c, opts.Mode, bulkGrants...); err != nil {
+	if err := upsertGrantsInternal(ctx, c, opts.Mode, opts.SyncID, bulkGrants...); err != nil {
 		return err
 	}
 
@@ -245,9 +259,48 @@ func baseGrantRecord(grant *v2.Grant) goqu.Record {
 	}
 }
 
+// rehydrateGrantSources sets Sources on the grant from serialized bytes.
+// If sourcesBlob is nil or empty, the grant is left unchanged.
+func rehydrateGrantSources(grant *v2.Grant, sourcesBlob []byte) {
+	if len(sourcesBlob) == 0 {
+		return
+	}
+	srcs := &v2.GrantSources{}
+	if err := proto.Unmarshal(sourcesBlob, srcs); err == nil && len(srcs.GetSources()) > 0 {
+		grant.SetSources(srcs)
+	}
+}
+
+// extractAndClearSources removes Sources from the grant proto and returns the
+// serialized bytes (or nil if the grant has no sources). The grant is modified
+// in place — Sources is cleared so it never leaks into the data blob.
+func extractAndClearSources(grant *v2.Grant) []byte {
+	srcs := grant.GetSources()
+	if srcs == nil || len(srcs.GetSources()) == 0 {
+		grant.SetSources(nil)
+		return nil
+	}
+	b, err := proto.Marshal(srcs)
+	if err != nil {
+		grant.SetSources(nil)
+		return nil
+	}
+	grant.SetSources(nil)
+	return b
+}
+
 func grantExtractFields(mode connectorstore.GrantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
 	return func(grant *v2.Grant) (goqu.Record, error) {
 		rec := baseGrantRecord(grant)
+
+		// Always strip Sources and store separately so the data blob is
+		// purely connector-provided data, keeping diff comparisons clean.
+		if sourcesBytes := extractAndClearSources(grant); sourcesBytes != nil {
+			rec["sources"] = sourcesBytes
+		} else {
+			rec["sources"] = nil
+		}
+
 		if mode == connectorstore.GrantUpsertModePreserveExpansion {
 			return rec, nil
 		}
@@ -281,6 +334,7 @@ func upsertGrantsInternal(
 	ctx context.Context,
 	c *C1File,
 	mode connectorstore.GrantUpsertMode,
+	syncID string,
 	msgs ...*v2.Grant,
 ) error {
 	if len(msgs) == 0 {
@@ -289,16 +343,34 @@ func upsertGrantsInternal(
 	ctx, span := tracer.Start(ctx, "C1File.bulkUpsertGrants")
 	defer span.End()
 
-	if err := c.validateSyncDb(ctx); err != nil {
+	resolvedSyncID, err := c.resolveGrantWriteSyncID(ctx, syncID)
+	if err != nil {
 		return err
 	}
 
-	rows, err := prepareConnectorObjectRows(c, msgs, grantExtractFields(mode))
+	rows, err := prepareConnectorObjectRows(c, msgs, grantExtractFields(mode), resolvedSyncID)
 	if err != nil {
 		return err
 	}
 
 	return executeGrantChunkedUpsert(ctx, c, rows, mode)
+}
+
+// resolveGrantWriteSyncID validates write preconditions and returns the sync ID to write against.
+// If explicitSyncID is empty, it requires an active sync and uses c.currentSyncID.
+// If explicitSyncID is set, it only requires an open DB and returns explicitSyncID.
+func (c *C1File) resolveGrantWriteSyncID(ctx context.Context, explicitSyncID string) (string, error) {
+	if explicitSyncID != "" {
+		if err := c.validateDb(ctx); err != nil {
+			return "", err
+		}
+		return explicitSyncID, nil
+	}
+
+	if err := c.validateSyncDb(ctx); err != nil {
+		return "", err
+	}
+	return c.currentSyncID, nil
 }
 
 // hasGrantExpandable returns true if the grant has a GrantExpandable annotation.
@@ -348,8 +420,9 @@ func extractAndStripExpansion(grant *v2.Grant) ([]byte, bool) {
 	if !hasValid {
 		return nil, false
 	}
+	// Note:modify by reference, nil is OK.
+	slices.Sort(expandable.GetResourceTypeIds())
 
-	// Serialize the expandable annotation.
 	data, err := proto.Marshal(expandable)
 	if err != nil {
 		return nil, false
@@ -547,6 +620,110 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 	return nil
 }
 
+// backfillGrantSourcesColumn strips Sources from data blobs that still contain them
+// and stores them in the separate sources column. Only processes grants from syncs
+// that support diff (supports_diff=1) because those are the ones that had expansion
+// run with code that wrote Sources into the data blob.
+func backfillGrantSourcesColumn(ctx context.Context, db *goqu.Database, tableName string) error {
+	for {
+		rows, err := db.QueryContext(ctx, fmt.Sprintf(
+			`SELECT g.id, g.data FROM %s g
+			 JOIN %s sr ON g.sync_id = sr.sync_id
+			 WHERE g.sources IS NULL
+			   AND sr.supports_diff = 1
+			 LIMIT 1000`,
+			tableName, syncRuns.Name(),
+		))
+		if err != nil {
+			return err
+		}
+
+		type row struct {
+			id   int64
+			data []byte
+		}
+		batch := make([]row, 0, 1000)
+		for rows.Next() {
+			var r row
+			if err := rows.Scan(&r.id, &r.data); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			batch = append(batch, r)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		_ = rows.Close()
+
+		if len(batch) == 0 {
+			break
+		}
+
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			return err
+		}
+
+		stmt, err := tx.PrepareContext(ctx, fmt.Sprintf(
+			`UPDATE %s SET sources=?, data=? WHERE id=?`,
+			tableName,
+		))
+		if err != nil {
+			_ = tx.Rollback()
+			return err
+		}
+
+		for _, r := range batch {
+			g := &v2.Grant{}
+			if err := proto.Unmarshal(r.data, g); err != nil {
+				_ = stmt.Close()
+				_ = tx.Rollback()
+				return err
+			}
+
+			sourcesBytes := extractAndClearSources(g)
+
+			newData, err := proto.Marshal(g)
+			if err != nil {
+				_ = stmt.Close()
+				_ = tx.Rollback()
+				return err
+			}
+
+			// Use empty blob as sentinel for grants without sources so
+			// they won't match "sources IS NULL" on the next iteration.
+			var sourcesVal any
+			if sourcesBytes != nil {
+				sourcesVal = sourcesBytes
+			} else {
+				sourcesVal = []byte{}
+			}
+
+			if _, err := stmt.ExecContext(ctx, sourcesVal, newData, r.id); err != nil {
+				_ = stmt.Close()
+				_ = tx.Rollback()
+				return err
+			}
+		}
+
+		_ = stmt.Close()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+
+	// Convert empty-blob sentinels back to NULL.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		`UPDATE %s SET sources = NULL WHERE sources = X''`, tableName,
+	)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func executeGrantChunkedUpsert(
 	ctx context.Context, c *C1File,
 	rows []*goqu.Record,
@@ -580,6 +757,7 @@ func executeGrantChunkedUpsert(
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
 		update := goqu.Record{
 			"data":            goqu.I("EXCLUDED.data"),
+			"sources":         goqu.I("EXCLUDED.sources"),
 			"expansion":       expansionExpr,
 			"needs_expansion": needsExpansionExpr,
 		}
@@ -606,23 +784,31 @@ func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
 	ctx, span := tracer.Start(ctx, "C1File.DeleteGrant")
 	defer span.End()
 
-	err := c.validateSyncDb(ctx)
+	return c.deleteGrantInternal(ctx, connectorstore.GrantDeleteOptions{}, grantId)
+}
+
+func (c *C1File) DeleteGrantInternal(ctx context.Context, opts connectorstore.GrantDeleteOptions, grantId string) error {
+	ctx, span := tracer.Start(ctx, "C1File.DeleteGrantInternal")
+	defer span.End()
+
+	return c.deleteGrantInternal(ctx, opts, grantId)
+}
+
+func (c *C1File) deleteGrantInternal(ctx context.Context, opts connectorstore.GrantDeleteOptions, grantId string) error {
+	syncId, err := c.resolveGrantWriteSyncID(ctx, opts.SyncID)
 	if err != nil {
 		return err
 	}
-
-	q := c.db.Delete(grants.Name())
-	q = q.Where(goqu.C("external_id").Eq(grantId))
-	if c.currentSyncID != "" {
-		q = q.Where(goqu.C("sync_id").Eq(c.currentSyncID))
+	q := c.db.Delete(grants.Name()).Where(goqu.C("external_id").Eq(grantId))
+	if syncId != "" {
+		q = q.Where(goqu.C("sync_id").Eq(syncId))
 	}
 	query, args, err := q.ToSQL()
 	if err != nil {
 		return err
 	}
 
-	_, err = c.db.ExecContext(ctx, query, args...)
-	if err != nil {
+	if _, err := c.db.ExecContext(ctx, query, args...); err != nil {
 		return err
 	}
 
