@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -36,6 +37,7 @@ type fullSyncTaskHandler struct {
 	externalResourceEntitlementIdFilter string
 	targetedSyncResources               []*v2.Resource
 	syncResourceTypeIDs                 []string
+	parallelSync                        bool
 }
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
@@ -92,7 +94,13 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 		syncOpts = append(syncOpts, sdkSync.WithSessionStore(setSessionStore))
 	}
 
-	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)
+	if c.parallelSync {
+		workerCount := min(max(runtime.GOMAXPROCS(0), 1), 4)
+		// TODO: allow configurable worker count
+		syncOpts = append(syncOpts, sdkSync.WithWorkerCount(workerCount))
+	}
+
+	syncer, err := sdkSync.NewSyncer(ctx, c.helpers.ConnectorClient(), syncOpts...)
 	if err != nil {
 		l.Error("failed to create syncer", zap.Error(err))
 		return err
@@ -203,6 +211,7 @@ func newFullSyncTaskHandler(
 	externalResourceEntitlementIdFilter string,
 	targetedSyncResources []*v2.Resource,
 	syncResourceTypeIDs []string,
+	parallelSync bool,
 ) tasks.TaskHandler {
 	return &fullSyncTaskHandler{
 		task:                                task,
@@ -212,6 +221,7 @@ func newFullSyncTaskHandler(
 		externalResourceEntitlementIdFilter: externalResourceEntitlementIdFilter,
 		targetedSyncResources:               targetedSyncResources,
 		syncResourceTypeIDs:                 syncResourceTypeIDs,
+		parallelSync:                        parallelSync,
 	}
 }
 

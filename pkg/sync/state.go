@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
@@ -12,18 +13,18 @@ import (
 	"go.uber.org/zap"
 )
 
+// If you make a breaking change to the state token, you must increment this version.
+const StateTokenVersion = 1
+
 type State interface {
 	PushAction(ctx context.Context, action Action)
-	FinishAction(ctx context.Context)
-	NextPage(ctx context.Context, pageToken string) error
-	ResourceTypeID(ctx context.Context) string
-	ResourceID(ctx context.Context) string
+	FinishAction(ctx context.Context, action *Action)
+	NextPage(ctx context.Context, actionID string, pageToken string) error
 	EntitlementGraph(ctx context.Context) *expand.EntitlementGraph
 	ClearEntitlementGraph(ctx context.Context)
-	ParentResourceID(ctx context.Context) string
-	ParentResourceTypeID(ctx context.Context) string
-	PageToken(ctx context.Context) string
 	Current() *Action
+	GetAction(id string) *Action
+	PeekMatchingActions(ctx context.Context, op ActionOp) []*Action
 	Marshal() (string, error)
 	Unmarshal(input string) error
 	NeedsExpansion() bool
@@ -73,7 +74,7 @@ func (s ActionOp) String() string {
 }
 
 // MarshalJSON marshals the ActionOp into a json string.
-func (s *ActionOp) MarshalJSON() ([]byte, error) {
+func (s ActionOp) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.String())
 }
 
@@ -138,6 +139,7 @@ const (
 
 // Action stores the current operation, page token, and optional fields for which resource is being worked with.
 type Action struct {
+	ID                   string   `json:"id,omitempty"`
 	Op                   ActionOp `json:"operation,omitempty"`
 	PageToken            string   `json:"page_token,omitempty"`
 	ResourceTypeID       string   `json:"resource_type_id,omitempty"`
@@ -146,11 +148,14 @@ type Action struct {
 	ParentResourceID     string   `json:"parent_resource_id,omitempty"`
 }
 
+var _ State = &state{}
+
 // state is an object used for tracking the current status of a connector sync. It operates like a stack.
 type state struct {
 	mtx                             sync.RWMutex
-	actions                         []Action
-	currentAction                   *Action
+	actions                         map[string]Action
+	actionOrder                     []string
+	currentActionID                 uint64 // Counter for generating new action IDs.
 	entitlementGraph                *expand.EntitlementGraph
 	needsExpansion                  bool
 	hasExternalResourceGrants       bool
@@ -160,9 +165,8 @@ type state struct {
 	completedActionsCount           uint64
 }
 
-// serializedToken is used to serialize the token to JSON. This separate object is used to avoid having exported fields
-// on the object used externally. We should interface this, probably.
-type serializedToken struct {
+// Original serialized token format. Needed to parse/resume syncs started by older versions of baton-sdk.
+type serializedTokenV0 struct {
 	Actions                         []Action                 `json:"actions,omitempty"`
 	CurrentAction                   *Action                  `json:"current_action,omitempty"`
 	NeedsExpansion                  bool                     `json:"needs_expansion,omitempty"`
@@ -174,41 +178,30 @@ type serializedToken struct {
 	CompletedActionsCount           uint64                   `json:"completed_actions_count,omitempty"`
 }
 
-// push adds a new action to the stack. If there is no current state, the action is directly set to current, else
-// the current state is appended to the slice of actions, and the new action is set to current.
-func (st *state) push(action Action) {
-	st.mtx.Lock()
-	defer st.mtx.Unlock()
-
-	if st.currentAction == nil {
-		st.currentAction = &action
-		return
-	}
-
-	st.actions = append(st.actions, *st.currentAction)
-	st.currentAction = &action
+// serializedTokenV1 is used to serialize the token to JSON. This separate object is used to avoid having exported fields
+// on the object used externally. We should interface this, probably.
+type serializedTokenV1 struct {
+	ActionsMap                      map[string]Action        `json:"actions_map,omitempty"`
+	ActionOrder                     []string                 `json:"action_order,omitempty"`
+	CurrentActionID                 uint64                   `json:"current_action_id,omitempty"`
+	NeedsExpansion                  bool                     `json:"needs_expansion,omitempty"`
+	EntitlementGraph                *expand.EntitlementGraph `json:"entitlement_graph,omitempty"`
+	HasExternalResourceGrants       bool                     `json:"has_external_resource_grants,omitempty"`
+	ShouldFetchRelatedResources     bool                     `json:"should_fetch_related_resources,omitempty"`
+	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
+	ShouldSkipGrants                bool                     `json:"should_skip_grants,omitempty"`
+	CompletedActionsCount           uint64                   `json:"completed_actions_count,omitempty"`
+	Version                         uint64                   `json:"version"`
 }
 
-// pop returns nil if there is no current action. Otherwise it returns the current action, and replace it with the last
-// item in the actions slice.
-func (st *state) pop() *Action {
-	st.mtx.Lock()
-	defer st.mtx.Unlock()
-	if st.currentAction == nil {
-		return nil
+func newState() *state {
+	return &state{
+		actions:          make(map[string]Action),
+		actionOrder:      []string{},
+		currentActionID:  0,
+		entitlementGraph: nil,
+		needsExpansion:   false,
 	}
-
-	ret := *st.currentAction
-	st.completedActionsCount++
-
-	if len(st.actions) > 0 {
-		st.currentAction = &st.actions[len(st.actions)-1]
-		st.actions = st.actions[:len(st.actions)-1]
-	} else {
-		st.currentAction = nil
-	}
-
-	return &ret
 }
 
 // Current returns nil if there is no current action. Otherwise it returns a pointer to a copy of the current state.
@@ -216,12 +209,80 @@ func (st *state) Current() *Action {
 	st.mtx.RLock()
 	defer st.mtx.RUnlock()
 
-	if st.currentAction == nil {
+	if len(st.actionOrder) == 0 {
 		return nil
 	}
 
-	current := *st.currentAction
-	return &current
+	currentID := st.actionOrder[len(st.actionOrder)-1]
+	currentAction := st.actions[currentID]
+	return &currentAction
+}
+
+// GetAction returns a copy of the action with the given ID, or nil if it doesn't exist.
+func (st *state) GetAction(id string) *Action {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
+
+	a, ok := st.actions[id]
+	if !ok {
+		return nil
+	}
+	return &a
+}
+
+const maxPeekActionsCount = 100
+
+// PeekMatchingActions returns copies of all consecutive actions from the top of
+// the stack that match the given op. Actions are returned in stack order (top first).
+func (st *state) PeekMatchingActions(ctx context.Context, op ActionOp) []*Action {
+	st.mtx.RLock()
+	defer st.mtx.RUnlock()
+
+	var actions []*Action
+	for i := len(st.actionOrder) - 1; i >= 0; i-- {
+		id := st.actionOrder[i]
+		action := st.actions[id]
+		if action.Op != op || len(actions) >= maxPeekActionsCount {
+			break
+		}
+		a := action
+		actions = append(actions, &a)
+	}
+	return actions
+}
+
+// unmarshalTokenV0 unmarshals the original serialized token format into a serialized token of the new format.
+func unmarshalTokenV0(input string) (serializedTokenV1, error) {
+	tokenV0 := serializedTokenV0{}
+	err := json.Unmarshal([]byte(input), &tokenV0)
+	if err != nil {
+		return serializedTokenV1{}, fmt.Errorf("syncer token corrupt: %w", err)
+	}
+	actionsMap := make(map[string]Action)
+	actions := tokenV0.Actions
+	actionOrder := []string{}
+	var currentActionID uint64
+
+	for i, action := range actions {
+		currentActionID := uint64(i)
+		action.ID = makeActionID(currentActionID)
+		actionsMap[action.ID] = action
+		actionOrder = append(actionOrder, action.ID)
+	}
+
+	return serializedTokenV1{
+		ActionsMap:                      actionsMap,
+		ActionOrder:                     actionOrder,
+		CurrentActionID:                 currentActionID,
+		NeedsExpansion:                  tokenV0.NeedsExpansion,
+		EntitlementGraph:                tokenV0.EntitlementGraph,
+		HasExternalResourceGrants:       tokenV0.HasExternalResourceGrants,
+		ShouldFetchRelatedResources:     tokenV0.ShouldFetchRelatedResources,
+		ShouldSkipEntitlementsAndGrants: tokenV0.ShouldSkipEntitlementsAndGrants,
+		ShouldSkipGrants:                tokenV0.ShouldSkipGrants,
+		CompletedActionsCount:           tokenV0.CompletedActionsCount,
+		Version:                         1,
+	}, nil
 }
 
 // Unmarshal takes an input string and unmarshals it onto the state object. If the input is empty, we set the state to
@@ -230,16 +291,21 @@ func (st *state) Unmarshal(input string) error {
 	st.mtx.Lock()
 	defer st.mtx.Unlock()
 
-	token := serializedToken{}
+	token := serializedTokenV1{}
 
 	if input != "" {
 		err := json.Unmarshal([]byte(input), &token)
-		if err != nil {
-			return fmt.Errorf("syncer token corrupt: %w", err)
+		if err != nil || token.Version != StateTokenVersion {
+			// Fall back to old serialized token format.
+			token, err = unmarshalTokenV0(input)
+			if err != nil {
+				return err
+			}
 		}
 
-		st.actions = token.Actions
-		st.currentAction = token.CurrentAction
+		st.actions = token.ActionsMap
+		st.actionOrder = token.ActionOrder
+		st.currentActionID = token.CurrentActionID
 		st.needsExpansion = token.NeedsExpansion
 		st.entitlementGraph = token.EntitlementGraph
 		st.hasExternalResourceGrants = token.HasExternalResourceGrants
@@ -248,9 +314,17 @@ func (st *state) Unmarshal(input string) error {
 		st.shouldFetchRelatedResources = token.ShouldFetchRelatedResources
 		st.completedActionsCount = token.CompletedActionsCount
 	} else {
-		st.actions = nil
+		st.actions = make(map[string]Action)
+		st.actionOrder = []string{}
 		st.entitlementGraph = nil
-		st.currentAction = &Action{Op: InitOp}
+		actionID := makeActionID(st.currentActionID)
+		st.currentActionID++
+		if _, ok := st.actions[actionID]; ok {
+			// This should never happen.
+			panic(fmt.Sprintf("action ID for new action %s already exists", actionID))
+		}
+		st.actions[actionID] = Action{Op: InitOp, ID: actionID}
+		st.actionOrder = append(st.actionOrder, actionID)
 		st.completedActionsCount = 0
 	}
 
@@ -262,9 +336,10 @@ func (st *state) Marshal() (string, error) {
 	st.mtx.RLock()
 	defer st.mtx.RUnlock()
 
-	data, err := json.Marshal(serializedToken{
-		Actions:                         st.actions,
-		CurrentAction:                   st.currentAction,
+	data, err := json.Marshal(serializedTokenV1{
+		ActionsMap:                      st.actions,
+		ActionOrder:                     st.actionOrder,
+		CurrentActionID:                 st.currentActionID,
 		NeedsExpansion:                  st.needsExpansion,
 		EntitlementGraph:                st.entitlementGraph,
 		HasExternalResourceGrants:       st.hasExternalResourceGrants,
@@ -272,6 +347,7 @@ func (st *state) Marshal() (string, error) {
 		ShouldSkipEntitlementsAndGrants: st.shouldSkipEntitlementsAndGrants,
 		ShouldSkipGrants:                st.shouldSkipGrants,
 		CompletedActionsCount:           st.completedActionsCount,
+		Version:                         1,
 	})
 	if err != nil {
 		return "", err
@@ -280,31 +356,67 @@ func (st *state) Marshal() (string, error) {
 	return string(data), nil
 }
 
+func makeActionID(id uint64) string {
+	return fmt.Sprintf("%010d", id)
+}
+
 // PushAction adds a new action to the stack.
 func (st *state) PushAction(ctx context.Context, action Action) {
-	st.push(action)
-	ctxzap.Extract(ctx).Debug("pushing action", zap.Any("action", action))
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if action.ID != "" {
+		panic("action ID must be empty for new actions")
+	}
+
+	action.ID = makeActionID(st.currentActionID)
+	st.currentActionID++
+	if _, ok := st.actions[action.ID]; ok {
+		// This should never happen.
+		panic(fmt.Sprintf("action ID for new action %s already exists", action.ID))
+	}
+	st.actions[action.ID] = action
+	st.actionOrder = append(st.actionOrder, action.ID)
+	ctxzap.Extract(ctx).Debug("pushed action", zap.Any("action", action))
 }
 
 // FinishAction pops the current action from the state.
-func (st *state) FinishAction(ctx context.Context) {
-	action := st.pop()
+func (st *state) FinishAction(ctx context.Context, action *Action) {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	if action == nil {
+		panic("action cannot be nil")
+	}
+	if _, ok := st.actions[action.ID]; !ok {
+		panic(fmt.Sprintf("action ID %s does not exist", action.ID))
+	}
+
+	// Find the action in the action order and remove it.
+	index, ok := slices.BinarySearch(st.actionOrder, action.ID)
+	if !ok {
+		panic(fmt.Sprintf("action ID %s does not exist in action order", action.ID))
+	}
+	st.actionOrder = slices.Delete(st.actionOrder, index, index+1)
+	delete(st.actions, action.ID)
+	st.completedActionsCount++
 	ctxzap.Extract(ctx).Debug("finishing action", zap.Any("action", action))
 }
 
-// NextPage pops the current action, and pushes a copy of it with the provided page token. This is useful for paginating
+// NextPage updates the current action with the provided page token. This is useful for paginating
 // requests.
-func (st *state) NextPage(ctx context.Context, pageToken string) error {
-	action := st.pop()
-	if action == nil {
-		return fmt.Errorf("no active syncer action")
+func (st *state) NextPage(ctx context.Context, actionID string, pageToken string) error {
+	st.mtx.Lock()
+	defer st.mtx.Unlock()
+
+	_, ok := st.actions[actionID]
+	if !ok {
+		return fmt.Errorf("action ID %s does not exist", actionID)
 	}
 
+	action := st.actions[actionID]
 	action.PageToken = pageToken
-
-	st.push(*action)
-	ctxzap.Extract(ctx).Debug("pushing next page action", zap.Any("action", action))
-
+	st.actions[actionID] = action
 	return nil
 }
 
@@ -348,42 +460,8 @@ func (st *state) SetShouldSkipGrants() {
 	st.shouldSkipGrants = true
 }
 
-// PageToken returns the page token for the current action.
-func (st *state) PageToken(ctx context.Context) string {
-	c := st.Current()
-	if c == nil {
-		panic("no current state")
-	}
-
-	return c.PageToken
-}
-
-// ResourceTypeID returns the resource type id for the current action.
-func (st *state) ResourceTypeID(ctx context.Context) string {
-	c := st.Current()
-	if c == nil {
-		panic("no current state")
-	}
-
-	return c.ResourceTypeID
-}
-
-// ResourceID returns the resource ID for the current action.
-func (st *state) ResourceID(ctx context.Context) string {
-	c := st.Current()
-	if c == nil {
-		panic("no current state")
-	}
-
-	return c.ResourceID
-}
-
 // EntitlementGraph returns the entitlement graph for the current action.
 func (st *state) EntitlementGraph(ctx context.Context) *expand.EntitlementGraph {
-	c := st.Current()
-	if c == nil {
-		panic("no current state")
-	}
 	if st.entitlementGraph == nil {
 		st.entitlementGraph = expand.NewEntitlementGraph(ctx)
 	}
@@ -393,24 +471,6 @@ func (st *state) EntitlementGraph(ctx context.Context) *expand.EntitlementGraph 
 // ClearEntitlementGraph clears the entitlement graph. This is meant to make the final sync token less confusing.
 func (st *state) ClearEntitlementGraph(ctx context.Context) {
 	st.entitlementGraph = nil
-}
-
-func (st *state) ParentResourceID(ctx context.Context) string {
-	c := st.Current()
-	if c == nil {
-		panic("no current state")
-	}
-
-	return c.ParentResourceID
-}
-
-func (st *state) ParentResourceTypeID(ctx context.Context) string {
-	c := st.Current()
-	if c == nil {
-		panic("no current state")
-	}
-
-	return c.ParentResourceTypeID
 }
 
 func (st *state) GetCompletedActionsCount() uint64 {
