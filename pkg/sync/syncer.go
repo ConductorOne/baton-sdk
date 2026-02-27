@@ -2811,7 +2811,8 @@ func WithSkipGrants(skip bool) SyncOpt {
 // Yes, this allows for a "parallel" sync with one worker, effectively making it sequential.
 func WithWorkerCount(count int) SyncOpt {
 	return func(s *syncer) {
-		s.workerCount = count
+		// Don't allow a negative worker count.
+		s.workerCount = max(count, 0)
 	}
 }
 

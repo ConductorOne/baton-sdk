@@ -25,7 +25,6 @@ var allActionOps = []ActionOp{
 }
 
 func compareSyncerState(t *testing.T, expected Action, actual Action) {
-	require.NotNil(t, actual)
 	require.Equal(t, expected.Op, actual.Op)
 	require.Equal(t, expected.PageToken, actual.PageToken)
 	require.Equal(t, expected.ResourceID, actual.ResourceID)
