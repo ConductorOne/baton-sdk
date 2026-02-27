@@ -348,29 +348,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 	state := newState()
 	err = state.Unmarshal(currentStep)
 	if err != nil {
-		if !errors.Is(err, ErrUnsupportedStateTokenVersion) {
-			return err
-		}
-		l.Warn("unsupported syncer token version, finishing current sync and starting new sync", zap.Error(err))
-		// Finish the current sync
-		err = s.store.EndSync(ctx)
-		if err != nil {
-			return err
-		}
-		// Start a new sync
-		s.syncID, err = s.store.StartNewSync(ctx, s.syncType, "")
-		if err != nil {
-			return err
-		}
-		newSync = true
-		currentStep, err = s.store.CurrentSyncStep(ctx)
-		if err != nil {
-			return err
-		}
-		err = state.Unmarshal(currentStep)
-		if err != nil {
-			return err
-		}
+		return err
 	}
 	s.state = state
 	if !newSync {

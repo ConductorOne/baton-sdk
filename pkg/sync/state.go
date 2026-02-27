@@ -16,8 +16,6 @@ import (
 // If you make a breaking change to the state token, you must increment this version.
 const StateTokenVersion = 1
 
-var ErrUnsupportedStateTokenVersion error = fmt.Errorf("unsupported syncer token version: %d", StateTokenVersion)
-
 type State interface {
 	PushAction(ctx context.Context, action Action)
 	FinishAction(ctx context.Context, action *Action)
@@ -167,7 +165,7 @@ type state struct {
 	completedActionsCount           uint64
 }
 
-// Original serialized token format. Needed to resume syncs started by older versions of baton-sdk.
+// Original serialized token format. Needed to parse/resume syncs started by older versions of baton-sdk.
 type serializedTokenV0 struct {
 	Actions                         []Action                 `json:"actions,omitempty"`
 	CurrentAction                   *Action                  `json:"current_action,omitempty"`
@@ -180,9 +178,9 @@ type serializedTokenV0 struct {
 	CompletedActionsCount           uint64                   `json:"completed_actions_count,omitempty"`
 }
 
-// serializedToken is used to serialize the token to JSON. This separate object is used to avoid having exported fields
+// serializedTokenV1 is used to serialize the token to JSON. This separate object is used to avoid having exported fields
 // on the object used externally. We should interface this, probably.
-type serializedToken struct {
+type serializedTokenV1 struct {
 	ActionsMap                      map[string]Action        `json:"actions_map,omitempty"`
 	ActionOrder                     []string                 `json:"action_order,omitempty"`
 	CurrentActionID                 uint64                   `json:"current_action_id,omitempty"`
@@ -193,7 +191,7 @@ type serializedToken struct {
 	ShouldSkipEntitlementsAndGrants bool                     `json:"should_skip_entitlements_and_grants,omitempty"`
 	ShouldSkipGrants                bool                     `json:"should_skip_grants,omitempty"`
 	CompletedActionsCount           uint64                   `json:"completed_actions_count,omitempty"`
-	Version                         uint64                   `json:"version,omitempty"`
+	Version                         uint64                   `json:"version"`
 }
 
 func newState() *state {
@@ -253,23 +251,58 @@ func (st *state) PeekMatchingActions(ctx context.Context, op ActionOp) []*Action
 	return actions
 }
 
+// unmarshalTokenV0 unmarshals the original serialized token format into a serialized token of the new format.
+func unmarshalTokenV0(input string) (serializedTokenV1, error) {
+	tokenV0 := serializedTokenV0{}
+	err := json.Unmarshal([]byte(input), &tokenV0)
+	if err != nil {
+		return serializedTokenV1{}, fmt.Errorf("syncer token corrupt: %w", err)
+	}
+	actionsMap := make(map[string]Action)
+	actions := tokenV0.Actions
+	actionOrder := []string{}
+	var currentActionID uint64
+
+	for i, action := range actions {
+		currentActionID := uint64(i)
+		action.ID = makeActionID(currentActionID)
+		actionsMap[action.ID] = action
+		actionOrder = append(actionOrder, action.ID)
+	}
+
+	return serializedTokenV1{
+		ActionsMap:                      actionsMap,
+		ActionOrder:                     actionOrder,
+		CurrentActionID:                 currentActionID,
+		NeedsExpansion:                  tokenV0.NeedsExpansion,
+		EntitlementGraph:                tokenV0.EntitlementGraph,
+		HasExternalResourceGrants:       tokenV0.HasExternalResourceGrants,
+		ShouldFetchRelatedResources:     tokenV0.ShouldFetchRelatedResources,
+		ShouldSkipEntitlementsAndGrants: tokenV0.ShouldSkipEntitlementsAndGrants,
+		ShouldSkipGrants:                tokenV0.ShouldSkipGrants,
+		CompletedActionsCount:           tokenV0.CompletedActionsCount,
+		Version:                         1,
+	}, nil
+}
+
 // Unmarshal takes an input string and unmarshals it onto the state object. If the input is empty, we set the state to
 // have an init action.
 func (st *state) Unmarshal(input string) error {
 	st.mtx.Lock()
 	defer st.mtx.Unlock()
 
-	token := serializedToken{}
+	token := serializedTokenV1{}
 
 	if input != "" {
 		err := json.Unmarshal([]byte(input), &token)
-		if err != nil {
-			return fmt.Errorf("syncer token corrupt: %w", err)
+		if err != nil || token.Version != StateTokenVersion {
+			// Fall back to old serialized token format.
+			token, err = unmarshalTokenV0(input)
+			if err != nil {
+				return err
+			}
 		}
 
-		if token.Version != StateTokenVersion {
-			return ErrUnsupportedStateTokenVersion
-		}
 		st.actions = token.ActionsMap
 		st.actionOrder = token.ActionOrder
 		st.currentActionID = token.CurrentActionID
@@ -284,7 +317,7 @@ func (st *state) Unmarshal(input string) error {
 		st.actions = make(map[string]Action)
 		st.actionOrder = []string{}
 		st.entitlementGraph = nil
-		actionID := fmt.Sprintf("%010d", st.currentActionID)
+		actionID := makeActionID(st.currentActionID)
 		st.currentActionID++
 		if _, ok := st.actions[actionID]; ok {
 			// This should never happen.
@@ -303,7 +336,7 @@ func (st *state) Marshal() (string, error) {
 	st.mtx.RLock()
 	defer st.mtx.RUnlock()
 
-	data, err := json.Marshal(serializedToken{
+	data, err := json.Marshal(serializedTokenV1{
 		ActionsMap:                      st.actions,
 		ActionOrder:                     st.actionOrder,
 		CurrentActionID:                 st.currentActionID,
@@ -323,6 +356,10 @@ func (st *state) Marshal() (string, error) {
 	return string(data), nil
 }
 
+func makeActionID(id uint64) string {
+	return fmt.Sprintf("%010d", id)
+}
+
 // PushAction adds a new action to the stack.
 func (st *state) PushAction(ctx context.Context, action Action) {
 	st.mtx.Lock()
@@ -332,7 +369,7 @@ func (st *state) PushAction(ctx context.Context, action Action) {
 		panic("action ID must be empty for new actions")
 	}
 
-	action.ID = fmt.Sprintf("%010d", st.currentActionID)
+	action.ID = makeActionID(st.currentActionID)
 	st.currentActionID++
 	if _, ok := st.actions[action.ID]; ok {
 		// This should never happen.

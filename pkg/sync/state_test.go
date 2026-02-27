@@ -148,7 +148,7 @@ func TestSyncerTokenNextPage(t *testing.T) {
 
 func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
 	initOp := Action{Op: InitOp}
-	serializedTokenV0 := serializedTokenV0{
+	tokenV0 := serializedTokenV0{
 		Actions:                         []Action{initOp},
 		CurrentAction:                   &initOp,
 		NeedsExpansion:                  false,
@@ -159,13 +159,40 @@ func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
 		ShouldSkipGrants:                false,
 		CompletedActionsCount:           0,
 	}
-	serializedToken, err := json.Marshal(serializedTokenV0)
+	tokenV0Bytes, err := json.Marshal(tokenV0)
 	require.NoError(t, err)
-	require.NotEmpty(t, serializedToken)
+	require.NotEmpty(t, tokenV0Bytes)
 	st := newState()
-	err = st.Unmarshal(string(serializedToken))
-	// TODO: Add forward migration to resume syncs started by older versions of baton-sdk.
-	require.ErrorIs(t, err, ErrUnsupportedStateTokenVersion)
+	err = st.Unmarshal(string(tokenV0Bytes))
+	require.NoError(t, err)
+
+	tokenV1String, err := st.Marshal()
+	require.NoError(t, err)
+	require.NotEmpty(t, tokenV1String)
+	tokenV1 := serializedTokenV1{}
+	err = json.Unmarshal([]byte(tokenV1String), &tokenV1)
+	require.NoError(t, err)
+	require.NotEmpty(t, tokenV0Bytes)
+
+	expectedToken := serializedTokenV1{
+		ActionsMap: map[string]Action{
+			"0000000000": {
+				Op: InitOp,
+				ID: "0000000000",
+			},
+		},
+		ActionOrder:                     []string{"0000000000"},
+		CurrentActionID:                 0,
+		NeedsExpansion:                  false,
+		EntitlementGraph:                nil,
+		HasExternalResourceGrants:       false,
+		ShouldFetchRelatedResources:     false,
+		ShouldSkipEntitlementsAndGrants: false,
+		ShouldSkipGrants:                false,
+		CompletedActionsCount:           0,
+		Version:                         1,
+	}
+	require.Equal(t, expectedToken, tokenV1)
 }
 
 func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
