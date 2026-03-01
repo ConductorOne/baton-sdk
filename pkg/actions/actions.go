@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -632,4 +635,70 @@ func isNullValue(v *structpb.Value) bool {
 	}
 	_, isNull := v.GetKind().(*structpb.Value_NullValue)
 	return isNull
+}
+
+// toDisplayName converts a snake_case field name to a Title Case display name.
+func toDisplayName(name string) string {
+	// Replace underscores with spaces, then apply title case
+	spaced := strings.ReplaceAll(name, "_", " ")
+	return cases.Title(language.English).String(spaced)
+}
+
+// NewUpdateProfileSchema creates a BatonActionSchema for updating user profiles.
+// It follows the convention for ACTION_TYPE_ACCOUNT_UPDATE_PROFILE actions:
+//   - Named "update_profile"
+//   - Includes a "user_id" ResourceIdField
+//   - Includes StringField for each known attribute name
+//   - Optionally includes "custom_attributes" StringMapField if allowsCustom is true
+func NewUpdateProfileSchema(allowsCustom bool, attributeNames []string) *v2.BatonActionSchema {
+	arguments := []*config.Field{
+		config.Field_builder{
+			Name:        "user_id",
+			DisplayName: "User ID",
+			Description: "The user to update",
+			IsRequired:  true,
+			ResourceIdField: &config.ResourceIdField{
+				Rules: &config.ResourceIDRules{
+					AllowedResourceTypeIds: []string{"user"},
+				},
+			},
+		}.Build(),
+	}
+
+	// Dedupe attributeNames and remove reserved names
+	seen := make(map[string]bool)
+	reservedNames := map[string]bool{"user_id": true, "custom_attributes": true}
+	filteredNames := make([]string, 0, len(attributeNames))
+	for _, name := range attributeNames {
+		if reservedNames[name] || seen[name] {
+			continue
+		}
+		seen[name] = true
+		filteredNames = append(filteredNames, name)
+	}
+
+	for _, name := range filteredNames {
+		arguments = append(arguments, config.Field_builder{
+			Name:        name,
+			DisplayName: toDisplayName(name),
+			StringField: &config.StringField{},
+		}.Build())
+	}
+
+	if allowsCustom {
+		arguments = append(arguments, config.Field_builder{
+			Name:           "custom_attributes",
+			DisplayName:    "Custom Attributes",
+			Description:    "Additional custom attributes to set on the user",
+			StringMapField: &config.StringMapField{},
+		}.Build())
+	}
+
+	return v2.BatonActionSchema_builder{
+		Name:        "update_profile",
+		DisplayName: "Update Profile",
+		Description: "Update a user's profile attributes",
+		ActionType:  []v2.ActionType{v2.ActionType_ACTION_TYPE_ACCOUNT_UPDATE_PROFILE},
+		Arguments:   arguments,
+	}.Build()
 }
