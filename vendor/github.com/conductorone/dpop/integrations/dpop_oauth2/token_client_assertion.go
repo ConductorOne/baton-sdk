@@ -88,6 +88,8 @@ type tokenSourceOptions struct {
 	proofOptions   []dpop.ProofOption
 	nonceStore     *NonceStore
 	requestOptions []TokenRequestOption
+	tokenTimeout   time.Duration
+	maxRetries     int
 }
 
 // WithBaseContext sets a custom base context for the token source
@@ -125,6 +127,23 @@ func WithRequestOption(opt TokenRequestOption) TokenSourceOption {
 	}
 }
 
+// WithTokenTimeout sets the timeout for individual token requests.
+// The default is 60 seconds. Each retry attempt uses its own timeout.
+func WithTokenTimeout(d time.Duration) TokenSourceOption {
+	return func(opts *tokenSourceOptions) {
+		opts.tokenTimeout = d
+	}
+}
+
+// WithMaxRetries sets the maximum number of retry attempts for transient
+// token request failures (e.g. context deadline exceeded, network errors).
+// The default is 3. Set to 0 to disable retries.
+func WithMaxRetries(n int) TokenSourceOption {
+	return func(opts *tokenSourceOptions) {
+		opts.maxRetries = n
+	}
+}
+
 func NewTokenSource(proofer *dpop.Proofer, tokenURL *url.URL, clientID string, clientSecret *jose.JSONWebKey, opts ...TokenSourceOption) (*tokenSource, error) {
 	if proofer == nil {
 		return nil, fmt.Errorf("%w: dpop-proofer", ErrMissingRequiredField)
@@ -143,8 +162,10 @@ func NewTokenSource(proofer *dpop.Proofer, tokenURL *url.URL, clientID string, c
 	}
 
 	options := &tokenSourceOptions{
-		baseCtx:    context.Background(),
-		httpClient: http.DefaultClient,
+		baseCtx:      context.Background(),
+		httpClient:   http.DefaultClient,
+		tokenTimeout: 60 * time.Second,
+		maxRetries:   3,
 	}
 
 	for _, opt := range opts {
@@ -161,6 +182,8 @@ func NewTokenSource(proofer *dpop.Proofer, tokenURL *url.URL, clientID string, c
 		requestOptions: options.requestOptions,
 		proofOptions:   options.proofOptions,
 		nonceStore:     options.nonceStore,
+		tokenTimeout:   options.tokenTimeout,
+		maxRetries:     options.maxRetries,
 	}, nil
 }
 
@@ -174,12 +197,59 @@ type tokenSource struct {
 	requestOptions []TokenRequestOption
 	proofOptions   []dpop.ProofOption
 	nonceStore     *NonceStore
+	tokenTimeout   time.Duration
+	maxRetries     int
 }
 
 func (c *tokenSource) Token() (*oauth2.Token, error) {
-	ctx, done := context.WithTimeout(c.baseCtx, time.Second*30)
-	defer done()
-	return c.tryToken(ctx, true)
+	var lastErr error
+	for attempt := 0; attempt <= c.maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff: 2s, 4s, 8s, ...
+			backoff := time.Duration(1<<uint(attempt)) * time.Second
+			select {
+			case <-time.After(backoff):
+			case <-c.baseCtx.Done():
+				return nil, fmt.Errorf("%w: base context canceled during retry backoff: %v", ErrTokenRequestFailed, c.baseCtx.Err())
+			}
+		}
+
+		ctx, done := context.WithTimeout(c.baseCtx, c.tokenTimeout)
+		token, err := c.tryToken(ctx, true)
+		done()
+
+		if err == nil {
+			return token, nil
+		}
+
+		// Only retry on transient errors (deadline exceeded / network errors).
+		// Do not retry on auth errors, invalid tokens, or proof creation failures.
+		if !isTransientError(err) {
+			return nil, err
+		}
+
+		lastErr = err
+	}
+	return nil, fmt.Errorf("%w: all %d retry attempts failed, last error: %v", ErrTokenRequestFailed, c.maxRetries+1, lastErr)
+}
+
+// isTransientError returns true if the error is likely transient and worth retrying.
+func isTransientError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// Check if the error wraps a context deadline exceeded
+	errStr := err.Error()
+	if strings.Contains(errStr, "context deadline exceeded") {
+		return true
+	}
+	// Retry on connection-level failures (refused, reset, timeout)
+	if strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "i/o timeout") {
+		return true
+	}
+	return false
 }
 
 func (c *tokenSource) tryToken(ctx context.Context, firstAttempt bool) (*oauth2.Token, error) {
