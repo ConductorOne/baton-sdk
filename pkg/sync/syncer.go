@@ -506,7 +506,6 @@ func (s *syncer) Sync(ctx context.Context) error {
 			zap.String("current_action_resource_id", currentActionResourceID),
 			zap.String("current_action_resource_type_id", currentActionResourceTypeID),
 			zap.String("current_action_page_token", currentActionPageToken),
-			zap.Bool("needs_expansion", s.state.NeedsExpansion()),
 			zap.Bool("has_external_resources_grants", s.state.HasExternalResourcesGrants()),
 			zap.Bool("should_fetch_related_resources", s.state.ShouldFetchRelatedResources()),
 			zap.Bool("should_skip_entitlements_and_grants", s.state.ShouldSkipEntitlementsAndGrants()),
@@ -600,7 +599,7 @@ func (s *syncer) Sync(ctx context.Context) error {
 				s.state.PushAction(ctx, Action{Op: SyncExternalResourcesOp})
 			}
 			if s.onlyExpandGrants {
-				s.state.SetNeedsExpansion()
+				// Checkpoint so we save the SyncGrantExpansionOp action. Don't push any other actions.
 				err = s.Checkpoint(ctx, true)
 				if err != nil {
 					return err
@@ -716,8 +715,8 @@ func (s *syncer) Sync(ctx context.Context) error {
 				}
 			}
 
-			if s.dontExpandGrants || !s.state.NeedsExpansion() {
-				l.Debug("skipping grant expansion, no grants to expand")
+			if s.dontExpandGrants {
+				l.Debug("skipping grant expansion")
 				s.state.FinishAction(ctx)
 				continue
 			}
@@ -2072,9 +2071,6 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, resourceID *v2.Resou
 
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
-		if !s.dontExpandGrants && grantAnnos.Contains(&v2.GrantExpandable{}) {
-			s.state.SetNeedsExpansion()
-		}
 		if grantAnnos.ContainsAny(&v2.ExternalResourceMatchAll{}, &v2.ExternalResourceMatch{}, &v2.ExternalResourceMatchID{}) {
 			s.state.SetHasExternalResourcesGrants()
 		}

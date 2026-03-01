@@ -26,8 +26,6 @@ type State interface {
 	Current() *Action
 	Marshal() (string, error)
 	Unmarshal(input string) error
-	NeedsExpansion() bool
-	SetNeedsExpansion()
 	HasExternalResourcesGrants() bool
 	SetHasExternalResourcesGrants()
 	ShouldFetchRelatedResources() bool
@@ -152,7 +150,6 @@ type state struct {
 	actions                         []Action
 	currentAction                   *Action
 	entitlementGraph                *expand.EntitlementGraph
-	needsExpansion                  bool
 	hasExternalResourceGrants       bool
 	shouldFetchRelatedResources     bool
 	shouldSkipEntitlementsAndGrants bool
@@ -165,7 +162,6 @@ type state struct {
 type serializedToken struct {
 	Actions                         []Action                 `json:"actions,omitempty"`
 	CurrentAction                   *Action                  `json:"current_action,omitempty"`
-	NeedsExpansion                  bool                     `json:"needs_expansion,omitempty"`
 	EntitlementGraph                *expand.EntitlementGraph `json:"entitlement_graph,omitempty"`
 	HasExternalResourceGrants       bool                     `json:"has_external_resource_grants,omitempty"`
 	ShouldFetchRelatedResources     bool                     `json:"should_fetch_related_resources,omitempty"`
@@ -240,7 +236,6 @@ func (st *state) Unmarshal(input string) error {
 
 		st.actions = token.Actions
 		st.currentAction = token.CurrentAction
-		st.needsExpansion = token.NeedsExpansion
 		st.entitlementGraph = token.EntitlementGraph
 		st.hasExternalResourceGrants = token.HasExternalResourceGrants
 		st.shouldSkipEntitlementsAndGrants = token.ShouldSkipEntitlementsAndGrants
@@ -265,7 +260,6 @@ func (st *state) Marshal() (string, error) {
 	data, err := json.Marshal(serializedToken{
 		Actions:                         st.actions,
 		CurrentAction:                   st.currentAction,
-		NeedsExpansion:                  st.needsExpansion,
 		EntitlementGraph:                st.entitlementGraph,
 		HasExternalResourceGrants:       st.hasExternalResourceGrants,
 		ShouldFetchRelatedResources:     st.shouldFetchRelatedResources,
@@ -306,14 +300,6 @@ func (st *state) NextPage(ctx context.Context, pageToken string) error {
 	ctxzap.Extract(ctx).Debug("pushing next page action", zap.Any("action", action))
 
 	return nil
-}
-
-func (st *state) NeedsExpansion() bool {
-	return st.needsExpansion
-}
-
-func (st *state) SetNeedsExpansion() {
-	st.needsExpansion = true
 }
 
 func (st *state) HasExternalResourcesGrants() bool {
