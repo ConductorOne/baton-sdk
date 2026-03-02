@@ -150,7 +150,7 @@ func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
 	initOp := Action{Op: InitOp}
 	syncResourcesOp := Action{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"}
 	tokenV0 := serializedTokenV0{
-		Actions:                         []Action{initOp, syncResourcesOp},
+		Actions:                         []Action{initOp},
 		CurrentAction:                   &syncResourcesOp,
 		NeedsExpansion:                  false,
 		EntitlementGraph:                nil,

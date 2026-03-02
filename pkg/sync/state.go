@@ -269,6 +269,12 @@ func unmarshalTokenV0(input string) (serializedTokenV1, error) {
 		actionsMap[action.ID] = action
 		actionOrder = append(actionOrder, action.ID)
 	}
+	if tokenV0.CurrentAction != nil {
+		currentActionID++
+		tokenV0.CurrentAction.ID = makeActionID(currentActionID)
+		actionsMap[tokenV0.CurrentAction.ID] = *tokenV0.CurrentAction
+		actionOrder = append(actionOrder, tokenV0.CurrentAction.ID)
+	}
 
 	return serializedTokenV1{
 		ActionsMap:                      actionsMap,
