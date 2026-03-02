@@ -148,16 +148,17 @@ func TestSyncerTokenNextPage(t *testing.T) {
 
 func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
 	initOp := Action{Op: InitOp}
+	syncResourcesOp := Action{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"}
 	tokenV0 := serializedTokenV0{
-		Actions:                         []Action{initOp},
-		CurrentAction:                   &initOp,
+		Actions:                         []Action{initOp, syncResourcesOp},
+		CurrentAction:                   &syncResourcesOp,
 		NeedsExpansion:                  false,
 		EntitlementGraph:                nil,
 		HasExternalResourceGrants:       false,
 		ShouldFetchRelatedResources:     false,
 		ShouldSkipEntitlementsAndGrants: false,
 		ShouldSkipGrants:                false,
-		CompletedActionsCount:           0,
+		CompletedActionsCount:           2,
 	}
 	tokenV0Bytes, err := json.Marshal(tokenV0)
 	require.NoError(t, err)
@@ -180,16 +181,23 @@ func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
 				Op: InitOp,
 				ID: "0000000000",
 			},
+			"0000000001": {
+				Op:             SyncResourcesOp,
+				ID:             "0000000001",
+				PageToken:      "",
+				ResourceTypeID: "user",
+				ResourceID:     "userID1",
+			},
 		},
-		ActionOrder:                     []string{"0000000000"},
-		CurrentActionID:                 0,
+		ActionOrder:                     []string{"0000000000", "0000000001"},
+		CurrentActionID:                 1,
 		NeedsExpansion:                  false,
 		EntitlementGraph:                nil,
 		HasExternalResourceGrants:       false,
 		ShouldFetchRelatedResources:     false,
 		ShouldSkipEntitlementsAndGrants: false,
 		ShouldSkipGrants:                false,
-		CompletedActionsCount:           0,
+		CompletedActionsCount:           2,
 		Version:                         1,
 	}
 	require.Equal(t, expectedToken, tokenV1)
