@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/stretchr/testify/require"
 )
@@ -226,6 +228,73 @@ func TestUnmarshalV0ThenPushAction(t *testing.T) {
 	st.PushAction(ctx, Action{Op: SyncEntitlementsOp})
 
 	require.Equal(t, SyncEntitlementsOp, st.Current().Op)
+}
+
+func TestSyncTokenV0FromC1Z(t *testing.T) {
+	ctx := t.Context()
+
+	c1zManager, err := manager.New(ctx, "testdata/sync-in-progress.c1z")
+	require.NoError(t, err)
+	defer c1zManager.Close(ctx)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+	defer store.Close(ctx)
+
+	resp, err := store.ListSyncs(ctx, reader_v2.SyncsReaderServiceListSyncsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.GetSyncs())
+
+	var tokenStr string
+	for _, s := range resp.GetSyncs() {
+		if s.GetEndedAt() == nil {
+			tokenStr = s.GetSyncToken()
+			break
+		}
+	}
+	require.NotEmpty(t, tokenStr, "expected an in-progress sync with a non-empty token")
+
+	// Verify it parses as a v0 token with the expected structure.
+	var tokenV0 serializedTokenV0
+	err = json.Unmarshal([]byte(tokenStr), &tokenV0)
+	require.NoError(t, err)
+	require.Len(t, tokenV0.Actions, 2)
+	require.Equal(t, SyncGrantExpansionOp, tokenV0.Actions[0].Op)
+	require.Equal(t, SyncGrantsOp, tokenV0.Actions[1].Op)
+	require.NotNil(t, tokenV0.CurrentAction)
+	require.Equal(t, SyncEntitlementsOp, tokenV0.CurrentAction.Op)
+	require.Equal(t, uint64(45), tokenV0.CompletedActionsCount)
+
+	// Migrate v0 -> v1 through state.Unmarshal.
+	st := newState()
+	err = st.Unmarshal(tokenStr)
+	require.NoError(t, err)
+
+	// Verify the migrated state has the correct current action (top of stack).
+	require.NotNil(t, st.Current())
+	require.Equal(t, SyncEntitlementsOp, st.Current().Op)
+	require.Equal(t, "0000000002", st.Current().ID)
+
+	// Marshal back to v1 and validate the full structure.
+	v1Str, err := st.Marshal()
+	require.NoError(t, err)
+	require.NotEmpty(t, v1Str)
+
+	var tokenV1 serializedTokenV1
+	err = json.Unmarshal([]byte(v1Str), &tokenV1)
+	require.NoError(t, err)
+
+	require.Equal(t, serializedTokenV1{
+		ActionsMap: map[string]Action{
+			"0000000000": {Op: SyncGrantExpansionOp, ID: "0000000000"},
+			"0000000001": {Op: SyncGrantsOp, ID: "0000000001"},
+			"0000000002": {Op: SyncEntitlementsOp, ID: "0000000002"},
+		},
+		ActionOrder:           []string{"0000000000", "0000000001", "0000000002"},
+		CurrentActionID:       3,
+		CompletedActionsCount: 45,
+		Version:               1,
+	}, tokenV1)
 }
 
 func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
