@@ -2814,7 +2814,7 @@ func WithWorkerCount(count int) SyncOpt {
 }
 
 // NewSyncer returns a new syncer object.
-func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (*syncer, error) {
+func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (Syncer, error) {
 	s := &syncer{
 		connector: c,
 		syncType:  connectorstore.SyncTypeFull,
