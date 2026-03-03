@@ -1019,7 +1019,7 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 
 		if pageToken == "" {
 			ctxzap.Extract(ctx).Info("Syncing entitlements...")
-			s.handleInitialActionForStep(ctx, *s.state.Current())
+			s.handleInitialActionForStep(ctx, *action)
 		}
 
 		resp, err := s.store.ListResources(ctx, v2.ResourcesServiceListResourcesRequest_builder{PageToken: pageToken}.Build())
