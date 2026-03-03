@@ -87,6 +87,25 @@ type Syncer interface {
 	Close(context.Context) error
 }
 
+// syncMap is a thin generic wrapper around sync.Map that provides
+// compile-time type safety for keys and values.
+type syncMap[K comparable, V any] struct {
+	m native_sync.Map
+}
+
+func (sm *syncMap[K, V]) Load(key K) (V, bool) {
+	val, ok := sm.m.Load(key)
+	if !ok {
+		var zero V
+		return zero, false
+	}
+	return val.(V), true
+}
+
+func (sm *syncMap[K, V]) Store(key K, val V) {
+	sm.m.Store(key, val)
+}
+
 // syncer orchestrates a connector sync and stores the results using the provided datasource.Writer.
 type syncer struct {
 	c1zManager                          manager.Manager
@@ -108,11 +127,11 @@ type syncer struct {
 	onlyExpandGrants                    bool
 	dontExpandGrants                    bool
 	syncID                              string
-	skipEGForResourceType               map[string]bool
-	skipEntitlementsForResourceType     map[string]bool
+	skipEGForResourceType               syncMap[string, bool]
+	skipEntitlementsForResourceType     syncMap[string, bool]
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
-	resourceTypeTraits                  map[string][]v2.ResourceType_Trait
+	resourceTypeTraits                  syncMap[string, []v2.ResourceType_Trait]
 	syncType                            connectorstore.SyncType
 	injectSyncIDAnnotation              bool
 	setSessionStore                     sessions.SetSessionStore
@@ -859,7 +878,7 @@ func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) err
 	ctx, span := tracer.Start(ctx, "syncer.validateResourceTraits")
 	defer span.End()
 
-	resourceTypeTraits, ok := s.resourceTypeTraits[r.GetId().GetResourceType()]
+	resourceTypeTraits, ok := s.resourceTypeTraits.Load(r.GetId().GetResourceType())
 	if !ok {
 		resourceTypeResponse, err := s.store.GetResourceType(ctx, reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest_builder{
 			ResourceTypeId: r.GetId().GetResourceType(),
@@ -868,7 +887,7 @@ func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) err
 			return err
 		}
 		resourceTypeTraits = resourceTypeResponse.GetResourceType().GetTraits()
-		s.resourceTypeTraits[r.GetId().GetResourceType()] = resourceTypeTraits
+		s.resourceTypeTraits.Store(r.GetId().GetResourceType(), resourceTypeTraits)
 	}
 
 	for _, t := range resourceTypeTraits {
@@ -920,7 +939,7 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 	}
 
 	// We've checked this resource type, so we can return what we have cached directly.
-	if skip, ok := s.skipEGForResourceType[r.GetId().GetResourceType()]; ok {
+	if skip, ok := s.skipEGForResourceType.Load(r.GetId().GetResourceType()); ok {
 		return skip, nil
 	}
 
@@ -934,7 +953,7 @@ func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Reso
 	rtAnnos := annotations.Annotations(rt.GetResourceType().GetAnnotations())
 
 	skipEntitlements := rtAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
-	s.skipEGForResourceType[r.GetId().GetResourceType()] = skipEntitlements
+	s.skipEGForResourceType.Store(r.GetId().GetResourceType(), skipEntitlements)
 
 	return skipEntitlements, nil
 }
@@ -970,7 +989,7 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 		return true, nil
 	}
 
-	if skip, ok := s.skipEntitlementsForResourceType[r.GetId().GetResourceType()]; ok {
+	if skip, ok := s.skipEntitlementsForResourceType.Load(r.GetId().GetResourceType()); ok {
 		return skip, nil
 	}
 
@@ -984,7 +1003,7 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bo
 	rtAnnos := annotations.Annotations(rt.GetResourceType().GetAnnotations())
 
 	skipEntitlements := rtAnnos.Contains(&v2.SkipEntitlements{}) || rtAnnos.Contains(&v2.SkipEntitlementsAndGrants{})
-	s.skipEntitlementsForResourceType[r.GetId().GetResourceType()] = skipEntitlements
+	s.skipEntitlementsForResourceType.Store(r.GetId().GetResourceType(), skipEntitlements)
 
 	return skipEntitlements, nil
 }
@@ -2797,11 +2816,8 @@ func WithWorkerCount(count int) SyncOpt {
 // NewSyncer returns a new syncer object.
 func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (*syncer, error) {
 	s := &syncer{
-		connector:                       c,
-		skipEGForResourceType:           make(map[string]bool),
-		skipEntitlementsForResourceType: make(map[string]bool),
-		resourceTypeTraits:              make(map[string][]v2.ResourceType_Trait),
-		syncType:                        connectorstore.SyncTypeFull,
+		connector: c,
+		syncType:  connectorstore.SyncTypeFull,
 	}
 
 	for _, o := range opts {
