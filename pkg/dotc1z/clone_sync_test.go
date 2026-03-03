@@ -68,11 +68,15 @@ func TestCloneSyncMigratedColumnOrder(t *testing.T) {
 	require.NoError(t, err)
 
 	// Add migration columns — ALTER TABLE appends them to the END in SQLite.
+	// Include sources to mirror current grant schema migrations.
 	_, err = srcFile.db.ExecContext(ctx,
 		fmt.Sprintf("ALTER TABLE %s ADD COLUMN expansion blob", grants.Name()))
 	require.NoError(t, err)
 	_, err = srcFile.db.ExecContext(ctx,
 		fmt.Sprintf("ALTER TABLE %s ADD COLUMN needs_expansion integer not null default 0", grants.Name()))
+	require.NoError(t, err)
+	_, err = srcFile.db.ExecContext(ctx,
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN sources blob", grants.Name()))
 	require.NoError(t, err)
 
 	// Create partial indexes that the migration would add.
