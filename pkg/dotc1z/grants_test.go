@@ -640,115 +640,6 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	require.Equal(t, 1, grantsBackfilled, "backfill should mark the sync as grants_backfilled=1")
 }
 
-// TestBackfillMigration_OldSyncGetsSourcesColumn verifies that opening a c1z file
-// where grants still have Sources embedded in the data blob (old format) correctly
-// backfills the dedicated sources column and strips sources from data.
-func TestBackfillMigration_OldSyncGetsSourcesColumn(t *testing.T) {
-	ctx := context.Background()
-
-	tmpFile, err := os.CreateTemp("", "test-backfill-sources-*.c1z")
-	require.NoError(t, err)
-	defer os.Remove(tmpFile.Name())
-	tmpFile.Close()
-
-	c1f, err := NewC1ZFile(ctx, tmpFile.Name())
-	require.NoError(t, err)
-	defer c1f.Close(ctx)
-
-	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-
-	groupRT := v2.ResourceType_builder{Id: "group"}.Build()
-	userRT := v2.ResourceType_builder{Id: "user"}.Build()
-	require.NoError(t, c1f.PutResourceTypes(ctx, groupRT, userRT))
-
-	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
-	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
-	require.NoError(t, c1f.PutResources(ctx, g1, u1))
-
-	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
-	require.NoError(t, c1f.PutEntitlements(ctx, ent1))
-
-	grantWithSources := v2.Grant_builder{
-		Id:          "grant-sources-backfill",
-		Entitlement: ent1,
-		Principal:   u1,
-		Sources: v2.GrantSources_builder{
-			Sources: map[string]*v2.GrantSources_GrantSource{
-				"ent1": {IsDirect: true},
-			},
-		}.Build(),
-	}.Build()
-	grantNoSources := v2.Grant_builder{
-		Id:          "grant-no-sources-backfill",
-		Entitlement: ent1,
-		Principal:   g1,
-	}.Build()
-	require.NoError(t, c1f.PutGrants(ctx, grantWithSources, grantNoSources))
-
-	// Mark this sync as supports_diff=1 to match the migration's filter.
-	require.NoError(t, c1f.SetSupportsDiff(ctx, syncID))
-	require.NoError(t, c1f.EndSync(ctx))
-
-	// Simulate old format: sources embedded in data blob, sources column NULL.
-	oldFormatGrant := v2.Grant_builder{
-		Id:          "grant-sources-backfill",
-		Entitlement: ent1,
-		Principal:   u1,
-		Sources: v2.GrantSources_builder{
-			Sources: map[string]*v2.GrantSources_GrantSource{
-				"ent1": {IsDirect: true},
-			},
-		}.Build(),
-	}.Build()
-	oldFormatData, err := proto.MarshalOptions{Deterministic: true}.Marshal(oldFormatGrant)
-	require.NoError(t, err)
-
-	_, err = c1f.db.ExecContext(ctx,
-		"UPDATE "+grants.Name()+" SET data=?, sources=NULL WHERE external_id='grant-sources-backfill' AND sync_id=?",
-		oldFormatData, syncID,
-	)
-	require.NoError(t, err)
-
-	_, err = c1f.db.ExecContext(ctx,
-		"UPDATE "+grants.Name()+" SET sources=NULL WHERE external_id='grant-no-sources-backfill' AND sync_id=?",
-		syncID,
-	)
-	require.NoError(t, err)
-
-	// Run the backfill explicitly.
-	require.NoError(t, backfillGrantSourcesColumn(ctx, c1f.db, grants.Name()))
-
-	// Verify migrated row: sources moved to column and stripped from data.
-	withSources := getRawGrantRowWithDataAndSourcesForSync(ctx, t, c1f, "grant-sources-backfill", syncID)
-	require.NotNil(t, withSources.sources, "sources column should be populated after backfill")
-	migratedSources := &v2.GrantSources{}
-	require.NoError(t, proto.Unmarshal(withSources.sources, migratedSources))
-	require.True(t, migratedSources.GetSources()["ent1"].GetIsDirect())
-
-	migratedDataGrant := &v2.Grant{}
-	require.NoError(t, proto.Unmarshal(withSources.data, migratedDataGrant))
-	require.Nil(t, migratedDataGrant.GetSources(), "data blob should have sources stripped after backfill")
-
-	// Verify row with no sources remains SQL NULL in sources column.
-	requireSourcesSQLNullForSync(ctx, t, c1f, "grant-no-sources-backfill", syncID)
-
-	// Verify API rehydration still returns the expected sources.
-	c1f.currentSyncID = ""
-	require.NoError(t, c1f.ViewSync(ctx, syncID))
-	listResp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	require.NoError(t, err)
-	require.Len(t, listResp.GetList(), 2)
-
-	byID := map[string]*v2.Grant{}
-	for _, g := range listResp.GetList() {
-		byID[g.GetId()] = g
-	}
-	require.Len(t, byID["grant-sources-backfill"].GetSources().GetSources(), 1)
-	require.True(t, byID["grant-sources-backfill"].GetSources().GetSources()["ent1"].GetIsDirect())
-	require.Nil(t, byID["grant-no-sources-backfill"].GetSources())
-}
-
 // grantRawRow holds the raw SQL column values for a grant row.
 type grantRawRow struct {
 	data           []byte
@@ -757,7 +648,7 @@ type grantRawRow struct {
 	needsExpansion int
 }
 
-// getRawGrantRowWithDataAndSources reads raw data + sources columns for a grant row.
+// getRawGrantRow reads the raw expansion and needs_expansion columns for a grant by external_id.
 func getRawGrantRowWithDataAndSources(ctx context.Context, t *testing.T, c1f *C1File, externalID string) grantRawRow {
 	t.Helper()
 	var r grantRawRow
@@ -774,25 +665,6 @@ func getRawGrantRowWithDataAndSources(ctx context.Context, t *testing.T, c1f *C1
 	return r
 }
 
-func getRawGrantRowWithDataAndSourcesForSync(ctx context.Context, t *testing.T, c1f *C1File, externalID string, syncID string) grantRawRow {
-	t.Helper()
-	var r grantRawRow
-	err := c1f.db.QueryRowContext(ctx,
-		"SELECT data, sources, expansion, needs_expansion FROM "+grants.Name()+" WHERE external_id=? AND sync_id=?",
-		externalID,
-		syncID,
-	).Scan(&r.data, &r.sources, &r.expansion, &r.needsExpansion)
-	require.NoError(t, err)
-	if len(r.expansion) == 0 {
-		r.expansion = nil
-	}
-	if len(r.sources) == 0 {
-		r.sources = nil
-	}
-	return r
-}
-
-// getRawGrantRow reads the raw expansion and needs_expansion columns for a grant by external_id.
 func getRawGrantRow(ctx context.Context, t *testing.T, c1f *C1File, externalID string) grantRawRow {
 	t.Helper()
 	var r grantRawRow
@@ -873,18 +745,6 @@ func requireExpansionSQLNull(ctx context.Context, t *testing.T, c1f *C1File, ext
 	require.Equal(t, 1, isNull, "expansion must be SQL NULL, not empty blob")
 }
 
-func requireSourcesSQLNullForSync(ctx context.Context, t *testing.T, c1f *C1File, externalID string, syncID string) {
-	t.Helper()
-	var isNull int
-	err := c1f.db.QueryRowContext(
-		ctx,
-		"SELECT sources IS NULL FROM "+grants.Name()+" WHERE external_id=? AND sync_id=?",
-		externalID,
-		syncID,
-	).Scan(&isNull)
-	require.NoError(t, err)
-	require.Equal(t, 1, isNull, "sources must be SQL NULL, not empty blob")
-}
 
 // setupTestC1Z creates a fresh c1z with a started full sync and common resource types,
 // resources, and entitlements. Returns the c1z, sync ID, and a cleanup function.
@@ -1898,4 +1758,123 @@ func TestPutGrants_ReplaceOverwritesExpansion(t *testing.T) {
 	requireExpansionSQLNullForSync(ctx, t, c1f, "grant-replace", syncID)
 	rawCleared := getRawGrantRowForSync(ctx, t, c1f, "grant-replace", syncID)
 	require.Equal(t, 0, rawCleared.needsExpansion, "needs_expansion should be 0 after clearing expansion via Replace")
+}
+
+// TestGrantSourcesMarshalingDeterministic verifies that writing the same grant with
+// multiple map keys in Sources produces identical bytes every time, protecting against
+// non-deterministic proto.Marshal on map-containing messages.
+func TestGrantSourcesMarshalingDeterministic(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	makeSources := func() *v2.GrantSources {
+		return v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{
+				"ent-alpha": {IsDirect: true},
+				"ent-beta":  {IsDirect: false},
+				"ent-gamma": {IsDirect: true},
+				"ent-delta": {IsDirect: false},
+			},
+		}.Build()
+	}
+
+	grant1 := v2.Grant_builder{
+		Id: "grant-deterministic", Entitlement: ent1, Principal: u1,
+		Sources: makeSources(),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grant1))
+	raw1 := getRawGrantRowWithDataAndSources(ctx, t, c1f, "grant-deterministic")
+	require.NotNil(t, raw1.sources)
+
+	grant2 := v2.Grant_builder{
+		Id: "grant-deterministic", Entitlement: ent1, Principal: u1,
+		Sources: makeSources(),
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grant2))
+	raw2 := getRawGrantRowWithDataAndSources(ctx, t, c1f, "grant-deterministic")
+	require.NotNil(t, raw2.sources)
+
+	require.Equal(t, raw1.sources, raw2.sources, "sources bytes must be identical across writes")
+	require.Equal(t, raw1.data, raw2.data, "data bytes must be identical across writes")
+}
+
+// TestExtractAndStripExpansion_EntitlementIdsSorted verifies that expansion bytes are
+// identical regardless of the input order of EntitlementIds.
+func TestExtractAndStripExpansion_EntitlementIdsSorted(t *testing.T) {
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	grantA := v2.Grant_builder{
+		Id: "grant-sort", Entitlement: ent, Principal: u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{"zzz", "aaa", "mmm"},
+			ResourceTypeIds: []string{"user", "group"},
+		}.Build()),
+	}.Build()
+
+	grantB := v2.Grant_builder{
+		Id: "grant-sort", Entitlement: ent, Principal: u1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{"mmm", "zzz", "aaa"},
+			ResourceTypeIds: []string{"group", "user"},
+		}.Build()),
+	}.Build()
+
+	bytesA, okA := extractAndStripExpansion(grantA)
+	bytesB, okB := extractAndStripExpansion(grantB)
+	require.True(t, okA)
+	require.True(t, okB)
+	require.Equal(t, bytesA, bytesB, "expansion bytes must be identical regardless of input order")
+}
+
+// TestDeleteGrantInternal_PersistsAfterCloseReopen verifies that the dbUpdated flag is set
+// so the delete survives a close/reopen cycle.
+func TestDeleteGrantInternal_PersistsAfterCloseReopen(t *testing.T) {
+	ctx := context.Background()
+
+	tmpFile, err := os.CreateTemp("", "test-delete-persist-*.c1z")
+	require.NoError(t, err)
+	path := tmpFile.Name()
+	defer os.Remove(path)
+	tmpFile.Close()
+
+	c1f, err := NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+
+	syncID, err := c1f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, c1f.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build(), v2.ResourceType_builder{Id: "user"}.Build()))
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	require.NoError(t, c1f.PutResources(ctx, g1, u1))
+
+	ent := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+	require.NoError(t, c1f.PutEntitlements(ctx, ent))
+
+	grant := v2.Grant_builder{Id: "grant-persist-delete", Entitlement: ent, Principal: u1}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, grant))
+	require.NoError(t, c1f.EndSync(ctx))
+
+	require.NoError(t, c1f.DeleteGrantInternal(ctx, connectorstore.GrantDeleteOptions{
+		SyncID: syncID,
+	}, grant.GetId()))
+	require.NoError(t, c1f.Close(ctx))
+
+	c1f2, err := NewC1ZFile(ctx, path)
+	require.NoError(t, err)
+	defer c1f2.Close(ctx)
+
+	require.NoError(t, c1f2.ViewSync(ctx, syncID))
+	resp, err := c1f2.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	for _, g := range resp.GetList() {
+		require.NotEqual(t, "grant-persist-delete", g.GetId(), "deleted grant should not reappear after close/reopen")
+	}
 }

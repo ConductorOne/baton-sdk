@@ -2590,8 +2590,8 @@ func TestIncrementalExpansion_SourceListChange(t *testing.T) {
 }
 
 // TestIncrementalExpansion_SourcesInDataBlobNoop verifies that when a connector produces
-// identical grants across two syncs (a true no-op), the diff does not report false-positive
-// changed grant entitlements caused by expansion having written Sources into the data blob.
+// identical grants across two syncs (a true no-op), pre-expansion grant diffing does not
+// report false-positive changed entitlements.
 //
 // Scenario:
 //   - U1 has a direct grant on both E1 and E2 (destination of edge E1→E2).
@@ -2674,13 +2674,13 @@ func TestIncrementalExpansion_SourcesInDataBlobNoop(t *testing.T) {
 	// The connector produced identical grants, so the diff should report no changed entitlements.
 	require.Empty(t, changedEntIDs, "diff should report no changed grant entitlements for a connector-level no-op")
 
-	// Grant-level diffs should also be empty (no false-positive upserts/deletions).
+	// Pre-expansion grant upserts should not include source-only changes.
 	upserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
 		Mode:   connectorstore.GrantListModePayload,
 		SyncID: upsertsSyncID,
 	})
 	require.NoError(t, err)
-	require.Empty(t, upserts.Rows, "grant upserts should be empty for connector-level no-op")
+	require.Empty(t, upserts.Rows, "pre-expansion grant upserts should be empty for source-only changes")
 
 	deletions, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
 		Mode:   connectorstore.GrantListModePayload,
@@ -2691,6 +2691,223 @@ func TestIncrementalExpansion_SourcesInDataBlobNoop(t *testing.T) {
 
 	_, err = attached.DetachFile("attached")
 	require.NoError(t, err)
+
+	// Full incremental run should remain a no-op for output grant diffs.
+	result, err := incrementalexpansion.Run(ctx, newFile, incrementalexpansion.RunParams{
+		OldFile:   oldFile,
+		OldSyncID: oldSyncID,
+		NewSyncID: newSyncID,
+	})
+	require.NoError(t, err)
+
+	finalUpserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:   connectorstore.GrantListModePayload,
+		SyncID: result.UpsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Empty(t, finalUpserts.Rows, "post-expansion upserts should remain empty for connector-level no-op")
+}
+
+func TestIncrementalExpansion_PostExpansionSourcesOnlyDeltaIncludedInUpserts(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	oldPath := filepath.Join(tmpDir, "old_sources_delta.c1z")
+	newPath := filepath.Join(tmpDir, "new_sources_delta.c1z")
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
+
+	e1 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g1, "member"), Resource: g1, Slug: "member", DisplayName: "member"}.Build()
+	e2 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g2, "member"), Resource: g2, Slug: "member", DisplayName: "member"}.Build()
+
+	grantU1E1 := v2.Grant_builder{Id: batonGrant.NewGrantID(u1, e1), Entitlement: e1, Principal: u1}.Build()
+	grantU1E2 := v2.Grant_builder{Id: batonGrant.NewGrantID(u1, e2), Entitlement: e2, Principal: u1}.Build()
+	grantG1E2 := v2.Grant_builder{
+		Id:          batonGrant.NewGrantID(g1, e2),
+		Entitlement: e2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{e1.GetId()},
+			Shallow:         false,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+
+	// OLD: direct grants + edge grant, then expanded.
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
+	require.NoError(t, err)
+	defer oldFile.Close(ctx)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, oldFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, oldFile.PutGrants(ctx, grantU1E1, grantU1E2, grantG1E2))
+	require.NoError(t, oldFile.EndSync(ctx))
+	require.NoError(t, runFullExpansion(ctx, oldFile, oldSyncID))
+
+	// NEW: same direct grants, edge removed.
+	newFile, err := dotc1z.NewC1ZFile(ctx, newPath)
+	require.NoError(t, err)
+	defer newFile.Close(ctx)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, newFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, newFile.PutGrants(ctx, grantU1E1, grantU1E2))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	result, err := incrementalexpansion.Run(ctx, newFile, incrementalexpansion.RunParams{
+		OldFile:   oldFile,
+		OldSyncID: oldSyncID,
+		NewSyncID: newSyncID,
+	})
+	require.NoError(t, err)
+
+	upserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:   connectorstore.GrantListModePayload,
+		SyncID: result.UpsertsSyncID,
+	})
+	require.NoError(t, err)
+
+	// U1->E2 should be emitted as an output-only source delta after edge removal.
+	found := false
+	for _, r := range upserts.Rows {
+		if r.Grant.GetId() == grantU1E2.GetId() {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "post-expansion upserts should include grant with sources-only change")
+}
+
+// TestIncrementalExpansion_ExpansionDeletedGrantMissingFromDeletionsSync verifies that
+// an immutable derived grant that exists in both OLD and NEW (carried forward from OLD
+// expanded state), and is then deleted during incremental expansion because it becomes
+// sourceless, appears in the deletions sync so downstream consumers know it was removed.
+//
+// The key difference from TestIncrementalExpansion_ImmutableSourcelessGrantDeleted is
+// that the derived grant is present in the NEW pre-expansion state (carried forward),
+// so the pre-expansion deletions diff does NOT catch it. Only the expansion pass deletes it.
+//
+// Scenario:
+//   - OLD: U1→E1 (direct), G1→E2 (expandable edge E1→E2).
+//     After expansion: derived immutable U1→E2.
+//   - NEW: same direct U1→E1, edge removed. But derived U1→E2 is carried forward
+//     from OLD expanded state into NEW (simulating compaction carry-forward).
+//   - After incremental expansion: U1→E2 deleted (immutable + sourceless).
+//   - The derived U1→E2 should appear in the deletions sync.
+func TestIncrementalExpansion_ExpansionDeletedGrantMissingFromDeletionsSync(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	oldPath := filepath.Join(tmpDir, "old_del_derived.c1z")
+	newPath := filepath.Join(tmpDir, "new_del_derived.c1z")
+
+	groupRT := v2.ResourceType_builder{Id: "group", DisplayName: "Group"}.Build()
+	userRT := v2.ResourceType_builder{Id: "user", DisplayName: "User"}.Build()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build(), DisplayName: "G1"}.Build()
+	g2 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g2"}.Build(), DisplayName: "G2"}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build(), DisplayName: "U1"}.Build()
+
+	e1 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g1, "member"), Resource: g1, Slug: "member", DisplayName: "member"}.Build()
+	e2 := v2.Entitlement_builder{Id: batonEntitlement.NewEntitlementID(g2, "member"), Resource: g2, Slug: "member", DisplayName: "member"}.Build()
+
+	grantU1E1 := v2.Grant_builder{Id: batonGrant.NewGrantID(u1, e1), Entitlement: e1, Principal: u1}.Build()
+	nestingID := batonGrant.NewGrantID(g1, e2)
+	grantG1E2 := v2.Grant_builder{
+		Id:          nestingID,
+		Entitlement: e2,
+		Principal:   g1,
+		Annotations: annotations.New(v2.GrantExpandable_builder{
+			EntitlementIds:  []string{e1.GetId()},
+			Shallow:         false,
+			ResourceTypeIds: []string{"user"},
+		}.Build()),
+	}.Build()
+
+	// OLD: direct grant + edge, expanded → derived immutable U1→E2.
+	oldFile, err := dotc1z.NewC1ZFile(ctx, oldPath, dotc1z.WithPragma("journal_mode", "WAL"), dotc1z.WithPragma("locking_mode", "normal"))
+	require.NoError(t, err)
+	defer oldFile.Close(ctx)
+
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, oldFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, e1, e2))
+	require.NoError(t, oldFile.PutGrants(ctx, grantU1E1, grantG1E2))
+	require.NoError(t, oldFile.EndSync(ctx))
+	require.NoError(t, runFullExpansion(ctx, oldFile, oldSyncID))
+
+	derivedKey := "group:g2:member|user|u1"
+	oldGrants, err := loadGrantSourcesByKey(ctx, oldFile, oldSyncID)
+	require.NoError(t, err)
+	require.Contains(t, oldGrants, derivedKey, "derived grant U1→E2 should exist after expansion")
+
+	// NEW: direct grant U1→E1 (no edge), but carry forward ALL grants from OLD
+	// expanded state (including the derived U1→E2) except the edge grant.
+	newFile, err := dotc1z.NewC1ZFile(ctx, newPath)
+	require.NoError(t, err)
+	defer newFile.Close(ctx)
+
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, groupRT, userRT))
+	require.NoError(t, newFile.PutResources(ctx, g1, g2, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, e1, e2))
+
+	require.NoError(t, oldFile.SetSyncID(ctx, ""))
+	require.NoError(t, oldFile.ViewSync(ctx, oldSyncID))
+	grantsToCopy, err := listGrantsWithStoredExpansion(ctx, oldFile)
+	require.NoError(t, err)
+	for _, g := range grantsToCopy {
+		if g.GetId() == nestingID {
+			continue
+		}
+		require.NoError(t, newFile.PutGrants(ctx, g))
+	}
+	require.NoError(t, newFile.EndSync(ctx))
+
+	result, err := incrementalexpansion.Run(ctx, newFile, incrementalexpansion.RunParams{
+		OldFile:   oldFile,
+		OldSyncID: oldSyncID,
+		NewSyncID: newSyncID,
+	})
+	require.NoError(t, err)
+
+	// Verify the derived grant was actually deleted from newSyncID.
+	newGrants, err := loadGrantSourcesByKey(ctx, newFile, newSyncID)
+	require.NoError(t, err)
+	require.NotContains(t, newGrants, derivedKey, "derived grant should be deleted after incremental expansion")
+
+	// The derived immutable U1→E2 existed in both OLD and NEW before expansion,
+	// so the pre-expansion deletions diff did NOT catch it. The expansion pass
+	// deleted it. It should still appear in the deletions sync.
+	deletions, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:   connectorstore.GrantListModePayload,
+		SyncID: result.DeletionsSyncID,
+	})
+	require.NoError(t, err)
+
+	derivedGrantID := batonGrant.NewGrantID(u1, e2)
+	found := false
+	for _, r := range deletions.Rows {
+		if r.Grant.GetId() == derivedGrantID {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "derived immutable grant deleted during expansion should appear in deletions sync (bug: currently missing)")
 }
 
 // -----------------------------------------------------------------------

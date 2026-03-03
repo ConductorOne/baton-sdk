@@ -1699,6 +1699,94 @@ func TestGenerateSyncDiffFromFile_WithExpansionMarker(t *testing.T) {
 	_ = newFile.Close(ctx)
 }
 
+func TestGenerateSyncDiffFromFile_MissingSourcesReadyMarkerOldSync(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_missing_sources_marker_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_missing_sources_marker_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	// Simulate legacy sync format where sources may still be embedded in grant data.
+	_, err = oldFile.db.ExecContext(ctx, "UPDATE "+syncRuns.Name()+" SET sources_ready=0 WHERE sync_id = ?", oldSyncID)
+	require.NoError(t, err)
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
+	require.NoError(t, newFile.SetSupportsDiff(ctx, newSyncID))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+
+	_, _, err = attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrSyncMissingSourcesReadyMarker), "expected ErrSyncMissingSourcesReadyMarker, got: %v", err)
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+func TestGenerateSyncDiffFromFile_MissingSourcesReadyMarkerNewSync(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_missing_sources_marker_old2.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_missing_sources_marker_new2.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, v2.ResourceType_builder{Id: "group"}.Build()))
+	require.NoError(t, newFile.SetSupportsDiff(ctx, newSyncID))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	// Simulate legacy new sync format where sources may still be embedded in grant data.
+	_, err = newFile.db.ExecContext(ctx, "UPDATE "+syncRuns.Name()+" SET sources_ready=0 WHERE sync_id = ?", newSyncID)
+	require.NoError(t, err)
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+
+	_, _, err = attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrSyncMissingSourcesReadyMarker), "expected ErrSyncMissingSourcesReadyMarker, got: %v", err)
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
 // TestGenerateSyncDiffFromFile_ExpansionOnlyChange verifies that a grant whose
 // data blob is identical but whose expansion column changed is detected as a
 // modification in the cross-file diff.
@@ -1973,6 +2061,322 @@ func TestGenerateSyncDiffFromFile_GrantDataModification(t *testing.T) {
 	require.Len(t, upserts.Rows, 1, "upserts should contain the modified grant")
 	require.Equal(t, "grant-mod", upserts.Rows[0].Grant.GetId())
 
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestGenerateSyncDiffFromFile_GrantSourcesOnlyModification verifies that a grant with unchanged
+// payload/expansion but changed sources is NOT included in pre-expansion upserts output.
+func TestGenerateSyncDiffFromFile_GrantSourcesOnlyModification(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_grant_sources_only_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_grant_sources_only_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	rt := v2.ResourceType_builder{Id: "group"}.Build()
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	grantOld := v2.Grant_builder{
+		Id: "grant-sources-mod", Entitlement: ent, Principal: u1,
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{
+				"ent1": {IsDirect: true},
+			},
+		}.Build(),
+	}.Build()
+	grantNew := v2.Grant_builder{
+		Id: "grant-sources-mod", Entitlement: ent, Principal: u1,
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{
+				"ent1": {IsDirect: false},
+			},
+		}.Build(),
+	}.Build()
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, oldFile.PutResources(ctx, g1, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, ent))
+	require.NoError(t, oldFile.PutGrants(ctx, grantOld))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, newFile.PutResources(ctx, g1, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, ent))
+	require.NoError(t, newFile.PutGrants(ctx, grantNew))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, deletionsSyncID, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+
+	// Sources-only changes should not be treated as connector truth changes.
+	changedIDs, err := attached.ComputeChangedGrantEntitlementIDs(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+	require.NotContains(t, changedIDs, "ent1")
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+
+	upserts, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Len(t, upserts.Rows, 0, "pre-expansion upserts should not contain source-only modified grant")
+
+	deletions, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: deletionsSyncID,
+	})
+	require.NoError(t, err)
+	require.Len(t, deletions.Rows, 0)
+
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestAppendPostExpansionSourcesUpserts_DedupsWithFirstPass verifies that when a grant
+// appears in both the first-pass upserts (data change) and qualifies for the second-pass
+// sources upsert, the INSERT OR IGNORE does not duplicate the row.
+func TestAppendPostExpansionSourcesUpserts_DedupsWithFirstPass(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_dedup_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_dedup_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	rt := v2.ResourceType_builder{Id: "group"}.Build()
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	grantOld := v2.Grant_builder{
+		Id: "grant-dedup", Entitlement: ent, Principal: u1,
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{"ent1": {IsDirect: true}},
+		}.Build(),
+	}.Build()
+	grantNew := v2.Grant_builder{
+		Id: "grant-dedup", Entitlement: ent, Principal: u1,
+		Annotations: annotations.New(&v2.GrantImmutable{}),
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{"ent1": {IsDirect: false}},
+		}.Build(),
+	}.Build()
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, oldFile.PutResources(ctx, g1, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, ent))
+	require.NoError(t, oldFile.PutGrants(ctx, grantOld))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, newFile.PutResources(ctx, g1, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, ent))
+	require.NoError(t, newFile.PutGrants(ctx, grantNew))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, _, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+
+	// First pass should include the grant (data changed due to annotation).
+	upsertsBefore, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Len(t, upsertsBefore.Rows, 1, "first pass should include data-changed grant")
+
+	// Second pass: also qualifies for sources change. Should not duplicate.
+	require.NoError(t, attached.AppendPostExpansionGrantSourcesUpserts(ctx, oldSyncID, newSyncID, upsertsSyncID))
+
+	upsertsAfter, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Len(t, upsertsAfter.Rows, 1, "second pass INSERT OR IGNORE must not duplicate the row")
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestAppendPostExpansionSourcesUpserts_NullToNonNullSources verifies that a grant
+// transitioning from NULL sources to non-NULL sources is detected by the second pass.
+func TestAppendPostExpansionSourcesUpserts_NullToNonNullSources(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_null_sources_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_null_sources_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	rt := v2.ResourceType_builder{Id: "group"}.Build()
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	grantNoSources := v2.Grant_builder{
+		Id: "grant-null-sources", Entitlement: ent, Principal: u1,
+	}.Build()
+	grantWithSources := v2.Grant_builder{
+		Id: "grant-null-sources", Entitlement: ent, Principal: u1,
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{"ent1": {IsDirect: true}},
+		}.Build(),
+	}.Build()
+
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, oldFile.PutResources(ctx, g1, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, ent))
+	require.NoError(t, oldFile.PutGrants(ctx, grantNoSources))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, newFile.PutResources(ctx, g1, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, ent))
+	require.NoError(t, newFile.PutGrants(ctx, grantWithSources))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, _, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+
+	// First pass: data + expansion unchanged, so no upserts.
+	upsertsBefore, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Empty(t, upsertsBefore.Rows, "pre-expansion upserts should be empty for sources-only change")
+
+	// Second pass detects NULL→non-NULL sources transition.
+	require.NoError(t, attached.AppendPostExpansionGrantSourcesUpserts(ctx, oldSyncID, newSyncID, upsertsSyncID))
+
+	upsertsAfter, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Len(t, upsertsAfter.Rows, 1, "second pass should detect NULL→non-NULL sources transition")
+	require.Equal(t, "grant-null-sources", upsertsAfter.Rows[0].Grant.GetId())
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
+	_ = oldFile.Close(ctx)
+	_ = newFile.Close(ctx)
+}
+
+// TestAppendPostExpansionSourcesUpserts_SkipsNewOnlyGrants verifies that grants that
+// only exist in NEW (additions) are not picked up by the second-pass sources upsert.
+func TestAppendPostExpansionSourcesUpserts_SkipsNewOnlyGrants(t *testing.T) {
+	ctx := context.Background()
+
+	oldPath := filepath.Join(c1zTests.workingDir, "diff_newonly_old.c1z")
+	newPath := filepath.Join(c1zTests.workingDir, "diff_newonly_new.c1z")
+	defer os.Remove(oldPath)
+	defer os.Remove(newPath)
+
+	opts := []C1ZOption{WithPragma("journal_mode", "WAL")}
+	oldOpts := append(slices.Clone(opts), WithPragma("locking_mode", "normal"))
+
+	rt := v2.ResourceType_builder{Id: "group"}.Build()
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	// OLD: empty (no grants).
+	oldFile, err := NewC1ZFile(ctx, oldPath, oldOpts...)
+	require.NoError(t, err)
+	oldSyncID, err := oldFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, oldFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, oldFile.PutResources(ctx, g1, u1))
+	require.NoError(t, oldFile.PutEntitlements(ctx, ent))
+	require.NoError(t, oldFile.SetSupportsDiff(ctx, oldSyncID))
+	require.NoError(t, oldFile.EndSync(ctx))
+
+	// NEW: one grant with sources (addition).
+	newFile, err := NewC1ZFile(ctx, newPath, opts...)
+	require.NoError(t, err)
+	newSyncID, err := newFile.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	require.NoError(t, newFile.PutResourceTypes(ctx, rt))
+	require.NoError(t, newFile.PutResources(ctx, g1, u1))
+	require.NoError(t, newFile.PutEntitlements(ctx, ent))
+	grantNew := v2.Grant_builder{
+		Id: "grant-new-only", Entitlement: ent, Principal: u1,
+		Sources: v2.GrantSources_builder{
+			Sources: map[string]*v2.GrantSources_GrantSource{"ent1": {IsDirect: true}},
+		}.Build(),
+	}.Build()
+	require.NoError(t, newFile.PutGrants(ctx, grantNew))
+	require.NoError(t, newFile.EndSync(ctx))
+
+	attached, err := newFile.AttachFile(oldFile, "attached")
+	require.NoError(t, err)
+	upsertsSyncID, _, err := attached.GenerateSyncDiffFromFile(ctx, oldSyncID, newSyncID)
+	require.NoError(t, err)
+
+	// First pass catches it as an addition.
+	upsertsBefore, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Len(t, upsertsBefore.Rows, 1, "first pass should include the new grant as an addition")
+
+	// Second pass should not touch it (no OLD row to compare sources with).
+	require.NoError(t, attached.AppendPostExpansionGrantSourcesUpserts(ctx, oldSyncID, newSyncID, upsertsSyncID))
+
+	upsertsAfter, err := newFile.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayload, SyncID: upsertsSyncID,
+	})
+	require.NoError(t, err)
+	require.Len(t, upsertsAfter.Rows, 1, "second pass should not duplicate new-only grants")
+
+	_, err = attached.DetachFile("attached")
+	require.NoError(t, err)
 	_ = oldFile.Close(ctx)
 	_ = newFile.Close(ctx)
 }

@@ -35,7 +35,8 @@ create table if not exists %s (
     parent_sync_id text not null default '',
     linked_sync_id text not null default '',
     supports_diff integer not null default 0,
-    grants_backfilled integer not null default 0
+    grants_backfilled integer not null default 0,
+    sources_ready integer not null default 0
 );
 create unique index if not exists %s on %s (sync_id);`
 
@@ -106,6 +107,21 @@ func (r *syncRunsTable) Migrations(ctx context.Context, db *goqu.Database) error
 	// Track whether grant expansion backfill has completed for this sync.
 	if _, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column grants_backfilled integer not null default 0", r.Name())); err != nil && !isAlreadyExistsError(err) {
 		return err
+	}
+	// Track whether this sync is sources-ready for diff generation.
+	if _, err = db.ExecContext(ctx, fmt.Sprintf("alter table %s add column sources_ready integer not null default 0", r.Name())); err != nil && !isAlreadyExistsError(err) {
+		return err
+	}
+	// Branch-local compatibility: if an older branch build created sources_backfilled,
+	// copy it into the renamed sources_ready column.
+	var sourcesBackfilledExists int
+	if err = db.QueryRowContext(ctx, fmt.Sprintf("select count(*) from pragma_table_info('%s') where name='sources_backfilled'", r.Name())).Scan(&sourcesBackfilledExists); err != nil {
+		return err
+	}
+	if sourcesBackfilledExists == 1 {
+		if _, err = db.ExecContext(ctx, fmt.Sprintf("update %s set sources_ready = sources_backfilled where sources_backfilled = 1", r.Name())); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -607,6 +623,7 @@ func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncT
 		"parent_sync_id":    parentSyncID,
 		"linked_sync_id":    linkedSyncID,
 		"grants_backfilled": 1, // New syncs do not require grants backfill.
+		"sources_ready":     1, // New syncs already write sources to dedicated column.
 	})
 
 	query, args, err := q.ToSQL()

@@ -119,8 +119,7 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 		return err
 	}
 
-	// Backfill sources column: strip Sources from data blobs and store them in the sources column.
-	return backfillGrantSourcesColumn(ctx, db, r.Name())
+	return nil
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
@@ -280,7 +279,7 @@ func extractAndClearSources(grant *v2.Grant) []byte {
 		grant.SetSources(nil)
 		return nil
 	}
-	b, err := proto.Marshal(srcs)
+	b, err := protoMarshaler.Marshal(srcs)
 	if err != nil {
 		grant.SetSources(nil)
 		return nil
@@ -620,109 +619,6 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 	return nil
 }
 
-// backfillGrantSourcesColumn strips Sources from data blobs that still contain them
-// and stores them in the separate sources column. Only processes grants from syncs
-// that support diff (supports_diff=1) because those are the ones that had expansion
-// run with code that wrote Sources into the data blob.
-func backfillGrantSourcesColumn(ctx context.Context, db *goqu.Database, tableName string) error {
-	for {
-		rows, err := db.QueryContext(ctx, fmt.Sprintf(
-			`SELECT g.id, g.data FROM %s g
-			 JOIN %s sr ON g.sync_id = sr.sync_id
-			 WHERE g.sources IS NULL
-			   AND sr.supports_diff = 1
-			 LIMIT 1000`,
-			tableName, syncRuns.Name(),
-		))
-		if err != nil {
-			return err
-		}
-
-		type row struct {
-			id   int64
-			data []byte
-		}
-		batch := make([]row, 0, 1000)
-		for rows.Next() {
-			var r row
-			if err := rows.Scan(&r.id, &r.data); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			batch = append(batch, r)
-		}
-		if err := rows.Err(); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		_ = rows.Close()
-
-		if len(batch) == 0 {
-			break
-		}
-
-		tx, err := db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-
-		stmt, err := tx.PrepareContext(ctx, fmt.Sprintf(
-			`UPDATE %s SET sources=?, data=? WHERE id=?`,
-			tableName,
-		))
-		if err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-
-		for _, r := range batch {
-			g := &v2.Grant{}
-			if err := proto.Unmarshal(r.data, g); err != nil {
-				_ = stmt.Close()
-				_ = tx.Rollback()
-				return err
-			}
-
-			sourcesBytes := extractAndClearSources(g)
-
-			newData, err := protoMarshaler.Marshal(g)
-			if err != nil {
-				_ = stmt.Close()
-				_ = tx.Rollback()
-				return err
-			}
-
-			// Use empty blob as sentinel for grants without sources so
-			// they won't match "sources IS NULL" on the next iteration.
-			var sourcesVal any
-			if sourcesBytes != nil {
-				sourcesVal = sourcesBytes
-			} else {
-				sourcesVal = []byte{}
-			}
-
-			if _, err := stmt.ExecContext(ctx, sourcesVal, newData, r.id); err != nil {
-				_ = stmt.Close()
-				_ = tx.Rollback()
-				return err
-			}
-		}
-
-		_ = stmt.Close()
-		if err := tx.Commit(); err != nil {
-			return err
-		}
-	}
-
-	// Convert empty-blob sentinels back to NULL.
-	if _, err := db.ExecContext(ctx, fmt.Sprintf(
-		`UPDATE %s SET sources = NULL WHERE sources = X''`, tableName,
-	)); err != nil {
-		return err
-	}
-
-	return nil
-}
 
 func executeGrantChunkedUpsert(
 	ctx context.Context, c *C1File,

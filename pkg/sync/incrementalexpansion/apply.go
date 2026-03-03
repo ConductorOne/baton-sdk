@@ -149,6 +149,19 @@ func Run(
 		return nil, fmt.Errorf("expand dirty subgraph: %w", err)
 	}
 
+	// Second pass: append grant rows whose connector-truth payload is unchanged but
+	// sources changed after expansion (output-only delta).
+	if err := attached.AppendPostExpansionGrantSourcesUpserts(ctx, params.OldSyncID, params.NewSyncID, upsertsSyncID); err != nil {
+		return nil, fmt.Errorf("append post-expansion sources upserts: %w", err)
+	}
+
+	// Second pass (deletions): grants that existed in both OLD and NEW before
+	// expansion but were deleted during expansion (e.g. immutable grants that
+	// became sourceless) need to appear in the deletions sync.
+	if err := attached.AppendPostExpansionGrantDeletions(ctx, params.OldSyncID, params.NewSyncID, deletionsSyncID); err != nil {
+		return nil, fmt.Errorf("append post-expansion grant deletions: %w", err)
+	}
+
 	return &RunResult{
 		UpsertsSyncID:   upsertsSyncID,
 		DeletionsSyncID: deletionsSyncID,
