@@ -1,10 +1,12 @@
 package sync //nolint:revive,nolintlint // we can't change the package name for backwards compatibility
 
 import (
-	"context"
+	"encoding/json"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/stretchr/testify/require"
 )
@@ -24,8 +26,7 @@ var allActionOps = []ActionOp{
 	SyncStaticEntitlementsOp,
 }
 
-func compareSyncerState(t *testing.T, expected Action, actual *Action) {
-	require.NotNil(t, actual)
+func compareSyncerState(t *testing.T, expected Action, actual Action) {
 	require.Equal(t, expected.Op, actual.Op)
 	require.Equal(t, expected.PageToken, actual.PageToken)
 	require.Equal(t, expected.ResourceID, actual.ResourceID)
@@ -39,55 +40,58 @@ func TestActionOps(t *testing.T) {
 }
 
 func TestSyncerToken(t *testing.T) {
-	st := &state{}
+	ctx := t.Context()
+	st := newState()
 	op1 := Action{Op: InitOp, PageToken: ""}
 	op2 := Action{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"}
 	op3 := Action{Op: SyncEntitlementsOp, PageToken: "1234", ResourceTypeID: "repo", ResourceID: "repo42"}
 	op4 := Action{Op: SyncEntitlementsOp, PageToken: "5678", ResourceTypeID: "repo", ResourceID: "repo42"}
 
-	st.push(op1)
-	compareSyncerState(t, op1, st.Current())
-	require.Empty(t, st.actions)
-	st.push(op2)
-	compareSyncerState(t, op2, st.Current())
+	st.PushAction(ctx, op1)
+	compareSyncerState(t, op1, *st.Current())
 	require.Len(t, st.actions, 1)
-	compareSyncerState(t, op1, &st.actions[0])
-
-	popped := st.pop()
-	compareSyncerState(t, op2, popped)
-	compareSyncerState(t, op1, st.Current())
-	require.Len(t, st.actions, 0)
-
-	st.push(op3)
-	compareSyncerState(t, op3, st.Current())
-	require.Len(t, st.actions, 1)
-	compareSyncerState(t, op1, &st.actions[0])
-
-	st.push(op4)
-	compareSyncerState(t, op4, st.Current())
+	st.PushAction(ctx, op2)
+	compareSyncerState(t, op2, *st.Current())
 	require.Len(t, st.actions, 2)
-	compareSyncerState(t, op1, &st.actions[0])
-	compareSyncerState(t, op3, &st.actions[1])
+	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
+	compareSyncerState(t, op2, st.actions[st.actionOrder[1]])
 
-	popped = st.pop()
-	compareSyncerState(t, op4, popped)
-	compareSyncerState(t, op3, st.Current())
+	compareSyncerState(t, op2, *st.Current())
+	st.FinishAction(ctx, st.Current())
+	compareSyncerState(t, op1, *st.Current())
 	require.Len(t, st.actions, 1)
-	compareSyncerState(t, op1, &st.actions[0])
 
-	popped = st.pop()
-	compareSyncerState(t, op3, popped)
-	compareSyncerState(t, op1, st.Current())
-	require.Len(t, st.actions, 0)
+	st.PushAction(ctx, op3)
+	compareSyncerState(t, op3, *st.Current())
+	require.Len(t, st.actions, 2)
+	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
+	compareSyncerState(t, op3, st.actions[st.actionOrder[1]])
 
-	popped = st.pop()
-	compareSyncerState(t, op1, popped)
+	st.PushAction(ctx, op4)
+	compareSyncerState(t, op4, *st.Current())
+	require.Len(t, st.actions, 3)
+
+	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
+	compareSyncerState(t, op3, st.actions[st.actionOrder[1]])
+	compareSyncerState(t, op4, st.actions[st.actionOrder[2]])
+
+	st.FinishAction(ctx, st.Current())
+	compareSyncerState(t, op3, *st.Current())
+	require.Len(t, st.actions, 2)
+	compareSyncerState(t, op1, st.actions[st.actionOrder[0]])
+
+	st.FinishAction(ctx, st.Current())
+	compareSyncerState(t, op1, *st.Current())
+	require.Len(t, st.actions, 1)
+
+	st.FinishAction(ctx, st.Current())
 	require.Nil(t, st.Current())
 	require.Len(t, st.actions, 0)
 }
 
 func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
-	st := &state{}
+	ctx := t.Context()
+	st := newState()
 	states := []Action{
 		{Op: InitOp, PageToken: ""},
 		{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"},
@@ -96,19 +100,20 @@ func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 	}
 
 	for _, s := range states {
-		st.push(s)
+		st.PushAction(ctx, s)
 	}
 
 	tokenString, err := st.Marshal()
 	require.NoError(t, err)
 
-	newToken := &state{}
+	newToken := newState()
 	err = newToken.Unmarshal(tokenString)
 	require.NoError(t, err)
 
 	i := len(states) - 1
 	for newToken.Current() != nil {
-		compareSyncerState(t, states[i], newToken.pop())
+		compareSyncerState(t, states[i], *newToken.Current())
+		newToken.FinishAction(ctx, newToken.Current())
 		i--
 	}
 
@@ -116,35 +121,185 @@ func TestSyncerTokenMarshalUnmarshal(t *testing.T) {
 }
 
 func TestSyncerTokenUnmarshalEmptyString(t *testing.T) {
-	st := &state{}
+	ctx := t.Context()
+	st := newState()
 	op1 := Action{Op: InitOp}
 
 	err := st.Unmarshal("")
 	require.NoError(t, err)
 
-	st.push(op1)
-	compareSyncerState(t, op1, st.Current())
+	st.PushAction(ctx, op1)
+	compareSyncerState(t, op1, *st.Current())
 }
 
 func TestSyncerTokenNextPage(t *testing.T) {
-	ctx := context.Background()
-	st := &state{}
+	ctx := t.Context()
+	st := newState()
 	op1 := Action{Op: InitOp}
 	op2 := Action{Op: InitOp, PageToken: "next-page"}
 
 	st.PushAction(ctx, op1)
-	compareSyncerState(t, op1, st.Current())
-	require.Len(t, st.actions, 0)
+	compareSyncerState(t, op1, *st.Current())
+	require.Len(t, st.actions, 1)
 
-	err := st.NextPage(ctx, "next-page")
+	err := st.NextPage(ctx, st.Current().ID, "next-page")
 	require.NoError(t, err)
-	require.Len(t, st.actions, 0)
-	compareSyncerState(t, op2, st.Current())
+	require.Len(t, st.actions, 1)
+	compareSyncerState(t, op2, *st.Current())
+}
+
+func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
+	initOp := Action{Op: InitOp}
+	syncResourcesOp := Action{Op: SyncResourcesOp, PageToken: "", ResourceTypeID: "user", ResourceID: "userID1"}
+	tokenV0 := serializedTokenV0{
+		Actions:                         []Action{initOp},
+		CurrentAction:                   &syncResourcesOp,
+		NeedsExpansion:                  false,
+		EntitlementGraph:                nil,
+		HasExternalResourceGrants:       false,
+		ShouldFetchRelatedResources:     false,
+		ShouldSkipEntitlementsAndGrants: false,
+		ShouldSkipGrants:                false,
+		CompletedActionsCount:           2,
+	}
+	tokenV0Bytes, err := json.Marshal(tokenV0)
+	require.NoError(t, err)
+	require.NotEmpty(t, tokenV0Bytes)
+	st := newState()
+	err = st.Unmarshal(string(tokenV0Bytes))
+	require.NoError(t, err)
+
+	tokenV1String, err := st.Marshal()
+	require.NoError(t, err)
+	require.NotEmpty(t, tokenV1String)
+	tokenV1 := serializedTokenV1{}
+	err = json.Unmarshal([]byte(tokenV1String), &tokenV1)
+	require.NoError(t, err)
+	require.NotEmpty(t, tokenV0Bytes)
+
+	expectedToken := serializedTokenV1{
+		ActionsMap: map[string]Action{
+			"0000000000": {
+				Op: InitOp,
+				ID: "0000000000",
+			},
+			"0000000001": {
+				Op:             SyncResourcesOp,
+				ID:             "0000000001",
+				PageToken:      "",
+				ResourceTypeID: "user",
+				ResourceID:     "userID1",
+			},
+		},
+		ActionOrder:                     []string{"0000000000", "0000000001"},
+		CurrentActionID:                 2,
+		NeedsExpansion:                  false,
+		EntitlementGraph:                nil,
+		HasExternalResourceGrants:       false,
+		ShouldFetchRelatedResources:     false,
+		ShouldSkipEntitlementsAndGrants: false,
+		ShouldSkipGrants:                false,
+		CompletedActionsCount:           2,
+		Version:                         1,
+	}
+	require.Equal(t, expectedToken, tokenV1)
+}
+
+func TestUnmarshalV0ThenPushAction(t *testing.T) {
+	ctx := t.Context()
+
+	tokenV0 := serializedTokenV0{
+		Actions:       []Action{{Op: SyncGrantsOp}},
+		CurrentAction: &Action{Op: SyncResourcesOp, ResourceTypeID: "user"},
+	}
+	tokenV0Bytes, err := json.Marshal(tokenV0)
+	require.NoError(t, err)
+
+	st := newState()
+	err = st.Unmarshal(string(tokenV0Bytes))
+	require.NoError(t, err)
+
+	// Current should be the old CurrentAction (top of stack)
+	require.NotNil(t, st.Current())
+	require.Equal(t, SyncResourcesOp, st.Current().Op)
+
+	// This must not panic. After migrating a V0 token, pushing a new action
+	// should produce a fresh ID that doesn't collide with any migrated ID.
+	st.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+
+	require.Equal(t, SyncEntitlementsOp, st.Current().Op)
+}
+
+func TestSyncTokenV0FromC1Z(t *testing.T) {
+	ctx := t.Context()
+
+	c1zManager, err := manager.New(ctx, "testdata/sync-in-progress.c1z")
+	require.NoError(t, err)
+	defer c1zManager.Close(ctx)
+
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+	defer store.Close(ctx)
+
+	resp, err := store.ListSyncs(ctx, reader_v2.SyncsReaderServiceListSyncsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.GetSyncs())
+
+	var tokenStr string
+	for _, s := range resp.GetSyncs() {
+		if s.GetEndedAt() == nil {
+			tokenStr = s.GetSyncToken()
+			break
+		}
+	}
+	require.NotEmpty(t, tokenStr, "expected an in-progress sync with a non-empty token")
+
+	// Verify it parses as a v0 token with the expected structure.
+	var tokenV0 serializedTokenV0
+	err = json.Unmarshal([]byte(tokenStr), &tokenV0)
+	require.NoError(t, err)
+	require.Len(t, tokenV0.Actions, 2)
+	require.Equal(t, SyncGrantExpansionOp, tokenV0.Actions[0].Op)
+	require.Equal(t, SyncGrantsOp, tokenV0.Actions[1].Op)
+	require.NotNil(t, tokenV0.CurrentAction)
+	require.Equal(t, SyncEntitlementsOp, tokenV0.CurrentAction.Op)
+	require.Equal(t, uint64(45), tokenV0.CompletedActionsCount)
+
+	// Migrate v0 -> v1 through state.Unmarshal.
+	st := newState()
+	err = st.Unmarshal(tokenStr)
+	require.NoError(t, err)
+
+	// Verify the migrated state has the correct current action (top of stack).
+	require.NotNil(t, st.Current())
+	require.Equal(t, SyncEntitlementsOp, st.Current().Op)
+	require.Equal(t, "0000000002", st.Current().ID)
+
+	// Marshal back to v1 and validate the full structure.
+	v1Str, err := st.Marshal()
+	require.NoError(t, err)
+	require.NotEmpty(t, v1Str)
+
+	var tokenV1 serializedTokenV1
+	err = json.Unmarshal([]byte(v1Str), &tokenV1)
+	require.NoError(t, err)
+
+	require.Equal(t, serializedTokenV1{
+		ActionsMap: map[string]Action{
+			"0000000000": {Op: SyncGrantExpansionOp, ID: "0000000000"},
+			"0000000001": {Op: SyncGrantsOp, ID: "0000000001"},
+			"0000000002": {Op: SyncEntitlementsOp, ID: "0000000002"},
+		},
+		ActionOrder:           []string{"0000000000", "0000000001", "0000000002"},
+		CurrentActionID:       3,
+		CompletedActionsCount: 45,
+		Version:               1,
+	}, tokenV1)
 }
 
 func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
-	ctx := context.Background()
-	st := &state{}
+	ctx := t.Context()
+	st := newState()
 
 	// Push an action to initialize the state
 	op1 := Action{Op: SyncGrantExpansionOp}
@@ -198,12 +353,12 @@ func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {
 	require.NotEmpty(t, tokenString)
 
 	// Create a new state and unmarshal
-	newState := &state{}
+	newState := newState()
 	err = newState.Unmarshal(tokenString)
 	require.NoError(t, err)
 
 	// Verify the action was restored
-	compareSyncerState(t, op1, newState.Current())
+	compareSyncerState(t, op1, *newState.Current())
 
 	// Get the entitlement graph from the new state
 	restoredGraph := newState.entitlementGraph
