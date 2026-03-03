@@ -190,7 +190,7 @@ func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
 			},
 		},
 		ActionOrder:                     []string{"0000000000", "0000000001"},
-		CurrentActionID:                 1,
+		CurrentActionID:                 2,
 		NeedsExpansion:                  false,
 		EntitlementGraph:                nil,
 		HasExternalResourceGrants:       false,
@@ -201,6 +201,31 @@ func TestSyncerTokenUnmarshalBackwardsCompatible(t *testing.T) {
 		Version:                         1,
 	}
 	require.Equal(t, expectedToken, tokenV1)
+}
+
+func TestUnmarshalV0ThenPushAction(t *testing.T) {
+	ctx := t.Context()
+
+	tokenV0 := serializedTokenV0{
+		Actions:       []Action{{Op: SyncGrantsOp}},
+		CurrentAction: &Action{Op: SyncResourcesOp, ResourceTypeID: "user"},
+	}
+	tokenV0Bytes, err := json.Marshal(tokenV0)
+	require.NoError(t, err)
+
+	st := newState()
+	err = st.Unmarshal(string(tokenV0Bytes))
+	require.NoError(t, err)
+
+	// Current should be the old CurrentAction (top of stack)
+	require.NotNil(t, st.Current())
+	require.Equal(t, SyncResourcesOp, st.Current().Op)
+
+	// This must not panic. After migrating a V0 token, pushing a new action
+	// should produce a fresh ID that doesn't collide with any migrated ID.
+	st.PushAction(ctx, Action{Op: SyncEntitlementsOp})
+
+	require.Equal(t, SyncEntitlementsOp, st.Current().Op)
 }
 
 func TestSyncerTokenEntitlementGraphMarshalUnmarshal(t *testing.T) {

@@ -263,15 +263,15 @@ func unmarshalTokenV0(input string) (serializedTokenV1, error) {
 	actionOrder := []string{}
 	var currentActionID uint64
 
-	for i, action := range actions {
-		currentActionID = uint64(i)
+	for _, action := range actions {
 		action.ID = makeActionID(currentActionID)
+		currentActionID++
 		actionsMap[action.ID] = action
 		actionOrder = append(actionOrder, action.ID)
 	}
 	if tokenV0.CurrentAction != nil {
-		currentActionID++
 		tokenV0.CurrentAction.ID = makeActionID(currentActionID)
+		currentActionID++
 		actionsMap[tokenV0.CurrentAction.ID] = *tokenV0.CurrentAction
 		actionOrder = append(actionOrder, tokenV0.CurrentAction.ID)
 	}
