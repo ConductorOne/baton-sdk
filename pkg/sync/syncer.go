@@ -212,16 +212,18 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 // It also pushes any child actions before updating/finishing the action.
 // This is useful for pagination, and for actions that create other actions.
 func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions ...Action) error {
-	for _, a := range childActions {
-		s.state.PushAction(ctx, a)
-	}
-
 	if nextPageToken != "" {
 		err := s.state.NextPage(ctx, action.ID, nextPageToken)
 		if err != nil {
 			return err
 		}
-	} else {
+	}
+
+	for _, a := range childActions {
+		s.state.PushAction(ctx, a)
+	}
+
+	if nextPageToken == "" {
 		s.state.FinishAction(ctx, action)
 	}
 
