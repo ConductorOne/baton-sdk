@@ -208,6 +208,26 @@ func (s *syncer) handleProgress(ctx context.Context, a *Action, c int) {
 	}
 }
 
+// nextPageOrFinishAction updates the action with the next page token, or if there is no next page, finishes the action.
+// It also pushes any child actions before updating/finishing the action.
+// This is useful for pagination, and for actions that create other actions.
+func (s *syncer) nextPageOrFinishAction(ctx context.Context, action *Action, nextPageToken string, childActions ...Action) error {
+	for _, a := range childActions {
+		s.state.PushAction(ctx, a)
+	}
+
+	if nextPageToken != "" {
+		err := s.state.NextPage(ctx, action.ID, nextPageToken)
+		if err != nil {
+			return err
+		}
+	} else {
+		s.state.FinishAction(ctx, action)
+	}
+
+	return nil
+}
+
 func isWarning(ctx context.Context, err error) bool {
 	if err == nil {
 		return false
@@ -573,17 +593,9 @@ func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 				return err
 			}
 		}
-
-		s.state.FinishAction(ctx, action)
-		return nil
 	}
 
-	err = s.state.NextPage(ctx, action.ID, resp.GetNextPageToken())
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
 
 func validateSyncResourceTypesFilter(resourceTypesFilter []string, validResourceTypes []*v2.ResourceType) error {
@@ -759,15 +771,7 @@ func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
 			return err
 		}
 
-		if resp.GetNextPageToken() != "" {
-			err = s.state.NextPage(ctx, action.ID, resp.GetNextPageToken())
-			if err != nil {
-				return err
-			}
-		} else {
-			s.state.FinishAction(ctx, action)
-		}
-
+		actions := make([]Action, 0)
 		for _, rt := range resp.GetList() {
 			newAction := Action{Op: SyncResourcesOp, ResourceTypeID: rt.GetId()}
 			// If this request specified a parent resource, only queue up syncing resources for children of the parent resource
@@ -776,10 +780,10 @@ func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
 				newAction.ParentResourceTypeID = action.ParentResourceTypeID
 			}
 
-			s.state.PushAction(ctx, newAction)
+			actions = append(actions, newAction)
 		}
 
-		return nil
+		return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...)
 	}
 
 	return s.syncResources(ctx, action)
@@ -805,20 +809,6 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	resp, err := s.connector.ListResources(ctx, req)
 	if err != nil {
 		return err
-	}
-
-	s.handleProgress(ctx, action, len(resp.GetList()))
-
-	s.counts.AddResources(action.ResourceTypeID, len(resp.GetList()))
-
-	if resp.GetNextPageToken() == "" {
-		s.counts.LogResourcesProgress(ctx, action.ResourceTypeID)
-		s.state.FinishAction(ctx, action)
-	} else {
-		err = s.state.NextPage(ctx, action.ID, resp.GetNextPageToken())
-		if err != nil {
-			return err
-		}
 	}
 
 	bulkPutResoruces := []*v2.Resource{}
@@ -872,7 +862,14 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 		}
 	}
 
-	return nil
+	s.handleProgress(ctx, action, len(resp.GetList()))
+	s.counts.AddResources(action.ResourceTypeID, len(resp.GetList()))
+	if resp.GetNextPageToken() == "" {
+		// Last page of resources for this resource type, so log the progress.
+		s.counts.LogResourcesProgress(ctx, action.ResourceTypeID)
+	}
+
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
 
 func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) error {
@@ -1028,16 +1025,7 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 			return err
 		}
 
-		// We want to take action on the next page before we push any new actions
-		if resp.GetNextPageToken() != "" {
-			err = s.state.NextPage(ctx, action.ID, resp.GetNextPageToken())
-			if err != nil {
-				return err
-			}
-		} else {
-			s.state.FinishAction(ctx, action)
-		}
-
+		actions := make([]Action, 0)
 		for _, r := range resp.GetList() {
 			shouldSkipEntitlements, err := s.shouldSkipEntitlements(ctx, r)
 			if err != nil {
@@ -1046,10 +1034,10 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 			if shouldSkipEntitlements {
 				continue
 			}
-			s.state.PushAction(ctx, Action{Op: SyncEntitlementsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
+			actions = append(actions, Action{Op: SyncEntitlementsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
-		return nil
+		return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...)
 	}
 
 	err := s.syncEntitlementsForResource(ctx, action)
@@ -1092,20 +1080,12 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	}
 
 	s.handleProgress(ctx, action, len(resp.GetList()))
-
-	if resp.GetNextPageToken() != "" {
-		err = s.state.NextPage(ctx, action.ID, resp.GetNextPageToken())
-		if err != nil {
-			return err
-		}
-	} else {
+	if resp.GetNextPageToken() == "" {
 		s.counts.AddEntitlementsProgress(resourceID.ResourceType, 1)
 		s.counts.LogEntitlementsProgress(ctx, resourceID.GetResourceType())
-
-		s.state.FinishAction(ctx, action)
 	}
 
-	return nil
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
 
 func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) error {
@@ -1119,18 +1099,18 @@ func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) err
 	ctxzap.Extract(ctx).Info("Syncing static entitlements...")
 	s.handleInitialActionForStep(ctx, *action)
 
-	s.state.FinishAction(ctx, action)
+	actions := make([]Action, 0)
 	for rts, err := range s.listAllResourceTypes(ctx) {
 		if err != nil {
 			return err
 		}
 		for _, rt := range rts {
 			// Queue up actions to sync static entitlements for each resource type
-			s.state.PushAction(ctx, Action{Op: SyncStaticEntitlementsOp, ResourceTypeID: rt.GetId()})
+			actions = append(actions, Action{Op: SyncStaticEntitlementsOp, ResourceTypeID: rt.GetId()})
 		}
 	}
 
-	return nil
+	return s.nextPageOrFinishAction(ctx, action, "", actions...)
 }
 
 func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, action *Action) error {
@@ -1199,16 +1179,7 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 
 	s.handleProgress(ctx, action, len(resp.GetList()))
 
-	if resp.GetNextPageToken() != "" {
-		err = s.state.NextPage(ctx, action.ID, resp.GetNextPageToken())
-		if err != nil {
-			return err
-		}
-	} else {
-		s.state.FinishAction(ctx, action)
-	}
-
-	return nil
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
 
 // syncAssetsForResource looks up a resource given the input ID. From there it looks to see if there are any traits that
@@ -1340,21 +1311,12 @@ func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
 			return err
 		}
 
-		// We want to take action on the next page before we push any new actions
-		if resp.GetNextPageToken() != "" {
-			err = s.state.NextPage(ctx, action.ID, resp.GetNextPageToken())
-			if err != nil {
-				return err
-			}
-		} else {
-			s.state.FinishAction(ctx, action)
-		}
-
+		actions := make([]Action, 0)
 		for _, r := range resp.GetList() {
-			s.state.PushAction(ctx, Action{Op: SyncAssetsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
+			actions = append(actions, Action{Op: SyncAssetsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
-		return nil
+		return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...)
 	}
 
 	err := s.syncAssetsForResource(ctx, action)
@@ -1530,16 +1492,7 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 			return err
 		}
 
-		// We want to take action on the next page before we push any new actions
-		if resp.GetNextPageToken() != "" {
-			err = s.state.NextPage(ctx, action.ID, resp.GetNextPageToken())
-			if err != nil {
-				return err
-			}
-		} else {
-			s.state.FinishAction(ctx, action)
-		}
-
+		actions := make([]Action, 0)
 		for _, r := range resp.GetList() {
 			shouldSkip, err := s.shouldSkipGrants(ctx, r)
 			if err != nil {
@@ -1549,10 +1502,10 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 			if shouldSkip {
 				continue
 			}
-			s.state.PushAction(ctx, Action{Op: SyncGrantsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
+			actions = append(actions, Action{Op: SyncGrantsOp, ResourceID: r.GetId().GetResource(), ResourceTypeID: r.GetId().GetResourceType()})
 		}
 
-		return nil
+		return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken(), actions...)
 	}
 	err := s.syncGrantsForResource(ctx, action)
 	if err != nil {
@@ -1832,19 +1785,10 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		}
 	}
 
-	if resp.GetNextPageToken() != "" {
-		err = s.state.NextPage(ctx, action.ID, resp.GetNextPageToken())
-		if err != nil {
-			return err
-		}
-		return nil
-	}
-
 	s.counts.AddGrantsProgress(resourceID.GetResourceType(), 1)
 	s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
-	s.state.FinishAction(ctx, action)
 
-	return nil
+	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
 
 func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) error {
@@ -1859,16 +1803,14 @@ func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) erro
 		if err != nil {
 			return err
 		}
-		s.state.FinishAction(ctx, action)
-		return nil
 	} else {
 		err := s.SyncExternalResourcesUsersAndGroups(ctx)
 		if err != nil {
 			return err
 		}
-		s.state.FinishAction(ctx, action)
-		return nil
 	}
+	s.state.FinishAction(ctx, action)
+	return nil
 }
 
 func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context, entitlementId string) error {
