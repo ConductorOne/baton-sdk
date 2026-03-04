@@ -242,6 +242,24 @@ func FileUploadField(name string, bonusStrings []string, optional ...fieldOption
 	return field
 }
 
+func RandomField(name string, optional ...fieldOption) SchemaField {
+	field := SchemaField{
+		FieldName:       name,
+		Variant:         StringVariant,
+		DefaultValue:    "",
+		ExportTarget:    ExportTargetGUI,
+		Rules:           FieldRule{},
+		SyncerConfig:    syncerConfig{},
+		ConnectorConfig: connectorConfig{FieldType: Randomize},
+	}
+
+	for _, o := range optional {
+		field = o(field)
+	}
+
+	return field
+}
+
 func IntField(name string, optional ...fieldOption) SchemaField {
 	field := SchemaField{
 		FieldName:       name,
