@@ -510,6 +510,7 @@ func (s *syncer) syncParallel(ctx context.Context, retryer *retry.Retryer, actio
 				r := s.syncOneAction(ctx, l, retryer, action, f)
 				resultCh <- r
 				if r.err != nil {
+					l.Error("cancelling context due to error in action", zap.Any("action", action), zap.Error(r.err))
 					cancel(fmt.Errorf("cancelling context due to error in action %v: %w", action, r.err))
 					return
 				}
