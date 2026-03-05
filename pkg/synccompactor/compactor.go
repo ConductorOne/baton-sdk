@@ -34,11 +34,12 @@ type Compactor struct {
 	entries       []*CompactableSync
 	compactedC1z  *dotc1z.C1File
 
-	tmpDir      string
-	destDir     string
-	runDuration time.Duration
-	syncLimit   int
-	c1zOptions  []dotc1z.C1ZOption
+	tmpDir             string
+	destDir            string
+	runDuration        time.Duration
+	syncLimit          int
+	c1zOptions         []dotc1z.C1ZOption
+	skipGrantExpansion bool
 }
 
 type CompactableSync struct {
@@ -83,6 +84,14 @@ func WithSyncLimit(limit int) Option {
 func WithC1ZOptions(opts ...dotc1z.C1ZOption) Option {
 	return func(c *Compactor) {
 		c.c1zOptions = opts
+	}
+}
+
+// WithSkipGrantExpansion skips grant expansion after compaction.
+// This is useful when expansion will be handled separately (e.g. by incremental expansion).
+func WithSkipGrantExpansion() Option {
+	return func(c *Compactor) {
+		c.skipGrantExpansion = true
 	}
 }
 
@@ -229,7 +238,8 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		return nil, fmt.Errorf("new sync id does not match expected id: %s != %s", newSync.GetId(), newSyncId)
 	}
 
-	if newSync.GetSyncType() == string(connectorstore.SyncTypePartial) {
+	skipExpansion := c.skipGrantExpansion || newSync.GetSyncType() == string(connectorstore.SyncTypePartial)
+	if skipExpansion {
 		err = c.compactedC1z.Cleanup(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to cleanup compacted c1z: %w", err)
