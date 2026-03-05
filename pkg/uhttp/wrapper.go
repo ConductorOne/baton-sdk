@@ -301,7 +301,7 @@ func WithGenericResponse(response *map[string]any) DoOption {
 			return status.Error(codes.InvalidArgument, "response is nil")
 		}
 
-		if resp.StatusCode == http.StatusNoContent {
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && len(resp.Body) == 0 {
 			return nil
 		}
 
