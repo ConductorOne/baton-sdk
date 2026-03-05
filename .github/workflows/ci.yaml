@@ -62,7 +62,12 @@ jobs:
         with:
           against: 'https://github.com/conductorone/baton-sdk.git#branch=main'
   baton-demo-test:
+    strategy:
+      matrix:
+        worker-count: [0, 4]
     runs-on: ubuntu-latest
+    env:
+      BATON_WORKERS: ${{ matrix.worker-count }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -90,14 +95,14 @@ jobs:
       - name: Initialize database
         run: ./baton-demo/baton-demo --init-db
       - name: Test grant/revoke
-        uses: ConductorOne/github-workflows/actions/sync-test@v2
+        uses: ConductorOne/github-workflows/actions/sync-test@v4
         with:
           connector: ./baton-demo/baton-demo
           baton-entitlement: 'group:group-0000001:member'
           baton-principal: 'user-0000000'
           baton-principal-type: 'user'
       - name: Test create account
-        uses: ConductorOne/github-workflows/actions/account-provisioning@v3
+        uses: ConductorOne/github-workflows/actions/account-provisioning@v4
         with:
           connector: ./baton-demo/baton-demo
           account-email: testuser1@example.com

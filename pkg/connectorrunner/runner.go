@@ -419,7 +419,7 @@ type runnerConfig struct {
 	syncDifferConfig                      *syncDifferConfig
 	syncCompactorConfig                   *syncCompactorConfig
 	skipFullSync                          bool
-	parallelSync                          bool
+	workerCount                           int
 	targetedSyncResourceIDs               []string
 	externalResourceC1Z                   string
 	externalResourceEntitlementIdFilter   string
@@ -653,9 +653,9 @@ func WithFullSyncDisabled() Option {
 	}
 }
 
-func WithParallelSyncEnabled() Option {
+func WithWorkerCount(workerCount int) Option {
 	return func(ctx context.Context, cfg *runnerConfig) error {
-		cfg.parallelSync = true
+		cfg.workerCount = workerCount
 		return nil
 	}
 }
@@ -978,7 +978,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 				local.WithSkipEntitlementsAndGrants(cfg.skipEntitlementsAndGrants),
 				local.WithSkipGrants(cfg.skipGrants),
 				local.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs),
-				local.WithParallelSyncEnabled(cfg.parallelSync),
+				local.WithWorkerCount(cfg.workerCount),
 			)
 			if err != nil {
 				return nil, err
@@ -1001,7 +1001,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 		cfg.externalResourceEntitlementIdFilter,
 		resources,
 		cfg.syncResourceTypeIDs,
-		cfg.parallelSync,
+		cfg.workerCount,
 	)
 	if err != nil {
 		return nil, err

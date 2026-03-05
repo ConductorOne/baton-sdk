@@ -3,7 +3,6 @@ package local
 import (
 	"context"
 	"errors"
-	"runtime"
 	"sync"
 	"time"
 
@@ -27,7 +26,7 @@ type localSyncer struct {
 	skipEntitlementsAndGrants           bool
 	skipGrants                          bool
 	syncResourceTypeIDs                 []string
-	parallelSync                        bool
+	workerCount                         int
 }
 
 type Option func(*localSyncer)
@@ -74,9 +73,9 @@ func WithSkipGrants(skip bool) Option {
 	}
 }
 
-func WithParallelSyncEnabled(parallel bool) Option {
+func WithWorkerCount(workerCount int) Option {
 	return func(m *localSyncer) {
-		m.parallelSync = parallel
+		m.workerCount = workerCount
 	}
 }
 
@@ -117,12 +116,7 @@ func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.Conne
 		sdkSync.WithSkipGrants(m.skipGrants),
 		sdkSync.WithSessionStore(setSessionStore),
 		sdkSync.WithSyncResourceTypes(m.syncResourceTypeIDs),
-	}
-
-	if m.parallelSync {
-		workerCount := min(max(runtime.GOMAXPROCS(0), 1), 4)
-		// TODO: allow configurable worker count
-		syncOpts = append(syncOpts, sdkSync.WithWorkerCount(workerCount))
+		sdkSync.WithWorkerCount(m.workerCount),
 	}
 
 	syncer, err := sdkSync.NewSyncer(ctx, cc, syncOpts...)
