@@ -404,6 +404,19 @@ func (c *C1File) init(ctx context.Context) error {
 		return err
 	}
 
+	// Direct SQLite temp files into the same directory as the database file.
+	// Without this, SQLite writes temp files (sort spill, temp tables, temp
+	// indexes) to the OS temp directory (/tmp), outside the managed c1z
+	// directory tree. Those files are only cleaned up on db.Close(); if the
+	// process is killed they leak. By pointing temp_store_directory at the
+	// db's parent directory, cleanupDbDir's RemoveAll catches them.
+	dbDir := filepath.Dir(c.dbFilePath)
+	//nolint:gosec // dbDir is derived from our own dbFilePath, not user input.
+	_, err = c.db.ExecContext(ctx, fmt.Sprintf("PRAGMA temp_store_directory = '%s'", dbDir))
+	if err != nil {
+		return fmt.Errorf("c1file-init: error setting temp_store_directory: %w", err)
+	}
+
 	err = c.InitTables(ctx)
 	if err != nil {
 		l.Error("c1file-init: error initializing tables", zap.Error(err))
