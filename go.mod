@@ -128,3 +128,5 @@ require (
 
 // Remove once https://github.com/doug-martin/goqu/pull/440 merges
 replace github.com/doug-martin/goqu/v9 => github.com/ductone/goqu/v9 v9.19.1
+
+replace github.com/conductorone/dpop/integrations/dpop_oauth2 => github.com/conductorone/dpop/integrations/dpop_oauth2 v0.0.0-20260301063918-0af759dbf2b0

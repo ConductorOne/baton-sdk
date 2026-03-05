@@ -168,7 +168,7 @@ github.com/conductorone/dpop/pkg/dpop
 # github.com/conductorone/dpop/integrations/dpop_grpc v0.2.3
 ## explicit; go 1.23.4
 github.com/conductorone/dpop/integrations/dpop_grpc
-# github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.3
+# github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.3 => github.com/conductorone/dpop/integrations/dpop_oauth2 v0.0.0-20260301063918-0af759dbf2b0
 ## explicit; go 1.23.4
 github.com/conductorone/dpop/integrations/dpop_oauth2
 # github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
@@ -762,3 +762,4 @@ modernc.org/memory
 ## explicit; go 1.21
 modernc.org/sqlite/lib
 # github.com/doug-martin/goqu/v9 => github.com/ductone/goqu/v9 v9.19.1
+# github.com/conductorone/dpop/integrations/dpop_oauth2 => github.com/conductorone/dpop/integrations/dpop_oauth2 v0.0.0-20260301063918-0af759dbf2b0
