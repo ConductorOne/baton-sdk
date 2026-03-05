@@ -9,6 +9,7 @@ import (
 	"io"
 	"iter"
 	"os"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -2805,11 +2806,16 @@ func WithSkipGrants(skip bool) SyncOpt {
 
 // WithWorkerCount sets the number of workers to use.
 // If 0, sequential sync is used. If > 0, parallel sync is used.
+// If -1, the number of workers is set to the number of CPU cores or 4, whichever is lower.
+// If < -1, sequential sync is used.
 // Yes, this allows for a "parallel" sync with one worker, effectively making it sequential.
 func WithWorkerCount(count int) SyncOpt {
 	return func(s *syncer) {
-		// Don't allow a negative worker count.
-		s.workerCount = max(count, 0)
+		if count == -1 {
+			s.workerCount = min(max(runtime.GOMAXPROCS(0), 1), 4)
+		} else {
+			s.workerCount = max(count, 0)
+		}
 	}
 }
 

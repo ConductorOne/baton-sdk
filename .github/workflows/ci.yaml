@@ -64,10 +64,10 @@ jobs:
   baton-demo-test:
     strategy:
       matrix:
-        parallel-sync: [0, 1]
+        worker-count: [0, 4]
     runs-on: ubuntu-latest
     env:
-      BATON_PARALLEL_SYNC: ${{ matrix.parallel-sync }}
+      BATON_WORKERS: ${{ matrix.worker-count }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -353,8 +353,13 @@ func MakeMainCommand[T field.Configurable](
 			}
 		}
 
-		if v.GetBool("parallel-sync") {
-			opts = append(opts, connectorrunner.WithParallelSyncEnabled())
+		if v.GetBool(field.ParallelSyncField.GetName()) {
+			opts = append(opts, connectorrunner.WithWorkerCount(-1))
+		}
+
+		workers := v.GetInt(field.WorkerCountField.GetName())
+		if workers != 0 {
+			opts = append(opts, connectorrunner.WithWorkerCount(workers))
 		}
 
 		if v.GetString("c1z-temp-dir") != "" {
