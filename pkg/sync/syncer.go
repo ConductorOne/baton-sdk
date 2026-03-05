@@ -1787,8 +1787,10 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 		}
 	}
 
-	s.counts.AddGrantsProgress(resourceID.GetResourceType(), 1)
-	s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
+	if resp.GetNextPageToken() == "" {
+		s.counts.AddGrantsProgress(resourceID.GetResourceType(), 1)
+		s.counts.LogGrantsProgress(ctx, resourceID.GetResourceType())
+	}
 
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
