@@ -171,9 +171,9 @@ func TestHelpers_OAuth2_JWT_GetClient(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			require.Equal(t, "POST", r.Method)
-			require.Equal(t, tt.wanted.grantType, r.FormValue("grant_type"))
+			require.Equal(t, tt.wanted.grantType, r.FormValue("grant_type")) //nolint:gosec // Test code. No need to worry about memory exhaustion.
 
-			matched, err := regexp.MatchString(tt.wanted.matchAssertion, r.FormValue("assertion"))
+			matched, err := regexp.MatchString(tt.wanted.matchAssertion, r.FormValue("assertion")) //nolint:gosec // Test code. No need to worry about memory exhaustion.
 			require.NoError(t, err)
 			require.True(t, matched)
 
