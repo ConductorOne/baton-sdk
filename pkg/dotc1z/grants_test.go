@@ -453,7 +453,7 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "test-backfill-*.c1z")
 	require.NoError(t, err)
 	defer func() {
-		err := os.Remove(tmpFile.Name()) //nolint:gosec // G703 -- tmpFile.Name() is created by os.CreateTemp in this test.
+		err := os.Remove(tmpFile.Name())
 		require.NoError(t, err)
 	}()
 	err = tmpFile.Close()
@@ -677,7 +677,7 @@ func setupTestC1Z(ctx context.Context, t *testing.T) (*C1File, string, func()) {
 	cleanup := func() {
 		err := c1f.Close(ctx)
 		require.NoError(t, err)
-		err = os.Remove(tmpFile.Name()) //nolint:gosec // G703 -- tmpFile.Name() is created by os.CreateTemp in this test.
+		err = os.Remove(tmpFile.Name())
 		require.NoError(t, err)
 	}
 	return c1f, syncID, cleanup

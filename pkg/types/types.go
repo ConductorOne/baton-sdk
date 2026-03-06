@@ -1,4 +1,4 @@
-package types //nolint:revive // we want this to be "types"
+package types
 
 import (
 	"context"

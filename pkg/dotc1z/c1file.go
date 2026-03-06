@@ -262,7 +262,7 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 
 func cleanupDbDir(dbFilePath string, err error) error {
 	// Stat dbFilePath to make sure it's a file, not a directory.
-	stat, statErr := os.Stat(dbFilePath) //nolint:gosec // G703 -- dbFilePath is a caller-provided path by design.
+	stat, statErr := os.Stat(dbFilePath)
 	if statErr != nil {
 		if errors.Is(statErr, os.ErrNotExist) {
 			// If the file doesn't exist, we can't clean up the directory.
@@ -275,7 +275,7 @@ func cleanupDbDir(dbFilePath string, err error) error {
 		return errors.Join(err, fmt.Errorf("cleanupDbDir: dbFilePath %s is a directory, not a file: %w", dbFilePath, statErr))
 	}
 
-	cleanupErr := os.RemoveAll(filepath.Dir(dbFilePath)) //nolint:gosec // G703 -- dbFilePath is a caller-provided path by design.
+	cleanupErr := os.RemoveAll(filepath.Dir(dbFilePath))
 	if cleanupErr != nil {
 		err = errors.Join(err, cleanupErr)
 	}

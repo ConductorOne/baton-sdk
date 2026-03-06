@@ -444,7 +444,7 @@ func TestGoCache_ServerIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Get from server
-	//nolint:gosec // request is sent to an httptest server URL.
+
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()

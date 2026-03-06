@@ -65,7 +65,6 @@ func MakeHealthCheckCommand(
 			return fmt.Errorf("failed to create request: %w", err)
 		}
 
-		//nolint:gosec // target URL is built from explicit health-check flags for operator-controlled endpoint checks.
 		resp, err := client.Do(req)
 		if err != nil {
 			return fmt.Errorf("health check failed: %w", err)
