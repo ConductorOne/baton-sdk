@@ -28,6 +28,7 @@ func (m *mockConnectorClient) Validate(ctx context.Context, req *v2.ConnectorSer
 }
 
 func TestHealthHandler_Healthy(t *testing.T) {
+	ctx := t.Context()
 	client := &mockConnectorClient{}
 	s := &Server{
 		cfg: Config{
@@ -38,10 +39,10 @@ func TestHealthHandler_Healthy(t *testing.T) {
 		clientFunc: func(ctx context.Context) (types.ConnectorClient, error) {
 			return client, nil
 		},
-		ctx: context.Background(),
+		ctx: ctx,
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
 	s.healthHandler(w, req)
@@ -55,6 +56,7 @@ func TestHealthHandler_Healthy(t *testing.T) {
 }
 
 func TestHealthHandler_Unhealthy_ClientError(t *testing.T) {
+	ctx := t.Context()
 	s := &Server{
 		cfg: Config{
 			Enabled:     true,
@@ -64,10 +66,10 @@ func TestHealthHandler_Unhealthy_ClientError(t *testing.T) {
 		clientFunc: func(ctx context.Context) (types.ConnectorClient, error) {
 			return nil, errors.New("client error")
 		},
-		ctx: context.Background(),
+		ctx: ctx,
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
 	s.healthHandler(w, req)
@@ -82,6 +84,7 @@ func TestHealthHandler_Unhealthy_ClientError(t *testing.T) {
 }
 
 func TestHealthHandler_Unhealthy_ValidationError(t *testing.T) {
+	ctx := t.Context()
 	client := &mockConnectorClient{
 		validateErr: errors.New("validation failed"),
 	}
@@ -94,10 +97,10 @@ func TestHealthHandler_Unhealthy_ValidationError(t *testing.T) {
 		clientFunc: func(ctx context.Context) (types.ConnectorClient, error) {
 			return client, nil
 		},
-		ctx: context.Background(),
+		ctx: ctx,
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
 	s.healthHandler(w, req)
@@ -113,6 +116,7 @@ func TestHealthHandler_Unhealthy_ValidationError(t *testing.T) {
 }
 
 func TestReadyHandler_Ready(t *testing.T) {
+	ctx := t.Context()
 	client := &mockConnectorClient{}
 	s := &Server{
 		cfg: Config{
@@ -123,10 +127,10 @@ func TestReadyHandler_Ready(t *testing.T) {
 		clientFunc: func(ctx context.Context) (types.ConnectorClient, error) {
 			return client, nil
 		},
-		ctx: context.Background(),
+		ctx: ctx,
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/ready", nil)
 	w := httptest.NewRecorder()
 
 	s.readyHandler(w, req)
@@ -140,6 +144,7 @@ func TestReadyHandler_Ready(t *testing.T) {
 }
 
 func TestReadyHandler_NotReady(t *testing.T) {
+	ctx := t.Context()
 	s := &Server{
 		cfg: Config{
 			Enabled:     true,
@@ -149,10 +154,10 @@ func TestReadyHandler_NotReady(t *testing.T) {
 		clientFunc: func(ctx context.Context) (types.ConnectorClient, error) {
 			return nil, errors.New("not ready")
 		},
-		ctx: context.Background(),
+		ctx: ctx,
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/ready", nil)
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/ready", nil)
 	w := httptest.NewRecorder()
 
 	s.readyHandler(w, req)
@@ -166,15 +171,17 @@ func TestReadyHandler_NotReady(t *testing.T) {
 }
 
 func TestLiveHandler(t *testing.T) {
+	ctx := t.Context()
 	s := &Server{
 		cfg: Config{
 			Enabled:     true,
 			Port:        8081,
 			BindAddress: "127.0.0.1",
 		},
+		ctx: ctx,
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/live", nil)
+	req := httptest.NewRequestWithContext(ctx, http.MethodGet, "/live", nil)
 	w := httptest.NewRecorder()
 
 	s.liveHandler(w, req)
@@ -188,6 +195,7 @@ func TestLiveHandler(t *testing.T) {
 }
 
 func TestServerStartStop(t *testing.T) {
+	ctx := t.Context()
 	client := &mockConnectorClient{}
 	cfg := Config{
 		Enabled:     true,
@@ -198,8 +206,6 @@ func TestServerStartStop(t *testing.T) {
 	s := NewServer(cfg, func(ctx context.Context) (types.ConnectorClient, error) {
 		return client, nil
 	})
-
-	ctx := context.Background()
 
 	// Test double start
 	err := s.Start(ctx)

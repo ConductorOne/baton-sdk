@@ -122,7 +122,7 @@ func TestHelpers_OAuth2_ClientCredentials_GetClient(t *testing.T) {
 		require.NotNil(t, client)
 
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://test-url", nil)
-		//nolint:gosec // test request intentionally targets httptest token endpoint.
+
 		res, _ := client.Do(req)
 		if res != nil {
 			defer res.Body.Close()
@@ -171,9 +171,9 @@ func TestHelpers_OAuth2_JWT_GetClient(t *testing.T) {
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			require.Equal(t, "POST", r.Method)
-			require.Equal(t, tt.wanted.grantType, r.FormValue("grant_type"))
+			require.Equal(t, tt.wanted.grantType, r.FormValue("grant_type")) //nolint:gosec // Test code. No need to worry about memory exhaustion.
 
-			matched, err := regexp.MatchString(tt.wanted.matchAssertion, r.FormValue("assertion"))
+			matched, err := regexp.MatchString(tt.wanted.matchAssertion, r.FormValue("assertion")) //nolint:gosec // Test code. No need to worry about memory exhaustion.
 			require.NoError(t, err)
 			require.True(t, matched)
 
@@ -196,7 +196,7 @@ func TestHelpers_OAuth2_JWT_GetClient(t *testing.T) {
 
 		// To invoke token request
 		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "https://test-url", nil)
-		//nolint:gosec // test request intentionally targets httptest token endpoint.
+
 		res, _ := client.Do(req)
 		if res != nil {
 			defer res.Body.Close()

@@ -441,7 +441,7 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 	// If handler exits within a second, return result.
 	// If handler takes longer than 1 second, return status pending.
 	// If handler takes longer than an hour, return status failed.
-	go func() {
+	go func() { //nolint:gosec // We want to run this in the background.
 		defer close(done)
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
 		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
@@ -519,7 +519,7 @@ func (a *ActionManager) invokeResourceAction(
 	done := make(chan struct{})
 
 	// Invoke handler in goroutine
-	go func() {
+	go func() { //nolint:gosec // We want to run this in the background.
 		defer close(done)
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
 		handlerCtx, cancel := context.WithTimeoutCause(ctxzap.ToContext(context.Background(), ctxzap.Extract(ctx)), 1*time.Hour, errors.New("action handler timed out"))
