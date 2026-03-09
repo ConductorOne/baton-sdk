@@ -406,7 +406,7 @@ func TestWrapper_WithGenericResponse(t *testing.T) {
 			Header:     header,
 			StatusCode: http.StatusNoContent,
 		}
-		resp.Body = []byte{}
+		resp.Body = []byte("This page intentionally left blank")
 		var respBody map[string]any
 		err := WithGenericResponse(&respBody)(&resp)
 		require.NoError(t, err)
