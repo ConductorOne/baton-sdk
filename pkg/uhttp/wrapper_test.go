@@ -406,7 +406,43 @@ func TestWrapper_WithGenericResponse(t *testing.T) {
 			Header:     header,
 			StatusCode: http.StatusNoContent,
 		}
-		resp.Body = []byte{}
+		resp.Body = []byte("This page intentionally left blank")
+		var respBody map[string]any
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Empty(t, respBody)
+	})
+
+	t.Run("should handle HTTP 200 with empty body and no Content-Type", func(t *testing.T) {
+		resp := WrapperResponse{
+			Header:     http.Header{},
+			StatusCode: http.StatusOK,
+			Body:       []byte{},
+		}
+		var respBody map[string]any
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Empty(t, respBody)
+	})
+
+	t.Run("should handle HTTP 202 with empty body and no Content-Type", func(t *testing.T) {
+		resp := WrapperResponse{
+			Header:     http.Header{},
+			StatusCode: http.StatusAccepted,
+			Body:       []byte{},
+		}
+		var respBody map[string]any
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Empty(t, respBody)
+	})
+
+	t.Run("should handle HTTP 204 with no Content-Type", func(t *testing.T) {
+		resp := WrapperResponse{
+			Header:     http.Header{},
+			StatusCode: http.StatusNoContent,
+			Body:       []byte{},
+		}
 		var respBody map[string]any
 		err := WithGenericResponse(&respBody)(&resp)
 		require.NoError(t, err)

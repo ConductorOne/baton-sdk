@@ -305,6 +305,10 @@ func WithGenericResponse(response *map[string]any) DoOption {
 			return nil
 		}
 
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 && len(resp.Body) == 0 {
+			return nil
+		}
+
 		var v any
 		var err error
 
