@@ -333,9 +333,8 @@ func (c *C1File) Close(ctx context.Context) error {
 			// ExecContext silently discards these values, making partial
 			// checkpoints undetectable — the PRAGMA returns nil error even when
 			// it can't checkpoint all frames due to concurrent readers.
-			var busy, log, checkpointed int
-			row := c.rawDb.QueryRowContext(checkpointCtx, "PRAGMA wal_checkpoint(TRUNCATE)")
-			if err = row.Scan(&busy, &log, &checkpointed); err != nil {
+			busy, log, checkpointed, err := c.truncateWAL(checkpointCtx)
+			if err != nil {
 				l.Error("WAL checkpoint failed before close",
 					zap.Error(err),
 					zap.String("db_path", c.dbFilePath))
@@ -398,6 +397,32 @@ func (c *C1File) Close(ctx context.Context) error {
 	c.closed = true
 
 	return nil
+}
+
+// truncateWAL truncates the WAL file.
+// Returns the busy, log, and checkpointed values.
+func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
+	ctx, span := tracer.Start(ctx, "C1File.truncateWAL")
+	defer span.End()
+
+	// Use QueryRowContext to read the (busy, log, checkpointed) result.
+	// ExecContext silently discards these values, making partial
+	// checkpoints undetectable — the PRAGMA returns nil error even when
+	// it can't checkpoint all frames due to concurrent readers.
+	var busy, log, checkpointed int
+	row := c.rawDb.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+	if err := row.Scan(&busy, &log, &checkpointed); err != nil {
+		return 0, 0, 0, err
+	}
+	// TODO: Return an error here?
+	if busy != 0 || (log >= 0 && checkpointed < log) {
+		ctxzap.Extract(ctx).Info("WAL checkpoint incomplete",
+			zap.Int("busy", busy),
+			zap.Int("log", log),
+			zap.Int("checkpointed", checkpointed),
+			zap.String("db_path", c.dbFilePath))
+	}
+	return busy, log, checkpointed, nil
 }
 
 // init ensures that the database has all of the required schema.
