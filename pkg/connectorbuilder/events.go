@@ -113,7 +113,7 @@ func (b *builder) ListEvents(ctx context.Context, request *v2.ListEventsRequest)
 
 	feed, ok := b.eventFeeds[feedId]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "error: event feed not found")
+		return nil, status.Errorf(codes.NotFound, "error: event feed id %s not found", feedId)
 	}
 
 	tt := tasks.ListEventsType
