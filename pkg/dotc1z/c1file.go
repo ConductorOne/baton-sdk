@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -284,9 +285,13 @@ func cleanupDbDir(dbFilePath string, err error) error {
 
 var ErrReadOnly = errors.New("c1z: read only mode")
 
+const defaultCheckpointTimeout = 120
+
+var checkpointTimeout, _ = strconv.ParseInt(os.Getenv("BATON_WAL_CHECKPOINT_TIMEOUT"), 10, 64)
+
 // Close ensures that the sqlite database is flushed to disk, and if any changes were made we update the original database
 // with our changes. The provided context is used for the WAL checkpoint operation. If the context is already expired,
-// a fresh context with a 30-second timeout is used to ensure the checkpoint completes.
+// a fresh context with a timeout is used to ensure the checkpoint completes.
 func (c *C1File) Close(ctx context.Context) error {
 	var err error
 	l := ctxzap.Extract(ctx)
@@ -316,8 +321,11 @@ func (c *C1File) Close(ctx context.Context) error {
 			// saving a stale c1z.
 			checkpointCtx := ctx
 			if ctx.Err() != nil {
+				if checkpointTimeout <= 0 {
+					checkpointTimeout = defaultCheckpointTimeout
+				}
 				var checkpointCancel context.CancelFunc
-				checkpointCtx, checkpointCancel = context.WithTimeout(context.Background(), 30*time.Second)
+				checkpointCtx, checkpointCancel = context.WithTimeout(context.Background(), time.Duration(checkpointTimeout)*time.Second)
 				defer checkpointCancel()
 			}
 

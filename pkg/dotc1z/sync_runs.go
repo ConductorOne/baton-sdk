@@ -773,7 +773,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 
 	// Clean up old full syncs beyond the limit
 	if len(fullSyncs) > syncLimit {
-		l.Info("Cleaning up old sync data...")
+		l.Info("Cleaning up old sync data...", zap.Int("full_sync_count", len(fullSyncs)), zap.Int("sync_limit", syncLimit))
 		for i := 0; i < len(fullSyncs)-syncLimit; i++ {
 			err = c.DeleteSyncRun(ctx, fullSyncs[i].ID)
 			if err != nil {
