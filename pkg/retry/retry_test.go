@@ -206,7 +206,7 @@ func TestRetryWithHTTPResponse(t *testing.T) {
 }
 
 func TestRetryContextCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context()) //nolint:gosec // False positive. cancel is called in a goroutine.
+	ctx, cancel := context.WithCancel(t.Context())
 	retryer := NewRetryer(ctx, RetryConfig{
 		MaxAttempts:  5,
 		InitialDelay: 2 * time.Second,
