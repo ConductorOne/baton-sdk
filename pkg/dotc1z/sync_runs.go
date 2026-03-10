@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -848,6 +849,17 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 				zap.String("sync_type", string(ds.Type)),
 				zap.String("sync_id", ds.ID))
 		}
+	}
+
+	// Check if DB is open in WAL mode and don't vacuum if it is.
+	var journalMode string
+	row := c.rawDb.QueryRowContext(ctx, "PRAGMA journal_mode")
+	if err := row.Scan(&journalMode); err != nil {
+		return err
+	}
+	if strings.ToLower(journalMode) == "wal" {
+		l.Debug("database is open in WAL mode, skipping vacuum")
+		return nil
 	}
 
 	l.Debug("vacuuming database")
