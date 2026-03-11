@@ -214,56 +214,23 @@ message BatonServiceHelloRequest {
   string task_id = 2 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}|$"}]; // You may say Hello anytime, but if you are responding to a task, you must provide the task_id
 
   message BuildInfo {
-    string lang_version = 1 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
-    string package = 2 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
-    string package_version = 3 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
+    string lang_version = 1 [(validate.rules).string = {max_len: 256}];
+    string package = 2 [(validate.rules).string = {max_len: 256}];
+    string package_version = 3 [(validate.rules).string = {max_len: 256}];
   }
-  BuildInfo build_info = 3 [(validate.rules).message = {required: true}];
+  BuildInfo build_info = 3;
 
   message OSInfo {
-    string hostname = 1 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
-    string os = 2 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
-    string platform = 3 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
-    string platform_version = 4 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
-    string platform_family = 5 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
-    string kernel_version = 6 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
-    string kernel_arch = 7 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
-    string virtualization_system = 8 [(validate.rules).string = {
-      min_len: 1
-      max_len: 256
-    }];
+    string hostname = 1 [(validate.rules).string = {max_len: 256}];
+    string os = 2 [(validate.rules).string = {max_len: 256}];
+    string platform = 3 [(validate.rules).string = {max_len: 256}];
+    string platform_version = 4 [(validate.rules).string = {max_len: 256}];
+    string platform_family = 5 [(validate.rules).string = {max_len: 256}];
+    string kernel_version = 6 [(validate.rules).string = {max_len: 256}];
+    string kernel_arch = 7 [(validate.rules).string = {max_len: 256}];
+    string virtualization_system = 8 [(validate.rules).string = {max_len: 256}];
   }
-  OSInfo os_info = 4 [(validate.rules).message = {required: true}];
+  OSInfo os_info = 4;
 
   c1.connector.v2.ConnectorMetadata connector_metadata = 5 [(validate.rules).message = {required: true}];
   repeated google.protobuf.Any annotations = 6 [(validate.rules).repeated = {max_items: 16}];
