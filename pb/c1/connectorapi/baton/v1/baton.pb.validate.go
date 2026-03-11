@@ -1131,17 +1131,6 @@ func (m *BatonServiceHelloRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if m.GetBuildInfo() == nil {
-		err := BatonServiceHelloRequestValidationError{
-			field:  "BuildInfo",
-			reason: "value is required",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
-	}
-
 	if all {
 		switch v := interface{}(m.GetBuildInfo()).(type) {
 		case interface{ ValidateAll() error }:
@@ -1169,17 +1158,6 @@ func (m *BatonServiceHelloRequest) validate(all bool) error {
 				cause:  err,
 			}
 		}
-	}
-
-	if m.GetOsInfo() == nil {
-		err := BatonServiceHelloRequestValidationError{
-			field:  "OsInfo",
-			reason: "value is required",
-		}
-		if !all {
-			return err
-		}
-		errors = append(errors, err)
 	}
 
 	if all {
@@ -6944,10 +6922,10 @@ func (m *BatonServiceHelloRequest_BuildInfo) validate(all bool) error {
 
 	var errors []error
 
-	if l := utf8.RuneCountInString(m.GetLangVersion()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetLangVersion()) > 256 {
 		err := BatonServiceHelloRequest_BuildInfoValidationError{
 			field:  "LangVersion",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -6955,10 +6933,10 @@ func (m *BatonServiceHelloRequest_BuildInfo) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := utf8.RuneCountInString(m.GetPackage()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetPackage()) > 256 {
 		err := BatonServiceHelloRequest_BuildInfoValidationError{
 			field:  "Package",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -6966,10 +6944,10 @@ func (m *BatonServiceHelloRequest_BuildInfo) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := utf8.RuneCountInString(m.GetPackageVersion()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetPackageVersion()) > 256 {
 		err := BatonServiceHelloRequest_BuildInfoValidationError{
 			field:  "PackageVersion",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -7081,10 +7059,10 @@ func (m *BatonServiceHelloRequest_OSInfo) validate(all bool) error {
 
 	var errors []error
 
-	if l := utf8.RuneCountInString(m.GetHostname()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetHostname()) > 256 {
 		err := BatonServiceHelloRequest_OSInfoValidationError{
 			field:  "Hostname",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -7092,10 +7070,10 @@ func (m *BatonServiceHelloRequest_OSInfo) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := utf8.RuneCountInString(m.GetOs()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetOs()) > 256 {
 		err := BatonServiceHelloRequest_OSInfoValidationError{
 			field:  "Os",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -7103,10 +7081,10 @@ func (m *BatonServiceHelloRequest_OSInfo) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := utf8.RuneCountInString(m.GetPlatform()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetPlatform()) > 256 {
 		err := BatonServiceHelloRequest_OSInfoValidationError{
 			field:  "Platform",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -7114,10 +7092,10 @@ func (m *BatonServiceHelloRequest_OSInfo) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := utf8.RuneCountInString(m.GetPlatformVersion()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetPlatformVersion()) > 256 {
 		err := BatonServiceHelloRequest_OSInfoValidationError{
 			field:  "PlatformVersion",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -7125,10 +7103,10 @@ func (m *BatonServiceHelloRequest_OSInfo) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := utf8.RuneCountInString(m.GetPlatformFamily()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetPlatformFamily()) > 256 {
 		err := BatonServiceHelloRequest_OSInfoValidationError{
 			field:  "PlatformFamily",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -7136,10 +7114,10 @@ func (m *BatonServiceHelloRequest_OSInfo) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := utf8.RuneCountInString(m.GetKernelVersion()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetKernelVersion()) > 256 {
 		err := BatonServiceHelloRequest_OSInfoValidationError{
 			field:  "KernelVersion",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -7147,10 +7125,10 @@ func (m *BatonServiceHelloRequest_OSInfo) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := utf8.RuneCountInString(m.GetKernelArch()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetKernelArch()) > 256 {
 		err := BatonServiceHelloRequest_OSInfoValidationError{
 			field:  "KernelArch",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
@@ -7158,10 +7136,10 @@ func (m *BatonServiceHelloRequest_OSInfo) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if l := utf8.RuneCountInString(m.GetVirtualizationSystem()); l < 1 || l > 256 {
+	if utf8.RuneCountInString(m.GetVirtualizationSystem()) > 256 {
 		err := BatonServiceHelloRequest_OSInfoValidationError{
 			field:  "VirtualizationSystem",
-			reason: "value length must be between 1 and 256 runes, inclusive",
+			reason: "value length must be at most 256 runes",
 		}
 		if !all {
 			return err
