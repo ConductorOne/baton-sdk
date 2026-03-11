@@ -12,12 +12,14 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	go_sqlite "github.com/glebarez/go-sqlite"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	sqlite "modernc.org/sqlite/lib"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -707,6 +709,23 @@ func (c *C1File) SetSupportsDiff(ctx context.Context, syncID string) error {
 	return nil
 }
 
+// When context deadline is exceeded, go-sqlite can return a SQLITE_INTERRUPT error.
+// If that happens, wrapSqliteInterruptError wraps this error and returns context.DeadlineExceeded.
+// This allows sync cleanup to return ErrSyncNotComplete and resume its work on the next run.
+func wrapSqliteInterruptError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	sqliteErr := &go_sqlite.Error{}
+	ok := errors.As(err, &sqliteErr)
+	if ok && sqliteErr.Code() == sqlite.SQLITE_INTERRUPT {
+		return errors.Join(err, context.DeadlineExceeded)
+	}
+
+	return err
+}
+
 func (c *C1File) Cleanup(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.Cleanup")
 	defer span.End()
@@ -723,11 +742,6 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		return err
 	}
 
-	if c.currentSyncID != "" {
-		l.Warn("current sync is running, skipping cleanup of old syncs", zap.String("current_sync_id", c.currentSyncID))
-		return nil
-	}
-
 	var fullSyncs []*syncRun
 	var partials []*syncRun
 	var diffSyncs []*syncRun
@@ -736,11 +750,11 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	for {
 		runs, nextPageToken, err := c.ListSyncRuns(ctx, pageToken, 100)
 		if err != nil {
-			return err
+			return wrapSqliteInterruptError(err)
 		}
 
 		for _, sr := range runs {
-			if sr.EndedAt == nil {
+			if sr.EndedAt == nil || sr.ID == c.currentSyncID {
 				continue
 			}
 			switch sr.Type {
@@ -760,10 +774,14 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	}
 
 	syncLimit := 2
+
 	if c.syncLimit > 0 {
 		syncLimit = c.syncLimit
 	} else if customSyncLimit, err := strconv.ParseInt(os.Getenv("BATON_KEEP_SYNC_COUNT"), 10, 64); err == nil && customSyncLimit > 0 {
 		syncLimit = int(customSyncLimit)
+	}
+	if c.currentSyncID != "" && syncLimit > 1 {
+		syncLimit-- // Count the current sync as a kept sync.
 	}
 
 	l.Debug("found syncs",
@@ -778,7 +796,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		for i := 0; i < len(fullSyncs)-syncLimit; i++ {
 			err = c.DeleteSyncRun(ctx, fullSyncs[i].ID)
 			if err != nil {
-				return err
+				return wrapSqliteInterruptError(err)
 			}
 			l.Info("Removed old sync data.", zap.String("sync_date", fullSyncs[i].EndedAt.Format(time.RFC3339)), zap.String("sync_id", fullSyncs[i].ID))
 		}
@@ -791,7 +809,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 			if partial.EndedAt != nil && partial.EndedAt.Before(*earliestKeptSync.StartedAt) {
 				err = c.DeleteSyncRun(ctx, partial.ID)
 				if err != nil {
-					return err
+					return wrapSqliteInterruptError(err)
 				}
 				l.Info("Removed partial sync that ended before earliest kept sync.",
 					zap.String("partial_sync_end", partial.EndedAt.Format(time.RFC3339)),
@@ -843,7 +861,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 			}
 			err = c.DeleteSyncRun(ctx, ds.ID)
 			if err != nil {
-				return err
+				return wrapSqliteInterruptError(err)
 			}
 			l.Info("Removed old diff sync.",
 				zap.String("sync_type", string(ds.Type)),
@@ -854,7 +872,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	l.Debug("vacuuming database")
 	err = c.Vacuum(ctx)
 	if err != nil {
-		return err
+		return wrapSqliteInterruptError(err)
 	}
 	l.Debug("vacuum complete")
 
@@ -864,13 +882,13 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	var journalMode string
 	row := c.rawDb.QueryRowContext(ctx, "PRAGMA journal_mode")
 	if err := row.Scan(&journalMode); err != nil {
-		return fmt.Errorf("c1file: error getting journal mode: %w", err)
+		return wrapSqliteInterruptError(fmt.Errorf("c1file: error getting journal mode: %w", err))
 	}
 	if strings.ToLower(journalMode) == "wal" {
 		l.Debug("database is open in WAL mode, truncating WAL")
 		_, _, _, err := c.truncateWAL(ctx)
 		if err != nil {
-			return fmt.Errorf("c1file: error truncating WAL: %w", err)
+			return wrapSqliteInterruptError(fmt.Errorf("c1file: error truncating WAL: %w", err))
 		}
 		l.Debug("WAL truncated")
 	}
@@ -899,12 +917,12 @@ func (c *C1File) DeleteSyncRun(ctx context.Context, syncID string) error {
 
 		query, args, err := q.ToSQL()
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create delete query for sync run: %w", err)
 		}
 
 		_, err = c.db.ExecContext(ctx, query, args...)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to execute delete query for sync run: %w", err)
 		}
 	}
 	c.dbUpdated = true
