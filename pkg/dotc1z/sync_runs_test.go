@@ -168,16 +168,16 @@ func TestCleanupVacuumWAL(t *testing.T) {
 	err = f.Cleanup(ctx)
 	require.NoError(t, err)
 
-	// Vacuum should not have run, so page_count and freelist_count should be the same.
+	// Vacuum should have run, so page_count and freelist_count should be lower.
 	var cleanupPageCount int
 	row = f.rawDb.QueryRowContext(ctx, "PRAGMA page_count")
 	require.NoError(t, row.Scan(&cleanupPageCount))
-	require.Equal(t, pageCount, cleanupPageCount, "page_count should be the same")
+	require.Less(t, cleanupPageCount, pageCount, "page_count should be lower")
 
 	var cleanupFreelistCount int
 	row = f.rawDb.QueryRowContext(ctx, "PRAGMA freelist_count")
 	require.NoError(t, row.Scan(&cleanupFreelistCount))
-	require.Equal(t, freelistCount, cleanupFreelistCount, "freelist_count should be the same")
+	require.Equal(t, 0, cleanupFreelistCount, "freelist_count should be zero")
 
 	// Close the file.
 	err = f.Close(ctx)
