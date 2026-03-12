@@ -342,6 +342,13 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 	go func() {
 		waitErr := cmd.Wait()
 		if waitErr != nil {
+			// When the parent context is cancelled during normal shutdown,
+			// exec.CommandContext terminates the child process. Treat that
+			// exit as expected instead of logging it as an unexpected error.
+			if ctx.Err() != nil {
+				return
+			}
+
 			l.Error("connector service quit unexpectedly", zap.Error(waitErr))
 			waitErr = cw.Close()
 			if waitErr != nil {
