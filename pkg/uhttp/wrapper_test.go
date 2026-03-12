@@ -333,6 +333,58 @@ func TestWrapper_WithGenericResponse(t *testing.T) {
 		require.Equal(t, map[string]any{"items": []any{map[string]any{"name": "John", "age": float64(30)}}}, respBody)
 	})
 
+	t.Run("should marshal a JSON response with a single value", func(t *testing.T) {
+		header := http.Header{}
+		header.Add("Content-Type", "application/json")
+		resp := WrapperResponse{
+			Header:     header,
+			StatusCode: http.StatusOK,
+		}
+		resp.Body = bytes.NewBufferString(`true`).Bytes()
+		var respBody map[string]any
+		err := WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"value": true}, respBody)
+
+		respBody = map[string]any{}
+		resp.Body = bytes.NewBufferString(`"string"`).Bytes()
+		err = WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"value": "string"}, respBody)
+
+		respBody = map[string]any{}
+		resp.Body = bytes.NewBufferString(`123`).Bytes()
+		err = WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"value": 123.0}, respBody)
+
+		respBody = map[string]any{}
+		resp.Body = bytes.NewBufferString(`123.456`).Bytes()
+		err = WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"value": 123.456}, respBody)
+
+		respBody = map[string]any{}
+		resp.Body = bytes.NewBufferString(`2.5e-10`).Bytes()
+		err = WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"value": 2.5e-10}, respBody)
+
+		respBody = map[string]any{}
+		// Dates are always returned as strings in JSON.
+		resp.Body = bytes.NewBufferString(`null`).Bytes()
+		err = WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"value": nil}, respBody)
+
+		respBody = map[string]any{}
+		// Dates are always returned as strings in JSON.
+		resp.Body = bytes.NewBufferString(`"2026-03-12T12:00:00Z"`).Bytes()
+		err = WithGenericResponse(&respBody)(&resp)
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"value": "2026-03-12T12:00:00Z"}, respBody)
+	})
+
 	t.Run("should marshal an XML response", func(t *testing.T) {
 		exampleResponse := `<?xml version="1.0" encoding="UTF-8"?><response><items><item><name>John</name><age>30</age></item></items></response>`
 		header := http.Header{}
