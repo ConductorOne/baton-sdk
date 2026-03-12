@@ -780,8 +780,8 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 	} else if customSyncLimit, err := strconv.ParseInt(os.Getenv("BATON_KEEP_SYNC_COUNT"), 10, 64); err == nil && customSyncLimit > 0 {
 		syncLimit = int(customSyncLimit)
 	}
-	if c.currentSyncID != "" && syncLimit > 1 {
-		syncLimit-- // Count the current sync as a kept sync.
+	if c.currentSyncID != "" && syncLimit > 0 {
+		syncLimit-- // Count the current sync against the limit.
 	}
 
 	l.Debug("found syncs",
@@ -802,7 +802,11 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 		}
 
 		// Delete partial syncs that ended before the earliest-kept full sync started
-		earliestKeptSync := fullSyncs[len(fullSyncs)-syncLimit]
+		earliestKeptSyncIndex := len(fullSyncs) - syncLimit
+		if c.currentSyncID != "" {
+			earliestKeptSyncIndex--
+		}
+		earliestKeptSync := fullSyncs[earliestKeptSyncIndex]
 		l.Debug("Earliest kept sync", zap.String("sync_id", earliestKeptSync.ID), zap.Time("started_at", *earliestKeptSync.StartedAt))
 
 		for _, partial := range partials {
