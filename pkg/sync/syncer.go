@@ -449,17 +449,22 @@ func (s *syncer) Sync(ctx context.Context) error {
 		return err
 	}
 
+	err = s.store.Cleanup(runCtx)
+	if err != nil {
+		// If we hit the context deadline while cleaning up, return ErrSyncNotComplete.
+		// Since the sync isn't ended yet, we can resume this sync and make more progress in cleanup.
+		if errors.Is(err, context.DeadlineExceeded) {
+			return ErrSyncNotComplete
+		}
+		return err
+	}
+
 	err = s.store.EndSync(ctx)
 	if err != nil {
 		return err
 	}
 
 	l.Info("Sync complete.")
-
-	err = s.store.Cleanup(ctx)
-	if err != nil {
-		return err
-	}
 
 	_, err = s.connector.Cleanup(ctx, v2.ConnectorServiceCleanupRequest_builder{
 		ActiveSyncId: s.getActiveSyncID(),

@@ -1,104 +1,14 @@
-package dotc1z
+package dotc1z_test
 
 import (
-	"context"
-	"fmt"
 	"path/filepath"
 	"testing"
 
-	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z/c1ztest"
 	"github.com/stretchr/testify/require"
 )
-
-const (
-	resourceTypeCount = 3
-	resourceCount     = 10
-	userCount         = 10
-	entitlementCount  = 10
-	grantCount        = 25
-)
-
-func createData(ctx context.Context, t *testing.T, f *C1File) (string, error) {
-	// Add a sync
-	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
-	require.NoError(t, err)
-	require.NotEmpty(t, syncID)
-
-	for i := range resourceTypeCount {
-		err = f.PutResourceTypes(ctx, v2.ResourceType_builder{
-			Id:          fmt.Sprintf("rt-%d", i),
-			DisplayName: fmt.Sprintf("Resource Type %d", i),
-		}.Build())
-		require.NoError(t, err)
-	}
-
-	for i := range resourceCount {
-		err = f.PutResources(ctx, v2.Resource_builder{
-			Id: v2.ResourceId_builder{
-				ResourceType: fmt.Sprintf("rt-%d", i%resourceTypeCount),
-				Resource:     fmt.Sprintf("resource-%d", i),
-			}.Build(),
-		}.Build())
-		require.NoError(t, err)
-	}
-
-	for i := range userCount {
-		err = f.PutResources(ctx, v2.Resource_builder{
-			Id: v2.ResourceId_builder{
-				ResourceType: "user",
-				Resource:     fmt.Sprintf("user-%d", i),
-			}.Build(),
-		}.Build())
-		require.NoError(t, err)
-	}
-
-	for i := range entitlementCount {
-		err = f.PutEntitlements(ctx, v2.Entitlement_builder{
-			Id: fmt.Sprintf("ent-%d", i),
-			Resource: v2.Resource_builder{
-				Id: v2.ResourceId_builder{
-					ResourceType: fmt.Sprintf("rt-%d", i%resourceTypeCount),
-					Resource:     fmt.Sprintf("resource-%d", i%resourceCount),
-				}.Build(),
-			}.Build(),
-		}.Build())
-		require.NoError(t, err)
-	}
-
-	for i := range grantCount {
-		err = f.PutGrants(ctx, v2.Grant_builder{
-			Id: fmt.Sprintf("grant-%d", i),
-			Principal: v2.Resource_builder{
-				Id: v2.ResourceId_builder{
-					ResourceType: "user",
-					Resource:     fmt.Sprintf("user-%d", i%userCount),
-				}.Build(),
-			}.Build(),
-			Entitlement: v2.Entitlement_builder{
-				Id: fmt.Sprintf("ent-%d", i%entitlementCount),
-				Resource: v2.Resource_builder{
-					Id: v2.ResourceId_builder{
-						ResourceType: fmt.Sprintf("rt-%d", i%resourceTypeCount),
-						Resource:     fmt.Sprintf("resource-%d", i%resourceCount),
-					}.Build(),
-				}.Build(),
-			}.Build(),
-		}.Build())
-		require.NoError(t, err)
-	}
-
-	// Delete 25% of grants.
-	for i := 0; i < grantCount; i += 4 {
-		err = f.DeleteGrant(ctx, fmt.Sprintf("grant-%d", i))
-		require.NoError(t, err)
-	}
-
-	err = f.EndSync(ctx)
-	require.NoError(t, err)
-
-	return syncID, nil
-}
 
 func TestCleanupVacuum(t *testing.T) {
 	ctx := t.Context()
@@ -106,20 +16,25 @@ func TestCleanupVacuum(t *testing.T) {
 
 	testFilePath := filepath.Join(tmpDir, "test.c1z")
 
-	f, err := NewC1ZFile(ctx, testFilePath)
+	f, err := dotc1z.NewC1ZFile(ctx, testFilePath)
 	require.NoError(t, err)
 
-	// Create some data.
-	_, err = createData(ctx, t, f)
+	_, err = c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
+		ResourceTypeCount: 3,
+		ResourceCount:     10,
+		UserCount:         10,
+		EntitlementCount:  10,
+		GrantCount:        25,
+	})
 	require.NoError(t, err)
 
 	var pageCount int
-	row := f.rawDb.QueryRowContext(ctx, "PRAGMA page_count")
+	row := f.RawDB().QueryRowContext(ctx, "PRAGMA page_count")
 	require.NoError(t, row.Scan(&pageCount))
 	require.Greater(t, pageCount, 0)
 
 	var freelistCount int
-	row = f.rawDb.QueryRowContext(ctx, "PRAGMA freelist_count")
+	row = f.RawDB().QueryRowContext(ctx, "PRAGMA freelist_count")
 	require.NoError(t, row.Scan(&freelistCount))
 	require.Greater(t, freelistCount, 0)
 
@@ -128,12 +43,12 @@ func TestCleanupVacuum(t *testing.T) {
 
 	// Vacuum should have run, so page_count should be lower and freelist_count should be zero.
 	var cleanupPageCount int
-	row = f.rawDb.QueryRowContext(ctx, "PRAGMA page_count")
+	row = f.RawDB().QueryRowContext(ctx, "PRAGMA page_count")
 	require.NoError(t, row.Scan(&cleanupPageCount))
 	require.Less(t, cleanupPageCount, pageCount, "page_count should be lower")
 
 	var cleanupFreelistCount int
-	row = f.rawDb.QueryRowContext(ctx, "PRAGMA freelist_count")
+	row = f.RawDB().QueryRowContext(ctx, "PRAGMA freelist_count")
 	require.NoError(t, row.Scan(&cleanupFreelistCount))
 	require.Equal(t, 0, cleanupFreelistCount, "freelist_count should be zero")
 
@@ -148,20 +63,25 @@ func TestCleanupVacuumWAL(t *testing.T) {
 
 	testFilePath := filepath.Join(tmpDir, "test.c1z")
 
-	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	f, err := dotc1z.NewC1ZFile(ctx, testFilePath, dotc1z.WithPragma("journal_mode", "WAL"))
 	require.NoError(t, err)
 
-	// Create some data.
-	_, err = createData(ctx, t, f)
+	_, err = c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
+		ResourceTypeCount: 3,
+		ResourceCount:     10,
+		UserCount:         10,
+		EntitlementCount:  10,
+		GrantCount:        25,
+	})
 	require.NoError(t, err)
 
 	var pageCount int
-	row := f.rawDb.QueryRowContext(ctx, "PRAGMA page_count")
+	row := f.RawDB().QueryRowContext(ctx, "PRAGMA page_count")
 	require.NoError(t, row.Scan(&pageCount))
 	require.Greater(t, pageCount, 0)
 
 	var freelistCount int
-	row = f.rawDb.QueryRowContext(ctx, "PRAGMA freelist_count")
+	row = f.RawDB().QueryRowContext(ctx, "PRAGMA freelist_count")
 	require.NoError(t, row.Scan(&freelistCount))
 	require.Greater(t, freelistCount, 0)
 
@@ -170,14 +90,84 @@ func TestCleanupVacuumWAL(t *testing.T) {
 
 	// Vacuum should have run, so page_count and freelist_count should be lower.
 	var cleanupPageCount int
-	row = f.rawDb.QueryRowContext(ctx, "PRAGMA page_count")
+	row = f.RawDB().QueryRowContext(ctx, "PRAGMA page_count")
 	require.NoError(t, row.Scan(&cleanupPageCount))
 	require.Less(t, cleanupPageCount, pageCount, "page_count should be lower")
 
 	var cleanupFreelistCount int
-	row = f.rawDb.QueryRowContext(ctx, "PRAGMA freelist_count")
+	row = f.RawDB().QueryRowContext(ctx, "PRAGMA freelist_count")
 	require.NoError(t, row.Scan(&cleanupFreelistCount))
 	require.Equal(t, 0, cleanupFreelistCount, "freelist_count should be zero")
+
+	// Close the file.
+	err = f.Close(ctx)
+	require.NoError(t, err)
+}
+
+func TestCleanupSyncLimit(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	testFilePath := filepath.Join(tmpDir, "test.c1z")
+
+	f, err := dotc1z.NewC1ZFile(ctx, testFilePath)
+	require.NoError(t, err)
+
+	for range 10 {
+		_, err = c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
+			ResourceTypeCount: 3,
+			ResourceCount:     10,
+			UserCount:         10,
+			EntitlementCount:  10,
+			GrantCount:        25,
+		})
+		require.NoError(t, err)
+	}
+
+	err = f.Cleanup(ctx)
+	require.NoError(t, err)
+
+	// Check that we only have two syncs left.
+	syncs, _, err := f.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, syncs, 2)
+
+	// Close the file.
+	err = f.Close(ctx)
+	require.NoError(t, err)
+}
+
+func TestCleanupSyncLimitCurrentSync(t *testing.T) {
+	ctx := t.Context()
+	tmpDir := t.TempDir()
+
+	testFilePath := filepath.Join(tmpDir, "test.c1z")
+
+	f, err := dotc1z.NewC1ZFile(ctx, testFilePath, dotc1z.WithSyncLimit(1))
+	require.NoError(t, err)
+
+	for range 10 {
+		_, err = c1ztest.CreateTestSync(ctx, t, f, c1ztest.C1ZCounts{
+			ResourceTypeCount: 3,
+			ResourceCount:     10,
+			UserCount:         10,
+			EntitlementCount:  10,
+			GrantCount:        25,
+		})
+		require.NoError(t, err)
+	}
+
+	syncID, err := f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+
+	err = f.Cleanup(ctx)
+	require.NoError(t, err)
+
+	// Check that we only have two syncs left.
+	syncs, _, err := f.ListSyncRuns(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, syncs, 1)
+	require.Equal(t, syncID, syncs[0].ID)
 
 	// Close the file.
 	err = f.Close(ctx)
