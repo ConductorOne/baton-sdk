@@ -321,8 +321,10 @@ func WithGenericResponse(response *map[string]any) DoOption {
 				(*response)["items"] = list
 			} else if vMap, ok := v.(map[string]any); ok {
 				*response = vMap
+			} else if v == nil {
+				return nil
 			} else {
-				return status.Errorf(codes.Internal, "unsupported content type: %T", v)
+				(*response)["value"] = v
 			}
 			return nil
 		}
