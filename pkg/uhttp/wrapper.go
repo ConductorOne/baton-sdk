@@ -235,6 +235,36 @@ type ErrorResponse interface {
 	Message() string
 }
 
+// grpcCodeFromHTTPStatus maps an HTTP status code to the appropriate gRPC status code.
+func grpcCodeFromHTTPStatus(httpStatus int) codes.Code {
+	switch httpStatus {
+	case http.StatusBadRequest:
+		return codes.InvalidArgument
+	case http.StatusRequestTimeout:
+		return codes.DeadlineExceeded
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return codes.Unavailable
+	case http.StatusNotFound:
+		return codes.NotFound
+	case http.StatusUnauthorized:
+		return codes.Unauthenticated
+	case http.StatusForbidden:
+		return codes.PermissionDenied
+	case http.StatusConflict:
+		return codes.AlreadyExists
+	case http.StatusNotImplemented:
+		return codes.Unimplemented
+	}
+	switch {
+	case httpStatus >= 500 && httpStatus <= 599:
+		return codes.Unavailable
+	case httpStatus >= 400 && httpStatus <= 499:
+		return codes.InvalidArgument
+	default:
+		return codes.Unknown
+	}
+}
+
 func WithErrorResponse(resource ErrorResponse) DoOption {
 	return func(resp *WrapperResponse) error {
 		if resp.StatusCode < 300 {
@@ -257,7 +287,7 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 		// Construct a more detailed error message
 		errMsg := fmt.Sprintf("Request failed with status %d: %s", resp.StatusCode, resource.Message())
 
-		return status.Error(codes.Unknown, errMsg)
+		return status.Error(grpcCodeFromHTTPStatus(resp.StatusCode), errMsg)
 	}
 }
 
@@ -494,14 +524,21 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	// Log response headers directly for certain errors
 	if resp.StatusCode >= 400 {
 		redactedHeaders := RedactSensitiveHeaders(resp.Header)
-		l.Error("base-http-client: HTTP error status",
+		logFields := []zap.Field{
 			zap.Int("status_code", resp.StatusCode),
 			zap.String("status", resp.Status),
 			zap.Any("headers", redactedHeaders),
-		)
+		}
+		if resp.StatusCode >= 500 {
+			l.Error("base-http-client: HTTP error status", logFields...)
+		} else {
+			l.Warn("base-http-client: HTTP error status", logFields...)
+		}
 	}
 
 	switch resp.StatusCode {
+	case http.StatusBadRequest:
+		return resp, WrapErrorsWithRateLimitInfo(codes.InvalidArgument, resp, optErrs...)
 	case http.StatusRequestTimeout:
 		return resp, WrapErrorsWithRateLimitInfo(codes.DeadlineExceeded, resp, optErrs...)
 	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
@@ -523,7 +560,8 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp, WrapErrorsWithRateLimitInfo(codes.Unknown, resp, append(optErrs, fmt.Errorf("unexpected status code: %d", resp.StatusCode))...)
+		grpcCode := grpcCodeFromHTTPStatus(resp.StatusCode)
+		return resp, WrapErrorsWithRateLimitInfo(grpcCode, resp, append(optErrs, fmt.Errorf("unexpected status code: %d", resp.StatusCode))...)
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {
