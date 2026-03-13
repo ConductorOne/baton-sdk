@@ -1,6 +1,8 @@
 package grpc
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -133,7 +135,14 @@ func UnmarshalMetadata(s *structpb.Struct) metadata.MD {
 func ErrorResponse(err error) *Response {
 	st, ok := status.FromError(err)
 	if !ok {
-		st = status.Newf(codes.Unknown, "unknown error: %s", err)
+		switch {
+		case errors.Is(err, context.Canceled):
+			st = status.Newf(codes.Canceled, "canceled: %s", err)
+		case errors.Is(err, context.DeadlineExceeded):
+			st = status.Newf(codes.DeadlineExceeded, "deadline exceeded: %s", err)
+		default:
+			st = status.Newf(codes.Unknown, "unknown error: %s", err)
+		}
 	}
 	spb := st.Proto()
 	if spb == nil {

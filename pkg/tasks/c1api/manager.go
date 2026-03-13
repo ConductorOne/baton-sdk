@@ -182,7 +182,14 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 
 	statusErr, ok := status.FromError(err)
 	if !ok {
-		statusErr = status.New(codes.Unknown, err.Error())
+		switch {
+		case errors.Is(err, context.Canceled):
+			statusErr = status.New(codes.Canceled, err.Error())
+		case errors.Is(err, context.DeadlineExceeded):
+			statusErr = status.New(codes.DeadlineExceeded, err.Error())
+		default:
+			statusErr = status.New(codes.Unknown, err.Error())
+		}
 	}
 
 	_, rpcErr := c.serviceClient.FinishTask(finishCtx, v1.BatonServiceFinishTaskRequest_builder{
