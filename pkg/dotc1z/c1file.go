@@ -240,6 +240,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	)
 
 	var c1fopts []C1FOption
+	if options.tmpDir != "" {
+		c1fopts = append(c1fopts, WithC1FTmpDir(options.tmpDir))
+	}
 	for _, pragma := range options.pragmas {
 		c1fopts = append(c1fopts, WithC1FPragma(pragma.name, pragma.value))
 	}
