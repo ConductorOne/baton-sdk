@@ -103,21 +103,21 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 	if err != nil {
 		l.Error("error: converting credential options failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.InvalidArgument, "error: converting credential options failed: %v", err)
+		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
 	}
 
 	result, plaintexts, annos, err := accountManager.CreateAccount(ctx, request.GetAccountInfo(), opts)
 	if err != nil {
 		l.Error("error: create account failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: create account failed: %v", err)
+		return nil, fmt.Errorf("error: create account failed: %w", err)
 	}
 
 	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: creating encryption manager failed: %v", err)
+		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
 	}
 
 	var encryptedDatas []*v2.EncryptedData
@@ -125,7 +125,7 @@ func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRe
 		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-			return nil, status.Errorf(codes.Internal, "error: encrypting credential failed: %v", err)
+			return nil, err
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
 	}

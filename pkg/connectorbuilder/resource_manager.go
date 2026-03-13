@@ -90,7 +90,7 @@ func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResource
 	if err != nil {
 		l.Error("error: create resource failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: create resource failed: %v", err)
+		return nil, fmt.Errorf("error: create resource failed: %w", err)
 	}
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return v2.CreateResourceResponse_builder{Created: resource, Annotations: annos}.Build(), nil
@@ -124,7 +124,7 @@ func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResource
 	if err != nil {
 		l.Error("error: deleteV2 resource failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: delete resource failed: %v", err)
+		return nil, fmt.Errorf("error: delete resource failed: %w", err)
 	}
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return v2.DeleteResourceResponse_builder{Annotations: annos}.Build(), nil
@@ -158,7 +158,7 @@ func (b *builder) DeleteResourceV2(ctx context.Context, request *v2.DeleteResour
 	if err != nil {
 		l.Error("error: deleteV2 resource failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: delete resource failed: %v", err)
+		return nil, fmt.Errorf("error: delete resource failed: %w", err)
 	}
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
 	return v2.DeleteResourceV2Response_builder{Annotations: annos}.Build(), nil

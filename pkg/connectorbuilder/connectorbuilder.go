@@ -307,7 +307,7 @@ func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceVali
 			continue
 		}
 
-		return nil, status.Errorf(codes.InvalidArgument, "validate failed: %v", err)
+		return nil, fmt.Errorf("validate failed: %w", err)
 	}
 }
 
@@ -455,7 +455,7 @@ func getCredentialDetails(ctx context.Context, b *builder) (*v2.CredentialDetail
 		accountProvisioningCapabilityDetails, _, err := am.CreateAccountCapabilityDetails(ctx)
 		if err != nil {
 			l.Error("error: getting account provisioning details", zap.Error(err))
-			return nil, status.Errorf(codes.Internal, "error: getting account provisioning details: %v", err)
+			return nil, fmt.Errorf("error: getting account provisioning details: %w", err)
 		}
 		rv.SetCapabilityAccountProvisioning(accountProvisioningCapabilityDetails)
 		break // Only need one account manager's details
@@ -466,7 +466,7 @@ func getCredentialDetails(ctx context.Context, b *builder) (*v2.CredentialDetail
 		credentialRotationCapabilityDetails, _, err := cm.RotateCapabilityDetails(ctx)
 		if err != nil {
 			l.Error("error: getting credential management details", zap.Error(err))
-			return nil, status.Errorf(codes.Internal, "error: getting credential management details: %v", err)
+			return nil, fmt.Errorf("error: getting credential management details: %w", err)
 		}
 		rv.SetCapabilityCredentialRotation(credentialRotationCapabilityDetails)
 		break // Only need one credential manager's details
@@ -474,7 +474,7 @@ func getCredentialDetails(ctx context.Context, b *builder) (*v2.CredentialDetail
 
 	err := validateCapabilityDetails(ctx, rv)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "error: validating capability details: %v", err)
+		return nil, fmt.Errorf("error: validating capability details: %w", err)
 	}
 	return rv, nil
 }

@@ -54,7 +54,7 @@ func (b *builder) BulkCreateTickets(ctx context.Context, request *v2.TicketsServ
 	ticketsResponse, err := b.ticketManager.BulkCreateTickets(ctx, request)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: creating tickets failed: %v", err)
+		return nil, fmt.Errorf("error: creating tickets failed: %w", err)
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
@@ -85,7 +85,7 @@ func (b *builder) BulkGetTickets(ctx context.Context, request *v2.TicketsService
 	ticketsResponse, err := b.ticketManager.BulkGetTickets(ctx, request)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: fetching tickets failed: %v", err)
+		return nil, fmt.Errorf("error: fetching tickets failed: %w", err)
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
@@ -135,7 +135,7 @@ func (b *builder) ListTicketSchemas(ctx context.Context, request *v2.TicketsServ
 			continue
 		}
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: listing ticket schemas failed: %v", err)
+		return nil, fmt.Errorf("error: listing ticket schemas failed: %w", err)
 	}
 }
 
@@ -176,7 +176,7 @@ func (b *builder) CreateTicket(ctx context.Context, request *v2.TicketsServiceCr
 				Annotations: annos,
 			}.Build()
 		}
-		return resp, status.Errorf(codes.Internal, "error: creating ticket failed: %v", err)
+		return resp, fmt.Errorf("error: creating ticket failed: %w", err)
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
@@ -208,7 +208,7 @@ func (b *builder) GetTicket(ctx context.Context, request *v2.TicketsServiceGetTi
 				Annotations: annos,
 			}.Build()
 		}
-		return resp, status.Errorf(codes.Internal, "error: getting ticket failed: %v", err)
+		return resp, fmt.Errorf("error: getting ticket failed: %w", err)
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))
@@ -233,7 +233,7 @@ func (b *builder) GetTicketSchema(ctx context.Context, request *v2.TicketsServic
 	ticketSchema, annos, err := b.ticketManager.GetTicketSchema(ctx, request.GetId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: getting ticket metadata failed: %v", err)
+		return nil, fmt.Errorf("error: getting ticket metadata failed: %w", err)
 	}
 
 	b.m.RecordTaskSuccess(ctx, tt, b.nowFunc().Sub(start))

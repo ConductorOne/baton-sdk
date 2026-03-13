@@ -139,7 +139,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 	}.Build()
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return resp, status.Errorf(codes.Internal, "error: listing resources failed: %v", err)
+		return resp, fmt.Errorf("error: listing resources failed: %w", err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
 		err := status.Errorf(codes.Internal,
@@ -169,7 +169,7 @@ func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterSer
 	resource, annos, err := rb.Get(ctx, request.GetResourceId(), request.GetParentResourceId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: get resource failed: %v", err)
+		return nil, fmt.Errorf("error: get resource failed: %w", err)
 	}
 	if resource == nil {
 		err := status.Error(codes.NotFound, "error: get resource returned nil")
@@ -225,7 +225,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 	}.Build()
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, status.Errorf(codes.Internal, "error: listing static entitlements failed: %v", err)
+		return nil, fmt.Errorf("error: listing static entitlements failed: %w", err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
 		err := status.Error(codes.Internal, "listing static entitlements failed: next page token unchanged - likely a connector bug")
@@ -267,7 +267,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 	}.Build()
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return resp, status.Errorf(codes.Internal, "error: listing entitlements failed: %v", err)
+		return resp, fmt.Errorf("error: listing entitlements failed: %w", err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
 		err := status.Error(codes.Internal, "listing entitlements failed: next page token unchanged - likely a connector bug")
@@ -319,7 +319,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return resp, status.Errorf(codes.Internal, "error: listing grants for resource %s/%s failed: %v", rid.GetResourceType(), rid.GetResource(), err)
+		return resp, fmt.Errorf("error: listing grants for resource %s/%s failed: %w", rid.GetResourceType(), rid.GetResource(), err)
 	}
 	if request.GetPageToken() != "" && request.GetPageToken() == retOptions.NextPageToken {
 		err := status.Errorf(codes.Internal,
