@@ -8,6 +8,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -109,7 +111,7 @@ func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionS
 	actionSchemas, _, err := b.actionManager.ListActionSchemas(ctx, resourceTypeID)
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("error: listing action schemas failed: %w", err)
+		return nil, status.Errorf(codes.Internal, "error: listing action schemas failed: %v", err)
 	}
 
 	rv := v2.ListActionSchemasResponse_builder{
@@ -130,7 +132,7 @@ func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSche
 	actionSchema, annos, err := b.actionManager.GetActionSchema(ctx, request.GetName())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("error: action schema %s not found: %w", request.GetName(), err)
+		return nil, status.Errorf(codes.Internal, "error: action schema %s not found: %v", request.GetName(), err)
 	}
 
 	rv := v2.GetActionSchemaResponse_builder{
@@ -153,7 +155,7 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 	id, actionStatus, resp, annos, err := b.actionManager.InvokeAction(ctx, request.GetName(), resourceTypeID, request.GetArgs())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("error: invoking action failed: %w", err)
+		return nil, status.Errorf(codes.Internal, "error: invoking action failed: %v", err)
 	}
 
 	rv := v2.InvokeActionResponse_builder{
@@ -178,7 +180,7 @@ func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStat
 	actionStatus, name, rv, annos, err := b.actionManager.GetActionStatus(ctx, request.GetId())
 	if err != nil {
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("error: action status for id %s not found: %w", request.GetId(), err)
+		return nil, status.Errorf(codes.Internal, "error: action status for id %s not found: %v", request.GetId(), err)
 	}
 
 	resp := v2.GetActionStatusResponse_builder{

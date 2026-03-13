@@ -94,7 +94,7 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 			continue
 		}
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("grant failed: %w", err)
+		return nil, status.Errorf(codes.Internal, "grant failed: %v", err)
 	}
 }
 
@@ -138,7 +138,7 @@ func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRev
 			continue
 		}
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("revoke failed: %w", err)
+		return nil, status.Errorf(codes.Internal, "revoke failed: %v", err)
 	}
 }
 

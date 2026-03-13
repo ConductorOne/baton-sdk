@@ -56,21 +56,21 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 	if err != nil {
 		l.Error("error: converting credential options failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("error: converting credential options failed: %w", err)
+		return nil, status.Errorf(codes.Internal, "error: converting credential options failed: %v", err)
 	}
 
 	plaintexts, annos, err := manager.Rotate(ctx, request.GetResourceId(), opts)
 	if err != nil {
 		l.Error("error: rotate credentials on resource failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("error: rotate credentials on resource failed: %w", err)
+		return nil, status.Errorf(codes.Internal, "error: rotate credentials on resource failed: %v", err)
 	}
 
 	pkem, err := crypto.NewEncryptionManager(request.GetCredentialOptions(), request.GetEncryptionConfigs())
 	if err != nil {
 		l.Error("error: creating encryption manager failed", zap.Error(err))
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-		return nil, fmt.Errorf("error: creating encryption manager failed: %w", err)
+		return nil, status.Errorf(codes.Internal, "error: creating encryption manager failed: %v", err)
 	}
 
 	var encryptedDatas []*v2.EncryptedData
@@ -78,7 +78,7 @@ func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCreden
 		encryptedData, err := pkem.Encrypt(ctx, plaintextCredential)
 		if err != nil {
 			b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
-			return nil, err
+			return nil, status.Errorf(codes.Internal, "error: encrypting credential failed: %v", err)
 		}
 		encryptedDatas = append(encryptedDatas, encryptedData...)
 	}
