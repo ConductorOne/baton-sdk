@@ -273,21 +273,27 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 
 		contentHeader := resp.Header.Get(ContentType)
 
+		grpcCode := GrpcCodeFromHTTPStatus(resp.StatusCode)
+
 		if !IsJSONContentType(contentHeader) {
 			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
-			return status.Errorf(GrpcCodeFromHTTPStatus(resp.StatusCode), "unexpected content type for JSON error response: %s. status code: %d. body: %s", contentHeader, resp.StatusCode, string(resp.Body))
+			return status.Errorf(grpcCode,
+				"unexpected content type for JSON error response: %s. status code: %d. body: %s",
+				contentHeader, resp.StatusCode, string(resp.Body))
 		}
 
 		// Decode the JSON response body into the ErrorResponse
 		if err := json.Unmarshal(resp.Body, &resource); err != nil {
 			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
-			return status.Errorf(GrpcCodeFromHTTPStatus(resp.StatusCode), "failed to unmarshal JSON error response: %v. status code: %d. body: %s", err, resp.StatusCode, string(resp.Body))
+			return status.Errorf(grpcCode,
+				"failed to unmarshal JSON error response: %v. status code: %d. body: %s",
+				err, resp.StatusCode, string(resp.Body))
 		}
 
 		// Construct a more detailed error message
 		errMsg := fmt.Sprintf("Request failed with status %d: %s", resp.StatusCode, resource.Message())
 
-		return status.Error(GrpcCodeFromHTTPStatus(resp.StatusCode), errMsg)
+		return status.Error(grpcCode, errMsg)
 	}
 }
 
