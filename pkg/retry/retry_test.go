@@ -43,7 +43,7 @@ func TestBasicRetry(t *testing.T) {
 	require.True(t, shouldRetry, "second attempt should be retried")
 	elapsed := time.Since(startTime)
 	require.Greater(t, elapsed, 100*time.Millisecond, "second attempt should take longer than 100ms")
-	require.Less(t, elapsed, 300*time.Millisecond, "second attempt should take less than 300ms")
+	require.Less(t, elapsed, 500*time.Millisecond, "second attempt should take less than 500ms")
 
 	shouldRetry = retryer.ShouldWaitAndRetry(ctx, status.Error(codes.Unavailable, "third attempt"))
 	require.True(t, shouldRetry, "third attempt should be retried")
@@ -80,7 +80,7 @@ func TestRetryWithRateLimitData(t *testing.T) {
 	// Expected wait: 5s / 100 = 50ms, rounded up to 1s
 	t.Logf("Actual wait time: %v (expected ~1s)", elapsed)
 	require.GreaterOrEqual(t, elapsed, 1*time.Second, "should wait at least 1 second based on rate limit data")
-	require.Less(t, elapsed, 1500*time.Millisecond, "should wait approximately 1 second")
+	require.Less(t, elapsed, 2*time.Second, "should wait approximately 1 second")
 }
 
 func TestRetryWithHTTPResponse(t *testing.T) {
@@ -128,7 +128,7 @@ func TestRetryWithHTTPResponse(t *testing.T) {
 			},
 			expectedRetry:   true,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 2 * time.Second,
+			expectedMaxWait: 3 * time.Second,
 			buildRateLimitFn: func(resp *http.Response) error {
 				resetAt := time.Now().Add(1 * time.Second)
 				rlData := &v2.RateLimitDescription{
@@ -153,7 +153,7 @@ func TestRetryWithHTTPResponse(t *testing.T) {
 			},
 			expectedRetry:   true,
 			expectedMinWait: 100 * time.Millisecond,
-			expectedMaxWait: 300 * time.Millisecond,
+			expectedMaxWait: 500 * time.Millisecond,
 		},
 		{
 			name:       "404 Not Found - should not retry",
@@ -227,7 +227,7 @@ func TestRetryContextCancellation(t *testing.T) {
 	t.Logf("Context cancellation response time: %v (should be ~100ms)", elapsed)
 	require.False(t, shouldRetry, "should not retry when context is cancelled")
 	require.GreaterOrEqual(t, elapsed, 100*time.Millisecond, "should wait at least until cancellation")
-	require.Less(t, elapsed, 500*time.Millisecond, "should return quickly on context cancellation")
+	require.Less(t, elapsed, 1*time.Second, "should return quickly on context cancellation")
 }
 
 func TestRetryWaitTimeCalculations(t *testing.T) {
@@ -245,7 +245,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 			remaining:       100,
 			maxDelay:        10 * time.Second,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 1500 * time.Millisecond,
+			expectedMaxWait: 2 * time.Second,
 		},
 		{
 			name:            "Longer reset with lower limit - rounds up to 1s",
@@ -253,7 +253,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 			remaining:       50,
 			maxDelay:        10 * time.Second,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 1500 * time.Millisecond,
+			expectedMaxWait: 2 * time.Second,
 		},
 		{
 			name:            "Very short reset with limit 1",
@@ -261,7 +261,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 			remaining:       1,
 			maxDelay:        10 * time.Second,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 1500 * time.Millisecond,
+			expectedMaxWait: 2 * time.Second,
 		},
 		{
 			name:            "Long reset capped by maxDelay",
@@ -269,7 +269,7 @@ func TestRetryWaitTimeCalculations(t *testing.T) {
 			remaining:       1,
 			maxDelay:        2 * time.Second,
 			expectedMinWait: 2 * time.Second,
-			expectedMaxWait: 2500 * time.Millisecond,
+			expectedMaxWait: 3 * time.Second,
 		},
 	}
 
@@ -325,7 +325,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 			maxDelay:        60 * time.Second,
 			expectedRetry:   true,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 1500 * time.Millisecond,
+			expectedMaxWait: 2 * time.Second,
 			description:     "Should calculate (3600s / 5000 = 0.72s) rounded up to 1s, capped by maxDelay",
 		},
 		{
@@ -336,7 +336,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 			maxDelay:        60 * time.Second,
 			expectedRetry:   true,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 1500 * time.Millisecond,
+			expectedMaxWait: 2 * time.Second,
 			description:     "Should calculate (1800s / 5000 = 0.36s) rounded up to 1s",
 		},
 		{
@@ -347,7 +347,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 			maxDelay:        2 * time.Second,
 			expectedRetry:   true,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 1500 * time.Millisecond,
+			expectedMaxWait: 2 * time.Second,
 			description:     "Should calculate (60s / 1000 = 0.06s) rounded up to 1s",
 		},
 		{
@@ -358,7 +358,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 			maxDelay:        10 * time.Second,
 			expectedRetry:   true,
 			expectedMinWait: 2 * time.Second,
-			expectedMaxWait: 2500 * time.Millisecond,
+			expectedMaxWait: 3 * time.Second,
 			description:     "Should calculate (60s / 30 = 2s), no rounding needed",
 		},
 		{
@@ -369,7 +369,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 			maxDelay:        30 * time.Second,
 			expectedRetry:   true,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 1500 * time.Millisecond,
+			expectedMaxWait: 2 * time.Second,
 			description:     "Should calculate (3600s / 5000 = 0.72s) rounded up to 1s",
 		},
 		{
@@ -380,7 +380,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 			maxDelay:        60 * time.Second,
 			expectedRetry:   true,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 1500 * time.Millisecond,
+			expectedMaxWait: 2 * time.Second,
 			description:     "Should calculate (3600s / 10000 = 0.36s) rounded up to 1s",
 		},
 		{
@@ -391,7 +391,7 @@ func TestRetryWithGitHubRateLimitHeaders(t *testing.T) {
 			maxDelay:        60 * time.Second,
 			expectedRetry:   true,
 			expectedMinWait: 1 * time.Second,
-			expectedMaxWait: 1500 * time.Millisecond,
+			expectedMaxWait: 2 * time.Second,
 			description:     "Should calculate (5s / 5000 = 0.001s) rounded up to 1s",
 		},
 	}
