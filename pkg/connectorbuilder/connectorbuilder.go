@@ -82,7 +82,7 @@ type builder struct {
 // NewConnector creates a new ConnectorServer for a new resource.
 func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.ConnectorServer, error) {
 	if in == nil {
-		return nil, fmt.Errorf("input cannot be nil")
+		return nil, status.Error(codes.InvalidArgument, "input cannot be nil")
 	}
 
 	switch t := in.(type) {
@@ -91,7 +91,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		return t, nil
 	case ConnectorBuilder, ConnectorBuilderV2:
 	default:
-		return nil, fmt.Errorf("input is not a ConnectorServer, ConnectorBuilder, or ConnectorBuilderV2")
+		return nil, status.Error(codes.InvalidArgument, "input is not a ConnectorServer, ConnectorBuilder, or ConnectorBuilderV2")
 	}
 
 	clientSecretValue := ctx.Value(crypto.ContextClientSecretKey)
@@ -199,7 +199,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		return b, nil
 	}
 
-	return nil, fmt.Errorf("input is not a ConnectorBuilder or a ConnectorBuilderV2")
+	return nil, status.Error(codes.InvalidArgument, "input is not a ConnectorBuilder or a ConnectorBuilderV2")
 }
 
 type Opt func(b *builder) error
@@ -242,13 +242,13 @@ func (b *builder) addConnectorBuilderProviders(_ context.Context, in interface{}
 	if mp, ok := in.(MetadataProvider); ok {
 		b.metadataProvider = mp
 	} else {
-		return fmt.Errorf("error: metadata provider not implemented")
+		return status.Error(codes.InvalidArgument, "error: metadata provider not implemented")
 	}
 
 	if vp, ok := in.(ValidateProvider); ok {
 		b.validateProvider = vp
 	} else {
-		return fmt.Errorf("error: validate provider not implemented")
+		return status.Error(codes.InvalidArgument, "error: validate provider not implemented")
 	}
 
 	return nil

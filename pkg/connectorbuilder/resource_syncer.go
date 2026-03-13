@@ -117,7 +117,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 	tt := tasks.ListResourcesType
 	rb, ok := b.resourceSyncers[request.GetResourceTypeId()]
 	if !ok {
-		err := fmt.Errorf("error: list resources with unknown resource type %s", request.GetResourceTypeId())
+		err := status.Errorf(codes.NotFound, "error: list resources with unknown resource type %s", request.GetResourceTypeId())
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -194,7 +194,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 	tt := tasks.ListStaticEntitlementsType
 	rb, ok := b.resourceSyncers[request.GetResourceTypeId()]
 	if !ok {
-		err := fmt.Errorf("error: list static entitlements with unknown resource type %s", request.GetResourceTypeId())
+		err := status.Errorf(codes.NotFound, "error: list static entitlements with unknown resource type %s", request.GetResourceTypeId())
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -246,7 +246,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 	tt := tasks.ListEntitlementsType
 	rb, ok := b.resourceSyncers[request.GetResource().GetId().GetResourceType()]
 	if !ok {
-		err := fmt.Errorf("error: list entitlements with unknown resource type %s", request.GetResource().GetId().GetResourceType())
+		err := status.Errorf(codes.NotFound, "error: list entitlements with unknown resource type %s", request.GetResource().GetId().GetResourceType())
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -288,7 +288,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	tt := tasks.ListGrantsType
 
 	if request.GetResource() == nil {
-		err := fmt.Errorf("error: list grants requires a resource")
+		err := status.Error(codes.InvalidArgument, "error: list grants requires a resource")
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
@@ -296,7 +296,7 @@ func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListG
 	rid := request.GetResource().GetId()
 	rb, ok := b.resourceSyncers[rid.GetResourceType()]
 	if !ok {
-		err := fmt.Errorf("error: list grants with unknown resource type %s", rid.GetResourceType())
+		err := status.Errorf(codes.NotFound, "error: list grants with unknown resource type %s", rid.GetResourceType())
 		b.m.RecordTaskFailure(ctx, tt, b.nowFunc().Sub(start), err)
 		return nil, err
 	}
