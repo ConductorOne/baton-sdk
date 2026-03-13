@@ -254,25 +254,15 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 	}
 	var sessionListenerPort uint32
 	if cw.sessionStoreEnabled {
-		var sessionListenerFile *os.File
-		sessionListenerPort, sessionListenerFile, err = cw.setupListener(ctx)
+		var sessionListener net.Listener
+		sessionListenerPort, sessionListener, err = cw.setupSessionListener(ctx)
 		if err != nil {
 			return 0, fmt.Errorf("failed to setup session listener: %w", err)
 		}
 
-		if sessionListenerFile == nil {
-			return 0, fmt.Errorf("session listener file is nil")
-		}
-
-		// Start the session cache server on the cache listener
-		sessionListener, err := net.FileListener(sessionListenerFile)
-		if err != nil {
-			_ = sessionListenerFile.Close()
-			return 0, fmt.Errorf("failed to create session listener: %w", err)
-		}
 		tlsConfig, err := utls2.ListenerConfig(ctx, serverCred)
 		if err != nil {
-			_ = sessionListenerFile.Close()
+			_ = sessionListener.Close()
 			return 0, fmt.Errorf("failed to create session listener config: %w", err)
 		}
 
@@ -281,7 +271,7 @@ func (cw *wrapper) runServer(ctx context.Context, serverCred *tlsV1.Credential) 
 		server := session.NewGRPCSessionServer()
 		cw.SessionServer = server
 		go func() {
-			defer sessionListenerFile.Close()
+			defer sessionListener.Close()
 			serverErr := session.StartGRPCSessionServerWithOptions(ctx, sessionListener, server,
 				grpc.Creds(credentials.NewTLS(tlsConfig)),
 				grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx)...),
