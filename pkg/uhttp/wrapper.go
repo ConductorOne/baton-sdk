@@ -235,8 +235,8 @@ type ErrorResponse interface {
 	Message() string
 }
 
-// grpcCodeFromHTTPStatus maps an HTTP status code to the appropriate gRPC status code.
-func grpcCodeFromHTTPStatus(httpStatus int) codes.Code {
+// GrpcCodeFromHTTPStatus maps an HTTP status code to the appropriate gRPC status code.
+func GrpcCodeFromHTTPStatus(httpStatus int) codes.Code {
 	switch httpStatus {
 	case http.StatusBadRequest:
 		return codes.InvalidArgument
@@ -275,19 +275,19 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 
 		if !IsJSONContentType(contentHeader) {
 			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
-			return fmt.Errorf("unexpected content type for JSON error response: %s. status code: %d. body: %s", contentHeader, resp.StatusCode, string(resp.Body))
+			return status.Errorf(GrpcCodeFromHTTPStatus(resp.StatusCode), "unexpected content type for JSON error response: %s. status code: %d. body: %s", contentHeader, resp.StatusCode, string(resp.Body))
 		}
 
 		// Decode the JSON response body into the ErrorResponse
 		if err := json.Unmarshal(resp.Body, &resource); err != nil {
 			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
-			return fmt.Errorf("failed to unmarshal JSON error response: %w. status code: %d. body: %s", err, resp.StatusCode, string(resp.Body))
+			return status.Errorf(GrpcCodeFromHTTPStatus(resp.StatusCode), "failed to unmarshal JSON error response: %v. status code: %d. body: %s", err, resp.StatusCode, string(resp.Body))
 		}
 
 		// Construct a more detailed error message
 		errMsg := fmt.Sprintf("Request failed with status %d: %s", resp.StatusCode, resource.Message())
 
-		return status.Error(grpcCodeFromHTTPStatus(resp.StatusCode), errMsg)
+		return status.Error(GrpcCodeFromHTTPStatus(resp.StatusCode), errMsg)
 	}
 }
 
@@ -536,32 +536,9 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		}
 	}
 
-	switch resp.StatusCode {
-	case http.StatusBadRequest:
-		return resp, WrapErrorsWithRateLimitInfo(codes.InvalidArgument, resp, optErrs...)
-	case http.StatusRequestTimeout:
-		return resp, WrapErrorsWithRateLimitInfo(codes.DeadlineExceeded, resp, optErrs...)
-	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return resp, WrapErrorsWithRateLimitInfo(codes.Unavailable, resp, optErrs...)
-	case http.StatusNotFound:
-		return resp, WrapErrorsWithRateLimitInfo(codes.NotFound, resp, optErrs...)
-	case http.StatusUnauthorized:
-		return resp, WrapErrorsWithRateLimitInfo(codes.Unauthenticated, resp, optErrs...)
-	case http.StatusForbidden:
-		return resp, WrapErrorsWithRateLimitInfo(codes.PermissionDenied, resp, optErrs...)
-	case http.StatusConflict:
-		return resp, WrapErrorsWithRateLimitInfo(codes.AlreadyExists, resp, optErrs...)
-	case http.StatusNotImplemented:
-		return resp, WrapErrorsWithRateLimitInfo(codes.Unimplemented, resp, optErrs...)
-	}
-
-	if resp.StatusCode >= 500 && resp.StatusCode <= 599 {
-		return resp, WrapErrorsWithRateLimitInfo(codes.Unavailable, resp, optErrs...)
-	}
-
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		grpcCode := grpcCodeFromHTTPStatus(resp.StatusCode)
-		return resp, WrapErrorsWithRateLimitInfo(grpcCode, resp, append(optErrs, fmt.Errorf("unexpected status code: %d", resp.StatusCode))...)
+		grpcCode := GrpcCodeFromHTTPStatus(resp.StatusCode)
+		return resp, WrapErrorsWithRateLimitInfo(grpcCode, resp, optErrs...)
 	}
 
 	if req.Method == http.MethodGet && resp.StatusCode == http.StatusOK {

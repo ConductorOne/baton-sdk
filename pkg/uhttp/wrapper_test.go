@@ -14,6 +14,8 @@ import (
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type example struct {
@@ -521,6 +523,29 @@ func TestWrapper_WithErrorResponse(t *testing.T) {
 	resp.StatusCode = http.StatusOK
 	err = WithErrorResponse(&errResp)(&resp)
 	require.NoError(t, err)
+
+	// Verify gRPC status codes are properly classified
+	testCases := []struct {
+		httpStatus int
+		wantCode   codes.Code
+	}{
+		{http.StatusNotFound, codes.NotFound},
+		{http.StatusUnauthorized, codes.Unauthenticated},
+		{http.StatusForbidden, codes.PermissionDenied},
+		{http.StatusBadRequest, codes.InvalidArgument},
+		{http.StatusConflict, codes.AlreadyExists},
+		{http.StatusTooManyRequests, codes.Unavailable},
+		{http.StatusInternalServerError, codes.Unavailable},
+	}
+	for _, tc := range testCases {
+		resp.StatusCode = tc.httpStatus
+		resp.Body = bytes.NewBufferString(`{"title": "error", "detail": "test error"}`).Bytes()
+		err = WithErrorResponse(&errResp)(&resp)
+		require.NotNil(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok, "expected gRPC status error for HTTP %d", tc.httpStatus)
+		require.Equal(t, tc.wantCode, st.Code(), "HTTP %d should map to %s, got %s", tc.httpStatus, tc.wantCode, st.Code())
+	}
 }
 
 func TestWrapper_WithRateLimitData(t *testing.T) {
