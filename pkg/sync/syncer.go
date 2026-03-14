@@ -2582,9 +2582,11 @@ func (s *syncer) Close(ctx context.Context) error {
 
 	var errs []error
 
+	var storeCloseErr error
 	if s.store != nil {
-		if err := s.store.Close(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("error closing store: %w", err))
+		storeCloseErr = s.store.Close(ctx)
+		if storeCloseErr != nil {
+			errs = append(errs, fmt.Errorf("error closing store: %w", storeCloseErr))
 		}
 	}
 
@@ -2595,9 +2597,16 @@ func (s *syncer) Close(ctx context.Context) error {
 	}
 
 	if s.c1zManager != nil {
-		if err := s.c1zManager.SaveC1Z(ctx); err != nil {
-			errs = append(errs, err)
+		// Only persist the c1z if the store closed cleanly. If the store
+		// failed to close (e.g. WAL checkpoint failure), saving would
+		// persist a potentially corrupt state.
+		if storeCloseErr == nil {
+			if err := s.c1zManager.SaveC1Z(ctx); err != nil {
+				errs = append(errs, err)
+			}
 		}
+		// Always close the manager to clean up temp files, even if save
+		// was skipped or failed.
 		if err := s.c1zManager.Close(ctx); err != nil {
 			errs = append(errs, err)
 		}

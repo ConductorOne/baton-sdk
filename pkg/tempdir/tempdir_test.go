@@ -14,6 +14,7 @@ func TestResolve_ExplicitDir(t *testing.T) {
 }
 
 func TestResolve_EmptyFallback(t *testing.T) {
+	t.Setenv(EnvVar, "")
 	got := Resolve("")
 	require.NotEmpty(t, got, "should return a non-empty path")
 
@@ -25,9 +26,27 @@ func TestResolve_EmptyFallback(t *testing.T) {
 	require.True(t, fi.IsDir(), "resolved dir should be a directory")
 }
 
+func TestResolve_EnvVarOverridesDatastore(t *testing.T) {
+	envDir := t.TempDir()
+	t.Setenv(EnvVar, envDir)
+
+	got := Resolve("")
+	require.Equal(t, envDir, got, "BATON_TMPDIR should take precedence over datastore detection")
+}
+
+func TestResolve_ExplicitOverridesEnvVar(t *testing.T) {
+	explicit := t.TempDir()
+	envDir := t.TempDir()
+	t.Setenv(EnvVar, envDir)
+
+	got := Resolve(explicit)
+	require.Equal(t, explicit, got, "explicit dir should take precedence over BATON_TMPDIR")
+}
+
 func TestResolve_DatastorePreferred(t *testing.T) {
 	// Create a fake datastore dir and override the const via a local wrapper
 	// to avoid depending on the real /c1-tenant-datastore path.
+	t.Setenv(EnvVar, "")
 	fakeDatastore := t.TempDir()
 
 	result := resolveWithDatastorePath("", fakeDatastore)
@@ -35,6 +54,7 @@ func TestResolve_DatastorePreferred(t *testing.T) {
 }
 
 func TestResolve_DatastoreMissing(t *testing.T) {
+	t.Setenv(EnvVar, "")
 	result := resolveWithDatastorePath("", "/nonexistent-path-that-should-not-exist")
 	require.Equal(t, os.TempDir(), result, "should fall back to os.TempDir when datastore missing")
 }
