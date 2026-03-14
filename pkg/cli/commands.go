@@ -362,12 +362,21 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithWorkerCount(workers))
 		}
 
-		if v.GetString("c1z-temp-dir") != "" {
-			c1zTmpDir := v.GetString("c1z-temp-dir")
+		c1zTmpDir := v.GetString("c1z-temp-dir")
+		if c1zTmpDir == "" {
+			// If no temp dir is specified, prefer /c1-tenant-datastore if it exists.
+			// This avoids falling back to /tmp which may have different storage
+			// constraints (size, performance, mount type) than the intended datastore volume.
+			const defaultDatastorePath = "/c1-tenant-datastore"
+			if fi, err := os.Stat(defaultDatastorePath); err == nil && fi.IsDir() {
+				c1zTmpDir = defaultDatastorePath
+			}
+		}
+		if c1zTmpDir != "" {
 			if _, err := os.Stat(c1zTmpDir); os.IsNotExist(err) {
 				return fmt.Errorf("the specified c1z temp dir does not exist: %s", c1zTmpDir)
 			}
-			opts = append(opts, connectorrunner.WithTempDir(v.GetString("c1z-temp-dir")))
+			opts = append(opts, connectorrunner.WithTempDir(c1zTmpDir))
 		}
 
 		if v.GetString("external-resource-c1z") != "" {
