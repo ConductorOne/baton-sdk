@@ -2580,34 +2580,30 @@ func (s *syncer) Close(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.Close")
 	defer span.End()
 
-	var err error
+	var errs []error
+
 	if s.store != nil {
-		err = s.store.Close(ctx)
-		if err != nil {
-			return fmt.Errorf("error closing store: %w", err)
+		if err := s.store.Close(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("error closing store: %w", err))
 		}
 	}
 
 	if s.externalResourceReader != nil {
-		err = s.externalResourceReader.Close(ctx)
-		if err != nil {
-			return fmt.Errorf("error closing external resource reader: %w", err)
+		if err := s.externalResourceReader.Close(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("error closing external resource reader: %w", err))
 		}
 	}
 
 	if s.c1zManager != nil {
-		err = s.c1zManager.SaveC1Z(ctx)
-		if err != nil {
-			return err
+		if err := s.c1zManager.SaveC1Z(ctx); err != nil {
+			errs = append(errs, err)
 		}
-
-		err = s.c1zManager.Close(ctx)
-		if err != nil {
-			return err
+		if err := s.c1zManager.Close(ctx); err != nil {
+			errs = append(errs, err)
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 type SyncOpt func(s *syncer)
