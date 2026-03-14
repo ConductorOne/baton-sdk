@@ -109,9 +109,15 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 		opt(c)
 	}
 
-	// If no tmpDir is provided, use the tmpDir
+	// If no tmpDir is provided, prefer /c1-tenant-datastore if available,
+	// otherwise fall back to the OS temp directory.
 	if c.tmpDir == "" {
-		c.tmpDir = os.TempDir()
+		const defaultDatastorePath = "/c1-tenant-datastore"
+		if fi, err := os.Stat(defaultDatastorePath); err == nil && fi.IsDir() {
+			c.tmpDir = defaultDatastorePath
+		} else {
+			c.tmpDir = os.TempDir()
+		}
 	}
 	tmpDir, err := os.MkdirTemp(c.tmpDir, "baton-sync-compactor-")
 	if err != nil {

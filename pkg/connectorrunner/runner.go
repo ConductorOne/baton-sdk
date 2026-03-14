@@ -968,7 +968,7 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 					SyncID:   c.syncIDs[i],
 				})
 			}
-			tm = local.NewLocalCompactor(ctx, cfg.syncCompactorConfig.outputPath, configs)
+			tm = local.NewLocalCompactor(ctx, cfg.syncCompactorConfig.outputPath, configs, cfg.tempDir)
 		default:
 			tm, err = local.NewSyncer(ctx, cfg.c1zPath,
 				local.WithTmpDir(cfg.tempDir),
