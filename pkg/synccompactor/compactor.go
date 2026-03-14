@@ -16,6 +16,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
+	"github.com/conductorone/baton-sdk/pkg/tempdir"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -109,10 +110,7 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 		opt(c)
 	}
 
-	// If no tmpDir is provided, use the tmpDir
-	if c.tmpDir == "" {
-		c.tmpDir = os.TempDir()
-	}
+	c.tmpDir = tempdir.Resolve(c.tmpDir)
 	tmpDir, err := os.MkdirTemp(c.tmpDir, "baton-sync-compactor-")
 	if err != nil {
 		return nil, nil, err

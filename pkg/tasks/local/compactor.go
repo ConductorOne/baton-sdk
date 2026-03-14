@@ -19,10 +19,11 @@ type localCompactor struct {
 
 	compactableSyncs []*synccompactor.CompactableSync
 	outputPath       string
+	tmpDir           string
 }
 
 func (m *localCompactor) GetTempDir() string {
-	return ""
+	return m.tmpDir
 }
 
 func (m *localCompactor) ShouldDebug() bool {
@@ -44,7 +45,11 @@ func (m *localCompactor) Process(ctx context.Context, task *v1.Task, cc types.Co
 	defer span.End()
 	log := ctxzap.Extract(ctx)
 
-	compactor, cleanup, err := synccompactor.NewCompactor(ctx, m.outputPath, m.compactableSyncs)
+	var compactOpts []synccompactor.Option
+	if m.tmpDir != "" {
+		compactOpts = append(compactOpts, synccompactor.WithTmpDir(m.tmpDir))
+	}
+	compactor, cleanup, err := synccompactor.NewCompactor(ctx, m.outputPath, m.compactableSyncs, compactOpts...)
 	if err != nil {
 		return err
 	}
@@ -62,10 +67,11 @@ func (m *localCompactor) Process(ctx context.Context, task *v1.Task, cc types.Co
 	return nil
 }
 
-// NewLocalCompactor returns a task manager that queues a revoke task.
-func NewLocalCompactor(ctx context.Context, outputPath string, compactableSyncs []*synccompactor.CompactableSync) tasks.Manager {
+// NewLocalCompactor returns a task manager that queues a compaction task.
+func NewLocalCompactor(ctx context.Context, outputPath string, compactableSyncs []*synccompactor.CompactableSync, tmpDir string) tasks.Manager {
 	return &localCompactor{
 		compactableSyncs: compactableSyncs,
 		outputPath:       outputPath,
+		tmpDir:           tmpDir,
 	}
 }
