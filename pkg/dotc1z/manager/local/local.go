@@ -133,7 +133,6 @@ func (l *localManager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithTmpDir(l.tmpDir),
-		dotc1z.WithPragma("journal_mode", "WAL"),
 	}
 	if len(l.decoderOptions) > 0 {
 		opts = append(opts, dotc1z.WithDecoderOptions(l.decoderOptions...))

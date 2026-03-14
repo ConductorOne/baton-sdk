@@ -144,7 +144,6 @@ func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 
 	opts := []dotc1z.C1ZOption{
 		dotc1z.WithTmpDir(s.tmpDir),
-		dotc1z.WithPragma("journal_mode", "WAL"),
 	}
 	if len(s.decoderOptions) > 0 {
 		opts = append(opts, dotc1z.WithDecoderOptions(s.decoderOptions...))
