@@ -16,6 +16,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/synccompactor/attached"
+	"github.com/conductorone/baton-sdk/pkg/tempdir"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
@@ -109,16 +110,7 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 		opt(c)
 	}
 
-	// If no tmpDir is provided, prefer /c1-tenant-datastore if available,
-	// otherwise fall back to the OS temp directory.
-	if c.tmpDir == "" {
-		const defaultDatastorePath = "/c1-tenant-datastore"
-		if fi, err := os.Stat(defaultDatastorePath); err == nil && fi.IsDir() {
-			c.tmpDir = defaultDatastorePath
-		} else {
-			c.tmpDir = os.TempDir()
-		}
-	}
+	c.tmpDir = tempdir.Resolve(c.tmpDir)
 	tmpDir, err := os.MkdirTemp(c.tmpDir, "baton-sync-compactor-")
 	if err != nil {
 		return nil, nil, err

@@ -28,6 +28,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connector_wrapper/v1"
 	baton_v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
+	"github.com/conductorone/baton-sdk/pkg/tempdir"
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/logging"
@@ -362,16 +363,7 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithWorkerCount(workers))
 		}
 
-		c1zTmpDir := v.GetString("c1z-temp-dir")
-		if c1zTmpDir == "" {
-			// If no temp dir is specified, prefer /c1-tenant-datastore if it exists.
-			// This avoids falling back to /tmp which may have different storage
-			// constraints (size, performance, mount type) than the intended datastore volume.
-			const defaultDatastorePath = "/c1-tenant-datastore"
-			if fi, err := os.Stat(defaultDatastorePath); err == nil && fi.IsDir() {
-				c1zTmpDir = defaultDatastorePath
-			}
-		}
+		c1zTmpDir := tempdir.Resolve(v.GetString("c1z-temp-dir"))
 		if c1zTmpDir != "" {
 			if _, err := os.Stat(c1zTmpDir); os.IsNotExist(err) {
 				return fmt.Errorf("the specified c1z temp dir does not exist: %s", c1zTmpDir)
