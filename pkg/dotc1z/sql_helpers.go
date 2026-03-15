@@ -518,9 +518,8 @@ func executeChunkedInsert(
 	// Checkpoint WAL after each batch to prevent unbounded WAL growth.
 	// Without this, auto-checkpoint failures (e.g. context cancellation)
 	// allow the WAL to grow to tens of GB across multiple sync runs.
-	if err := c.CheckpointWAL(ctx); err != nil {
-		ctxzap.Extract(ctx).Warn("chunked-insert: post-commit checkpoint failed", zap.Error(err))
-	}
+	// Errors are non-fatal — the final TRUNCATE checkpoint at Close handles the rest.
+	_ = c.CheckpointWAL(ctx)
 
 	return nil
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -424,7 +425,7 @@ func (c *C1File) Close(ctx context.Context) error {
 	return nil
 }
 
-// CheckpointWAL runs a non-blocking PASSIVE checkpoint and logs WAL stats.
+// CheckpointWAL runs a non-blocking PASSIVE checkpoint and records WAL stats on a span.
 // PASSIVE checkpoints as many frames as possible without blocking writers,
 // preventing unbounded WAL growth between transactions.
 func (c *C1File) CheckpointWAL(ctx context.Context) error {
@@ -432,12 +433,13 @@ func (c *C1File) CheckpointWAL(ctx context.Context) error {
 		return nil
 	}
 
-	l := ctxzap.Extract(ctx)
+	ctx, span := tracer.Start(ctx, "C1File.CheckpointWAL")
+	defer span.End()
 
 	var busy, log, checkpointed int
 	row := c.rawDb.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)")
 	if err := row.Scan(&busy, &log, &checkpointed); err != nil {
-		l.Warn("wal-checkpoint: passive checkpoint failed", zap.Error(err))
+		span.RecordError(err)
 		return err
 	}
 
@@ -448,12 +450,11 @@ func (c *C1File) CheckpointWAL(ctx context.Context) error {
 		walSizeBytes = fi.Size()
 	}
 
-	l.Info("wal-checkpoint: passive checkpoint complete",
-		zap.Int("busy", busy),
-		zap.Int("log_pages", log),
-		zap.Int("checkpointed_pages", checkpointed),
-		zap.Int64("wal_size_bytes", walSizeBytes),
-		zap.String("db_path", c.dbFilePath),
+	span.SetAttributes(
+		attribute.Int("wal.checkpoint.busy", busy),
+		attribute.Int("wal.checkpoint.log_pages", log),
+		attribute.Int("wal.checkpoint.checkpointed_pages", checkpointed),
+		attribute.Int64("wal.size_bytes", walSizeBytes),
 	)
 
 	return nil
@@ -482,15 +483,16 @@ func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
 		walSizeBytes = fi.Size()
 	}
 
+	span.SetAttributes(
+		attribute.Int("wal.checkpoint.busy", busy),
+		attribute.Int("wal.checkpoint.log_pages", log),
+		attribute.Int("wal.checkpoint.checkpointed_pages", checkpointed),
+		attribute.Int64("wal.size_bytes", walSizeBytes),
+	)
+
 	if busy != 0 || (log >= 0 && checkpointed < log) {
 		ctxzap.Extract(ctx).Warn("wal-checkpoint: truncate checkpoint incomplete",
 			zap.Int("busy", busy),
-			zap.Int("log_pages", log),
-			zap.Int("checkpointed_pages", checkpointed),
-			zap.Int64("wal_size_bytes", walSizeBytes),
-			zap.String("db_path", c.dbFilePath))
-	} else {
-		ctxzap.Extract(ctx).Info("wal-checkpoint: truncate checkpoint complete",
 			zap.Int("log_pages", log),
 			zap.Int("checkpointed_pages", checkpointed),
 			zap.Int64("wal_size_bytes", walSizeBytes),
