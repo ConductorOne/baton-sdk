@@ -402,6 +402,41 @@ func (c *C1File) Close(ctx context.Context) error {
 	return nil
 }
 
+// CheckpointWAL runs a non-blocking PASSIVE checkpoint and logs WAL stats.
+// PASSIVE checkpoints as many frames as possible without blocking writers,
+// preventing unbounded WAL growth between transactions.
+func (c *C1File) CheckpointWAL(ctx context.Context) error {
+	if c.readOnly {
+		return nil
+	}
+
+	l := ctxzap.Extract(ctx)
+
+	var busy, log, checkpointed int
+	row := c.rawDb.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)")
+	if err := row.Scan(&busy, &log, &checkpointed); err != nil {
+		l.Warn("wal-checkpoint: passive checkpoint failed", zap.Error(err))
+		return err
+	}
+
+	// Stat the WAL file for size visibility.
+	var walSizeBytes int64
+	walPath := c.dbFilePath + "-wal"
+	if fi, err := os.Stat(walPath); err == nil {
+		walSizeBytes = fi.Size()
+	}
+
+	l.Info("wal-checkpoint: passive checkpoint complete",
+		zap.Int("busy", busy),
+		zap.Int("log_pages", log),
+		zap.Int("checkpointed_pages", checkpointed),
+		zap.Int64("wal_size_bytes", walSizeBytes),
+		zap.String("db_path", c.dbFilePath),
+	)
+
+	return nil
+}
+
 // truncateWAL truncates the WAL file.
 // Returns the busy, log, and checkpointed values.
 func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
@@ -417,12 +452,25 @@ func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
 	if err := row.Scan(&busy, &log, &checkpointed); err != nil {
 		return 0, 0, 0, err
 	}
-	// TODO: Return an error here?
+	// Stat the WAL file for size visibility.
+	var walSizeBytes int64
+	walPath := c.dbFilePath + "-wal"
+	if fi, err := os.Stat(walPath); err == nil {
+		walSizeBytes = fi.Size()
+	}
+
 	if busy != 0 || (log >= 0 && checkpointed < log) {
-		ctxzap.Extract(ctx).Info("WAL checkpoint incomplete",
+		ctxzap.Extract(ctx).Warn("wal-checkpoint: truncate checkpoint incomplete",
 			zap.Int("busy", busy),
-			zap.Int("log", log),
-			zap.Int("checkpointed", checkpointed),
+			zap.Int("log_pages", log),
+			zap.Int("checkpointed_pages", checkpointed),
+			zap.Int64("wal_size_bytes", walSizeBytes),
+			zap.String("db_path", c.dbFilePath))
+	} else {
+		ctxzap.Extract(ctx).Info("wal-checkpoint: truncate checkpoint complete",
+			zap.Int("log_pages", log),
+			zap.Int("checkpointed_pages", checkpointed),
+			zap.Int64("wal_size_bytes", walSizeBytes),
 			zap.String("db_path", c.dbFilePath))
 	}
 	return busy, log, checkpointed, nil
