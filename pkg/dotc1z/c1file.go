@@ -407,7 +407,7 @@ func (c *C1File) Close(ctx context.Context) error {
 // PASSIVE checkpoints as many frames as possible without blocking writers,
 // preventing unbounded WAL growth between transactions.
 func (c *C1File) CheckpointWAL(ctx context.Context) error {
-	if c.readOnly {
+	if c.readOnly || c.rawDb == nil {
 		return nil
 	}
 
