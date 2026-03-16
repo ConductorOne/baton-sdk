@@ -23,7 +23,7 @@ import (
 )
 
 const bulkPutParallelThreshold = 100
-const insertChunkSize = 200
+const insertChunkSize = 1000
 const maxPageSize = 10000
 
 // Use worker pool to limit goroutines.
