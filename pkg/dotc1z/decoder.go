@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultMaxDecodedSize   = 3 * 1024 * 1024 * 1024 // 3GiB
+	defaultMaxDecodedSize   = 50 * 1024 * 1024 * 1024 // 50GiB
 	defaultDecoderMaxMemory = 128 * 1024 * 1024      // 128MiB
 	maxDecodedSizeEnvVar    = "BATON_DECODER_MAX_DECODED_SIZE_MB"
 	maxDecoderMemorySizeEnv = "BATON_DECODER_MAX_MEMORY_MB"
@@ -90,7 +90,7 @@ func WithDecoderMaxMemory(n uint64) DecoderOption {
 
 // WithDecoderMaxDecodedSize sets the maximum size of the decoded stream.
 // This can be used to cap the resulting decoded stream size.
-// Maximum is 1 << 63 bytes. Default is 1GiB.
+// Maximum is 1 << 63 bytes. Default is 50GiB.
 func WithDecoderMaxDecodedSize(n uint64) DecoderOption {
 	return func(o *decoderOptions) error {
 		if n == 0 {
