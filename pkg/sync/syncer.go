@@ -451,9 +451,11 @@ func (s *syncer) Sync(ctx context.Context) error {
 
 	err = s.store.Cleanup(runCtx)
 	if err != nil {
-		// If the context was cancelled (deadline, SIGTERM, etc.) during cleanup,
+		// If cleanup failed because the context was cancelled (deadline, SIGTERM, etc.),
 		// return ErrSyncNotComplete so the sync can resume and finish cleanup later.
-		if runCtx.Err() != nil {
+		// Only mask the error when it's actually context-caused — real cleanup failures
+		// (e.g. DB corruption) should propagate even if the context is also done.
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return ErrSyncNotComplete
 		}
 		return err
