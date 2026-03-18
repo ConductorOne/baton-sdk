@@ -509,17 +509,7 @@ func executeChunkedInsert(
 		return fmt.Errorf("error executing chunked insert: %w", txError)
 	}
 
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-
-	// Checkpoint WAL after each batch to prevent unbounded WAL growth.
-	// Without this, auto-checkpoint failures (e.g. context cancellation)
-	// allow the WAL to grow to tens of GB across multiple sync runs.
-	// Errors are non-fatal — the final TRUNCATE checkpoint at Close handles the rest.
-	_ = c.CheckpointWAL(ctx)
-
-	return nil
+	return tx.Commit()
 }
 
 func bulkPutConnectorObject[T proto.Message](

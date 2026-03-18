@@ -403,41 +403,6 @@ func (c *C1File) Close(ctx context.Context) error {
 	return nil
 }
 
-// CheckpointWAL runs a non-blocking PASSIVE checkpoint and records WAL stats on a span.
-// PASSIVE checkpoints as many frames as possible without blocking writers,
-// preventing unbounded WAL growth between transactions.
-func (c *C1File) CheckpointWAL(ctx context.Context) error {
-	if c.readOnly || c.rawDb == nil {
-		return nil
-	}
-
-	ctx, span := tracer.Start(ctx, "C1File.CheckpointWAL")
-	defer span.End()
-
-	var busy, log, checkpointed int
-	row := c.rawDb.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)")
-	if err := row.Scan(&busy, &log, &checkpointed); err != nil {
-		span.RecordError(err)
-		return err
-	}
-
-	// Stat the WAL file for size visibility.
-	var walSizeBytes int64
-	walPath := c.dbFilePath + "-wal"
-	if fi, err := os.Stat(walPath); err == nil {
-		walSizeBytes = fi.Size()
-	}
-
-	span.SetAttributes(
-		attribute.Int("wal.checkpoint.busy", busy),
-		attribute.Int("wal.checkpoint.log_pages", log),
-		attribute.Int("wal.checkpoint.checkpointed_pages", checkpointed),
-		attribute.Int64("wal.size_bytes", walSizeBytes),
-	)
-
-	return nil
-}
-
 // truncateWAL truncates the WAL file.
 // Returns the busy, log, and checkpointed values.
 func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
