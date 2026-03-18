@@ -63,7 +63,7 @@ func (s *syncer) parallelSync(
 				if checkpointErr := s.Checkpoint(checkpointCtx, true); checkpointErr != nil {
 					l.Error("error checkpointing before exiting cancelled sync", zap.Error(checkpointErr))
 				}
-				return warnings, err
+				return warnings, errors.Join(err, ErrSyncNotComplete)
 			}
 		default:
 		}
