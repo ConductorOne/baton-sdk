@@ -33,9 +33,11 @@ func TestExtractMeaningfulLogLines(t *testing.T) {
 			output: "",
 		},
 		{
-			name:   "log with mixed JSON and non-JSON lines",
-			raw:    `{"level":"info","ts":1234,"msg":"Challenging auth...","tenant_id":"t1"}` + "\n" + `lambda-run: failed to get connector: rpc error: code = Unknown desc = authenticating during initialization` + "\n" + `account_inactive`,
-			output: "lambda-run: failed to get connector: rpc error: code = Unknown desc = authenticating during initialization\naccount_inactive",
+			name: "log with mixed JSON and non-JSON lines",
+			raw: `{"level":"info","ts":1234,"msg":"Challenging auth...","tenant_id":"t1"}` + "\n" +
+				`lambda-run: failed to get connector: authenticating during initialization` + "\n" +
+				`account_inactive`,
+			output: "lambda-run: failed to get connector: authenticating during initialization\naccount_inactive",
 		},
 	}
 
