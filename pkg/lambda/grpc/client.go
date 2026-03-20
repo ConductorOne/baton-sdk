@@ -159,19 +159,6 @@ var ignoredLogPrefixes = []string{
 	"Max Memory Used:",
 }
 
-var ignoredLogFields = []string{
-	"tenant_id",
-	"connector_id",
-	"app_id",
-	"release_version",
-	"installation",
-	"catalog_id",
-	"catalog_name",
-	"tenant_name",
-	"version",
-	"tenant_is_internal",
-}
-
 func extractMeaningfulLogLines(raw string) string {
 	lines := strings.Split(raw, "\n")
 	var filtered []string
@@ -189,23 +176,10 @@ func extractMeaningfulLogLines(raw string) string {
 			continue
 		}
 
+		// Skip structured JSON log lines (zap logger output) - they are
+		// diagnostic context, not the actual error.
 		if strings.HasPrefix(line, "{") {
-			jsonLineLog := make(map[string]any)
-			err := json.Unmarshal([]byte(line), &jsonLineLog)
-			if err == nil {
-				for _, field := range ignoredLogFields {
-					delete(jsonLineLog, field)
-				}
-
-				if len(jsonLineLog) > 0 {
-					filteredLineBytes, err := json.Marshal(jsonLineLog)
-					if err == nil {
-						line = string(filteredLineBytes)
-					}
-				} else {
-					continue
-				}
-			}
+			continue
 		}
 
 		filtered = append(filtered, line)

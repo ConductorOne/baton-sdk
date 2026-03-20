@@ -28,9 +28,14 @@ func TestExtractMeaningfulLogLines(t *testing.T) {
 			output: "This is a meaningful log line\nAnother meaningful log line",
 		},
 		{
-			name:   "log with JSON lines containing ignored fields",
+			name:   "log with JSON lines filtered out",
 			raw:    `{"tenant_id":"tenant-1","message":"This is a log message","connector_id":"connector-1"}` + "\n" + `{"message":"Another log message","app_id":"app-1"}`,
-			output: `{"message":"This is a log message"}` + "\n" + `{"message":"Another log message"}`,
+			output: "",
+		},
+		{
+			name:   "log with mixed JSON and non-JSON lines",
+			raw:    `{"level":"info","ts":1234,"msg":"Challenging auth...","tenant_id":"t1"}` + "\n" + `lambda-run: failed to get connector: rpc error: code = Unknown desc = authenticating during initialization` + "\n" + `account_inactive`,
+			output: "lambda-run: failed to get connector: rpc error: code = Unknown desc = authenticating during initialization\naccount_inactive",
 		},
 	}
 
