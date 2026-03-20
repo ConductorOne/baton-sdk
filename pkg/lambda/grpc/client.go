@@ -189,6 +189,12 @@ func extractMeaningfulLogLines(raw string) string {
 			continue
 		}
 
+		// Skip structured JSON log lines (zap logger output) - they are
+		// diagnostic context, not the actual error.
+		if strings.HasPrefix(line, "{") {
+			continue
+		}
+
 		filtered = append(filtered, line)
 	}
 
