@@ -294,9 +294,14 @@ type lambdaTokenSource struct {
 	ctx    context.Context
 	webKey *jose.JSONWebKey
 	client v1.ConnectorConfigServiceClient
+	token  *oauth2.Token
 }
 
 func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
+	if s.token.Valid() {
+		return s.token, nil
+	}
+
 	resp, err := s.client.GetConnectorOauthToken(s.ctx, &v1.GetConnectorOauthTokenRequest{})
 	if err != nil {
 		return nil, err
@@ -317,6 +322,8 @@ func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
 	if err != nil {
 		return nil, fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
 	}
+
+	s.token = &t
 	return &t, nil
 }
 
