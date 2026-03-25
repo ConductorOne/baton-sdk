@@ -317,6 +317,15 @@ var (
 		WithHidden(true),
 		WithExportTarget(ExportTargetOps))
 
+	GRPCMaxMsgSizeField = IntField("grpc-max-msg-size",
+		WithDescription("Maximum gRPC message size in bytes for service and one-shot modes"),
+		WithDefaultValue(4*1024*1024),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetOps),
+		WithInt(func(r *IntRuler) {
+			r.Gte(1).ValidateEmpty(true)
+		}))
+
 	HttpTimeoutField = IntField("http-timeout-seconds",
 		WithDescription("HTTP client timeout in seconds (max 1800)"),
 		WithDefaultValue(300),
@@ -416,6 +425,7 @@ var DefaultFields = []SchemaField{
 	healthCheckBindAddressField,
 
 	HttpTimeoutField,
+	GRPCMaxMsgSizeField,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {
