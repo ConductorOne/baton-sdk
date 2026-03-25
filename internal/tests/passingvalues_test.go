@@ -293,4 +293,38 @@ func TestEntryPoint(t *testing.T) {
 
 		require.NoError(t, err)
 	})
+
+	t.Run("should accept --grpc-max-msg-size flag via CLI", func(t *testing.T) {
+		carrier := field.NewConfiguration(nil)
+
+		v, err := entrypoint(
+			ctx,
+			carrier,
+			nil,
+			"--grpc-max-msg-size",
+			"16777216",
+		)
+
+		require.NoError(t, err)
+		require.EqualValues(t, 16777216, v.GetInt("grpc-max-msg-size"))
+	})
+
+	t.Run("should accept --grpc-max-msg-size flag via ENVVAR", func(t *testing.T) {
+		carrier := field.NewConfiguration(nil)
+
+		t.Setenv("BATON_GRPC_MAX_MSG_SIZE", "33554432")
+		v, err := entrypoint(ctx, carrier, nil)
+
+		require.NoError(t, err)
+		require.EqualValues(t, 33554432, v.GetInt("grpc-max-msg-size"))
+	})
+
+	t.Run("should default --grpc-max-msg-size to 4MB", func(t *testing.T) {
+		carrier := field.NewConfiguration(nil)
+
+		v, err := entrypoint(ctx, carrier, nil)
+
+		require.NoError(t, err)
+		require.EqualValues(t, 4*1024*1024, v.GetInt("grpc-max-msg-size"))
+	})
 }

@@ -99,6 +99,8 @@ type wrapper struct {
 
 	now func() time.Time
 
+	grpcMaxMsgSize int
+
 	SessionServer sessions.SetSessionStore
 }
 
@@ -176,6 +178,13 @@ func WithSyncResourceTypeIDs(resourceTypeIDs []string) Option {
 	}
 }
 
+func WithGRPCMaxMsgSize(size int) Option {
+	return func(ctx context.Context, w *wrapper) error {
+		w.grpcMaxMsgSize = size
+		return nil
+	}
+}
+
 // NewConnectorWrapper returns a connector wrapper for running connector services locally.
 func NewWrapper(ctx context.Context, server interface{}, opts ...Option) (*wrapper, error) {
 	connectorServer, isServer := server.(types.ConnectorServer)
@@ -213,7 +222,7 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 
 	grpc_zap.ReplaceGrpcLoggerV2(logger)
 
-	server := grpc.NewServer(
+	serverOpts := []grpc.ServerOption{
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
 		grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx)...),
 		grpc.ChainStreamInterceptor(ugrpc.StreamServerInterceptors(ctx)...),
@@ -225,7 +234,16 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 				),
 			),
 		)),
-	)
+	}
+
+	if cw.grpcMaxMsgSize > 0 {
+		serverOpts = append(serverOpts,
+			grpc.MaxRecvMsgSize(cw.grpcMaxMsgSize),
+			grpc.MaxSendMsgSize(cw.grpcMaxMsgSize),
+		)
+	}
+
+	server := grpc.NewServer(serverOpts...)
 
 	rl, err := ratelimit2.NewLimiter(ctx, cw.now, serverCfg.GetRateLimiterConfig())
 	if err != nil {
@@ -396,6 +414,29 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 	// The server won't start up immediately, so we may need to retry connecting
 	// This allows retrying connecting for 5 seconds every 500ms. Once initially
 	// connected, grpc will handle retries for us.
+	dialOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
+		grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still for compatibility
+		grpc.WithChainUnaryInterceptor(ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...)),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler(
+			otelgrpc.WithPropagators(
+				propagation.NewCompositeTextMapPropagator(
+					propagation.TraceContext{},
+					propagation.Baggage{},
+				),
+			),
+		)),
+	}
+
+	if cw.grpcMaxMsgSize > 0 {
+		dialOpts = append(dialOpts,
+			grpc.WithDefaultCallOptions(
+				grpc.MaxCallRecvMsgSize(cw.grpcMaxMsgSize),
+				grpc.MaxCallSendMsgSize(cw.grpcMaxMsgSize),
+			),
+		)
+	}
+
 	dialCtx, canc := context.WithTimeout(ctx, 5*time.Second)
 	defer canc()
 	var dialErr error
@@ -404,17 +445,7 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 		conn, err = grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still for compatibility
 			ctx,
 			fmt.Sprintf("127.0.0.1:%d", listenPort),
-			grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
-			grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still for compatibility
-			grpc.WithChainUnaryInterceptor(ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...)),
-			grpc.WithStatsHandler(otelgrpc.NewClientHandler(
-				otelgrpc.WithPropagators(
-					propagation.NewCompositeTextMapPropagator(
-						propagation.TraceContext{},
-						propagation.Baggage{},
-					),
-				),
-			)),
+			dialOpts...,
 		)
 		if err != nil {
 			dialErr = err
