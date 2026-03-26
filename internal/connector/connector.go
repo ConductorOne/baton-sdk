@@ -36,6 +36,11 @@ import (
 
 const listenerFdEnv = "BATON_CONNECTOR_SERVICE_LISTENER_FD"
 
+// maxGRPCMessageSize is the maximum gRPC message size in bytes (50MB).
+// The default gRPC limit of 4MB is too small for connectors that return
+// large pages of resources (e.g., wide SQL tables).
+const maxGRPCMessageSize = 50 * 1024 * 1024
+
 type connectorClient struct {
 	connectorV2.ResourceTypesServiceClient
 	connectorV2.ResourcesServiceClient
@@ -215,6 +220,8 @@ func (cw *wrapper) Run(ctx context.Context, serverCfg *connectorwrapperV1.Server
 
 	server := grpc.NewServer(
 		grpc.Creds(credentials.NewTLS(tlsConfig)),
+		grpc.MaxRecvMsgSize(maxGRPCMessageSize),
+		grpc.MaxSendMsgSize(maxGRPCMessageSize),
 		grpc.ChainUnaryInterceptor(ugrpc.UnaryServerInterceptor(ctx)...),
 		grpc.ChainStreamInterceptor(ugrpc.StreamServerInterceptors(ctx)...),
 		grpc.StatsHandler(otelgrpc.NewServerHandler(
@@ -406,6 +413,10 @@ func (cw *wrapper) C(ctx context.Context) (types.ConnectorClient, error) {
 			fmt.Sprintf("127.0.0.1:%d", listenPort),
 			grpc.WithTransportCredentials(credentials.NewTLS(clientTLSConfig)),
 			grpc.WithBlock(), //nolint:staticcheck // grpc.WithBlock is deprecated but we are using it still for compatibility
+			grpc.WithDefaultCallOptions(
+				grpc.MaxCallRecvMsgSize(maxGRPCMessageSize),
+				grpc.MaxCallSendMsgSize(maxGRPCMessageSize),
+			),
 			grpc.WithChainUnaryInterceptor(ratelimit2.UnaryInterceptor(cw.now, cw.rlDescriptors...)),
 			grpc.WithStatsHandler(otelgrpc.NewClientHandler(
 				otelgrpc.WithPropagators(
