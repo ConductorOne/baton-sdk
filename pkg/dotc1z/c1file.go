@@ -14,6 +14,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -417,12 +418,26 @@ func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
 	if err := row.Scan(&busy, &log, &checkpointed); err != nil {
 		return 0, 0, 0, err
 	}
-	// TODO: Return an error here?
+	// Stat the WAL file for size visibility.
+	var walSizeBytes int64
+	walPath := c.dbFilePath + "-wal"
+	if fi, err := os.Stat(walPath); err == nil {
+		walSizeBytes = fi.Size()
+	}
+
+	span.SetAttributes(
+		attribute.Int("wal.checkpoint.busy", busy),
+		attribute.Int("wal.checkpoint.log_pages", log),
+		attribute.Int("wal.checkpoint.checkpointed_pages", checkpointed),
+		attribute.Int64("wal.size_bytes", walSizeBytes),
+	)
+
 	if busy != 0 || (log >= 0 && checkpointed < log) {
-		ctxzap.Extract(ctx).Info("WAL checkpoint incomplete",
+		ctxzap.Extract(ctx).Warn("wal-checkpoint: truncate checkpoint incomplete",
 			zap.Int("busy", busy),
-			zap.Int("log", log),
-			zap.Int("checkpointed", checkpointed),
+			zap.Int("log_pages", log),
+			zap.Int("checkpointed_pages", checkpointed),
+			zap.Int64("wal_size_bytes", walSizeBytes),
 			zap.String("db_path", c.dbFilePath))
 	}
 	return busy, log, checkpointed, nil
