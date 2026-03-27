@@ -188,6 +188,12 @@ func MakeMainCommand[T field.Configurable](
 					v.GetString("health-check-bind-address"),
 				))
 			}
+			// In daemon mode, provisioning and ticketing are controlled by the
+			// C1 backend which only sends tasks the connector has declared
+			// capability for. Always enable them so the gRPC child process
+			// registers the real implementations instead of the noop stubs.
+			opts = append(opts, connectorrunner.WithProvisioningEnabled())
+			opts = append(opts, connectorrunner.WithTicketingEnabled())
 		} else {
 			switch {
 			case v.GetString("grant-entitlement") != "":
@@ -589,11 +595,14 @@ func MakeGRPCServerCommand[T field.Configurable](
 
 		var copts []connector.Option
 
-		if v.GetBool("provisioning") {
+		// In daemon mode (client-id is set), provisioning and ticketing are
+		// controlled by the C1 backend. Always enable them so the gRPC server
+		// registers the real implementations instead of the noop stubs.
+		if v.GetBool("provisioning") || v.GetString("client-id") != "" {
 			copts = append(copts, connector.WithProvisioningEnabled())
 		}
 
-		if v.GetBool("ticketing") {
+		if v.GetBool("ticketing") || v.GetString("client-id") != "" {
 			copts = append(copts, connector.WithTicketingEnabled())
 		}
 
