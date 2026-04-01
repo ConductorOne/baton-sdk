@@ -11,6 +11,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 const assetsTableVersion = "1"
@@ -54,9 +55,9 @@ func (r *assetsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 }
 
 // PutAsset stores the given asset in the database.
-func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
+func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) (err error) {
 	ctx, span := tracer.Start(ctx, "C1File.PutAsset")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if c.readOnly {
 		return ErrReadOnly
@@ -74,7 +75,7 @@ func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTyp
 		contentType = "unknown"
 	}
 
-	err := c.validateSyncDb(ctx)
+	err = c.validateSyncDb(ctx)
 	if err != nil {
 		return err
 	}
@@ -108,11 +109,11 @@ func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTyp
 
 // GetAsset fetches the specified asset from the database, and returns the content type and an io.Reader for the caller to
 // read the asset from.
-func (c *C1File) GetAsset(ctx context.Context, request *v2.AssetServiceGetAssetRequest) (string, io.Reader, error) {
+func (c *C1File) GetAsset(ctx context.Context, request *v2.AssetServiceGetAssetRequest) (_ string, _ io.Reader, err error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetAsset")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	err := c.validateDb(ctx)
+	err = c.validateDb(ctx)
 	if err != nil {
 		return "", nil, err
 	}

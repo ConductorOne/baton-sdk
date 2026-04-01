@@ -9,6 +9,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/synccompactor"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
@@ -40,9 +41,9 @@ func (m *localCompactor) Next(ctx context.Context) (*v1.Task, time.Duration, err
 	return task, 0, nil
 }
 
-func (m *localCompactor) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+func (m *localCompactor) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
 	ctx, span := tracer.Start(ctx, "localCompactor.Process", trace.WithNewRoot())
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	log := ctxzap.Extract(ctx)
 
 	var compactOpts []synccompactor.Option

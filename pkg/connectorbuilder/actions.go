@@ -8,6 +8,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -97,9 +98,9 @@ type RegisterActionManagerLimited interface {
 	RegisterActionManager(ctx context.Context) (CustomActionManager, error)
 }
 
-func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionSchemasRequest) (*v2.ListActionSchemasResponse, error) {
+func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionSchemasRequest) (_ *v2.ListActionSchemasResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.ListActionSchemas")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ActionListSchemasType
@@ -120,9 +121,9 @@ func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionS
 	return rv, nil
 }
 
-func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSchemaRequest) (*v2.GetActionSchemaResponse, error) {
+func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSchemaRequest) (_ *v2.GetActionSchemaResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.GetActionSchema")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ActionGetSchemaType
@@ -141,9 +142,9 @@ func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSche
 	return rv, nil
 }
 
-func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequest) (*v2.InvokeActionResponse, error) {
+func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequest) (_ *v2.InvokeActionResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.InvokeAction")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ActionInvokeType
@@ -168,9 +169,9 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 	return rv, nil
 }
 
-func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStatusRequest) (*v2.GetActionStatusResponse, error) {
+func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStatusRequest) (_ *v2.GetActionStatusResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.GetActionStatus")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ActionStatusType

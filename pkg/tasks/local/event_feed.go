@@ -10,6 +10,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -44,9 +45,9 @@ func (m *localEventFeed) Next(ctx context.Context) (*v1.Task, time.Duration, err
 	return task, 0, nil
 }
 
-func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
 	ctx, span := tracer.Start(ctx, "localEventFeed.Process", trace.WithNewRoot())
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	pageToken := m.cursor
 	for {

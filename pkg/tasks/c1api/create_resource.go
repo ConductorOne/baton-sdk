@@ -13,6 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type createResourceHelpers interface {
@@ -25,9 +26,9 @@ type createResourceTaskHandler struct {
 	helpers createResourceHelpers
 }
 
-func (g *createResourceTaskHandler) HandleTask(ctx context.Context) error {
+func (g *createResourceTaskHandler) HandleTask(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "createResourceTaskHandler.HandleTask")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
 

@@ -13,6 +13,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 const maxTicketSchemas = 100
@@ -27,9 +28,9 @@ type listTicketSchemasTaskHandler struct {
 	helpers listTicketSchemasTaskHelpers
 }
 
-func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
+func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "listTicketSchemasTaskHandler.HandleTask")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 
@@ -41,7 +42,6 @@ func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
 
 	cc := c.helpers.ConnectorClient()
 	var ticketSchemas []*v2.TicketSchema
-	var err error
 	pageToken := ""
 	for {
 		schemas, err := cc.ListTicketSchemas(ctx, v2.TicketsServiceListTicketSchemasRequest_builder{

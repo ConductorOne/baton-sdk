@@ -12,6 +12,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type createTicketTaskHelpers interface {
@@ -24,9 +25,9 @@ type createTicketTaskHandler struct {
 	helpers createTicketTaskHelpers
 }
 
-func (c *createTicketTaskHandler) HandleTask(ctx context.Context) error {
+func (c *createTicketTaskHandler) HandleTask(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "createTicketTaskHandler.HandleTask")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 

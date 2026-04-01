@@ -19,6 +19,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 const (
@@ -82,9 +83,9 @@ func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.BatonServiceCli
 	}, nil
 }
 
-func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloRequest) (*v1.BatonServiceHelloResponse, error) {
+func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloRequest) (_ *v1.BatonServiceHelloResponse, err error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Hello")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
@@ -97,9 +98,9 @@ func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloReq
 	return client.Hello(ctx, in)
 }
 
-func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTaskRequest) (*v1.BatonServiceGetTaskResponse, error) {
+func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTaskRequest) (_ *v1.BatonServiceGetTaskResponse, err error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.GetTask")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
@@ -112,9 +113,9 @@ func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTas
 	return client.GetTask(ctx, in)
 }
 
-func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHeartbeatRequest) (*v1.BatonServiceHeartbeatResponse, error) {
+func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHeartbeatRequest) (_ *v1.BatonServiceHeartbeatResponse, err error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Heartbeat")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
@@ -127,9 +128,9 @@ func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHear
 	return client.Heartbeat(ctx, in)
 }
 
-func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFinishTaskRequest) (*v1.BatonServiceFinishTaskResponse, error) {
+func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFinishTaskRequest) (_ *v1.BatonServiceFinishTaskResponse, err error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.FinishTask")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
@@ -142,13 +143,11 @@ func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFin
 	return client.FinishTask(ctx, in)
 }
 
-func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error {
+func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) (err error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Upload")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
-
-	var err error
 	const maxAttempts = 3
 	for i := range maxAttempts {
 		err = c.upload(ctx, task, r)
@@ -169,13 +168,13 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 	return err
 }
 
-func (c *c1ServiceClient) upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error {
+func (c *c1ServiceClient) upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) (err error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Upload")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 
-	_, err := r.Seek(0, io.SeekStart)
+	_, err = r.Seek(0, io.SeekStart)
 	if err != nil {
 		l.Error("failed to seek to start of upload asset", zap.Error(err))
 		return err

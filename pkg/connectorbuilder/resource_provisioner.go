@@ -9,6 +9,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -59,9 +60,9 @@ type GrantProvisionerV2 interface {
 	Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error)
 }
 
-func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (*v2.GrantManagerServiceGrantResponse, error) {
+func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (_ *v2.GrantManagerServiceGrantResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.Grant")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.GrantType
@@ -98,9 +99,9 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 	}
 }
 
-func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (*v2.GrantManagerServiceRevokeResponse, error) {
+func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (_ *v2.GrantManagerServiceRevokeResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.Revoke")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.RevokeType
