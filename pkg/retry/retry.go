@@ -9,7 +9,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -49,7 +48,6 @@ func NewRetryer(ctx context.Context, config RetryConfig) *Retryer {
 
 func (r *Retryer) ShouldWaitAndRetry(ctx context.Context, err error) bool {
 	ctx, span := tracer.Start(ctx, "retry.ShouldWaitAndRetry")
-	span.SetAttributes(attribute.Int("attempt", int(r.attempts+1)))
 	defer span.End()
 
 	if err == nil {
