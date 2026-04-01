@@ -10,6 +10,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -42,6 +43,7 @@ func (m *localCompactor) Next(ctx context.Context) (*v1.Task, time.Duration, err
 
 func (m *localCompactor) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localCompactor.Process", trace.WithNewRoot())
+	span.SetAttributes(attribute.String("task_type", "compact"))
 	defer span.End()
 	log := ctxzap.Extract(ctx)
 

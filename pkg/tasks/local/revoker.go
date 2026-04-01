@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
@@ -40,6 +41,7 @@ func (m *localRevoker) Next(ctx context.Context) (*v1.Task, time.Duration, error
 
 func (m *localRevoker) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localRevoker.Process", trace.WithNewRoot())
+	span.SetAttributes(attribute.String("task_type", "revoke"))
 	defer span.End()
 
 	granter := provisioner.NewRevoker(cc, m.dbPath, m.grantID)

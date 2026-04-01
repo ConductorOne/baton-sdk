@@ -9,6 +9,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -111,6 +112,7 @@ func (b *builder) ListResourceTypes(
 // ListResources returns all available resources for a given resource type ID.
 func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListResources")
+	span.SetAttributes(attribute.String("resource_type_id", request.GetResourceTypeId()))
 	defer span.End()
 
 	start := b.nowFunc()
@@ -155,6 +157,7 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 
 func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterServiceGetResourceRequest) (*v2.ResourceGetterServiceGetResourceResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.GetResource")
+	span.SetAttributes(attribute.String("resource_type_id", request.GetResourceId().GetResourceType()))
 	defer span.End()
 
 	start := b.nowFunc()
@@ -188,6 +191,7 @@ func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterSer
 // Static entitlements are used to create entitlements for all resources of a given resource type.
 func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.EntitlementsServiceListStaticEntitlementsRequest) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListStaticEntitlements")
+	span.SetAttributes(attribute.String("resource_type_id", request.GetResourceTypeId()))
 	defer span.End()
 
 	start := b.nowFunc()
@@ -240,6 +244,7 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 // ListEntitlements returns all the entitlements for a given resource.
 func (b *builder) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListEntitlements")
+	span.SetAttributes(attribute.String("resource_type_id", request.GetResource().GetId().GetResourceType()))
 	defer span.End()
 
 	start := b.nowFunc()
@@ -282,6 +287,7 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 // ListGrants lists all the grants for a given resource.
 func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListGrants")
+	span.SetAttributes(attribute.String("resource_type_id", request.GetResource().GetId().GetResourceType()))
 	defer span.End()
 
 	start := b.nowFunc()

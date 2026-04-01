@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -32,6 +33,7 @@ func (t *taskHelpers) ConnectorClient() types.ConnectorClient {
 
 func (t *taskHelpers) Upload(ctx context.Context, r io.ReadSeeker) error {
 	ctx, span := tracer.Start(ctx, "taskHelpers.Upload")
+	span.SetAttributes(attribute.String("task_id", t.task.GetId()))
 	defer span.End()
 
 	if t.task == nil {
@@ -42,6 +44,7 @@ func (t *taskHelpers) Upload(ctx context.Context, r io.ReadSeeker) error {
 
 func (t *taskHelpers) FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error {
 	ctx, span := tracer.Start(ctx, "taskHelpers.FinishTask")
+	span.SetAttributes(attribute.String("task_id", t.task.GetId()))
 	defer span.End()
 
 	if t.task == nil {
@@ -65,6 +68,7 @@ func (t *taskHelpers) TempDir() string {
 // If the task is cancelled by the server, the returned context will be cancelled with ErrTaskCancelled.
 func (t *taskHelpers) HeartbeatTask(ctx context.Context, annos annotations.Annotations) (context.Context, error) {
 	ctx, span := tracer.Start(ctx, "taskHelpers.HeartbeatTask")
+	span.SetAttributes(attribute.String("task_id", t.task.GetId()))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", t.task.GetId()), zap.Stringer("task_type", tasks.GetType(t.task)))

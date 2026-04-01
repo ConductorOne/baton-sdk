@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -41,6 +42,7 @@ type fullSyncTaskHandler struct {
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	ctx, span := tracer.Start(ctx, "fullSyncTaskHandler.sync")
+	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
@@ -132,6 +134,7 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 // with a sync_id that does match our current state, we should resume our current sync, if possible.
 func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "fullSyncTaskHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
 	defer span.End()
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -222,6 +225,7 @@ func newFullSyncTaskHandler(
 // otherwise silently return success.
 func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers, deleteDebugLogs bool) error {
 	ctx, span := tracer.Start(ctx, "uploadDebugLogs")
+	span.SetAttributes(attribute.Bool("delete_debug_logs", deleteDebugLogs))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)

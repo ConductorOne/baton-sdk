@@ -10,6 +10,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -38,6 +39,10 @@ type OldCredentialManager interface {
 
 func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (*v2.RotateCredentialResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.RotateCredential")
+	span.SetAttributes(
+		attribute.String("resource_type_id", request.GetResourceId().GetResourceType()),
+		attribute.String("resource_id", request.GetResourceId().GetResource()),
+	)
 	defer span.End()
 
 	start := b.nowFunc()

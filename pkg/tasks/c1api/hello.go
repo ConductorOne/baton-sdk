@@ -8,6 +8,7 @@ import (
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/shirou/gopsutil/v4/host"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -113,6 +114,7 @@ func (c *helloTaskHandler) buildInfo(ctx context.Context) *v1.BatonServiceHelloR
 
 func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "helloTaskHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
 	defer span.End()
 
 	if c.task == nil {

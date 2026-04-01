@@ -19,6 +19,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/tempdir"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 )
 
@@ -148,6 +149,7 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 
 func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	ctx, span := tracer.Start(ctx, "Compactor.Compact")
+	span.SetAttributes(attribute.Int("entry_count", len(c.entries)))
 	defer span.End()
 	if len(c.entries) < 2 {
 		return nil, nil
@@ -302,6 +304,7 @@ func cpFile(ctx context.Context, sourcePath string, destPath string) error {
 
 func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) error {
 	ctx, span := tracer.Start(ctx, "Compactor.doOneCompaction")
+	span.SetAttributes(attribute.String("sync_id", cs.SyncID))
 	defer span.End()
 	l := ctxzap.Extract(ctx)
 	l.Info(

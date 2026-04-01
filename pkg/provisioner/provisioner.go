@@ -7,6 +7,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -70,6 +71,11 @@ func makeCrypto(ctx context.Context) (*v2.CredentialOptions, []*v2.EncryptionCon
 
 func (p *Provisioner) Run(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.Run")
+	span.SetAttributes(
+		attribute.String("grant_entitlement_id", p.grantEntitlementID),
+		attribute.String("revoke_grant_id", p.revokeGrantID),
+		attribute.String("delete_resource_type", p.deleteResourceType),
+	)
 	defer span.End()
 
 	switch {
@@ -90,6 +96,7 @@ func (p *Provisioner) Run(ctx context.Context) error {
 
 func (p *Provisioner) loadStore(ctx context.Context) (connectorstore.Reader, error) {
 	ctx, span := tracer.Start(ctx, "Provisioner.loadStore")
+	span.SetAttributes(attribute.String("db_path", p.dbPath))
 	defer span.End()
 
 	if p.store != nil {
@@ -115,6 +122,7 @@ func (p *Provisioner) loadStore(ctx context.Context) (connectorstore.Reader, err
 
 func (p *Provisioner) Close(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.Close")
+	span.SetAttributes(attribute.String("db_path", p.dbPath))
 	defer span.End()
 
 	var err error
@@ -143,6 +151,11 @@ func (p *Provisioner) Close(ctx context.Context) error {
 
 func (p *Provisioner) grant(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.grant")
+	span.SetAttributes(
+		attribute.String("entitlement_id", p.grantEntitlementID),
+		attribute.String("principal_id", p.grantPrincipalID),
+		attribute.String("principal_type", p.grantPrincipalType),
+	)
 	defer span.End()
 
 	store, err := p.loadStore(ctx)
@@ -202,6 +215,7 @@ func (p *Provisioner) grant(ctx context.Context) error {
 
 func (p *Provisioner) revoke(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.revoke")
+	span.SetAttributes(attribute.String("grant_id", p.revokeGrantID))
 	defer span.End()
 
 	store, err := p.loadStore(ctx)
@@ -269,6 +283,7 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 
 func (p *Provisioner) createAccount(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.createAccount")
+	span.SetAttributes(attribute.String("resource_type_id", p.createAccountResourceType))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
@@ -310,6 +325,10 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 
 func (p *Provisioner) deleteResource(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.deleteResource")
+	span.SetAttributes(
+		attribute.String("resource_id", p.deleteResourceID),
+		attribute.String("resource_type_id", p.deleteResourceType),
+	)
 	defer span.End()
 
 	_, err := p.connector.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
@@ -326,6 +345,10 @@ func (p *Provisioner) deleteResource(ctx context.Context) error {
 
 func (p *Provisioner) rotateCredentials(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.rotateCredentials")
+	span.SetAttributes(
+		attribute.String("resource_id", p.rotateCredentialsId),
+		attribute.String("resource_type_id", p.rotateCredentialsType),
+	)
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)

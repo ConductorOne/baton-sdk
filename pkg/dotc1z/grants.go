@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/doug-martin/goqu/v9"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -111,6 +112,7 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrants")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
@@ -126,6 +128,7 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 
 func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetGrant")
+	span.SetAttributes(attribute.String("grant_id", request.GetGrantId()))
 	defer span.End()
 
 	ret := &v2.Grant{}
@@ -148,6 +151,7 @@ func (c *C1File) ListGrantsForEntitlement(
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlement")
+	span.SetAttributes(attribute.String("entitlement_id", request.GetEntitlement().GetId()))
 	defer span.End()
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
@@ -165,6 +169,7 @@ func (c *C1File) ListGrantsForPrincipal(
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForPrincipal")
+	span.SetAttributes(attribute.String("principal_resource_type", request.GetPrincipalId().GetResourceType()), attribute.String("principal_resource_id", request.GetPrincipalId().GetResource()))
 	defer span.End()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
@@ -183,6 +188,7 @@ func (c *C1File) ListGrantsForResourceType(
 	request *reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest,
 ) (*reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForResourceType")
+	span.SetAttributes(attribute.String("resource_type_id", request.GetResourceTypeId()))
 	defer span.End()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
@@ -198,6 +204,7 @@ func (c *C1File) ListGrantsForResourceType(
 
 func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrants")
+	span.SetAttributes(attribute.Int("grant_count", len(bulkGrants)))
 	defer span.End()
 
 	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
@@ -207,6 +214,7 @@ func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 
 func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrantsIfNewer")
+	span.SetAttributes(attribute.Int("grant_count", len(bulkGrants)))
 	defer span.End()
 
 	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
@@ -287,6 +295,7 @@ func upsertGrantsInternal(
 		return nil
 	}
 	ctx, span := tracer.Start(ctx, "C1File.bulkUpsertGrants")
+	span.SetAttributes(attribute.Int("grant_count", len(msgs)))
 	defer span.End()
 
 	if err := c.validateSyncDb(ctx); err != nil {
@@ -604,6 +613,7 @@ func executeGrantChunkedUpsert(
 
 func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
 	ctx, span := tracer.Start(ctx, "C1File.DeleteGrant")
+	span.SetAttributes(attribute.String("grant_id", grantId))
 	defer span.End()
 
 	err := c.validateSyncDb(ctx)

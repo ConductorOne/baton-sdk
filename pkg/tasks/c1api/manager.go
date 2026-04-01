@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -139,6 +140,7 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 
 func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, err error) error {
 	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.finishTask")
+	span.SetAttributes(attribute.String("task_id", task.GetId()))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
@@ -230,6 +232,7 @@ func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.
 		return nil
 	}
 
+	span.SetAttributes(attribute.String("task_id", task.GetId()), attribute.String("task_type", tasks.GetType(task).String()))
 	l = l.With(
 		zap.String("task_id", task.GetId()),
 		zap.Stringer("task_type", tasks.GetType(task)),

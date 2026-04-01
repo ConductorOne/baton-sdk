@@ -11,6 +11,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -61,6 +62,10 @@ type GrantProvisionerV2 interface {
 
 func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (*v2.GrantManagerServiceGrantResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.Grant")
+	span.SetAttributes(
+		attribute.String("entitlement_id", request.GetEntitlement().GetId()),
+		attribute.String("resource_type_id", request.GetEntitlement().GetResource().GetId().GetResourceType()),
+	)
 	defer span.End()
 
 	start := b.nowFunc()
@@ -100,6 +105,10 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 
 func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (*v2.GrantManagerServiceRevokeResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.Revoke")
+	span.SetAttributes(
+		attribute.String("grant_id", request.GetGrant().GetId()),
+		attribute.String("resource_type_id", request.GetGrant().GetEntitlement().GetResource().GetId().GetResourceType()),
+	)
 	defer span.End()
 
 	start := b.nowFunc()
