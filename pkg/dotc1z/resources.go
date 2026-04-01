@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
-	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
@@ -58,10 +58,9 @@ func (r *resourcesTable) Migrations(ctx context.Context, db *goqu.Database) erro
 	return nil
 }
 
-func (c *C1File) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
+func (c *C1File) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (_ *v2.ResourcesServiceListResourcesResponse, err error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListResources")
-	span.SetAttributes(attribute.String("resource_type_id", request.GetResourceTypeId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, resources.Name(), request, func() *v2.Resource { return &v2.Resource{} })
 	if err != nil {
@@ -74,10 +73,9 @@ func (c *C1File) ListResources(ctx context.Context, request *v2.ResourcesService
 	}.Build(), nil
 }
 
-func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourcesReaderServiceGetResourceRequest) (*reader_v2.ResourcesReaderServiceGetResourceResponse, error) {
+func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourcesReaderServiceGetResourceRequest) (_ *reader_v2.ResourcesReaderServiceGetResourceResponse, err error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetResource")
-	span.SetAttributes(attribute.String("resource_id", request.GetResourceId().GetResource()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret := &v2.Resource{}
 	syncId, err := annotations.GetSyncIdFromAnnotations(request.GetAnnotations())
@@ -94,18 +92,16 @@ func (c *C1File) GetResource(ctx context.Context, request *reader_v2.ResourcesRe
 	}.Build(), nil
 }
 
-func (c *C1File) PutResources(ctx context.Context, resourceObjs ...*v2.Resource) error {
+func (c *C1File) PutResources(ctx context.Context, resourceObjs ...*v2.Resource) (err error) {
 	ctx, span := tracer.Start(ctx, "C1File.PutResources")
-	span.SetAttributes(attribute.Int("resource_count", len(resourceObjs)))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.putResourcesInternal(ctx, bulkPutConnectorObject, resourceObjs...)
 }
 
-func (c *C1File) PutResourcesIfNewer(ctx context.Context, resourceObjs ...*v2.Resource) error {
+func (c *C1File) PutResourcesIfNewer(ctx context.Context, resourceObjs ...*v2.Resource) (err error) {
 	ctx, span := tracer.Start(ctx, "C1File.PutResourcesIfNewer")
-	span.SetAttributes(attribute.Int("resource_count", len(resourceObjs)))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.putResourcesInternal(ctx, bulkPutConnectorObjectIfNewer, resourceObjs...)
 }

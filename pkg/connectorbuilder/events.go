@@ -8,6 +8,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -80,9 +81,9 @@ func (e *oldEventFeedWrapper) ListEvents(
 	return e.feed.ListEvents(ctx, earliestEvent, pToken)
 }
 
-func (b *builder) ListEventFeeds(ctx context.Context, request *v2.ListEventFeedsRequest) (*v2.ListEventFeedsResponse, error) {
+func (b *builder) ListEventFeeds(ctx context.Context, request *v2.ListEventFeedsRequest) (_ *v2.ListEventFeedsResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.ListEventFeeds")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ListEventFeedsType
@@ -99,9 +100,9 @@ func (b *builder) ListEventFeeds(ctx context.Context, request *v2.ListEventFeeds
 	}.Build(), nil
 }
 
-func (b *builder) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (*v2.ListEventsResponse, error) {
+func (b *builder) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (_ *v2.ListEventsResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.ListEvents")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	feedId := request.GetEventFeedId()

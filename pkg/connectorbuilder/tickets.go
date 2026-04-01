@@ -10,7 +10,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
-	"go.opentelemetry.io/otel/attribute"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -33,10 +33,9 @@ type TicketManagerLimited interface {
 	BulkGetTickets(context.Context, *v2.TicketsServiceBulkGetTicketsRequest) (*v2.TicketsServiceBulkGetTicketsResponse, error)
 }
 
-func (b *builder) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketsRequest) (*v2.TicketsServiceBulkCreateTicketsResponse, error) {
+func (b *builder) BulkCreateTickets(ctx context.Context, request *v2.TicketsServiceBulkCreateTicketsRequest) (_ *v2.TicketsServiceBulkCreateTicketsResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.BulkCreateTickets")
-	span.SetAttributes(attribute.Int("ticket_count", len(request.GetTicketRequests())))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.BulkCreateTicketsType
@@ -65,10 +64,9 @@ func (b *builder) BulkCreateTickets(ctx context.Context, request *v2.TicketsServ
 	}.Build(), nil
 }
 
-func (b *builder) BulkGetTickets(ctx context.Context, request *v2.TicketsServiceBulkGetTicketsRequest) (*v2.TicketsServiceBulkGetTicketsResponse, error) {
+func (b *builder) BulkGetTickets(ctx context.Context, request *v2.TicketsServiceBulkGetTicketsRequest) (_ *v2.TicketsServiceBulkGetTicketsResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.BulkGetTickets")
-	span.SetAttributes(attribute.Int("ticket_count", len(request.GetTicketRequests())))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.BulkGetTicketsType
@@ -97,9 +95,9 @@ func (b *builder) BulkGetTickets(ctx context.Context, request *v2.TicketsService
 	}.Build(), nil
 }
 
-func (b *builder) ListTicketSchemas(ctx context.Context, request *v2.TicketsServiceListTicketSchemasRequest) (*v2.TicketsServiceListTicketSchemasResponse, error) {
+func (b *builder) ListTicketSchemas(ctx context.Context, request *v2.TicketsServiceListTicketSchemasRequest) (_ *v2.TicketsServiceListTicketSchemasResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.ListTicketSchemas")
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ListTicketSchemasType
@@ -142,10 +140,9 @@ func (b *builder) ListTicketSchemas(ctx context.Context, request *v2.TicketsServ
 	}
 }
 
-func (b *builder) CreateTicket(ctx context.Context, request *v2.TicketsServiceCreateTicketRequest) (*v2.TicketsServiceCreateTicketResponse, error) {
+func (b *builder) CreateTicket(ctx context.Context, request *v2.TicketsServiceCreateTicketRequest) (_ *v2.TicketsServiceCreateTicketResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.CreateTicket")
-	span.SetAttributes(attribute.String("schema_id", request.GetSchema().GetId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.CreateTicketType
@@ -190,10 +187,9 @@ func (b *builder) CreateTicket(ctx context.Context, request *v2.TicketsServiceCr
 	}.Build(), nil
 }
 
-func (b *builder) GetTicket(ctx context.Context, request *v2.TicketsServiceGetTicketRequest) (*v2.TicketsServiceGetTicketResponse, error) {
+func (b *builder) GetTicket(ctx context.Context, request *v2.TicketsServiceGetTicketRequest) (_ *v2.TicketsServiceGetTicketResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.GetTicket")
-	span.SetAttributes(attribute.String("ticket_id", request.GetId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.GetTicketType
@@ -223,10 +219,9 @@ func (b *builder) GetTicket(ctx context.Context, request *v2.TicketsServiceGetTi
 	}.Build(), nil
 }
 
-func (b *builder) GetTicketSchema(ctx context.Context, request *v2.TicketsServiceGetTicketSchemaRequest) (*v2.TicketsServiceGetTicketSchemaResponse, error) {
+func (b *builder) GetTicketSchema(ctx context.Context, request *v2.TicketsServiceGetTicketSchemaRequest) (_ *v2.TicketsServiceGetTicketSchemaResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.GetTicketSchema")
-	span.SetAttributes(attribute.String("schema_id", request.GetId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.GetTicketSchemaType

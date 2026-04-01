@@ -5,13 +5,13 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/provisioner"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type localCredentialRotator struct {
@@ -40,14 +40,13 @@ func (m *localCredentialRotator) Next(ctx context.Context) (*v1.Task, time.Durat
 	return task, 0, nil
 }
 
-func (m *localCredentialRotator) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
+func (m *localCredentialRotator) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
 	ctx, span := tracer.Start(ctx, "localCredentialRotator.Process", trace.WithNewRoot())
-	span.SetAttributes(attribute.String("task_type", "rotate_credentials"))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	accountManager := provisioner.NewCredentialRotator(cc, m.dbPath, m.resourceId, m.resourceType)
 
-	err := accountManager.Run(ctx)
+	err = accountManager.Run(ctx)
 	if err != nil {
 		return err
 	}

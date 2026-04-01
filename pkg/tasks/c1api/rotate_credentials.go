@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type rotateCredentialsHelpers interface {
@@ -26,10 +26,9 @@ type rotateCredentialsTaskHandler struct {
 	helpers rotateCredentialsHelpers
 }
 
-func (g *rotateCredentialsTaskHandler) HandleTask(ctx context.Context) error {
+func (g *rotateCredentialsTaskHandler) HandleTask(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "rotateCredentialsTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_type", "rotate_credentials"))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
 

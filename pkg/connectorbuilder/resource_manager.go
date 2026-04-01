@@ -7,8 +7,8 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -71,10 +71,9 @@ type ResourceDeleterV2Limited interface {
 	Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error)
 }
 
-func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
+func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (_ *v2.CreateResourceResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.CreateResource")
-	span.SetAttributes(attribute.String("resource_type_id", request.GetResource().GetId().GetResourceType()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.CreateResourceType
@@ -98,13 +97,9 @@ func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResource
 	return v2.CreateResourceResponse_builder{Created: resource, Annotations: annos}.Build(), nil
 }
 
-func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (*v2.DeleteResourceResponse, error) {
+func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (_ *v2.DeleteResourceResponse, err error) {
 	ctx, span := tracer.Start(ctx, "builder.DeleteResource")
-	span.SetAttributes(
-		attribute.String("resource_type_id", request.GetResourceId().GetResourceType()),
-		attribute.String("resource_id", request.GetResourceId().GetResource()),
-	)
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.DeleteResourceType
@@ -136,13 +131,9 @@ func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResource
 	return v2.DeleteResourceResponse_builder{Annotations: annos}.Build(), nil
 }
 
-func (b *builder) DeleteResourceV2(ctx context.Context, request *v2.DeleteResourceV2Request) (*v2.DeleteResourceV2Response, error) {
+func (b *builder) DeleteResourceV2(ctx context.Context, request *v2.DeleteResourceV2Request) (_ *v2.DeleteResourceV2Response, err error) {
 	ctx, span := tracer.Start(ctx, "builder.DeleteResourceV2")
-	span.SetAttributes(
-		attribute.String("resource_type_id", request.GetResourceId().GetResourceType()),
-		attribute.String("resource_id", request.GetResourceId().GetResource()),
-	)
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.DeleteResourceType

@@ -6,13 +6,13 @@ import (
 	"strings"
 
 	"github.com/doug-martin/goqu/v9"
-	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 const grantsTableVersion = "1"
@@ -110,10 +110,9 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 	return backfillGrantExpansionColumn(ctx, db, r.Name())
 }
 
-func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
+func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (_ *v2.GrantsServiceListGrantsResponse, err error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrants")
-	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
@@ -126,10 +125,9 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 	}.Build(), nil
 }
 
-func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
+func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderServiceGetGrantRequest) (_ *reader_v2.GrantsReaderServiceGetGrantResponse, err error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetGrant")
-	span.SetAttributes(attribute.String("grant_id", request.GetGrantId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret := &v2.Grant{}
 	syncId, err := annotations.GetSyncIdFromAnnotations(request.GetAnnotations())
@@ -149,10 +147,9 @@ func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderSe
 func (c *C1File) ListGrantsForEntitlement(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
-) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+) (_ *reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, err error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlement")
-	span.SetAttributes(attribute.String("entitlement_id", request.GetEntitlement().GetId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
@@ -167,10 +164,9 @@ func (c *C1File) ListGrantsForEntitlement(
 func (c *C1File) ListGrantsForPrincipal(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
-) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+) (_ *reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, err error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForPrincipal")
-	span.SetAttributes(attribute.String("principal_resource_type", request.GetPrincipalId().GetResourceType()), attribute.String("principal_resource_id", request.GetPrincipalId().GetResource()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
@@ -186,10 +182,9 @@ func (c *C1File) ListGrantsForPrincipal(
 func (c *C1File) ListGrantsForResourceType(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest,
-) (*reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse, error) {
+) (_ *reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse, err error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForResourceType")
-	span.SetAttributes(attribute.String("resource_type_id", request.GetResourceTypeId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
@@ -202,20 +197,18 @@ func (c *C1File) ListGrantsForResourceType(
 	}.Build(), nil
 }
 
-func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
+func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) (err error) {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrants")
-	span.SetAttributes(attribute.Int("grant_count", len(bulkGrants)))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
 		Mode: connectorstore.GrantUpsertModeReplace,
 	}, bulkGrants...)
 }
 
-func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) error {
+func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) (err error) {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrantsIfNewer")
-	span.SetAttributes(attribute.Int("grant_count", len(bulkGrants)))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
 		Mode: connectorstore.GrantUpsertModeIfNewer,
@@ -290,13 +283,12 @@ func upsertGrantsInternal(
 	c *C1File,
 	mode connectorstore.GrantUpsertMode,
 	msgs ...*v2.Grant,
-) error {
+) (err error) {
 	if len(msgs) == 0 {
 		return nil
 	}
 	ctx, span := tracer.Start(ctx, "C1File.bulkUpsertGrants")
-	span.SetAttributes(attribute.Int("grant_count", len(msgs)))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if err := c.validateSyncDb(ctx); err != nil {
 		return err
@@ -611,12 +603,11 @@ func executeGrantChunkedUpsert(
 	return executeChunkedInsert(ctx, c, tableName, rows, buildQueryFn)
 }
 
-func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
+func (c *C1File) DeleteGrant(ctx context.Context, grantId string) (err error) {
 	ctx, span := tracer.Start(ctx, "C1File.DeleteGrant")
-	span.SetAttributes(attribute.String("grant_id", grantId))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	err := c.validateSyncDb(ctx)
+	err = c.validateSyncDb(ctx)
 	if err != nil {
 		return err
 	}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -14,6 +13,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type actionListSchemasTaskHelpers interface {
@@ -26,10 +26,9 @@ type actionListSchemasTaskHandler struct {
 	helpers actionListSchemasTaskHelpers
 }
 
-func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
+func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "actionListSchemasTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 
@@ -72,10 +71,9 @@ type actionGetSchemaTaskHandler struct {
 	helpers actionGetSchemaTaskHelpers
 }
 
-func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) error {
+func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "actionGetSchemaTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 
@@ -116,10 +114,9 @@ type actionInvokeTaskHandler struct {
 	helpers actionInvokeTaskHelpers
 }
 
-func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
+func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "actionInvokeTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 
@@ -182,10 +179,9 @@ type actionStatusTaskHandler struct {
 	helpers actionStatusTaskHelpers
 }
 
-func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
+func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "actionStatusTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 

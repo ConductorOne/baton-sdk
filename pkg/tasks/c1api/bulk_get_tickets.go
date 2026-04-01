@@ -5,7 +5,6 @@ import (
 	"errors"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -13,6 +12,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type bulkGetTicketsTaskHelpers interface {
@@ -25,10 +25,9 @@ type bulkGetTicketTaskHandler struct {
 	helpers bulkGetTicketsTaskHelpers
 }
 
-func (c *bulkGetTicketTaskHandler) HandleTask(ctx context.Context) error {
+func (c *bulkGetTicketTaskHandler) HandleTask(ctx context.Context) (err error) {
 	ctx, span := tracer.Start(ctx, "bulkGetTicketTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 

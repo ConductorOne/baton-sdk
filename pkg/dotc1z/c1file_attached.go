@@ -9,9 +9,9 @@ import (
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/doug-martin/goqu/v9"
 	"github.com/segmentio/ksuid"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 type C1FileAttached struct {
@@ -19,13 +19,12 @@ type C1FileAttached struct {
 	file *C1File
 }
 
-func (c *C1FileAttached) CompactTable(ctx context.Context, baseSyncID string, appliedSyncID string, tableName string) error {
+func (c *C1FileAttached) CompactTable(ctx context.Context, baseSyncID string, appliedSyncID string, tableName string) (err error) {
 	if !c.safe {
 		return errors.New("database has been detached")
 	}
 	ctx, span := tracer.Start(ctx, "C1FileAttached.CompactTable")
-	span.SetAttributes(attribute.String("base_sync_id", baseSyncID), attribute.String("applied_sync_id", appliedSyncID), attribute.String("table_name", tableName))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	// Get the column structure for this table by querying the schema
 	columns, err := c.getTableColumns(ctx, c.file.rawDb, tableName)
@@ -201,20 +200,19 @@ func (c *C1FileAttached) UpdateSync(ctx context.Context, baseSync *reader_v2.Syn
 // - newSyncID: the sync ID in the main database (NEW/compacted state)
 //
 // Returns (upsertsSyncID, deletionsSyncID, error).
-func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID string, newSyncID string) (string, string, error) {
+func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID string, newSyncID string) (_ string, _ string, err error) {
 	if !c.safe {
 		return "", "", errors.New("database has been detached")
 	}
 
 	ctx, span := tracer.Start(ctx, "C1FileAttached.GenerateSyncDiffFromFile")
-	span.SetAttributes(attribute.String("old_sync_id", oldSyncID), attribute.String("new_sync_id", newSyncID))
-	defer span.End()
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	// Verify both source syncs have been backfilled and support diff before
 	// generating derived syncs. If they haven't, the expansion columns in
 	// copied grants may be incomplete.
 	var oldBackfilled, oldDiff int
-	err := c.file.rawDb.QueryRowContext(ctx,
+	err = c.file.rawDb.QueryRowContext(ctx,
 		fmt.Sprintf("SELECT grants_backfilled, supports_diff FROM attached.%s WHERE sync_id = ?", syncRuns.Name()),
 		oldSyncID,
 	).Scan(&oldBackfilled, &oldDiff)
