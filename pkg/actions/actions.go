@@ -13,6 +13,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -444,7 +445,8 @@ func (a *ActionManager) invokeGlobalAction(ctx context.Context, name string, arg
 	go func() { //nolint:gosec // We want to run this in the background.
 		defer close(done)
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
-		handlerCtx, cancel := context.WithTimeoutCause(context.Background(), 1*time.Hour, errors.New("action handler timed out"))
+		bgCtx := trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
+		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
 		var oaErr error
 		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, args)
@@ -522,7 +524,9 @@ func (a *ActionManager) invokeResourceAction(
 	go func() { //nolint:gosec // We want to run this in the background.
 		defer close(done)
 		oa.SetStatus(ctx, v2.BatonActionStatus_BATON_ACTION_STATUS_RUNNING)
-		handlerCtx, cancel := context.WithTimeoutCause(ctxzap.ToContext(context.Background(), ctxzap.Extract(ctx)), 1*time.Hour, errors.New("action handler timed out"))
+		bgCtx := trace.ContextWithSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
+		bgCtx = ctxzap.ToContext(bgCtx, ctxzap.Extract(ctx))
+		handlerCtx, cancel := context.WithTimeoutCause(bgCtx, 1*time.Hour, errors.New("action handler timed out"))
 		defer cancel()
 		var oaErr error
 		oa.Rv, oa.Annos, oaErr = handler(handlerCtx, args)
