@@ -60,8 +60,9 @@ type GrantProvisionerV2 interface {
 	Grant(ctx context.Context, resource *v2.Resource, entitlement *v2.Entitlement) ([]*v2.Grant, annotations.Annotations, error)
 }
 
-func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (_ *v2.GrantManagerServiceGrantResponse, err error) {
+func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGrantRequest) (*v2.GrantManagerServiceGrantResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.Grant")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
@@ -99,8 +100,9 @@ func (b *builder) Grant(ctx context.Context, request *v2.GrantManagerServiceGran
 	}
 }
 
-func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (_ *v2.GrantManagerServiceRevokeResponse, err error) {
+func (b *builder) Revoke(ctx context.Context, request *v2.GrantManagerServiceRevokeRequest) (*v2.GrantManagerServiceRevokeResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.Revoke")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()

@@ -25,10 +25,10 @@ type listEventsHandler struct {
 	helpers listEventsHelpers
 }
 
-func (c *listEventsHandler) HandleTask(ctx context.Context) (err error) {
+func (c *listEventsHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "listEventHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 	cc := c.helpers.ConnectorClient()
 

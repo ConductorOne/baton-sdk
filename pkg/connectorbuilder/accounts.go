@@ -53,8 +53,9 @@ type OldAccountManager interface {
 		credentialOptions *v2.CredentialOptions) (CreateAccountResponse, []*v2.PlaintextData, annotations.Annotations, error)
 }
 
-func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (_ *v2.CreateAccountResponse, err error) {
+func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.CreateAccount")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()

@@ -69,8 +69,9 @@ func makeCrypto(ctx context.Context) (*v2.CredentialOptions, []*v2.EncryptionCon
 	return opts, []*v2.EncryptionConfig{config}, nil
 }
 
-func (p *Provisioner) Run(ctx context.Context) (err error) {
+func (p *Provisioner) Run(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.Run")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	switch {
@@ -89,8 +90,9 @@ func (p *Provisioner) Run(ctx context.Context) (err error) {
 	}
 }
 
-func (p *Provisioner) loadStore(ctx context.Context) (_ connectorstore.Reader, err error) {
+func (p *Provisioner) loadStore(ctx context.Context) (connectorstore.Reader, error) {
 	ctx, span := tracer.Start(ctx, "Provisioner.loadStore")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if p.store != nil {
@@ -114,8 +116,9 @@ func (p *Provisioner) loadStore(ctx context.Context) (_ connectorstore.Reader, e
 	return p.store, nil
 }
 
-func (p *Provisioner) Close(ctx context.Context) (err error) {
+func (p *Provisioner) Close(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.Close")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	if p.store != nil {
 		storeErr := p.store.Close(ctx)
@@ -140,8 +143,9 @@ func (p *Provisioner) Close(ctx context.Context) (err error) {
 	return nil
 }
 
-func (p *Provisioner) grant(ctx context.Context) (err error) {
+func (p *Provisioner) grant(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.grant")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	store, err := p.loadStore(ctx)
@@ -199,8 +203,9 @@ func (p *Provisioner) grant(ctx context.Context) (err error) {
 	return nil
 }
 
-func (p *Provisioner) revoke(ctx context.Context) (err error) {
+func (p *Provisioner) revoke(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.revoke")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	store, err := p.loadStore(ctx)
@@ -266,8 +271,9 @@ func (p *Provisioner) revoke(ctx context.Context) (err error) {
 	return nil
 }
 
-func (p *Provisioner) createAccount(ctx context.Context) (err error) {
+func (p *Provisioner) createAccount(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.createAccount")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -307,8 +313,9 @@ func (p *Provisioner) createAccount(ctx context.Context) (err error) {
 	return nil
 }
 
-func (p *Provisioner) deleteResource(ctx context.Context) (err error) {
+func (p *Provisioner) deleteResource(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.deleteResource")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	_, err = p.connector.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
@@ -323,8 +330,9 @@ func (p *Provisioner) deleteResource(ctx context.Context) (err error) {
 	return nil
 }
 
-func (p *Provisioner) rotateCredentials(ctx context.Context) (err error) {
+func (p *Provisioner) rotateCredentials(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.rotateCredentials")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)

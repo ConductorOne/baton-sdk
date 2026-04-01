@@ -25,10 +25,10 @@ type bulkCreateTicketTaskHandler struct {
 	helpers bulkCreateTicketTaskHelpers
 }
 
-func (c *bulkCreateTicketTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (c *bulkCreateTicketTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "bulkCreateTicketTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 
 	t := c.task.GetBulkCreateTickets()

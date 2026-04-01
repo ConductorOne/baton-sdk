@@ -149,11 +149,12 @@ var _ Syncer = (*syncer)(nil)
 const minCheckpointInterval = 10 * time.Second
 
 // Checkpoint marshals the current state and stores it.
-func (s *syncer) Checkpoint(ctx context.Context, force bool) (err error) {
+func (s *syncer) Checkpoint(ctx context.Context, force bool) error {
 	if !force && !s.lastCheckPointTime.IsZero() && time.Since(s.lastCheckPointTime) < minCheckpointInterval {
 		return nil
 	}
 	ctx, span := tracer.Start(ctx, "syncer.Checkpoint")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	s.lastCheckPointTime = time.Now()
@@ -302,8 +303,9 @@ func (s *syncer) getActiveSyncID() string {
 // For each page of data that is required to be fetched from the connector, a new action is pushed on to the stack. Once
 // an action is completed, it is popped off of the queue. Before processing each action, we checkpoint the state object
 // into the datasource. This allows for graceful resumes if a sync is interrupted.
-func (s *syncer) Sync(ctx context.Context) (err error) {
+func (s *syncer) Sync(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.Sync")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if s.skipFullSync {
@@ -481,8 +483,9 @@ func (s *syncer) Sync(ctx context.Context) (err error) {
 	return nil
 }
 
-func (s *syncer) SkipSync(ctx context.Context) (err error) {
+func (s *syncer) SkipSync(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SkipSync")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -549,8 +552,9 @@ func (s *syncer) listAllResourceTypes(ctx context.Context) iter.Seq2[[]*v2.Resou
 }
 
 // SyncResourceTypes calls the ListResourceType() connector endpoint and persists the results in to the datasource.
-func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) (err error) {
+func (s *syncer) SyncResourceTypes(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncResourceTypes")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.PageToken == "" {
@@ -627,8 +631,9 @@ func (s *syncer) hasChildResources(resource *v2.Resource) bool {
 }
 
 // getSubResources fetches the sub resource types from a resources' annotations.
-func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) (err error) {
+func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "syncer.getSubResources")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	syncResourceTypeMap := make(map[string]bool)
@@ -661,8 +666,9 @@ func (s *syncer) getSubResources(ctx context.Context, parent *v2.Resource) (err 
 	return nil
 }
 
-func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (_ *v2.Resource, err error) {
+func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.ResourceId, parentResourceID *v2.ResourceId) (*v2.Resource, error) {
 	ctx, span := tracer.Start(ctx, "syncer.getResource")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	resourceResp, err := s.connector.GetResource(ctx,
@@ -687,8 +693,9 @@ func (s *syncer) getResourceFromConnector(ctx context.Context, resourceID *v2.Re
 	return nil, err
 }
 
-func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) (err error) {
+func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncTargetedResource")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	resourceID := action.ResourceID
@@ -765,8 +772,9 @@ func (s *syncer) SyncTargetedResource(ctx context.Context, action *Action) (err 
 
 // SyncResources handles fetching all of the resources from the connector given the provided resource types. For each
 // resource, we gather any child resource types it may emit, and traverse the resource tree.
-func (s *syncer) SyncResources(ctx context.Context, action *Action) (err error) {
+func (s *syncer) SyncResources(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncResources")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" {
@@ -799,8 +807,9 @@ func (s *syncer) SyncResources(ctx context.Context, action *Action) (err error) 
 }
 
 // syncResources fetches a given resource from the connector, and returns a slice of new child resources to fetch.
-func (s *syncer) syncResources(ctx context.Context, action *Action) (err error) {
+func (s *syncer) syncResources(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncResources")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	req := v2.ResourcesServiceListResourcesRequest_builder{
@@ -881,8 +890,9 @@ func (s *syncer) syncResources(ctx context.Context, action *Action) (err error) 
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
 
-func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) (err error) {
+func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "syncer.validateResourceTraits")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	resourceTypeTraits, ok := s.resourceTypeTraits.Load(r.GetId().GetResourceType())
@@ -932,8 +942,9 @@ func (s *syncer) validateResourceTraits(ctx context.Context, r *v2.Resource) (er
 
 // shouldSkipEntitlementsAndGrants determines if we should sync entitlements for a given resource. We cache the
 // result of this function for each resource type to avoid constant lookups in the database.
-func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Resource) (_ bool, err error) {
+func (s *syncer) shouldSkipEntitlementsAndGrants(ctx context.Context, r *v2.Resource) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlementsAndGrants")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if s.state.ShouldSkipEntitlementsAndGrants() {
@@ -978,8 +989,9 @@ func (s *syncer) shouldSkipGrants(ctx context.Context, r *v2.Resource) (bool, er
 	return s.shouldSkipEntitlementsAndGrants(ctx, r)
 }
 
-func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (_ bool, err error) {
+func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.shouldSkipEntitlements")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ok, err := s.shouldSkipEntitlementsAndGrants(ctx, r)
@@ -1017,8 +1029,9 @@ func (s *syncer) shouldSkipEntitlements(ctx context.Context, r *v2.Resource) (_ 
 
 // SyncEntitlements fetches the entitlements from the connector. It first lists each resource from the datastore,
 // and pushes an action to fetch the entitlements for each resource.
-func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) (err error) {
+func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncEntitlements")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
@@ -1058,8 +1071,9 @@ func (s *syncer) SyncEntitlements(ctx context.Context, action *Action) (err erro
 }
 
 // syncEntitlementsForResource fetches the entitlements for a specific resource from the connector.
-func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action) (err error) {
+func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncEntitlementsForResource")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	resourceID := v2.ResourceId_builder{
@@ -1097,8 +1111,9 @@ func (s *syncer) syncEntitlementsForResource(ctx context.Context, action *Action
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
 
-func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) (err error) {
+func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncStaticEntitlements")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID != "" {
@@ -1122,8 +1137,9 @@ func (s *syncer) SyncStaticEntitlements(ctx context.Context, action *Action) (er
 	return s.nextPageOrFinishAction(ctx, action, "", actions...)
 }
 
-func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, action *Action) (err error) {
+func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncStaticEntitlementsForResource")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	resp, err := s.connector.ListStaticEntitlements(ctx, v2.EntitlementsServiceListStaticEntitlementsRequest_builder{
@@ -1194,8 +1210,9 @@ func (s *syncer) syncStaticEntitlementsForResourceType(ctx context.Context, acti
 // syncAssetsForResource looks up a resource given the input ID. From there it looks to see if there are any traits that
 // include references to an asset. For each AssetRef, we then call GetAsset on the connector and stream the asset from the connector.
 // Once we have the entire asset, we put it in the database.
-func (s *syncer) syncAssetsForResource(ctx context.Context, action *Action) (err error) {
+func (s *syncer) syncAssetsForResource(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncAssetsForResource")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -1305,8 +1322,9 @@ func (s *syncer) syncAssetsForResource(ctx context.Context, action *Action) (err
 }
 
 // SyncAssets iterates each resource in the data store, and adds an action to fetch all of the assets for that resource.
-func (s *syncer) SyncAssets(ctx context.Context, action *Action) (err error) {
+func (s *syncer) SyncAssets(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncAssets")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
@@ -1339,8 +1357,9 @@ func (s *syncer) SyncAssets(ctx context.Context, action *Action) (err error) {
 
 // SyncGrantExpansion handles the grant expansion phase of sync.
 // It first loads the entitlement graph from grants, fixes any cycles, then runs expansion.
-func (s *syncer) SyncGrantExpansion(ctx context.Context, action *Action) (err error) {
+func (s *syncer) SyncGrantExpansion(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncGrantExpansion")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	entitlementGraph := s.state.EntitlementGraph(ctx)
@@ -1486,8 +1505,9 @@ func (s *syncer) fixEntitlementGraphCycles(ctx context.Context, graph *expand.En
 
 // SyncGrants fetches the grants for each resource from the connector. It iterates each resource
 // from the datastore, and pushes a new action to sync the grants for each individual resource.
-func (s *syncer) SyncGrants(ctx context.Context, action *Action) (err error) {
+func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncGrants")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if action.ResourceTypeID == "" && action.ResourceID == "" {
@@ -1528,8 +1548,9 @@ type latestSyncFetcher interface {
 	LatestFinishedSync(ctx context.Context, syncType connectorstore.SyncType) (string, error)
 }
 
-func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v2.ResourceId) (_ string, _ *v2.ETag, err error) {
+func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v2.ResourceId) (string, *v2.ETag, error) {
 	ctx, span := tracer.Start(ctx, "syncer.fetchResourceForPreviousSync")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -1583,8 +1604,9 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 	prevEtag *v2.ETag,
 	prevSyncID string,
 	grantResponse *v2.GrantsServiceListGrantsResponse,
-) (_ []*v2.Grant, _ bool, err error) {
+) ([]*v2.Grant, bool, error) {
 	ctx, span := tracer.Start(ctx, "syncer.fetchEtaggedGrantsForResource")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	respAnnos := annotations.Annotations(grantResponse.GetAnnotations())
@@ -1645,8 +1667,9 @@ func (s *syncer) fetchEtaggedGrantsForResource(
 }
 
 // syncGrantsForResource fetches the grants for a specific resource from the connector.
-func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) (err error) {
+func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.syncGrantsForResource")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	resourceID := v2.ResourceId_builder{
@@ -1802,8 +1825,9 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) (err
 	return s.nextPageOrFinishAction(ctx, action, resp.GetNextPageToken())
 }
 
-func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) (err error) {
+func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncExternalResources")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -1824,8 +1848,9 @@ func (s *syncer) SyncExternalResources(ctx context.Context, action *Action) (err
 	return nil
 }
 
-func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context, entitlementId string) (err error) {
+func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context, entitlementId string) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncExternalResourcesWithGrantToEntitlement")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -1961,8 +1986,9 @@ func (s *syncer) SyncExternalResourcesWithGrantToEntitlement(ctx context.Context
 	return nil
 }
 
-func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) (err error) {
+func (s *syncer) SyncExternalResourcesUsersAndGroups(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.SyncExternalResourcesUsersAndGroups")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -2198,8 +2224,9 @@ func (s *syncer) listAllGrantsWithExpansion(ctx context.Context) iter.Seq2[[]*co
 	}
 }
 
-func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) (err error) {
+func (s *syncer) processGrantsWithExternalPrincipals(ctx context.Context, principals []*v2.Resource) error {
 	ctx, span := tracer.Start(ctx, "processGrantsWithExternalPrincipals")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if !s.state.HasExternalResourcesGrants() {
@@ -2517,8 +2544,9 @@ func GetExpandableAnnotation(annos annotations.Annotations) (*v2.GrantExpandable
 
 // expandGrantsForEntitlements expands grants for the given entitlement.
 // This method delegates to the expand.Expander for the actual expansion logic.
-func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action) (err error) {
+func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action) error {
 	ctx, span := tracer.Start(ctx, "syncer.expandGrantsForEntitlements")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -2547,8 +2575,9 @@ func (s *syncer) expandGrantsForEntitlements(ctx context.Context, action *Action
 	return nil
 }
 
-func (s *syncer) loadStore(ctx context.Context) (err error) {
+func (s *syncer) loadStore(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.loadStore")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if s.store != nil {
@@ -2578,8 +2607,9 @@ func (s *syncer) loadStore(ctx context.Context) (err error) {
 }
 
 // Close closes the datastorage to ensure it is updated on disk.
-func (s *syncer) Close(ctx context.Context) (err error) {
+func (s *syncer) Close(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "syncer.Close")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	var errs []error

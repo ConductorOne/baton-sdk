@@ -26,10 +26,10 @@ type deleteResourceTaskHandler struct {
 	helpers deleteResourceHelpers
 }
 
-func (g *deleteResourceTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (g *deleteResourceTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "deleteResourceTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
 
 	t := g.task.GetDeleteResource()

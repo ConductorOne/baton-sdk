@@ -98,8 +98,9 @@ type RegisterActionManagerLimited interface {
 	RegisterActionManager(ctx context.Context) (CustomActionManager, error)
 }
 
-func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionSchemasRequest) (_ *v2.ListActionSchemasResponse, err error) {
+func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionSchemasRequest) (*v2.ListActionSchemasResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListActionSchemas")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
@@ -121,8 +122,9 @@ func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionS
 	return rv, nil
 }
 
-func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSchemaRequest) (_ *v2.GetActionSchemaResponse, err error) {
+func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSchemaRequest) (*v2.GetActionSchemaResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.GetActionSchema")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
@@ -142,8 +144,9 @@ func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSche
 	return rv, nil
 }
 
-func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequest) (_ *v2.InvokeActionResponse, err error) {
+func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequest) (*v2.InvokeActionResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.InvokeAction")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
@@ -169,8 +172,9 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 	return rv, nil
 }
 
-func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStatusRequest) (_ *v2.GetActionStatusResponse, err error) {
+func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStatusRequest) (*v2.GetActionStatusResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.GetActionStatus")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()

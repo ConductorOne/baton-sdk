@@ -81,8 +81,9 @@ func (e *oldEventFeedWrapper) ListEvents(
 	return e.feed.ListEvents(ctx, earliestEvent, pToken)
 }
 
-func (b *builder) ListEventFeeds(ctx context.Context, request *v2.ListEventFeedsRequest) (_ *v2.ListEventFeedsResponse, err error) {
+func (b *builder) ListEventFeeds(ctx context.Context, request *v2.ListEventFeedsRequest) (*v2.ListEventFeedsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListEventFeeds")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
@@ -100,8 +101,9 @@ func (b *builder) ListEventFeeds(ctx context.Context, request *v2.ListEventFeeds
 	}.Build(), nil
 }
 
-func (b *builder) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (_ *v2.ListEventsResponse, err error) {
+func (b *builder) ListEvents(ctx context.Context, request *v2.ListEventsRequest) (*v2.ListEventsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListEvents")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()

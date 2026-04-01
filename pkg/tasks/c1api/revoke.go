@@ -28,10 +28,10 @@ type revokeTaskHandler struct {
 	helpers revokeHelpers
 }
 
-func (r *revokeTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "revokeTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", r.task.GetId()), zap.Stringer("task_type", tasks.GetType(r.task)))
 
 	if r.task.GetRevoke() == nil || r.task.GetRevoke().GetGrant() == nil {

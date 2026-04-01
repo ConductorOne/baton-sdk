@@ -71,8 +71,9 @@ type ResourceDeleterV2Limited interface {
 	Delete(ctx context.Context, resourceId *v2.ResourceId, parentResourceID *v2.ResourceId) (annotations.Annotations, error)
 }
 
-func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (_ *v2.CreateResourceResponse, err error) {
+func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.CreateResource")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
@@ -97,8 +98,9 @@ func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResource
 	return v2.CreateResourceResponse_builder{Created: resource, Annotations: annos}.Build(), nil
 }
 
-func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (_ *v2.DeleteResourceResponse, err error) {
+func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (*v2.DeleteResourceResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.DeleteResource")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
@@ -131,8 +133,9 @@ func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResource
 	return v2.DeleteResourceResponse_builder{Annotations: annos}.Build(), nil
 }
 
-func (b *builder) DeleteResourceV2(ctx context.Context, request *v2.DeleteResourceV2Request) (_ *v2.DeleteResourceV2Response, err error) {
+func (b *builder) DeleteResourceV2(ctx context.Context, request *v2.DeleteResourceV2Request) (*v2.DeleteResourceV2Response, error) {
 	ctx, span := tracer.Start(ctx, "builder.DeleteResourceV2")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()

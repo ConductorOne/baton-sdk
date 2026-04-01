@@ -49,9 +49,10 @@ func (m *localActionInvoker) Next(ctx context.Context) (*v1.Task, time.Duration,
 	return task, 0, nil
 }
 
-func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx)
 	ctx, span := tracer.Start(ctx, "localActionInvoker.Process", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	t := task.GetActionInvoke()

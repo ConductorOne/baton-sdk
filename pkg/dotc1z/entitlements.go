@@ -53,8 +53,9 @@ func (r *entitlementsTable) Migrations(ctx context.Context, db *goqu.Database) e
 	return nil
 }
 
-func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (_ *v2.EntitlementsServiceListEntitlementsResponse, err error) {
+func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListEntitlements")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	objs, nextPageToken, err := listConnectorObjects(ctx, c, entitlements.Name(), request, func() *v2.Entitlement { return &v2.Entitlement{} })
@@ -68,8 +69,9 @@ func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsS
 	}.Build(), nil
 }
 
-func (c *C1File) GetEntitlement(ctx context.Context, request *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (_ *reader_v2.EntitlementsReaderServiceGetEntitlementResponse, err error) {
+func (c *C1File) GetEntitlement(ctx context.Context, request *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetEntitlement")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret := &v2.Entitlement{}
@@ -87,8 +89,9 @@ func (c *C1File) GetEntitlement(ctx context.Context, request *reader_v2.Entitlem
 	}.Build(), nil
 }
 
-func (c *C1File) ListStaticEntitlements(ctx context.Context, request *v2.EntitlementsServiceListStaticEntitlementsRequest) (_ *v2.EntitlementsServiceListStaticEntitlementsResponse, err error) {
+func (c *C1File) ListStaticEntitlements(ctx context.Context, request *v2.EntitlementsServiceListStaticEntitlementsRequest) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
 	_, span := tracer.Start(ctx, "C1File.ListStaticEntitlements")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{
@@ -97,15 +100,17 @@ func (c *C1File) ListStaticEntitlements(ctx context.Context, request *v2.Entitle
 	}.Build(), nil
 }
 
-func (c *C1File) PutEntitlements(ctx context.Context, entitlementObjs ...*v2.Entitlement) (err error) {
+func (c *C1File) PutEntitlements(ctx context.Context, entitlementObjs ...*v2.Entitlement) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutEntitlements")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.putEntitlementsInternal(ctx, bulkPutConnectorObject, entitlementObjs...)
 }
 
-func (c *C1File) PutEntitlementsIfNewer(ctx context.Context, entitlementObjs ...*v2.Entitlement) (err error) {
+func (c *C1File) PutEntitlementsIfNewer(ctx context.Context, entitlementObjs ...*v2.Entitlement) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutEntitlementsIfNewer")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.putEntitlementsInternal(ctx, bulkPutConnectorObjectIfNewer, entitlementObjs...)

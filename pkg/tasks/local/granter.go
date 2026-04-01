@@ -41,8 +41,9 @@ func (m *localGranter) Next(ctx context.Context) (*v1.Task, time.Duration, error
 	return task, 0, nil
 }
 
-func (m *localGranter) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localGranter) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localGranter.Process", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	granter := provisioner.NewGranter(cc, m.dbPath, m.entitlementID, m.principalID, m.principalType)

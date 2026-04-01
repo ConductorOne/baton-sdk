@@ -28,10 +28,10 @@ type listTicketSchemasTaskHandler struct {
 	helpers listTicketSchemasTaskHelpers
 }
 
-func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "listTicketSchemasTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 
 	t := c.task.GetListTicketSchemas()

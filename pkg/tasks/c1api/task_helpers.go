@@ -31,20 +31,20 @@ func (t *taskHelpers) ConnectorClient() types.ConnectorClient {
 	return t.cc
 }
 
-func (t *taskHelpers) Upload(ctx context.Context, r io.ReadSeeker) (err error) {
+func (t *taskHelpers) Upload(ctx context.Context, r io.ReadSeeker) error {
 	ctx, span := tracer.Start(ctx, "taskHelpers.Upload")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	if t.task == nil {
 		return errors.New("cannot upload: task is nil")
 	}
 	return t.serviceClient.Upload(ctx, t.task, r)
 }
 
-func (t *taskHelpers) FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, inErr error) (err error) {
+func (t *taskHelpers) FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, inErr error) error {
 	ctx, span := tracer.Start(ctx, "taskHelpers.FinishTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	if t.task == nil {
 		return errors.New("cannot finish task: task is nil")
 	}
@@ -64,10 +64,10 @@ func (t *taskHelpers) TempDir() string {
 // If the given context is cancelled, the returned context will be cancelled with the same cause.
 // If the heartbeat fails, this function will retry up to taskMaximumHeartbeatFailures times before cancelling the returned context with ErrTaskHeartbeatFailed.
 // If the task is cancelled by the server, the returned context will be cancelled with ErrTaskCancelled.
-func (t *taskHelpers) HeartbeatTask(ctx context.Context, annos annotations.Annotations) (_ context.Context, err error) {
+func (t *taskHelpers) HeartbeatTask(ctx context.Context, annos annotations.Annotations) (context.Context, error) {
 	ctx, span := tracer.Start(ctx, "taskHelpers.HeartbeatTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", t.task.GetId()), zap.Stringer("task_type", tasks.GetType(t.task)))
 	rCtx, rCancel := context.WithCancelCause(ctx)
 

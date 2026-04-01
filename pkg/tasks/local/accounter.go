@@ -45,8 +45,9 @@ func (m *localAccountManager) Next(ctx context.Context) (*v1.Task, time.Duration
 	return task, 0, nil
 }
 
-func (m *localAccountManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localAccountManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localAccountManager.Process", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	accountManager := provisioner.NewCreateAccountManager(cc, m.dbPath, m.login, m.email, m.profile, m.resourceTypeId)

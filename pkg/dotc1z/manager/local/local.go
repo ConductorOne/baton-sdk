@@ -37,8 +37,9 @@ func WithDecoderOptions(opts ...dotc1z.DecoderOption) Option {
 	}
 }
 
-func (l *localManager) copyFileToTmp(ctx context.Context) (err error) {
+func (l *localManager) copyFileToTmp(ctx context.Context) error {
 	_, span := tracer.Start(ctx, "localManager.copyFileToTmp")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	tmp, err := os.CreateTemp(l.tmpDir, "sync-*.c1z")
@@ -96,8 +97,9 @@ func (l *localManager) copyFileToTmp(ctx context.Context) (err error) {
 }
 
 // LoadRaw returns an io.Reader of the bytes in the c1z file.
-func (l *localManager) LoadRaw(ctx context.Context) (_ io.ReadCloser, err error) {
+func (l *localManager) LoadRaw(ctx context.Context) (io.ReadCloser, error) {
 	ctx, span := tracer.Start(ctx, "localManager.LoadRaw")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	err = l.copyFileToTmp(ctx)
@@ -114,8 +116,9 @@ func (l *localManager) LoadRaw(ctx context.Context) (_ io.ReadCloser, err error)
 }
 
 // LoadC1Z loads the C1Z file from the local file system.
-func (l *localManager) LoadC1Z(ctx context.Context) (_ *dotc1z.C1File, err error) {
+func (l *localManager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 	ctx, span := tracer.Start(ctx, "localManager.LoadC1Z")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	log := ctxzap.Extract(ctx)
@@ -142,8 +145,9 @@ func (l *localManager) LoadC1Z(ctx context.Context) (_ *dotc1z.C1File, err error
 }
 
 // SaveC1Z saves the C1Z file to the local file system.
-func (l *localManager) SaveC1Z(ctx context.Context) (err error) {
+func (l *localManager) SaveC1Z(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "localManager.SaveC1Z")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	log := ctxzap.Extract(ctx)
@@ -190,8 +194,9 @@ func (l *localManager) SaveC1Z(ctx context.Context) (err error) {
 	return nil
 }
 
-func (l *localManager) Close(ctx context.Context) (err error) {
+func (l *localManager) Close(ctx context.Context) error {
 	_, span := tracer.Start(ctx, "localManager.Close")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	err = os.Remove(l.tmpPath)

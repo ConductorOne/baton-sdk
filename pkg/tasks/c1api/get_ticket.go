@@ -25,10 +25,10 @@ type getTicketTaskHandler struct {
 	helpers getTicketTaskHelpers
 }
 
-func (c *getTicketTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (c *getTicketTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "getTicketTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()

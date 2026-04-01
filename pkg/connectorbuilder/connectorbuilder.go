@@ -256,8 +256,9 @@ func (b *builder) addConnectorBuilderProviders(_ context.Context, in interface{}
 }
 
 // GetMetadata gets all metadata for a connector.
-func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceGetMetadataRequest) (_ *v2.ConnectorServiceGetMetadataResponse, err error) {
+func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceGetMetadataRequest) (*v2.ConnectorServiceGetMetadataResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.GetMetadata")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
@@ -285,8 +286,9 @@ func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceG
 }
 
 // Validate validates the connector.
-func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceValidateRequest) (_ *v2.ConnectorServiceValidateResponse, err error) {
+func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceValidateRequest) (*v2.ConnectorServiceValidateResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.Validate")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{

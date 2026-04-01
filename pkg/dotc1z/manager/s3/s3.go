@@ -41,8 +41,9 @@ func WithDecoderOptions(opts ...dotc1z.DecoderOption) Option {
 	}
 }
 
-func (s *s3Manager) copyToTempFile(ctx context.Context, r io.Reader) (err error) {
+func (s *s3Manager) copyToTempFile(ctx context.Context, r io.Reader) error {
 	_, span := tracer.Start(ctx, "s3Manager.copyToTempFile")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	f, err := os.CreateTemp(s.tmpDir, "sync-*.c1z")
@@ -84,8 +85,9 @@ func (s *s3Manager) copyToTempFile(ctx context.Context, r io.Reader) (err error)
 }
 
 // LoadRaw loads the file from S3 and returns an io.Reader for the contents.
-func (s *s3Manager) LoadRaw(ctx context.Context) (_ io.ReadCloser, err error) {
+func (s *s3Manager) LoadRaw(ctx context.Context) (io.ReadCloser, error) {
 	ctx, span := tracer.Start(ctx, "s3Manager.LoadRaw")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	out, err := s.client.Get(ctx, s.fileName)
@@ -117,8 +119,9 @@ func (s *s3Manager) LoadRaw(ctx context.Context) (_ io.ReadCloser, err error) {
 }
 
 // LoadC1Z gets a file from the AWS S3 bucket and copies it to a temp file.
-func (s *s3Manager) LoadC1Z(ctx context.Context) (_ *dotc1z.C1File, err error) {
+func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 	ctx, span := tracer.Start(ctx, "s3Manager.LoadC1Z")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -153,8 +156,9 @@ func (s *s3Manager) LoadC1Z(ctx context.Context) (_ *dotc1z.C1File, err error) {
 }
 
 // SaveC1Z saves a file to the AWS S3 bucket.
-func (s *s3Manager) SaveC1Z(ctx context.Context) (err error) {
+func (s *s3Manager) SaveC1Z(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "s3Manager.SaveC1Z")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	f, err := os.Open(s.tmpFile)
@@ -179,8 +183,9 @@ func (s *s3Manager) SaveC1Z(ctx context.Context) (err error) {
 	return nil
 }
 
-func (s *s3Manager) Close(ctx context.Context) (err error) {
+func (s *s3Manager) Close(ctx context.Context) error {
 	_, span := tracer.Start(ctx, "s3Manager.Close")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	err = os.Remove(s.tmpFile)

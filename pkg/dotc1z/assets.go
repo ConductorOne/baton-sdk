@@ -55,8 +55,9 @@ func (r *assetsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 }
 
 // PutAsset stores the given asset in the database.
-func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) (err error) {
+func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentType string, data []byte) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutAsset")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if c.readOnly {
@@ -109,8 +110,9 @@ func (c *C1File) PutAsset(ctx context.Context, assetRef *v2.AssetRef, contentTyp
 
 // GetAsset fetches the specified asset from the database, and returns the content type and an io.Reader for the caller to
 // read the asset from.
-func (c *C1File) GetAsset(ctx context.Context, request *v2.AssetServiceGetAssetRequest) (_ string, _ io.Reader, err error) {
+func (c *C1File) GetAsset(ctx context.Context, request *v2.AssetServiceGetAssetRequest) (string, io.Reader, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetAsset")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	err = c.validateDb(ctx)

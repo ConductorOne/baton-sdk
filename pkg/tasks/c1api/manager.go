@@ -86,10 +86,10 @@ func getNextPoll(d time.Duration) time.Duration {
 	}
 }
 
-func (c *c1ApiTaskManager) Next(ctx context.Context) (_ *v1.Task, _ time.Duration, err error) {
+func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, error) {
 	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.Next", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 
 	c.mtx.Lock()
@@ -138,10 +138,10 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (_ *v1.Task, _ time.Duratio
 	return resp.GetTask(), nextPoll, nil
 }
 
-func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, inErr error) (err error) {
+func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, inErr error) error {
 	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.finishTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 	l = l.With(
 		zap.String("task_id", task.GetId()),
@@ -221,10 +221,10 @@ func (c *c1ApiTaskManager) ShouldDebug() bool {
 	return c.runnerShouldDebug
 }
 
-func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.Process", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 	if task == nil {
 		l.Debug("c1_api_task_manager.Process(): process called with nil task -- continuing")
