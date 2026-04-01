@@ -23,6 +23,7 @@ func IsExpectedError(err error) bool {
 		switch s.Code() {
 		case grpccodes.Canceled, grpccodes.DeadlineExceeded:
 			return true
+		default:
 		}
 	}
 	return false
