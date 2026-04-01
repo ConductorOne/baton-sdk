@@ -112,10 +112,10 @@ func (c *helloTaskHandler) buildInfo(ctx context.Context) *v1.BatonServiceHelloR
 	return buildInfo
 }
 
-func (c *helloTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "helloTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	if c.task == nil {
 		return errors.New("cannot handle task: task is nil")
 	}

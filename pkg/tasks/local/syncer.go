@@ -98,8 +98,9 @@ func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error)
 	return task, 0, nil
 }
 
-func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localSyncer.Process", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	var setSessionStore session.SetSessionStore

@@ -48,8 +48,9 @@ import (
 
 // GetAsset streams the asset to the client.
 // FIXME(jirwin): Asset streaming is disabled.
-func (b *builder) GetAsset(request *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) (err error) {
+func (b *builder) GetAsset(request *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
 	_, span := tracer.Start(server.Context(), "builderImpl.GetAsset")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return nil

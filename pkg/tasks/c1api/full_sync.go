@@ -40,10 +40,10 @@ type fullSyncTaskHandler struct {
 	workerCount                         int
 }
 
-func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) (err error) {
+func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	ctx, span := tracer.Start(ctx, "fullSyncTaskHandler.sync")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
 
 	if c.task.GetSyncFull() == nil {
@@ -137,10 +137,10 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) (err err
 // TODO(morgabra) If we have a task with no sync_id set, we should create one and set it via heartbeat annotations? If we have a
 // task with a sync_id and it doesn't match our current state sync_id, we should reject the task. If we have a task
 // with a sync_id that does match our current state, we should resume our current sync, if possible.
-func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "fullSyncTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
@@ -227,10 +227,10 @@ func newFullSyncTaskHandler(
 
 // Check if Debug logs should be uploaded to C1 and if so do so,
 // otherwise silently return success.
-func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers, deleteDebugLogs bool) (err error) {
+func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers, deleteDebugLogs bool) error {
 	ctx, span := tracer.Start(ctx, "uploadDebugLogs")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 
 	tempDir := helper.TempDir()

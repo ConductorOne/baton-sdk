@@ -40,8 +40,9 @@ func (m *localCredentialRotator) Next(ctx context.Context) (*v1.Task, time.Durat
 	return task, 0, nil
 }
 
-func (m *localCredentialRotator) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localCredentialRotator) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localCredentialRotator.Process", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	accountManager := provisioner.NewCredentialRotator(cc, m.dbPath, m.resourceId, m.resourceType)

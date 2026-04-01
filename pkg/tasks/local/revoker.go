@@ -39,8 +39,9 @@ func (m *localRevoker) Next(ctx context.Context) (*v1.Task, time.Duration, error
 	return task, 0, nil
 }
 
-func (m *localRevoker) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localRevoker) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localRevoker.Process", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	granter := provisioner.NewRevoker(cc, m.dbPath, m.grantID)

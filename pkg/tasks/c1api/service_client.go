@@ -83,10 +83,10 @@ func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.BatonServiceCli
 	}, nil
 }
 
-func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloRequest) (_ *v1.BatonServiceHelloResponse, err error) {
+func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloRequest) (*v1.BatonServiceHelloResponse, error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Hello")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -95,13 +95,14 @@ func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloReq
 
 	in.SetHostId(c.getHostID())
 
-	return client.Hello(ctx, in)
+	resp, err := client.Hello(ctx, in)
+	return resp, err
 }
 
-func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTaskRequest) (_ *v1.BatonServiceGetTaskResponse, err error) {
+func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTaskRequest) (*v1.BatonServiceGetTaskResponse, error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.GetTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -110,13 +111,14 @@ func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTas
 
 	in.SetHostId(c.getHostID())
 
-	return client.GetTask(ctx, in)
+	resp, err := client.GetTask(ctx, in)
+	return resp, err
 }
 
-func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHeartbeatRequest) (_ *v1.BatonServiceHeartbeatResponse, err error) {
+func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHeartbeatRequest) (*v1.BatonServiceHeartbeatResponse, error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Heartbeat")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -125,13 +127,14 @@ func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHear
 
 	in.SetHostId(c.getHostID())
 
-	return client.Heartbeat(ctx, in)
+	resp, err := client.Heartbeat(ctx, in)
+	return resp, err
 }
 
-func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFinishTaskRequest) (_ *v1.BatonServiceFinishTaskResponse, err error) {
+func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFinishTaskRequest) (*v1.BatonServiceFinishTaskResponse, error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.FinishTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	client, done, err := c.getClientConn(ctx)
 	if err != nil {
 		return nil, err
@@ -140,13 +143,14 @@ func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFin
 
 	in.SetHostId(c.getHostID())
 
-	return client.FinishTask(ctx, in)
+	resp, err := client.FinishTask(ctx, in)
+	return resp, err
 }
 
-func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) (err error) {
+func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Upload")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 	const maxAttempts = 3
 	for i := range maxAttempts {
@@ -168,10 +172,10 @@ func (c *c1ServiceClient) Upload(ctx context.Context, task *v1.Task, r io.ReadSe
 	return err
 }
 
-func (c *c1ServiceClient) upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) (err error) {
+func (c *c1ServiceClient) upload(ctx context.Context, task *v1.Task, r io.ReadSeeker) error {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Upload")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 
 	_, err = r.Seek(0, io.SeekStart)

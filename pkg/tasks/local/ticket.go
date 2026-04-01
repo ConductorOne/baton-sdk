@@ -64,8 +64,9 @@ func (m *localBulkCreateTicket) Next(ctx context.Context) (*v1.Task, time.Durati
 	return task, 0, nil
 }
 
-func (m *localBulkCreateTicket) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localBulkCreateTicket) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localBulkCreateTicket.Process", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -191,7 +192,7 @@ func (m *localCreateTicket) Next(ctx context.Context) (*v1.Task, time.Duration, 
 	return task, 0, nil
 }
 
-func (m *localCreateTicket) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localCreateTicket) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx)
 
 	template, err := m.loadTicketTemplate(ctx)
@@ -284,7 +285,7 @@ func (m *localGetTicket) Next(ctx context.Context) (*v1.Task, time.Duration, err
 	return task, 0, nil
 }
 
-func (m *localGetTicket) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localGetTicket) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx)
 
 	resp, err := cc.GetTicket(ctx, v2.TicketsServiceGetTicketRequest_builder{
@@ -328,7 +329,7 @@ func (m *localListTicketSchemas) Next(ctx context.Context) (*v1.Task, time.Durat
 	return task, 0, nil
 }
 
-func (m *localListTicketSchemas) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localListTicketSchemas) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx)
 
 	resp, err := cc.ListTicketSchemas(ctx, &v2.TicketsServiceListTicketSchemasRequest{})

@@ -110,8 +110,9 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 	return backfillGrantExpansionColumn(ctx, db, r.Name())
 }
 
-func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (_ *v2.GrantsServiceListGrantsResponse, err error) {
+func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrants")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
@@ -125,8 +126,9 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 	}.Build(), nil
 }
 
-func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderServiceGetGrantRequest) (_ *reader_v2.GrantsReaderServiceGetGrantResponse, err error) {
+func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetGrant")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret := &v2.Grant{}
@@ -147,8 +149,9 @@ func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderSe
 func (c *C1File) ListGrantsForEntitlement(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
-) (_ *reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, err error) {
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlement")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
 	if err != nil {
@@ -164,8 +167,9 @@ func (c *C1File) ListGrantsForEntitlement(
 func (c *C1File) ListGrantsForPrincipal(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
-) (_ *reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, err error) {
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForPrincipal")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
@@ -182,8 +186,9 @@ func (c *C1File) ListGrantsForPrincipal(
 func (c *C1File) ListGrantsForResourceType(
 	ctx context.Context,
 	request *reader_v2.GrantsReaderServiceListGrantsForResourceTypeRequest,
-) (_ *reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse, err error) {
+) (*reader_v2.GrantsReaderServiceListGrantsForResourceTypeResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForResourceType")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
@@ -197,8 +202,9 @@ func (c *C1File) ListGrantsForResourceType(
 	}.Build(), nil
 }
 
-func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) (err error) {
+func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrants")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
@@ -206,8 +212,9 @@ func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) (err er
 	}, bulkGrants...)
 }
 
-func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) (err error) {
+func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrantsIfNewer")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
@@ -283,11 +290,12 @@ func upsertGrantsInternal(
 	c *C1File,
 	mode connectorstore.GrantUpsertMode,
 	msgs ...*v2.Grant,
-) (err error) {
+) error {
 	if len(msgs) == 0 {
 		return nil
 	}
 	ctx, span := tracer.Start(ctx, "C1File.bulkUpsertGrants")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if err := c.validateSyncDb(ctx); err != nil {
@@ -603,8 +611,9 @@ func executeGrantChunkedUpsert(
 	return executeChunkedInsert(ctx, c, tableName, rows, buildQueryFn)
 }
 
-func (c *C1File) DeleteGrant(ctx context.Context, grantId string) (err error) {
+func (c *C1File) DeleteGrant(ctx context.Context, grantId string) error {
 	ctx, span := tracer.Start(ctx, "C1File.DeleteGrant")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	err = c.validateSyncDb(ctx)

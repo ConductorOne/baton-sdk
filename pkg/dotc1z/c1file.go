@@ -110,8 +110,9 @@ func WithC1FSyncCountLimit(limit int) C1FOption {
 }
 
 // Returns a C1File instance for the given db filepath.
-func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (_ *C1File, err error) {
+func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1File")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	rawDB, err := sql.Open("sqlite", dbFilePath)
@@ -216,8 +217,9 @@ func WithSyncLimit(limit int) C1ZOption {
 }
 
 // Returns a new C1File instance with its state stored at the provided filename.
-func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (_ *C1File, err error) {
+func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	options := &c1zOptions{
@@ -405,8 +407,9 @@ func (c *C1File) Close(ctx context.Context) error {
 
 // truncateWAL truncates the WAL file.
 // Returns the busy, log, and checkpointed values.
-func (c *C1File) truncateWAL(ctx context.Context) (_ int, _ int, _ int, err error) {
+func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
 	ctx, span := tracer.Start(ctx, "C1File.truncateWAL")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	// Use QueryRowContext to read the (busy, log, checkpointed) result.
@@ -430,8 +433,9 @@ func (c *C1File) truncateWAL(ctx context.Context) (_ int, _ int, _ int, err erro
 }
 
 // init ensures that the database has all of the required schema.
-func (c *C1File) init(ctx context.Context) (err error) {
+func (c *C1File) init(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.init")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
@@ -496,8 +500,9 @@ func (c *C1File) init(ctx context.Context) (err error) {
 	return nil
 }
 
-func (c *C1File) InitTables(ctx context.Context) (err error) {
+func (c *C1File) InitTables(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.InitTables")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	err = c.validateDb(ctx)
@@ -525,8 +530,9 @@ func (c *C1File) InitTables(ctx context.Context) (err error) {
 
 // Stats introspects the database and returns the count of objects for the given sync run.
 // If syncId is empty, it will use the latest sync run of the given type.
-func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (_ map[string]int64, err error) {
+func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
 	ctx, span := tracer.Start(ctx, "C1File.Stats")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	counts := make(map[string]int64)
@@ -652,8 +658,9 @@ func (c *C1FileAttached) DetachFile(dbName string) (*C1FileAttached, error) {
 
 // GrantStats introspects the database and returns the count of grants for the given sync run.
 // If syncId is empty, it will use the latest sync run of the given type.
-func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (_ map[string]int64, err error) {
+func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GrantStats")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if syncId == "" {

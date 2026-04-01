@@ -26,10 +26,10 @@ type createResourceTaskHandler struct {
 	helpers createResourceHelpers
 }
 
-func (g *createResourceTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (g *createResourceTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "createResourceTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
 
 	t := g.task.GetCreateResource()

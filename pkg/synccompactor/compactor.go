@@ -148,8 +148,9 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 	return c, cleanup, nil
 }
 
-func (c *Compactor) Compact(ctx context.Context) (_ *CompactableSync, err error) {
+func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	ctx, span := tracer.Start(ctx, "Compactor.Compact")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	if len(c.entries) < 2 {
 		return nil, nil
@@ -301,8 +302,9 @@ func cpFile(ctx context.Context, sourcePath string, destPath string) error {
 	return nil
 }
 
-func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) (err error) {
+func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) error {
 	ctx, span := tracer.Start(ctx, "Compactor.doOneCompaction")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 	l.Info(

@@ -37,8 +37,9 @@ type OldCredentialManager interface {
 		credentialOptions *v2.CredentialOptions) ([]*v2.PlaintextData, annotations.Annotations, error)
 }
 
-func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (_ *v2.RotateCredentialResponse, err error) {
+func (b *builder) RotateCredential(ctx context.Context, request *v2.RotateCredentialRequest) (*v2.RotateCredentialResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.RotateCredential")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()

@@ -26,10 +26,10 @@ type rotateCredentialsTaskHandler struct {
 	helpers rotateCredentialsHelpers
 }
 
-func (g *rotateCredentialsTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (g *rotateCredentialsTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "rotateCredentialsTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
 
 	t := g.task.GetRotateCredentials()

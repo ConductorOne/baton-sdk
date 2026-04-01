@@ -19,11 +19,12 @@ type C1FileAttached struct {
 	file *C1File
 }
 
-func (c *C1FileAttached) CompactTable(ctx context.Context, baseSyncID string, appliedSyncID string, tableName string) (err error) {
+func (c *C1FileAttached) CompactTable(ctx context.Context, baseSyncID string, appliedSyncID string, tableName string) error {
 	if !c.safe {
 		return errors.New("database has been detached")
 	}
 	ctx, span := tracer.Start(ctx, "C1FileAttached.CompactTable")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	// Get the column structure for this table by querying the schema
@@ -200,12 +201,13 @@ func (c *C1FileAttached) UpdateSync(ctx context.Context, baseSync *reader_v2.Syn
 // - newSyncID: the sync ID in the main database (NEW/compacted state)
 //
 // Returns (upsertsSyncID, deletionsSyncID, error).
-func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID string, newSyncID string) (_ string, _ string, err error) {
+func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID string, newSyncID string) (string, string, error) {
 	if !c.safe {
 		return "", "", errors.New("database has been detached")
 	}
 
 	ctx, span := tracer.Start(ctx, "C1FileAttached.GenerateSyncDiffFromFile")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	// Verify both source syncs have been backfilled and support diff before

@@ -48,8 +48,9 @@ func (r *resourceTypesTable) Migrations(ctx context.Context, db *goqu.Database) 
 	return nil
 }
 
-func (c *C1File) ListResourceTypes(ctx context.Context, request *v2.ResourceTypesServiceListResourceTypesRequest) (_ *v2.ResourceTypesServiceListResourceTypesResponse, err error) {
+func (c *C1File) ListResourceTypes(ctx context.Context, request *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListResourceTypes")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret, nextPageToken, err := listConnectorObjects(ctx, c, resourceTypes.Name(), request, func() *v2.ResourceType { return &v2.ResourceType{} })
@@ -63,8 +64,9 @@ func (c *C1File) ListResourceTypes(ctx context.Context, request *v2.ResourceType
 	}.Build(), nil
 }
 
-func (c *C1File) GetResourceType(ctx context.Context, request *reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest) (_ *reader_v2.ResourceTypesReaderServiceGetResourceTypeResponse, err error) {
+func (c *C1File) GetResourceType(ctx context.Context, request *reader_v2.ResourceTypesReaderServiceGetResourceTypeRequest) (*reader_v2.ResourceTypesReaderServiceGetResourceTypeResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetResourceType")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret := &v2.ResourceType{}
@@ -82,15 +84,17 @@ func (c *C1File) GetResourceType(ctx context.Context, request *reader_v2.Resourc
 	}.Build(), nil
 }
 
-func (c *C1File) PutResourceTypes(ctx context.Context, resourceTypesObjs ...*v2.ResourceType) (err error) {
+func (c *C1File) PutResourceTypes(ctx context.Context, resourceTypesObjs ...*v2.ResourceType) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutResourceTypes")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.putResourceTypesInternal(ctx, bulkPutConnectorObject, resourceTypesObjs...)
 }
 
-func (c *C1File) PutResourceTypesIfNewer(ctx context.Context, resourceTypesObjs ...*v2.ResourceType) (err error) {
+func (c *C1File) PutResourceTypesIfNewer(ctx context.Context, resourceTypesObjs ...*v2.ResourceType) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutResourceTypesIfNewer")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.putResourceTypesInternal(ctx, bulkPutConnectorObjectIfNewer, resourceTypesObjs...)

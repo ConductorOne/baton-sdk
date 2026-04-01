@@ -26,10 +26,10 @@ type actionListSchemasTaskHandler struct {
 	helpers actionListSchemasTaskHelpers
 }
 
-func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionListSchemasTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -71,10 +71,10 @@ type actionGetSchemaTaskHandler struct {
 	helpers actionGetSchemaTaskHelpers
 }
 
-func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionGetSchemaTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -114,10 +114,10 @@ type actionInvokeTaskHandler struct {
 	helpers actionInvokeTaskHelpers
 }
 
-func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionInvokeTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -179,10 +179,10 @@ type actionStatusTaskHandler struct {
 	helpers actionStatusTaskHelpers
 }
 
-func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) (err error) {
+func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionStatusTaskHandler.HandleTask")
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()

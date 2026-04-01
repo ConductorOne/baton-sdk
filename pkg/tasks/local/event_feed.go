@@ -45,8 +45,9 @@ func (m *localEventFeed) Next(ctx context.Context) (*v1.Task, time.Duration, err
 	return task, 0, nil
 }
 
-func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localEventFeed) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localEventFeed.Process", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	pageToken := m.cursor

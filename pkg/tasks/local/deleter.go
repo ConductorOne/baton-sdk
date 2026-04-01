@@ -40,8 +40,9 @@ func (m *localResourceDeleter) Next(ctx context.Context) (*v1.Task, time.Duratio
 	return task, 0, nil
 }
 
-func (m *localResourceDeleter) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) (err error) {
+func (m *localResourceDeleter) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localResourceDeleter.Process", trace.WithNewRoot())
+	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	accountManager := provisioner.NewResourceDeleter(cc, m.dbPath, m.resourceId, m.resourceType)
