@@ -10,8 +10,8 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/retry"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 	"go.opentelemetry.io/otel/attribute"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

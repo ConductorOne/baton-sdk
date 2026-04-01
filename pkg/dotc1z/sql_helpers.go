@@ -12,8 +12,8 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
 	"go.opentelemetry.io/otel/attribute"
+	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
