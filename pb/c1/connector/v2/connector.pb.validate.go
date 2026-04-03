@@ -1537,6 +1537,8 @@ func (m *ResourceTypeCapability) validate(all bool) error {
 		}
 	}
 
+	// no validation rules for OptInRequired
+
 	if len(errors) > 0 {
 		return ResourceTypeCapabilityMultiError(errors)
 	}

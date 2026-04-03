@@ -111,6 +111,7 @@ message ResourceTypeCapability {
   c1.connector.v2.ResourceType resource_type = 1;
   repeated Capability capabilities = 2;
   CapabilityPermissions permissions = 3;
+  bool opt_in_required = 4;
 }
 
 message ConnectorServiceGetMetadataRequest {}

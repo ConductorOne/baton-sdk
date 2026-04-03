@@ -960,12 +960,13 @@ func (b0 CapabilityPermissions_builder) Build() *CapabilityPermissions {
 }
 
 type ResourceTypeCapability struct {
-	state                   protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_ResourceType *ResourceType          `protobuf:"bytes,1,opt,name=resource_type,json=resourceType,proto3"`
-	xxx_hidden_Capabilities []Capability           `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=c1.connector.v2.Capability"`
-	xxx_hidden_Permissions  *CapabilityPermissions `protobuf:"bytes,3,opt,name=permissions,proto3"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ResourceType  *ResourceType          `protobuf:"bytes,1,opt,name=resource_type,json=resourceType,proto3"`
+	xxx_hidden_Capabilities  []Capability           `protobuf:"varint,2,rep,packed,name=capabilities,proto3,enum=c1.connector.v2.Capability"`
+	xxx_hidden_Permissions   *CapabilityPermissions `protobuf:"bytes,3,opt,name=permissions,proto3"`
+	xxx_hidden_OptInRequired bool                   `protobuf:"varint,4,opt,name=opt_in_required,json=optInRequired,proto3"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *ResourceTypeCapability) Reset() {
@@ -1014,6 +1015,13 @@ func (x *ResourceTypeCapability) GetPermissions() *CapabilityPermissions {
 	return nil
 }
 
+func (x *ResourceTypeCapability) GetOptInRequired() bool {
+	if x != nil {
+		return x.xxx_hidden_OptInRequired
+	}
+	return false
+}
+
 func (x *ResourceTypeCapability) SetResourceType(v *ResourceType) {
 	x.xxx_hidden_ResourceType = v
 }
@@ -1024,6 +1032,10 @@ func (x *ResourceTypeCapability) SetCapabilities(v []Capability) {
 
 func (x *ResourceTypeCapability) SetPermissions(v *CapabilityPermissions) {
 	x.xxx_hidden_Permissions = v
+}
+
+func (x *ResourceTypeCapability) SetOptInRequired(v bool) {
+	x.xxx_hidden_OptInRequired = v
 }
 
 func (x *ResourceTypeCapability) HasResourceType() bool {
@@ -1051,9 +1063,10 @@ func (x *ResourceTypeCapability) ClearPermissions() {
 type ResourceTypeCapability_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	ResourceType *ResourceType
-	Capabilities []Capability
-	Permissions  *CapabilityPermissions
+	ResourceType  *ResourceType
+	Capabilities  []Capability
+	Permissions   *CapabilityPermissions
+	OptInRequired bool
 }
 
 func (b0 ResourceTypeCapability_builder) Build() *ResourceTypeCapability {
@@ -1063,6 +1076,7 @@ func (b0 ResourceTypeCapability_builder) Build() *ResourceTypeCapability {
 	x.xxx_hidden_ResourceType = b.ResourceType
 	x.xxx_hidden_Capabilities = b.Capabilities
 	x.xxx_hidden_Permissions = b.Permissions
+	x.xxx_hidden_OptInRequired = b.OptInRequired
 	return m0
 }
 
@@ -2127,11 +2141,12 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"permission\x18\x01 \x01(\tR\n" +
 	"permission\"`\n" +
 	"\x15CapabilityPermissions\x12G\n" +
-	"\vpermissions\x18\x01 \x03(\v2%.c1.connector.v2.CapabilityPermissionR\vpermissions\"\xe7\x01\n" +
+	"\vpermissions\x18\x01 \x03(\v2%.c1.connector.v2.CapabilityPermissionR\vpermissions\"\x8f\x02\n" +
 	"\x16ResourceTypeCapability\x12B\n" +
 	"\rresource_type\x18\x01 \x01(\v2\x1d.c1.connector.v2.ResourceTypeR\fresourceType\x12?\n" +
 	"\fcapabilities\x18\x02 \x03(\x0e2\x1b.c1.connector.v2.CapabilityR\fcapabilities\x12H\n" +
-	"\vpermissions\x18\x03 \x01(\v2&.c1.connector.v2.CapabilityPermissionsR\vpermissions\"$\n" +
+	"\vpermissions\x18\x03 \x01(\v2&.c1.connector.v2.CapabilityPermissionsR\vpermissions\x12&\n" +
+	"\x0fopt_in_required\x18\x04 \x01(\bR\roptInRequired\"$\n" +
 	"\"ConnectorServiceGetMetadataRequest\"e\n" +
 	"#ConnectorServiceGetMetadataResponse\x12>\n" +
 	"\bmetadata\x18\x01 \x01(\v2\".c1.connector.v2.ConnectorMetadataR\bmetadata\"!\n" +
