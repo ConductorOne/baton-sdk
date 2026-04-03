@@ -71,6 +71,7 @@ message Event {
     ResourceChangeEvent resource_change_event = 103;
     CreateGrantEvent create_grant_event = 104;
     CreateRevokeEvent create_revoke_event = 105;
+    ResourceCreatedEvent resource_created_event = 106;
   }
 
   // May contain resources for targets, actor, or items referenced in events
@@ -110,6 +111,32 @@ message ResourceChangeEvent {
   ResourceId parent_resource_id = 2;
 }
 
+// Minimal entitlement info needed when creating a resource via event.
+message ResourceCreatedEntitlement {
+  string id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  string slug = 2 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+}
+
+// Minimal resource info needed when creating a resource via event.
+message ResourceCreatedResource {
+  ResourceId resource_id = 1 [(validate.rules).message = {required: true}];
+  ResourceId parent_resource_id = 2;
+  string display_name = 3;
+  string raw_baton_id = 4;
+}
+
+// event indicating a resource was created, includes display name so we can create it immediately in the UI
+message ResourceCreatedEvent {
+  ResourceCreatedResource resource = 1 [(validate.rules).message = {required: true}];
+  repeated ResourceCreatedEntitlement entitlements = 2;
+}
+
 enum EventType {
   reserved 2, 3; // grant and revoke (could be added back in the future)
   EVENT_TYPE_UNSPECIFIED = 0;
@@ -117,6 +144,7 @@ enum EventType {
   EVENT_TYPE_RESOURCE_CHANGE = 4;
   EVENT_TYPE_CREATE_GRANT = 5;
   EVENT_TYPE_CREATE_REVOKE = 6;
+  EVENT_TYPE_RESOURCE_CREATED = 7;
 }
 
 message EventFeedMetadata {
