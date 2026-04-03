@@ -28,11 +28,12 @@ const (
 type EventType int32
 
 const (
-	EventType_EVENT_TYPE_UNSPECIFIED     EventType = 0
-	EventType_EVENT_TYPE_USAGE           EventType = 1
-	EventType_EVENT_TYPE_RESOURCE_CHANGE EventType = 4
-	EventType_EVENT_TYPE_CREATE_GRANT    EventType = 5
-	EventType_EVENT_TYPE_CREATE_REVOKE   EventType = 6
+	EventType_EVENT_TYPE_UNSPECIFIED      EventType = 0
+	EventType_EVENT_TYPE_USAGE            EventType = 1
+	EventType_EVENT_TYPE_RESOURCE_CHANGE  EventType = 4
+	EventType_EVENT_TYPE_CREATE_GRANT     EventType = 5
+	EventType_EVENT_TYPE_CREATE_REVOKE    EventType = 6
+	EventType_EVENT_TYPE_RESOURCE_CREATED EventType = 7
 )
 
 // Enum value maps for EventType.
@@ -43,13 +44,15 @@ var (
 		4: "EVENT_TYPE_RESOURCE_CHANGE",
 		5: "EVENT_TYPE_CREATE_GRANT",
 		6: "EVENT_TYPE_CREATE_REVOKE",
+		7: "EVENT_TYPE_RESOURCE_CREATED",
 	}
 	EventType_value = map[string]int32{
-		"EVENT_TYPE_UNSPECIFIED":     0,
-		"EVENT_TYPE_USAGE":           1,
-		"EVENT_TYPE_RESOURCE_CHANGE": 4,
-		"EVENT_TYPE_CREATE_GRANT":    5,
-		"EVENT_TYPE_CREATE_REVOKE":   6,
+		"EVENT_TYPE_UNSPECIFIED":      0,
+		"EVENT_TYPE_USAGE":            1,
+		"EVENT_TYPE_RESOURCE_CHANGE":  4,
+		"EVENT_TYPE_CREATE_GRANT":     5,
+		"EVENT_TYPE_CREATE_REVOKE":    6,
+		"EVENT_TYPE_RESOURCE_CREATED": 7,
 	}
 )
 
@@ -447,6 +450,7 @@ type Event struct {
 	//	*Event_ResourceChangeEvent
 	//	*Event_CreateGrantEvent
 	//	*Event_CreateRevokeEvent
+	//	*Event_ResourceCreatedEvent
 	Event isEvent_Event `protobuf_oneof:"event"`
 	// May contain resources for targets, actor, or items referenced in events
 	Annotations   []*anypb.Any `protobuf:"bytes,3,rep,name=annotations,proto3" json:"annotations,omitempty"`
@@ -554,6 +558,15 @@ func (x *Event) GetCreateRevokeEvent() *CreateRevokeEvent {
 	return nil
 }
 
+func (x *Event) GetResourceCreatedEvent() *ResourceCreatedEvent {
+	if x != nil {
+		if x, ok := x.Event.(*Event_ResourceCreatedEvent); ok {
+			return x.ResourceCreatedEvent
+		}
+	}
+	return nil
+}
+
 func (x *Event) GetAnnotations() []*anypb.Any {
 	if x != nil {
 		return x.Annotations
@@ -615,6 +628,14 @@ func (x *Event) SetCreateRevokeEvent(v *CreateRevokeEvent) {
 		return
 	}
 	x.Event = &Event_CreateRevokeEvent{v}
+}
+
+func (x *Event) SetResourceCreatedEvent(v *ResourceCreatedEvent) {
+	if v == nil {
+		x.Event = nil
+		return
+	}
+	x.Event = &Event_ResourceCreatedEvent{v}
 }
 
 func (x *Event) SetAnnotations(v []*anypb.Any) {
@@ -683,6 +704,14 @@ func (x *Event) HasCreateRevokeEvent() bool {
 	return ok
 }
 
+func (x *Event) HasResourceCreatedEvent() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.Event.(*Event_ResourceCreatedEvent)
+	return ok
+}
+
 func (x *Event) ClearOccurredAt() {
 	x.OccurredAt = nil
 }
@@ -727,6 +756,12 @@ func (x *Event) ClearCreateRevokeEvent() {
 	}
 }
 
+func (x *Event) ClearResourceCreatedEvent() {
+	if _, ok := x.Event.(*Event_ResourceCreatedEvent); ok {
+		x.Event = nil
+	}
+}
+
 const Event_Event_not_set_case case_Event_Event = 0
 const Event_UsageEvent_case case_Event_Event = 100
 const Event_GrantEvent_case case_Event_Event = 101
@@ -734,6 +769,7 @@ const Event_RevokeEvent_case case_Event_Event = 102
 const Event_ResourceChangeEvent_case case_Event_Event = 103
 const Event_CreateGrantEvent_case case_Event_Event = 104
 const Event_CreateRevokeEvent_case case_Event_Event = 105
+const Event_ResourceCreatedEvent_case case_Event_Event = 106
 
 func (x *Event) WhichEvent() case_Event_Event {
 	if x == nil {
@@ -752,6 +788,8 @@ func (x *Event) WhichEvent() case_Event_Event {
 		return Event_CreateGrantEvent_case
 	case *Event_CreateRevokeEvent:
 		return Event_CreateRevokeEvent_case
+	case *Event_ResourceCreatedEvent:
+		return Event_ResourceCreatedEvent_case
 	default:
 		return Event_Event_not_set_case
 	}
@@ -766,12 +804,13 @@ type Event_builder struct {
 	// Stream consumer must be defensive about what it's reading
 
 	// Fields of oneof Event:
-	UsageEvent          *UsageEvent
-	GrantEvent          *GrantEvent
-	RevokeEvent         *RevokeEvent
-	ResourceChangeEvent *ResourceChangeEvent
-	CreateGrantEvent    *CreateGrantEvent
-	CreateRevokeEvent   *CreateRevokeEvent
+	UsageEvent           *UsageEvent
+	GrantEvent           *GrantEvent
+	RevokeEvent          *RevokeEvent
+	ResourceChangeEvent  *ResourceChangeEvent
+	CreateGrantEvent     *CreateGrantEvent
+	CreateRevokeEvent    *CreateRevokeEvent
+	ResourceCreatedEvent *ResourceCreatedEvent
 	// -- end of Event
 	// May contain resources for targets, actor, or items referenced in events
 	Annotations []*anypb.Any
@@ -800,6 +839,9 @@ func (b0 Event_builder) Build() *Event {
 	}
 	if b.CreateRevokeEvent != nil {
 		x.Event = &Event_CreateRevokeEvent{b.CreateRevokeEvent}
+	}
+	if b.ResourceCreatedEvent != nil {
+		x.Event = &Event_ResourceCreatedEvent{b.ResourceCreatedEvent}
 	}
 	x.Annotations = b.Annotations
 	return m0
@@ -843,6 +885,10 @@ type Event_CreateRevokeEvent struct {
 	CreateRevokeEvent *CreateRevokeEvent `protobuf:"bytes,105,opt,name=create_revoke_event,json=createRevokeEvent,proto3,oneof"`
 }
 
+type Event_ResourceCreatedEvent struct {
+	ResourceCreatedEvent *ResourceCreatedEvent `protobuf:"bytes,106,opt,name=resource_created_event,json=resourceCreatedEvent,proto3,oneof"`
+}
+
 func (*Event_UsageEvent) isEvent_Event() {}
 
 func (*Event_GrantEvent) isEvent_Event() {}
@@ -854,6 +900,8 @@ func (*Event_ResourceChangeEvent) isEvent_Event() {}
 func (*Event_CreateGrantEvent) isEvent_Event() {}
 
 func (*Event_CreateRevokeEvent) isEvent_Event() {}
+
+func (*Event_ResourceCreatedEvent) isEvent_Event() {}
 
 type UsageEvent struct {
 	state          protoimpl.MessageState `protogen:"hybrid.v1"`
@@ -1418,6 +1466,283 @@ func (b0 ResourceChangeEvent_builder) Build() *ResourceChangeEvent {
 	return m0
 }
 
+// Minimal entitlement info needed when creating a resource via event.
+type ResourceCreatedEntitlement struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Slug          string                 `protobuf:"bytes,2,opt,name=slug,proto3" json:"slug,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResourceCreatedEntitlement) Reset() {
+	*x = ResourceCreatedEntitlement{}
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceCreatedEntitlement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceCreatedEntitlement) ProtoMessage() {}
+
+func (x *ResourceCreatedEntitlement) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResourceCreatedEntitlement) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ResourceCreatedEntitlement) GetSlug() string {
+	if x != nil {
+		return x.Slug
+	}
+	return ""
+}
+
+func (x *ResourceCreatedEntitlement) SetId(v string) {
+	x.Id = v
+}
+
+func (x *ResourceCreatedEntitlement) SetSlug(v string) {
+	x.Slug = v
+}
+
+type ResourceCreatedEntitlement_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Id   string
+	Slug string
+}
+
+func (b0 ResourceCreatedEntitlement_builder) Build() *ResourceCreatedEntitlement {
+	m0 := &ResourceCreatedEntitlement{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Id = b.Id
+	x.Slug = b.Slug
+	return m0
+}
+
+// Minimal resource info needed when creating a resource via event.
+type ResourceCreatedResource struct {
+	state            protoimpl.MessageState `protogen:"hybrid.v1"`
+	ResourceId       *ResourceId            `protobuf:"bytes,1,opt,name=resource_id,json=resourceId,proto3" json:"resource_id,omitempty"`
+	ParentResourceId *ResourceId            `protobuf:"bytes,2,opt,name=parent_resource_id,json=parentResourceId,proto3" json:"parent_resource_id,omitempty"`
+	DisplayName      string                 `protobuf:"bytes,3,opt,name=display_name,json=displayName,proto3" json:"display_name,omitempty"`
+	RawBatonId       string                 `protobuf:"bytes,4,opt,name=raw_baton_id,json=rawBatonId,proto3" json:"raw_baton_id,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ResourceCreatedResource) Reset() {
+	*x = ResourceCreatedResource{}
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceCreatedResource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceCreatedResource) ProtoMessage() {}
+
+func (x *ResourceCreatedResource) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResourceCreatedResource) GetResourceId() *ResourceId {
+	if x != nil {
+		return x.ResourceId
+	}
+	return nil
+}
+
+func (x *ResourceCreatedResource) GetParentResourceId() *ResourceId {
+	if x != nil {
+		return x.ParentResourceId
+	}
+	return nil
+}
+
+func (x *ResourceCreatedResource) GetDisplayName() string {
+	if x != nil {
+		return x.DisplayName
+	}
+	return ""
+}
+
+func (x *ResourceCreatedResource) GetRawBatonId() string {
+	if x != nil {
+		return x.RawBatonId
+	}
+	return ""
+}
+
+func (x *ResourceCreatedResource) SetResourceId(v *ResourceId) {
+	x.ResourceId = v
+}
+
+func (x *ResourceCreatedResource) SetParentResourceId(v *ResourceId) {
+	x.ParentResourceId = v
+}
+
+func (x *ResourceCreatedResource) SetDisplayName(v string) {
+	x.DisplayName = v
+}
+
+func (x *ResourceCreatedResource) SetRawBatonId(v string) {
+	x.RawBatonId = v
+}
+
+func (x *ResourceCreatedResource) HasResourceId() bool {
+	if x == nil {
+		return false
+	}
+	return x.ResourceId != nil
+}
+
+func (x *ResourceCreatedResource) HasParentResourceId() bool {
+	if x == nil {
+		return false
+	}
+	return x.ParentResourceId != nil
+}
+
+func (x *ResourceCreatedResource) ClearResourceId() {
+	x.ResourceId = nil
+}
+
+func (x *ResourceCreatedResource) ClearParentResourceId() {
+	x.ParentResourceId = nil
+}
+
+type ResourceCreatedResource_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ResourceId       *ResourceId
+	ParentResourceId *ResourceId
+	DisplayName      string
+	RawBatonId       string
+}
+
+func (b0 ResourceCreatedResource_builder) Build() *ResourceCreatedResource {
+	m0 := &ResourceCreatedResource{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.ResourceId = b.ResourceId
+	x.ParentResourceId = b.ParentResourceId
+	x.DisplayName = b.DisplayName
+	x.RawBatonId = b.RawBatonId
+	return m0
+}
+
+// event indicating a resource was created, includes display name so we can create it immediately in the UI
+type ResourceCreatedEvent struct {
+	state         protoimpl.MessageState        `protogen:"hybrid.v1"`
+	Resource      *ResourceCreatedResource      `protobuf:"bytes,1,opt,name=resource,proto3" json:"resource,omitempty"`
+	Entitlements  []*ResourceCreatedEntitlement `protobuf:"bytes,2,rep,name=entitlements,proto3" json:"entitlements,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ResourceCreatedEvent) Reset() {
+	*x = ResourceCreatedEvent{}
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ResourceCreatedEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ResourceCreatedEvent) ProtoMessage() {}
+
+func (x *ResourceCreatedEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ResourceCreatedEvent) GetResource() *ResourceCreatedResource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+func (x *ResourceCreatedEvent) GetEntitlements() []*ResourceCreatedEntitlement {
+	if x != nil {
+		return x.Entitlements
+	}
+	return nil
+}
+
+func (x *ResourceCreatedEvent) SetResource(v *ResourceCreatedResource) {
+	x.Resource = v
+}
+
+func (x *ResourceCreatedEvent) SetEntitlements(v []*ResourceCreatedEntitlement) {
+	x.Entitlements = v
+}
+
+func (x *ResourceCreatedEvent) HasResource() bool {
+	if x == nil {
+		return false
+	}
+	return x.Resource != nil
+}
+
+func (x *ResourceCreatedEvent) ClearResource() {
+	x.Resource = nil
+}
+
+type ResourceCreatedEvent_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Resource     *ResourceCreatedResource
+	Entitlements []*ResourceCreatedEntitlement
+}
+
+func (b0 ResourceCreatedEvent_builder) Build() *ResourceCreatedEvent {
+	m0 := &ResourceCreatedEvent{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Resource = b.Resource
+	x.Entitlements = b.Entitlements
+	return m0
+}
+
 type EventFeedMetadata struct {
 	state protoimpl.MessageState `protogen:"hybrid.v1"`
 	// unique identifier for the event feed
@@ -1429,7 +1754,7 @@ type EventFeedMetadata struct {
 
 func (x *EventFeedMetadata) Reset() {
 	*x = EventFeedMetadata{}
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[11]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1441,7 +1766,7 @@ func (x *EventFeedMetadata) String() string {
 func (*EventFeedMetadata) ProtoMessage() {}
 
 func (x *EventFeedMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[11]
+	mi := &file_c1_connector_v2_event_feed_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1515,7 +1840,7 @@ const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\x88\x01\n" +
 	"\x16ListEventFeedsResponse\x126\n" +
 	"\x04list\x18\x01 \x03(\v2\".c1.connector.v2.EventFeedMetadataR\x04list\x126\n" +
-	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xdd\x04\n" +
+	"\vannotations\x18\x02 \x03(\v2\x14.google.protobuf.AnyR\vannotations\"\xbc\x05\n" +
 	"\x05Event\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12;\n" +
 	"\voccurred_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\n" +
@@ -1527,7 +1852,8 @@ const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
 	"\frevoke_event\x18f \x01(\v2\x1c.c1.connector.v2.RevokeEventH\x00R\vrevokeEvent\x12Z\n" +
 	"\x15resource_change_event\x18g \x01(\v2$.c1.connector.v2.ResourceChangeEventH\x00R\x13resourceChangeEvent\x12Q\n" +
 	"\x12create_grant_event\x18h \x01(\v2!.c1.connector.v2.CreateGrantEventH\x00R\x10createGrantEvent\x12T\n" +
-	"\x13create_revoke_event\x18i \x01(\v2\".c1.connector.v2.CreateRevokeEventH\x00R\x11createRevokeEvent\x126\n" +
+	"\x13create_revoke_event\x18i \x01(\v2\".c1.connector.v2.CreateRevokeEventH\x00R\x11createRevokeEvent\x12]\n" +
+	"\x16resource_created_event\x18j \x01(\v2%.c1.connector.v2.ResourceCreatedEventH\x00R\x14resourceCreatedEvent\x126\n" +
 	"\vannotations\x18\x03 \x03(\v2\x14.google.protobuf.AnyR\vannotationsB\a\n" +
 	"\x05event\"\x92\x01\n" +
 	"\n" +
@@ -1551,84 +1877,108 @@ const file_c1_connector_v2_event_feed_proto_rawDesc = "" +
 	"\x13ResourceChangeEvent\x12F\n" +
 	"\vresource_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\n" +
 	"resourceId\x12I\n" +
-	"\x12parent_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x10parentResourceId\"\x90\x01\n" +
+	"\x12parent_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x10parentResourceId\"X\n" +
+	"\x1aResourceCreatedEntitlement\x12\x1a\n" +
+	"\x02id\x18\x01 \x01(\tB\n" +
+	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x12\x1e\n" +
+	"\x04slug\x18\x02 \x01(\tB\n" +
+	"\xfaB\ar\x05 \x01(\x80\bR\x04slug\"\xf1\x01\n" +
+	"\x17ResourceCreatedResource\x12F\n" +
+	"\vresource_id\x18\x01 \x01(\v2\x1b.c1.connector.v2.ResourceIdB\b\xfaB\x05\x8a\x01\x02\x10\x01R\n" +
+	"resourceId\x12I\n" +
+	"\x12parent_resource_id\x18\x02 \x01(\v2\x1b.c1.connector.v2.ResourceIdR\x10parentResourceId\x12!\n" +
+	"\fdisplay_name\x18\x03 \x01(\tR\vdisplayName\x12 \n" +
+	"\fraw_baton_id\x18\x04 \x01(\tR\n" +
+	"rawBatonId\"\xb7\x01\n" +
+	"\x14ResourceCreatedEvent\x12N\n" +
+	"\bresource\x18\x01 \x01(\v2(.c1.connector.v2.ResourceCreatedResourceB\b\xfaB\x05\x8a\x01\x02\x10\x01R\bresource\x12O\n" +
+	"\fentitlements\x18\x02 \x03(\v2+.c1.connector.v2.ResourceCreatedEntitlementR\fentitlements\"\x90\x01\n" +
 	"\x11EventFeedMetadata\x12\x1a\n" +
 	"\x02id\x18\x01 \x01(\tB\n" +
 	"\xfaB\ar\x05 \x01(\x80\bR\x02id\x12_\n" +
-	"\x15supported_event_types\x18\x02 \x03(\x0e2\x1a.c1.connector.v2.EventTypeB\x0f\xfaB\f\x92\x01\t\x18\x01\"\x05\x82\x01\x02\x10\x01R\x13supportedEventTypes*\xa4\x01\n" +
+	"\x15supported_event_types\x18\x02 \x03(\x0e2\x1a.c1.connector.v2.EventTypeB\x0f\xfaB\f\x92\x01\t\x18\x01\"\x05\x82\x01\x02\x10\x01R\x13supportedEventTypes*\xc5\x01\n" +
 	"\tEventType\x12\x1a\n" +
 	"\x16EVENT_TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10EVENT_TYPE_USAGE\x10\x01\x12\x1e\n" +
 	"\x1aEVENT_TYPE_RESOURCE_CHANGE\x10\x04\x12\x1b\n" +
 	"\x17EVENT_TYPE_CREATE_GRANT\x10\x05\x12\x1c\n" +
-	"\x18EVENT_TYPE_CREATE_REVOKE\x10\x06\"\x04\b\x02\x10\x02\"\x04\b\x03\x10\x032\xc8\x01\n" +
+	"\x18EVENT_TYPE_CREATE_REVOKE\x10\x06\x12\x1f\n" +
+	"\x1bEVENT_TYPE_RESOURCE_CREATED\x10\a\"\x04\b\x02\x10\x02\"\x04\b\x03\x10\x032\xc8\x01\n" +
 	"\fEventService\x12U\n" +
 	"\n" +
 	"ListEvents\x12\".c1.connector.v2.ListEventsRequest\x1a#.c1.connector.v2.ListEventsResponse\x12a\n" +
 	"\x0eListEventFeeds\x12&.c1.connector.v2.ListEventFeedsRequest\x1a'.c1.connector.v2.ListEventFeedsResponseB6Z4github.com/conductorone/baton-sdk/pb/c1/connector/v2b\x06proto3"
 
 var file_c1_connector_v2_event_feed_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_c1_connector_v2_event_feed_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_c1_connector_v2_event_feed_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_c1_connector_v2_event_feed_proto_goTypes = []any{
-	(EventType)(0),                 // 0: c1.connector.v2.EventType
-	(*ListEventsRequest)(nil),      // 1: c1.connector.v2.ListEventsRequest
-	(*ListEventsResponse)(nil),     // 2: c1.connector.v2.ListEventsResponse
-	(*ListEventFeedsRequest)(nil),  // 3: c1.connector.v2.ListEventFeedsRequest
-	(*ListEventFeedsResponse)(nil), // 4: c1.connector.v2.ListEventFeedsResponse
-	(*Event)(nil),                  // 5: c1.connector.v2.Event
-	(*UsageEvent)(nil),             // 6: c1.connector.v2.UsageEvent
-	(*GrantEvent)(nil),             // 7: c1.connector.v2.GrantEvent
-	(*CreateGrantEvent)(nil),       // 8: c1.connector.v2.CreateGrantEvent
-	(*CreateRevokeEvent)(nil),      // 9: c1.connector.v2.CreateRevokeEvent
-	(*RevokeEvent)(nil),            // 10: c1.connector.v2.RevokeEvent
-	(*ResourceChangeEvent)(nil),    // 11: c1.connector.v2.ResourceChangeEvent
-	(*EventFeedMetadata)(nil),      // 12: c1.connector.v2.EventFeedMetadata
-	(*timestamppb.Timestamp)(nil),  // 13: google.protobuf.Timestamp
-	(*anypb.Any)(nil),              // 14: google.protobuf.Any
-	(*Resource)(nil),               // 15: c1.connector.v2.Resource
-	(*Grant)(nil),                  // 16: c1.connector.v2.Grant
-	(*Entitlement)(nil),            // 17: c1.connector.v2.Entitlement
-	(*ResourceId)(nil),             // 18: c1.connector.v2.ResourceId
+	(EventType)(0),                     // 0: c1.connector.v2.EventType
+	(*ListEventsRequest)(nil),          // 1: c1.connector.v2.ListEventsRequest
+	(*ListEventsResponse)(nil),         // 2: c1.connector.v2.ListEventsResponse
+	(*ListEventFeedsRequest)(nil),      // 3: c1.connector.v2.ListEventFeedsRequest
+	(*ListEventFeedsResponse)(nil),     // 4: c1.connector.v2.ListEventFeedsResponse
+	(*Event)(nil),                      // 5: c1.connector.v2.Event
+	(*UsageEvent)(nil),                 // 6: c1.connector.v2.UsageEvent
+	(*GrantEvent)(nil),                 // 7: c1.connector.v2.GrantEvent
+	(*CreateGrantEvent)(nil),           // 8: c1.connector.v2.CreateGrantEvent
+	(*CreateRevokeEvent)(nil),          // 9: c1.connector.v2.CreateRevokeEvent
+	(*RevokeEvent)(nil),                // 10: c1.connector.v2.RevokeEvent
+	(*ResourceChangeEvent)(nil),        // 11: c1.connector.v2.ResourceChangeEvent
+	(*ResourceCreatedEntitlement)(nil), // 12: c1.connector.v2.ResourceCreatedEntitlement
+	(*ResourceCreatedResource)(nil),    // 13: c1.connector.v2.ResourceCreatedResource
+	(*ResourceCreatedEvent)(nil),       // 14: c1.connector.v2.ResourceCreatedEvent
+	(*EventFeedMetadata)(nil),          // 15: c1.connector.v2.EventFeedMetadata
+	(*timestamppb.Timestamp)(nil),      // 16: google.protobuf.Timestamp
+	(*anypb.Any)(nil),                  // 17: google.protobuf.Any
+	(*Resource)(nil),                   // 18: c1.connector.v2.Resource
+	(*Grant)(nil),                      // 19: c1.connector.v2.Grant
+	(*Entitlement)(nil),                // 20: c1.connector.v2.Entitlement
+	(*ResourceId)(nil),                 // 21: c1.connector.v2.ResourceId
 }
 var file_c1_connector_v2_event_feed_proto_depIdxs = []int32{
-	13, // 0: c1.connector.v2.ListEventsRequest.start_at:type_name -> google.protobuf.Timestamp
-	14, // 1: c1.connector.v2.ListEventsRequest.annotations:type_name -> google.protobuf.Any
+	16, // 0: c1.connector.v2.ListEventsRequest.start_at:type_name -> google.protobuf.Timestamp
+	17, // 1: c1.connector.v2.ListEventsRequest.annotations:type_name -> google.protobuf.Any
 	5,  // 2: c1.connector.v2.ListEventsResponse.events:type_name -> c1.connector.v2.Event
-	14, // 3: c1.connector.v2.ListEventsResponse.annotations:type_name -> google.protobuf.Any
-	14, // 4: c1.connector.v2.ListEventFeedsRequest.annotations:type_name -> google.protobuf.Any
-	12, // 5: c1.connector.v2.ListEventFeedsResponse.list:type_name -> c1.connector.v2.EventFeedMetadata
-	14, // 6: c1.connector.v2.ListEventFeedsResponse.annotations:type_name -> google.protobuf.Any
-	13, // 7: c1.connector.v2.Event.occurred_at:type_name -> google.protobuf.Timestamp
+	17, // 3: c1.connector.v2.ListEventsResponse.annotations:type_name -> google.protobuf.Any
+	17, // 4: c1.connector.v2.ListEventFeedsRequest.annotations:type_name -> google.protobuf.Any
+	15, // 5: c1.connector.v2.ListEventFeedsResponse.list:type_name -> c1.connector.v2.EventFeedMetadata
+	17, // 6: c1.connector.v2.ListEventFeedsResponse.annotations:type_name -> google.protobuf.Any
+	16, // 7: c1.connector.v2.Event.occurred_at:type_name -> google.protobuf.Timestamp
 	6,  // 8: c1.connector.v2.Event.usage_event:type_name -> c1.connector.v2.UsageEvent
 	7,  // 9: c1.connector.v2.Event.grant_event:type_name -> c1.connector.v2.GrantEvent
 	10, // 10: c1.connector.v2.Event.revoke_event:type_name -> c1.connector.v2.RevokeEvent
 	11, // 11: c1.connector.v2.Event.resource_change_event:type_name -> c1.connector.v2.ResourceChangeEvent
 	8,  // 12: c1.connector.v2.Event.create_grant_event:type_name -> c1.connector.v2.CreateGrantEvent
 	9,  // 13: c1.connector.v2.Event.create_revoke_event:type_name -> c1.connector.v2.CreateRevokeEvent
-	14, // 14: c1.connector.v2.Event.annotations:type_name -> google.protobuf.Any
-	15, // 15: c1.connector.v2.UsageEvent.target_resource:type_name -> c1.connector.v2.Resource
-	15, // 16: c1.connector.v2.UsageEvent.actor_resource:type_name -> c1.connector.v2.Resource
-	16, // 17: c1.connector.v2.GrantEvent.grant:type_name -> c1.connector.v2.Grant
-	17, // 18: c1.connector.v2.CreateGrantEvent.entitlement:type_name -> c1.connector.v2.Entitlement
-	15, // 19: c1.connector.v2.CreateGrantEvent.principal:type_name -> c1.connector.v2.Resource
-	14, // 20: c1.connector.v2.CreateGrantEvent.annotations:type_name -> google.protobuf.Any
-	17, // 21: c1.connector.v2.CreateRevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
-	15, // 22: c1.connector.v2.CreateRevokeEvent.principal:type_name -> c1.connector.v2.Resource
-	14, // 23: c1.connector.v2.CreateRevokeEvent.annotations:type_name -> google.protobuf.Any
-	17, // 24: c1.connector.v2.RevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
-	15, // 25: c1.connector.v2.RevokeEvent.principal:type_name -> c1.connector.v2.Resource
-	18, // 26: c1.connector.v2.ResourceChangeEvent.resource_id:type_name -> c1.connector.v2.ResourceId
-	18, // 27: c1.connector.v2.ResourceChangeEvent.parent_resource_id:type_name -> c1.connector.v2.ResourceId
-	0,  // 28: c1.connector.v2.EventFeedMetadata.supported_event_types:type_name -> c1.connector.v2.EventType
-	1,  // 29: c1.connector.v2.EventService.ListEvents:input_type -> c1.connector.v2.ListEventsRequest
-	3,  // 30: c1.connector.v2.EventService.ListEventFeeds:input_type -> c1.connector.v2.ListEventFeedsRequest
-	2,  // 31: c1.connector.v2.EventService.ListEvents:output_type -> c1.connector.v2.ListEventsResponse
-	4,  // 32: c1.connector.v2.EventService.ListEventFeeds:output_type -> c1.connector.v2.ListEventFeedsResponse
-	31, // [31:33] is the sub-list for method output_type
-	29, // [29:31] is the sub-list for method input_type
-	29, // [29:29] is the sub-list for extension type_name
-	29, // [29:29] is the sub-list for extension extendee
-	0,  // [0:29] is the sub-list for field type_name
+	14, // 14: c1.connector.v2.Event.resource_created_event:type_name -> c1.connector.v2.ResourceCreatedEvent
+	17, // 15: c1.connector.v2.Event.annotations:type_name -> google.protobuf.Any
+	18, // 16: c1.connector.v2.UsageEvent.target_resource:type_name -> c1.connector.v2.Resource
+	18, // 17: c1.connector.v2.UsageEvent.actor_resource:type_name -> c1.connector.v2.Resource
+	19, // 18: c1.connector.v2.GrantEvent.grant:type_name -> c1.connector.v2.Grant
+	20, // 19: c1.connector.v2.CreateGrantEvent.entitlement:type_name -> c1.connector.v2.Entitlement
+	18, // 20: c1.connector.v2.CreateGrantEvent.principal:type_name -> c1.connector.v2.Resource
+	17, // 21: c1.connector.v2.CreateGrantEvent.annotations:type_name -> google.protobuf.Any
+	20, // 22: c1.connector.v2.CreateRevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
+	18, // 23: c1.connector.v2.CreateRevokeEvent.principal:type_name -> c1.connector.v2.Resource
+	17, // 24: c1.connector.v2.CreateRevokeEvent.annotations:type_name -> google.protobuf.Any
+	20, // 25: c1.connector.v2.RevokeEvent.entitlement:type_name -> c1.connector.v2.Entitlement
+	18, // 26: c1.connector.v2.RevokeEvent.principal:type_name -> c1.connector.v2.Resource
+	21, // 27: c1.connector.v2.ResourceChangeEvent.resource_id:type_name -> c1.connector.v2.ResourceId
+	21, // 28: c1.connector.v2.ResourceChangeEvent.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	21, // 29: c1.connector.v2.ResourceCreatedResource.resource_id:type_name -> c1.connector.v2.ResourceId
+	21, // 30: c1.connector.v2.ResourceCreatedResource.parent_resource_id:type_name -> c1.connector.v2.ResourceId
+	13, // 31: c1.connector.v2.ResourceCreatedEvent.resource:type_name -> c1.connector.v2.ResourceCreatedResource
+	12, // 32: c1.connector.v2.ResourceCreatedEvent.entitlements:type_name -> c1.connector.v2.ResourceCreatedEntitlement
+	0,  // 33: c1.connector.v2.EventFeedMetadata.supported_event_types:type_name -> c1.connector.v2.EventType
+	1,  // 34: c1.connector.v2.EventService.ListEvents:input_type -> c1.connector.v2.ListEventsRequest
+	3,  // 35: c1.connector.v2.EventService.ListEventFeeds:input_type -> c1.connector.v2.ListEventFeedsRequest
+	2,  // 36: c1.connector.v2.EventService.ListEvents:output_type -> c1.connector.v2.ListEventsResponse
+	4,  // 37: c1.connector.v2.EventService.ListEventFeeds:output_type -> c1.connector.v2.ListEventFeedsResponse
+	36, // [36:38] is the sub-list for method output_type
+	34, // [34:36] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_c1_connector_v2_event_feed_proto_init() }
@@ -1646,6 +1996,7 @@ func file_c1_connector_v2_event_feed_proto_init() {
 		(*Event_ResourceChangeEvent)(nil),
 		(*Event_CreateGrantEvent)(nil),
 		(*Event_CreateRevokeEvent)(nil),
+		(*Event_ResourceCreatedEvent)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1653,7 +2004,7 @@ func file_c1_connector_v2_event_feed_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connector_v2_event_feed_proto_rawDesc), len(file_c1_connector_v2_event_feed_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   12,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
