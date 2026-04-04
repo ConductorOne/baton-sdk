@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -26,6 +27,7 @@ type listEventsHandler struct {
 
 func (c *listEventsHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "listEventHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)

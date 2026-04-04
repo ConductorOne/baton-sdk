@@ -9,6 +9,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -29,6 +30,7 @@ type revokeTaskHandler struct {
 
 func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "revokeTaskHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_type", "revoke"))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", r.task.GetId()), zap.Stringer("task_type", tasks.GetType(r.task)))

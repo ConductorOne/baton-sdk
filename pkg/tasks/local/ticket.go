@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
@@ -65,6 +66,7 @@ func (m *localBulkCreateTicket) Next(ctx context.Context) (*v1.Task, time.Durati
 
 func (m *localBulkCreateTicket) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localBulkCreateTicket.Process", trace.WithNewRoot())
+	span.SetAttributes(attribute.String("task_type", "bulk_create_ticket"))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -51,6 +52,7 @@ func (m *localActionInvoker) Next(ctx context.Context) (*v1.Task, time.Duration,
 func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx)
 	ctx, span := tracer.Start(ctx, "localActionInvoker.Process", trace.WithNewRoot())
+	span.SetAttributes(attribute.String("task_type", "invoke_action"))
 	defer span.End()
 
 	t := task.GetActionInvoke()

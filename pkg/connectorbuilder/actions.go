@@ -8,6 +8,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/actions"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"go.opentelemetry.io/otel/attribute"
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
@@ -99,6 +100,7 @@ type RegisterActionManagerLimited interface {
 
 func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionSchemasRequest) (*v2.ListActionSchemasResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListActionSchemas")
+	span.SetAttributes(attribute.String("resource_type_id", request.GetResourceTypeId()))
 	defer span.End()
 
 	start := b.nowFunc()
@@ -122,6 +124,7 @@ func (b *builder) ListActionSchemas(ctx context.Context, request *v2.ListActionS
 
 func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSchemaRequest) (*v2.GetActionSchemaResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.GetActionSchema")
+	span.SetAttributes(attribute.String("action_name", request.GetName()))
 	defer span.End()
 
 	start := b.nowFunc()
@@ -143,6 +146,10 @@ func (b *builder) GetActionSchema(ctx context.Context, request *v2.GetActionSche
 
 func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequest) (*v2.InvokeActionResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.InvokeAction")
+	span.SetAttributes(
+		attribute.String("action_name", request.GetName()),
+		attribute.String("resource_type_id", request.GetResourceTypeId()),
+	)
 	defer span.End()
 
 	start := b.nowFunc()
@@ -170,6 +177,7 @@ func (b *builder) InvokeAction(ctx context.Context, request *v2.InvokeActionRequ
 
 func (b *builder) GetActionStatus(ctx context.Context, request *v2.GetActionStatusRequest) (*v2.GetActionStatusResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.GetActionStatus")
+	span.SetAttributes(attribute.String("action_id", request.GetId()))
 	defer span.End()
 
 	start := b.nowFunc()

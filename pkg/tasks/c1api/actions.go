@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -27,6 +28,7 @@ type actionListSchemasTaskHandler struct {
 
 func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionListSchemasTaskHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
@@ -72,6 +74,7 @@ type actionGetSchemaTaskHandler struct {
 
 func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionGetSchemaTaskHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
@@ -115,6 +118,7 @@ type actionInvokeTaskHandler struct {
 
 func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionInvokeTaskHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
@@ -180,6 +184,7 @@ type actionStatusTaskHandler struct {
 
 func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionStatusTaskHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)

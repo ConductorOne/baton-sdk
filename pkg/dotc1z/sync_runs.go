@@ -15,6 +15,7 @@ import (
 	go_sqlite "github.com/glebarez/go-sqlite"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/segmentio/ksuid"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -130,6 +131,7 @@ type syncRun struct {
 // The cache is invalidated when a sync starts or ends.
 func (c *C1File) getCachedViewSyncRun(ctx context.Context) (*syncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getCachedViewSyncRun")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	c.cachedViewSyncMu.Lock()
@@ -163,6 +165,7 @@ func (c *C1File) invalidateCachedViewSyncRun() {
 
 func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connectorstore.SyncType) (*syncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getLatestUnfinishedSync")
+	span.SetAttributes(attribute.String("sync_type", string(syncType)))
 	defer span.End()
 
 	err := c.validateDb(ctx)
@@ -203,6 +206,7 @@ func (c *C1File) getLatestUnfinishedSync(ctx context.Context, syncType connector
 
 func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType connectorstore.SyncType) (*syncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getFinishedSync")
+	span.SetAttributes(attribute.String("sync_type", string(syncType)))
 	defer span.End()
 
 	err := c.validateDb(ctx)
@@ -249,6 +253,7 @@ func (c *C1File) getFinishedSync(ctx context.Context, offset uint, syncType conn
 
 func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize uint32) ([]*syncRun, string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListSyncRuns")
+	span.SetAttributes(attribute.Int("page_size", int(pageSize)))
 	defer span.End()
 
 	err := c.validateDb(ctx)
@@ -313,6 +318,7 @@ func (c *C1File) ListSyncRuns(ctx context.Context, pageToken string, pageSize ui
 
 func (c *C1File) LatestSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.LatestSyncID")
+	span.SetAttributes(attribute.String("sync_type", string(syncType)))
 	defer span.End()
 
 	s, err := c.getFinishedSync(ctx, 0, syncType)
@@ -339,6 +345,7 @@ func (c *C1File) ViewSync(ctx context.Context, syncID string) error {
 
 func (c *C1File) PreviousSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.PreviousSyncID")
+	span.SetAttributes(attribute.String("sync_type", string(syncType)))
 	defer span.End()
 
 	s, err := c.getFinishedSync(ctx, 1, syncType)
@@ -355,6 +362,7 @@ func (c *C1File) PreviousSyncID(ctx context.Context, syncType connectorstore.Syn
 
 func (c *C1File) LatestFinishedSyncID(ctx context.Context, syncType connectorstore.SyncType) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.LatestFinishedSync")
+	span.SetAttributes(attribute.String("sync_type", string(syncType)))
 	defer span.End()
 
 	s, err := c.getFinishedSync(ctx, 0, syncType)
@@ -371,6 +379,7 @@ func (c *C1File) LatestFinishedSyncID(ctx context.Context, syncType connectorsto
 
 func (c *C1File) getSync(ctx context.Context, syncID string) (*syncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getSync")
+	span.SetAttributes(attribute.String("sync_id", syncID))
 	defer span.End()
 
 	err := c.validateDb(ctx)
@@ -399,6 +408,7 @@ func (c *C1File) getSync(ctx context.Context, syncID string) (*syncRun, error) {
 
 func (c *C1File) getCurrentSync(ctx context.Context) (*syncRun, error) {
 	ctx, span := tracer.Start(ctx, "C1File.getCurrentSync")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	if c.currentSyncID == "" {
@@ -410,6 +420,7 @@ func (c *C1File) getCurrentSync(ctx context.Context) (*syncRun, error) {
 
 func (c *C1File) SetCurrentSync(ctx context.Context, syncID string) error {
 	ctx, span := tracer.Start(ctx, "C1File.SetCurrentSync")
+	span.SetAttributes(attribute.String("sync_id", syncID))
 	defer span.End()
 
 	_, err := c.getSync(ctx, syncID)
@@ -423,6 +434,7 @@ func (c *C1File) SetCurrentSync(ctx context.Context, syncID string) error {
 
 func (c *C1File) CheckpointSync(ctx context.Context, syncToken string) error {
 	ctx, span := tracer.Start(ctx, "C1File.CheckpointSync")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	if c.readOnly {
@@ -455,6 +467,10 @@ func (c *C1File) CheckpointSync(ctx context.Context, syncToken string) error {
 
 func (c *C1File) ResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ResumeSync")
+	span.SetAttributes(
+		attribute.String("sync_type", string(syncType)),
+		attribute.String("sync_id", syncID),
+	)
 	defer span.End()
 
 	if c.currentSyncID != "" {
@@ -513,6 +529,10 @@ func (c *C1File) ResumeSync(ctx context.Context, syncType connectorstore.SyncTyp
 // It returns the sync ID and a boolean indicating if a new sync was started.
 func (c *C1File) StartOrResumeSync(ctx context.Context, syncType connectorstore.SyncType, syncID string) (string, bool, error) {
 	ctx, span := tracer.Start(ctx, "C1File.StartOrResumeSync")
+	span.SetAttributes(
+		attribute.String("sync_type", string(syncType)),
+		attribute.String("sync_id", syncID),
+	)
 	defer span.End()
 
 	resumedSyncID, err := c.ResumeSync(ctx, syncType, syncID)
@@ -546,6 +566,7 @@ func (c *C1File) SetSyncID(_ context.Context, syncID string) error {
 
 func (c *C1File) StartNewSync(ctx context.Context, syncType connectorstore.SyncType, parentSyncID string) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.StartNewSync")
+	span.SetAttributes(attribute.String("sync_type", string(syncType)))
 	defer span.End()
 
 	if c.currentSyncID != "" {
@@ -627,6 +648,7 @@ func (c *C1File) insertSyncRunWithLink(ctx context.Context, syncID string, syncT
 
 func (c *C1File) CurrentSyncStep(ctx context.Context) (string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.CurrentSyncStep")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	sr, err := c.getCurrentSync(ctx)
@@ -640,6 +662,7 @@ func (c *C1File) CurrentSyncStep(ctx context.Context) (string, error) {
 // EndSync updates the current sync_run row with the end time, and removes any other objects that don't have the current sync ID.
 func (c *C1File) EndSync(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.EndSync")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	err := c.validateSyncDb(ctx)
@@ -683,6 +706,7 @@ func (c *C1File) endSyncRun(ctx context.Context, syncID string) error {
 // This indicates the sync has SQL-layer grant metadata (is_expandable) properly populated.
 func (c *C1File) SetSupportsDiff(ctx context.Context, syncID string) error {
 	ctx, span := tracer.Start(ctx, "C1File.SetSupportsDiff")
+	span.SetAttributes(attribute.String("sync_id", syncID))
 	defer span.End()
 
 	if c.readOnly {
@@ -728,6 +752,7 @@ func wrapSqliteInterruptError(err error) error {
 
 func (c *C1File) Cleanup(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.Cleanup")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
@@ -903,6 +928,7 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 // DeleteSyncRun removes all the objects with a given syncID from the database.
 func (c *C1File) DeleteSyncRun(ctx context.Context, syncID string) error {
 	ctx, span := tracer.Start(ctx, "C1File.DeleteSyncRun")
+	span.SetAttributes(attribute.String("sync_id", syncID))
 	defer span.End()
 
 	err := c.validateDb(ctx)
@@ -937,6 +963,7 @@ func (c *C1File) DeleteSyncRun(ctx context.Context, syncID string) error {
 // Vacuum runs a VACUUM on the database to reclaim space.
 func (c *C1File) Vacuum(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.Vacuum")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	err := c.validateDb(ctx)
@@ -963,6 +990,7 @@ func toTimeStamp(t *time.Time) *timestamppb.Timestamp {
 
 func (c *C1File) GetSync(ctx context.Context, request *reader_v2.SyncsReaderServiceGetSyncRequest) (*reader_v2.SyncsReaderServiceGetSyncResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetSync")
+	span.SetAttributes(attribute.String("sync_id", request.GetSyncId()))
 	defer span.End()
 
 	sr, err := c.getSync(ctx, request.GetSyncId())
@@ -984,6 +1012,7 @@ func (c *C1File) GetSync(ctx context.Context, request *reader_v2.SyncsReaderServ
 
 func (c *C1File) ListSyncs(ctx context.Context, request *reader_v2.SyncsReaderServiceListSyncsRequest) (*reader_v2.SyncsReaderServiceListSyncsResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListSyncs")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	syncs, nextPageToken, err := c.ListSyncRuns(ctx, request.GetPageToken(), request.GetPageSize())
@@ -1011,6 +1040,7 @@ func (c *C1File) ListSyncs(ctx context.Context, request *reader_v2.SyncsReaderSe
 
 func (c *C1File) GetLatestFinishedSync(ctx context.Context, request *reader_v2.SyncsReaderServiceGetLatestFinishedSyncRequest) (*reader_v2.SyncsReaderServiceGetLatestFinishedSyncResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetLatestFinishedSync")
+	span.SetAttributes(attribute.String("sync_type", request.GetSyncType()))
 	defer span.End()
 
 	sync, err := c.getFinishedSync(ctx, 0, connectorstore.SyncType(request.GetSyncType()))

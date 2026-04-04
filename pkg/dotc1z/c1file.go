@@ -14,6 +14,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -111,6 +112,7 @@ func WithC1FSyncCountLimit(limit int) C1FOption {
 // Returns a C1File instance for the given db filepath.
 func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1File")
+	span.SetAttributes(attribute.String("db_path", dbFilePath))
 	defer span.End()
 
 	rawDB, err := sql.Open("sqlite", dbFilePath)
@@ -217,6 +219,7 @@ func WithSyncLimit(limit int) C1ZOption {
 // Returns a new C1File instance with its state stored at the provided filename.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
+	span.SetAttributes(attribute.String("db_path", outputFilePath))
 	defer span.End()
 
 	options := &c1zOptions{
@@ -406,6 +409,7 @@ func (c *C1File) Close(ctx context.Context) error {
 // Returns the busy, log, and checkpointed values.
 func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
 	ctx, span := tracer.Start(ctx, "C1File.truncateWAL")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	// Use QueryRowContext to read the (busy, log, checkpointed) result.
@@ -431,6 +435,7 @@ func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
 // init ensures that the database has all of the required schema.
 func (c *C1File) init(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.init")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
@@ -497,6 +502,7 @@ func (c *C1File) init(ctx context.Context) error {
 
 func (c *C1File) InitTables(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.InitTables")
+	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
 	defer span.End()
 
 	err := c.validateDb(ctx)
@@ -526,6 +532,7 @@ func (c *C1File) InitTables(ctx context.Context) error {
 // If syncId is empty, it will use the latest sync run of the given type.
 func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
 	ctx, span := tracer.Start(ctx, "C1File.Stats")
+	span.SetAttributes(attribute.String("sync_type", string(syncType)))
 	defer span.End()
 
 	counts := make(map[string]int64)
@@ -654,6 +661,7 @@ func (c *C1FileAttached) DetachFile(dbName string) (*C1FileAttached, error) {
 // If syncId is empty, it will use the latest sync run of the given type.
 func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GrantStats")
+	span.SetAttributes(attribute.String("sync_type", string(syncType)))
 	defer span.End()
 
 	var err error

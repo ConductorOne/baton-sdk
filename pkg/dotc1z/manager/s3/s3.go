@@ -10,6 +10,7 @@ import (
 	"github.com/aws/smithy-go"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
@@ -42,6 +43,7 @@ func WithDecoderOptions(opts ...dotc1z.DecoderOption) Option {
 
 func (s *s3Manager) copyToTempFile(ctx context.Context, r io.Reader) error {
 	_, span := tracer.Start(ctx, "s3Manager.copyToTempFile")
+	span.SetAttributes(attribute.String("file_name", s.fileName))
 	defer span.End()
 
 	f, err := os.CreateTemp(s.tmpDir, "sync-*.c1z")
@@ -85,6 +87,7 @@ func (s *s3Manager) copyToTempFile(ctx context.Context, r io.Reader) error {
 // LoadRaw loads the file from S3 and returns an io.Reader for the contents.
 func (s *s3Manager) LoadRaw(ctx context.Context) (io.ReadCloser, error) {
 	ctx, span := tracer.Start(ctx, "s3Manager.LoadRaw")
+	span.SetAttributes(attribute.String("file_name", s.fileName))
 	defer span.End()
 
 	out, err := s.client.Get(ctx, s.fileName)
@@ -118,6 +121,7 @@ func (s *s3Manager) LoadRaw(ctx context.Context) (io.ReadCloser, error) {
 // LoadC1Z gets a file from the AWS S3 bucket and copies it to a temp file.
 func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 	ctx, span := tracer.Start(ctx, "s3Manager.LoadC1Z")
+	span.SetAttributes(attribute.String("file_name", s.fileName))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)
@@ -154,6 +158,7 @@ func (s *s3Manager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 // SaveC1Z saves a file to the AWS S3 bucket.
 func (s *s3Manager) SaveC1Z(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "s3Manager.SaveC1Z")
+	span.SetAttributes(attribute.String("file_name", s.fileName))
 	defer span.End()
 
 	f, err := os.Open(s.tmpFile)
@@ -180,6 +185,7 @@ func (s *s3Manager) SaveC1Z(ctx context.Context) error {
 
 func (s *s3Manager) Close(ctx context.Context) error {
 	_, span := tracer.Start(ctx, "s3Manager.Close")
+	span.SetAttributes(attribute.String("file_name", s.fileName))
 	defer span.End()
 
 	err := os.Remove(s.tmpFile)
