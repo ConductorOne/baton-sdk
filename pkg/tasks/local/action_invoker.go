@@ -14,6 +14,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 )
 
@@ -51,7 +52,8 @@ func (m *localActionInvoker) Next(ctx context.Context) (*v1.Task, time.Duration,
 func (m *localActionInvoker) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	l := ctxzap.Extract(ctx)
 	ctx, span := tracer.Start(ctx, "localActionInvoker.Process", trace.WithNewRoot())
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	t := task.GetActionInvoke()
 	reqBuilder := v2.InvokeActionRequest_builder{

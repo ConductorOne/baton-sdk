@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
@@ -60,9 +61,10 @@ func cloneTableQuery(tableName string, columns []string) string {
 // 3. Execute an ATTACH query to bring our empty sqlite db into the context of our db connection
 // 4. Select directly from the cloned db and insert directly into the new database.
 // 5. Close and save the new database as a c1z at the configured path.
-func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) (err error) {
+func (c *C1File) CloneSync(ctx context.Context, outPath string, syncID string) error {
 	ctx, span := tracer.Start(ctx, "C1File.CloneSync")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	// Be sure that the output path is empty else return an error
 	_, err = os.Stat(outPath)

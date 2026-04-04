@@ -11,6 +11,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/provisioner"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type localGranter struct {
@@ -42,11 +43,12 @@ func (m *localGranter) Next(ctx context.Context) (*v1.Task, time.Duration, error
 
 func (m *localGranter) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localGranter.Process", trace.WithNewRoot())
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	granter := provisioner.NewGranter(cc, m.dbPath, m.entitlementID, m.principalID, m.principalType)
 
-	err := granter.Run(ctx)
+	err = granter.Run(ctx)
 	if err != nil {
 		return err
 	}

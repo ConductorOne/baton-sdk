@@ -26,6 +26,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/conductorone/baton-sdk/pkg/uhttp"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 var tracer = otel.Tracer("baton-sdk/pkg.connectorbuilder")
@@ -257,7 +258,8 @@ func (b *builder) addConnectorBuilderProviders(_ context.Context, in interface{}
 // GetMetadata gets all metadata for a connector.
 func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceGetMetadataRequest) (*v2.ConnectorServiceGetMetadataResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.GetMetadata")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.GetMetadataType
@@ -286,7 +288,8 @@ func (b *builder) GetMetadata(ctx context.Context, request *v2.ConnectorServiceG
 // Validate validates the connector.
 func (b *builder) Validate(ctx context.Context, request *v2.ConnectorServiceValidateRequest) (*v2.ConnectorServiceValidateResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.Validate")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	retryer := retry.NewRetryer(ctx, retry.RetryConfig{
 		MaxAttempts:  5,

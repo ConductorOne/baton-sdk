@@ -14,6 +14,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type helloHelpers interface {
@@ -113,8 +114,8 @@ func (c *helloTaskHandler) buildInfo(ctx context.Context) *v1.BatonServiceHelloR
 
 func (c *helloTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "helloTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	if c.task == nil {
 		return errors.New("cannot handle task: task is nil")
 	}

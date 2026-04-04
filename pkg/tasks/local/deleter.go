@@ -11,6 +11,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/provisioner"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type localResourceDeleter struct {
@@ -41,11 +42,12 @@ func (m *localResourceDeleter) Next(ctx context.Context) (*v1.Task, time.Duratio
 
 func (m *localResourceDeleter) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localResourceDeleter.Process", trace.WithNewRoot())
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	accountManager := provisioner.NewResourceDeleter(cc, m.dbPath, m.resourceId, m.resourceType)
 
-	err := accountManager.Run(ctx)
+	err = accountManager.Run(ctx)
 	if err != nil {
 		return err
 	}

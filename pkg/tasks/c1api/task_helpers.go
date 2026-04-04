@@ -12,6 +12,7 @@ import (
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/types"
@@ -32,22 +33,22 @@ func (t *taskHelpers) ConnectorClient() types.ConnectorClient {
 
 func (t *taskHelpers) Upload(ctx context.Context, r io.ReadSeeker) error {
 	ctx, span := tracer.Start(ctx, "taskHelpers.Upload")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	if t.task == nil {
 		return errors.New("cannot upload: task is nil")
 	}
 	return t.serviceClient.Upload(ctx, t.task, r)
 }
 
-func (t *taskHelpers) FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, err error) error {
+func (t *taskHelpers) FinishTask(ctx context.Context, resp proto.Message, annos annotations.Annotations, inErr error) error {
 	ctx, span := tracer.Start(ctx, "taskHelpers.FinishTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	if t.task == nil {
 		return errors.New("cannot finish task: task is nil")
 	}
-	return t.taskFinisher(ctx, t.task, resp, annos, err)
+	return t.taskFinisher(ctx, t.task, resp, annos, inErr)
 }
 
 func (t *taskHelpers) HelloClient() batonHelloClient {
@@ -65,8 +66,8 @@ func (t *taskHelpers) TempDir() string {
 // If the task is cancelled by the server, the returned context will be cancelled with ErrTaskCancelled.
 func (t *taskHelpers) HeartbeatTask(ctx context.Context, annos annotations.Annotations) (context.Context, error) {
 	ctx, span := tracer.Start(ctx, "taskHelpers.HeartbeatTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", t.task.GetId()), zap.Stringer("task_type", tasks.GetType(t.task)))
 	rCtx, rCancel := context.WithCancelCause(ctx)
 

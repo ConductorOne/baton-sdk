@@ -1,6 +1,9 @@
 package connectorbuilder
 
-import v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+import (
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
+)
 
 // FIXME(jirwin): Come back to streaming assets soon.
 //
@@ -47,7 +50,8 @@ import v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 // FIXME(jirwin): Asset streaming is disabled.
 func (b *builder) GetAsset(request *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
 	_, span := tracer.Start(server.Context(), "builderImpl.GetAsset")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return nil
 }

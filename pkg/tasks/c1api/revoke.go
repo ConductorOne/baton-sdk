@@ -15,6 +15,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type revokeHelpers interface {
@@ -29,8 +30,8 @@ type revokeTaskHandler struct {
 
 func (r *revokeTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "revokeTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", r.task.GetId()), zap.Stringer("task_type", tasks.GetType(r.task)))
 
 	if r.task.GetRevoke() == nil || r.task.GetRevoke().GetGrant() == nil {

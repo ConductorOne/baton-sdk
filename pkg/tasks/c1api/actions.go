@@ -13,6 +13,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type actionListSchemasTaskHelpers interface {
@@ -27,8 +28,8 @@ type actionListSchemasTaskHandler struct {
 
 func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionListSchemasTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -72,8 +73,8 @@ type actionGetSchemaTaskHandler struct {
 
 func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionGetSchemaTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -115,8 +116,8 @@ type actionInvokeTaskHandler struct {
 
 func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionInvokeTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -180,8 +181,8 @@ type actionStatusTaskHandler struct {
 
 func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionStatusTaskHandler.HandleTask")
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()

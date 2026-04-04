@@ -20,6 +20,8 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
+
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 var tracer = otel.Tracer("baton-sdk/pkg.synccompactor")
@@ -148,7 +150,8 @@ func NewCompactor(ctx context.Context, outputDir string, compactableSyncs []*Com
 
 func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	ctx, span := tracer.Start(ctx, "Compactor.Compact")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	if len(c.entries) < 2 {
 		return nil, nil
 	}
@@ -164,7 +167,6 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 	}
 
 	l := ctxzap.Extract(ctx)
-	var err error
 	select {
 	case <-runCtx.Done():
 		err = context.Cause(runCtx)
@@ -302,7 +304,8 @@ func cpFile(ctx context.Context, sourcePath string, destPath string) error {
 
 func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) error {
 	ctx, span := tracer.Start(ctx, "Compactor.doOneCompaction")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 	l.Info(
 		"running compaction",

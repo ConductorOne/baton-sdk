@@ -9,6 +9,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -82,7 +83,8 @@ func (b *builder) ListResourceTypes(
 	request *v2.ResourceTypesServiceListResourceTypesRequest,
 ) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListResourceTypes")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ListResourceTypesType
@@ -111,7 +113,8 @@ func (b *builder) ListResourceTypes(
 // ListResources returns all available resources for a given resource type ID.
 func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListResources")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ListResourcesType
@@ -155,7 +158,8 @@ func (b *builder) ListResources(ctx context.Context, request *v2.ResourcesServic
 
 func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterServiceGetResourceRequest) (*v2.ResourceGetterServiceGetResourceResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.GetResource")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.GetResourceType
@@ -188,7 +192,8 @@ func (b *builder) GetResource(ctx context.Context, request *v2.ResourceGetterSer
 // Static entitlements are used to create entitlements for all resources of a given resource type.
 func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.EntitlementsServiceListStaticEntitlementsRequest) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListStaticEntitlements")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ListStaticEntitlementsType
@@ -240,7 +245,8 @@ func (b *builder) ListStaticEntitlements(ctx context.Context, request *v2.Entitl
 // ListEntitlements returns all the entitlements for a given resource.
 func (b *builder) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListEntitlements")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ListEntitlementsType
@@ -282,7 +288,8 @@ func (b *builder) ListEntitlements(ctx context.Context, request *v2.Entitlements
 // ListGrants lists all the grants for a given resource.
 func (b *builder) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.ListGrants")
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.ListGrantsType
