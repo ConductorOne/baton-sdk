@@ -198,7 +198,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		}
 
 		if err := field.Validate(connectorSchema, t, fieldOptions...); err != nil {
-			return fmt.Errorf("lambda-run: failed to validate config: %w", err)
+			return fmt.Errorf("failed to validate config: %w", err)
 		}
 
 		clientSecret := v.GetString("client-secret")
@@ -238,7 +238,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		}
 		c, err := getconnector(runCtx, t, ops)
 		if err != nil {
-			return fmt.Errorf("lambda-run: failed to get connector: %w", err)
+			return fmt.Errorf("failed to get connector: %w", err)
 		}
 
 		// Ensure only one auth method is provided
