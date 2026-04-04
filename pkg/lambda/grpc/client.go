@@ -65,11 +65,14 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 		}
 		// If a third case is ever added to this, put the logic in its own function and add some test cases.
 
+		if filteredLogs != "" {
+			return nil, fmt.Errorf("%s", filteredLogs)
+		}
+
 		return nil, fmt.Errorf(
-			"lambda_transport: function returned error: %s; status code: %d; logSummary: %s",
+			"lambda_transport: function returned error: %s; status code: %d",
 			*invokeResp.FunctionError,
 			invokeResp.StatusCode,
-			filteredLogs,
 		)
 	}
 
