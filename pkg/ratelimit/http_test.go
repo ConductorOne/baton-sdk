@@ -39,6 +39,20 @@ func TestExtractRateLimitData_WeightedHeaders(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(100), rl.GetLimit())
 	require.Equal(t, int64(42), rl.GetRemaining())
+
+	resp = &http.Response{
+		StatusCode: http.StatusOK,
+		Header: map[string][]string{
+			"X-Ratelimit-Limit":     {" 200"},
+			"X-Ratelimit-Remaining": {" 99"},
+			"X-Ratelimit-Reset":     {"30"},
+		},
+	}
+
+	rl, err = ExtractRateLimitData(resp.StatusCode, &resp.Header)
+	require.NoError(t, err)
+	require.Equal(t, int64(200), rl.GetLimit())
+	require.Equal(t, int64(99), rl.GetRemaining())
 }
 
 func TestHelpers_ExtractRateLimitData(t *testing.T) {
