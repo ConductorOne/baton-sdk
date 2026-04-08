@@ -12,7 +12,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
-	"golang.org/x/net/http2"
 )
 
 var loggedResponseHeaders = []string{
@@ -109,23 +108,29 @@ func (uat *userAgentTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 func (t *Transport) make(_ context.Context) (http.RoundTripper, error) {
 	// based on http.DefaultTransport
+	//
+	// Key tuning for Lambda-behind-proxy environments:
+	// - IdleConnTimeout is set shorter than typical proxy idle timeouts (Squid
+	//   defaults to ~60s) to avoid grabbing stale pooled connections on warm
+	//   Lambda invocations.
+	// - ResponseHeaderTimeout bounds how long we wait for the proxy/server to
+	//   start responding, preventing zombie connections.
+	// - ForceAttemptHTTP2 is disabled because HTTP/2 negotiation over a
+	//   CONNECT proxy (port 3128) is unreliable. Standard h2 via ALPN on
+	//   direct TLS connections still works.
 	baseTransport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
-			DualStack: true,
 		}).DialContext,
-		ForceAttemptHTTP2:     true,
+		ForceAttemptHTTP2:     false,
 		MaxIdleConns:          100,
-		IdleConnTimeout:       90 * time.Second,
+		IdleConnTimeout:       30 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
 		TLSClientConfig:       t.tlsClientConfig,
-	}
-	err := http2.ConfigureTransport(baseTransport)
-	if err != nil {
-		return nil, err
 	}
 	var rv http.RoundTripper = baseTransport
 	rv = &userAgentTripper{next: rv, userAgent: t.userAgent}
