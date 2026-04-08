@@ -67,6 +67,7 @@ func parseTime(timeStr string) (time.Time, error) {
 // normalizeRateLimitValue extracts the leading integer from a rate limit header
 // that may use the weighted format from the RateLimit header RFC draft
 // (e.g. "500, 500;w=1, 20000;w=60" → "500", "100;w=60" → "100").
+// docs: https://www.ietf.org/archive/id/draft-polli-ratelimit-headers-02.html#name-ratelimit-limit
 func normalizeRateLimitValue(s string) string {
 	s = strings.TrimSpace(s)
 	for i := 0; i < len(s); i++ {
