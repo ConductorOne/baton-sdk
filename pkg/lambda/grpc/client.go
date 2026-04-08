@@ -38,6 +38,9 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 	// Invoke the Lambda function.
 	invokeResp, err := l.lambdaClient.Invoke(ctx, input)
 	if err != nil {
+		if isTransientNetworkError(err) {
+			return nil, status.Errorf(codes.Unavailable, "lambda_transport: transient network error invoking function: %s", err)
+		}
 		return nil, fmt.Errorf("lambda_transport: failed to invoke lambda function: %w", err)
 	}
 

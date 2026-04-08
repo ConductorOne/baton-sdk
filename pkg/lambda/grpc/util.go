@@ -129,9 +129,26 @@ func UnmarshalMetadata(s *structpb.Struct) metadata.MD {
 	return md
 }
 
+// isTransientNetworkError returns true for TCP-level errors that are
+// transient and should be classified as codes.Unavailable rather than
+// codes.Unknown so that callers (e.g. IsSyncPreservable) can treat
+// them as recoverable.
+func isTransientNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "no such host") ||
+		(strings.Contains(msg, "unexpected EOF") && !strings.Contains(msg, "unexpected EOF on client connection"))
+}
+
 // ErrorResponse converts a given error to a status.Status and returns a *pbtransport.Response.
 // status.FromError(err) must unwrap a status.Status for this to work - all other errors are converted
-// to grpc codes.Unknown errors.
+// to grpc codes.Unknown errors. Transient network errors are classified as codes.Unavailable.
 func ErrorResponse(err error) *Response {
 	st, ok := status.FromError(err)
 	if !ok {
@@ -140,6 +157,8 @@ func ErrorResponse(err error) *Response {
 			st = status.Newf(codes.Canceled, "canceled: %s", err)
 		case errors.Is(err, context.DeadlineExceeded):
 			st = status.Newf(codes.DeadlineExceeded, "deadline exceeded: %s", err)
+		case isTransientNetworkError(err):
+			st = status.Newf(codes.Unavailable, "transient network error: %s", err)
 		default:
 			st = status.Newf(codes.Unknown, "unknown error: %s", err)
 		}
