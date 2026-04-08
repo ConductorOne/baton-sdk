@@ -12,6 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/sdk"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
+	"golang.org/x/net/http2"
 )
 
 var loggedResponseHeaders = []string{
@@ -115,22 +116,23 @@ func (t *Transport) make(_ context.Context) (http.RoundTripper, error) {
 	//   Lambda invocations.
 	// - ResponseHeaderTimeout bounds how long we wait for the proxy/server to
 	//   start responding, preventing zombie connections.
-	// - ForceAttemptHTTP2 is disabled because HTTP/2 negotiation over a
-	//   CONNECT proxy (port 3128) is unreliable. Standard h2 via ALPN on
-	//   direct TLS connections still works.
 	baseTransport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
-		ForceAttemptHTTP2:     false,
+		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
 		IdleConnTimeout:       30 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		ResponseHeaderTimeout: 60 * time.Second,
 		TLSClientConfig:       t.tlsClientConfig,
+	}
+	err := http2.ConfigureTransport(baseTransport)
+	if err != nil {
+		return nil, err
 	}
 	var rv http.RoundTripper = baseTransport
 	rv = &userAgentTripper{next: rv, userAgent: t.userAgent}
