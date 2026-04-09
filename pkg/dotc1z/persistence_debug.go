@@ -3,10 +3,8 @@ package dotc1z
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 )
 
 func FileSHA256Hex(path string) (string, int64, error) {
@@ -27,19 +25,4 @@ func FileSHA256Hex(path string) (string, int64, error) {
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), stat.Size(), nil
-}
-
-func SyncParentDir(path string) error {
-	dir := filepath.Dir(path)
-	f, err := os.Open(dir)
-	if err != nil {
-		return fmt.Errorf("open parent dir %s: %w", dir, err)
-	}
-	defer f.Close()
-
-	if err := f.Sync(); err != nil {
-		return fmt.Errorf("sync parent dir %s: %w", dir, err)
-	}
-
-	return nil
 }

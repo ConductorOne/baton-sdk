@@ -170,7 +170,10 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	}
 	expectedSize := srcStat.Size()
 
-	dstFile, err := os.CreateTemp(filepath.Dir(l.filePath), filepath.Base(l.filePath)+".tmp-*")
+	// Stage in the destination directory so the final rename stays on the same
+	// filesystem and remains atomic.
+	destDir := filepath.Dir(l.filePath)
+	dstFile, err := os.CreateTemp(destDir, filepath.Base(l.filePath)+".tmp-*")
 	if err != nil {
 		return fmt.Errorf("failed to create staging file: %w", err)
 	}
@@ -203,14 +206,6 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 		return fmt.Errorf("failed to sync staging file: %w", err)
 	}
 
-	stagingStat, err := dstFile.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to stat staging file: %w", err)
-	}
-	if stagingStat.Size() != size {
-		return fmt.Errorf("staging file size mismatch: copied %d bytes but staging file is %d bytes", size, stagingStat.Size())
-	}
-
 	stagingDigest, err := sha256HexFromFile(dstFile)
 	if err != nil {
 		return fmt.Errorf("failed to hash staging file: %w", err)
@@ -225,12 +220,13 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 		zap.String("source_path", l.tmpPath),
 		zap.String("staging_path", stagingPath),
 		zap.Int64("source_bytes", expectedSize),
-		zap.Int64("staging_bytes", stagingStat.Size()),
+		zap.Int64("staging_bytes", size),
 		zap.String("source_sha256", sourceDigest),
 		zap.String("staging_sha256", stagingDigest),
 	)
 
 	if err := dstFile.Close(); err != nil {
+		dstFile = nil
 		return fmt.Errorf("failed to close staging file: %w", err)
 	}
 	dstFile = nil
@@ -245,8 +241,8 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to stat destination file: %w", err)
 	}
-	if finalStat.Size() != stagingStat.Size() {
-		return fmt.Errorf("destination file size mismatch: staging=%d destination=%d", stagingStat.Size(), finalStat.Size())
+	if finalStat.Size() != size {
+		return fmt.Errorf("destination file size mismatch: staged=%d destination=%d", size, finalStat.Size())
 	}
 	success = true
 
