@@ -8,12 +8,31 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
+
+var validColumnNameRe = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
+
+// validateColumnName rejects column names that contain anything other than
+// ASCII letters, digits, and underscores.  This prevents SQL injection via
+// malicious column names embedded in a crafted .c1z database.
+func validateColumnName(name string) error {
+	if !validColumnNameRe.MatchString(name) {
+		return fmt.Errorf("invalid column name: %q", name)
+	}
+	return nil
+}
+
+// quoteIdentifier wraps a SQLite identifier in double-quotes, escaping any
+// embedded double-quote characters by doubling them per the SQL standard.
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
 
 // cloneTableColumns returns the non-autoincrement column names for tableName
 // by querying PRAGMA table_info on the given connection. The column names are
@@ -37,6 +56,9 @@ func cloneTableColumns(ctx context.Context, conn *sql.Conn, tableName string) ([
 			return nil, err
 		}
 		if name != "id" {
+			if err := validateColumnName(name); err != nil {
+				return nil, err
+			}
 			columns = append(columns, name)
 		}
 	}
@@ -47,7 +69,11 @@ func cloneTableColumns(ctx context.Context, conn *sql.Conn, tableName string) ([
 // column name rather than relying on SELECT *, which is sensitive to the
 // physical column order of the source vs destination tables.
 func cloneTableQuery(tableName string, columns []string) string {
-	colList := strings.Join(columns, ", ")
+	quoted := make([]string, len(columns))
+	for i, c := range columns {
+		quoted[i] = quoteIdentifier(c)
+	}
+	colList := strings.Join(quoted, ", ")
 	return fmt.Sprintf(
 		"INSERT INTO clone.%s (%s) SELECT %s FROM %s WHERE sync_id=?",
 		tableName, colList, colList, tableName,
