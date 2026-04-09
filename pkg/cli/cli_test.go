@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/conductorone/baton-sdk/pkg/field"
@@ -200,6 +201,68 @@ func TestVisitFlags_String_Unchanged(t *testing.T) {
 	v.SetConfigType("yaml")
 	v.AddConfigPath(dir)
 	require.NoError(t, v.ReadInConfig())
+
+	schema := field.Configuration{
+		Fields: []field.SchemaField{
+			field.StringField("deployment"),
+		},
+	}
+	cmd := setupCommand(t, schema, v)
+
+	got, err := cmd.Flags().GetString("deployment")
+	require.NoError(t, err)
+	require.Equal(t, "dev209168", got)
+}
+
+func TestVisitFlags_StringSlice_EnvVar(t *testing.T) {
+	// Env vars are stored by viper as raw strings. GetStringSlice returns
+	// a single-element slice, which is passed through as-is to pflag.
+	// pflag then splits on commas, producing the expected multiple elements.
+	v := viper.New()
+	v.SetEnvPrefix("baton")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.AutomaticEnv()
+	t.Setenv("BATON_CUSTOM_USER_FIELDS", "u_type,u_dept")
+
+	schema := field.Configuration{
+		Fields: []field.SchemaField{
+			field.StringSliceField("custom-user-fields"),
+		},
+	}
+	cmd := setupCommand(t, schema, v)
+
+	got, err := cmd.Flags().GetStringSlice("custom-user-fields")
+	require.NoError(t, err)
+	require.Equal(t, []string{"u_type", "u_dept"}, got)
+}
+
+func TestVisitFlags_StringSlice_EnvVar_CommaSeparatedWithSpaces(t *testing.T) {
+	// Real-world case: env var with comma-separated values that contain spaces.
+	// e.g. BATON_USER_BASED_SECURITY_GROUP_FILTER='Service Center Administrator,Alternate Approver'
+	v := viper.New()
+	v.SetEnvPrefix("baton")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.AutomaticEnv()
+	t.Setenv("BATON_USER_BASED_SECURITY_GROUP_FILTER", "Service Center Administrator,Alternate Approver")
+
+	schema := field.Configuration{
+		Fields: []field.SchemaField{
+			field.StringSliceField("user-based-security-group-filter"),
+		},
+	}
+	cmd := setupCommand(t, schema, v)
+
+	got, err := cmd.Flags().GetStringSlice("user-based-security-group-filter")
+	require.NoError(t, err)
+	require.Equal(t, []string{"Service Center Administrator", "Alternate Approver"}, got)
+}
+
+func TestVisitFlags_String_EnvVar(t *testing.T) {
+	v := viper.New()
+	v.SetEnvPrefix("baton")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
+	v.AutomaticEnv()
+	t.Setenv("BATON_DEPLOYMENT", "dev209168")
 
 	schema := field.Configuration{
 		Fields: []field.SchemaField{
