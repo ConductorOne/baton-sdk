@@ -148,7 +148,7 @@ func isTransientNetworkError(err error) bool {
 
 // ErrorResponse converts a given error to a status.Status and returns a *pbtransport.Response.
 // status.FromError(err) must unwrap a status.Status for this to work - all other errors are converted
-// to grpc codes.Unknown errors. Transient network errors are classified as codes.Unavailable.
+// to grpc codes.Unknown errors.
 func ErrorResponse(err error) *Response {
 	st, ok := status.FromError(err)
 	if !ok {
@@ -157,8 +157,6 @@ func ErrorResponse(err error) *Response {
 			st = status.Newf(codes.Canceled, "canceled: %s", err)
 		case errors.Is(err, context.DeadlineExceeded):
 			st = status.Newf(codes.DeadlineExceeded, "deadline exceeded: %s", err)
-		case isTransientNetworkError(err):
-			st = status.Newf(codes.Unavailable, "transient network error: %s", err)
 		default:
 			st = status.Newf(codes.Unknown, "unknown error: %s", err)
 		}
