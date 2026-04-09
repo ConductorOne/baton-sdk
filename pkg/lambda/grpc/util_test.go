@@ -39,6 +39,11 @@ func TestIsTransientNetworkError(t *testing.T) {
 	}
 }
 
+// TestErrorResponse_TransientNetworkError verifies that a plain transient
+// network error (not wrapped in a gRPC status) falls through to codes.Unknown
+// in ErrorResponse. The transient network classification is handled upstream:
+// connectors should use uhttp (which wraps ECONNRESET as Unavailable) or
+// classify errors in their own error handling before they reach ErrorResponse.
 func TestErrorResponse_TransientNetworkError(t *testing.T) {
 	err := fmt.Errorf("read tcp 169.254.100.6:53312->10.102.197.53:3128: read: connection reset by peer")
 	resp := ErrorResponse(err)
@@ -46,9 +51,7 @@ func TestErrorResponse_TransientNetworkError(t *testing.T) {
 
 	st, stErr := resp.Status()
 	require.NoError(t, stErr)
-	require.Equal(t, codes.Unavailable, st.Code())
-	require.Contains(t, st.Message(), "transient network error")
-	require.Contains(t, st.Message(), "connection reset by peer")
+	require.Equal(t, codes.Unknown, st.Code())
 }
 
 func TestErrorResponse_UnknownError(t *testing.T) {
