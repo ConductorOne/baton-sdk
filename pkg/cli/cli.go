@@ -78,15 +78,23 @@ func VisitFlags(cmd *cobra.Command, v *viper.Viper) {
 		// pflag receives a properly formatted value for Set().
 		switch f.Value.Type() {
 		case "stringSlice":
-			ss := v.GetStringSlice(f.Name)
-			if len(ss) > 0 {
-				// Encode as CSV so pflag's readAsCSV() correctly handles
-				// values containing commas (e.g. LDAP DNs like "OU=X,DC=Y").
-				var buf bytes.Buffer
-				w := csv.NewWriter(&buf)
-				_ = w.Write(ss)
-				w.Flush()
-				_ = cmd.Flags().Set(f.Name, strings.TrimSuffix(buf.String(), "\n"))
+			switch v.Get(f.Name).(type) {
+			case []interface{}, []string:
+				// From YAML/config file: viper parsed individual elements.
+				// CSV-encode so pflag's readAsCSV() preserves values that
+				// contain commas (e.g. LDAP DNs like "OU=X,DC=Y").
+				ss := v.GetStringSlice(f.Name)
+				if len(ss) > 0 {
+					var buf bytes.Buffer
+					w := csv.NewWriter(&buf)
+					_ = w.Write(ss)
+					w.Flush()
+					_ = cmd.Flags().Set(f.Name, strings.TrimSuffix(buf.String(), "\n"))
+				}
+			default:
+				// From env var or other string source: pass the raw string
+				// to pflag so it splits on commas as expected.
+				_ = cmd.Flags().Set(f.Name, v.GetString(f.Name))
 			}
 		case "stringToString":
 			sm := v.GetStringMapString(f.Name)
