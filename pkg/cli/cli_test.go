@@ -26,7 +26,7 @@ func setupCommand(t *testing.T, schema field.Configuration, v *viper.Viper) *cob
 func writeYAML(t *testing.T, dir, content string) string {
 	t.Helper()
 	p := filepath.Join(dir, "config.yaml")
-	require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	require.NoError(t, os.WriteFile(p, []byte(content), 0o600))
 	return p
 }
 
