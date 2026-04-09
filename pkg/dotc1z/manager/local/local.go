@@ -2,9 +2,12 @@ package local
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
@@ -161,32 +164,115 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	}
 	defer tmpFile.Close()
 
-	dstFile, err := os.Create(l.filePath)
+	srcStat, err := tmpFile.Stat()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to stat source file: %w", err)
 	}
-	defer dstFile.Close()
+	expectedSize := srcStat.Size()
 
-	size, err := io.Copy(dstFile, tmpFile)
+	dstFile, err := os.CreateTemp(filepath.Dir(l.filePath), filepath.Base(l.filePath)+".tmp-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create staging file: %w", err)
+	}
+	stagingPath := dstFile.Name()
+
+	success := false
+	defer func() {
+		if dstFile != nil {
+			if closeErr := dstFile.Close(); closeErr != nil {
+				log.Warn("failed to close staging file", zap.Error(closeErr))
+			}
+		}
+		if !success {
+			_ = os.Remove(stagingPath)
+		}
+	}()
+
+	sourceHash := sha256.New()
+	size, err := io.Copy(dstFile, io.TeeReader(tmpFile, sourceHash))
+	if err != nil {
+		return fmt.Errorf("failed to copy to staging file: %w", err)
+	}
+	if size != expectedSize {
+		return fmt.Errorf("copy size mismatch: expected %d bytes from source but copied %d bytes", expectedSize, size)
 	}
 
 	// CRITICAL: Sync to ensure data is written before function returns.
 	// This is especially important on ZFS ARC where writes may be cached.
 	if err := dstFile.Sync(); err != nil {
-		return fmt.Errorf("failed to sync destination file: %w", err)
+		return fmt.Errorf("failed to sync staging file: %w", err)
 	}
+
+	stagingStat, err := dstFile.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat staging file: %w", err)
+	}
+	if stagingStat.Size() != size {
+		return fmt.Errorf("staging file size mismatch: copied %d bytes but staging file is %d bytes", size, stagingStat.Size())
+	}
+
+	stagingDigest, err := sha256HexFromFile(dstFile)
+	if err != nil {
+		return fmt.Errorf("failed to hash staging file: %w", err)
+	}
+	sourceDigest := hex.EncodeToString(sourceHash.Sum(nil))
+	if stagingDigest != sourceDigest {
+		return fmt.Errorf("staging digest mismatch: source=%s staging=%s", sourceDigest, stagingDigest)
+	}
+
+	log.Info(
+		"validated c1z staging file before rename",
+		zap.String("source_path", l.tmpPath),
+		zap.String("staging_path", stagingPath),
+		zap.Int64("source_bytes", expectedSize),
+		zap.Int64("staging_bytes", stagingStat.Size()),
+		zap.String("source_sha256", sourceDigest),
+		zap.String("staging_sha256", stagingDigest),
+	)
+
+	if err := dstFile.Close(); err != nil {
+		return fmt.Errorf("failed to close staging file: %w", err)
+	}
+	dstFile = nil
+
+	if err := os.Rename(stagingPath, l.filePath); err != nil {
+		return fmt.Errorf("failed to rename staging file to destination: %w", err)
+	}
+	if err := dotc1z.SyncParentDir(l.filePath); err != nil {
+		return fmt.Errorf("failed to sync destination directory: %w", err)
+	}
+	finalStat, err := os.Stat(l.filePath)
+	if err != nil {
+		return fmt.Errorf("failed to stat destination file: %w", err)
+	}
+	if finalStat.Size() != stagingStat.Size() {
+		return fmt.Errorf("destination file size mismatch: staging=%d destination=%d", stagingStat.Size(), finalStat.Size())
+	}
+	success = true
 
 	log.Debug(
 		"successfully saved c1z locally",
 		zap.String("file_path", l.filePath),
 		zap.String("temp_path", l.tmpPath),
 		zap.String("tmp_dir", l.tmpDir),
-		zap.Int64("bytes", size),
+		zap.Int64("bytes", finalStat.Size()),
+		zap.String("sha256", stagingDigest),
 	)
 
 	return nil
+}
+
+func sha256HexFromFile(f *os.File) (string, error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", fmt.Errorf("seek staging file for hash: %w", err)
+	}
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", fmt.Errorf("hash staging file: %w", err)
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func (l *localManager) Close(ctx context.Context) error {

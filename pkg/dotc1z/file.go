@@ -113,14 +113,13 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 		}
 	}()
 
-	// Write to a temporary file first to ensure atomic writes.
-	// This prevents file corruption if the process crashes mid-write,
-	// since the original file remains intact until the rename succeeds.
-	tmpPath := outputFilePath + ".tmp"
-	outFile, err := os.OpenFile(tmpPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	// Write to a temporary file in the destination directory first to ensure
+	// atomic replacement without sharing a fixed temp name across writers.
+	outFile, err := os.CreateTemp(filepath.Dir(outputFilePath), filepath.Base(outputFilePath)+".tmp-*")
 	if err != nil {
 		return err
 	}
+	tmpPath := outFile.Name()
 
 	// Track whether we successfully completed the write
 	success := false
@@ -195,6 +194,10 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 	err = os.Rename(tmpPath, outputFilePath)
 	if err != nil {
 		return fmt.Errorf("failed to rename temp file to output file: %w", err)
+	}
+	err = SyncParentDir(outputFilePath)
+	if err != nil {
+		return fmt.Errorf("failed to sync parent dir after rename: %w", err)
 	}
 	success = true
 
