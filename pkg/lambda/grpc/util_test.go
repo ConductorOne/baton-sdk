@@ -3,6 +3,11 @@ package grpc
 import (
 	"context"
 	"fmt"
+	"io"
+	"net"
+	"net/url"
+	"os"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -39,11 +44,6 @@ func TestIsTransientNetworkError(t *testing.T) {
 	}
 }
 
-// TestErrorResponse_TransientNetworkError verifies that a plain transient
-// network error (not wrapped in a gRPC status) falls through to codes.Unknown
-// in ErrorResponse. The transient network classification is handled upstream:
-// connectors should use uhttp (which wraps ECONNRESET as Unavailable) or
-// classify errors in their own error handling before they reach ErrorResponse.
 func TestErrorResponse_TransientNetworkError(t *testing.T) {
 	err := fmt.Errorf("read tcp 169.254.100.6:53312->10.102.197.53:3128: read: connection reset by peer")
 	resp := ErrorResponse(err)
@@ -51,7 +51,44 @@ func TestErrorResponse_TransientNetworkError(t *testing.T) {
 
 	st, stErr := resp.Status()
 	require.NoError(t, stErr)
-	require.Equal(t, codes.Unknown, st.Code())
+	require.Equal(t, codes.Unavailable, st.Code())
+	require.Contains(t, st.Message(), "transient network error")
+	require.Contains(t, st.Message(), "connection reset by peer")
+}
+
+func TestStatusForApplicationError_ConnectionResetWrapped(t *testing.T) {
+	err := &url.Error{
+		Op:  "Get",
+		URL: "https://example.com",
+		Err: &net.OpError{
+			Op:  "read",
+			Net: "tcp",
+			Err: os.NewSyscallError("read", syscall.ECONNRESET),
+		},
+	}
+
+	st := statusForApplicationError(err)
+	require.Equal(t, codes.Unavailable, st.Code())
+	require.Contains(t, st.Message(), "connection reset")
+	require.Contains(t, st.Message(), "connection reset by peer")
+}
+
+func TestStatusForApplicationError_UnexpectedEOF(t *testing.T) {
+	st := statusForApplicationError(fmt.Errorf("wrapped: %w", io.ErrUnexpectedEOF))
+	require.Equal(t, codes.Unavailable, st.Code())
+	require.Contains(t, st.Message(), "unexpected EOF")
+}
+
+func TestStatusForApplicationError_URLTimeout(t *testing.T) {
+	err := &url.Error{
+		Op:  "Get",
+		URL: "https://example.com",
+		Err: timeoutError{err: fmt.Errorf("i/o timeout")},
+	}
+
+	st := statusForApplicationError(err)
+	require.Equal(t, codes.DeadlineExceeded, st.Code())
+	require.Contains(t, st.Message(), "request timeout")
 }
 
 func TestErrorResponse_UnknownError(t *testing.T) {
@@ -91,4 +128,20 @@ func TestErrorResponse_GRPCStatusPassthrough(t *testing.T) {
 	require.NoError(t, stErr)
 	require.Equal(t, codes.PermissionDenied, st.Code())
 	require.Contains(t, st.Message(), "access denied")
+}
+
+type timeoutError struct {
+	err error
+}
+
+func (e timeoutError) Error() string {
+	return e.err.Error()
+}
+
+func (timeoutError) Timeout() bool {
+	return true
+}
+
+func (timeoutError) Temporary() bool {
+	return false
 }

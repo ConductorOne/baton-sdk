@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"net/url"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -147,19 +150,12 @@ func isTransientNetworkError(err error) bool {
 }
 
 // ErrorResponse converts a given error to a status.Status and returns a *pbtransport.Response.
-// status.FromError(err) must unwrap a status.Status for this to work - all other errors are converted
-// to grpc codes.Unknown errors.
+// status.FromError(err) must unwrap a status.Status for this to work. Non-status errors are mapped
+// through Baton lambda's application error classification before falling back to codes.Unknown.
 func ErrorResponse(err error) *Response {
 	st, ok := status.FromError(err)
 	if !ok {
-		switch {
-		case errors.Is(err, context.Canceled):
-			st = status.Newf(codes.Canceled, "canceled: %s", err)
-		case errors.Is(err, context.DeadlineExceeded):
-			st = status.Newf(codes.DeadlineExceeded, "deadline exceeded: %s", err)
-		default:
-			st = status.Newf(codes.Unknown, "unknown error: %s", err)
-		}
+		st = statusForApplicationError(err)
 	}
 	spb := st.Proto()
 	if spb == nil {
@@ -178,4 +174,35 @@ func ErrorResponse(err error) *Response {
 			Trailers: nil,
 		}.Build(),
 	}
+}
+
+// statusForApplicationError mirrors the transient network handling in uhttp for
+// connector SDK clients that bypass the Baton HTTP wrapper.
+func statusForApplicationError(err error) *status.Status {
+	switch {
+	case errors.Is(err, context.Canceled):
+		return status.Newf(codes.Canceled, "canceled: %s", err)
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Newf(codes.DeadlineExceeded, "deadline exceeded: %s", err)
+	case errors.Is(err, io.ErrUnexpectedEOF):
+		return status.Newf(codes.Unavailable, "unexpected EOF: %s", err)
+	case errors.Is(err, syscall.ECONNRESET):
+		return status.Newf(codes.Unavailable, "connection reset: %s", err)
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Timeout() {
+			return status.Newf(codes.DeadlineExceeded, "request timeout: %s", err)
+		}
+		if urlErr.Temporary() {
+			return status.Newf(codes.Unavailable, "temporary error: %s", err)
+		}
+	}
+
+	if isTransientNetworkError(err) {
+		return status.Newf(codes.Unavailable, "transient network error: %s", err)
+	}
+
+	return status.Newf(codes.Unknown, "unknown error: %s", err)
 }
