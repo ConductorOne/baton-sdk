@@ -191,13 +191,9 @@ func saveC1z(dbFilePath string, outputFilePath string, encoderConcurrency int) e
 	// Atomically replace the original file with the temp file.
 	// This ensures the original file remains intact if there was any
 	// error during the write process.
-	err = os.Rename(tmpPath, outputFilePath)
+	err = ReplaceFileAtomically(tmpPath, outputFilePath)
 	if err != nil {
-		return fmt.Errorf("failed to rename temp file to output file: %w", err)
-	}
-	err = SyncParentDir(outputFilePath)
-	if err != nil {
-		return fmt.Errorf("failed to sync parent dir after rename: %w", err)
+		return fmt.Errorf("failed to publish c1z file: %w", err)
 	}
 	success = true
 

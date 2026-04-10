@@ -234,11 +234,8 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	}
 	stagingFile = nil
 
-	if err := os.Rename(stagingFilePath, l.filePath); err != nil {
-		return fmt.Errorf("failed to rename staging file to destination: %w", err)
-	}
-	if err := dotc1z.SyncParentDir(l.filePath); err != nil {
-		return fmt.Errorf("failed to sync destination directory: %w", err)
+	if err := dotc1z.ReplaceFileAtomically(stagingFilePath, l.filePath); err != nil {
+		return fmt.Errorf("failed to publish staging file to destination: %w", err)
 	}
 	success = true
 
