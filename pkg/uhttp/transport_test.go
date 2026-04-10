@@ -44,6 +44,9 @@ func TestTransportRoundTrip_ClassifiesConnectionReset(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := tp.RoundTrip(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	require.Nil(t, resp)
 	require.Error(t, err)
 
@@ -69,6 +72,9 @@ func TestTransportRoundTrip_ClassifiesTimeout(t *testing.T) {
 	require.NoError(t, err)
 
 	resp, err := tp.RoundTrip(req)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
 	require.Nil(t, resp)
 	require.Error(t, err)
 
