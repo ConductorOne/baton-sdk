@@ -9,6 +9,8 @@ import (
 )
 
 func SyncParentDir(path string) error {
+	// The file itself is already synced before rename. This extra sync is for the
+	// directory entry update so the rename is durable across a crash.
 	dir := filepath.Dir(path)
 	f, err := os.Open(dir)
 	if err != nil {

@@ -391,12 +391,20 @@ func (c *C1File) Close(ctx context.Context) error {
 		if err != nil {
 			return cleanupDbDir(c.dbFilePath, fmt.Errorf("open db for sync: %w", err))
 		}
-		if err := dbFile.Sync(); err != nil {
-			_ = dbFile.Close()
-			return cleanupDbDir(c.dbFilePath, fmt.Errorf("sync db before compress: %w", err))
-		}
-		if err := dbFile.Close(); err != nil {
-			return cleanupDbDir(c.dbFilePath, fmt.Errorf("close db after sync: %w", err))
+		func() {
+			defer func() {
+				closeErr := dbFile.Close()
+				if closeErr != nil && err == nil {
+					err = fmt.Errorf("close db after sync: %w", closeErr)
+				}
+			}()
+
+			if syncErr := dbFile.Sync(); syncErr != nil {
+				err = fmt.Errorf("sync db before compress: %w", syncErr)
+			}
+		}()
+		if err != nil {
+			return cleanupDbDir(c.dbFilePath, err)
 		}
 
 		err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
@@ -404,16 +412,16 @@ func (c *C1File) Close(ctx context.Context) error {
 			return cleanupDbDir(c.dbFilePath, err)
 		}
 
-		outputDigest, outputSize, digestErr := FileSHA256Hex(c.outputFilePath)
+		outputDigest, outputSize, digestErr := fileCRC32CHex(c.outputFilePath)
 		if digestErr != nil {
-			ctxzap.Extract(ctx).Warn("failed to hash saved c1z output",
+			ctxzap.Extract(ctx).Warn("failed to checksum saved c1z output",
 				zap.String("output_path", c.outputFilePath),
 				zap.Error(digestErr))
 		} else {
 			ctxzap.Extract(ctx).Info("saved c1z after close",
 				zap.String("output_path", c.outputFilePath),
 				zap.Int64("bytes", outputSize),
-				zap.String("sha256", outputDigest))
+				zap.String("crc32c", outputDigest))
 		}
 	}
 
