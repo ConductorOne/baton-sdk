@@ -18,7 +18,7 @@ func SyncParentDir(path string) error {
 
 	handle, err := windows.CreateFile(
 		dirPath,
-		windows.GENERIC_READ,
+		0,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE,
 		nil,
 		windows.OPEN_EXISTING,
