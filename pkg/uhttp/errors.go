@@ -39,5 +39,5 @@ func wrapTransientNetworkError(err error) error {
 		return status.Error(codes.DeadlineExceeded, "request timeout")
 	}
 
-	return nil
+	return err
 }

@@ -464,10 +464,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		resp, err = c.HttpClient.Do(req)
 		if err != nil {
 			l.Error("base-http-client: HTTP error response", zap.Error(err))
-			if wrappedErr := wrapTransientNetworkError(err); wrappedErr != nil {
-				return resp, wrappedErr
-			}
-			return nil, err
+			return resp, wrapTransientNetworkError(err)
 		}
 	}
 
@@ -477,10 +474,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		if len(body) > 0 {
 			resp.Body = io.NopCloser(bytes.NewBuffer(body))
 		}
-		if wrappedErr := wrapTransientNetworkError(err); wrappedErr != nil {
-			return resp, wrappedErr
-		}
-		return resp, err
+		return resp, wrapTransientNetworkError(err)
 	}
 
 	// Replace resp.Body with a no-op closer so nobody has to worry about closing the reader.
