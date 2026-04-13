@@ -2632,6 +2632,7 @@ type Task_SyncFullTask struct {
 	SkipExpandGrants          bool                   `protobuf:"varint,2,opt,name=skip_expand_grants,json=skipExpandGrants,proto3" json:"skip_expand_grants,omitempty"`
 	SkipEntitlementsAndGrants bool                   `protobuf:"varint,3,opt,name=skip_entitlements_and_grants,json=skipEntitlementsAndGrants,proto3" json:"skip_entitlements_and_grants,omitempty"`
 	TargetedSyncResources     []*v2.Resource         `protobuf:"bytes,4,rep,name=targeted_sync_resources,json=targetedSyncResources,proto3" json:"targeted_sync_resources,omitempty"`
+	SyncResourceTypeIds       []string               `protobuf:"bytes,5,rep,name=sync_resource_type_ids,json=syncResourceTypeIds,proto3" json:"sync_resource_type_ids,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -2689,6 +2690,13 @@ func (x *Task_SyncFullTask) GetTargetedSyncResources() []*v2.Resource {
 	return nil
 }
 
+func (x *Task_SyncFullTask) GetSyncResourceTypeIds() []string {
+	if x != nil {
+		return x.SyncResourceTypeIds
+	}
+	return nil
+}
+
 func (x *Task_SyncFullTask) SetAnnotations(v []*anypb.Any) {
 	x.Annotations = v
 }
@@ -2705,6 +2713,10 @@ func (x *Task_SyncFullTask) SetTargetedSyncResources(v []*v2.Resource) {
 	x.TargetedSyncResources = v
 }
 
+func (x *Task_SyncFullTask) SetSyncResourceTypeIds(v []string) {
+	x.SyncResourceTypeIds = v
+}
+
 type Task_SyncFullTask_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -2712,6 +2724,7 @@ type Task_SyncFullTask_builder struct {
 	SkipExpandGrants          bool
 	SkipEntitlementsAndGrants bool
 	TargetedSyncResources     []*v2.Resource
+	SyncResourceTypeIds       []string
 }
 
 func (b0 Task_SyncFullTask_builder) Build() *Task_SyncFullTask {
@@ -2722,6 +2735,7 @@ func (b0 Task_SyncFullTask_builder) Build() *Task_SyncFullTask {
 	x.SkipExpandGrants = b.SkipExpandGrants
 	x.SkipEntitlementsAndGrants = b.SkipEntitlementsAndGrants
 	x.TargetedSyncResources = b.TargetedSyncResources
+	x.SyncResourceTypeIds = b.SyncResourceTypeIds
 	return m0
 }
 
@@ -5157,7 +5171,7 @@ var File_c1_connectorapi_baton_v1_baton_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\n" +
-	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xa2-\n" +
+	"$c1/connectorapi/baton/v1/baton.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fc1/connector/v2/connector.proto\x1a!c1/connector/v2/entitlement.proto\x1a\x1bc1/connector/v2/grant.proto\x1a\x1ec1/connector/v2/resource.proto\x1a\x1cc1/connector/v2/ticket.proto\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/duration.proto\x1a\x1cgoogle/protobuf/struct.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17google/rpc/status.proto\x1a\x17validate/validate.proto\"\xd7-\n" +
 	"\x04Task\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12=\n" +
 	"\x06status\x18\x02 \x01(\x0e2%.c1.connectorapi.baton.v1.Task.StatusR\x06status\x12=\n" +
@@ -5191,12 +5205,13 @@ const file_c1_connectorapi_baton_v1_baton_proto_rawDesc = "" +
 	"\bNoneTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1aC\n" +
 	"\tHelloTask\x126\n" +
-	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\x88\x02\n" +
+	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x1a\xbd\x02\n" +
 	"\fSyncFullTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x12,\n" +
 	"\x12skip_expand_grants\x18\x02 \x01(\bR\x10skipExpandGrants\x12?\n" +
 	"\x1cskip_entitlements_and_grants\x18\x03 \x01(\bR\x19skipEntitlementsAndGrants\x12Q\n" +
-	"\x17targeted_sync_resources\x18\x04 \x03(\v2\x19.c1.connector.v2.ResourceR\x15targetedSyncResources\x1a~\n" +
+	"\x17targeted_sync_resources\x18\x04 \x03(\v2\x19.c1.connector.v2.ResourceR\x15targetedSyncResources\x123\n" +
+	"\x16sync_resource_type_ids\x18\x05 \x03(\tR\x13syncResourceTypeIds\x1a~\n" +
 	"\rEventFeedTask\x126\n" +
 	"\vannotations\x18\x01 \x03(\v2\x14.google.protobuf.AnyR\vannotations\x125\n" +
 	"\bstart_at\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\astartAt\x1a\xe7\x01\n" +

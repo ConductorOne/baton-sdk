@@ -188,6 +188,10 @@ func MakeMainCommand[T field.Configurable](
 					v.GetString("health-check-bind-address"),
 				))
 			}
+			if len(v.GetStringSlice("sync-resource-types")) > 0 {
+				opts = append(opts,
+					connectorrunner.WithSyncResourceTypeIDs(v.GetStringSlice("sync-resource-types")))
+			}
 		} else {
 			switch {
 			case v.GetString("grant-entitlement") != "":

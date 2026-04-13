@@ -86,8 +86,14 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	}
 	cc := c.helpers.ConnectorClient()
 
-	if len(c.syncResourceTypeIDs) > 0 {
-		syncOpts = append(syncOpts, sdkSync.WithSyncResourceTypes(c.syncResourceTypeIDs))
+	// Prefer the task's resource type IDs (from the server/UI) over local config.
+	// The UI is the authoritative source when set; local config is the fallback.
+	syncResourceTypeIDs := c.task.GetSyncFull().GetSyncResourceTypeIds()
+	if len(syncResourceTypeIDs) == 0 {
+		syncResourceTypeIDs = c.syncResourceTypeIDs
+	}
+	if len(syncResourceTypeIDs) > 0 {
+		syncOpts = append(syncOpts, sdkSync.WithSyncResourceTypes(syncResourceTypeIDs))
 	}
 
 	if setSessionStore, ok := cc.(session.SetSessionStore); ok {
