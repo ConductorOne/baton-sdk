@@ -180,13 +180,12 @@ func (p *Provisioner) grant(ctx context.Context) error {
 	}
 
 	resource := v2.Resource_builder{
-		Id:          principal.GetResource().GetId(),
-		DisplayName: principal.GetResource().GetDisplayName(),
-		Annotations: principal.GetResource().GetAnnotations(),
-		Description: principal.GetResource().GetDescription(),
-		ExternalId:  principal.GetResource().GetExternalId(), //nolint:staticcheck // Deprecated.
-		// Omit parent resource ID so that behavior is the same as ConductorOne's provisioning mode
-		ParentResourceId: nil,
+		Id:               principal.GetResource().GetId(),
+		DisplayName:      principal.GetResource().GetDisplayName(),
+		Annotations:      principal.GetResource().GetAnnotations(),
+		Description:      principal.GetResource().GetDescription(),
+		ExternalId:       principal.GetResource().GetExternalId(), //nolint:staticcheck // Deprecated.
+		ParentResourceId: principal.GetResource().GetParentResourceId(),
 	}.Build()
 
 	_, err = p.connector.Grant(ctx, v2.GrantManagerServiceGrantRequest_builder{
@@ -243,13 +242,12 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 	}
 
 	resource := v2.Resource_builder{
-		Id:          principal.GetResource().GetId(),
-		DisplayName: principal.GetResource().GetDisplayName(),
-		Annotations: principal.GetResource().GetAnnotations(),
-		Description: principal.GetResource().GetDescription(),
-		ExternalId:  principal.GetResource().GetExternalId(), //nolint:staticcheck // Deprecated.
-		// Omit parent resource ID so that behavior is the same as ConductorOne's provisioning mode
-		ParentResourceId: nil,
+		Id:               principal.GetResource().GetId(),
+		DisplayName:      principal.GetResource().GetDisplayName(),
+		Annotations:      principal.GetResource().GetAnnotations(),
+		Description:      principal.GetResource().GetDescription(),
+		ExternalId:       principal.GetResource().GetExternalId(), //nolint:staticcheck // Deprecated.
+		ParentResourceId: principal.GetResource().GetParentResourceId(),
 	}.Build()
 
 	_, err = p.connector.Revoke(ctx, v2.GrantManagerServiceRevokeRequest_builder{
