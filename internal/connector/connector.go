@@ -536,6 +536,6 @@ func NewConnectorClient(_ context.Context, cc grpc.ClientConnInterface) *connect
 		TicketsServiceClient:           connectorV2.NewTicketsServiceClient(cc),
 		ActionServiceClient:            connectorV2.NewActionServiceClient(cc),
 		ResourceGetterServiceClient:    connectorV2.NewResourceGetterServiceClient(cc),
-		SwapServiceClient:             connectorV2.NewSwapServiceClient(cc),
+		SwapServiceClient:              connectorV2.NewSwapServiceClient(cc),
 	}
 }
