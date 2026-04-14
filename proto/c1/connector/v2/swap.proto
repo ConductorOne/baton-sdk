@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "c1/connector/v2/entitlement.proto";
+import "c1/connector/v2/grant.proto";
+import "google/protobuf/any.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+service SwapService {
+  // Swap transitions a principal from one entitlement to another within
+  // the same exclusion group. Semantically equivalent to a Revoke followed
+  // by a Grant, but may be implemented atomically by connectors that
+  // support it natively.
+  rpc Swap(SwapServiceSwapRequest) returns (SwapServiceSwapResponse);
+}
+
+// SwapServiceSwapRequest transitions a principal from one entitlement to
+// another within the same exclusion group.
+message SwapServiceSwapRequest {
+  // The existing grant to revoke. Includes the entitlement and principal.
+  // The principal for the new grant is taken from this grant's principal field.
+  Grant revoke_grant = 1 [(validate.rules).message = {required: true}];
+
+  // The new entitlement to grant to the principal.
+  // Must be on the same resource as the revoke_grant's entitlement and
+  // belong to the same exclusion group.
+  Entitlement grant_entitlement = 2 [(validate.rules).message = {required: true}];
+
+  // Optional annotations for the swap operation.
+  repeated google.protobuf.Any annotations = 3;
+}
+
+message SwapServiceSwapResponse {
+  // Annotations returned by the connector.
+  repeated google.protobuf.Any annotations = 1;
+
+  // The new grants created by the swap. May be empty if the connector does
+  // not return grant objects (V1 provisioner pattern).
+  repeated Grant grants = 2;
+}

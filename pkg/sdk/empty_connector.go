@@ -170,6 +170,10 @@ func (n *emptyConnector) ListEventFeeds(ctx context.Context, request *v2.ListEve
 	}.Build(), nil
 }
 
+func (n *emptyConnector) Swap(ctx context.Context, request *v2.SwapServiceSwapRequest, opts ...grpc.CallOption) (*v2.SwapServiceSwapResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "empty connector")
+}
+
 // NewEmptyConnector returns a new emptyConnector.
 func NewEmptyConnector() (*emptyConnector, error) {
 	return &emptyConnector{}, nil

@@ -42,6 +42,7 @@ const (
 	Capability_CAPABILITY_TARGETED_SYNC              Capability = 11
 	Capability_CAPABILITY_EVENT_FEED_V2              Capability = 12
 	Capability_CAPABILITY_SERVICE_MODE_TARGETED_SYNC Capability = 13
+	Capability_CAPABILITY_ATOMIC_SWAP                Capability = 14
 )
 
 // Enum value maps for Capability.
@@ -61,6 +62,7 @@ var (
 		11: "CAPABILITY_TARGETED_SYNC",
 		12: "CAPABILITY_EVENT_FEED_V2",
 		13: "CAPABILITY_SERVICE_MODE_TARGETED_SYNC",
+		14: "CAPABILITY_ATOMIC_SWAP",
 	}
 	Capability_value = map[string]int32{
 		"CAPABILITY_UNSPECIFIED":                0,
@@ -77,6 +79,7 @@ var (
 		"CAPABILITY_TARGETED_SYNC":              11,
 		"CAPABILITY_EVENT_FEED_V2":              12,
 		"CAPABILITY_SERVICE_MODE_TARGETED_SYNC": 13,
+		"CAPABILITY_ATOMIC_SWAP":                14,
 	}
 )
 
@@ -2235,7 +2238,7 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\rdefault_value\x18\x01 \x03(\v2J.c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntryR\fdefaultValue\x1av\n" +
 	"\x11DefaultValueEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12K\n" +
-	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\xb1\x03\n" +
+	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\xcd\x03\n" +
 	"\n" +
 	"Capability\x12\x1a\n" +
 	"\x16CAPABILITY_UNSPECIFIED\x10\x00\x12\x18\n" +
@@ -2252,7 +2255,8 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\x12\x1c\n" +
 	"\x18CAPABILITY_TARGETED_SYNC\x10\v\x12\x1c\n" +
 	"\x18CAPABILITY_EVENT_FEED_V2\x10\f\x12)\n" +
-	"%CAPABILITY_SERVICE_MODE_TARGETED_SYNC\x10\r*\xae\x02\n" +
+	"%CAPABILITY_SERVICE_MODE_TARGETED_SYNC\x10\r\x12\x1a\n" +
+	"\x16CAPABILITY_ATOMIC_SWAP\x10\x0e*\xae\x02\n" +
 	" CapabilityDetailCredentialOption\x123\n" +
 	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_UNSPECIFIED\x10\x00\x123\n" +
 	"/CAPABILITY_DETAIL_CREDENTIAL_OPTION_NO_PASSWORD\x10\x01\x127\n" +

@@ -37,3 +37,7 @@ func (n *noopProvisioner) RotateCredential(ctx context.Context, request *v2.Rota
 func (n *noopProvisioner) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
 	return nil, status.Error(codes.FailedPrecondition, "provisioning is not enabled")
 }
+
+func (n *noopProvisioner) Swap(ctx context.Context, request *v2.SwapServiceSwapRequest) (*v2.SwapServiceSwapResponse, error) {
+	return nil, status.Error(codes.FailedPrecondition, "provisioning is not enabled")
+}

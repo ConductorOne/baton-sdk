@@ -76,6 +76,7 @@ type builder struct {
 	credentialManagers      map[string]CredentialManagerLimited
 	eventFeeds              map[string]EventFeed
 	accountManagers         map[string]AccountManagerLimited
+	swapProvisioners        map[string]SwapProvisioner
 	actionManager           ActionManager // Unified action manager for all actions
 }
 
@@ -114,6 +115,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		credentialManagers:      make(map[string]CredentialManagerLimited),
 		eventFeeds:              make(map[string]EventFeed),
 		accountManagers:         make(map[string]AccountManagerLimited),
+		swapProvisioners:        make(map[string]SwapProvisioner),
 		actionManager:           actionMgr,
 	}
 
@@ -362,6 +364,10 @@ func (b *builder) GetCapabilities(ctx context.Context) (*v2.ConnectorCapabilitie
 
 		if _, exists := b.credentialManagers[resourceTypeID]; exists {
 			caps = append(caps, v2.Capability_CAPABILITY_CREDENTIAL_ROTATION)
+		}
+
+		if _, exists := b.swapProvisioners[resourceTypeID]; exists {
+			caps = append(caps, v2.Capability_CAPABILITY_ATOMIC_SWAP)
 		}
 
 		// Extend the capabilities with the resource type specificcapabilities

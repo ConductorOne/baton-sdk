@@ -24,6 +24,7 @@ type ConnectorServer interface {
 	connectorV2.TicketsServiceServer
 	connectorV2.ActionServiceServer
 	connectorV2.ResourceGetterServiceServer
+	connectorV2.SwapServiceServer
 }
 
 // ConnectorClient is an interface for a type that implements all ConnectorV2 services.
@@ -43,6 +44,7 @@ type ConnectorClient interface {
 	connectorV2.TicketsServiceClient
 	connectorV2.ActionServiceClient
 	connectorV2.ResourceGetterServiceClient
+	connectorV2.SwapServiceClient
 }
 
 // ClientWrapper is an interface that returns a connector client.
