@@ -5,7 +5,6 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -13,6 +12,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/provisioner"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type localAccountManager struct {
@@ -47,12 +47,12 @@ func (m *localAccountManager) Next(ctx context.Context) (*v1.Task, time.Duration
 
 func (m *localAccountManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localAccountManager.Process", trace.WithNewRoot())
-	span.SetAttributes(attribute.String("task_type", "create_account"))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	accountManager := provisioner.NewCreateAccountManager(cc, m.dbPath, m.login, m.email, m.profile, m.resourceTypeId)
 
-	err := accountManager.Run(ctx)
+	err = accountManager.Run(ctx)
 	if err != nil {
 		return err
 	}

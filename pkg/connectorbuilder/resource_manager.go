@@ -7,8 +7,8 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -73,8 +73,8 @@ type ResourceDeleterV2Limited interface {
 
 func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResourceRequest) (*v2.CreateResourceResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.CreateResource")
-	span.SetAttributes(attribute.String("resource_type_id", request.GetResource().GetId().GetResourceType()))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.CreateResourceType
@@ -100,11 +100,8 @@ func (b *builder) CreateResource(ctx context.Context, request *v2.CreateResource
 
 func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResourceRequest) (*v2.DeleteResourceResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.DeleteResource")
-	span.SetAttributes(
-		attribute.String("resource_type_id", request.GetResourceId().GetResourceType()),
-		attribute.String("resource_id", request.GetResourceId().GetResource()),
-	)
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.DeleteResourceType
@@ -138,11 +135,8 @@ func (b *builder) DeleteResource(ctx context.Context, request *v2.DeleteResource
 
 func (b *builder) DeleteResourceV2(ctx context.Context, request *v2.DeleteResourceV2Request) (*v2.DeleteResourceV2Response, error) {
 	ctx, span := tracer.Start(ctx, "builder.DeleteResourceV2")
-	span.SetAttributes(
-		attribute.String("resource_type_id", request.GetResourceId().GetResourceType()),
-		attribute.String("resource_id", request.GetResourceId().GetResource()),
-	)
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	start := b.nowFunc()
 	tt := tasks.DeleteResourceType

@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -15,6 +14,7 @@ import (
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type localSyncer struct {
@@ -100,8 +100,8 @@ func (m *localSyncer) Next(ctx context.Context) (*v1.Task, time.Duration, error)
 
 func (m *localSyncer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localSyncer.Process", trace.WithNewRoot())
-	span.SetAttributes(attribute.String("task_type", "sync"))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	var setSessionStore session.SetSessionStore
 	if ssetSessionStore, ok := cc.(session.SetSessionStore); ok {

@@ -14,7 +14,6 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -31,6 +30,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 var ErrDbNotOpen = errors.New("c1file: database has not been opened")
@@ -112,8 +112,8 @@ func WithC1FSyncCountLimit(limit int) C1FOption {
 // Returns a C1File instance for the given db filepath.
 func NewC1File(ctx context.Context, dbFilePath string, opts ...C1FOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1File")
-	span.SetAttributes(attribute.String("db_path", dbFilePath))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	rawDB, err := sql.Open("sqlite", dbFilePath)
 	if err != nil {
@@ -219,8 +219,8 @@ func WithSyncLimit(limit int) C1ZOption {
 // Returns a new C1File instance with its state stored at the provided filename.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
-	span.SetAttributes(attribute.String("db_path", outputFilePath))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	options := &c1zOptions{
 		encoderConcurrency: 1,
@@ -409,8 +409,8 @@ func (c *C1File) Close(ctx context.Context) error {
 // Returns the busy, log, and checkpointed values.
 func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
 	ctx, span := tracer.Start(ctx, "C1File.truncateWAL")
-	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	// Use QueryRowContext to read the (busy, log, checkpointed) result.
 	// ExecContext silently discards these values, making partial
@@ -435,12 +435,12 @@ func (c *C1File) truncateWAL(ctx context.Context) (int, int, int, error) {
 // init ensures that the database has all of the required schema.
 func (c *C1File) init(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.init")
-	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 
-	err := c.validateDb(ctx)
+	err = c.validateDb(ctx)
 	if err != nil {
 		return err
 	}
@@ -502,10 +502,10 @@ func (c *C1File) init(ctx context.Context) error {
 
 func (c *C1File) InitTables(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "C1File.InitTables")
-	span.SetAttributes(attribute.String("sync_id", c.currentSyncID))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	err := c.validateDb(ctx)
+	err = c.validateDb(ctx)
 	if err != nil {
 		return err
 	}
@@ -532,12 +532,11 @@ func (c *C1File) InitTables(ctx context.Context) error {
 // If syncId is empty, it will use the latest sync run of the given type.
 func (c *C1File) Stats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
 	ctx, span := tracer.Start(ctx, "C1File.Stats")
-	span.SetAttributes(attribute.String("sync_type", string(syncType)))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	counts := make(map[string]int64)
 
-	var err error
 	if syncId == "" {
 		syncId, err = c.LatestSyncID(ctx, syncType)
 		if err != nil {
@@ -661,10 +660,9 @@ func (c *C1FileAttached) DetachFile(dbName string) (*C1FileAttached, error) {
 // If syncId is empty, it will use the latest sync run of the given type.
 func (c *C1File) GrantStats(ctx context.Context, syncType connectorstore.SyncType, syncId string) (map[string]int64, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GrantStats")
-	span.SetAttributes(attribute.String("sync_type", string(syncType)))
-	defer span.End()
-
 	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
+
 	if syncId == "" {
 		syncId, err = c.LatestSyncID(ctx, syncType)
 		if err != nil {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -14,6 +13,7 @@ import (
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type actionListSchemasTaskHelpers interface {
@@ -28,9 +28,8 @@ type actionListSchemasTaskHandler struct {
 
 func (c *actionListSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionListSchemasTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -74,9 +73,8 @@ type actionGetSchemaTaskHandler struct {
 
 func (c *actionGetSchemaTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionGetSchemaTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -118,9 +116,8 @@ type actionInvokeTaskHandler struct {
 
 func (c *actionInvokeTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionInvokeTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()
@@ -184,9 +181,8 @@ type actionStatusTaskHandler struct {
 
 func (c *actionStatusTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "actionStatusTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	cc := c.helpers.ConnectorClient()

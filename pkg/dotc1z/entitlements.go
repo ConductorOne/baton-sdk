@@ -5,11 +5,11 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
-	"go.opentelemetry.io/otel/attribute"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 const entitlementsTableVersion = "1"
@@ -55,8 +55,8 @@ func (r *entitlementsTable) Migrations(ctx context.Context, db *goqu.Database) e
 
 func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.ListEntitlements")
-	span.SetAttributes(attribute.String("resource_type_id", request.GetResource().GetId().GetResourceType()))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	objs, nextPageToken, err := listConnectorObjects(ctx, c, entitlements.Name(), request, func() *v2.Entitlement { return &v2.Entitlement{} })
 	if err != nil {
@@ -71,8 +71,8 @@ func (c *C1File) ListEntitlements(ctx context.Context, request *v2.EntitlementsS
 
 func (c *C1File) GetEntitlement(ctx context.Context, request *reader_v2.EntitlementsReaderServiceGetEntitlementRequest) (*reader_v2.EntitlementsReaderServiceGetEntitlementResponse, error) {
 	ctx, span := tracer.Start(ctx, "C1File.GetEntitlement")
-	span.SetAttributes(attribute.String("entitlement_id", request.GetEntitlementId()))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	ret := &v2.Entitlement{}
 	syncId, err := annotations.GetSyncIdFromAnnotations(request.GetAnnotations())
@@ -91,8 +91,8 @@ func (c *C1File) GetEntitlement(ctx context.Context, request *reader_v2.Entitlem
 
 func (c *C1File) ListStaticEntitlements(ctx context.Context, request *v2.EntitlementsServiceListStaticEntitlementsRequest) (*v2.EntitlementsServiceListStaticEntitlementsResponse, error) {
 	_, span := tracer.Start(ctx, "C1File.ListStaticEntitlements")
-	span.SetAttributes(attribute.String("resource_type_id", request.GetResourceTypeId()))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return v2.EntitlementsServiceListStaticEntitlementsResponse_builder{
 		List:          []*v2.Entitlement{},
@@ -102,16 +102,16 @@ func (c *C1File) ListStaticEntitlements(ctx context.Context, request *v2.Entitle
 
 func (c *C1File) PutEntitlements(ctx context.Context, entitlementObjs ...*v2.Entitlement) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutEntitlements")
-	span.SetAttributes(attribute.Int("entitlement_count", len(entitlementObjs)))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.putEntitlementsInternal(ctx, bulkPutConnectorObject, entitlementObjs...)
 }
 
 func (c *C1File) PutEntitlementsIfNewer(ctx context.Context, entitlementObjs ...*v2.Entitlement) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutEntitlementsIfNewer")
-	span.SetAttributes(attribute.Int("entitlement_count", len(entitlementObjs)))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	return c.putEntitlementsInternal(ctx, bulkPutConnectorObjectIfNewer, entitlementObjs...)
 }

@@ -10,8 +10,8 @@ import (
 	c1zmanager "github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
@@ -44,8 +44,8 @@ func (m *localDiffer) Next(ctx context.Context) (*v1.Task, time.Duration, error)
 
 func (m *localDiffer) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {
 	ctx, span := tracer.Start(ctx, "localDiffer.Process", trace.WithNewRoot())
-	span.SetAttributes(attribute.String("task_type", "diff"))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	log := ctxzap.Extract(ctx)
 
 	if m.baseSyncID == "" || m.appliedSyncID == "" {

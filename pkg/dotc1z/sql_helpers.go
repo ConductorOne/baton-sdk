@@ -12,13 +12,13 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
@@ -144,10 +144,10 @@ func resolveSyncID(ctx context.Context, c *C1File, req listRequest) (string, err
 // It returns a slice of typed proto messages constructed via the provided factory function.
 func listConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T) ([]T, string, error) {
 	ctx, span := tracer.Start(ctx, "C1File.listConnectorObjects")
-	span.SetAttributes(attribute.String("table_name", tableName))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	err := c.validateDb(ctx)
+	err = c.validateDb(ctx)
 	if err != nil {
 		return nil, "", err
 	}
@@ -524,10 +524,10 @@ func bulkPutConnectorObject[T proto.Message](
 		return nil
 	}
 	ctx, span := tracer.Start(ctx, "C1File.bulkPutConnectorObject")
-	span.SetAttributes(attribute.String("table_name", tableName))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	err := c.validateSyncDb(ctx)
+	err = c.validateSyncDb(ctx)
 	if err != nil {
 		return err
 	}
@@ -560,10 +560,10 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 		return nil
 	}
 	ctx, span := tracer.Start(ctx, "C1File.bulkPutConnectorObjectIfNewer")
-	span.SetAttributes(attribute.String("table_name", tableName))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	err := c.validateSyncDb(ctx)
+	err = c.validateSyncDb(ctx)
 	if err != nil {
 		return err
 	}
@@ -594,10 +594,10 @@ func bulkPutConnectorObjectIfNewer[T proto.Message](
 
 func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceId, m *v2.Resource, syncID string) error {
 	ctx, span := tracer.Start(ctx, "C1File.getResourceObject")
-	span.SetAttributes(attribute.String("resource_type_id", resourceID.GetResourceType()))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	err := c.validateDb(ctx)
+	err = c.validateDb(ctx)
 	if err != nil {
 		return err
 	}
@@ -656,10 +656,10 @@ func (c *C1File) getResourceObject(ctx context.Context, resourceID *v2.ResourceI
 
 func (c *C1File) getConnectorObject(ctx context.Context, tableName string, id string, syncID string, m proto.Message) error {
 	ctx, span := tracer.Start(ctx, "C1File.getConnectorObject")
-	span.SetAttributes(attribute.String("table_name", tableName))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	err := c.validateDb(ctx)
+	err = c.validateDb(ctx)
 	if err != nil {
 		return err
 	}

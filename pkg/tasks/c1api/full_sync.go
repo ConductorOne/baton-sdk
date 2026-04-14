@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -19,6 +18,7 @@ import (
 	sdkSync "github.com/conductorone/baton-sdk/pkg/sync"
 	"github.com/conductorone/baton-sdk/pkg/tasks"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
 type fullSyncHelpers interface {
@@ -42,9 +42,8 @@ type fullSyncTaskHandler struct {
 
 func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 	ctx, span := tracer.Start(ctx, "fullSyncTaskHandler.sync")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
 
 	if c.task.GetSyncFull() == nil {
@@ -140,9 +139,8 @@ func (c *fullSyncTaskHandler) sync(ctx context.Context, c1zPath string) error {
 // with a sync_id that does match our current state, we should resume our current sync, if possible.
 func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "fullSyncTaskHandler.HandleTask")
-	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", c.task.GetId()), zap.Stringer("task_type", tasks.GetType(c.task)))
@@ -179,14 +177,14 @@ func (c *fullSyncTaskHandler) HandleTask(ctx context.Context) error {
 		return c.helpers.FinishTask(ctx, nil, nil, err)
 	}
 	defer func(f *os.File) {
-		err = f.Close()
-		if err != nil {
-			l.Error("failed to close sync asset", zap.Error(err), zap.String("path", f.Name()))
+		closeErr := f.Close()
+		if closeErr != nil {
+			l.Error("failed to close sync asset", zap.Error(closeErr), zap.String("path", f.Name()))
 		}
 
-		err = os.Remove(f.Name())
-		if err != nil {
-			l.Error("failed to remove temp file", zap.Error(err), zap.String("path", f.Name()))
+		removeErr := os.Remove(f.Name())
+		if removeErr != nil {
+			l.Error("failed to remove temp file", zap.Error(removeErr), zap.String("path", f.Name()))
 		}
 	}(c1zF)
 
@@ -231,9 +229,8 @@ func newFullSyncTaskHandler(
 // otherwise silently return success.
 func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers, deleteDebugLogs bool) error {
 	ctx, span := tracer.Start(ctx, "uploadDebugLogs")
-	span.SetAttributes(attribute.Bool("delete_debug_logs", deleteDebugLogs))
-	defer span.End()
-
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 
 	tempDir := helper.TempDir()
@@ -252,7 +249,7 @@ func uploadDebugLogs(ctx context.Context, helper fullSyncHelpers, deleteDebugLog
 	}
 	debugPath := filepath.Join(tempDir, "debug.log")
 
-	_, err := os.Stat(debugPath)
+	_, err = os.Stat(debugPath)
 	if err != nil {
 		switch {
 		case errors.Is(err, os.ErrNotExist):

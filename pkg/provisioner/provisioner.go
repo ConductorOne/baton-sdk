@@ -5,9 +5,9 @@ import (
 	"errors"
 
 	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/uotel"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -71,12 +71,8 @@ func makeCrypto(ctx context.Context) (*v2.CredentialOptions, []*v2.EncryptionCon
 
 func (p *Provisioner) Run(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.Run")
-	span.SetAttributes(
-		attribute.String("grant_entitlement_id", p.grantEntitlementID),
-		attribute.String("revoke_grant_id", p.revokeGrantID),
-		attribute.String("delete_resource_type", p.deleteResourceType),
-	)
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	switch {
 	case p.revokeGrantID != "":
@@ -96,8 +92,8 @@ func (p *Provisioner) Run(ctx context.Context) error {
 
 func (p *Provisioner) loadStore(ctx context.Context) (connectorstore.Reader, error) {
 	ctx, span := tracer.Start(ctx, "Provisioner.loadStore")
-	span.SetAttributes(attribute.String("db_path", p.dbPath))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	if p.store != nil {
 		return p.store, nil
@@ -122,10 +118,8 @@ func (p *Provisioner) loadStore(ctx context.Context) (connectorstore.Reader, err
 
 func (p *Provisioner) Close(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.Close")
-	span.SetAttributes(attribute.String("db_path", p.dbPath))
-	defer span.End()
-
 	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 	if p.store != nil {
 		storeErr := p.store.Close(ctx)
 		if storeErr != nil {
@@ -151,12 +145,8 @@ func (p *Provisioner) Close(ctx context.Context) error {
 
 func (p *Provisioner) grant(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.grant")
-	span.SetAttributes(
-		attribute.String("entitlement_id", p.grantEntitlementID),
-		attribute.String("principal_id", p.grantPrincipalID),
-		attribute.String("principal_type", p.grantPrincipalType),
-	)
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	store, err := p.loadStore(ctx)
 	if err != nil {
@@ -214,8 +204,8 @@ func (p *Provisioner) grant(ctx context.Context) error {
 
 func (p *Provisioner) revoke(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.revoke")
-	span.SetAttributes(attribute.String("grant_id", p.revokeGrantID))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	store, err := p.loadStore(ctx)
 	if err != nil {
@@ -281,8 +271,8 @@ func (p *Provisioner) revoke(ctx context.Context) error {
 
 func (p *Provisioner) createAccount(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.createAccount")
-	span.SetAttributes(attribute.String("resource_type_id", p.createAccountResourceType))
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 	var emails []*v2.AccountInfo_Email
@@ -323,13 +313,10 @@ func (p *Provisioner) createAccount(ctx context.Context) error {
 
 func (p *Provisioner) deleteResource(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.deleteResource")
-	span.SetAttributes(
-		attribute.String("resource_id", p.deleteResourceID),
-		attribute.String("resource_type_id", p.deleteResourceType),
-	)
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	_, err := p.connector.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
+	_, err = p.connector.DeleteResource(ctx, v2.DeleteResourceRequest_builder{
 		ResourceId: v2.ResourceId_builder{
 			Resource:     p.deleteResourceID,
 			ResourceType: p.deleteResourceType,
@@ -343,11 +330,8 @@ func (p *Provisioner) deleteResource(ctx context.Context) error {
 
 func (p *Provisioner) rotateCredentials(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "Provisioner.rotateCredentials")
-	span.SetAttributes(
-		attribute.String("resource_id", p.rotateCredentialsId),
-		attribute.String("resource_type_id", p.rotateCredentialsType),
-	)
-	defer span.End()
+	var err error
+	defer func() { uotel.EndSpanWithError(span, err) }()
 
 	l := ctxzap.Extract(ctx)
 
