@@ -9,6 +9,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/crypto"
 	"github.com/conductorone/baton-sdk/pkg/types/tasks"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -54,6 +55,7 @@ type OldAccountManager interface {
 
 func (b *builder) CreateAccount(ctx context.Context, request *v2.CreateAccountRequest) (*v2.CreateAccountResponse, error) {
 	ctx, span := tracer.Start(ctx, "builder.CreateAccount")
+	span.SetAttributes(attribute.String("resource_type_id", request.GetResourceTypeId()))
 	defer span.End()
 
 	start := b.nowFunc()

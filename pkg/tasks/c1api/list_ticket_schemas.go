@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -29,6 +30,7 @@ type listTicketSchemasTaskHandler struct {
 
 func (c *listTicketSchemasTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "listTicketSchemasTaskHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_id", c.task.GetId()))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx)

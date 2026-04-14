@@ -11,6 +11,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/doug-martin/goqu/v9"
 	"github.com/segmentio/ksuid"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type C1FileAttached struct {
@@ -23,6 +24,7 @@ func (c *C1FileAttached) CompactTable(ctx context.Context, baseSyncID string, ap
 		return errors.New("database has been detached")
 	}
 	ctx, span := tracer.Start(ctx, "C1FileAttached.CompactTable")
+	span.SetAttributes(attribute.String("base_sync_id", baseSyncID), attribute.String("applied_sync_id", appliedSyncID), attribute.String("table_name", tableName))
 	defer span.End()
 
 	// Get the column structure for this table by querying the schema
@@ -205,6 +207,7 @@ func (c *C1FileAttached) GenerateSyncDiffFromFile(ctx context.Context, oldSyncID
 	}
 
 	ctx, span := tracer.Start(ctx, "C1FileAttached.GenerateSyncDiffFromFile")
+	span.SetAttributes(attribute.String("old_sync_id", oldSyncID), attribute.String("new_sync_id", newSyncID))
 	defer span.End()
 
 	// Verify both source syncs have been backfilled and support diff before

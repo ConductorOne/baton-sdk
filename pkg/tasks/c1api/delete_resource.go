@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -27,6 +28,7 @@ type deleteResourceTaskHandler struct {
 
 func (g *deleteResourceTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "deleteResourceTaskHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_type", "delete_resource"))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))

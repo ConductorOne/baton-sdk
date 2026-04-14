@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/attribute"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 
@@ -27,6 +28,7 @@ type rotateCredentialsTaskHandler struct {
 
 func (g *rotateCredentialsTaskHandler) HandleTask(ctx context.Context) error {
 	ctx, span := tracer.Start(ctx, "rotateCredentialsTaskHandler.HandleTask")
+	span.SetAttributes(attribute.String("task_type", "rotate_credentials"))
 	defer span.End()
 
 	l := ctxzap.Extract(ctx).With(zap.String("task_id", g.task.GetId()), zap.Stringer("task_type", tasks.GetType(g.task)))
