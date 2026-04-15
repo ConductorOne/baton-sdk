@@ -751,6 +751,11 @@ func (c *C1File) Cleanup(ctx context.Context) error {
 
 	l := ctxzap.Extract(ctx)
 
+	if c.skipCleanup {
+		l.Info("skip_cleanup option is set, skipping cleanup of old syncs")
+		return nil
+	}
+
 	if skipCleanup, _ := strconv.ParseBool(os.Getenv("BATON_SKIP_CLEANUP")); skipCleanup {
 		l.Info("BATON_SKIP_CLEANUP is set, skipping cleanup of old syncs")
 		return nil
