@@ -201,7 +201,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("failed to validate config: %w", err)
 		}
 
-		clientSecret := v.GetString("client-secret")
+		clientSecret := v.GetString("lambda-client-secret")
 		if clientSecret != "" {
 			secretJwk, err := crypto.ParseClientSecret([]byte(clientSecret), true)
 			if err != nil {
