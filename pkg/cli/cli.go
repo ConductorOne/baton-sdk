@@ -19,9 +19,10 @@ import (
 )
 
 type RunTimeOpts struct {
-	SessionStore       sessions.SessionStore
-	TokenSource        oauth2.TokenSource
-	SelectedAuthMethod string
+	SessionStore        sessions.SessionStore
+	TokenSource         oauth2.TokenSource
+	SelectedAuthMethod  string
+	SyncResourceTypeIDs []string
 }
 
 // GetConnectorFunc is a function type that creates a connector instance.
@@ -39,8 +40,9 @@ func WithSessionCache(ctx context.Context, constructor sessions.SessionStoreCons
 }
 
 type ConnectorOpts struct {
-	TokenSource        oauth2.TokenSource
-	SelectedAuthMethod string
+	TokenSource         oauth2.TokenSource
+	SelectedAuthMethod  string
+	SyncResourceTypeIDs []string
 }
 type NewConnector[T field.Configurable] func(ctx context.Context, cfg T, opts *ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error)
 

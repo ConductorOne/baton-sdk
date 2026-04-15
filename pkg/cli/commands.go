@@ -406,7 +406,10 @@ func MakeMainCommand[T field.Configurable](
 		runCtx = context.WithValue(runCtx, uhttp.ContextHTTPTimeoutKey, time.Duration(httpTimeout)*time.Second)
 
 		// Save the selected authentication method and get the connector.
-		c, err := getconnector(runCtx, t, RunTimeOpts{SelectedAuthMethod: v.GetString("auth-method")})
+		c, err := getconnector(runCtx, t, RunTimeOpts{
+			SelectedAuthMethod:  v.GetString("auth-method"),
+			SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
+		})
 		if err != nil {
 			return err
 		}
@@ -585,7 +588,8 @@ func MakeGRPCServerCommand[T field.Configurable](
 					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
 				}
 			}),
-			SelectedAuthMethod: v.GetString("auth-method"),
+			SelectedAuthMethod:  v.GetString("auth-method"),
+			SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
 		})
 		if err != nil {
 			return err
@@ -693,7 +697,10 @@ func MakeCapabilitiesCommand[T field.Configurable](
 				return err
 			}
 
-			c, err = getconnector(runCtx, t, RunTimeOpts{SelectedAuthMethod: authMethod})
+			c, err = getconnector(runCtx, t, RunTimeOpts{
+				SelectedAuthMethod:  authMethod,
+				SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
+			})
 			if err != nil {
 				return err
 			}
