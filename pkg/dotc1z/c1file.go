@@ -67,7 +67,8 @@ type C1File struct {
 	slowQueryLogFrequency time.Duration
 
 	// Sync cleanup settings
-	syncLimit int
+	syncLimit   int
+	skipCleanup bool
 }
 
 var _ connectorstore.InternalWriter = (*C1File)(nil)
@@ -98,6 +99,13 @@ func WithC1FReadOnly(readOnly bool) C1FOption {
 func WithC1FEncoderConcurrency(concurrency int) C1FOption {
 	return func(o *C1File) {
 		o.encoderConcurrency = concurrency
+	}
+}
+
+// WithC1FSkipCleanup skips cleanup of old syncs when set to true.
+func WithC1FSkipCleanup(skip bool) C1FOption {
+	return func(o *C1File) {
+		o.skipCleanup = skip
 	}
 }
 
@@ -167,6 +175,7 @@ type c1zOptions struct {
 	readOnly           bool
 	encoderConcurrency int
 	syncLimit          int
+	skipCleanup        bool
 }
 
 type C1ZOption func(*c1zOptions)
@@ -205,6 +214,13 @@ func WithReadOnly(readOnly bool) C1ZOption {
 func WithEncoderConcurrency(concurrency int) C1ZOption {
 	return func(o *c1zOptions) {
 		o.encoderConcurrency = concurrency
+	}
+}
+
+// WithSkipCleanup skips cleanup of old syncs when set to true.
+func WithSkipCleanup(skip bool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.skipCleanup = skip
 	}
 }
 
@@ -255,6 +271,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	c1fopts = append(c1fopts, WithC1FEncoderConcurrency(options.encoderConcurrency))
 	if options.syncLimit > 0 {
 		c1fopts = append(c1fopts, WithC1FSyncCountLimit(options.syncLimit))
+	}
+	if options.skipCleanup {
+		c1fopts = append(c1fopts, WithC1FSkipCleanup(true))
 	}
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)
