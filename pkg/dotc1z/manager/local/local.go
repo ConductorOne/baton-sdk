@@ -21,6 +21,7 @@ type localManager struct {
 	tmpPath        string
 	tmpDir         string
 	decoderOptions []dotc1z.DecoderOption
+	skipCleanup    bool
 }
 
 type Option func(*localManager)
@@ -34,6 +35,12 @@ func WithTmpDir(tmpDir string) Option {
 func WithDecoderOptions(opts ...dotc1z.DecoderOption) Option {
 	return func(o *localManager) {
 		o.decoderOptions = opts
+	}
+}
+
+func WithSkipCleanup(skip bool) Option {
+	return func(o *localManager) {
+		o.skipCleanup = skip
 	}
 }
 
@@ -118,6 +125,9 @@ func (l *localManager) LoadC1Z(ctx context.Context) (*dotc1z.C1File, error) {
 	}
 	if len(l.decoderOptions) > 0 {
 		opts = append(opts, dotc1z.WithDecoderOptions(l.decoderOptions...))
+	}
+	if l.skipCleanup {
+		opts = append(opts, dotc1z.WithSkipCleanup(true))
 	}
 	return dotc1z.NewC1ZFile(ctx, l.tmpPath, opts...)
 }
