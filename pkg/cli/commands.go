@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -752,7 +753,15 @@ func MakeCapabilitiesCommand[T field.Configurable](
 			return err
 		}
 
-		_, err = fmt.Fprint(os.Stdout, string(outBytes))
+		// Re-indent to normalize protojson's non-deterministic whitespace.
+		// protojson uses detrand.Bool() to randomly insert extra spaces after colons;
+		// json.Indent rewrites all whitespace from the token stream, preserving key order.
+		var normalized bytes.Buffer
+		if err := json.Indent(&normalized, outBytes, "", "  "); err != nil {
+			return err
+		}
+
+		_, err = fmt.Fprint(os.Stdout, normalized.String())
 		if err != nil {
 			return err
 		}
