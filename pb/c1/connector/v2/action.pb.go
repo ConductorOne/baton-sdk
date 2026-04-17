@@ -89,25 +89,27 @@ const (
 	ActionType_ACTION_TYPE_ACCOUNT_DISABLE        ActionType = 4
 	ActionType_ACTION_TYPE_ACCOUNT_ENABLE         ActionType = 5
 	// Generic resource actions
-	ActionType_ACTION_TYPE_RESOURCE_CREATE  ActionType = 6
-	ActionType_ACTION_TYPE_RESOURCE_DELETE  ActionType = 7
-	ActionType_ACTION_TYPE_RESOURCE_ENABLE  ActionType = 8
-	ActionType_ACTION_TYPE_RESOURCE_DISABLE ActionType = 9
+	ActionType_ACTION_TYPE_RESOURCE_CREATE    ActionType = 6
+	ActionType_ACTION_TYPE_RESOURCE_DELETE    ActionType = 7
+	ActionType_ACTION_TYPE_RESOURCE_ENABLE    ActionType = 8
+	ActionType_ACTION_TYPE_RESOURCE_DISABLE   ActionType = 9
+	ActionType_ACTION_TYPE_SCOPE_ROLE_REQUEST ActionType = 10
 )
 
 // Enum value maps for ActionType.
 var (
 	ActionType_name = map[int32]string{
-		0: "ACTION_TYPE_UNSPECIFIED",
-		1: "ACTION_TYPE_DYNAMIC",
-		2: "ACTION_TYPE_ACCOUNT",
-		3: "ACTION_TYPE_ACCOUNT_UPDATE_PROFILE",
-		4: "ACTION_TYPE_ACCOUNT_DISABLE",
-		5: "ACTION_TYPE_ACCOUNT_ENABLE",
-		6: "ACTION_TYPE_RESOURCE_CREATE",
-		7: "ACTION_TYPE_RESOURCE_DELETE",
-		8: "ACTION_TYPE_RESOURCE_ENABLE",
-		9: "ACTION_TYPE_RESOURCE_DISABLE",
+		0:  "ACTION_TYPE_UNSPECIFIED",
+		1:  "ACTION_TYPE_DYNAMIC",
+		2:  "ACTION_TYPE_ACCOUNT",
+		3:  "ACTION_TYPE_ACCOUNT_UPDATE_PROFILE",
+		4:  "ACTION_TYPE_ACCOUNT_DISABLE",
+		5:  "ACTION_TYPE_ACCOUNT_ENABLE",
+		6:  "ACTION_TYPE_RESOURCE_CREATE",
+		7:  "ACTION_TYPE_RESOURCE_DELETE",
+		8:  "ACTION_TYPE_RESOURCE_ENABLE",
+		9:  "ACTION_TYPE_RESOURCE_DISABLE",
+		10: "ACTION_TYPE_SCOPE_ROLE_REQUEST",
 	}
 	ActionType_value = map[string]int32{
 		"ACTION_TYPE_UNSPECIFIED":            0,
@@ -120,6 +122,7 @@ var (
 		"ACTION_TYPE_RESOURCE_DELETE":        7,
 		"ACTION_TYPE_RESOURCE_ENABLE":        8,
 		"ACTION_TYPE_RESOURCE_DISABLE":       9,
+		"ACTION_TYPE_SCOPE_ROLE_REQUEST":     10,
 	}
 )
 
@@ -1102,7 +1105,7 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\x1bBATON_ACTION_STATUS_PENDING\x10\x02\x12\x1f\n" +
 	"\x1bBATON_ACTION_STATUS_RUNNING\x10\x03\x12 \n" +
 	"\x1cBATON_ACTION_STATUS_COMPLETE\x10\x04\x12\x1e\n" +
-	"\x1aBATON_ACTION_STATUS_FAILED\x10\x05*\xc9\x02\n" +
+	"\x1aBATON_ACTION_STATUS_FAILED\x10\x05*\xed\x02\n" +
 	"\n" +
 	"ActionType\x12\x1b\n" +
 	"\x17ACTION_TYPE_UNSPECIFIED\x10\x00\x12\x17\n" +
@@ -1114,7 +1117,9 @@ const file_c1_connector_v2_action_proto_rawDesc = "" +
 	"\x1bACTION_TYPE_RESOURCE_CREATE\x10\x06\x12\x1f\n" +
 	"\x1bACTION_TYPE_RESOURCE_DELETE\x10\a\x12\x1f\n" +
 	"\x1bACTION_TYPE_RESOURCE_ENABLE\x10\b\x12 \n" +
-	"\x1cACTION_TYPE_RESOURCE_DISABLE\x10\t2\xa4\x03\n" +
+	"\x1cACTION_TYPE_RESOURCE_DISABLE\x10\t\x12\"\n" +
+	"\x1eACTION_TYPE_SCOPE_ROLE_REQUEST\x10\n" +
+	"2\xa4\x03\n" +
 	"\rActionService\x12[\n" +
 	"\fInvokeAction\x12$.c1.connector.v2.InvokeActionRequest\x1a%.c1.connector.v2.InvokeActionResponse\x12d\n" +
 	"\x0fGetActionStatus\x12'.c1.connector.v2.GetActionStatusRequest\x1a(.c1.connector.v2.GetActionStatusResponse\x12d\n" +
