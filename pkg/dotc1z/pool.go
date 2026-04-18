@@ -15,7 +15,8 @@ var encoderPool = &sync.Pool{}
 
 // pooledEncoderConcurrency is the concurrency level used for pooled encoders.
 // Must match the c1zOptions / C1File default (1) so the pool actually engages
-// on the sync hot path.
+// on the sync hot path. Note: pkg/synccompactor/compactor.go passes
+// WithEncoderConcurrency(0) (GOMAXPROCS) and intentionally bypasses the pool.
 const pooledEncoderConcurrency = 1
 
 // getEncoder retrieves a zstd encoder from the pool or creates a new one.

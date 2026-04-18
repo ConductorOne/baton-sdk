@@ -353,6 +353,7 @@ func BenchmarkEncoderPoolAllocs(b *testing.B) {
 
 	b.Run("pooled_encoder", func(b *testing.B) {
 		b.ReportAllocs()
+		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			c1zFile := filepath.Join(tmpDir, "bench.c1z")
 			err := saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
@@ -364,6 +365,7 @@ func BenchmarkEncoderPoolAllocs(b *testing.B) {
 
 	b.Run("new_encoder_each_time", func(b *testing.B) {
 		b.ReportAllocs()
+		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			c1zFile := filepath.Join(tmpDir, "bench2.c1z")
 
@@ -480,6 +482,7 @@ func BenchmarkDecoderPoolAllocs(b *testing.B) {
 
 	b.Run("pooled_decoder", func(b *testing.B) {
 		b.ReportAllocs()
+		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			f, err := os.Open(c1zFile)
 			if err != nil {
@@ -507,6 +510,7 @@ func BenchmarkDecoderPoolAllocs(b *testing.B) {
 
 	b.Run("new_decoder_each_time", func(b *testing.B) {
 		b.ReportAllocs()
+		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			f, err := os.Open(c1zFile)
 			if err != nil {
