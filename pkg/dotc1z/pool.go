@@ -1,19 +1,22 @@
 package dotc1z
 
 import (
-	"runtime"
 	"sync"
 
 	"github.com/klauspost/compress/zstd"
 )
 
 // encoderPool manages reusable zstd.Encoder instances to reduce allocation overhead.
-// All pooled encoders are configured with GOMAXPROCS concurrency.
-var encoderPool sync.Pool
+// Pooled encoders are single-threaded (concurrency=1) to match the production
+// default set in c1file.go. A concurrent encoder path (GOMAXPROCS) is intentionally
+// avoided here because klauspost/compress's multi-threaded encoder has theoretical
+// race concerns in its goroutine synchronization.
+var encoderPool = &sync.Pool{}
 
 // pooledEncoderConcurrency is the concurrency level used for pooled encoders.
-// Set at package init to GOMAXPROCS to match the default behavior.
-var pooledEncoderConcurrency = runtime.GOMAXPROCS(0)
+// Must match the c1zOptions / C1File default (1) so the pool actually engages
+// on the sync hot path.
+const pooledEncoderConcurrency = 1
 
 // getEncoder retrieves a zstd encoder from the pool or creates a new one.
 // The returned encoder is NOT bound to any writer - call Reset(w) before use.
@@ -50,7 +53,7 @@ func putEncoder(enc *zstd.Encoder) {
 
 // decoderPool manages reusable zstd.Decoder instances to reduce allocation overhead.
 // All pooled decoders are configured with concurrency=1 (single-threaded) and low memory mode.
-var decoderPool sync.Pool
+var decoderPool = &sync.Pool{}
 
 // getDecoder retrieves a zstd decoder from the pool or creates a new one.
 // The returned decoder is NOT bound to any reader - call Reset(r) before use.

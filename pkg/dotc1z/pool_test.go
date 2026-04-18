@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 
@@ -15,6 +14,7 @@ import (
 )
 
 func TestEncoderPool(t *testing.T) {
+	withIsolatedPools(t)
 	t.Run("get returns valid encoder", func(t *testing.T) {
 		enc, fromPool := getEncoder()
 		require.NotNil(t, enc)
@@ -96,6 +96,7 @@ func TestEncoderPool(t *testing.T) {
 }
 
 func TestDecoderPool(t *testing.T) {
+	withIsolatedPools(t)
 	// Create some test compressed data
 	createCompressedData := func(t *testing.T, data []byte) []byte {
 		t.Helper()
@@ -188,28 +189,34 @@ func TestDecoderPool(t *testing.T) {
 	})
 }
 
+// withIsolatedPools swaps the package-global encoder/decoder pools with fresh
+// sync.Pool values for the duration of the test. Needed because sync.Pool can
+// evict entries via GC between Gets, and because concurrent tests in the same
+// package could otherwise race with exact-membership assertions.
+func withIsolatedPools(t *testing.T) {
+	t.Helper()
+	origEnc := encoderPool
+	origDec := decoderPool
+	encoderPool = &sync.Pool{}
+	decoderPool = &sync.Pool{}
+	t.Cleanup(func() {
+		encoderPool = origEnc
+		decoderPool = origDec
+	})
+}
+
 // TestPoolGrowsFromSaveC1z verifies that saveC1z populates the encoder pool
 // even when starting with an empty pool. This was a bug where only encoders
 // that came FROM the pool were returned TO the pool.
 func TestPoolGrowsFromSaveC1z(t *testing.T) {
-	// Clear any existing pool state by getting and not returning
-	for {
-		enc, fromPool := getEncoder()
-		if !fromPool {
-			// This was a fresh encoder, pool is now empty
-			// Don't return it - let it be GC'd
-			_ = enc.Close()
-			break
-		}
-		_ = enc.Close() // Don't return to pool
-	}
+	withIsolatedPools(t)
 
-	// Verify pool is empty
+	// Pool is freshly empty (see withIsolatedPools).
 	enc, fromPool := getEncoder()
-	require.False(t, fromPool, "pool should be empty after draining")
-	_ = enc.Close() // Don't return
+	require.False(t, fromPool, "isolated pool should be empty")
+	_ = enc.Close() // Drop it; don't return to pool.
 
-	// Now use saveC1z which should populate the pool
+	// Now use saveC1z which should populate the pool.
 	tmpDir := t.TempDir()
 	testData := bytes.Repeat([]byte("test data "), 100)
 
@@ -218,10 +225,10 @@ func TestPoolGrowsFromSaveC1z(t *testing.T) {
 	require.NoError(t, err)
 
 	c1zFile := filepath.Join(tmpDir, "test.c1z")
-	err = saveC1z(dbFile, c1zFile, 0)
+	err = saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
 	require.NoError(t, err)
 
-	// Now the pool should have an encoder
+	// Now the pool should have an encoder.
 	enc2, fromPool2 := getEncoder()
 	require.True(t, fromPool2, "saveC1z should have returned encoder to pool")
 	putEncoder(enc2)
@@ -230,22 +237,13 @@ func TestPoolGrowsFromSaveC1z(t *testing.T) {
 // TestPoolGrowsFromDecoder verifies that NewDecoder populates the decoder pool
 // even when starting with an empty pool.
 func TestPoolGrowsFromDecoder(t *testing.T) {
-	// Clear any existing pool state
-	for {
-		dec, fromPool := getDecoder()
-		if !fromPool {
-			dec.Close() // zstd.Decoder.Close() returns nothing
-			break
-		}
-		dec.Close() // Don't return to pool
-	}
+	withIsolatedPools(t)
 
-	// Verify pool is empty
 	dec, fromPool := getDecoder()
-	require.False(t, fromPool, "pool should be empty after draining")
+	require.False(t, fromPool, "isolated pool should be empty")
 	dec.Close()
 
-	// Create a c1z file to decode
+	// Create a c1z file to decode.
 	tmpDir := t.TempDir()
 	testData := bytes.Repeat([]byte("test data "), 100)
 
@@ -254,14 +252,14 @@ func TestPoolGrowsFromDecoder(t *testing.T) {
 	require.NoError(t, err)
 
 	c1zFile := filepath.Join(tmpDir, "test.c1z")
-	err = saveC1z(dbFile, c1zFile, 0)
+	err = saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
 	require.NoError(t, err)
 
-	// Drain encoder pool (saveC1z added one)
+	// Drain encoder pool (saveC1z added one) so we're only asserting on the decoder pool below.
 	enc, _ := getEncoder()
 	_ = enc.Close()
 
-	// Now use NewDecoder which should populate the decoder pool
+	// Now use NewDecoder which should populate the decoder pool.
 	f, err := os.Open(c1zFile)
 	require.NoError(t, err)
 
@@ -276,7 +274,7 @@ func TestPoolGrowsFromDecoder(t *testing.T) {
 	err = f.Close()
 	require.NoError(t, err)
 
-	// Now the decoder pool should have a decoder
+	// Now the decoder pool should have a decoder.
 	dec2, fromPool2 := getDecoder()
 	require.True(t, fromPool2, "NewDecoder.Close should have returned decoder to pool")
 	putDecoder(dec2)
@@ -292,9 +290,9 @@ func TestPooledRoundTrip(t *testing.T) {
 		err := os.WriteFile(dbFile, testData, 0600)
 		require.NoError(t, err)
 
-		// Save using pooled encoder
+		// Save using pooled encoder.
 		c1zFile := filepath.Join(tmpDir, "test.c1z")
-		err = saveC1z(dbFile, c1zFile, 0)
+		err = saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
 		require.NoError(t, err)
 
 		// Load using pooled decoder
@@ -322,7 +320,7 @@ func TestPooledRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 
 			c1zFile := filepath.Join(tmpDir, "test.c1z")
-			err = saveC1z(dbFile, c1zFile, 0)
+			err = saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
 			require.NoError(t, err)
 
 			f, err := os.Open(c1zFile)
@@ -357,7 +355,7 @@ func BenchmarkEncoderPoolAllocs(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
 			c1zFile := filepath.Join(tmpDir, "bench.c1z")
-			err := saveC1z(dbFile, c1zFile, 0)
+			err := saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -385,8 +383,8 @@ func BenchmarkEncoderPoolAllocs(b *testing.B) {
 				b.Fatal(err)
 			}
 
-			// Create new encoder each time (simulates old behavior)
-			enc, err := zstd.NewWriter(outF, zstd.WithEncoderConcurrency(runtime.GOMAXPROCS(0)))
+			// Apples-to-apples with pooled_encoder above (concurrency=1).
+			enc, err := zstd.NewWriter(outF, zstd.WithEncoderConcurrency(pooledEncoderConcurrency))
 			if err != nil {
 				outF.Close()
 				dbF.Close()
@@ -454,7 +452,7 @@ func BenchmarkEncoderAllocationOnly(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			var buf bytes.Buffer
-			enc, err := zstd.NewWriter(&buf, zstd.WithEncoderConcurrency(runtime.GOMAXPROCS(0)))
+			enc, err := zstd.NewWriter(&buf, zstd.WithEncoderConcurrency(pooledEncoderConcurrency))
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -477,7 +475,7 @@ func BenchmarkDecoderPoolAllocs(b *testing.B) {
 	require.NoError(b, err)
 
 	c1zFile := filepath.Join(tmpDir, "bench.c1z")
-	err = saveC1z(dbFile, c1zFile, 0)
+	err = saveC1z(dbFile, c1zFile, pooledEncoderConcurrency)
 	require.NoError(b, err)
 
 	b.Run("pooled_decoder", func(b *testing.B) {
