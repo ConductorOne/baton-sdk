@@ -1,10 +1,18 @@
 package dotc1z
 
 import (
+	"os"
 	"sync"
 
 	"github.com/klauspost/compress/zstd"
 )
+
+// poolDisabled is an operational kill-switch. Set BATON_ZSTD_POOL_DISABLE=1
+// in the environment to bypass the encoder and decoder pools entirely and
+// let callers fall back to fresh encoder/decoder creation. Zero behavior
+// change when unset. Useful for rolling back pool behavior without a
+// revert + re-release cycle if a latent Reset or Close bug surfaces in prod.
+var poolDisabled = os.Getenv("BATON_ZSTD_POOL_DISABLE") == "1"
 
 // encoderPool manages reusable zstd.Encoder instances to reduce allocation overhead.
 // Pooled encoders are single-threaded (concurrency=1) to match the production
@@ -23,6 +31,9 @@ const pooledEncoderConcurrency = 1
 // The returned encoder is NOT bound to any writer - call Reset(w) before use.
 // Returns the encoder and a boolean indicating if it came from the pool.
 func getEncoder() (*zstd.Encoder, bool) {
+	if poolDisabled {
+		return nil, false
+	}
 	if enc, ok := encoderPool.Get().(*zstd.Encoder); ok && enc != nil {
 		return enc, true
 	}
@@ -46,6 +57,9 @@ func putEncoder(enc *zstd.Encoder) {
 	if enc == nil {
 		return
 	}
+	if poolDisabled {
+		return
+	}
 	// Reset to nil writer to release reference to previous output.
 	// This is safe even if the encoder was already closed.
 	enc.Reset(nil)
@@ -60,6 +74,9 @@ var decoderPool = &sync.Pool{}
 // The returned decoder is NOT bound to any reader - call Reset(r) before use.
 // Returns the decoder and a boolean indicating if it came from the pool.
 func getDecoder() (*zstd.Decoder, bool) {
+	if poolDisabled {
+		return nil, false
+	}
 	if dec, ok := decoderPool.Get().(*zstd.Decoder); ok && dec != nil {
 		return dec, true
 	}
@@ -81,6 +98,9 @@ func getDecoder() (*zstd.Decoder, bool) {
 // The decoder is reset to release any reference to the previous reader.
 func putDecoder(dec *zstd.Decoder) {
 	if dec == nil {
+		return
+	}
+	if poolDisabled {
 		return
 	}
 	// Reset to nil reader to release reference to previous input.

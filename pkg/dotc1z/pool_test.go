@@ -205,6 +205,50 @@ func withIsolatedPools(t *testing.T) {
 	})
 }
 
+// TestPoolDisabled verifies the BATON_ZSTD_POOL_DISABLE kill-switch:
+// getEncoder and getDecoder return (nil, false) so callers fall through to
+// fresh creation, and putEncoder/putDecoder do not populate the pool.
+func TestPoolDisabled(t *testing.T) {
+	withIsolatedPools(t)
+
+	orig := poolDisabled
+	poolDisabled = true
+	t.Cleanup(func() { poolDisabled = orig })
+
+	enc, fromPool := getEncoder()
+	require.Nil(t, enc, "getEncoder should return nil when pool is disabled")
+	require.False(t, fromPool)
+
+	// Create an encoder the caller's way and verify putEncoder doesn't pool it.
+	freshEnc, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(pooledEncoderConcurrency))
+	require.NoError(t, err)
+	require.NoError(t, freshEnc.Close())
+	putEncoder(freshEnc) // should be a no-op when disabled
+
+	// Decoder: same shape.
+	dec, fromPool := getDecoder()
+	require.Nil(t, dec, "getDecoder should return nil when pool is disabled")
+	require.False(t, fromPool)
+
+	freshDec, err := zstd.NewReader(nil)
+	require.NoError(t, err)
+	putDecoder(freshDec) // should be a no-op when disabled
+	freshDec.Close()
+
+	// Now flip the switch back and confirm the pools are still empty —
+	// putEncoder/putDecoder must not have added anything while disabled.
+	poolDisabled = false
+	enc2, fromPool2 := getEncoder()
+	require.NotNil(t, enc2)
+	require.False(t, fromPool2, "pool should be empty: put* were no-ops while disabled")
+	_ = enc2.Close()
+
+	dec2, fromPool2 := getDecoder()
+	require.NotNil(t, dec2)
+	require.False(t, fromPool2, "pool should be empty: put* were no-ops while disabled")
+	dec2.Close()
+}
+
 // TestPoolGrowsFromSaveC1z verifies that saveC1z populates the encoder pool
 // even when starting with an empty pool. This was a bug where only encoders
 // that came FROM the pool were returned TO the pool.
