@@ -459,48 +459,49 @@ func TestCompactionPreservesGrantExpansionColumns(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, compactor.Compact(ctx))
 
-	// ========= Verify results via ListGrantsInternal expansion rows =========
+	// ========= Verify results via ListWithAnnotationsPage =========
 
 	// Build a map of expandable grants by external ID for easy lookup.
-	resp, err := baseDB.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode: connectorstore.GrantListModeExpansion,
-	})
-	require.NoError(t, err)
-	defs := make([]*connectorstore.ExpandableGrantDef, 0, len(resp.Rows))
-	for _, row := range resp.Rows {
-		if row.Expansion != nil {
-			defs = append(defs, row.Expansion)
+	// Use the paginated form to avoid assuming a particular iteration order.
+	defsByID := make(map[string]dotc1z.GrantAnnotation)
+	pageToken := ""
+	for {
+		rows, next, err := baseDB.Grants().ListWithAnnotationsPage(ctx, pageToken)
+		require.NoError(t, err)
+		for _, r := range rows {
+			if r.Annotation != nil {
+				defsByID[r.GrantExternalID] = r
+			}
 		}
-	}
-
-	defsByID := make(map[string]*connectorstore.ExpandableGrantDef)
-	for _, d := range defs {
-		defsByID[d.GrantExternalID] = d
+		if next == "" {
+			break
+		}
+		pageToken = next
 	}
 
 	// Scenario 1: Grant only in base with expansion - should be present with expansion.
 	t.Run("BaseOnlyExpandable", func(t *testing.T) {
 		def, ok := defsByID["grant-base-only-expandable"]
 		require.True(t, ok, "base-only expandable grant should be in expandable list after compaction")
-		require.Equal(t, []string{"ent2"}, def.SourceEntitlementIDs)
-		require.True(t, def.Shallow)
+		require.Equal(t, []string{"ent2"}, def.Annotation.GetEntitlementIds())
+		require.True(t, def.Annotation.GetShallow())
 	})
 
 	// Scenario 2: Grant only in applied with expansion - should be present with expansion.
 	t.Run("AppliedOnlyExpandable", func(t *testing.T) {
 		def, ok := defsByID["grant-applied-only-expandable"]
 		require.True(t, ok, "applied-only expandable grant should be in expandable list after compaction")
-		require.Equal(t, []string{"ent1"}, def.SourceEntitlementIDs)
-		require.True(t, def.Shallow)
-		require.Equal(t, []string{"user"}, def.ResourceTypeIDs)
+		require.Equal(t, []string{"ent1"}, def.Annotation.GetEntitlementIds())
+		require.True(t, def.Annotation.GetShallow())
+		require.Equal(t, []string{"user"}, def.Annotation.GetResourceTypeIds())
 	})
 
 	// Scenario 3: Same grant in both, applied has different expansion - applied should win.
 	t.Run("OverlapAppliedWins", func(t *testing.T) {
 		def, ok := defsByID["grant-overlap-expandable"]
 		require.True(t, ok, "overlapping grant should be in expandable list after compaction")
-		require.Equal(t, []string{"ent1", "ent2"}, def.SourceEntitlementIDs, "should have applied's entitlement IDs")
-		require.True(t, def.Shallow, "should have applied's shallow=true")
+		require.Equal(t, []string{"ent1", "ent2"}, def.Annotation.GetEntitlementIds(), "should have applied's entitlement IDs")
+		require.True(t, def.Annotation.GetShallow(), "should have applied's shallow=true")
 	})
 
 	// Scenario 4: Expandable in base, non-expandable in applied - applied wins (no expansion).

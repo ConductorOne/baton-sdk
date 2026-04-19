@@ -81,9 +81,9 @@ func (c *C1File) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) e
 		}
 	}
 
-	// Delegate read-only check and empty-input handling to UpsertGrants.
-	err = c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
-		Mode: connectorstore.GrantUpsertModePreserveExpansion,
+	// Delegate read-only check and empty-input handling to upsertGrants.
+	err = c.upsertGrants(ctx, grantUpsertOptions{
+		Mode: grantUpsertModePreserveExpansion,
 	}, stripped...)
 	return err
 }
@@ -92,8 +92,8 @@ func (c *C1File) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) e
 // listExpandableGrantsInternal(Mode: ExpansionNeedsOnly) that reshapes
 // the internal row struct into the exported PendingExpansion shape.
 func (g c1FileGrantStore) PendingExpansionPage(ctx context.Context, pageToken string) ([]PendingExpansion, string, error) {
-	defs, nextPageToken, err := g.c.listExpandableGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode:      connectorstore.GrantListModeExpansionNeedsOnly,
+	defs, nextPageToken, err := g.c.listExpandableGrantsInternal(ctx, grantListOptions{
+		Mode:      grantListModeExpansionNeedsOnly,
 		PageToken: pageToken,
 	})
 	if err != nil {
@@ -156,8 +156,8 @@ func (g c1FileGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[Pendin
 // an expansion annotation, so callers don't need to branch on
 // Annotation-nil to get identity.
 func (g c1FileGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]GrantAnnotation, string, error) {
-	resp, err := g.c.listGrantsWithExpansionInternal(ctx, connectorstore.GrantListOptions{
-		Mode:      connectorstore.GrantListModePayloadWithExpansion,
+	resp, err := g.c.listGrantsWithExpansionInternal(ctx, grantListOptions{
+		Mode:      grantListModePayloadWithExpansion,
 		PageToken: pageToken,
 	})
 	if err != nil {

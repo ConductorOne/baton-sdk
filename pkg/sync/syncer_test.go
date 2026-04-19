@@ -14,6 +14,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/bid"
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
+	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z/manager"
 	"github.com/conductorone/baton-sdk/pkg/logging"
 	et "github.com/conductorone/baton-sdk/pkg/types/entitlement"
@@ -1154,15 +1155,11 @@ func TestExternalResourceMatchIDWithExpandableRemapping(t *testing.T) {
 			g.GetPrincipal().GetId().GetResourceType(), g.GetPrincipal().GetId().GetResource())
 	}
 
-	internalList, err := store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode: connectorstore.GrantListModeExpansion,
-	})
-	require.NoError(t, err)
-	defs := make([]*connectorstore.ExpandableGrantDef, 0, len(internalList.Rows))
-	for _, row := range internalList.Rows {
-		if row.Expansion != nil {
-			defs = append(defs, row.Expansion)
-		}
+	// Walk all expansion rows via the new GrantStore iterator.
+	var defs []dotc1z.PendingExpansion
+	for pe, err := range store.Grants().PendingExpansion(ctx) {
+		require.NoError(t, err)
+		defs = append(defs, pe)
 	}
 	t.Logf("Expandable grants: %d", len(defs))
 
@@ -1173,15 +1170,15 @@ func TestExternalResourceMatchIDWithExpandableRemapping(t *testing.T) {
 	found := false
 	for _, def := range defs {
 		t.Logf("expandable: external_id=%s target_ent=%s source_ents=%v shallow=%v resource_type_ids=%v",
-			def.GrantExternalID, def.TargetEntitlementID, def.SourceEntitlementIDs, def.Shallow, def.ResourceTypeIDs)
-		for _, srcEntID := range def.SourceEntitlementIDs {
+			def.GrantExternalID, def.TargetEntitlementID, def.Annotation.GetEntitlementIds(), def.Annotation.GetShallow(), def.Annotation.GetResourceTypeIds())
+		for _, srcEntID := range def.Annotation.GetEntitlementIds() {
 			// Must be the REMAPPED entitlement (ext_role), not the placeholder
 			require.NotEqual(t, placeholderEntID, srcEntID,
 				"expansion should have remapped entitlement IDs, not placeholder IDs")
 			if srcEntID == extGroupEnt.GetId() {
 				found = true
-				require.True(t, def.Shallow, "expansion should preserve shallow flag")
-				require.Equal(t, []string{"user"}, def.ResourceTypeIDs, "expansion should preserve resource type IDs")
+				require.True(t, def.Annotation.GetShallow(), "expansion should preserve shallow flag")
+				require.Equal(t, []string{"user"}, def.Annotation.GetResourceTypeIds(), "expansion should preserve resource type IDs")
 			}
 		}
 	}

@@ -71,8 +71,12 @@ type C1File struct {
 	skipCleanup bool
 }
 
+// *C1File satisfies connectorstore.Writer (the connector-facing contract),
+// connectorstore.LatestFinishedSyncIDFetcher (narrow optional capability
+// added in PR #774), and dotc1z.C1ZStore (the internal sync-pipeline
+// contract asserted in c1file_store.go alongside the sub-store assertions).
 var (
-	_ connectorstore.InternalWriter              = (*C1File)(nil)
+	_ connectorstore.Writer                      = (*C1File)(nil)
 	_ connectorstore.LatestFinishedSyncIDFetcher = (*C1File)(nil)
 )
 
