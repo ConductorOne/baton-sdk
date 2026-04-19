@@ -27,11 +27,11 @@ type Compactor struct {
 func NewAttachedCompactor(base, applied dotc1z.C1ZStore) (*Compactor, error) {
 	baseFile, ok := dotc1z.AsSQLiteStore(base)
 	if !ok {
-		return nil, fmt.Errorf("attached compactor requires SQLite-backed base store")
+		return nil, fmt.Errorf("attached compactor requires SQLite-backed base store, got %T", base)
 	}
 	appliedFile, ok := dotc1z.AsSQLiteStore(applied)
 	if !ok {
-		return nil, fmt.Errorf("attached compactor requires SQLite-backed applied store")
+		return nil, fmt.Errorf("attached compactor requires SQLite-backed applied store, got %T", applied)
 	}
 	return &Compactor{
 		base:    baseFile,
