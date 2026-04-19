@@ -131,7 +131,7 @@ func TestGrantExpandableRoundTrip(t *testing.T) {
 	}
 
 	// Internal expansion list should return the expandable grant with correct expansion data.
-	defs, _ := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{})
+	defs, _ := listExpansionDefs(ctx, t, c1f, testExpansionListOptions{})
 	require.Len(t, defs, 1)
 	require.Equal(t, "grant-expandable", defs[0].GrantExternalID)
 	require.Equal(t, "ent2", defs[0].TargetEntitlementID)
@@ -199,7 +199,7 @@ func TestGrantExpandableSurvivesCloseReopen(t *testing.T) {
 	require.NoError(t, err)
 	defer c1f2.Close(ctx)
 
-	defs, _ := listExpansionDefs(ctx, t, c1f2, connectorstore.GrantListOptions{})
+	defs, _ := listExpansionDefs(ctx, t, c1f2, testExpansionListOptions{})
 	require.Len(t, defs, 1, "expansion should survive close/reopen")
 	require.Equal(t, "grant-expandable", defs[0].GrantExternalID)
 	require.Equal(t, []string{"ent1"}, defs[0].SourceEntitlementIDs)
@@ -532,7 +532,7 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	require.NoError(t, c1f.ViewSync(ctx, syncID))
 
 	// Verify backfill populated the expansion column via ListExpandableGrants.
-	defs, _ := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{SyncID: syncID})
+	defs, _ := listExpansionDefs(ctx, t, c1f, testExpansionListOptions{SyncID: syncID})
 	require.Len(t, defs, 1, "backfill should produce exactly one expandable grant")
 	require.Equal(t, "grant-expandable", defs[0].GrantExternalID)
 	require.Equal(t, []string{"ent1"}, defs[0].SourceEntitlementIDs)
@@ -599,27 +599,39 @@ func getRawGrantRowForSync(ctx context.Context, t *testing.T, c1f *C1File, exter
 	return r
 }
 
+// testExpansionListOptions is a test-only listing options struct that the
+// tests use to drive the underlying listExpandableGrantsInternal helper.
+// Pre-RFC 0002 the tests used connectorstore.GrantListOptions which has
+// since been removed from the public surface.
+type testExpansionListOptions struct {
+	// NeedsOnly, when true, restricts results to rows with needs_expansion=1
+	// (the only production-used mode). When false, returns every row that has
+	// a non-null expansion blob (legacy test convenience).
+	NeedsOnly bool
+	SyncID    string
+	PageToken string
+	PageSize  uint32
+}
+
 func listExpansionDefs(
 	ctx context.Context,
 	t *testing.T,
 	c1f *C1File,
-	opts connectorstore.GrantListOptions,
-) ([]*connectorstore.ExpandableGrantDef, string) {
+	opts testExpansionListOptions,
+) ([]*expandableGrantDef, string) {
 	t.Helper()
-	if opts.Mode != connectorstore.GrantListModeExpansionNeedsOnly {
-		opts.Mode = connectorstore.GrantListModeExpansion
+	mode := grantListMode(-1) // any sentinel != grantListModeExpansionNeedsOnly
+	if opts.NeedsOnly {
+		mode = grantListModeExpansionNeedsOnly
 	}
-
-	resp, err := c1f.ListGrantsInternal(ctx, opts)
+	defs, nextPageToken, err := c1f.listExpandableGrantsInternal(ctx, grantListOptions{
+		Mode:      mode,
+		SyncID:    opts.SyncID,
+		PageToken: opts.PageToken,
+		PageSize:  opts.PageSize,
+	})
 	require.NoError(t, err)
-
-	defs := make([]*connectorstore.ExpandableGrantDef, 0, len(resp.Rows))
-	for _, row := range resp.Rows {
-		if row.Expansion != nil {
-			defs = append(defs, row.Expansion)
-		}
-	}
-	return defs, resp.NextPageToken
+	return defs, nextPageToken
 }
 
 func requireExpansionSQLNullForSync(ctx context.Context, t *testing.T, c1f *C1File, externalID string, syncID string) {
@@ -728,7 +740,7 @@ func TestNeedsExpansion_ExpandableToNonExpandable(t *testing.T) {
 	require.Equal(t, 0, raw.needsExpansion, "needs_expansion must be 0 when expansion is cleared")
 
 	// Step 3: Verify ListExpandableGrants returns nothing.
-	defs, _ := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{SyncID: syncID})
+	defs, _ := listExpansionDefs(ctx, t, c1f, testExpansionListOptions{SyncID: syncID})
 	require.Len(t, defs, 0, "no expandable grants should remain")
 }
 
@@ -779,7 +791,7 @@ func TestExpansionClearedOnUpsertWithoutAnnotation(t *testing.T) {
 		"needs_expansion should be 0 when expansion is cleared")
 
 	// Step 3: Verify ListExpandableGrants returns nothing for this grant.
-	defs, _ := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{})
+	defs, _ := listExpansionDefs(ctx, t, c1f, testExpansionListOptions{})
 	for _, d := range defs {
 		require.NotEqual(t, "grant-loses-expansion", d.GrantExternalID,
 			"grant should not appear in expandable grants after losing annotation")
@@ -976,57 +988,18 @@ func TestPutGrantsIfNewer_ExpansionColumnsUpdated(t *testing.T) {
 	require.True(t, ge.GetShallow())
 
 	// Step 3: Also verify via ListExpandableGrants.
-	defs, _ := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{})
+	defs, _ := listExpansionDefs(ctx, t, c1f, testExpansionListOptions{})
 	require.Len(t, defs, 1)
 	require.Equal(t, "grant-ifnewer", defs[0].GrantExternalID)
 	require.Equal(t, []string{"ent1", "ent2"}, defs[0].SourceEntitlementIDs)
 	require.True(t, defs[0].Shallow)
 }
 
-func TestListGrantsInternal_ModeValidation(t *testing.T) {
-	ctx := context.Background()
-	c1f, _, cleanup := setupTestC1Z(ctx, t)
-	defer cleanup()
-
-	tests := []struct {
-		name    string
-		opts    connectorstore.GrantListOptions
-		errText string
-	}{
-		{
-			name: "sync id not supported with payload mode",
-			opts: connectorstore.GrantListOptions{
-				Mode:   connectorstore.GrantListModePayload,
-				SyncID: "sync-1",
-			},
-			errText: "SyncID is not supported for payload modes",
-		},
-		{
-			name: "sync id not supported with payload+expansion mode",
-			opts: connectorstore.GrantListOptions{
-				Mode:   connectorstore.GrantListModePayloadWithExpansion,
-				SyncID: "sync-1",
-			},
-			errText: "SyncID is not supported for payload modes",
-		},
-		{
-			name: "options needs-expansion-only not supported in payload mode",
-			opts: connectorstore.GrantListOptions{
-				Mode:               connectorstore.GrantListModePayloadWithExpansion,
-				NeedsExpansionOnly: true,
-			},
-			errText: "NeedsExpansionOnly does not support payload modes",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := c1f.ListGrantsInternal(ctx, tc.opts)
-			require.Error(t, err)
-			require.ErrorContains(t, err, tc.errText)
-		})
-	}
-}
+// TestListGrantsInternal_ModeValidation was removed in RFC 0002 because the
+// validated modes (GrantListModePayload + SyncID rejection, NeedsExpansionOnly
+// + payload mode rejection) no longer exist — the dispatch surface shrank
+// from four modes to two, both of which are only reachable through the new
+// GrantStore interface, which doesn't expose the invalid combinations.
 
 func TestListGrantsInternal_WithPayloadAndExpansionIncludesAllGrantsWhenNeedsNotSet(t *testing.T) {
 	ctx := context.Background()
@@ -1052,20 +1025,18 @@ func TestListGrantsInternal_WithPayloadAndExpansionIncludesAllGrantsWhenNeedsNot
 	}.Build()
 	require.NoError(t, c1f.PutGrants(ctx, expandableGrant, normalGrant))
 
-	resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode: connectorstore.GrantListModePayloadWithExpansion,
-	})
+	rows, _, err := c1f.Grants().ListWithAnnotationsPage(ctx, "")
 	require.NoError(t, err)
-	require.Len(t, resp.Rows, 2)
+	require.Len(t, rows, 2)
 
-	byID := map[string]*connectorstore.InternalGrantRow{}
-	for _, r := range resp.Rows {
+	byID := map[string]GrantAnnotation{}
+	for _, r := range rows {
 		byID[r.Grant.GetId()] = r
 	}
-	require.NotNil(t, byID["grant-with-expansion"])
-	require.NotNil(t, byID["grant-without-expansion"])
-	require.NotNil(t, byID["grant-with-expansion"].Expansion)
-	require.Nil(t, byID["grant-without-expansion"].Expansion)
+	require.Contains(t, byID, "grant-with-expansion")
+	require.Contains(t, byID, "grant-without-expansion")
+	require.NotNil(t, byID["grant-with-expansion"].Annotation)
+	require.Nil(t, byID["grant-without-expansion"].Annotation)
 }
 
 func TestListGrantsInternal_RequestExpandableOnlyWithPayloadFiltersToExpandable(t *testing.T) {
@@ -1092,8 +1063,12 @@ func TestListGrantsInternal_RequestExpandableOnlyWithPayloadFiltersToExpandable(
 	}.Build()
 	require.NoError(t, c1f.PutGrants(ctx, expandableGrant, normalGrant))
 
-	resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode:           connectorstore.GrantListModePayloadWithExpansion,
+	// This test exercises the internal listGrantsWithExpansionInternal
+	// helper's ExpandableOnly filter. The exported GrantStore surface
+	// intentionally doesn't expose this filter; callers that need only
+	// expandable rows go through PendingExpansion (needs_expansion=1).
+	resp, err := c1f.listGrantsWithExpansionInternal(ctx, grantListOptions{
+		Mode:           grantListModePayloadWithExpansion,
 		ExpandableOnly: true,
 	})
 	require.NoError(t, err)
@@ -1127,16 +1102,14 @@ func TestListGrantsInternal_ExpansionOnlyPageSizeAndToken(t *testing.T) {
 		}.Build(),
 	))
 
-	page1, next := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{
-		Mode:     connectorstore.GrantListModeExpansion,
+	page1, next := listExpansionDefs(ctx, t, c1f, testExpansionListOptions{
 		SyncID:   syncID,
 		PageSize: 1,
 	})
 	require.Len(t, page1, 1)
 	require.NotEmpty(t, next)
 
-	page2, next2 := listExpansionDefs(ctx, t, c1f, connectorstore.GrantListOptions{
-		Mode:      connectorstore.GrantListModeExpansion,
+	page2, next2 := listExpansionDefs(ctx, t, c1f, testExpansionListOptions{
 		SyncID:    syncID,
 		PageSize:  1,
 		PageToken: next,
@@ -1160,16 +1133,20 @@ func TestListGrantsInternal_PayloadWithExpansionPageSizeAndTokenFromOptions(t *t
 		v2.Grant_builder{Id: "grant-payload-page-b", Entitlement: ent1, Principal: u1}.Build(),
 	))
 
-	page1, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode:     connectorstore.GrantListModePayloadWithExpansion,
+	// Exercise page-size at the internal-helper level where PageSize is
+	// explicit. The exported GrantStore.ListWithAnnotationsPage uses the
+	// default page size (maxPageSize) since the page primitive exists to
+	// let callers checkpoint pagination, not to control batch size.
+	page1, err := c1f.listGrantsWithExpansionInternal(ctx, grantListOptions{
+		Mode:     grantListModePayloadWithExpansion,
 		PageSize: 1,
 	})
 	require.NoError(t, err)
 	require.Len(t, page1.Rows, 1)
 	require.NotEmpty(t, page1.NextPageToken)
 
-	page2, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-		Mode:      connectorstore.GrantListModePayloadWithExpansion,
+	page2, err := c1f.listGrantsWithExpansionInternal(ctx, grantListOptions{
+		Mode:      grantListModePayloadWithExpansion,
 		PageSize:  1,
 		PageToken: page1.NextPageToken,
 	})
@@ -1214,8 +1191,8 @@ func TestUpsertGrants_PreserveExpansion(t *testing.T) {
 		Entitlement: ent1,
 		Principal:   u1,
 	}.Build()
-	require.NoError(t, c1f.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
-		Mode: connectorstore.GrantUpsertModePreserveExpansion,
+	require.NoError(t, c1f.upsertGrants(ctx, grantUpsertOptions{
+		Mode: grantUpsertModePreserveExpansion,
 	}, plainGrant))
 
 	// Verify: expansion and needs_expansion are unchanged.
@@ -1237,8 +1214,8 @@ func TestUpsertGrants_PreserveExpansion(t *testing.T) {
 	require.Equal(t, 0, rawPlainBefore.needsExpansion, "plain grant should have needs_expansion=0")
 
 	// Upsert the plain grant via PreserveExpansion — columns stay nil/0.
-	require.NoError(t, c1f.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
-		Mode: connectorstore.GrantUpsertModePreserveExpansion,
+	require.NoError(t, c1f.upsertGrants(ctx, grantUpsertOptions{
+		Mode: grantUpsertModePreserveExpansion,
 	}, plainGrant2))
 
 	rawPlainAfter := getRawGrantRowForSync(ctx, t, c1f, "grant-preserve-plain", syncID)

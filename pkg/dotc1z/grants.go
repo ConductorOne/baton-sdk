@@ -11,7 +11,6 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
@@ -202,35 +201,40 @@ func (c *C1File) ListGrantsForResourceType(
 	}.Build(), nil
 }
 
+// PutGrants is the connector-facing write method on connectorstore.Writer.
+// It replaces any conflicting row and re-extracts expansion metadata from
+// the grant payload.
 func (c *C1File) PutGrants(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrants")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
-		Mode: connectorstore.GrantUpsertModeReplace,
-	}, bulkGrants...)
+	return c.upsertGrants(ctx, grantUpsertOptions{Mode: grantUpsertModeReplace}, bulkGrants...)
 }
 
+// PutGrantsIfNewer writes grants only when the provided discovered_at is
+// newer than the stored row's discovered_at. Retained on *C1File because
+// it has targeted test coverage in grants_test.go documenting its semantics.
+// Not on any interface.
 func (c *C1File) PutGrantsIfNewer(ctx context.Context, bulkGrants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.PutGrantsIfNewer")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	return c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
-		Mode: connectorstore.GrantUpsertModeIfNewer,
-	}, bulkGrants...)
+	return c.upsertGrants(ctx, grantUpsertOptions{Mode: grantUpsertModeIfNewer}, bulkGrants...)
 }
 
-// UpsertGrants writes grants with explicit conflict semantics.
-func (c *C1File) UpsertGrants(ctx context.Context, opts connectorstore.GrantUpsertOptions, bulkGrants ...*v2.Grant) error {
+// upsertGrants is the internal implementation of grant writes with mode
+// dispatch. Exported-surface callers go through PutGrants (Replace),
+// PutGrantsIfNewer (IfNewer), or StoreExpandedGrants (PreserveExpansion).
+func (c *C1File) upsertGrants(ctx context.Context, opts grantUpsertOptions, bulkGrants ...*v2.Grant) error {
 	if c.readOnly {
 		return ErrReadOnly
 	}
 	switch opts.Mode {
-	case connectorstore.GrantUpsertModeReplace,
-		connectorstore.GrantUpsertModeIfNewer,
-		connectorstore.GrantUpsertModePreserveExpansion:
+	case grantUpsertModeReplace,
+		grantUpsertModeIfNewer,
+		grantUpsertModePreserveExpansion:
 	default:
 		return fmt.Errorf("unknown grant upsert mode: %d", opts.Mode)
 	}
@@ -253,10 +257,10 @@ func baseGrantRecord(grant *v2.Grant) goqu.Record {
 	}
 }
 
-func grantExtractFields(mode connectorstore.GrantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
+func grantExtractFields(mode grantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
 	return func(grant *v2.Grant) (goqu.Record, error) {
 		rec := baseGrantRecord(grant)
-		if mode == connectorstore.GrantUpsertModePreserveExpansion {
+		if mode == grantUpsertModePreserveExpansion {
 			return rec, nil
 		}
 
@@ -288,7 +292,7 @@ func grantExtractFields(mode connectorstore.GrantUpsertMode) func(grant *v2.Gran
 func upsertGrantsInternal(
 	ctx context.Context,
 	c *C1File,
-	mode connectorstore.GrantUpsertMode,
+	mode grantUpsertMode,
 	msgs ...*v2.Grant,
 ) error {
 	if len(msgs) == 0 {
@@ -559,7 +563,7 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 func executeGrantChunkedUpsert(
 	ctx context.Context, c *C1File,
 	rows []*goqu.Record,
-	mode connectorstore.GrantUpsertMode,
+	mode grantUpsertMode,
 ) error {
 	tableName := grants.Name()
 	// Expansion column update logic built conditionally in Go so the query planner
@@ -568,7 +572,7 @@ func executeGrantChunkedUpsert(
 	var needsExpansionExpr goqu.Expression
 
 	switch mode {
-	case connectorstore.GrantUpsertModePreserveExpansion:
+	case grantUpsertModePreserveExpansion:
 		// Keep existing expansion/needs_expansion values on conflict.
 		expansionExpr = goqu.L(fmt.Sprintf("%s.expansion", tableName))
 		needsExpansionExpr = goqu.L(fmt.Sprintf("%s.needs_expansion", tableName))
@@ -592,7 +596,7 @@ func executeGrantChunkedUpsert(
 			"expansion":       expansionExpr,
 			"needs_expansion": needsExpansionExpr,
 		}
-		if mode == connectorstore.GrantUpsertModeIfNewer {
+		if mode == grantUpsertModeIfNewer {
 			update["discovered_at"] = goqu.I("EXCLUDED.discovered_at")
 			return insertDs.
 				OnConflict(goqu.DoUpdate("external_id, sync_id", update).Where(
