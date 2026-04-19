@@ -10,6 +10,12 @@ import (
 // GrantStore is the grant-specific slice of C1ZStore. Each method maps to a
 // specific caller intent in the sync pipeline — no mode enums, no option
 // structs with behavior switches.
+//
+// The expansion-reading methods come in two flavors: a page-at-a-time
+// primitive (PendingExpansionPage, ListWithAnnotationsPage) that caller-
+// driven state machines use to checkpoint progress, and an all-pages
+// iterator (PendingExpansion, ListWithAnnotations) that wraps the page
+// primitive for callers who want to walk everything in one pass.
 type GrantStore interface {
 	// StoreExpandedGrants writes grants produced by the expander back to
 	// storage. The expander has already consumed each grant's
@@ -22,15 +28,23 @@ type GrantStore interface {
 	// Called by pkg/sync/expand.PutGrantsInChunks.
 	StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error
 
-	// PendingExpansion yields one PendingExpansion per grant whose
+	// PendingExpansionPage returns the next page of grants whose
 	// expansion metadata still needs processing (needs_expansion=1).
-	// The grant payload is NOT materialized — only identity plus the
+	// Grant payloads are NOT materialized — only identity plus the
 	// parsed expansion annotation — because the caller only needs
 	// expansion metadata and this keeps the hot path cheap.
 	//
-	// Pagination is handled internally; callers just range over the
-	// sequence. Early termination (break) stops the underlying SQL
-	// paging.
+	// Caller drives pagination by passing the prior nextPageToken as
+	// pageToken; an empty nextPageToken means the page was the last.
+	// Initial call passes pageToken="".
+	//
+	// Called by pkg/sync.syncer.ExpandGrants, which checkpoints page
+	// tokens in its action state.
+	PendingExpansionPage(ctx context.Context, pageToken string) (defs []PendingExpansion, nextPageToken string, err error)
+
+	// PendingExpansion walks all pages of PendingExpansionPage and
+	// yields each row. Convenience wrapper for callers that don't
+	// checkpoint pagination.
 	//
 	// ITERATION CONTRACT: on error, the sequence yields a final
 	// (zero-value PendingExpansion, err) pair and terminates. Callers
@@ -43,14 +57,20 @@ type GrantStore interface {
 	//
 	// Single-variable ranging (for pe := range seq) silently drops
 	// errors and is a bug.
-	//
-	// Called by pkg/sync.syncer.ExpandGrants.
 	PendingExpansion(ctx context.Context) iter.Seq2[PendingExpansion, error]
 
-	// ListWithAnnotations yields every grant in the current sync,
-	// paired with its expansion annotation if any. Used by the
-	// external-principal post-processing step which needs full grant
-	// payloads plus expansion.
+	// ListWithAnnotationsPage returns the next page of grants with
+	// their expansion annotations inline. Grant payloads are fully
+	// materialized. Used by the external-principal post-processing
+	// step which needs full grants plus expansion.
+	//
+	// Caller drives pagination by passing the prior nextPageToken as
+	// pageToken.
+	ListWithAnnotationsPage(ctx context.Context, pageToken string) (rows []GrantAnnotation, nextPageToken string, err error)
+
+	// ListWithAnnotations walks all pages of ListWithAnnotationsPage
+	// and yields each row. Convenience wrapper for callers that don't
+	// checkpoint pagination.
 	//
 	// ITERATION CONTRACT: same as PendingExpansion. On error, the
 	// sequence yields (zero-value GrantAnnotation, err) then

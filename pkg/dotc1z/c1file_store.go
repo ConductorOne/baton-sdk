@@ -38,30 +38,35 @@ func (c *C1File) FileOps() FileOps { return c1FileFileOps{c} }
 // value wrapper so .Grants() does not allocate per-call.
 type c1FileGrantStore struct{ c *C1File }
 
-// StoreExpandedGrants implements GrantStore.
-//
-// Strips any residual GrantExpandable annotation from the payload, then
-// writes grants using the PreserveExpansion mode so existing
-// expansion/needs_expansion columns are left untouched.
-//
-// The strip step exists because the expander's sole caller writes grants
-// whose GrantExpandable annotation has already been consumed upstream.
-// If a caller accidentally passes a grant with a residual annotation,
-// the persisted `data` blob would disagree with the stored `expansion`
-// column (the RFC §4.8 invariant). Stripping defensively makes the
-// method total.
+// StoreExpandedGrants implements GrantStore by delegating to the
+// top-level *C1File.StoreExpandedGrants, which is where the actual
+// implementation lives. See (*C1File).StoreExpandedGrants for semantics.
 func (g c1FileGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
+	return g.c.StoreExpandedGrants(ctx, grants...)
+}
+
+// StoreExpandedGrants persists grants produced by the expander. It strips
+// any residual GrantExpandable annotation from each grant payload and
+// then delegates to the internal UpsertGrants path using PreserveExpansion
+// mode so existing expansion/needs_expansion columns are left untouched.
+//
+// The strip step is defensive: the expander's upstream callers consume
+// the annotation before writing, but a residual annotation on the
+// payload would disagree with the stored expansion columns. Stripping
+// makes the method total regardless of caller discipline.
+//
+// This method is exposed on *C1File (not just via GrantStore) because
+// test helpers in pkg/sync/expand construct a *C1File directly and
+// pass it to NewExpander; putting it at the top level keeps those
+// tests free of sub-store wiring.
+func (c *C1File) StoreExpandedGrants(ctx context.Context, grants ...*v2.Grant) error {
 	ctx, span := tracer.Start(ctx, "C1File.StoreExpandedGrants")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	// Strip residual GrantExpandable annotations defensively. The expander's
-	// only caller writes grants whose annotation was consumed upstream; a
-	// residual annotation on the payload would disagree with the stored
-	// expansion columns (PreserveExpansion mode leaves those columns alone).
-	//
-	// Cloning only happens when there's something to strip, so grants
-	// without an annotation incur no allocation.
+	// Strip residual GrantExpandable annotations defensively. Cloning
+	// only happens when there's something to strip, so grants without
+	// an annotation incur no allocation.
 	stripped := grants
 	if len(grants) > 0 {
 		stripped = make([]*v2.Grant, len(grants))
@@ -77,15 +82,46 @@ func (g c1FileGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 	}
 
 	// Delegate read-only check and empty-input handling to UpsertGrants.
-	err = g.c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+	err = c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
 		Mode: connectorstore.GrantUpsertModePreserveExpansion,
 	}, stripped...)
 	return err
 }
 
-// PendingExpansion implements GrantStore. Wraps the existing
-// listExpandableGrantsInternal page loop in an iter.Seq2, so callers range
-// over PendingExpansion values and pagination is hidden.
+// PendingExpansionPage implements GrantStore. Thin wrapper over
+// listExpandableGrantsInternal(Mode: ExpansionNeedsOnly) that reshapes
+// the internal row struct into the exported PendingExpansion shape.
+func (g c1FileGrantStore) PendingExpansionPage(ctx context.Context, pageToken string) ([]PendingExpansion, string, error) {
+	defs, nextPageToken, err := g.c.listExpandableGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:      connectorstore.GrantListModeExpansionNeedsOnly,
+		PageToken: pageToken,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]PendingExpansion, 0, len(defs))
+	for _, def := range defs {
+		if def == nil {
+			continue
+		}
+		out = append(out, PendingExpansion{
+			GrantExternalID:         def.GrantExternalID,
+			TargetEntitlementID:     def.TargetEntitlementID,
+			PrincipalResourceTypeID: def.PrincipalResourceTypeID,
+			PrincipalResourceID:     def.PrincipalResourceID,
+			Annotation: v2.GrantExpandable_builder{
+				EntitlementIds:  def.SourceEntitlementIDs,
+				Shallow:         def.Shallow,
+				ResourceTypeIds: def.ResourceTypeIDs,
+			}.Build(),
+			NeedsExpansion: def.NeedsExpansion,
+		})
+	}
+	return out, nextPageToken, nil
+}
+
+// PendingExpansion implements GrantStore. Convenience iterator that
+// walks every page via PendingExpansionPage.
 //
 // Early termination (break) stops the underlying paging — the iterator
 // function returns as soon as the caller stops yielding.
@@ -93,30 +129,12 @@ func (g c1FileGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[Pendin
 	return func(yield func(PendingExpansion, error) bool) {
 		pageToken := ""
 		for {
-			defs, nextPageToken, err := g.c.listExpandableGrantsInternal(ctx, connectorstore.GrantListOptions{
-				Mode:      connectorstore.GrantListModeExpansionNeedsOnly,
-				PageToken: pageToken,
-			})
+			page, nextPageToken, err := g.PendingExpansionPage(ctx, pageToken)
 			if err != nil {
 				_ = yield(PendingExpansion{}, err)
 				return
 			}
-			for _, def := range defs {
-				if def == nil {
-					continue
-				}
-				pe := PendingExpansion{
-					GrantExternalID:         def.GrantExternalID,
-					TargetEntitlementID:     def.TargetEntitlementID,
-					PrincipalResourceTypeID: def.PrincipalResourceTypeID,
-					PrincipalResourceID:     def.PrincipalResourceID,
-					Annotation: v2.GrantExpandable_builder{
-						EntitlementIds:  def.SourceEntitlementIDs,
-						Shallow:         def.Shallow,
-						ResourceTypeIds: def.ResourceTypeIDs,
-					}.Build(),
-					NeedsExpansion: def.NeedsExpansion,
-				}
+			for _, pe := range page {
 				if !yield(pe, nil) {
 					return
 				}
@@ -129,51 +147,67 @@ func (g c1FileGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[Pendin
 	}
 }
 
-// ListWithAnnotations implements GrantStore. Wraps the existing
-// listGrantsWithExpansionInternal page loop in an iter.Seq2.
+// ListWithAnnotationsPage implements GrantStore. Thin wrapper over
+// listGrantsWithExpansionInternal that reshapes InternalGrantRow into
+// GrantAnnotation.
+//
+// Identity fields on the returned GrantAnnotation are always populated
+// from the underlying grant proto, regardless of whether the grant has
+// an expansion annotation, so callers don't need to branch on
+// Annotation-nil to get identity.
+func (g c1FileGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]GrantAnnotation, string, error) {
+	resp, err := g.c.listGrantsWithExpansionInternal(ctx, connectorstore.GrantListOptions{
+		Mode:      connectorstore.GrantListModePayloadWithExpansion,
+		PageToken: pageToken,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]GrantAnnotation, 0, len(resp.Rows))
+	for _, row := range resp.Rows {
+		if row == nil {
+			continue
+		}
+		ga := GrantAnnotation{
+			Grant:                   row.Grant,
+			GrantExternalID:         row.Grant.GetId(),
+			TargetEntitlementID:     row.Grant.GetEntitlement().GetId(),
+			PrincipalResourceTypeID: row.Grant.GetPrincipal().GetId().GetResourceType(),
+			PrincipalResourceID:     row.Grant.GetPrincipal().GetId().GetResource(),
+		}
+		if row.Expansion != nil {
+			ga.Annotation = v2.GrantExpandable_builder{
+				EntitlementIds:  row.Expansion.SourceEntitlementIDs,
+				Shallow:         row.Expansion.Shallow,
+				ResourceTypeIds: row.Expansion.ResourceTypeIDs,
+			}.Build()
+			ga.NeedsExpansion = row.Expansion.NeedsExpansion
+		}
+		out = append(out, ga)
+	}
+	return out, resp.NextPageToken, nil
+}
+
+// ListWithAnnotations implements GrantStore. Convenience iterator that
+// walks every page via ListWithAnnotationsPage.
 func (g c1FileGrantStore) ListWithAnnotations(ctx context.Context) iter.Seq2[GrantAnnotation, error] {
 	return func(yield func(GrantAnnotation, error) bool) {
 		pageToken := ""
 		for {
-			resp, err := g.c.listGrantsWithExpansionInternal(ctx, connectorstore.GrantListOptions{
-				Mode:      connectorstore.GrantListModePayloadWithExpansion,
-				PageToken: pageToken,
-			})
+			page, nextPageToken, err := g.ListWithAnnotationsPage(ctx, pageToken)
 			if err != nil {
 				_ = yield(GrantAnnotation{}, err)
 				return
 			}
-			for _, row := range resp.Rows {
-				if row == nil {
-					continue
-				}
-				// Identity is always populated from the grant proto,
-				// which is authoritative and always present. Fields
-				// are unconditionally filled so callers don't need to
-				// branch on Annotation-nil to get identity.
-				ga := GrantAnnotation{
-					Grant:                   row.Grant,
-					GrantExternalID:         row.Grant.GetId(),
-					TargetEntitlementID:     row.Grant.GetEntitlement().GetId(),
-					PrincipalResourceTypeID: row.Grant.GetPrincipal().GetId().GetResourceType(),
-					PrincipalResourceID:     row.Grant.GetPrincipal().GetId().GetResource(),
-				}
-				if row.Expansion != nil {
-					ga.Annotation = v2.GrantExpandable_builder{
-						EntitlementIds:  row.Expansion.SourceEntitlementIDs,
-						Shallow:         row.Expansion.Shallow,
-						ResourceTypeIds: row.Expansion.ResourceTypeIDs,
-					}.Build()
-					ga.NeedsExpansion = row.Expansion.NeedsExpansion
-				}
+			for _, ga := range page {
 				if !yield(ga, nil) {
 					return
 				}
 			}
-			if resp.NextPageToken == "" {
+			if nextPageToken == "" {
 				return
 			}
-			pageToken = resp.NextPageToken
+			pageToken = nextPageToken
 		}
 	}
 }
