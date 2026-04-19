@@ -35,7 +35,7 @@ const (
 type Compactor struct {
 	compactorType CompactorType
 	entries       []*CompactableSync
-	compactedC1z  *dotc1z.C1File
+	compactedC1z  dotc1z.C1ZStore
 
 	tmpDir             string
 	destDir            string
@@ -331,7 +331,10 @@ func (c *Compactor) doOneCompaction(ctx context.Context, cs *CompactableSync) er
 		}
 	}()
 
-	runner := attached.NewAttachedCompactor(c.compactedC1z, applyFile)
+	runner, err := attached.NewAttachedCompactor(c.compactedC1z, applyFile)
+	if err != nil {
+		return fmt.Errorf("failed to create attached compactor: %w", err)
+	}
 	if err := runner.Compact(ctx); err != nil {
 		l.Error("error running compaction", zap.Error(err), zap.String("apply_file", cs.FilePath))
 		return err
