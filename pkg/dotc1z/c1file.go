@@ -71,7 +71,10 @@ type C1File struct {
 	skipCleanup bool
 }
 
-var _ connectorstore.InternalWriter = (*C1File)(nil)
+var (
+	_ connectorstore.InternalWriter              = (*C1File)(nil)
+	_ connectorstore.LatestFinishedSyncIDFetcher = (*C1File)(nil)
+)
 
 type C1FOption func(*C1File)
 

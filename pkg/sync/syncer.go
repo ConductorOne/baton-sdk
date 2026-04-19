@@ -182,14 +182,14 @@ func (s *syncer) getPreviousFullSyncID(ctx context.Context) (string, error) {
 		return *ptr, nil
 	}
 
-	psf, ok := s.store.(latestSyncFetcher)
+	psf, ok := s.store.(connectorstore.LatestFinishedSyncIDFetcher)
 	if !ok {
 		empty := ""
 		s.previousSyncIDPtr.Store(&empty)
 		return "", nil
 	}
 
-	previousSyncID, err := psf.LatestFinishedSync(ctx, connectorstore.SyncTypeFull)
+	previousSyncID, err := psf.LatestFinishedSyncID(ctx, connectorstore.SyncTypeFull)
 	if err == nil {
 		s.previousSyncIDPtr.Store(&previousSyncID)
 	}
@@ -1542,10 +1542,6 @@ func (s *syncer) SyncGrants(ctx context.Context, action *Action) error {
 	}
 
 	return nil
-}
-
-type latestSyncFetcher interface {
-	LatestFinishedSync(ctx context.Context, syncType connectorstore.SyncType) (string, error)
 }
 
 func (s *syncer) fetchResourceForPreviousSync(ctx context.Context, resourceID *v2.ResourceId) (string, *v2.ETag, error) {

@@ -64,6 +64,19 @@ type InternalWriter interface {
 	SetSupportsDiff(ctx context.Context, syncID string) error
 }
 
+// LatestFinishedSyncIDFetcher returns the most-recently-finished sync ID of the
+// given type, or empty string if no such sync exists. This is a small optional
+// capability separate from Reader/Writer because not every store implementation
+// can answer it (e.g. gRPC-backed readers have a different flavor via
+// SyncsReaderServiceGetLatestFinishedSync).
+//
+// This interface lives in connectorstore so that producers (e.g. *dotc1z.C1File)
+// and consumers (e.g. pkg/sync) reference a single authoritative declaration,
+// preventing the name/signature drift that occurred between PR #473 and this fix.
+type LatestFinishedSyncIDFetcher interface {
+	LatestFinishedSyncID(ctx context.Context, syncType SyncType) (string, error)
+}
+
 // GrantUpsertMode controls how grant conflicts are resolved during upsert.
 type GrantUpsertMode int
 
