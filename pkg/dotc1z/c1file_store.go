@@ -125,10 +125,19 @@ func (g c1FileGrantStore) PendingExpansionPage(ctx context.Context, pageToken st
 //
 // Early termination (break) stops the underlying paging — the iterator
 // function returns as soon as the caller stops yielding.
+//
+// Context cancellation is checked at every page boundary so in-flight
+// walks terminate promptly when the caller's deadline/cancel fires;
+// rows within a single page are still delivered (they are already in
+// memory), so cancellation responsiveness is page-grained, not row-grained.
 func (g c1FileGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[PendingExpansion, error] {
 	return func(yield func(PendingExpansion, error) bool) {
 		pageToken := ""
 		for {
+			if err := ctx.Err(); err != nil {
+				_ = yield(PendingExpansion{}, err)
+				return
+			}
 			page, nextPageToken, err := g.PendingExpansionPage(ctx, pageToken)
 			if err != nil {
 				_ = yield(PendingExpansion{}, err)
@@ -189,11 +198,16 @@ func (g c1FileGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken
 }
 
 // ListWithAnnotations implements GrantStore. Convenience iterator that
-// walks every page via ListWithAnnotationsPage.
+// walks every page via ListWithAnnotationsPage. Cancellation behavior is
+// identical to PendingExpansion (page-grained).
 func (g c1FileGrantStore) ListWithAnnotations(ctx context.Context) iter.Seq2[GrantAnnotation, error] {
 	return func(yield func(GrantAnnotation, error) bool) {
 		pageToken := ""
 		for {
+			if err := ctx.Err(); err != nil {
+				_ = yield(GrantAnnotation{}, err)
+				return
+			}
 			page, nextPageToken, err := g.ListWithAnnotationsPage(ctx, pageToken)
 			if err != nil {
 				_ = yield(GrantAnnotation{}, err)

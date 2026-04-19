@@ -255,6 +255,11 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactableSync, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to expand grants: %w", err)
 		}
+		// expandGrants internally wraps the compactedC1z in a syncer whose
+		// Close() closes the store. Clear our pointer so the deferred Close
+		// at the top of Compact doesn't call Close a second time. Close is
+		// idempotent today, but this keeps the ownership handoff explicit.
+		c.compactedC1z = nil
 	}
 
 	// Move last compacted file to the destination dir
