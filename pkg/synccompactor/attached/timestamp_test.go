@@ -84,7 +84,8 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		err = appliedDB.EndSync(ctx)
 		require.NoError(t, err)
 
-		compactor := NewAttachedCompactor(baseDB, appliedDB)
+		compactor, err := NewAttachedCompactor(baseDB, appliedDB)
+		require.NoError(t, err)
 		err = compactor.Compact(ctx)
 		require.NoError(t, err)
 
@@ -162,7 +163,8 @@ func TestDiscoveredAtMergeLogic(t *testing.T) {
 		err = baseDB.EndSync(ctx)
 		require.NoError(t, err)
 
-		compactor := NewAttachedCompactor(baseDB, appliedDB)
+		compactor, err := NewAttachedCompactor(baseDB, appliedDB)
+		require.NoError(t, err)
 		err = compactor.Compact(ctx)
 		require.NoError(t, err)
 

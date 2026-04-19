@@ -215,7 +215,8 @@ func TestAttachedCompactorComprehensiveScenarios(t *testing.T) {
 	// Note: Since applied sync is created after base sync,
 	// applied records will naturally have newer discovered_at timestamps
 
-	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	compactor, err := NewAttachedCompactor(baseDB, appliedDB)
+	require.NoError(t, err)
 	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
@@ -454,7 +455,8 @@ func TestCompactionPreservesGrantExpansionColumns(t *testing.T) {
 	require.NoError(t, appliedDB.EndSync(ctx))
 
 	// ========= Compact =========
-	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	compactor, err := NewAttachedCompactor(baseDB, appliedDB)
+	require.NoError(t, err)
 	require.NoError(t, compactor.Compact(ctx))
 
 	// ========= Verify results via ListGrantsInternal expansion rows =========

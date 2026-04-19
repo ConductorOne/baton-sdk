@@ -97,7 +97,8 @@ func TestAttachedCompactor(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	compactor, err := NewAttachedCompactor(baseDB, appliedDB)
+	require.NoError(t, err)
 	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
@@ -161,7 +162,8 @@ func TestAttachedCompactorMixedSyncTypes(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	compactor, err := NewAttachedCompactor(baseDB, appliedDB)
+	require.NoError(t, err)
 	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
@@ -225,7 +227,8 @@ func TestAttachedCompactorUsesLatestAppliedSyncOfAnyType(t *testing.T) {
 		err := appliedDB.Close(ctx)
 		require.NoError(t, err)
 	}()
-	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	compactor, err := NewAttachedCompactor(baseDB, appliedDB)
+	require.NoError(t, err)
 	err = compactor.Compact(ctx)
 	require.NoError(t, err)
 
@@ -295,7 +298,8 @@ func TestAttachedCompactorDoesNotOperateOnDiffSyncTypes(t *testing.T) {
 		err := appliedDB.Close(ctx)
 		require.NoError(t, err)
 	}()
-	compactor := NewAttachedCompactor(baseDB, appliedDB)
+	compactor, err := NewAttachedCompactor(baseDB, appliedDB)
+	require.NoError(t, err)
 	err = compactor.Compact(ctx)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no finished compactable sync found in applied")
