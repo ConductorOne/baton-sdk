@@ -11,9 +11,15 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/uotel"
 )
 
-// Compile-time check that *C1File satisfies C1ZStore (and the sub-interfaces
-// via the sub-store getters below).
-var _ C1ZStore = (*C1File)(nil)
+// Compile-time checks that *C1File satisfies C1ZStore and that the value
+// wrapper structs satisfy each sub-interface. These assertions catch
+// signature drift at build time rather than at the first runtime call.
+var (
+	_ C1ZStore   = (*C1File)(nil)
+	_ GrantStore = c1FileGrantStore{}
+	_ SyncMeta   = c1FileSyncMeta{}
+	_ FileOps    = c1FileFileOps{}
+)
 
 // Grants returns the grant-store slice of this c1z.
 func (c *C1File) Grants() GrantStore { return c1FileGrantStore{c} }
@@ -49,26 +55,28 @@ func (g c1FileGrantStore) StoreExpandedGrants(ctx context.Context, grants ...*v2
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	if len(grants) == 0 {
-		return nil
+	// Strip residual GrantExpandable annotations defensively. The expander's
+	// only caller writes grants whose annotation was consumed upstream; a
+	// residual annotation on the payload would disagree with the stored
+	// expansion columns (PreserveExpansion mode leaves those columns alone).
+	//
+	// Cloning only happens when there's something to strip, so grants
+	// without an annotation incur no allocation.
+	stripped := grants
+	if len(grants) > 0 {
+		stripped = make([]*v2.Grant, len(grants))
+		for i, gr := range grants {
+			if gr == nil || !hasGrantExpandable(gr) {
+				stripped[i] = gr
+				continue
+			}
+			clone := proto.Clone(gr).(*v2.Grant)
+			_, _ = extractAndStripExpansion(clone)
+			stripped[i] = clone
+		}
 	}
 
-	stripped := make([]*v2.Grant, len(grants))
-	for i, gr := range grants {
-		if gr == nil {
-			stripped[i] = nil
-			continue
-		}
-		if !hasGrantExpandable(gr) {
-			stripped[i] = gr
-			continue
-		}
-		// Only clone when there is something to strip.
-		clone := proto.Clone(gr).(*v2.Grant)
-		_, _ = extractAndStripExpansion(clone)
-		stripped[i] = clone
-	}
-
+	// Delegate read-only check and empty-input handling to UpsertGrants.
 	err = g.c.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
 		Mode: connectorstore.GrantUpsertModePreserveExpansion,
 	}, stripped...)
@@ -139,17 +147,23 @@ func (g c1FileGrantStore) ListWithAnnotations(ctx context.Context) iter.Seq2[Gra
 				if row == nil {
 					continue
 				}
-				ga := GrantAnnotation{Grant: row.Grant}
+				// Identity is always populated from the grant proto,
+				// which is authoritative and always present. Fields
+				// are unconditionally filled so callers don't need to
+				// branch on Annotation-nil to get identity.
+				ga := GrantAnnotation{
+					Grant:                   row.Grant,
+					GrantExternalID:         row.Grant.GetId(),
+					TargetEntitlementID:     row.Grant.GetEntitlement().GetId(),
+					PrincipalResourceTypeID: row.Grant.GetPrincipal().GetId().GetResourceType(),
+					PrincipalResourceID:     row.Grant.GetPrincipal().GetId().GetResource(),
+				}
 				if row.Expansion != nil {
 					ga.Annotation = v2.GrantExpandable_builder{
 						EntitlementIds:  row.Expansion.SourceEntitlementIDs,
 						Shallow:         row.Expansion.Shallow,
 						ResourceTypeIds: row.Expansion.ResourceTypeIDs,
 					}.Build()
-					ga.GrantExternalID = row.Expansion.GrantExternalID
-					ga.TargetEntitlementID = row.Expansion.TargetEntitlementID
-					ga.PrincipalResourceTypeID = row.Expansion.PrincipalResourceTypeID
-					ga.PrincipalResourceID = row.Expansion.PrincipalResourceID
 					ga.NeedsExpansion = row.Expansion.NeedsExpansion
 				}
 				if !yield(ga, nil) {

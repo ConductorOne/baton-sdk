@@ -32,6 +32,18 @@ type GrantStore interface {
 	// sequence. Early termination (break) stops the underlying SQL
 	// paging.
 	//
+	// ITERATION CONTRACT: on error, the sequence yields a final
+	// (zero-value PendingExpansion, err) pair and terminates. Callers
+	// MUST check the second return value on every iteration:
+	//
+	//     for pe, err := range store.Grants().PendingExpansion(ctx) {
+	//         if err != nil { return err }
+	//         // ... use pe ...
+	//     }
+	//
+	// Single-variable ranging (for pe := range seq) silently drops
+	// errors and is a bug.
+	//
 	// Called by pkg/sync.syncer.ExpandGrants.
 	PendingExpansion(ctx context.Context) iter.Seq2[PendingExpansion, error]
 
@@ -39,6 +51,10 @@ type GrantStore interface {
 	// paired with its expansion annotation if any. Used by the
 	// external-principal post-processing step which needs full grant
 	// payloads plus expansion.
+	//
+	// ITERATION CONTRACT: same as PendingExpansion. On error, the
+	// sequence yields (zero-value GrantAnnotation, err) then
+	// terminates. Callers MUST check err on every iteration.
 	//
 	// Called by pkg/sync.syncer.listAllGrantsWithExpansion.
 	ListWithAnnotations(ctx context.Context) iter.Seq2[GrantAnnotation, error]
@@ -74,14 +90,22 @@ type PendingExpansion struct {
 }
 
 // GrantAnnotation is a row yielded by GrantStore.ListWithAnnotations.
-// Grant is always populated. Annotation is nil if the grant has no
+//
+// Grant is always populated. Annotation is nil when the grant has no
 // GrantExpandable annotation.
+//
+// Identity fields (GrantExternalID, TargetEntitlementID,
+// PrincipalResourceTypeID, PrincipalResourceID) are ALWAYS populated
+// from the underlying grant proto, regardless of whether Annotation is
+// nil, so callers can use them without branching.
+//
+// NeedsExpansion is only meaningful when Annotation is non-nil; it
+// reports the stored needs_expansion column for expandable grants.
+// For non-expandable grants it is false.
 type GrantAnnotation struct {
 	Grant      *v2.Grant
 	Annotation *v2.GrantExpandable // nil if not expandable
 
-	// Identity fields mirror those on PendingExpansion when Annotation
-	// is non-nil. They are left zero when Annotation is nil.
 	GrantExternalID         string
 	TargetEntitlementID     string
 	PrincipalResourceTypeID string
