@@ -68,6 +68,19 @@ type GrantStore interface {
 	// pageToken.
 	ListWithAnnotationsPage(ctx context.Context, pageToken string) (rows []GrantAnnotation, nextPageToken string, err error)
 
+	// ListWithAnnotationsForResourcePage filters ListWithAnnotationsPage
+	// to grants on the given resource. Used by the c1-side
+	// fileClientWrapper that emulates a connector from a c1z file and
+	// forwards a ListGrants RPC whose request has a Resource filter.
+	//
+	// Page size defaults to the engine's maximum when pageSize == 0.
+	ListWithAnnotationsForResourcePage(
+		ctx context.Context,
+		resource *v2.Resource,
+		pageToken string,
+		pageSize uint32,
+	) (rows []GrantAnnotation, nextPageToken string, err error)
+
 	// ListWithAnnotations walks all pages of ListWithAnnotationsPage
 	// and yields each row. Convenience wrapper for callers that don't
 	// checkpoint pagination.

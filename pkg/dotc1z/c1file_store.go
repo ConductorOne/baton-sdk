@@ -156,24 +156,34 @@ func (g c1FileGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[Pendin
 	}
 }
 
-// ListWithAnnotationsPage implements GrantStore. Thin wrapper over
-// listGrantsWithExpansionInternal that reshapes InternalGrantRow into
-// GrantAnnotation.
-//
-// Identity fields on the returned GrantAnnotation are always populated
-// from the underlying grant proto, regardless of whether the grant has
-// an expansion annotation, so callers don't need to branch on
-// Annotation-nil to get identity.
-func (g c1FileGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]GrantAnnotation, string, error) {
+// ListWithAnnotationsForResourcePage implements GrantStore. Same shape as
+// ListWithAnnotationsPage but applies a resource filter on the underlying
+// SQL query so the wrapper that emulates a connector from a c1z file can
+// forward a ListGrants request with a Resource filter efficiently.
+func (g c1FileGrantStore) ListWithAnnotationsForResourcePage(
+	ctx context.Context,
+	resource *v2.Resource,
+	pageToken string,
+	pageSize uint32,
+) ([]GrantAnnotation, string, error) {
 	resp, err := g.c.listGrantsWithExpansionInternal(ctx, grantListOptions{
 		Mode:      grantListModePayloadWithExpansion,
+		Resource:  resource,
 		PageToken: pageToken,
+		PageSize:  pageSize,
 	})
 	if err != nil {
 		return nil, "", err
 	}
-	out := make([]GrantAnnotation, 0, len(resp.Rows))
-	for _, row := range resp.Rows {
+	return grantAnnotationRowsFromInternal(resp.Rows), resp.NextPageToken, nil
+}
+
+// grantAnnotationRowsFromInternal converts the internal row shape into
+// the exported GrantAnnotation shape, unifying the code path between
+// ListWithAnnotationsPage and ListWithAnnotationsForResourcePage.
+func grantAnnotationRowsFromInternal(rows []*internalGrantRow) []GrantAnnotation {
+	out := make([]GrantAnnotation, 0, len(rows))
+	for _, row := range rows {
 		if row == nil {
 			continue
 		}
@@ -194,7 +204,26 @@ func (g c1FileGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken
 		}
 		out = append(out, ga)
 	}
-	return out, resp.NextPageToken, nil
+	return out
+}
+
+// ListWithAnnotationsPage implements GrantStore. Thin wrapper over
+// listGrantsWithExpansionInternal that reshapes internalGrantRow into
+// GrantAnnotation.
+//
+// Identity fields on the returned GrantAnnotation are always populated
+// from the underlying grant proto, regardless of whether the grant has
+// an expansion annotation, so callers don't need to branch on
+// Annotation-nil to get identity.
+func (g c1FileGrantStore) ListWithAnnotationsPage(ctx context.Context, pageToken string) ([]GrantAnnotation, string, error) {
+	resp, err := g.c.listGrantsWithExpansionInternal(ctx, grantListOptions{
+		Mode:      grantListModePayloadWithExpansion,
+		PageToken: pageToken,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	return grantAnnotationRowsFromInternal(resp.Rows), resp.NextPageToken, nil
 }
 
 // ListWithAnnotations implements GrantStore. Convenience iterator that
