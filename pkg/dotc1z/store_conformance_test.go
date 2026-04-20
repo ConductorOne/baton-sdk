@@ -18,26 +18,26 @@ import (
 // Each subtest is self-contained with its own fresh store to keep cases
 // independent.
 func TestC1ZStoreConformance(t *testing.T) {
-	t.Run("Grants/StoreExpandedGrants strips annotation", testStoreExpandedGrants_StripsAnnotation)
-	t.Run("Grants/StoreExpandedGrants preserves expansion columns", testStoreExpandedGrants_PreservesExpansionColumns)
-	t.Run("Grants/PendingExpansion returns only needs_expansion rows", testPendingExpansion_NeedsOnly)
-	t.Run("Grants/PendingExpansion early termination", testPendingExpansion_EarlyTermination)
-	t.Run("Grants/ListWithAnnotations yields nil for non-expandable", testListWithAnnotations_NilForNonExpandable)
-	t.Run("Grants/ListWithAnnotations yields annotation for expandable", testListWithAnnotations_AnnotationPopulated)
-	t.Run("SyncMeta/MarkSyncSupportsDiff persists across reopen", testMarkSyncSupportsDiff_Persists)
-	t.Run("SyncMeta/LatestFullSync returns nil when no runs", testLatestFullSync_EmptyReturnsNil)
-	t.Run("SyncMeta/LatestFullSync ignores in-progress and non-full", testLatestFullSync_IgnoresInProgressAndPartial)
-	t.Run("SyncMeta/LatestFinishedSyncOfAnyType includes diff types", testLatestFinishedSyncOfAnyType_IncludesDiff)
-	t.Run("SyncMeta/Stats reports row counts", testStats_ReportsRowCounts)
-	t.Run("FileOps/CloneSync produces readable c1z", testCloneSync_ProducesReadableC1Z)
-	t.Run("FileOps/GenerateSyncDiff creates partial sync", testGenerateSyncDiff_CreatesPartial)
+	t.Run("Grants/StoreExpandedGrants strips annotation", testStoreExpandedGrantsStripsAnnotation)
+	t.Run("Grants/StoreExpandedGrants preserves expansion columns", testStoreExpandedGrantsPreservesExpansionColumns)
+	t.Run("Grants/PendingExpansion returns only needs_expansion rows", testPendingExpansionNeedsOnly)
+	t.Run("Grants/PendingExpansion early termination", testPendingExpansionEarlyTermination)
+	t.Run("Grants/ListWithAnnotations yields nil for non-expandable", testListWithAnnotationsNilForNonExpandable)
+	t.Run("Grants/ListWithAnnotations yields annotation for expandable", testListWithAnnotationsAnnotationPopulated)
+	t.Run("SyncMeta/MarkSyncSupportsDiff persists across reopen", testMarkSyncSupportsDiffPersists)
+	t.Run("SyncMeta/LatestFullSync returns nil when no runs", testLatestFullSyncEmptyReturnsNil)
+	t.Run("SyncMeta/LatestFullSync ignores in-progress and non-full", testLatestFullSyncIgnoresInProgressAndPartial)
+	t.Run("SyncMeta/LatestFinishedSyncOfAnyType includes diff types", testLatestFinishedSyncOfAnyTypeIncludesDiff)
+	t.Run("SyncMeta/Stats reports row counts", testStatsReportsRowCounts)
+	t.Run("FileOps/CloneSync produces readable c1z", testCloneSyncProducesReadableC1Z)
+	t.Run("FileOps/GenerateSyncDiff creates partial sync", testGenerateSyncDiffCreatesPartial)
 }
 
 // -----------------------------------------------------------------------------
 // GrantStore tests
 // -----------------------------------------------------------------------------
 
-func testStoreExpandedGrants_StripsAnnotation(t *testing.T) {
+func testStoreExpandedGrantsStripsAnnotation(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -58,7 +58,7 @@ func testStoreExpandedGrants_StripsAnnotation(t *testing.T) {
 		"StoreExpandedGrants should strip GrantExpandable from the persisted grant")
 }
 
-func testStoreExpandedGrants_PreservesExpansionColumns(t *testing.T) {
+func testStoreExpandedGrantsPreservesExpansionColumns(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -85,7 +85,7 @@ func testStoreExpandedGrants_PreservesExpansionColumns(t *testing.T) {
 		"needs_expansion column must be unchanged by StoreExpandedGrants")
 }
 
-func testPendingExpansion_NeedsOnly(t *testing.T) {
+func testPendingExpansionNeedsOnly(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -122,7 +122,7 @@ func testPendingExpansion_NeedsOnly(t *testing.T) {
 	require.True(t, shallow.Annotation.GetShallow())
 }
 
-func testPendingExpansion_EarlyTermination(t *testing.T) {
+func testPendingExpansionEarlyTermination(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -147,7 +147,7 @@ func testPendingExpansion_EarlyTermination(t *testing.T) {
 	require.Equal(t, 1, count, "iterator should stop after one yield if caller breaks")
 }
 
-func testListWithAnnotations_NilForNonExpandable(t *testing.T) {
+func testListWithAnnotationsNilForNonExpandable(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -165,7 +165,7 @@ func testListWithAnnotations_NilForNonExpandable(t *testing.T) {
 	require.Equal(t, "g-la-plain", seen[0].Grant.GetId())
 }
 
-func testListWithAnnotations_AnnotationPopulated(t *testing.T) {
+func testListWithAnnotationsAnnotationPopulated(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -190,7 +190,7 @@ func testListWithAnnotations_AnnotationPopulated(t *testing.T) {
 // SyncMeta tests
 // -----------------------------------------------------------------------------
 
-func testMarkSyncSupportsDiff_Persists(t *testing.T) {
+func testMarkSyncSupportsDiffPersists(t *testing.T) {
 	ctx := context.Background()
 
 	// Use our own temp file so we control close/reopen separately from the
@@ -221,7 +221,7 @@ func testMarkSyncSupportsDiff_Persists(t *testing.T) {
 	require.True(t, run.SupportsDiff)
 }
 
-func testLatestFullSync_EmptyReturnsNil(t *testing.T) {
+func testLatestFullSyncEmptyReturnsNil(t *testing.T) {
 	ctx := context.Background()
 	tmp, err := os.CreateTemp("", "test-latest-empty-*.c1z")
 	require.NoError(t, err)
@@ -237,7 +237,7 @@ func testLatestFullSync_EmptyReturnsNil(t *testing.T) {
 	require.Nil(t, got, "empty store should return nil, not zero-valued SyncRun")
 }
 
-func testLatestFullSync_IgnoresInProgressAndPartial(t *testing.T) {
+func testLatestFullSyncIgnoresInProgressAndPartial(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -262,7 +262,7 @@ func testLatestFullSync_IgnoresInProgressAndPartial(t *testing.T) {
 	require.NotEqual(t, partialID, got.ID)
 }
 
-func testLatestFinishedSyncOfAnyType_IncludesDiff(t *testing.T) {
+func testLatestFinishedSyncOfAnyTypeIncludesDiff(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -284,7 +284,7 @@ func testLatestFinishedSyncOfAnyType_IncludesDiff(t *testing.T) {
 	require.Equal(t, connectorstore.SyncTypePartial, got.Type)
 }
 
-func testStats_ReportsRowCounts(t *testing.T) {
+func testStatsReportsRowCounts(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -314,7 +314,7 @@ func testStats_ReportsRowCounts(t *testing.T) {
 // FileOps tests
 // -----------------------------------------------------------------------------
 
-func testCloneSync_ProducesReadableC1Z(t *testing.T) {
+func testCloneSyncProducesReadableC1Z(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
@@ -336,7 +336,7 @@ func testCloneSync_ProducesReadableC1Z(t *testing.T) {
 	require.NotNil(t, run)
 }
 
-func testGenerateSyncDiff_CreatesPartial(t *testing.T) {
+func testGenerateSyncDiffCreatesPartial(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := setupTestC1Z(ctx, t)
 	defer cleanup()
