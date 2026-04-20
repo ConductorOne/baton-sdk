@@ -157,7 +157,10 @@ func (a expanderStoreAdapter) GetEntitlement(ctx context.Context, req *reader_v2
 	return a.store.GetEntitlement(ctx, req)
 }
 
-func (a expanderStoreAdapter) ListGrantsForEntitlement(ctx context.Context, req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
+func (a expanderStoreAdapter) ListGrantsForEntitlement(
+	ctx context.Context,
+	req *reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest,
+) (*reader_v2.GrantsReaderServiceListGrantsForEntitlementResponse, error) {
 	return a.store.ListGrantsForEntitlement(ctx, req)
 }
 
