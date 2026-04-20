@@ -1883,6 +1883,23 @@ type etagMockConnector struct {
 	secondPageGrants []*v2.Grant
 	nextPageToken    string
 	forceMatch       bool
+	// skipEtag, when true, causes ListGrants responses to omit the ETag annotation
+	// entirely. Used to simulate connectors that don't return etags, so the syncer
+	// genuinely has no previous etag to compare against on subsequent syncs.
+	skipEtag bool
+}
+
+// etagAnnotations returns a fresh annotations slice containing this mock's ETag,
+// or nil if skipEtag is set. Using nil here means no ETag annotation is attached
+// to the response, so the syncer does not persist one on the resource.
+func (mc *etagMockConnector) etagAnnotations() annotations.Annotations {
+	if mc.skipEtag {
+		return nil
+	}
+	return annotations.New(&v2.ETag{
+		Value:         mc.etagValue,
+		EntitlementId: mc.entitlementID,
+	})
 }
 
 func newEtagMockConnector(etagValue string) *etagMockConnector {
@@ -1945,18 +1962,12 @@ func (mc *etagMockConnector) ListGrants(ctx context.Context, in *v2.GrantsServic
 			return v2.GrantsServiceListGrantsResponse_builder{
 				List:          mc.firstPageGrants,
 				NextPageToken: mc.nextPageToken,
-				Annotations: annotations.New(&v2.ETag{
-					Value:         mc.etagValue,
-					EntitlementId: mc.entitlementID,
-				}),
+				Annotations:   mc.etagAnnotations(),
 			}.Build(), nil
 		}
 		return v2.GrantsServiceListGrantsResponse_builder{
-			List: mc.secondPageGrants,
-			Annotations: annotations.New(&v2.ETag{
-				Value:         mc.etagValue,
-				EntitlementId: mc.entitlementID,
-			}),
+			List:        mc.secondPageGrants,
+			Annotations: mc.etagAnnotations(),
 		}.Build(), nil
 	}
 
@@ -1965,11 +1976,8 @@ func (mc *etagMockConnector) ListGrants(ctx context.Context, in *v2.GrantsServic
 		key = r.GetId().GetResource()
 	}
 	return v2.GrantsServiceListGrantsResponse_builder{
-		List: mc.grantDB[key],
-		Annotations: annotations.New(&v2.ETag{
-			Value:         mc.etagValue,
-			EntitlementId: mc.entitlementID,
-		}),
+		List:        mc.grantDB[key],
+		Annotations: mc.etagAnnotations(),
 	}.Build(), nil
 }
 
@@ -2048,16 +2056,19 @@ func TestSyncGrants_EtagMatchMissingPreviousEtag(t *testing.T) {
 	mc := newEtagMockConnector("etag-1")
 	mc.WithData(group, ent, grant)
 
-	// First sync: do NOT return etag (simulate connector not setting it)
-	mc.etagValue = ""
+	// First sync: connector does not return an ETag annotation on its ListGrants
+	// response, so the syncer never persists one on the resource.
+	mc.skipEtag = true
 	syncer1, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
 	require.NoError(t, err)
 	require.NoError(t, syncer1.Sync(ctx))
 	require.NoError(t, syncer1.Close(ctx))
 
-	// Second sync: connector claims ETagMatch but syncer has no previous etag -> expect error
+	// Second sync: connector claims ETagMatch but syncer has no previous etag -> expect error.
+	// skipEtag stays true so the connector still omits its own ETag annotation, but it
+	// forces an ETagMatch via forceMatch — the syncer should detect the missing previous
+	// etag and refuse to proceed.
 	mc.forceMatch = true
-	mc.etagValue = "etag-1"
 	mc.callTokens = nil
 
 	syncer2, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
