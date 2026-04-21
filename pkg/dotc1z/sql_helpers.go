@@ -12,6 +12,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -31,6 +32,7 @@ const maxPageSize = 10000
 // Use this for memory-efficient processing of large result sets.
 type rowIterator[T proto.Message] struct {
 	rows          *sql.Rows
+	span          trace.Span
 	factory       func() T
 	unmarshalOpts proto.UnmarshalOptions
 	err           error
@@ -40,6 +42,7 @@ type rowIterator[T proto.Message] struct {
 	lastRow       int
 	nextPageToken string
 	done          bool
+	closed        bool
 }
 
 // Next advances the iterator to the next row.
@@ -96,9 +99,21 @@ func (it *rowIterator[T]) NextPageToken() string {
 	return it.nextPageToken
 }
 
-// Close releases database resources. Must be called when done with iteration.
+// Close releases database resources and ends the tracing span. Safe to call multiple times.
+// Must be called when done with iteration.
 func (it *rowIterator[T]) Close() error {
-	return it.rows.Close()
+	if it.closed {
+		return nil
+	}
+	it.closed = true
+	closeErr := it.rows.Close()
+	// Prefer the iteration error for span recording; fall back to close error.
+	spanErr := it.err
+	if spanErr == nil {
+		spanErr = closeErr
+	}
+	uotel.EndSpanWithError(it.span, spanErr)
+	return closeErr
 }
 
 // Collect materializes all remaining rows into a slice.
@@ -236,12 +251,20 @@ func resolveSyncID(ctx context.Context, c *C1File, req listRequest) (string, err
 }
 
 // streamConnectorObjects returns an iterator for memory-efficient streaming of query results.
-// The caller MUST call Close() on the iterator when done.
-// Use this instead of listConnectorObjects when processing large result sets or when early termination is needed.
-func streamConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T) (*rowIterator[T], error) {
+// The caller MUST call Close() on the iterator when done; Close finalizes the tracing span.
+//
+// IMPORTANT: the underlying sqlite *sql.DB has MaxOpenConns=1 (see c1file.go). A live
+// iterator pins that sole connection, so any other DB call issued before Close() will
+// block until iteration finishes. Do not interleave iteration with other store operations.
+// See TestStreamIteratorHoldsSingleConnection for enforcement.
+func streamConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tableName string, req listRequest, factory func() T) (_ *rowIterator[T], err error) {
 	ctx, span := tracer.Start(ctx, "C1File.streamConnectorObjects")
-	var err error
-	defer func() { uotel.EndSpanWithError(span, err) }()
+	// Span ownership transfers to the iterator on success; end it here only on early error.
+	defer func() {
+		if err != nil {
+			uotel.EndSpanWithError(span, err)
+		}
+	}()
 
 	err = c.validateDb(ctx)
 	if err != nil {
@@ -353,6 +376,7 @@ func streamConnectorObjects[T proto.Message](ctx context.Context, c *C1File, tab
 
 	return &rowIterator[T]{
 		rows:    rows,
+		span:    span,
 		factory: factory,
 		unmarshalOpts: proto.UnmarshalOptions{
 			Merge:          true,
