@@ -32,19 +32,47 @@ type ExpanderStore interface {
 	UpsertGrants(ctx context.Context, opts connectorstore.GrantUpsertOptions, grants ...*v2.Grant) error
 }
 
+// ExpansionFilter is a predicate called once per candidate expansion. If it
+// returns false, the derived grant for (sourceGrant.Principal, descendant)
+// is NOT emitted — neither as a new row nor as a sources-map update on any
+// existing row. Returning true preserves the default expansion behavior.
+//
+// Use case: suppress redundant derived grants when a sparse/authoritative
+// grant model (e.g. ScopeBindingTrait) already captures the same access.
+// Filter sees the *source* grant and both entitlements so a caller can make
+// semantic decisions (e.g. "skip expansion out of role entitlements when the
+// principal already has a scope_binding grant for that role").
+type ExpansionFilter func(ctx context.Context, sourceGrant *v2.Grant, sourceEntitlement, descendantEntitlement *v2.Entitlement) bool
+
+// ExpanderOption configures an Expander at construction time.
+type ExpanderOption func(*Expander)
+
+// WithExpansionFilter installs a predicate that decides per-source-grant
+// whether expansion should emit a derived grant. See ExpansionFilter.
+func WithExpansionFilter(f ExpansionFilter) ExpanderOption {
+	return func(e *Expander) {
+		e.filter = f
+	}
+}
+
 // Expander handles the grant expansion algorithm.
 // It can be used standalone for testing or called from the syncer.
 type Expander struct {
-	store ExpanderStore
-	graph *EntitlementGraph
+	store  ExpanderStore
+	graph  *EntitlementGraph
+	filter ExpansionFilter
 }
 
 // NewExpander creates a new Expander with the given store and graph.
-func NewExpander(store ExpanderStore, graph *EntitlementGraph) *Expander {
-	return &Expander{
+func NewExpander(store ExpanderStore, graph *EntitlementGraph, opts ...ExpanderOption) *Expander {
+	e := &Expander{
 		store: store,
 		graph: graph,
 	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
 }
 
 // Graph returns the entitlement graph.
@@ -192,6 +220,12 @@ func (e *Expander) runAction(ctx context.Context, action *EntitlementGraphAction
 			if !foundDirectGrant {
 				continue
 			}
+		}
+
+		// Caller-provided filter. Lets a caller suppress redundant expansion
+		// (e.g. when a ScopeBindingTrait grant already captures the access).
+		if e.filter != nil && !e.filter(ctx, sourceGrant, sourceEntitlement.GetEntitlement(), descendantEntitlement.GetEntitlement()) {
+			continue
 		}
 
 		// Determine if the source grant is direct: either it has no sources (never expanded),
