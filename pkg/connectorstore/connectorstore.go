@@ -143,6 +143,10 @@ type GrantListOptions struct {
 	// NeedsExpansionOnly filters rows to needs_expansion=1.
 	// Used by expansion-only modes.
 	NeedsExpansionOnly bool
+	// ExternalMatchOnly filters rows to grants carrying an ExternalResourceMatch
+	// annotation. Used by payload+expansion mode by processGrantsWithExternalPrincipals
+	// to skip the unmarshal work for rows the caller would otherwise discard.
+	ExternalMatchOnly bool
 
 	// PageToken and PageSize are used for pagination in all modes.
 	// SyncID is used for expansion-only modes.

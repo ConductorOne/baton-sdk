@@ -74,6 +74,9 @@ func TestCloneSyncMigratedColumnOrder(t *testing.T) {
 	_, err = srcFile.db.ExecContext(ctx,
 		fmt.Sprintf("ALTER TABLE %s ADD COLUMN needs_expansion integer not null default 0", grants.Name()))
 	require.NoError(t, err)
+	_, err = srcFile.db.ExecContext(ctx,
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN has_external_match integer not null default 0", grants.Name()))
+	require.NoError(t, err)
 
 	// Create partial indexes that the migration would add.
 	_, err = srcFile.db.ExecContext(ctx, fmt.Sprintf(
@@ -82,6 +85,10 @@ func TestCloneSyncMigratedColumnOrder(t *testing.T) {
 	require.NoError(t, err)
 	_, err = srcFile.db.ExecContext(ctx, fmt.Sprintf(
 		"CREATE INDEX IF NOT EXISTS idx_grants_sync_needs_expansion_v1 ON %s (sync_id) WHERE needs_expansion = 1",
+		grants.Name()))
+	require.NoError(t, err)
+	_, err = srcFile.db.ExecContext(ctx, fmt.Sprintf(
+		"CREATE INDEX IF NOT EXISTS idx_grants_sync_external_match_v1 ON %s (sync_id) WHERE has_external_match = 1",
 		grants.Name()))
 	require.NoError(t, err)
 

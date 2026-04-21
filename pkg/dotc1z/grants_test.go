@@ -524,7 +524,7 @@ func TestBackfillMigration_OldSyncGetsExpansionColumn(t *testing.T) {
 	require.NoError(t, err)
 
 	// Step 3: Run the backfill explicitly (as the migration would on re-open).
-	err = backfillGrantExpansionColumn(ctx, c1f.db, grants.Name())
+	err = backfillGrantDerivedColumns(ctx, c1f.db, grants.Name())
 	require.NoError(t, err)
 
 	// Clear current sync so we can use ViewSync.
@@ -1452,4 +1452,315 @@ func TestPutGrants_ReplaceOverwritesExpansion(t *testing.T) {
 	requireExpansionSQLNullForSync(ctx, t, c1f, "grant-replace", syncID)
 	rawCleared := getRawGrantRowForSync(ctx, t, c1f, "grant-replace", syncID)
 	require.Equal(t, 0, rawCleared.needsExpansion, "needs_expansion should be 0 after clearing expansion via Replace")
+}
+
+// getRawHasExternalMatch reads the has_external_match column for a grant by external_id and sync_id.
+func getRawHasExternalMatch(ctx context.Context, t *testing.T, c1f *C1File, externalID, syncID string) int {
+	t.Helper()
+	var v int
+	err := c1f.db.QueryRowContext(ctx,
+		"SELECT has_external_match FROM "+grants.Name()+" WHERE external_id=? AND sync_id=?",
+		externalID, syncID,
+	).Scan(&v)
+	require.NoError(t, err)
+	return v
+}
+
+// TestHasExternalMatch_WriteExtraction verifies grantExtractFields sets has_external_match
+// correctly for each flavor of ExternalResourceMatch annotation (plus the negative case and
+// the co-existence-with-GrantExpandable case).
+func TestHasExternalMatch_WriteExtraction(t *testing.T) {
+	ctx := context.Background()
+	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	tests := []struct {
+		id          string
+		annotations []*anypb.Any
+		want        int
+	}{
+		{
+			id:   "grant-no-annotations",
+			want: 0,
+		},
+		{
+			id: "grant-match-all",
+			annotations: annotations.New(v2.ExternalResourceMatchAll_builder{
+				ResourceType: v2.ResourceType_TRAIT_USER,
+			}.Build()),
+			want: 1,
+		},
+		{
+			id: "grant-match-id",
+			annotations: annotations.New(v2.ExternalResourceMatchID_builder{
+				Id: "external-user-1",
+			}.Build()),
+			want: 1,
+		},
+		{
+			id: "grant-match-kv",
+			annotations: annotations.New(v2.ExternalResourceMatch_builder{
+				ResourceType: v2.ResourceType_TRAIT_USER,
+				Key:          "email",
+				Value:        "x@example.com",
+			}.Build()),
+			want: 1,
+		},
+		{
+			id: "grant-expandable-only",
+			annotations: annotations.New(v2.GrantExpandable_builder{
+				EntitlementIds: []string{"ent1"},
+			}.Build()),
+			want: 0,
+		},
+		{
+			id: "grant-match-and-expandable",
+			annotations: append(
+				annotations.New(v2.ExternalResourceMatchID_builder{Id: "external-user-2"}.Build()),
+				annotations.New(v2.GrantExpandable_builder{EntitlementIds: []string{"ent1"}}.Build())...,
+			),
+			want: 1,
+		},
+	}
+
+	var toWrite []*v2.Grant
+	for _, tc := range tests {
+		toWrite = append(toWrite, v2.Grant_builder{
+			Id:          tc.id,
+			Entitlement: ent1,
+			Principal:   u1,
+			Annotations: tc.annotations,
+		}.Build())
+	}
+	require.NoError(t, c1f.PutGrants(ctx, toWrite...))
+
+	for _, tc := range tests {
+		got := getRawHasExternalMatch(ctx, t, c1f, tc.id, syncID)
+		require.Equal(t, tc.want, got, "has_external_match for %s", tc.id)
+	}
+}
+
+// TestHasExternalMatch_PreserveExpansionUpdatesColumn verifies that upserting a grant via
+// PreserveExpansion mode refreshes has_external_match from the incoming grant's annotations,
+// even though expansion/needs_expansion are preserved.
+//
+// This guards the write-path invariant: has_external_match must track the data blob, and
+// executeGrantChunkedUpsert writes EXCLUDED.data on conflict in every mode.
+func TestHasExternalMatch_PreserveExpansionUpdatesColumn(t *testing.T) {
+	ctx := context.Background()
+	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	// Step 1: seed with NO external match annotation.
+	initial := v2.Grant_builder{
+		Id:          "grant-preserve",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, initial))
+	require.Equal(t, 0, getRawHasExternalMatch(ctx, t, c1f, "grant-preserve", syncID))
+
+	// Step 2: upsert via PreserveExpansion with an ExternalResourceMatchID annotation.
+	updated := v2.Grant_builder{
+		Id:          "grant-preserve",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.ExternalResourceMatchID_builder{Id: "ext-1"}.Build()),
+	}.Build()
+	require.NoError(t, c1f.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModePreserveExpansion,
+	}, updated))
+	require.Equal(t, 1, getRawHasExternalMatch(ctx, t, c1f, "grant-preserve", syncID),
+		"PreserveExpansion must refresh has_external_match from EXCLUDED")
+
+	// Step 3: upsert via PreserveExpansion removing the annotation — column must flip back.
+	cleared := v2.Grant_builder{
+		Id:          "grant-preserve",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()
+	require.NoError(t, c1f.UpsertGrants(ctx, connectorstore.GrantUpsertOptions{
+		Mode: connectorstore.GrantUpsertModePreserveExpansion,
+	}, cleared))
+	require.Equal(t, 0, getRawHasExternalMatch(ctx, t, c1f, "grant-preserve", syncID),
+		"PreserveExpansion must clear has_external_match when the annotation is removed")
+}
+
+// TestListGrantsInternal_ExternalMatchOnlyFilter verifies that
+// GrantListOptions.ExternalMatchOnly filters to rows with has_external_match=1.
+func TestListGrantsInternal_ExternalMatchOnlyFilter(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	matchGrant := v2.Grant_builder{
+		Id:          "grant-match",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.ExternalResourceMatchAll_builder{
+			ResourceType: v2.ResourceType_TRAIT_USER,
+		}.Build()),
+	}.Build()
+	plainGrant := v2.Grant_builder{
+		Id:          "grant-plain",
+		Entitlement: ent1,
+		Principal:   g1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, matchGrant, plainGrant))
+
+	// Unfiltered: both rows.
+	respAll, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode: connectorstore.GrantListModePayloadWithExpansion,
+	})
+	require.NoError(t, err)
+	require.Len(t, respAll.Rows, 2)
+
+	// ExternalMatchOnly: only the match row.
+	respFiltered, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:              connectorstore.GrantListModePayloadWithExpansion,
+		ExternalMatchOnly: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, respFiltered.Rows, 1)
+	require.Equal(t, "grant-match", respFiltered.Rows[0].Grant.GetId())
+}
+
+// TestBackfillMigration_PopulatesHasExternalMatch verifies the backfill path also
+// populates has_external_match when an old c1z (without the column/with it all-zero)
+// is re-opened. Covers both the expandable-row branch and the sentinel branches.
+func TestBackfillMigration_PopulatesHasExternalMatch(t *testing.T) {
+	ctx := context.Background()
+	c1f, syncID, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	// Three grants covering the relevant branches:
+	// - expandable with external match (expandableRow branch, hasExternalMatch=true)
+	// - non-expandable with external match (sentinelWithMatch branch)
+	// - non-expandable without external match (sentinelNoMatch branch, default 0)
+	expandableMatch := v2.Grant_builder{
+		Id:          "grant-expand-match",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: append(
+			annotations.New(v2.GrantExpandable_builder{EntitlementIds: []string{"ent1"}}.Build()),
+			annotations.New(v2.ExternalResourceMatchID_builder{Id: "ext-1"}.Build())...,
+		),
+	}.Build()
+	plainMatch := v2.Grant_builder{
+		Id:          "grant-plain-match",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.ExternalResourceMatchAll_builder{
+			ResourceType: v2.ResourceType_TRAIT_USER,
+		}.Build()),
+	}.Build()
+	plainNoMatch := v2.Grant_builder{
+		Id:          "grant-plain",
+		Entitlement: ent1,
+		Principal:   g1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, expandableMatch, plainMatch, plainNoMatch))
+	require.NoError(t, c1f.EndSync(ctx))
+
+	// Simulate old-format state: clear has_external_match + expansion + needs_expansion,
+	// stuff the GrantExpandable back into the data blob, mark sync as not backfilled.
+	// This forces backfillGrantDerivedColumns through all three branches.
+	origExpandable := v2.GrantExpandable_builder{EntitlementIds: []string{"ent1"}}.Build()
+	expandableMatchOld := v2.Grant_builder{
+		Id:          "grant-expand-match",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: append(
+			annotations.New(origExpandable),
+			annotations.New(v2.ExternalResourceMatchID_builder{Id: "ext-1"}.Build())...,
+		),
+	}.Build()
+	oldBlob, err := proto.MarshalOptions{Deterministic: true}.Marshal(expandableMatchOld)
+	require.NoError(t, err)
+
+	_, err = c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET has_external_match=0",
+	)
+	require.NoError(t, err)
+	_, err = c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET data=?, expansion=NULL, needs_expansion=0 WHERE external_id='grant-expand-match'",
+		oldBlob,
+	)
+	require.NoError(t, err)
+	_, err = c1f.db.ExecContext(ctx,
+		"UPDATE "+grants.Name()+" SET expansion=NULL, needs_expansion=0 WHERE external_id IN ('grant-plain-match','grant-plain')",
+	)
+	require.NoError(t, err)
+	_, err = c1f.db.ExecContext(ctx, "UPDATE "+syncRuns.Name()+" SET grants_backfilled=0 WHERE sync_id=?", syncID)
+	require.NoError(t, err)
+
+	// Run the backfill directly.
+	require.NoError(t, backfillGrantDerivedColumns(ctx, c1f.db, grants.Name()))
+
+	// All three rows should have the correct has_external_match after backfill.
+	require.Equal(t, 1, getRawHasExternalMatch(ctx, t, c1f, "grant-expand-match", syncID),
+		"expandable row with match must be backfilled to has_external_match=1")
+	require.Equal(t, 1, getRawHasExternalMatch(ctx, t, c1f, "grant-plain-match", syncID),
+		"sentinel-with-match row must be backfilled to has_external_match=1")
+	require.Equal(t, 0, getRawHasExternalMatch(ctx, t, c1f, "grant-plain", syncID),
+		"sentinel-no-match row must remain has_external_match=0")
+
+	var backfilled int
+	err = c1f.db.QueryRowContext(ctx, "SELECT grants_backfilled FROM "+syncRuns.Name()+" WHERE sync_id=?", syncID).Scan(&backfilled)
+	require.NoError(t, err)
+	require.Equal(t, 1, backfilled)
+}
+
+// TestExternalMatchFilter_KillSwitch verifies that setting externalMatchFilterDisabled
+// (driven by BATON_DISABLE_EXTERNAL_MATCH_FILTER=1 at process start) makes
+// ExternalMatchOnly a no-op so all rows are returned.
+func TestExternalMatchFilter_KillSwitch(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := setupTestC1Z(ctx, t)
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
+
+	matchGrant := v2.Grant_builder{
+		Id:          "grant-match",
+		Entitlement: ent1,
+		Principal:   u1,
+		Annotations: annotations.New(v2.ExternalResourceMatchID_builder{Id: "ext-1"}.Build()),
+	}.Build()
+	plainGrant := v2.Grant_builder{
+		Id:          "grant-plain",
+		Entitlement: ent1,
+		Principal:   g1,
+	}.Build()
+	require.NoError(t, c1f.PutGrants(ctx, matchGrant, plainGrant))
+
+	// Flip the kill-switch for the duration of this test.
+	orig := externalMatchFilterDisabled
+	externalMatchFilterDisabled = true
+	defer func() { externalMatchFilterDisabled = orig }()
+
+	resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+		Mode:              connectorstore.GrantListModePayloadWithExpansion,
+		ExternalMatchOnly: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Rows, 2, "kill-switch must bypass the ExternalMatchOnly predicate")
 }

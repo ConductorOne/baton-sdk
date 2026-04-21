@@ -2199,8 +2199,14 @@ func (s *syncer) listAllGrantsWithExpansion(ctx context.Context) iter.Seq2[[]*co
 		pageToken := ""
 		for {
 			internalList, err := s.store.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-				Mode:      connectorstore.GrantListModePayloadWithExpansion,
-				PageToken: pageToken,
+				Mode: connectorstore.GrantListModePayloadWithExpansion,
+				// Only iterate grants carrying an ExternalResourceMatch annotation —
+				// the sole consumer here (processGrantsWithExternalPrincipals) does an
+				// equivalent annotation check per-row and continues on mismatch.
+				// Filtering at SQL avoids the per-row columnBlob + proto.Unmarshal on
+				// rows that would be skipped anyway.
+				ExternalMatchOnly: true,
+				PageToken:         pageToken,
 			})
 			if err != nil {
 				_ = yield(nil, err)
