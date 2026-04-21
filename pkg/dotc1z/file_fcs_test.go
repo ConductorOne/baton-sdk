@@ -43,4 +43,3 @@ func TestSaveC1z_SetsFrameContentSize(t *testing.T) {
 	require.Equal(t, uint64(dbSize), header.FrameContentSize,
 		"FCS in header must equal the decompressed db size")
 }
-
