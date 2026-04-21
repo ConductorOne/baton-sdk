@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 
+	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/field"
 	"github.com/conductorone/baton-sdk/pkg/types"
@@ -16,13 +17,82 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"golang.org/x/oauth2"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
+type ConnectorConfigSnapshot struct {
+	Config        *structpb.Struct
+	RuntimeState  *v1.RuntimeState
+	RuntimeBundle []byte
+}
+
 type RunTimeOpts struct {
-	SessionStore        sessions.SessionStore
-	TokenSource         oauth2.TokenSource
-	SelectedAuthMethod  string
-	SyncResourceTypeIDs []string
+	SessionStore          sessions.SessionStore
+	TokenSource           oauth2.TokenSource
+	SelectedAuthMethod    string
+	SyncResourceTypeIDs   []string
+	RuntimeState          *v1.RuntimeState
+	RuntimeBundle         []byte
+	BootstrapConfig       map[string]any
+	ConnectorConfigClient v1.ConnectorConfigServiceClient
+	ReloadConnectorConfig func(context.Context) (*ConnectorConfigSnapshot, error)
+}
+
+func CloneConfigSettings(v *viper.Viper) map[string]any {
+	if v == nil {
+		return map[string]any{}
+	}
+	return cloneSettingsMap(v.AllSettings())
+}
+
+func HydrateConnectorConfig(base map[string]any, snapshot *ConnectorConfigSnapshot) *viper.Viper {
+	cfg := viper.New()
+	for key, value := range cloneSettingsMap(base) {
+		cfg.Set(key, value)
+	}
+	if snapshot == nil || snapshot.Config == nil {
+		return cfg
+	}
+	for key, value := range snapshot.Config.AsMap() {
+		cfg.Set(key, value)
+	}
+	return cfg
+}
+
+func cloneSettingsMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		out[key] = cloneSettingsValue(value)
+	}
+	return out
+}
+
+func cloneSettingsValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return cloneSettingsMap(typed)
+	case map[any]any:
+		out := make(map[string]any, len(typed))
+		for key, nested := range typed {
+			out[fmt.Sprint(key)] = cloneSettingsValue(nested)
+		}
+		return out
+	case []any:
+		out := make([]any, len(typed))
+		for i, nested := range typed {
+			out[i] = cloneSettingsValue(nested)
+		}
+		return out
+	case []string:
+		out := make([]string, len(typed))
+		copy(out, typed)
+		return out
+	default:
+		return typed
+	}
 }
 
 // GetConnectorFunc is a function type that creates a connector instance.

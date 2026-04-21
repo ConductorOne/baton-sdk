@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,7 +12,47 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
 )
+
+type testLambdaConfig struct {
+	ConfigPath string   `mapstructure:"config-path"`
+	Name       string   `mapstructure:"name"`
+	Tags       []string `mapstructure:"tags"`
+	Payload    []byte   `mapstructure:"payload"`
+}
+
+func (c *testLambdaConfig) GetString(key string) string {
+	switch key {
+	case "config-path":
+		return c.ConfigPath
+	case "name":
+		return c.Name
+	default:
+		return ""
+	}
+}
+
+func (c *testLambdaConfig) GetBool(key string) bool {
+	return false
+}
+
+func (c *testLambdaConfig) GetInt(key string) int {
+	return 0
+}
+
+func (c *testLambdaConfig) GetStringSlice(key string) []string {
+	switch key {
+	case "tags":
+		return append([]string(nil), c.Tags...)
+	default:
+		return nil
+	}
+}
+
+func (c *testLambdaConfig) GetStringMap(key string) map[string]any {
+	return nil
+}
 
 // setupCommand creates a cobra command with registered flags from the given schema,
 // then calls VisitFlags to transfer viper values into pflag.
@@ -167,6 +208,59 @@ func TestVisitFlags_StringToString_YAMLMap(t *testing.T) {
 	got, err := cmd.Flags().GetStringToString("labels")
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"env": "prod", "team": "platform"}, got)
+}
+
+func TestHydrateConnectorConfig_ViperConfigPreservesBootstrapFields(t *testing.T) {
+	base := viper.New()
+	base.Set("config-path", "/tmp/runtime/config.yaml")
+	base.Set("bootstrap-js-path", "/tmp/runtime/bootstrap.js")
+	base.Set("connector-js-path", "/tmp/runtime/connector.js")
+	base.Set("jira-url", "https://old.example.com")
+
+	snapshotConfig, err := structpb.NewStruct(map[string]any{
+		"jira-url":       "https://new.example.com",
+		"jira-api-token": "secret",
+	})
+	require.NoError(t, err)
+
+	effective := HydrateConnectorConfig(CloneConfigSettings(base), &ConnectorConfigSnapshot{
+		Config: snapshotConfig,
+	})
+
+	require.Equal(t, "/tmp/runtime/config.yaml", effective.GetString("config-path"))
+	require.Equal(t, "/tmp/runtime/bootstrap.js", effective.GetString("bootstrap-js-path"))
+	require.Equal(t, "/tmp/runtime/connector.js", effective.GetString("connector-js-path"))
+	require.Equal(t, "https://new.example.com", effective.GetString("jira-url"))
+	require.Equal(t, "secret", effective.GetString("jira-api-token"))
+}
+
+func TestHydrateConnectorConfig_TypedConfigRetainsBootstrapAndDecodeHooks(t *testing.T) {
+	base := viper.New()
+	base.Set("config-path", "/tmp/runtime/config.yaml")
+	base.Set("name", "bootstrap-name")
+
+	payload := []byte(`{"hello":"world"}`)
+	snapshotConfig, err := structpb.NewStruct(map[string]any{
+		"name":    "c1-name",
+		"tags":    "alpha,beta",
+		"payload": base64.StdEncoding.EncodeToString(payload),
+	})
+	require.NoError(t, err)
+
+	effective := HydrateConnectorConfig(CloneConfigSettings(base), &ConnectorConfigSnapshot{
+		Config: snapshotConfig,
+	})
+
+	cfg, err := MakeGenericConfiguration[*testLambdaConfig](
+		effective,
+		field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(false)),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.Equal(t, "/tmp/runtime/config.yaml", cfg.ConfigPath)
+	require.Equal(t, "c1-name", cfg.Name)
+	require.Equal(t, []string{"alpha", "beta"}, cfg.Tags)
+	require.Equal(t, payload, cfg.Payload)
 }
 
 func TestVisitFlags_StringToString_SingleEntry(t *testing.T) {

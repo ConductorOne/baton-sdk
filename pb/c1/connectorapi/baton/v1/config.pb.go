@@ -66,17 +66,159 @@ func (b0 GetConnectorConfigRequest_builder) Build() *GetConnectorConfigRequest {
 	return m0
 }
 
+type RuntimeState struct {
+	state                       protoimpl.MessageState `protogen:"hybrid.v1"`
+	RuntimeRevisionId           string                 `protobuf:"bytes,1,opt,name=runtime_revision_id,json=runtimeRevisionId,proto3" json:"runtime_revision_id,omitempty"`
+	RuntimeGeneration           int64                  `protobuf:"varint,2,opt,name=runtime_generation,json=runtimeGeneration,proto3" json:"runtime_generation,omitempty"`
+	ReleaseRevisionId           string                 `protobuf:"bytes,3,opt,name=release_revision_id,json=releaseRevisionId,proto3" json:"release_revision_id,omitempty"`
+	EffectiveBundleDigest       string                 `protobuf:"bytes,4,opt,name=effective_bundle_digest,json=effectiveBundleDigest,proto3" json:"effective_bundle_digest,omitempty"`
+	InstanceConfigRevisionId    string                 `protobuf:"bytes,5,opt,name=instance_config_revision_id,json=instanceConfigRevisionId,proto3" json:"instance_config_revision_id,omitempty"`
+	InstanceConfigDigest        string                 `protobuf:"bytes,6,opt,name=instance_config_digest,json=instanceConfigDigest,proto3" json:"instance_config_digest,omitempty"`
+	RuntimeConfigContractDigest string                 `protobuf:"bytes,7,opt,name=runtime_config_contract_digest,json=runtimeConfigContractDigest,proto3" json:"runtime_config_contract_digest,omitempty"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
+}
+
+func (x *RuntimeState) Reset() {
+	*x = RuntimeState{}
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RuntimeState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RuntimeState) ProtoMessage() {}
+
+func (x *RuntimeState) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *RuntimeState) GetRuntimeRevisionId() string {
+	if x != nil {
+		return x.RuntimeRevisionId
+	}
+	return ""
+}
+
+func (x *RuntimeState) GetRuntimeGeneration() int64 {
+	if x != nil {
+		return x.RuntimeGeneration
+	}
+	return 0
+}
+
+func (x *RuntimeState) GetReleaseRevisionId() string {
+	if x != nil {
+		return x.ReleaseRevisionId
+	}
+	return ""
+}
+
+func (x *RuntimeState) GetEffectiveBundleDigest() string {
+	if x != nil {
+		return x.EffectiveBundleDigest
+	}
+	return ""
+}
+
+func (x *RuntimeState) GetInstanceConfigRevisionId() string {
+	if x != nil {
+		return x.InstanceConfigRevisionId
+	}
+	return ""
+}
+
+func (x *RuntimeState) GetInstanceConfigDigest() string {
+	if x != nil {
+		return x.InstanceConfigDigest
+	}
+	return ""
+}
+
+func (x *RuntimeState) GetRuntimeConfigContractDigest() string {
+	if x != nil {
+		return x.RuntimeConfigContractDigest
+	}
+	return ""
+}
+
+func (x *RuntimeState) SetRuntimeRevisionId(v string) {
+	x.RuntimeRevisionId = v
+}
+
+func (x *RuntimeState) SetRuntimeGeneration(v int64) {
+	x.RuntimeGeneration = v
+}
+
+func (x *RuntimeState) SetReleaseRevisionId(v string) {
+	x.ReleaseRevisionId = v
+}
+
+func (x *RuntimeState) SetEffectiveBundleDigest(v string) {
+	x.EffectiveBundleDigest = v
+}
+
+func (x *RuntimeState) SetInstanceConfigRevisionId(v string) {
+	x.InstanceConfigRevisionId = v
+}
+
+func (x *RuntimeState) SetInstanceConfigDigest(v string) {
+	x.InstanceConfigDigest = v
+}
+
+func (x *RuntimeState) SetRuntimeConfigContractDigest(v string) {
+	x.RuntimeConfigContractDigest = v
+}
+
+type RuntimeState_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	RuntimeRevisionId           string
+	RuntimeGeneration           int64
+	ReleaseRevisionId           string
+	EffectiveBundleDigest       string
+	InstanceConfigRevisionId    string
+	InstanceConfigDigest        string
+	RuntimeConfigContractDigest string
+}
+
+func (b0 RuntimeState_builder) Build() *RuntimeState {
+	m0 := &RuntimeState{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.RuntimeRevisionId = b.RuntimeRevisionId
+	x.RuntimeGeneration = b.RuntimeGeneration
+	x.ReleaseRevisionId = b.ReleaseRevisionId
+	x.EffectiveBundleDigest = b.EffectiveBundleDigest
+	x.InstanceConfigRevisionId = b.InstanceConfigRevisionId
+	x.InstanceConfigDigest = b.InstanceConfigDigest
+	x.RuntimeConfigContractDigest = b.RuntimeConfigContractDigest
+	return m0
+}
+
 type GetConnectorConfigResponse struct {
 	state         protoimpl.MessageState `protogen:"hybrid.v1"`
 	Config        []byte                 `protobuf:"bytes,1,opt,name=config,proto3" json:"config,omitempty"`
 	LastUpdated   *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=last_updated,json=lastUpdated,proto3" json:"last_updated,omitempty"`
+	RuntimeState  *RuntimeState          `protobuf:"bytes,3,opt,name=runtime_state,json=runtimeState,proto3" json:"runtime_state,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetConnectorConfigResponse) Reset() {
 	*x = GetConnectorConfigResponse{}
-	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[1]
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -88,7 +230,7 @@ func (x *GetConnectorConfigResponse) String() string {
 func (*GetConnectorConfigResponse) ProtoMessage() {}
 
 func (x *GetConnectorConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[1]
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -113,6 +255,13 @@ func (x *GetConnectorConfigResponse) GetLastUpdated() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *GetConnectorConfigResponse) GetRuntimeState() *RuntimeState {
+	if x != nil {
+		return x.RuntimeState
+	}
+	return nil
+}
+
 func (x *GetConnectorConfigResponse) SetConfig(v []byte) {
 	if v == nil {
 		v = []byte{}
@@ -124,6 +273,10 @@ func (x *GetConnectorConfigResponse) SetLastUpdated(v *timestamppb.Timestamp) {
 	x.LastUpdated = v
 }
 
+func (x *GetConnectorConfigResponse) SetRuntimeState(v *RuntimeState) {
+	x.RuntimeState = v
+}
+
 func (x *GetConnectorConfigResponse) HasLastUpdated() bool {
 	if x == nil {
 		return false
@@ -131,15 +284,27 @@ func (x *GetConnectorConfigResponse) HasLastUpdated() bool {
 	return x.LastUpdated != nil
 }
 
+func (x *GetConnectorConfigResponse) HasRuntimeState() bool {
+	if x == nil {
+		return false
+	}
+	return x.RuntimeState != nil
+}
+
 func (x *GetConnectorConfigResponse) ClearLastUpdated() {
 	x.LastUpdated = nil
+}
+
+func (x *GetConnectorConfigResponse) ClearRuntimeState() {
+	x.RuntimeState = nil
 }
 
 type GetConnectorConfigResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Config      []byte
-	LastUpdated *timestamppb.Timestamp
+	Config       []byte
+	LastUpdated  *timestamppb.Timestamp
+	RuntimeState *RuntimeState
 }
 
 func (b0 GetConnectorConfigResponse_builder) Build() *GetConnectorConfigResponse {
@@ -148,6 +313,246 @@ func (b0 GetConnectorConfigResponse_builder) Build() *GetConnectorConfigResponse
 	_, _ = b, x
 	x.Config = b.Config
 	x.LastUpdated = b.LastUpdated
+	x.RuntimeState = b.RuntimeState
+	return m0
+}
+
+type GetConnectorRuntimeStateRequest struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConnectorRuntimeStateRequest) Reset() {
+	*x = GetConnectorRuntimeStateRequest{}
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConnectorRuntimeStateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConnectorRuntimeStateRequest) ProtoMessage() {}
+
+func (x *GetConnectorRuntimeStateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type GetConnectorRuntimeStateRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 GetConnectorRuntimeStateRequest_builder) Build() *GetConnectorRuntimeStateRequest {
+	m0 := &GetConnectorRuntimeStateRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+type GetConnectorRuntimeStateResponse struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	LastUpdated   *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=last_updated,json=lastUpdated,proto3" json:"last_updated,omitempty"`
+	RuntimeState  *RuntimeState          `protobuf:"bytes,2,opt,name=runtime_state,json=runtimeState,proto3" json:"runtime_state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConnectorRuntimeStateResponse) Reset() {
+	*x = GetConnectorRuntimeStateResponse{}
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConnectorRuntimeStateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConnectorRuntimeStateResponse) ProtoMessage() {}
+
+func (x *GetConnectorRuntimeStateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GetConnectorRuntimeStateResponse) GetLastUpdated() *timestamppb.Timestamp {
+	if x != nil {
+		return x.LastUpdated
+	}
+	return nil
+}
+
+func (x *GetConnectorRuntimeStateResponse) GetRuntimeState() *RuntimeState {
+	if x != nil {
+		return x.RuntimeState
+	}
+	return nil
+}
+
+func (x *GetConnectorRuntimeStateResponse) SetLastUpdated(v *timestamppb.Timestamp) {
+	x.LastUpdated = v
+}
+
+func (x *GetConnectorRuntimeStateResponse) SetRuntimeState(v *RuntimeState) {
+	x.RuntimeState = v
+}
+
+func (x *GetConnectorRuntimeStateResponse) HasLastUpdated() bool {
+	if x == nil {
+		return false
+	}
+	return x.LastUpdated != nil
+}
+
+func (x *GetConnectorRuntimeStateResponse) HasRuntimeState() bool {
+	if x == nil {
+		return false
+	}
+	return x.RuntimeState != nil
+}
+
+func (x *GetConnectorRuntimeStateResponse) ClearLastUpdated() {
+	x.LastUpdated = nil
+}
+
+func (x *GetConnectorRuntimeStateResponse) ClearRuntimeState() {
+	x.RuntimeState = nil
+}
+
+type GetConnectorRuntimeStateResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	LastUpdated  *timestamppb.Timestamp
+	RuntimeState *RuntimeState
+}
+
+func (b0 GetConnectorRuntimeStateResponse_builder) Build() *GetConnectorRuntimeStateResponse {
+	m0 := &GetConnectorRuntimeStateResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.LastUpdated = b.LastUpdated
+	x.RuntimeState = b.RuntimeState
+	return m0
+}
+
+type GetConnectorRuntimeBundleRequest struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConnectorRuntimeBundleRequest) Reset() {
+	*x = GetConnectorRuntimeBundleRequest{}
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConnectorRuntimeBundleRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConnectorRuntimeBundleRequest) ProtoMessage() {}
+
+func (x *GetConnectorRuntimeBundleRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type GetConnectorRuntimeBundleRequest_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 GetConnectorRuntimeBundleRequest_builder) Build() *GetConnectorRuntimeBundleRequest {
+	m0 := &GetConnectorRuntimeBundleRequest{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+type GetConnectorRuntimeBundleResponse struct {
+	state         protoimpl.MessageState `protogen:"hybrid.v1"`
+	Bundle        []byte                 `protobuf:"bytes,1,opt,name=bundle,proto3" json:"bundle,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetConnectorRuntimeBundleResponse) Reset() {
+	*x = GetConnectorRuntimeBundleResponse{}
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetConnectorRuntimeBundleResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetConnectorRuntimeBundleResponse) ProtoMessage() {}
+
+func (x *GetConnectorRuntimeBundleResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GetConnectorRuntimeBundleResponse) GetBundle() []byte {
+	if x != nil {
+		return x.Bundle
+	}
+	return nil
+}
+
+func (x *GetConnectorRuntimeBundleResponse) SetBundle(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.Bundle = v
+}
+
+type GetConnectorRuntimeBundleResponse_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Bundle []byte
+}
+
+func (b0 GetConnectorRuntimeBundleResponse_builder) Build() *GetConnectorRuntimeBundleResponse {
+	m0 := &GetConnectorRuntimeBundleResponse{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.Bundle = b.Bundle
 	return m0
 }
 
@@ -161,7 +566,7 @@ type SignedHeader struct {
 
 func (x *SignedHeader) Reset() {
 	*x = SignedHeader{}
-	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[2]
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -173,7 +578,7 @@ func (x *SignedHeader) String() string {
 func (*SignedHeader) ProtoMessage() {}
 
 func (x *SignedHeader) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[2]
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -234,7 +639,7 @@ type Sigv4SignedRequestSTSGetCallerIdentity struct {
 
 func (x *Sigv4SignedRequestSTSGetCallerIdentity) Reset() {
 	*x = Sigv4SignedRequestSTSGetCallerIdentity{}
-	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[3]
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -246,7 +651,7 @@ func (x *Sigv4SignedRequestSTSGetCallerIdentity) String() string {
 func (*Sigv4SignedRequestSTSGetCallerIdentity) ProtoMessage() {}
 
 func (x *Sigv4SignedRequestSTSGetCallerIdentity) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[3]
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -332,7 +737,7 @@ type GetConnectorOauthTokenRequest struct {
 
 func (x *GetConnectorOauthTokenRequest) Reset() {
 	*x = GetConnectorOauthTokenRequest{}
-	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[4]
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -344,7 +749,7 @@ func (x *GetConnectorOauthTokenRequest) String() string {
 func (*GetConnectorOauthTokenRequest) ProtoMessage() {}
 
 func (x *GetConnectorOauthTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[4]
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -376,7 +781,7 @@ type GetConnectorOauthTokenResponse struct {
 
 func (x *GetConnectorOauthTokenResponse) Reset() {
 	*x = GetConnectorOauthTokenResponse{}
-	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[5]
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -388,7 +793,7 @@ func (x *GetConnectorOauthTokenResponse) String() string {
 func (*GetConnectorOauthTokenResponse) ProtoMessage() {}
 
 func (x *GetConnectorOauthTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[5]
+	mi := &file_c1_connectorapi_baton_v1_config_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -432,10 +837,26 @@ var File_c1_connectorapi_baton_v1_config_proto protoreflect.FileDescriptor
 const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
 	"\n" +
 	"%c1/connectorapi/baton/v1/config.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x1b\n" +
-	"\x19GetConnectorConfigRequest\"s\n" +
+	"\x19GetConnectorConfigRequest\"\x8f\x03\n" +
+	"\fRuntimeState\x12.\n" +
+	"\x13runtime_revision_id\x18\x01 \x01(\tR\x11runtimeRevisionId\x12-\n" +
+	"\x12runtime_generation\x18\x02 \x01(\x03R\x11runtimeGeneration\x12.\n" +
+	"\x13release_revision_id\x18\x03 \x01(\tR\x11releaseRevisionId\x126\n" +
+	"\x17effective_bundle_digest\x18\x04 \x01(\tR\x15effectiveBundleDigest\x12=\n" +
+	"\x1binstance_config_revision_id\x18\x05 \x01(\tR\x18instanceConfigRevisionId\x124\n" +
+	"\x16instance_config_digest\x18\x06 \x01(\tR\x14instanceConfigDigest\x12C\n" +
+	"\x1eruntime_config_contract_digest\x18\a \x01(\tR\x1bruntimeConfigContractDigest\"\xc0\x01\n" +
 	"\x1aGetConnectorConfigResponse\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12=\n" +
-	"\flast_updated\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\"6\n" +
+	"\flast_updated\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\x12K\n" +
+	"\rruntime_state\x18\x03 \x01(\v2&.c1.connectorapi.baton.v1.RuntimeStateR\fruntimeState\"!\n" +
+	"\x1fGetConnectorRuntimeStateRequest\"\xae\x01\n" +
+	" GetConnectorRuntimeStateResponse\x12=\n" +
+	"\flast_updated\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\x12K\n" +
+	"\rruntime_state\x18\x02 \x01(\v2&.c1.connectorapi.baton.v1.RuntimeStateR\fruntimeState\"\"\n" +
+	" GetConnectorRuntimeBundleRequest\";\n" +
+	"!GetConnectorRuntimeBundleResponse\x12\x16\n" +
+	"\x06bundle\x18\x01 \x01(\fR\x06bundle\"6\n" +
 	"\fSignedHeader\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x03(\tR\x05value\"\xb2\x01\n" +
@@ -446,33 +867,47 @@ const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
 	"\x04body\x18\x04 \x01(\fR\x04body\"\x1f\n" +
 	"\x1dGetConnectorOauthTokenRequest\"6\n" +
 	"\x1eGetConnectorOauthTokenResponse\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\fR\x05token2\xa7\x02\n" +
+	"\x05token\x18\x01 \x01(\fR\x05token2\xd2\x04\n" +
 	"\x16ConnectorConfigService\x12\x7f\n" +
-	"\x12GetConnectorConfig\x123.c1.connectorapi.baton.v1.GetConnectorConfigRequest\x1a4.c1.connectorapi.baton.v1.GetConnectorConfigResponse\x12\x8b\x01\n" +
+	"\x12GetConnectorConfig\x123.c1.connectorapi.baton.v1.GetConnectorConfigRequest\x1a4.c1.connectorapi.baton.v1.GetConnectorConfigResponse\x12\x91\x01\n" +
+	"\x18GetConnectorRuntimeState\x129.c1.connectorapi.baton.v1.GetConnectorRuntimeStateRequest\x1a:.c1.connectorapi.baton.v1.GetConnectorRuntimeStateResponse\x12\x94\x01\n" +
+	"\x19GetConnectorRuntimeBundle\x12:.c1.connectorapi.baton.v1.GetConnectorRuntimeBundleRequest\x1a;.c1.connectorapi.baton.v1.GetConnectorRuntimeBundleResponse\x12\x8b\x01\n" +
 	"\x16GetConnectorOauthToken\x127.c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest\x1a8.c1.connectorapi.baton.v1.GetConnectorOauthTokenResponseB7Z5gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1b\x06proto3"
 
-var file_c1_connectorapi_baton_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_c1_connectorapi_baton_v1_config_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_c1_connectorapi_baton_v1_config_proto_goTypes = []any{
 	(*GetConnectorConfigRequest)(nil),              // 0: c1.connectorapi.baton.v1.GetConnectorConfigRequest
-	(*GetConnectorConfigResponse)(nil),             // 1: c1.connectorapi.baton.v1.GetConnectorConfigResponse
-	(*SignedHeader)(nil),                           // 2: c1.connectorapi.baton.v1.SignedHeader
-	(*Sigv4SignedRequestSTSGetCallerIdentity)(nil), // 3: c1.connectorapi.baton.v1.Sigv4SignedRequestSTSGetCallerIdentity
-	(*GetConnectorOauthTokenRequest)(nil),          // 4: c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest
-	(*GetConnectorOauthTokenResponse)(nil),         // 5: c1.connectorapi.baton.v1.GetConnectorOauthTokenResponse
-	(*timestamppb.Timestamp)(nil),                  // 6: google.protobuf.Timestamp
+	(*RuntimeState)(nil),                           // 1: c1.connectorapi.baton.v1.RuntimeState
+	(*GetConnectorConfigResponse)(nil),             // 2: c1.connectorapi.baton.v1.GetConnectorConfigResponse
+	(*GetConnectorRuntimeStateRequest)(nil),        // 3: c1.connectorapi.baton.v1.GetConnectorRuntimeStateRequest
+	(*GetConnectorRuntimeStateResponse)(nil),       // 4: c1.connectorapi.baton.v1.GetConnectorRuntimeStateResponse
+	(*GetConnectorRuntimeBundleRequest)(nil),       // 5: c1.connectorapi.baton.v1.GetConnectorRuntimeBundleRequest
+	(*GetConnectorRuntimeBundleResponse)(nil),      // 6: c1.connectorapi.baton.v1.GetConnectorRuntimeBundleResponse
+	(*SignedHeader)(nil),                           // 7: c1.connectorapi.baton.v1.SignedHeader
+	(*Sigv4SignedRequestSTSGetCallerIdentity)(nil), // 8: c1.connectorapi.baton.v1.Sigv4SignedRequestSTSGetCallerIdentity
+	(*GetConnectorOauthTokenRequest)(nil),          // 9: c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest
+	(*GetConnectorOauthTokenResponse)(nil),         // 10: c1.connectorapi.baton.v1.GetConnectorOauthTokenResponse
+	(*timestamppb.Timestamp)(nil),                  // 11: google.protobuf.Timestamp
 }
 var file_c1_connectorapi_baton_v1_config_proto_depIdxs = []int32{
-	6, // 0: c1.connectorapi.baton.v1.GetConnectorConfigResponse.last_updated:type_name -> google.protobuf.Timestamp
-	2, // 1: c1.connectorapi.baton.v1.Sigv4SignedRequestSTSGetCallerIdentity.headers:type_name -> c1.connectorapi.baton.v1.SignedHeader
-	0, // 2: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:input_type -> c1.connectorapi.baton.v1.GetConnectorConfigRequest
-	4, // 3: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorOauthToken:input_type -> c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest
-	1, // 4: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:output_type -> c1.connectorapi.baton.v1.GetConnectorConfigResponse
-	5, // 5: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorOauthToken:output_type -> c1.connectorapi.baton.v1.GetConnectorOauthTokenResponse
-	4, // [4:6] is the sub-list for method output_type
-	2, // [2:4] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	11, // 0: c1.connectorapi.baton.v1.GetConnectorConfigResponse.last_updated:type_name -> google.protobuf.Timestamp
+	1,  // 1: c1.connectorapi.baton.v1.GetConnectorConfigResponse.runtime_state:type_name -> c1.connectorapi.baton.v1.RuntimeState
+	11, // 2: c1.connectorapi.baton.v1.GetConnectorRuntimeStateResponse.last_updated:type_name -> google.protobuf.Timestamp
+	1,  // 3: c1.connectorapi.baton.v1.GetConnectorRuntimeStateResponse.runtime_state:type_name -> c1.connectorapi.baton.v1.RuntimeState
+	7,  // 4: c1.connectorapi.baton.v1.Sigv4SignedRequestSTSGetCallerIdentity.headers:type_name -> c1.connectorapi.baton.v1.SignedHeader
+	0,  // 5: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:input_type -> c1.connectorapi.baton.v1.GetConnectorConfigRequest
+	3,  // 6: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorRuntimeState:input_type -> c1.connectorapi.baton.v1.GetConnectorRuntimeStateRequest
+	5,  // 7: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorRuntimeBundle:input_type -> c1.connectorapi.baton.v1.GetConnectorRuntimeBundleRequest
+	9,  // 8: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorOauthToken:input_type -> c1.connectorapi.baton.v1.GetConnectorOauthTokenRequest
+	2,  // 9: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorConfig:output_type -> c1.connectorapi.baton.v1.GetConnectorConfigResponse
+	4,  // 10: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorRuntimeState:output_type -> c1.connectorapi.baton.v1.GetConnectorRuntimeStateResponse
+	6,  // 11: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorRuntimeBundle:output_type -> c1.connectorapi.baton.v1.GetConnectorRuntimeBundleResponse
+	10, // 12: c1.connectorapi.baton.v1.ConnectorConfigService.GetConnectorOauthToken:output_type -> c1.connectorapi.baton.v1.GetConnectorOauthTokenResponse
+	9,  // [9:13] is the sub-list for method output_type
+	5,  // [5:9] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_c1_connectorapi_baton_v1_config_proto_init() }
@@ -486,7 +921,7 @@ func file_c1_connectorapi_baton_v1_config_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_c1_connectorapi_baton_v1_config_proto_rawDesc), len(file_c1_connectorapi_baton_v1_config_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   11,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

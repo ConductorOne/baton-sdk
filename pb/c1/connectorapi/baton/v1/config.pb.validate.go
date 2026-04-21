@@ -137,6 +137,119 @@ var _ interface {
 	ErrorName() string
 } = GetConnectorConfigRequestValidationError{}
 
+// Validate checks the field values on RuntimeState with the rules defined in
+// the proto definition for this message. If any rules are violated, the first
+// error encountered is returned, or nil if there are no violations.
+func (m *RuntimeState) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on RuntimeState with the rules defined
+// in the proto definition for this message. If any rules are violated, the
+// result is a list of violation errors wrapped in RuntimeStateMultiError, or
+// nil if none found.
+func (m *RuntimeState) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *RuntimeState) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for RuntimeRevisionId
+
+	// no validation rules for RuntimeGeneration
+
+	// no validation rules for ReleaseRevisionId
+
+	// no validation rules for EffectiveBundleDigest
+
+	// no validation rules for InstanceConfigRevisionId
+
+	// no validation rules for InstanceConfigDigest
+
+	// no validation rules for RuntimeConfigContractDigest
+
+	if len(errors) > 0 {
+		return RuntimeStateMultiError(errors)
+	}
+
+	return nil
+}
+
+// RuntimeStateMultiError is an error wrapping multiple validation errors
+// returned by RuntimeState.ValidateAll() if the designated constraints aren't met.
+type RuntimeStateMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m RuntimeStateMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m RuntimeStateMultiError) AllErrors() []error { return m }
+
+// RuntimeStateValidationError is the validation error returned by
+// RuntimeState.Validate if the designated constraints aren't met.
+type RuntimeStateValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e RuntimeStateValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e RuntimeStateValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e RuntimeStateValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e RuntimeStateValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e RuntimeStateValidationError) ErrorName() string { return "RuntimeStateValidationError" }
+
+// Error satisfies the builtin error interface
+func (e RuntimeStateValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sRuntimeState.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = RuntimeStateValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = RuntimeStateValidationError{}
+
 // Validate checks the field values on GetConnectorConfigResponse with the
 // rules defined in the proto definition for this message. If any rules are
 // violated, the first error encountered is returned, or nil if there are no violations.
@@ -184,6 +297,35 @@ func (m *GetConnectorConfigResponse) validate(all bool) error {
 		if err := v.Validate(); err != nil {
 			return GetConnectorConfigResponseValidationError{
 				field:  "LastUpdated",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetRuntimeState()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, GetConnectorConfigResponseValidationError{
+					field:  "RuntimeState",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, GetConnectorConfigResponseValidationError{
+					field:  "RuntimeState",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetRuntimeState()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return GetConnectorConfigResponseValidationError{
+				field:  "RuntimeState",
 				reason: "embedded message failed validation",
 				cause:  err,
 			}
@@ -269,6 +411,484 @@ var _ interface {
 	Cause() error
 	ErrorName() string
 } = GetConnectorConfigResponseValidationError{}
+
+// Validate checks the field values on GetConnectorRuntimeStateRequest with the
+// rules defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *GetConnectorRuntimeStateRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetConnectorRuntimeStateRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// GetConnectorRuntimeStateRequestMultiError, or nil if none found.
+func (m *GetConnectorRuntimeStateRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetConnectorRuntimeStateRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return GetConnectorRuntimeStateRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetConnectorRuntimeStateRequestMultiError is an error wrapping multiple
+// validation errors returned by GetConnectorRuntimeStateRequest.ValidateAll()
+// if the designated constraints aren't met.
+type GetConnectorRuntimeStateRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetConnectorRuntimeStateRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetConnectorRuntimeStateRequestMultiError) AllErrors() []error { return m }
+
+// GetConnectorRuntimeStateRequestValidationError is the validation error
+// returned by GetConnectorRuntimeStateRequest.Validate if the designated
+// constraints aren't met.
+type GetConnectorRuntimeStateRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetConnectorRuntimeStateRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetConnectorRuntimeStateRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetConnectorRuntimeStateRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetConnectorRuntimeStateRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetConnectorRuntimeStateRequestValidationError) ErrorName() string {
+	return "GetConnectorRuntimeStateRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetConnectorRuntimeStateRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetConnectorRuntimeStateRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetConnectorRuntimeStateRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetConnectorRuntimeStateRequestValidationError{}
+
+// Validate checks the field values on GetConnectorRuntimeStateResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *GetConnectorRuntimeStateResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetConnectorRuntimeStateResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// GetConnectorRuntimeStateResponseMultiError, or nil if none found.
+func (m *GetConnectorRuntimeStateResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetConnectorRuntimeStateResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetLastUpdated()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, GetConnectorRuntimeStateResponseValidationError{
+					field:  "LastUpdated",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, GetConnectorRuntimeStateResponseValidationError{
+					field:  "LastUpdated",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetLastUpdated()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return GetConnectorRuntimeStateResponseValidationError{
+				field:  "LastUpdated",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if all {
+		switch v := interface{}(m.GetRuntimeState()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, GetConnectorRuntimeStateResponseValidationError{
+					field:  "RuntimeState",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, GetConnectorRuntimeStateResponseValidationError{
+					field:  "RuntimeState",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetRuntimeState()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return GetConnectorRuntimeStateResponseValidationError{
+				field:  "RuntimeState",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return GetConnectorRuntimeStateResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetConnectorRuntimeStateResponseMultiError is an error wrapping multiple
+// validation errors returned by
+// GetConnectorRuntimeStateResponse.ValidateAll() if the designated
+// constraints aren't met.
+type GetConnectorRuntimeStateResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetConnectorRuntimeStateResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetConnectorRuntimeStateResponseMultiError) AllErrors() []error { return m }
+
+// GetConnectorRuntimeStateResponseValidationError is the validation error
+// returned by GetConnectorRuntimeStateResponse.Validate if the designated
+// constraints aren't met.
+type GetConnectorRuntimeStateResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetConnectorRuntimeStateResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetConnectorRuntimeStateResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetConnectorRuntimeStateResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetConnectorRuntimeStateResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetConnectorRuntimeStateResponseValidationError) ErrorName() string {
+	return "GetConnectorRuntimeStateResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetConnectorRuntimeStateResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetConnectorRuntimeStateResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetConnectorRuntimeStateResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetConnectorRuntimeStateResponseValidationError{}
+
+// Validate checks the field values on GetConnectorRuntimeBundleRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *GetConnectorRuntimeBundleRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetConnectorRuntimeBundleRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// GetConnectorRuntimeBundleRequestMultiError, or nil if none found.
+func (m *GetConnectorRuntimeBundleRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetConnectorRuntimeBundleRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return GetConnectorRuntimeBundleRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetConnectorRuntimeBundleRequestMultiError is an error wrapping multiple
+// validation errors returned by
+// GetConnectorRuntimeBundleRequest.ValidateAll() if the designated
+// constraints aren't met.
+type GetConnectorRuntimeBundleRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetConnectorRuntimeBundleRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetConnectorRuntimeBundleRequestMultiError) AllErrors() []error { return m }
+
+// GetConnectorRuntimeBundleRequestValidationError is the validation error
+// returned by GetConnectorRuntimeBundleRequest.Validate if the designated
+// constraints aren't met.
+type GetConnectorRuntimeBundleRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetConnectorRuntimeBundleRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetConnectorRuntimeBundleRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetConnectorRuntimeBundleRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetConnectorRuntimeBundleRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetConnectorRuntimeBundleRequestValidationError) ErrorName() string {
+	return "GetConnectorRuntimeBundleRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetConnectorRuntimeBundleRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetConnectorRuntimeBundleRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetConnectorRuntimeBundleRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetConnectorRuntimeBundleRequestValidationError{}
+
+// Validate checks the field values on GetConnectorRuntimeBundleResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *GetConnectorRuntimeBundleResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetConnectorRuntimeBundleResponse
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// GetConnectorRuntimeBundleResponseMultiError, or nil if none found.
+func (m *GetConnectorRuntimeBundleResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetConnectorRuntimeBundleResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Bundle
+
+	if len(errors) > 0 {
+		return GetConnectorRuntimeBundleResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetConnectorRuntimeBundleResponseMultiError is an error wrapping multiple
+// validation errors returned by
+// GetConnectorRuntimeBundleResponse.ValidateAll() if the designated
+// constraints aren't met.
+type GetConnectorRuntimeBundleResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetConnectorRuntimeBundleResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetConnectorRuntimeBundleResponseMultiError) AllErrors() []error { return m }
+
+// GetConnectorRuntimeBundleResponseValidationError is the validation error
+// returned by GetConnectorRuntimeBundleResponse.Validate if the designated
+// constraints aren't met.
+type GetConnectorRuntimeBundleResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetConnectorRuntimeBundleResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetConnectorRuntimeBundleResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetConnectorRuntimeBundleResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetConnectorRuntimeBundleResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetConnectorRuntimeBundleResponseValidationError) ErrorName() string {
+	return "GetConnectorRuntimeBundleResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetConnectorRuntimeBundleResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetConnectorRuntimeBundleResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetConnectorRuntimeBundleResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetConnectorRuntimeBundleResponseValidationError{}
 
 // Validate checks the field values on SignedHeader with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
