@@ -1,6 +1,8 @@
 package dotc1z
 
 import (
+	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,4 +44,43 @@ func TestSaveC1z_SetsFrameContentSize(t *testing.T) {
 	require.True(t, header.HasFCS, "zstd frame must advertise Frame_Content_Size after save")
 	require.Equal(t, uint64(dbSize), header.FrameContentSize,
 		"FCS in header must equal the decompressed db size")
+}
+
+// TestC1ZDecoder_WindowSizeExceeded verifies that a sufficiently large c1z
+// triggers ErrWindowSizeExceeded when the decoder memory budget is too small
+// for the encoder's sliding window. This previously lived inline in
+// TestC1ZDecoder but moved here after saveC1z started setting FCS — small c1z
+// frames now use SingleSegment mode and fit inside modest memory budgets, so
+// exercising the window-size limit requires a content larger than the
+// encoder's max single-segment size (128 MiB spec limit, but klauspost
+// switches to a sliding window at ~8 MiB by default).
+func TestC1ZDecoder_WindowSizeExceeded(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write ~16 MiB of semi-random data — random enough to not fully
+	// compress to nothing, and large enough to force the encoder off of
+	// single-segment mode and onto a sliding window that a 1 MiB decoder
+	// memory budget cannot hold.
+	const dbSize = 16 * 1024 * 1024
+	dbPath := filepath.Join(tmpDir, "large.db")
+	data := make([]byte, dbSize)
+	rng := rand.New(rand.NewSource(42))
+	_, err := rng.Read(data)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(dbPath, data, 0600))
+
+	c1zPath := filepath.Join(tmpDir, "large.c1z")
+	require.NoError(t, saveC1z(dbPath, c1zPath, 1))
+
+	f, err := os.Open(c1zPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+
+	// 1 MiB decoder memory budget — too small for the encoder's window.
+	d, err := NewDecoder(f, WithDecoderMaxMemory(1*1024*1024))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = d.Close() })
+
+	_, err = io.Copy(io.Discard, d)
+	require.ErrorIs(t, err, ErrWindowSizeExceeded)
 }
