@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "c1/connector/v2/entitlement.proto";
+import "c1/connector/v2/grant.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// EntitlementExclusionGroup declares that this entitlement belongs to a
+// mutually exclusive group. Two entitlements on the same resource with
+// the same exclusion_group_id cannot be simultaneously granted to the
+// same principal.
+//
+// The exclusion_group_id is opaque and scoped to the connector. ConductorOne
+// namespaces it by app/connector when building server-side constraint records.
+//
+// This annotation is intentionally lean: it carries only per-membership data.
+// Group-level metadata (display name, admin overrides) lives in ConductorOne's
+// EntitlementConstraint records, not on every entitlement edge.
+message EntitlementExclusionGroup {
+  // Opaque identifier for the exclusion group, scoped to this connector.
+  // All entitlements with the same exclusion_group_id on the same resource
+  // form one exclusion group.
+  //
+  // Choose stable, human-readable IDs when possible — ConductorOne uses
+  // these as the default display name for the constraint until an admin
+  // overrides it.
+  string exclusion_group_id = 1;
+
+  // Optional ordering hint within the group. Higher values indicate higher
+  // privilege levels. ConductorOne may use this to display entitlements in
+  // order and to inform upgrade/downgrade semantics in the UI.
+  uint32 order = 2;
+
+  // If true, this is the default entitlement for the group. When another
+  // entitlement in the group is revoked and no explicit replacement is
+  // specified, ConductorOne grants this entitlement as the fallback.
+  //
+  // The presence of any is_default=true entitlement in a group signals to
+  // ConductorOne that the group is mandatory: a principal must always hold
+  // exactly one entitlement from the set. Groups without a default entitlement
+  // are treated as optional (at-most-one, but zero is allowed).
+  //
+  // At most one entitlement per exclusion group should set is_default = true.
+  bool is_default = 3;
+}
+
+// SwapPartialFailure is attached as a gRPC error detail (via status.WithDetails)
+// when a fallback swap partially completes: the revoke succeeded but the grant
+// failed. ConductorOne reads this to decide on compensating actions (re-grant
+// original, grant the group default, or alert an admin).
+message SwapPartialFailure {
+  // The grant that was successfully revoked.
+  Grant revoked_grant = 1;
+
+  // The entitlement that failed to be granted.
+  Entitlement failed_grant_entitlement = 2;
+
+  // The exclusion_group_id of the affected group (extracted from the
+  // revoked entitlement's annotations).
+  string exclusion_group_id = 3;
+}

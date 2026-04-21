@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
 	resource "github.com/conductorone/baton-sdk/pkg/types/resource"
 	"github.com/stretchr/testify/require"
 )
@@ -87,4 +88,58 @@ func TestNewOwnershipEntitlement(t *testing.T) {
 	require.Equal(t, "admin", en.GetSlug())
 	require.Len(t, en.GetGrantableTo(), 1)
 	require.Equal(t, rt, en.GetGrantableTo()[0])
+}
+
+func TestWithExclusionGroup(t *testing.T) {
+	rt := resource.NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
+	ur, err := resource.NewResource("test-role", rt, 1)
+	require.NoError(t, err)
+
+	en := NewPermissionEntitlement(ur, "standard", WithExclusionGroup("access-tier"))
+	require.NotNil(t, en)
+
+	annos := annotations.Annotations(en.GetAnnotations())
+	eg := &v2.EntitlementExclusionGroup{}
+	found, err := annos.Pick(eg)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "access-tier", eg.GetExclusionGroupId())
+	require.Equal(t, uint32(0), eg.GetOrder())
+	require.False(t, eg.GetIsDefault())
+}
+
+func TestWithExclusionGroupOrder(t *testing.T) {
+	rt := resource.NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
+	ur, err := resource.NewResource("test-role", rt, 1)
+	require.NoError(t, err)
+
+	en := NewPermissionEntitlement(ur, "admin", WithExclusionGroupOrder("access-tier", 30))
+	require.NotNil(t, en)
+
+	annos := annotations.Annotations(en.GetAnnotations())
+	eg := &v2.EntitlementExclusionGroup{}
+	found, err := annos.Pick(eg)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "access-tier", eg.GetExclusionGroupId())
+	require.Equal(t, uint32(30), eg.GetOrder())
+	require.False(t, eg.GetIsDefault())
+}
+
+func TestWithExclusionGroupDefault(t *testing.T) {
+	rt := resource.NewResourceType("Role", []v2.ResourceType_Trait{v2.ResourceType_TRAIT_ROLE})
+	ur, err := resource.NewResource("test-role", rt, 1)
+	require.NoError(t, err)
+
+	en := NewPermissionEntitlement(ur, "read-only", WithExclusionGroupDefault("access-tier", 10))
+	require.NotNil(t, en)
+
+	annos := annotations.Annotations(en.GetAnnotations())
+	eg := &v2.EntitlementExclusionGroup{}
+	found, err := annos.Pick(eg)
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "access-tier", eg.GetExclusionGroupId())
+	require.Equal(t, uint32(10), eg.GetOrder())
+	require.True(t, eg.GetIsDefault())
 }

@@ -1720,6 +1720,7 @@ type mockConnector struct {
 	v2.ActionServiceClient
 	v2.ResourceGetterServiceClient
 	v2.EntitlementsServiceClient
+	v2.SwapServiceClient
 }
 
 func (mc *mockConnector) AddGroup(ctx context.Context, groupId string) (*v2.Resource, *v2.Entitlement, error) {

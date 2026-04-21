@@ -44,6 +44,38 @@ func WithDescription(description string) EntitlementOption {
 	}
 }
 
+// WithExclusionGroup marks this entitlement as belonging to a mutually exclusive
+// group. Two entitlements on the same resource with the same exclusionGroupID
+// cannot be simultaneously granted to the same principal.
+func WithExclusionGroup(exclusionGroupID string) EntitlementOption {
+	return WithAnnotation(&v2.EntitlementExclusionGroup{
+		ExclusionGroupId: exclusionGroupID,
+	})
+}
+
+// WithExclusionGroupOrder is like WithExclusionGroup but also sets an ordering
+// hint. Higher order values indicate higher privilege levels.
+func WithExclusionGroupOrder(exclusionGroupID string, order uint32) EntitlementOption {
+	return WithAnnotation(&v2.EntitlementExclusionGroup{
+		ExclusionGroupId: exclusionGroupID,
+		Order:            order,
+	})
+}
+
+// WithExclusionGroupDefault marks this entitlement as the default for a mandatory
+// exclusion group. When another entitlement in the group is revoked without an
+// explicit replacement, this entitlement is granted as the fallback.
+//
+// Setting is_default on any entitlement in a group signals to ConductorOne that
+// the group is mandatory (a principal must always hold exactly one).
+func WithExclusionGroupDefault(exclusionGroupID string, order uint32) EntitlementOption {
+	return WithAnnotation(&v2.EntitlementExclusionGroup{
+		ExclusionGroupId: exclusionGroupID,
+		Order:            order,
+		IsDefault:        true,
+	})
+}
+
 func NewEntitlementID(resource *v2.Resource, permission string) string {
 	return fmt.Sprintf("%s:%s:%s", resource.GetId().GetResourceType(), resource.GetId().GetResource(), permission)
 }
