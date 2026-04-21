@@ -3,8 +3,10 @@ package local
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.opentelemetry.io/otel"
@@ -15,6 +17,7 @@ import (
 )
 
 var tracer = otel.Tracer("baton-sdk/pkg.dotc1z.manager.local")
+var crc32cTable = crc32.MakeTable(crc32.Castagnoli)
 
 type localManager struct {
 	filePath       string
@@ -154,22 +157,80 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 	}
 	defer tmpFile.Close()
 
-	dstFile, err := os.Create(l.filePath)
+	srcStat, err := tmpFile.Stat()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to stat source file: %w", err)
 	}
-	defer dstFile.Close()
+	expectedSize := srcStat.Size()
 
-	size, err := io.Copy(dstFile, tmpFile)
+	// Stage in the destination directory so the final rename stays on the same
+	// filesystem and remains atomic.
+	destDir := filepath.Dir(l.filePath)
+	stagingFile, err := os.CreateTemp(destDir, filepath.Base(l.filePath)+".tmp-*")
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create staging file: %w", err)
+	}
+	stagingFilePath := stagingFile.Name()
+
+	success := false
+	defer func() {
+		if stagingFile != nil {
+			if closeErr := stagingFile.Close(); closeErr != nil {
+				log.Warn("failed to close staging file", zap.Error(closeErr))
+			}
+		}
+		if !success {
+			_ = os.Remove(stagingFilePath)
+		}
+	}()
+
+	// This checksum is part of the save correctness gate, not just a log stamp.
+	// We compare source vs staged bytes before rename so the save fails on any
+	// same-length corruption during the local copy.
+	sourceCRC32C := crc32.New(crc32cTable)
+	size, err := io.Copy(stagingFile, io.TeeReader(tmpFile, sourceCRC32C))
+	if err != nil {
+		return fmt.Errorf("failed to copy to staging file: %w", err)
+	}
+	if size != expectedSize {
+		return fmt.Errorf("copy size mismatch: expected %d bytes from source but copied %d bytes", expectedSize, size)
 	}
 
 	// CRITICAL: Sync to ensure data is written before function returns.
 	// This is especially important on ZFS ARC where writes may be cached.
-	if err := dstFile.Sync(); err != nil {
-		return fmt.Errorf("failed to sync destination file: %w", err)
+	if err := stagingFile.Sync(); err != nil {
+		return fmt.Errorf("failed to sync staging file: %w", err)
 	}
+
+	stagingCRC32C, err := crc32CHexFromFile(stagingFile)
+	if err != nil {
+		return fmt.Errorf("failed to checksum staging file: %w", err)
+	}
+	sourceChecksum := fmt.Sprintf("%08x", sourceCRC32C.Sum32())
+	if stagingCRC32C != sourceChecksum {
+		return fmt.Errorf("staging checksum mismatch: source=%s staging=%s", sourceChecksum, stagingCRC32C)
+	}
+
+	log.Info(
+		"validated c1z staging file before rename",
+		zap.String("source_path", l.tmpPath),
+		zap.String("staging_path", stagingFilePath),
+		zap.Int64("source_bytes", expectedSize),
+		zap.Int64("staging_bytes", size),
+		zap.String("source_crc32c", sourceChecksum),
+		zap.String("staging_crc32c", stagingCRC32C),
+	)
+
+	if err := stagingFile.Close(); err != nil {
+		stagingFile = nil
+		return fmt.Errorf("failed to close staging file: %w", err)
+	}
+	stagingFile = nil
+
+	if err := dotc1z.ReplaceFileAtomically(stagingFilePath, l.filePath); err != nil {
+		return fmt.Errorf("failed to publish staging file to destination: %w", err)
+	}
+	success = true
 
 	log.Debug(
 		"successfully saved c1z locally",
@@ -177,9 +238,23 @@ func (l *localManager) SaveC1Z(ctx context.Context) error {
 		zap.String("temp_path", l.tmpPath),
 		zap.String("tmp_dir", l.tmpDir),
 		zap.Int64("bytes", size),
+		zap.String("crc32c", stagingCRC32C),
 	)
 
 	return nil
+}
+
+func crc32CHexFromFile(f *os.File) (string, error) {
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", fmt.Errorf("seek staging file for checksum: %w", err)
+	}
+
+	h := crc32.New(crc32cTable)
+	if _, err := io.Copy(h, f); err != nil {
+		return "", fmt.Errorf("checksum staging file: %w", err)
+	}
+
+	return fmt.Sprintf("%08x", h.Sum32()), nil
 }
 
 func (l *localManager) Close(ctx context.Context) error {

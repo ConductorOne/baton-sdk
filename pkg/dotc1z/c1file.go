@@ -412,9 +412,41 @@ func (c *C1File) Close(ctx context.Context) error {
 			return cleanupDbDir(c.dbFilePath, fmt.Errorf("c1z: WAL file not empty after close (size=%d) - refusing to save incomplete data", walInfo.Size()))
 		}
 
+		dbFile, err := os.OpenFile(c.dbFilePath, os.O_RDWR, 0)
+		if err != nil {
+			return cleanupDbDir(c.dbFilePath, fmt.Errorf("open db for sync: %w", err))
+		}
+		func() {
+			defer func() {
+				closeErr := dbFile.Close()
+				if closeErr != nil && err == nil {
+					err = fmt.Errorf("close db after sync: %w", closeErr)
+				}
+			}()
+
+			if syncErr := dbFile.Sync(); syncErr != nil {
+				err = fmt.Errorf("sync db before compress: %w", syncErr)
+			}
+		}()
+		if err != nil {
+			return cleanupDbDir(c.dbFilePath, err)
+		}
+
 		err = saveC1z(c.dbFilePath, c.outputFilePath, c.encoderConcurrency)
 		if err != nil {
 			return cleanupDbDir(c.dbFilePath, err)
+		}
+
+		outputDigest, outputSize, digestErr := fileCRC32CHex(c.outputFilePath)
+		if digestErr != nil {
+			ctxzap.Extract(ctx).Warn("failed to checksum saved c1z output",
+				zap.String("output_path", c.outputFilePath),
+				zap.Error(digestErr))
+		} else {
+			ctxzap.Extract(ctx).Info("saved c1z after close",
+				zap.String("output_path", c.outputFilePath),
+				zap.Int64("bytes", outputSize),
+				zap.String("crc32c", outputDigest))
 		}
 	}
 
