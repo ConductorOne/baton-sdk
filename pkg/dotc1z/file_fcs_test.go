@@ -64,6 +64,7 @@ func TestC1ZDecoder_WindowSizeExceeded(t *testing.T) {
 	const dbSize = 16 * 1024 * 1024
 	dbPath := filepath.Join(tmpDir, "large.db")
 	data := make([]byte, dbSize)
+	//nolint:gosec // deterministic test fixture; no security context.
 	rng := rand.New(rand.NewSource(42))
 	_, err := rng.Read(data)
 	require.NoError(t, err)
