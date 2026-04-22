@@ -260,6 +260,45 @@ func TestC1ZDecoder(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestCurrentDBSizeBytes verifies the uncompressed db-size accessor used by
+// the expander progress logger. It must report the live sqlite file size,
+// grow as data is written, and error cleanly when the C1File has no db path.
+func TestCurrentDBSizeBytes(t *testing.T) {
+	ctx := t.Context()
+	testFilePath := filepath.Join(c1zTests.workingDir, "test-currentdbsize.c1z")
+
+	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+	defer func() { _ = f.Close(ctx) }()
+
+	initial, err := f.CurrentDBSizeBytes()
+	require.NoError(t, err)
+	require.Greater(t, initial, int64(0), "freshly-initialised sqlite db should be non-empty")
+
+	// Write enough data that the sqlite file visibly grows.
+	_, err = f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	rt := v2.ResourceType_builder{Id: testResourceType}.Build()
+	require.NoError(t, f.PutResourceTypes(ctx, rt))
+	resources := make([]*v2.Resource, 500)
+	for i := range resources {
+		resources[i] = v2.Resource_builder{
+			Id:          v2.ResourceId_builder{ResourceType: testResourceType, Resource: fmt.Sprintf("r%d", i)}.Build(),
+			DisplayName: fmt.Sprintf("Resource %d", i),
+		}.Build()
+	}
+	require.NoError(t, f.PutResources(ctx, resources...))
+
+	after, err := f.CurrentDBSizeBytes()
+	require.NoError(t, err)
+	require.Greater(t, after, initial, "db size must increase after PutResources")
+
+	// Guard the empty-path error — defensive, since internal callers should never hit this.
+	empty := &C1File{}
+	_, err = empty.CurrentDBSizeBytes()
+	require.Error(t, err)
+}
+
 func TestC1ZInvalidFile(t *testing.T) {
 	ctx := t.Context()
 	testFilePath := filepath.Join(c1zTests.workingDir, "test-invalid-file.c1z")
