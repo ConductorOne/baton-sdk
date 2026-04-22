@@ -26,8 +26,9 @@ create table if not exists %s (
     principal_resource_type_id text not null,
     principal_resource_id text not null,
     external_id text not null,
-    expansion blob,                             -- Serialized GrantExpandable proto; NULL if grant is not expandable.
-    needs_expansion integer not null default 0, -- 1 if grant should be processed during expansion.
+    expansion blob,                                -- Serialized GrantExpandable proto; NULL if grant is not expandable.
+    needs_expansion integer not null default 0,    -- 1 if grant should be processed during expansion.
+    has_external_match integer not null default 0, -- 1 if grant carries an ExternalResourceMatch{,All,ID} annotation.
     data blob not null,
     sync_id text not null,
     discovered_at datetime not null
@@ -85,6 +86,13 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 		return err
 	}
 
+	// Add has_external_match column if missing (for older files).
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		"alter table %s add column has_external_match integer not null default 0", r.Name(),
+	)); err != nil && !isAlreadyExistsError(err) {
+		return err
+	}
+
 	// Create partial index for efficient queries on expandable grants.
 	if _, err := db.ExecContext(ctx, fmt.Sprintf(
 		"create index if not exists %s on %s (sync_id) where expansion is not null",
@@ -106,8 +114,19 @@ func (r *grantsTable) Migrations(ctx context.Context, db *goqu.Database) error {
 		return err
 	}
 
-	// Backfill expansion column from stored grant bytes.
-	return backfillGrantExpansionColumn(ctx, db, r.Name())
+	// Create partial index for grants carrying an ExternalResourceMatch annotation.
+	// Same rationale as the needs_expansion partial index: selective predicate,
+	// stays out of the general-purpose compound indexes' way.
+	if _, err := db.ExecContext(ctx, fmt.Sprintf(
+		"create index if not exists %s on %s (sync_id) where has_external_match = 1",
+		fmt.Sprintf("idx_grants_sync_external_match_v%s", r.Version()),
+		r.Name(),
+	)); err != nil {
+		return err
+	}
+
+	// Backfill expansion and has_external_match columns from stored grant bytes.
+	return backfillGrantDerivedColumns(ctx, db, r.Name())
 }
 
 func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
@@ -256,6 +275,10 @@ func baseGrantRecord(grant *v2.Grant) goqu.Record {
 func grantExtractFields(mode connectorstore.GrantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
 	return func(grant *v2.Grant) (goqu.Record, error) {
 		rec := baseGrantRecord(grant)
+		// has_external_match mirrors the data blob's annotation set, so it must be
+		// set in every mode (including PreserveExpansion — the data column is still
+		// replaced from EXCLUDED in executeGrantChunkedUpsert).
+		rec["has_external_match"] = hasExternalResourceMatch(grant)
 		if mode == connectorstore.GrantUpsertModePreserveExpansion {
 			return rec, nil
 		}
@@ -323,6 +346,28 @@ func hasGrantExpandable(grant *v2.Grant) bool {
 	return false
 }
 
+// externalResourceMatchSentinels are the annotation types that
+// processGrantsWithExternalPrincipals in pkg/sync filters on. hasExternalResourceMatch
+// below checks for any of these; keep in lockstep with the caller's ContainsAny.
+var externalResourceMatchSentinels = []proto.Message{
+	&v2.ExternalResourceMatchAll{},
+	&v2.ExternalResourceMatch{},
+	&v2.ExternalResourceMatchID{},
+}
+
+// hasExternalResourceMatch returns true if the grant carries any ExternalResourceMatch
+// annotation. Cheap type-url check, no unmarshal.
+func hasExternalResourceMatch(grant *v2.Grant) bool {
+	for _, a := range grant.GetAnnotations() {
+		for _, s := range externalResourceMatchSentinels {
+			if a.MessageIs(s) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // extractAndStripExpansion extracts the GrantExpandable annotation from the grant,
 // removes it from the grant's annotations, and returns the serialized proto bytes.
 // The annotation is always stripped from the grant if present, so it never leaks
@@ -366,13 +411,16 @@ func extractAndStripExpansion(grant *v2.Grant) ([]byte, bool) {
 	return data, true
 }
 
-func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableName string) error {
+func backfillGrantDerivedColumns(ctx context.Context, db *goqu.Database, tableName string) error {
 	// Backfill grants only for syncs that have not yet been processed.
 	// The grants_backfilled flag is the single source of truth for whether
 	// this migration work still needs to run for a sync.
 	//
 	// We unmarshal every grant with expansion IS NULL from old syncs, extract the
-	// GrantExpandable annotation (if present), and populate the expansion column.
+	// GrantExpandable annotation (if present), populate the expansion column, and
+	// also derive has_external_match from the annotation set while we have the
+	// proto in hand — both columns track the stored data blob so backfilling them
+	// in the same pass avoids a second full scan.
 	// Non-expandable grants get an empty-blob sentinel to avoid re-processing,
 	// which is cleaned up to NULL at the end.
 	//
@@ -454,13 +502,17 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 		lastID = batch[len(batch)-1].id
 
 		// Split grants into expandable (need full data rewrite) and
-		// non-expandable (just need sentinel marker).
-		var sentinelIDs []any
+		// non-expandable (just need sentinel + has_external_match marker).
+		// Non-expandable rows are further split by has_external_match so each
+		// group can be updated in a single batch statement.
+		var sentinelWithMatchIDs []any
+		var sentinelNoMatchIDs []any
 		type expandableRow struct {
-			id             int64
-			expansionBytes []byte
-			needsExpansion bool
-			data           []byte
+			id               int64
+			expansionBytes   []byte
+			needsExpansion   bool
+			data             []byte
+			hasExternalMatch bool
 		}
 		var expandableRows []expandableRow
 
@@ -470,10 +522,15 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 				return err
 			}
 
+			hasMatch := hasExternalResourceMatch(g)
 			expansionBytes, needsExpansion := extractAndStripExpansion(g)
 
 			if expansionBytes == nil {
-				sentinelIDs = append(sentinelIDs, r.id)
+				if hasMatch {
+					sentinelWithMatchIDs = append(sentinelWithMatchIDs, r.id)
+				} else {
+					sentinelNoMatchIDs = append(sentinelNoMatchIDs, r.id)
+				}
 				continue
 			}
 
@@ -482,10 +539,11 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 				return err
 			}
 			expandableRows = append(expandableRows, expandableRow{
-				id:             r.id,
-				expansionBytes: expansionBytes,
-				needsExpansion: needsExpansion,
-				data:           newData,
+				id:               r.id,
+				expansionBytes:   expansionBytes,
+				needsExpansion:   needsExpansion,
+				data:             newData,
+				hasExternalMatch: hasMatch,
 			})
 		}
 
@@ -494,13 +552,24 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 			return err
 		}
 
-		// Batch-mark non-expandable grants with the sentinel in one statement.
-		if len(sentinelIDs) > 0 {
-			sp := strings.Repeat("?,", len(sentinelIDs))
+		// Batch-mark non-expandable grants. Split into two statements by
+		// has_external_match so we can use a simple IN(...) per group.
+		if len(sentinelNoMatchIDs) > 0 {
+			sp := strings.Repeat("?,", len(sentinelNoMatchIDs))
 			sp = sp[:len(sp)-1]
 			if _, err := tx.ExecContext(ctx, fmt.Sprintf(
 				`UPDATE %s SET expansion=X'' WHERE id IN (%s)`, tableName, sp,
-			), sentinelIDs...); err != nil {
+			), sentinelNoMatchIDs...); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+		if len(sentinelWithMatchIDs) > 0 {
+			sp := strings.Repeat("?,", len(sentinelWithMatchIDs))
+			sp = sp[:len(sp)-1]
+			if _, err := tx.ExecContext(ctx, fmt.Sprintf(
+				`UPDATE %s SET expansion=X'', has_external_match=1 WHERE id IN (%s)`, tableName, sp,
+			), sentinelWithMatchIDs...); err != nil {
 				_ = tx.Rollback()
 				return err
 			}
@@ -509,14 +578,14 @@ func backfillGrantExpansionColumn(ctx context.Context, db *goqu.Database, tableN
 		// Expandable grants need per-row updates (each has unique data).
 		if len(expandableRows) > 0 {
 			fullStmt, err := tx.PrepareContext(ctx, fmt.Sprintf(
-				`UPDATE %s SET expansion=?, needs_expansion=?, data=? WHERE id=?`, tableName,
+				`UPDATE %s SET expansion=?, needs_expansion=?, data=?, has_external_match=? WHERE id=?`, tableName,
 			))
 			if err != nil {
 				_ = tx.Rollback()
 				return err
 			}
 			for _, er := range expandableRows {
-				if _, err := fullStmt.ExecContext(ctx, er.expansionBytes, er.needsExpansion, er.data, er.id); err != nil {
+				if _, err := fullStmt.ExecContext(ctx, er.expansionBytes, er.needsExpansion, er.data, er.hasExternalMatch, er.id); err != nil {
 					_ = fullStmt.Close()
 					_ = tx.Rollback()
 					return err
@@ -588,9 +657,10 @@ func executeGrantChunkedUpsert(
 
 	buildQueryFn := func(insertDs *goqu.InsertDataset, chunkedRows []*goqu.Record) (*goqu.InsertDataset, error) {
 		update := goqu.Record{
-			"data":            goqu.I("EXCLUDED.data"),
-			"expansion":       expansionExpr,
-			"needs_expansion": needsExpansionExpr,
+			"data":               goqu.I("EXCLUDED.data"),
+			"expansion":          expansionExpr,
+			"needs_expansion":    needsExpansionExpr,
+			"has_external_match": goqu.I("EXCLUDED.has_external_match"),
 		}
 		if mode == connectorstore.GrantUpsertModeIfNewer {
 			update["discovered_at"] = goqu.I("EXCLUDED.discovered_at")
