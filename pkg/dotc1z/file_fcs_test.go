@@ -207,3 +207,51 @@ func TestDecoder_DeclaredSizeExceedsCap_FailsFast(t *testing.T) {
 	require.True(t, errors.Is(err, ErrMaxSizeExceeded))
 	require.Contains(t, err.Error(), "declared decoded size")
 }
+
+// TestDecoder_FCSFailFastKillSwitch verifies that flipping
+// fcsFailFastDisabled (driven by BATON_DISABLE_FCS_FAIL_FAST=1 at process
+// start) bypasses the init-time pre-check and falls back to the pre-FCS
+// behavior: Read runs the decoder and trips ErrMaxSizeExceeded only after
+// decoded bytes pass the cap.
+func TestDecoder_FCSFailFastKillSwitch(t *testing.T) {
+	tmpDir := t.TempDir()
+	const dbSize = 1 << 20 // 1 MiB
+	dbPath := filepath.Join(tmpDir, "src.db")
+	data := make([]byte, dbSize)
+	for i := range data {
+		data[i] = byte(i * 11 % 251)
+	}
+	require.NoError(t, os.WriteFile(dbPath, data, 0600))
+
+	c1zPath := filepath.Join(tmpDir, "out.c1z")
+	require.NoError(t, saveC1z(dbPath, c1zPath, 1))
+
+	f, err := os.Open(c1zPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+
+	// Flip the switch for the duration of this test.
+	orig := fcsFailFastDisabled
+	fcsFailFastDisabled = true
+	defer func() { fcsFailFastDisabled = orig }()
+
+	// Cap below declared size — with fail-fast disabled, init must succeed
+	// and Read must decode until decodedBytes > cap.
+	d, err := NewDecoder(f, WithDecoderMaxDecodedSize(dbSize/2))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = d.Close() })
+
+	// DeclaredDecodedSize still works — the kill-switch only gates the
+	// pre-check, not the header peek.
+	size, ok := d.DeclaredDecodedSize()
+	require.True(t, ok)
+	require.Equal(t, uint64(dbSize), size)
+
+	// Streaming into io.Discard must eventually fail with the overrun error,
+	// and the error must NOT contain the fail-fast "declared decoded size"
+	// phrase (that only appears on the init-time pre-check).
+	_, err = io.Copy(io.Discard, d)
+	require.ErrorIs(t, err, ErrMaxSizeExceeded)
+	require.NotContains(t, err.Error(), "declared decoded size",
+		"kill-switch must route through the overrun path, not the pre-check")
+}

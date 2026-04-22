@@ -19,7 +19,19 @@ const (
 	defaultDecoderMaxMemory = 128 * 1024 * 1024      // 128MiB
 	maxDecodedSizeEnvVar    = "BATON_DECODER_MAX_DECODED_SIZE_MB"
 	maxDecoderMemorySizeEnv = "BATON_DECODER_MAX_MEMORY_MB"
+
+	// fcsFailFastDisableEnvVar, when set to "1", disables the fail-fast path
+	// that rejects c1zs whose declared Frame_Content_Size already exceeds the
+	// configured DecoderMaxDecodedSize. Disabling falls back to the pre-FCS
+	// behavior of running the decoder until decoded bytes exceed the cap.
+	// Intended as an operational kill-switch if an FCS-induced false positive
+	// surfaces in production; zero behavior change when unset.
+	fcsFailFastDisableEnvVar = "BATON_DISABLE_FCS_FAIL_FAST"
 )
+
+// fcsFailFastDisabled is read once at package init to avoid per-Read env
+// lookups. Matches the pattern used by BATON_ZSTD_POOL_DISABLE in pool.go.
+var fcsFailFastDisabled = os.Getenv(fcsFailFastDisableEnvVar) == "1"
 
 var C1ZFileHeader = []byte("C1ZF\x00")
 
@@ -194,8 +206,10 @@ func (d *decoder) ensureInit() {
 		// no need to instantiate a zstd decoder for a c1z we can't accept.
 		// The error wraps ErrMaxSizeExceeded and carries the declared size
 		// explicitly so callers can surface "this c1z wants to decode to N
-		// bytes" without running the decoder.
-		if d.hasDeclaredSize {
+		// bytes" without running the decoder. BATON_DISABLE_FCS_FAIL_FAST=1
+		// skips the pre-check and falls back to the decoded-bytes-over-cap
+		// path inside Read (pre-FCS behavior).
+		if d.hasDeclaredSize && !fcsFailFastDisabled {
 			maxDecodedSize := d.getMaxDecodedSize()
 			if d.declaredSize > maxDecodedSize {
 				d.decoderInitErr = fmt.Errorf(
