@@ -79,10 +79,10 @@ func (m *GetRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+	if utf8.RuneCountInString(m.GetPrefix()) > 512 {
 		err := GetRequestValidationError{
 			field:  "Prefix",
-			reason: "value length must be at most 256 runes",
+			reason: "value length must be at most 512 runes",
 		}
 		if !all {
 			return err
@@ -347,10 +347,10 @@ func (m *GetManyRequest) validate(all bool) error {
 
 	}
 
-	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+	if utf8.RuneCountInString(m.GetPrefix()) > 512 {
 		err := GetManyRequestValidationError{
 			field:  "Prefix",
-			reason: "value length must be at most 256 runes",
+			reason: "value length must be at most 512 runes",
 		}
 		if !all {
 			return err
@@ -710,10 +710,10 @@ func (m *GetAllRequest) validate(all bool) error {
 
 	// no validation rules for PageToken
 
-	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+	if utf8.RuneCountInString(m.GetPrefix()) > 512 {
 		err := GetAllRequestValidationError{
 			field:  "Prefix",
-			reason: "value length must be at most 256 runes",
+			reason: "value length must be at most 512 runes",
 		}
 		if !all {
 			return err
@@ -1095,10 +1095,10 @@ func (m *SetRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+	if utf8.RuneCountInString(m.GetPrefix()) > 512 {
 		err := SetRequestValidationError{
 			field:  "Prefix",
-			reason: "value length must be at most 256 runes",
+			reason: "value length must be at most 512 runes",
 		}
 		if !all {
 			return err
@@ -1365,10 +1365,10 @@ func (m *SetManyRequest) validate(all bool) error {
 		}
 	}
 
-	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+	if utf8.RuneCountInString(m.GetPrefix()) > 512 {
 		err := SetManyRequestValidationError{
 			field:  "Prefix",
-			reason: "value length must be at most 256 runes",
+			reason: "value length must be at most 512 runes",
 		}
 		if !all {
 			return err
@@ -1600,10 +1600,10 @@ func (m *DeleteRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+	if utf8.RuneCountInString(m.GetPrefix()) > 512 {
 		err := DeleteRequestValidationError{
 			field:  "Prefix",
-			reason: "value length must be at most 256 runes",
+			reason: "value length must be at most 512 runes",
 		}
 		if !all {
 			return err
@@ -1851,10 +1851,10 @@ func (m *DeleteManyRequest) validate(all bool) error {
 
 	}
 
-	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+	if utf8.RuneCountInString(m.GetPrefix()) > 512 {
 		err := DeleteManyRequestValidationError{
 			field:  "Prefix",
-			reason: "value length must be at most 256 runes",
+			reason: "value length must be at most 512 runes",
 		}
 		if !all {
 			return err
@@ -2079,10 +2079,10 @@ func (m *ClearRequest) validate(all bool) error {
 		errors = append(errors, err)
 	}
 
-	if utf8.RuneCountInString(m.GetPrefix()) > 256 {
+	if utf8.RuneCountInString(m.GetPrefix()) > 512 {
 		err := ClearRequestValidationError{
 			field:  "Prefix",
-			reason: "value length must be at most 256 runes",
+			reason: "value length must be at most 512 runes",
 		}
 		if !all {
 			return err
