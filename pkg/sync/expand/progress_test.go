@@ -124,6 +124,7 @@ func TestMaybeLogProgress_IncludesDBSizeWhenProvided(t *testing.T) {
 	}
 	e := NewExpander(store, NewEntitlementGraph(ctx))
 	e.progressInterval = 1 * time.Nanosecond // always fires
+	e.lastProgressLog = time.Time{}          // ensure elapsed > interval on coarse-clock Windows
 
 	e.actionsProcessed = 7
 	e.maybeLogProgress(ctx)
@@ -142,7 +143,7 @@ func TestMaybeLogProgress_IncludesDBSizeWhenProvided(t *testing.T) {
 
 	// Second sample with larger size: delta reflects growth since last log.
 	store.size = 1_250_000
-	time.Sleep(1 * time.Millisecond) // just in case the Nanosecond shortcut is too tight
+	e.lastProgressLog = time.Time{} // reset so the second call fires on coarse clocks
 	e.maybeLogProgress(ctx)
 	entries = logs.filterMessage("expander: progress")
 	require.Len(t, entries, 2)
@@ -157,6 +158,7 @@ func TestMaybeLogProgress_OmitsDBSizeFieldsWhenUnsupported(t *testing.T) {
 	// Plain MockExpanderStore does NOT implement DBSizeProvider.
 	e := NewExpander(NewMockExpanderStore(), NewEntitlementGraph(ctx))
 	e.progressInterval = 1 * time.Nanosecond
+	e.lastProgressLog = time.Time{}
 
 	e.maybeLogProgress(ctx)
 
@@ -179,6 +181,7 @@ func TestMaybeLogProgress_SkipsOnStatError(t *testing.T) {
 	}
 	e := NewExpander(store, NewEntitlementGraph(ctx))
 	e.progressInterval = 1 * time.Nanosecond
+	e.lastProgressLog = time.Time{}
 
 	e.maybeLogProgress(ctx)
 
