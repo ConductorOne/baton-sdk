@@ -210,7 +210,7 @@ func (s *syncer) sequentialSync(
 			entitlementGraph := s.state.EntitlementGraph(ctx)
 			isResumingExpansion := entitlementGraph.Loaded || len(entitlementGraph.Edges) > 0 || stateAction.PageToken != ""
 			if !isResumingExpansion {
-				if err := s.store.SetSupportsDiff(ctx, s.syncID); err != nil {
+				if err := s.store.SyncMeta().MarkSyncSupportsDiff(ctx, s.syncID); err != nil {
 					l.Error("failed to set supports_diff marker", zap.Error(err))
 					return warnings, err
 				}
@@ -459,7 +459,7 @@ func (s *syncer) parallelSync(
 			entitlementGraph := s.state.EntitlementGraph(ctx)
 			isResumingExpansion := entitlementGraph.Loaded || len(entitlementGraph.Edges) > 0 || stateAction.PageToken != ""
 			if !isResumingExpansion {
-				if err := s.store.SetSupportsDiff(ctx, s.syncID); err != nil {
+				if err := s.store.SyncMeta().MarkSyncSupportsDiff(ctx, s.syncID); err != nil {
 					l.Error("failed to set supports_diff marker", zap.Error(err))
 					return warnings, err
 				}
