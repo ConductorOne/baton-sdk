@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 	"testing"
 
@@ -193,13 +194,21 @@ func TestDecoderPool(t *testing.T) {
 // sync.Pool values for the duration of the test. Needed because sync.Pool can
 // evict entries via GC between Gets, and because concurrent tests in the same
 // package could otherwise race with exact-membership assertions.
+//
+// Also disables GC during the test. sync.Pool drops items when the runtime
+// runs a GC cycle between Put and Get, which makes exact-membership
+// assertions (e.g. "did putEncoder put one in the pool?") flaky under CI
+// memory pressure. Restoring the prior GOGC on teardown keeps the rest of
+// the package suite unaffected.
 func withIsolatedPools(t *testing.T) {
 	t.Helper()
 	origEnc := encoderPool
 	origDec := decoderPool
 	encoderPool = &sync.Pool{}
 	decoderPool = &sync.Pool{}
+	origGCPercent := debug.SetGCPercent(-1)
 	t.Cleanup(func() {
+		debug.SetGCPercent(origGCPercent)
 		encoderPool = origEnc
 		decoderPool = origDec
 	})

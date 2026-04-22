@@ -224,15 +224,13 @@ func TestC1ZDecoder(t *testing.T) {
 	err = d.Close()
 	require.NoError(t, err)
 
-	// Test lower mem usage
-	d, err = NewDecoder(c1zf, WithDecoderMaxMemory(1*1024*1024))
-	require.NoError(t, err)
-	_, err = io.Copy(io.Discard, d)
-	require.ErrorIs(t, err, ErrWindowSizeExceeded)
-	err = d.Close()
-	require.NoError(t, err)
+	// Window-size-exceeded coverage is in TestC1ZDecoder_WindowSizeExceeded,
+	// which constructs a sufficiently large c1z. With the FCS-aware encoder,
+	// small c1z frames use SingleSegment mode and fit inside a 1 MiB decoder
+	// memory budget — so this decoder's small content cannot be used to
+	// exercise ErrWindowSizeExceeded here.
 
-	// Test lower mem usage
+	// 8 MiB memory budget is large enough to decode the small test c1z.
 	d, err = NewDecoder(c1zf, WithDecoderMaxMemory(8*1024*1024))
 	require.NoError(t, err)
 	_, err = io.Copy(b, d)
