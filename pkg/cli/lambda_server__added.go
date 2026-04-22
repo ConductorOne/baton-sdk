@@ -17,6 +17,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/session"
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/go-jose/go-jose/v4"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/maypok86/otter/v2"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
@@ -300,8 +301,12 @@ type lambdaTokenSource struct {
 
 func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
 	if s.token.Valid() {
+		l := ctxzap.Extract(s.ctx)
+		l.Info("lambda-run: returning cached token", zap.String("token", s.token.AccessToken))
 		return s.token, nil
 	}
+
+	l.Info("lambda-run: fetching new token")
 
 	resp, err := s.client.GetConnectorOauthToken(s.ctx, &v1.GetConnectorOauthTokenRequest{})
 	if err != nil {
