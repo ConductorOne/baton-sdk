@@ -32,7 +32,7 @@ message GetRequest {
     max_len: 256
   }];
 
-  string prefix = 3 [(validate.rules).string = {max_len: 256}];
+  string prefix = 3 [(validate.rules).string = {max_len: 512}];
 }
 
 message GetResponse {
@@ -54,7 +54,7 @@ message GetManyRequest {
       }
     }
   }];
-  string prefix = 3 [(validate.rules).string = {max_len: 256}];
+  string prefix = 3 [(validate.rules).string = {max_len: 512}];
 }
 
 message GetManyResponse {
@@ -71,7 +71,7 @@ message GetAllRequest {
   string sync_id = 1 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
   string page_token = 2;
 
-  string prefix = 3 [(validate.rules).string = {max_len: 256}];
+  string prefix = 3 [(validate.rules).string = {max_len: 512}];
 }
 
 message GetAllResponse {
@@ -97,7 +97,7 @@ message SetRequest {
     max_len: 4158464
   }];
 
-  string prefix = 4 [(validate.rules).string = {max_len: 256}];
+  string prefix = 4 [(validate.rules).string = {max_len: 512}];
 }
 
 message SetResponse {}
@@ -122,7 +122,7 @@ message SetManyRequest {
     }
   }];
 
-  string prefix = 3 [(validate.rules).string = {max_len: 256}];
+  string prefix = 3 [(validate.rules).string = {max_len: 512}];
 }
 
 message SetManyResponse {}
@@ -134,7 +134,7 @@ message DeleteRequest {
     max_len: 256
   }];
 
-  string prefix = 3 [(validate.rules).string = {max_len: 256}];
+  string prefix = 3 [(validate.rules).string = {max_len: 512}];
 }
 
 message DeleteResponse {}
@@ -152,14 +152,14 @@ message DeleteManyRequest {
     }
   }];
 
-  string prefix = 3 [(validate.rules).string = {max_len: 256}];
+  string prefix = 3 [(validate.rules).string = {max_len: 512}];
 }
 message DeleteManyResponse {}
 
 message ClearRequest {
   string sync_id = 1 [(validate.rules).string = {pattern: "^[a-zA-Z0-9]{27}$"}];
 
-  string prefix = 2 [(validate.rules).string = {max_len: 256}];
+  string prefix = 2 [(validate.rules).string = {max_len: 512}];
 }
 
 message ClearResponse {}
