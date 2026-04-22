@@ -2822,6 +2822,14 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 	if s.workerCount > 0 {
 		progressLogOpts = append(progressLogOpts, progresslog.WithSequentialMode(false))
 	}
+	// If the store can report its current uncompressed size (dotc1z.C1File
+	// does), pipe it into the expand progress log so operators watching a
+	// long expansion see the live db size and growth delta in each
+	// "Expanding grants" line. The type assertion is a no-op for stores
+	// that don't implement the capability.
+	if sp, ok := s.store.(connectorstore.DBSizeProvider); ok {
+		progressLogOpts = append(progressLogOpts, progresslog.WithDBSizeProvider(sp))
+	}
 	s.counts = progresslog.NewProgressCounts(ctx, progressLogOpts...)
 
 	if s.externalResourceC1ZPath != "" {

@@ -676,14 +676,27 @@ func (c *C1File) CurrentDBSizeBytes() (int64, error) {
 		return 0, err
 	}
 	total := fi.Size()
-	// Add the WAL file if it exists. ENOENT is expected (no WAL) and
-	// anything else (permission, etc.) gets ignored so we still return
-	// a useful main-file size instead of erroring out on a monitoring path.
-	if wal, err := os.Stat(c.dbFilePath + "-wal"); err == nil {
+	// Add the WAL sidecar if it exists. `os.ErrNotExist` is expected (no WAL
+	// or journal_mode != WAL). Any *other* error — permission, EIO, stale
+	// handle, etc. — we surface: a silently-underreported WAL would defeat
+	// the growth-visibility purpose of this method (could hide hundreds of
+	// MB of pending writes).
+	switch wal, err := os.Stat(c.dbFilePath + "-wal"); {
+	case err == nil:
 		total += wal.Size()
+	case errors.Is(err, os.ErrNotExist):
+		// no WAL — fine.
+	default:
+		return 0, fmt.Errorf("c1file: stat wal sidecar: %w", err)
 	}
 	return total, nil
 }
+
+// Compile-time assertion that *C1File satisfies the DBSizeProvider capability
+// that ProgressLog.LogExpandProgress type-asserts against. Catches signature
+// drift (e.g. if someone adds a ctx parameter to CurrentDBSizeBytes) at
+// compile time instead of silently turning off the expand-log size fields.
+var _ connectorstore.DBSizeProvider = (*C1File)(nil)
 
 func (c *C1File) AttachFile(other *C1File, dbName string) (*C1FileAttached, error) {
 	_, err := c.db.Exec(`ATTACH DATABASE ? AS ?`, other.dbFilePath, dbName)

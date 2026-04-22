@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -38,6 +39,14 @@ type ProgressLog struct {
 	mu                   rwMutex // If noOpMutex, sequential mode is enabled. If sync.RWMutex, parallel mode is enabled.
 	l                    *zap.Logger
 	maxLogFrequency      time.Duration
+
+	// Optional cross-step db-size tracking for LogExpandProgress. Populated
+	// via WithDBSizeProvider at construction time; nil means "size-free"
+	// expand logs. Held here (not on Expander) because the syncer recreates
+	// the Expander per RunSingleStep, so any state on it resets every step
+	// and the periodic size log would never fire in production.
+	dbSize           connectorstore.DBSizeProvider
+	lastLoggedDBSize int64
 }
 
 type Option func(*ProgressLog)
@@ -65,6 +74,19 @@ func WithSequentialMode(sequential bool) Option {
 func WithLogFrequency(logFrequency time.Duration) Option {
 	return func(p *ProgressLog) {
 		p.maxLogFrequency = logFrequency
+	}
+}
+
+// WithDBSizeProvider attaches an optional connectorstore.DBSizeProvider to
+// this ProgressLog. When set, LogExpandProgress will include
+// decompressed_bytes and delta_bytes (growth since the previous log) in its
+// output.
+//
+// nil is a valid value (equivalent to not setting it) and the log falls
+// back to the pre-existing action-count-only output.
+func WithDBSizeProvider(p connectorstore.DBSizeProvider) Option {
+	return func(o *ProgressLog) {
+		o.dbSize = p
 	}
 }
 
@@ -225,8 +247,26 @@ func (p *ProgressLog) LogExpandProgress(ctx context.Context, actions []*expand.E
 	}
 	p.lastActionLog = time.Now()
 
+	fields := []zap.Field{zap.Int("actions_remaining", actionsLen)}
+
+	// When a DBSizeProvider is attached (dotc1z.C1File in production), include
+	// the live uncompressed db size and the growth since the previous log.
+	// Delta is the specific signal that surfaces non-linear growth during
+	// long-running expansions — two adjacent samples at 45 GB → 120 GB say
+	// "abort now" without having to wait for saveC1z to land the final frame.
+	if p.dbSize != nil {
+		size, err := p.dbSize.CurrentDBSizeBytes()
+		if err == nil {
+			fields = append(fields,
+				zap.Int64("decompressed_bytes", size),
+				zap.Int64("delta_bytes", size-p.lastLoggedDBSize),
+			)
+			p.lastLoggedDBSize = size
+		}
+	}
+
 	l := ctxzap.Extract(ctx)
-	l.Info("Expanding grants", zap.Int("actions_remaining", actionsLen))
+	l.Info("Expanding grants", fields...)
 }
 
 // Thread-safe methods for parallel syncer

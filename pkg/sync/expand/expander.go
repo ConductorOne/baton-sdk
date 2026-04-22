@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -22,12 +21,6 @@ const defaultMaxDepth int64 = 20
 
 var maxDepth, _ = strconv.ParseInt(os.Getenv("BATON_GRAPH_EXPAND_MAX_DEPTH"), 10, 64)
 
-// defaultExpansionProgressInterval is how often the Expander emits an
-// "expander: progress" Info log during long expansions. Override with
-// BATON_EXPANSION_PROGRESS_INTERVAL (any time.ParseDuration string, e.g. "10s",
-// "2m"). Setting it to 0 disables progress logging.
-const defaultExpansionProgressInterval = 30 * time.Second
-
 // ErrMaxDepthExceeded is returned when the expansion graph exceeds the maximum allowed depth.
 var ErrMaxDepthExceeded = errors.New("max depth exceeded")
 
@@ -39,57 +32,19 @@ type ExpanderStore interface {
 	UpsertGrants(ctx context.Context, opts connectorstore.GrantUpsertOptions, grants ...*v2.Grant) error
 }
 
-// DBSizeProvider is an optional capability for an ExpanderStore: when the
-// underlying store can report the current uncompressed working-set size
-// (e.g. dotc1z.C1File stat'ing its sqlite file), the Expander includes the
-// size in the periodic progress log. Stores that don't implement it simply
-// get action/depth progress without size.
-type DBSizeProvider interface {
-	CurrentDBSizeBytes() (int64, error)
-}
-
 // Expander handles the grant expansion algorithm.
 // It can be used standalone for testing or called from the syncer.
 type Expander struct {
 	store ExpanderStore
 	graph *EntitlementGraph
-
-	// Progress tracking: periodic Info-level "expander: progress" logs let
-	// operators watch long expansions grow in near-real-time instead of only
-	// learning the final size after the C1File is saved. All fields set in
-	// NewExpander; only mutated from RunSingleStep (single-goroutine by contract).
-	progressInterval time.Duration
-	expansionStart   time.Time
-	lastProgressLog  time.Time
-	lastLoggedSize   int64
-	actionsProcessed int64
 }
 
 // NewExpander creates a new Expander with the given store and graph.
 func NewExpander(store ExpanderStore, graph *EntitlementGraph) *Expander {
-	now := time.Now()
 	return &Expander{
-		store:            store,
-		graph:            graph,
-		progressInterval: resolveProgressInterval(),
-		expansionStart:   now,
-		lastProgressLog:  now,
+		store: store,
+		graph: graph,
 	}
-}
-
-// resolveProgressInterval reads BATON_EXPANSION_PROGRESS_INTERVAL once at
-// Expander creation. Invalid values fall back to the default; "0" or "0s"
-// disables progress logging entirely.
-func resolveProgressInterval() time.Duration {
-	s := os.Getenv("BATON_EXPANSION_PROGRESS_INTERVAL")
-	if s == "" {
-		return defaultExpansionProgressInterval
-	}
-	d, err := time.ParseDuration(s)
-	if err != nil {
-		return defaultExpansionProgressInterval
-	}
-	return d
 }
 
 // Graph returns the entitlement graph.
@@ -119,11 +74,6 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 	l = l.With(zap.Int("depth", e.graph.Depth))
 	l.Debug("expander: starting step")
 
-	// Emit a progress log if enough wall time has elapsed since the last one.
-	// Fires from the top of the step so we get a record even if the step
-	// below errors out — useful when diagnosing aborted long-running expansions.
-	e.maybeLogProgress(ctx)
-
 	// Process current action if any
 	if len(e.graph.Actions) > 0 {
 		action := e.graph.Actions[0]
@@ -134,7 +84,6 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 			if errors.Is(err, sql.ErrNoRows) {
 				// Skip action and delete the edge that caused the error.
 				e.graph.Actions = e.graph.Actions[1:]
-				e.actionsProcessed++
 				return nil
 			}
 			return err
@@ -147,7 +96,6 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 			// Action is complete - mark edge expanded and remove from queue
 			e.graph.MarkEdgeExpanded(action.SourceEntitlementID, action.DescendantEntitlementID)
 			e.graph.Actions = e.graph.Actions[1:]
-			e.actionsProcessed++
 		}
 	}
 
@@ -187,41 +135,6 @@ func (e *Expander) RunSingleStep(ctx context.Context) error {
 
 func (e *Expander) IsDone(ctx context.Context) bool {
 	return e.graph.IsExpanded()
-}
-
-// maybeLogProgress emits an Info-level "expander: progress" log when at least
-// e.progressInterval has elapsed since the previous log. Interval <= 0
-// disables logging. When the store implements DBSizeProvider, the log
-// includes the current uncompressed db size and the delta since the last
-// log — making non-linear growth (e.g. transitive expansion blowing up)
-// visible long before C1File.Close() would report the final size via saveC1z.
-func (e *Expander) maybeLogProgress(ctx context.Context) {
-	if e.progressInterval <= 0 {
-		return
-	}
-	now := time.Now()
-	if now.Sub(e.lastProgressLog) < e.progressInterval {
-		return
-	}
-	e.lastProgressLog = now
-
-	fields := []zap.Field{
-		zap.Int("depth", e.graph.Depth),
-		zap.Int("actions_pending", len(e.graph.Actions)),
-		zap.Int64("actions_processed", e.actionsProcessed),
-		zap.Duration("elapsed", now.Sub(e.expansionStart)),
-	}
-	if p, ok := e.store.(DBSizeProvider); ok {
-		size, err := p.CurrentDBSizeBytes()
-		if err == nil {
-			fields = append(fields,
-				zap.Int64("decompressed_bytes", size),
-				zap.Int64("delta_bytes", size-e.lastLoggedSize),
-			)
-			e.lastLoggedSize = size
-		}
-	}
-	ctxzap.Extract(ctx).Info("expander: progress", fields...)
 }
 
 // runAction processes a single action and returns the next page token.
