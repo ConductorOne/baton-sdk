@@ -286,9 +286,10 @@ func TestDecoder_ReadClipsBytesAtCap(t *testing.T) {
 	fcsFailFastDisabled = true
 	defer func() { fcsFailFastDisabled = orig }()
 
-	// Pick a cap mid-stream so the clip logic has to fire on some Read call.
-	const cap = dbSize/2 + 37
-	d, err := NewDecoder(f, WithDecoderMaxDecodedSize(cap))
+	// Pick a ceiling mid-stream so the clip logic has to fire on some Read
+	// call. Named sizeCap to avoid shadowing the built-in cap().
+	const sizeCap uint64 = dbSize/2 + 37
+	d, err := NewDecoder(f, WithDecoderMaxDecodedSize(sizeCap))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = d.Close() })
 
@@ -298,7 +299,7 @@ func TestDecoder_ReadClipsBytesAtCap(t *testing.T) {
 
 	// The caller must never receive more bytes than the cap — the decoder
 	// should clip the straddling read and surface the error in the same call.
-	require.LessOrEqual(t, uint64(buf.Len()), uint64(cap),
+	require.LessOrEqual(t, buf.Len(), int(sizeCap),
 		"bytes past the cap leaked to the caller")
 
 	// And the bytes we did receive must match the leading prefix of the
