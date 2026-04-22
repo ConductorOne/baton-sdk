@@ -1,6 +1,7 @@
 package dotc1z
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"math/rand"
@@ -254,4 +255,54 @@ func TestDecoder_FCSFailFastKillSwitch(t *testing.T) {
 	require.ErrorIs(t, err, ErrMaxSizeExceeded)
 	require.NotContains(t, err.Error(), "declared decoded size",
 		"kill-switch must route through the overrun path, not the pre-check")
+}
+
+// TestDecoder_ReadClipsBytesAtCap verifies that no bytes past
+// DecoderMaxDecodedSize are returned to the caller, even when a single
+// underlying zstd read would straddle the cap boundary. Addresses the
+// "what if the subsequent read sends us over the limit?" case: we enforce
+// the cap within the Read call instead of only at the start of the next one.
+func TestDecoder_ReadClipsBytesAtCap(t *testing.T) {
+	tmpDir := t.TempDir()
+	const dbSize = 1 << 20 // 1 MiB
+	dbPath := filepath.Join(tmpDir, "src.db")
+	data := make([]byte, dbSize)
+	for i := range data {
+		data[i] = byte(i * 13 % 251)
+	}
+	require.NoError(t, os.WriteFile(dbPath, data, 0600))
+
+	c1zPath := filepath.Join(tmpDir, "out.c1z")
+	require.NoError(t, saveC1z(dbPath, c1zPath, 1))
+
+	f, err := os.Open(c1zPath)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+
+	// Disable the init-time pre-check so we exercise the in-Read clip path:
+	// the decoder has to actually run and decide what to do when a single
+	// read would cross the cap.
+	orig := fcsFailFastDisabled
+	fcsFailFastDisabled = true
+	defer func() { fcsFailFastDisabled = orig }()
+
+	// Pick a cap mid-stream so the clip logic has to fire on some Read call.
+	const cap = dbSize/2 + 37
+	d, err := NewDecoder(f, WithDecoderMaxDecodedSize(cap))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = d.Close() })
+
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, d)
+	require.ErrorIs(t, err, ErrMaxSizeExceeded)
+
+	// The caller must never receive more bytes than the cap — the decoder
+	// should clip the straddling read and surface the error in the same call.
+	require.LessOrEqual(t, uint64(buf.Len()), uint64(cap),
+		"bytes past the cap leaked to the caller")
+
+	// And the bytes we did receive must match the leading prefix of the
+	// original db — proving we clipped the end, not some arbitrary middle.
+	require.Equal(t, data[:buf.Len()], buf.Bytes(),
+		"clipped bytes must be the leading prefix of the stream")
 }

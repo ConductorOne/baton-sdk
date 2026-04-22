@@ -275,24 +275,38 @@ func (d *decoder) Read(p []byte) (int, error) {
 		return 0, d.o.ctx.Err()
 	}
 
-	// Check we have not exceeded our max decoded size. When the frame declared
-	// its size and was within the cap, this overrun path is effectively
-	// unreachable; it remains as defense against a mismatched FCS.
+	// Enforce max decoded size at both ends of the underlying Read:
+	// - Top-of-call: short-circuit subsequent Reads after we've already tripped.
+	// - Post-call: clip `n` so bytes beyond the cap never reach the caller,
+	//   even when a single zstd read straddles the cap boundary.
+	// When FCS is present and within the cap the post-call branch is
+	// unreachable; it's defense against a missing or mismatched FCS.
 	maxDecodedSize := d.getMaxDecodedSize()
 	if d.decodedBytes > maxDecodedSize {
-		if d.hasDeclaredSize {
-			return 0, fmt.Errorf(
-				"c1z: max decoded size exceeded: %d > %d (declared: %d): %w",
-				d.decodedBytes, maxDecodedSize, d.declaredSize, ErrMaxSizeExceeded,
-			)
-		}
-		return 0, fmt.Errorf("c1z: max decoded size exceeded: %d > %d: %w", d.decodedBytes, maxDecodedSize, ErrMaxSizeExceeded)
+		return 0, d.maxSizeExceededErr()
 	}
 
 	// Do underlying read
 	n, err := d.zd.Read(p)
 	//nolint:gosec // No risk of overflow/underflow because n is always >= 0.
 	d.decodedBytes += uint64(n)
+
+	// Clip any bytes that crossed the cap in this single Read so we never
+	// return data past maxDecodedSize, and surface the error immediately
+	// instead of waiting for the next Read.
+	if d.decodedBytes > maxDecodedSize {
+		overrun := d.decodedBytes - maxDecodedSize
+		//nolint:gosec // overrun <= n by construction (we just added n and went over).
+		if uint64(n) >= overrun {
+			n -= int(overrun)
+		} else {
+			n = 0
+		}
+		// Leave d.decodedBytes at its true post-read value so subsequent
+		// Reads hit the top-of-call guard above.
+		return n, d.maxSizeExceededErr()
+	}
+
 	if err != nil {
 		// NOTE(morgabra) This happens if you set a small DecoderMaxMemory
 		if errors.Is(err, zstd.ErrWindowSizeExceeded) {
@@ -301,6 +315,21 @@ func (d *decoder) Read(p []byte) (int, error) {
 		return n, err
 	}
 	return n, nil
+}
+
+// maxSizeExceededErr builds the ErrMaxSizeExceeded wrap emitted from both the
+// top-of-Read guard and the in-Read clip path. Includes the declared size
+// when FCS was advertised so callers see the exact stream size without
+// decompressing further.
+func (d *decoder) maxSizeExceededErr() error {
+	maxDecodedSize := d.getMaxDecodedSize()
+	if d.hasDeclaredSize {
+		return fmt.Errorf(
+			"c1z: max decoded size exceeded: %d > %d (declared: %d): %w",
+			d.decodedBytes, maxDecodedSize, d.declaredSize, ErrMaxSizeExceeded,
+		)
+	}
+	return fmt.Errorf("c1z: max decoded size exceeded: %d > %d: %w", d.decodedBytes, maxDecodedSize, ErrMaxSizeExceeded)
 }
 
 func (d *decoder) Close() error {
