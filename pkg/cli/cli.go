@@ -20,22 +20,37 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+// ConnectorConfigSnapshot is the authoritative config snapshot returned by C1
+// for a managed connector generation. It carries the encrypted connector config
+// payload plus the resolved runtime assets the framework needs to rebuild the
+// connector in place.
 type ConnectorConfigSnapshot struct {
 	Config        *structpb.Struct
 	RuntimeState  *v1.RuntimeState
+	RuntimeSchema []byte
 	RuntimeBundle []byte
+	RuntimePolicy []byte
 }
 
-type RunTimeOpts struct {
-	SessionStore          sessions.SessionStore
-	TokenSource           oauth2.TokenSource
-	SelectedAuthMethod    string
-	SyncResourceTypeIDs   []string
-	RuntimeState          *v1.RuntimeState
-	RuntimeBundle         []byte
+// ManagedRuntimeOpts groups the framework-owned snapshot and refresh plumbing
+// used by managed runtimes. Native connectors can ignore this block entirely.
+type ManagedRuntimeOpts struct {
+	Snapshot              *ConnectorConfigSnapshot
 	BootstrapConfig       map[string]any
 	ConnectorConfigClient v1.ConnectorConfigServiceClient
 	ReloadConnectorConfig func(context.Context) (*ConnectorConfigSnapshot, error)
+}
+
+// RunTimeOpts carries framework-owned runtime state and assets into a connector
+// factory invocation. Native connectors typically use only the auth/session
+// pieces. Managed runtimes opt into the additional snapshot/reload plumbing by
+// populating ManagedRuntime.
+type RunTimeOpts struct {
+	SessionStore        sessions.SessionStore
+	TokenSource         oauth2.TokenSource
+	SelectedAuthMethod  string
+	SyncResourceTypeIDs []string
+	ManagedRuntime      *ManagedRuntimeOpts
 }
 
 func CloneConfigSettings(v *viper.Viper) map[string]any {

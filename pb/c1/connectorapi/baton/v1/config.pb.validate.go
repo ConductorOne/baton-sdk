@@ -173,6 +173,8 @@ func (m *RuntimeState) validate(all bool) error {
 
 	// no validation rules for RuntimeConfigContractDigest
 
+	// no validation rules for EffectiveRuntimePolicyDigest
+
 	if len(errors) > 0 {
 		return RuntimeStateMultiError(errors)
 	}

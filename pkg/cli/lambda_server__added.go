@@ -58,7 +58,9 @@ func fetchConnectorConfigSnapshot(
 	return &ConnectorConfigSnapshot{
 		Config:        configStruct,
 		RuntimeState:  config.GetRuntimeState(),
+		RuntimeSchema: nil,
 		RuntimeBundle: runtimeBundle,
+		RuntimePolicy: nil,
 	}, nil
 }
 
@@ -249,14 +251,15 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
 				}
 			}),
-			SelectedAuthMethod:    authMethodStr,
-			SyncResourceTypeIDs:   v.GetStringSlice("sync-resource-types"),
-			RuntimeState:          configSnapshot.RuntimeState,
-			RuntimeBundle:         configSnapshot.RuntimeBundle,
-			BootstrapConfig:       bootstrapConfig,
-			ConnectorConfigClient: configClient,
-			ReloadConnectorConfig: func(ctx context.Context) (*ConnectorConfigSnapshot, error) {
-				return fetchConnectorConfigSnapshot(ctx, configClient, ed25519PrivateKey)
+			SelectedAuthMethod:  authMethodStr,
+			SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
+			ManagedRuntime: &ManagedRuntimeOpts{
+				Snapshot:              configSnapshot,
+				BootstrapConfig:       bootstrapConfig,
+				ConnectorConfigClient: configClient,
+				ReloadConnectorConfig: func(ctx context.Context) (*ConnectorConfigSnapshot, error) {
+					return fetchConnectorConfigSnapshot(ctx, configClient, ed25519PrivateKey)
+				},
 			},
 		}
 

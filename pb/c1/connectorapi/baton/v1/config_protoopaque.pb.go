@@ -67,16 +67,17 @@ func (b0 GetConnectorConfigRequest_builder) Build() *GetConnectorConfigRequest {
 }
 
 type RuntimeState struct {
-	state                                  protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_RuntimeRevisionId           string                 `protobuf:"bytes,1,opt,name=runtime_revision_id,json=runtimeRevisionId,proto3"`
-	xxx_hidden_RuntimeGeneration           int64                  `protobuf:"varint,2,opt,name=runtime_generation,json=runtimeGeneration,proto3"`
-	xxx_hidden_ReleaseRevisionId           string                 `protobuf:"bytes,3,opt,name=release_revision_id,json=releaseRevisionId,proto3"`
-	xxx_hidden_EffectiveBundleDigest       string                 `protobuf:"bytes,4,opt,name=effective_bundle_digest,json=effectiveBundleDigest,proto3"`
-	xxx_hidden_InstanceConfigRevisionId    string                 `protobuf:"bytes,5,opt,name=instance_config_revision_id,json=instanceConfigRevisionId,proto3"`
-	xxx_hidden_InstanceConfigDigest        string                 `protobuf:"bytes,6,opt,name=instance_config_digest,json=instanceConfigDigest,proto3"`
-	xxx_hidden_RuntimeConfigContractDigest string                 `protobuf:"bytes,7,opt,name=runtime_config_contract_digest,json=runtimeConfigContractDigest,proto3"`
-	unknownFields                          protoimpl.UnknownFields
-	sizeCache                              protoimpl.SizeCache
+	state                                   protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_RuntimeRevisionId            string                 `protobuf:"bytes,1,opt,name=runtime_revision_id,json=runtimeRevisionId,proto3"`
+	xxx_hidden_RuntimeGeneration            int64                  `protobuf:"varint,2,opt,name=runtime_generation,json=runtimeGeneration,proto3"`
+	xxx_hidden_ReleaseRevisionId            string                 `protobuf:"bytes,3,opt,name=release_revision_id,json=releaseRevisionId,proto3"`
+	xxx_hidden_EffectiveBundleDigest        string                 `protobuf:"bytes,4,opt,name=effective_bundle_digest,json=effectiveBundleDigest,proto3"`
+	xxx_hidden_InstanceConfigRevisionId     string                 `protobuf:"bytes,5,opt,name=instance_config_revision_id,json=instanceConfigRevisionId,proto3"`
+	xxx_hidden_InstanceConfigDigest         string                 `protobuf:"bytes,6,opt,name=instance_config_digest,json=instanceConfigDigest,proto3"`
+	xxx_hidden_RuntimeConfigContractDigest  string                 `protobuf:"bytes,7,opt,name=runtime_config_contract_digest,json=runtimeConfigContractDigest,proto3"`
+	xxx_hidden_EffectiveRuntimePolicyDigest string                 `protobuf:"bytes,8,opt,name=effective_runtime_policy_digest,json=effectiveRuntimePolicyDigest,proto3"`
+	unknownFields                           protoimpl.UnknownFields
+	sizeCache                               protoimpl.SizeCache
 }
 
 func (x *RuntimeState) Reset() {
@@ -153,6 +154,13 @@ func (x *RuntimeState) GetRuntimeConfigContractDigest() string {
 	return ""
 }
 
+func (x *RuntimeState) GetEffectiveRuntimePolicyDigest() string {
+	if x != nil {
+		return x.xxx_hidden_EffectiveRuntimePolicyDigest
+	}
+	return ""
+}
+
 func (x *RuntimeState) SetRuntimeRevisionId(v string) {
 	x.xxx_hidden_RuntimeRevisionId = v
 }
@@ -181,16 +189,21 @@ func (x *RuntimeState) SetRuntimeConfigContractDigest(v string) {
 	x.xxx_hidden_RuntimeConfigContractDigest = v
 }
 
+func (x *RuntimeState) SetEffectiveRuntimePolicyDigest(v string) {
+	x.xxx_hidden_EffectiveRuntimePolicyDigest = v
+}
+
 type RuntimeState_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	RuntimeRevisionId           string
-	RuntimeGeneration           int64
-	ReleaseRevisionId           string
-	EffectiveBundleDigest       string
-	InstanceConfigRevisionId    string
-	InstanceConfigDigest        string
-	RuntimeConfigContractDigest string
+	RuntimeRevisionId            string
+	RuntimeGeneration            int64
+	ReleaseRevisionId            string
+	EffectiveBundleDigest        string
+	InstanceConfigRevisionId     string
+	InstanceConfigDigest         string
+	RuntimeConfigContractDigest  string
+	EffectiveRuntimePolicyDigest string
 }
 
 func (b0 RuntimeState_builder) Build() *RuntimeState {
@@ -204,6 +217,7 @@ func (b0 RuntimeState_builder) Build() *RuntimeState {
 	x.xxx_hidden_InstanceConfigRevisionId = b.InstanceConfigRevisionId
 	x.xxx_hidden_InstanceConfigDigest = b.InstanceConfigDigest
 	x.xxx_hidden_RuntimeConfigContractDigest = b.RuntimeConfigContractDigest
+	x.xxx_hidden_EffectiveRuntimePolicyDigest = b.EffectiveRuntimePolicyDigest
 	return m0
 }
 
@@ -839,7 +853,7 @@ var File_c1_connectorapi_baton_v1_config_proto protoreflect.FileDescriptor
 const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
 	"\n" +
 	"%c1/connectorapi/baton/v1/config.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x1b\n" +
-	"\x19GetConnectorConfigRequest\"\x8f\x03\n" +
+	"\x19GetConnectorConfigRequest\"\xd6\x03\n" +
 	"\fRuntimeState\x12.\n" +
 	"\x13runtime_revision_id\x18\x01 \x01(\tR\x11runtimeRevisionId\x12-\n" +
 	"\x12runtime_generation\x18\x02 \x01(\x03R\x11runtimeGeneration\x12.\n" +
@@ -847,7 +861,8 @@ const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
 	"\x17effective_bundle_digest\x18\x04 \x01(\tR\x15effectiveBundleDigest\x12=\n" +
 	"\x1binstance_config_revision_id\x18\x05 \x01(\tR\x18instanceConfigRevisionId\x124\n" +
 	"\x16instance_config_digest\x18\x06 \x01(\tR\x14instanceConfigDigest\x12C\n" +
-	"\x1eruntime_config_contract_digest\x18\a \x01(\tR\x1bruntimeConfigContractDigest\"\xc0\x01\n" +
+	"\x1eruntime_config_contract_digest\x18\a \x01(\tR\x1bruntimeConfigContractDigest\x12E\n" +
+	"\x1feffective_runtime_policy_digest\x18\b \x01(\tR\x1ceffectiveRuntimePolicyDigest\"\xc0\x01\n" +
 	"\x1aGetConnectorConfigResponse\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12=\n" +
 	"\flast_updated\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\x12K\n" +

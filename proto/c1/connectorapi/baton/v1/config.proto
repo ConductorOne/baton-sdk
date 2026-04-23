@@ -23,6 +23,7 @@ message RuntimeState {
   string instance_config_revision_id = 5;
   string instance_config_digest = 6;
   string runtime_config_contract_digest = 7;
+  string effective_runtime_policy_digest = 8;
 }
 
 message GetConnectorConfigResponse {
