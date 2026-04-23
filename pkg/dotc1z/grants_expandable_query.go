@@ -230,7 +230,6 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	unmarshalerOptions := proto.UnmarshalOptions{
 		Merge:          true,
@@ -242,6 +241,12 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		lastRow int64
 	)
 	result := make([]*connectorstore.InternalGrantRow, 0, pageSize)
+	// Only populated when a slim row is observed — on pre-slim c1zs
+	// (every existing tenant today) these slices stay nil and the
+	// hydration pass is skipped entirely.
+	var pageGrants []*v2.Grant
+	var pageKeys []grantJoinKeys
+	var sawSlim bool
 
 	for rows.Next() {
 		count++
@@ -269,12 +274,14 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 			&expansionBlob,
 			&needsExp,
 		); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		lastRow = rowID
 
 		grant := &v2.Grant{}
 		if err := unmarshalerOptions.Unmarshal(grantData, grant); err != nil {
+			rows.Close()
 			return nil, err
 		}
 
@@ -282,6 +289,7 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		if len(expansionBlob) > 0 {
 			ge := &v2.GrantExpandable{}
 			if err := proto.Unmarshal(expansionBlob, ge); err != nil {
+				rows.Close()
 				return nil, fmt.Errorf("failed to unmarshal grant expansion for %s: %w", externalID, err)
 			}
 			expansion = &connectorstore.ExpandableGrantDef{
@@ -300,9 +308,34 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 			Grant:     grant,
 			Expansion: expansion,
 		})
+		if grant.GetEntitlement() == nil || grant.GetPrincipal() == nil {
+			if !sawSlim {
+				pageGrants = make([]*v2.Grant, 0, pageSize)
+				pageKeys = make([]grantJoinKeys, 0, pageSize)
+				sawSlim = true
+			}
+			pageGrants = append(pageGrants, grant)
+			pageKeys = append(pageKeys, grantJoinKeys{
+				EntitlementID:           entID,
+				PrincipalResourceTypeID: principalRTID,
+				PrincipalResourceID:     principalRID,
+			})
+		}
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, err
+	}
+	// Close rows before hydration to release the pooled SQLite connection —
+	// SetMaxOpenConns(1) would otherwise deadlock any follow-up query.
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	if sawSlim {
+		if err := hydrateGrants(ctx, c, syncID, pageGrants, pageKeys); err != nil {
+			return nil, err
+		}
 	}
 
 	nextPageToken := ""
@@ -326,7 +359,13 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		return nil, err
 	}
 
-	q := c.db.From(grants.Name()).Prepared(true).Select("id", "data")
+	q := c.db.From(grants.Name()).Prepared(true).Select(
+		"id",
+		"data",
+		"entitlement_id",
+		"principal_resource_type_id",
+		"principal_resource_id",
+	)
 	if opts.Resource != nil {
 		q = q.Where(goqu.C("resource_id").Eq(opts.Resource.GetId().GetResource()))
 		q = q.Where(goqu.C("resource_type_id").Eq(opts.Resource.GetId().GetResourceType()))
@@ -356,16 +395,18 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	unmarshalerOptions := proto.UnmarshalOptions{
 		Merge:          true,
 		DiscardUnknown: true,
 	}
 	result := make([]*connectorstore.InternalGrantRow, 0, pageSize)
+	var pageGrants []*v2.Grant
+	var pageKeys []grantJoinKeys
 	var (
 		count   uint32
 		lastRow int64
+		sawSlim bool
 	)
 	for rows.Next() {
 		count++
@@ -374,22 +415,52 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		}
 
 		var (
-			rowID     int64
-			grantData []byte
+			rowID         int64
+			grantData     []byte
+			entID         string
+			principalRTID string
+			principalRID  string
 		)
-		if err := rows.Scan(&rowID, &grantData); err != nil {
+		if err := rows.Scan(&rowID, &grantData, &entID, &principalRTID, &principalRID); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		lastRow = rowID
 
 		grant := &v2.Grant{}
 		if err := unmarshalerOptions.Unmarshal(grantData, grant); err != nil {
+			rows.Close()
 			return nil, err
 		}
 		result = append(result, &connectorstore.InternalGrantRow{Grant: grant})
+		if grant.GetEntitlement() == nil || grant.GetPrincipal() == nil {
+			if !sawSlim {
+				pageGrants = make([]*v2.Grant, 0, pageSize)
+				pageKeys = make([]grantJoinKeys, 0, pageSize)
+				sawSlim = true
+			}
+			pageGrants = append(pageGrants, grant)
+			pageKeys = append(pageKeys, grantJoinKeys{
+				EntitlementID:           entID,
+				PrincipalResourceTypeID: principalRTID,
+				PrincipalResourceID:     principalRID,
+			})
+		}
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return nil, err
+	}
+	// Release the pooled connection before hydration — see comment in
+	// listGrantsWithExpansionInternal above.
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	if sawSlim {
+		if err := hydrateGrants(ctx, c, syncID, pageGrants, pageKeys); err != nil {
+			return nil, err
+		}
 	}
 
 	nextPageToken := ""

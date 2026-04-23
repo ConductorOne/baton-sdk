@@ -69,6 +69,15 @@ type C1File struct {
 	// Sync cleanup settings
 	syncLimit   int
 	skipCleanup bool
+
+	// v2GrantsWriter, when true, causes PutGrants/UpsertGrants to strip
+	// Grant.Entitlement and Grant.Principal from the serialized data blob.
+	// Those fields are reconstituted at read time via joins against
+	// v1_entitlements and v1_resources. Readers handle full and slim
+	// blobs transparently per row, so mixed syncs in the same table are
+	// supported. Default false; enabled via WithC1FV2GrantsWriter /
+	// WithV2GrantsWriter.
+	v2GrantsWriter bool
 }
 
 var (
@@ -117,6 +126,17 @@ func WithC1FSkipCleanup(skip bool) C1FOption {
 func WithC1FSyncCountLimit(limit int) C1FOption {
 	return func(o *C1File) {
 		o.syncLimit = limit
+	}
+}
+
+// WithC1FV2GrantsWriter toggles the slim-blob writer path for grants.
+// When true, Grant.Entitlement and Grant.Principal are stripped from the
+// serialized data blob at write time; readers reconstitute them from
+// v1_entitlements / v1_resources. Default false. Readers always accept
+// both shapes regardless of this flag.
+func WithC1FV2GrantsWriter(enabled bool) C1FOption {
+	return func(o *C1File) {
+		o.v2GrantsWriter = enabled
 	}
 }
 
@@ -179,6 +199,7 @@ type c1zOptions struct {
 	encoderConcurrency int
 	syncLimit          int
 	skipCleanup        bool
+	v2GrantsWriter     bool
 }
 
 type C1ZOption func(*c1zOptions)
@@ -235,6 +256,14 @@ func WithSyncLimit(limit int) C1ZOption {
 	}
 }
 
+// WithV2GrantsWriter toggles the slim-blob writer path for grants.
+// See WithC1FV2GrantsWriter for details.
+func WithV2GrantsWriter(enabled bool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.v2GrantsWriter = enabled
+	}
+}
+
 // Returns a new C1File instance with its state stored at the provided filename.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
@@ -277,6 +306,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	}
 	if options.skipCleanup {
 		c1fopts = append(c1fopts, WithC1FSkipCleanup(true))
+	}
+	if options.v2GrantsWriter {
+		c1fopts = append(c1fopts, WithC1FV2GrantsWriter(true))
 	}
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)

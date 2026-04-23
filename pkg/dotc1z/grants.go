@@ -3,7 +3,9 @@ package dotc1z
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/doug-martin/goqu/v9"
 	"google.golang.org/protobuf/proto"
@@ -115,7 +117,7 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	ret, nextPageToken, err := listGrantsGeneric(ctx, c, request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants: %w", err)
 	}
@@ -124,6 +126,184 @@ func (c *C1File) ListGrants(ctx context.Context, request *v2.GrantsServiceListGr
 		List:          ret,
 		NextPageToken: nextPageToken,
 	}.Build(), nil
+}
+
+// listGrantsGeneric is the grants-specific list implementation backing
+// ListGrants / ListGrantsFor{Entitlement,Principal,ResourceType}. It
+// mirrors the filter dispatch of the generic listConnectorObjects but
+// pulls sync_id + the three join-key columns (entitlement_id,
+// principal_resource_type_id, principal_resource_id) in the main
+// SELECT so the slim-blob hydration pass does not need a second query
+// and is always scoped to the row's own sync_id.
+//
+// Hydration short-circuits when no row on the page is slim (no nil
+// Entitlement / Principal). When a page spans multiple sync_ids (only
+// possible when the sync_id resolution cascade returns empty, which
+// leaves the query unscoped), rows are grouped by sync_id before
+// hydration so joins never cross a sync boundary.
+func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.Grant, string, error) {
+	if err := c.validateDb(ctx); err != nil {
+		return nil, "", err
+	}
+
+	reqSyncID, err := resolveSyncID(ctx, c, req)
+	if err != nil {
+		return nil, "", err
+	}
+
+	tableName := grants.Name()
+	q := c.db.From(tableName).Prepared(true).Select(
+		"id",
+		"data",
+		"sync_id",
+		"entitlement_id",
+		"principal_resource_type_id",
+		"principal_resource_id",
+	)
+
+	// Filter predicates — mirrors listConnectorObjects.
+	if resourceTypeReq, ok := req.(hasResourceTypeListRequest); ok {
+		rt := resourceTypeReq.GetResourceTypeId()
+		if rt != "" {
+			q = q.Where(goqu.C("resource_type_id").Eq(rt))
+		}
+	}
+	if resourceIdReq, ok := req.(hasResourceIdListRequest); ok {
+		r := resourceIdReq.GetResourceId()
+		if r != nil && r.GetResource() != "" {
+			q = q.Where(goqu.C("resource_id").Eq(r.GetResource()))
+			q = q.Where(goqu.C("resource_type_id").Eq(r.GetResourceType()))
+		}
+	}
+	if resourceReq, ok := req.(hasResourceListRequest); ok {
+		r := resourceReq.GetResource()
+		if r != nil {
+			q = q.Where(goqu.C("resource_id").Eq(r.GetId().GetResource()))
+			q = q.Where(goqu.C("resource_type_id").Eq(r.GetId().GetResourceType()))
+		}
+	}
+	if entitlementReq, ok := req.(hasEntitlementListRequest); ok {
+		e := entitlementReq.GetEntitlement()
+		if e != nil {
+			q = q.Where(goqu.C("entitlement_id").Eq(e.GetId()))
+		}
+	}
+	if principalIdReq, ok := req.(hasPrincipalIdListRequest); ok {
+		p := principalIdReq.GetPrincipalId()
+		if p != nil {
+			q = q.Where(goqu.C("principal_resource_id").Eq(p.GetResource()))
+			q = q.Where(goqu.C("principal_resource_type_id").Eq(p.GetResourceType()))
+		}
+	}
+	if principalResourceTypeIDsReq, ok := req.(hasPrincipalResourceTypeIDsListRequest); ok {
+		p := principalResourceTypeIDsReq.GetPrincipalResourceTypeIds()
+		if len(p) > 0 {
+			q = q.Where(goqu.C("principal_resource_type_id").In(p))
+		}
+	}
+
+	if reqSyncID != "" {
+		q = q.Where(goqu.C("sync_id").Eq(reqSyncID))
+	}
+	if req.GetPageToken() != "" {
+		q = q.Where(goqu.C("id").Gte(req.GetPageToken()))
+	}
+
+	pageSize := req.GetPageSize()
+	if pageSize > maxPageSize || pageSize == 0 {
+		pageSize = maxPageSize
+	}
+	q = q.Order(goqu.C("id").Asc()).Limit(uint(pageSize + 1))
+
+	query, args, err := q.ToSQL()
+	if err != nil {
+		return nil, "", err
+	}
+
+	queryStart := time.Now()
+	rows, err := c.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	if dur := time.Since(queryStart); dur > c.slowQueryThreshold {
+		c.throttledWarnSlowQuery(ctx, query, dur)
+	}
+
+	unmarshal := proto.UnmarshalOptions{Merge: true, DiscardUnknown: true}
+
+	out := make([]*v2.Grant, 0, pageSize)
+	// Slim bookkeeping is only allocated on first slim row observed. On a
+	// pre-slim c1z (every existing tenant today) these stay nil and the
+	// hydration pass is skipped.
+	var slimGrants []*v2.Grant
+	var slimKeys []grantJoinKeys
+	var slimSyncIDs []string
+	var (
+		count   uint32
+		lastRow int
+	)
+	for rows.Next() {
+		count++
+		if count > pageSize {
+			break
+		}
+		var (
+			rowID         int
+			data          []byte
+			rowSyncID     string
+			entID         string
+			principalRTID string
+			principalRID  string
+		)
+		if err := rows.Scan(&rowID, &data, &rowSyncID, &entID, &principalRTID, &principalRID); err != nil {
+			rows.Close()
+			return nil, "", err
+		}
+		lastRow = rowID
+
+		g := &v2.Grant{}
+		if err := unmarshal.Unmarshal(data, g); err != nil {
+			rows.Close()
+			return nil, "", err
+		}
+		out = append(out, g)
+		if g.GetEntitlement() == nil || g.GetPrincipal() == nil {
+			if slimGrants == nil {
+				slimGrants = make([]*v2.Grant, 0, pageSize)
+				slimKeys = make([]grantJoinKeys, 0, pageSize)
+				slimSyncIDs = make([]string, 0, pageSize)
+			}
+			slimGrants = append(slimGrants, g)
+			slimKeys = append(slimKeys, grantJoinKeys{
+				EntitlementID:           entID,
+				PrincipalResourceTypeID: principalRTID,
+				PrincipalResourceID:     principalRID,
+			})
+			slimSyncIDs = append(slimSyncIDs, rowSyncID)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, "", err
+	}
+	// Close rows before hydration: the DB is capped at SetMaxOpenConns(1),
+	// so any follow-up query (batchFetchEntitlements etc.) would deadlock
+	// waiting for the connection this cursor holds.
+	if err := rows.Close(); err != nil {
+		return nil, "", err
+	}
+
+	if len(slimGrants) > 0 {
+		if err := hydrateGrantsGroupedBySync(ctx, c, slimGrants, slimKeys, slimSyncIDs); err != nil {
+			return nil, "", err
+		}
+	}
+
+	nextPageToken := ""
+	if count > pageSize {
+		nextPageToken = strconv.Itoa(lastRow + 1)
+	}
+	return out, nextPageToken, nil
 }
 
 func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderServiceGetGrantRequest) (*reader_v2.GrantsReaderServiceGetGrantResponse, error) {
@@ -141,9 +321,53 @@ func (c *C1File) GetGrant(ctx context.Context, request *reader_v2.GrantsReaderSe
 		return nil, fmt.Errorf("error fetching grant '%s': %w", request.GetGrantId(), err)
 	}
 
+	// Hydrate Entitlement / Principal when the row was written by the
+	// slim-blob writer. Non-slim rows short-circuit. We re-resolve the
+	// sync id with the same cascade getConnectorObject used so the
+	// join-key lookup hits the same row.
+	if ret.GetEntitlement() == nil || ret.GetPrincipal() == nil {
+		resolvedSyncID, rerr := c.resolveSyncIDForGrantGet(ctx, syncId)
+		if rerr != nil {
+			return nil, fmt.Errorf("error resolving sync id for grant '%s': %w", request.GetGrantId(), rerr)
+		}
+		if herr := hydrateSingleGrant(ctx, c, resolvedSyncID, ret); herr != nil {
+			return nil, fmt.Errorf("error hydrating grant '%s': %w", request.GetGrantId(), herr)
+		}
+	}
+
 	return reader_v2.GrantsReaderServiceGetGrantResponse_builder{
 		Grant: ret,
 	}.Build(), nil
+}
+
+// resolveSyncIDForGrantGet mirrors the sync_id resolution cascade used
+// by getConnectorObject: explicit > currentSyncID > viewSyncID > latest
+// finished > latest unfinished. Needed so slim-grant hydration after
+// GetGrant queries the same row getConnectorObject saw.
+func (c *C1File) resolveSyncIDForGrantGet(ctx context.Context, explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	if c.currentSyncID != "" {
+		return c.currentSyncID, nil
+	}
+	if c.viewSyncID != "" {
+		return c.viewSyncID, nil
+	}
+	latestSyncRun, err := c.getFinishedSync(ctx, 0, connectorstore.SyncTypeAny)
+	if err != nil {
+		return "", err
+	}
+	if latestSyncRun == nil {
+		latestSyncRun, err = c.getLatestUnfinishedSync(ctx, connectorstore.SyncTypeAny)
+		if err != nil {
+			return "", err
+		}
+	}
+	if latestSyncRun == nil {
+		return "", nil
+	}
+	return latestSyncRun.ID, nil
 }
 
 func (c *C1File) ListGrantsForEntitlement(
@@ -153,7 +377,7 @@ func (c *C1File) ListGrantsForEntitlement(
 	ctx, span := tracer.Start(ctx, "C1File.ListGrantsForEntitlement")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	ret, nextPageToken, err := listGrantsGeneric(ctx, c, request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for entitlement '%s': %w", request.GetEntitlement().GetId(), err)
 	}
@@ -172,7 +396,7 @@ func (c *C1File) ListGrantsForPrincipal(
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	ret, nextPageToken, err := listGrantsGeneric(ctx, c, request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for principal '%s': %w", request.GetPrincipalId(), err)
 	}
@@ -191,7 +415,7 @@ func (c *C1File) ListGrantsForResourceType(
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 
-	ret, nextPageToken, err := listConnectorObjects(ctx, c, grants.Name(), request, func() *v2.Grant { return &v2.Grant{} })
+	ret, nextPageToken, err := listGrantsGeneric(ctx, c, request)
 	if err != nil {
 		return nil, fmt.Errorf("error listing grants for resource type '%s': %w", request.GetResourceTypeId(), err)
 	}
@@ -253,21 +477,45 @@ func baseGrantRecord(grant *v2.Grant) goqu.Record {
 	}
 }
 
-func grantExtractFields(mode connectorstore.GrantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
+func grantExtractFields(c *C1File, mode connectorstore.GrantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
 	return func(grant *v2.Grant) (goqu.Record, error) {
 		rec := baseGrantRecord(grant)
-		if mode == connectorstore.GrantUpsertModePreserveExpansion {
+		slim := c.v2GrantsWriter
+		preserveExpansion := mode == connectorstore.GrantUpsertModePreserveExpansion
+
+		// PreserveExpansion mode does not touch the expansion / needs_expansion
+		// columns — the UPSERT's ON CONFLICT branch keeps existing values. The
+		// data blob still needs to be slimmed when the writer option is on,
+		// otherwise slim-writer tenants would silently store full blobs for
+		// every grant that came through the expander (the majority for
+		// group-grant-heavy tenants).
+		if preserveExpansion {
+			if !slim {
+				return rec, nil
+			}
+			stripped := proto.Clone(grant).(*v2.Grant)
+			slimGrantForWrite(stripped)
+			data, err := protoMarshaler.Marshal(stripped)
+			if err != nil {
+				return nil, fmt.Errorf("error marshaling slim grant (PreserveExpansion): %w", err)
+			}
+			rec["data"] = data
 			return rec, nil
 		}
 
-		if !hasGrantExpandable(grant) {
+		hasExp := hasGrantExpandable(grant)
+		if !hasExp && !slim {
 			rec["expansion"] = nil
 			rec["needs_expansion"] = false
 			return rec, nil
 		}
 
 		stripped := proto.Clone(grant).(*v2.Grant)
-		expansionBytes, needsExpansion := extractAndStripExpansion(stripped)
+		var expansionBytes []byte
+		var needsExpansion bool
+		if hasExp {
+			expansionBytes, needsExpansion = extractAndStripExpansion(stripped)
+		}
 		// Use untyped nil for SQL NULL to avoid driver-specific []byte(nil)->X'' coercion.
 		if expansionBytes == nil {
 			rec["expansion"] = nil
@@ -276,13 +524,31 @@ func grantExtractFields(mode connectorstore.GrantUpsertMode) func(grant *v2.Gran
 		}
 		rec["needs_expansion"] = needsExpansion
 
+		if slim {
+			slimGrantForWrite(stripped)
+		}
+
 		strippedData, err := protoMarshaler.Marshal(stripped)
 		if err != nil {
-			return nil, fmt.Errorf("error marshaling grant after stripping expansion: %w", err)
+			return nil, fmt.Errorf("error marshaling grant: %w", err)
 		}
 		rec["data"] = strippedData
 		return rec, nil
 	}
+}
+
+// slimGrantForWrite zeroes Grant.Entitlement and Grant.Principal on a
+// cloned grant before it is marshaled into the data blob. The reader
+// reconstitutes both fields from v1_entitlements / v1_resources using
+// the grant row's indexed columns (entitlement_id, principal_resource_type_id,
+// principal_resource_id, sync_id).
+//
+// Grant.Id is intentionally NOT zeroed — keeping it costs ~40 B/grant (vs.
+// ~390 B savings from the two message fields) and avoids routing hydration
+// through the generic single-row getConnectorObject path that backs GetGrant.
+func slimGrantForWrite(grant *v2.Grant) {
+	grant.SetEntitlement(nil)
+	grant.SetPrincipal(nil)
 }
 
 func upsertGrantsInternal(
@@ -302,7 +568,7 @@ func upsertGrantsInternal(
 		return err
 	}
 
-	rows, err := prepareConnectorObjectRows(c, msgs, grantExtractFields(mode))
+	rows, err := prepareConnectorObjectRows(c, msgs, grantExtractFields(c, mode))
 	if err != nil {
 		return err
 	}
