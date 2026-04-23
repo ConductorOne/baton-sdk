@@ -396,6 +396,13 @@ func MakeMainCommand[T field.Configurable](
 			opts = append(opts, connectorrunner.WithSkipGrants(v.GetBool("skip-grants")))
 		}
 
+		grpcMaxMsgSize := v.GetInt(field.GRPCMaxMsgSizeField.GetName())
+		grpcMaxMsgSizeField := field.GRPCMaxMsgSizeField
+		if _, err := field.ValidateField(&grpcMaxMsgSizeField, grpcMaxMsgSize); err != nil {
+			return err
+		}
+		opts = append(opts, connectorrunner.WithGRPCMaxMsgSize(grpcMaxMsgSize))
+
 		httpTimeout := v.GetInt(field.HttpTimeoutField.GetName())
 		if httpTimeout <= 0 {
 			return fmt.Errorf("field %s: value must be greater than or equal to 1 but got %d", field.HttpTimeoutField.GetName(), httpTimeout)
@@ -640,6 +647,13 @@ func MakeGRPCServerCommand[T field.Configurable](
 		case v.GetBool("get-ticket"):
 			copts = append(copts, connector.WithTicketingEnabled())
 		}
+
+		grpcMaxMsgSize := v.GetInt(field.GRPCMaxMsgSizeField.GetName())
+		grpcMaxMsgSizeField := field.GRPCMaxMsgSizeField
+		if _, err := field.ValidateField(&grpcMaxMsgSizeField, grpcMaxMsgSize); err != nil {
+			return err
+		}
+		copts = append(copts, connector.WithGRPCMaxMsgSize(grpcMaxMsgSize))
 
 		cw, err := connector.NewWrapper(runCtx, c, copts...)
 		if err != nil {

@@ -432,11 +432,19 @@ type runnerConfig struct {
 	healthCheckEnabled                    bool
 	healthCheckPort                       int
 	healthCheckBindAddress                string
+	grpcMaxMsgSize                        int
 }
 
 func WithSessionStoreEnabled() Option {
 	return func(ctx context.Context, w *runnerConfig) error {
 		w.sessionStoreEnabled = true
+		return nil
+	}
+}
+
+func WithGRPCMaxMsgSize(size int) Option {
+	return func(ctx context.Context, cfg *runnerConfig) error {
+		cfg.grpcMaxMsgSize = size
 		return nil
 	}
 }
@@ -887,6 +895,8 @@ func NewConnectorRunner(ctx context.Context, c types.ConnectorServer, opts ...Op
 	if len(cfg.syncResourceTypeIDs) > 0 {
 		wrapperOpts = append(wrapperOpts, connector.WithSyncResourceTypeIDs(cfg.syncResourceTypeIDs))
 	}
+
+	wrapperOpts = append(wrapperOpts, connector.WithGRPCMaxMsgSize(cfg.grpcMaxMsgSize))
 
 	cw, err := connector.NewWrapper(ctx, c, wrapperOpts...)
 	if err != nil {
