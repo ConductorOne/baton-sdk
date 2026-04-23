@@ -41,12 +41,14 @@ type ProgressLog struct {
 	maxLogFrequency      time.Duration
 
 	// Optional cross-step db-size tracking for LogExpandProgress. Populated
-	// via WithDBSizeProvider at construction time; nil means "size-free"
-	// expand logs. Held here (not on Expander) because the syncer recreates
-	// the Expander per RunSingleStep, so any state on it resets every step
-	// and the periodic size log would never fire in production.
+	// via WithDBSizeProvider at construction time or SetDBSizeProvider after
+	// loadStore; nil means "size-free" expand logs. Held here (not on
+	// Expander) because the syncer recreates the Expander per RunSingleStep,
+	// so any state on it resets every step and the periodic size log would
+	// never fire in production.
 	dbSize           connectorstore.DBSizeProvider
 	lastLoggedDBSize int64
+	hasLoggedDBSize  bool // false until the first successful size read; gates the delta field
 }
 
 type Option func(*ProgressLog)
@@ -79,15 +81,39 @@ func WithLogFrequency(logFrequency time.Duration) Option {
 
 // WithDBSizeProvider attaches an optional connectorstore.DBSizeProvider to
 // this ProgressLog. When set, LogExpandProgress will include
-// decompressed_bytes and delta_bytes (growth since the previous log) in its
-// output.
+// decompressed_bytes and decompressed_bytes_delta (growth since the previous
+// log) in its output.
+//
+// This is one of two attachment points — the syncer also calls
+// SetDBSizeProvider after loadStore resolves the store, because many callers
+// construct NewSyncer via WithC1ZPath (store is nil at NewProgressCounts
+// time) and can only be wired once loadStore has run.
 //
 // nil is a valid value (equivalent to not setting it) and the log falls
 // back to the pre-existing action-count-only output.
+//
+// The log is primarily useful during long grant expansions for catching
+// pathological growth before the decoder cap trips on a subsequent read.
+// Compare the emitted bytes against BATON_DECODER_MAX_DECODED_SIZE_MB
+// (default 3 GiB; see pkg/dotc1z/decoder.go). If a tenant's db size is
+// approaching that cap, the per-tenant WithDecoderMaxDecodedSize override
+// is the operator's next step.
 func WithDBSizeProvider(p connectorstore.DBSizeProvider) Option {
 	return func(o *ProgressLog) {
 		o.dbSize = p
 	}
+}
+
+// SetDBSizeProvider updates the DBSizeProvider attached to this ProgressLog.
+// Intended for callers (notably the syncer) that construct the ProgressLog
+// before the store is known (e.g. WithC1ZPath path, where the store is
+// loaded from disk later by loadStore). Idempotent; safe to call multiple
+// times — the last non-nil value wins if called from multiple sites.
+// Passing nil clears the provider.
+func (p *ProgressLog) SetDBSizeProvider(provider connectorstore.DBSizeProvider) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.dbSize = provider
 }
 
 func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
@@ -237,36 +263,77 @@ func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string
 	}
 }
 
+// LogExpandProgress emits an Info-level "Expanding grants" log at most once
+// per maxLogFrequency window. When a DBSizeProvider is attached (production:
+// *dotc1z.C1File), includes the live uncompressed db size and the growth
+// since the previous emitted log (`decompressed_bytes_delta`) — the signal
+// that surfaces non-linear expansion growth before the next saveC1z.
+//
+// Locking strategy: rate-limit check under RLock (fast-path for suppressed
+// calls, which is the vast majority); write lock only to claim the log slot;
+// I/O (the provider's stat calls) runs OUTSIDE any lock so a slow fs can't
+// block concurrent progress counters on the sync hot path.
 func (p *ProgressLog) LogExpandProgress(ctx context.Context, actions []*expand.EntitlementGraphAction) {
 	actionsLen := len(actions)
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	// Fast-path: rate-limit check under RLock. Under contention this lets
+	// parallel counters proceed instead of serialising on the write mutex.
+	p.mu.RLock()
 	if time.Since(p.lastActionLog) < p.maxLogFrequency {
+		p.mu.RUnlock()
+		return
+	}
+	p.mu.RUnlock()
+
+	// Claim the log slot under Lock with a double-check against the
+	// rate-limit window, snapshot the provider + prior size, then release
+	// the lock before calling into the provider.
+	p.mu.Lock()
+	if time.Since(p.lastActionLog) < p.maxLogFrequency {
+		// Another goroutine raced ahead and claimed this window.
+		p.mu.Unlock()
 		return
 	}
 	p.lastActionLog = time.Now()
+	provider := p.dbSize
+	priorSize := p.lastLoggedDBSize
+	hadPrior := p.hasLoggedDBSize
+	p.mu.Unlock()
 
 	fields := []zap.Field{zap.Int("actions_remaining", actionsLen)}
 
-	// When a DBSizeProvider is attached (dotc1z.C1File in production), include
-	// the live uncompressed db size and the growth since the previous log.
-	// Delta is the specific signal that surfaces non-linear growth during
-	// long-running expansions — two adjacent samples at 45 GB → 120 GB say
-	// "abort now" without having to wait for saveC1z to land the final frame.
-	if p.dbSize != nil {
-		size, err := p.dbSize.CurrentDBSizeBytes()
-		if err == nil {
-			fields = append(fields,
-				zap.Int64("decompressed_bytes", size),
-				zap.Int64("delta_bytes", size-p.lastLoggedDBSize),
-			)
-			p.lastLoggedDBSize = size
+	// Provider I/O happens outside the lock so a slow stat (the *very*
+	// scenario this log is meant to surface) doesn't stall concurrent
+	// AddResources / AddGrantsProgress calls through p.mu.
+	var (
+		newSize    int64
+		gotNewSize bool
+	)
+	if provider != nil {
+		if sz, err := provider.CurrentDBSizeBytes(); err == nil {
+			newSize = sz
+			gotNewSize = true
+			fields = append(fields, zap.Int64("decompressed_bytes", sz))
+			// Omit the delta on the very first sample — it would equal the
+			// full size and create a spurious spike in any Datadog graph of
+			// growth rate. Subsequent samples compute delta relative to the
+			// previous emitted size, which is the real signal operators want.
+			if hadPrior {
+				fields = append(fields, zap.Int64("decompressed_bytes_delta", sz-priorSize))
+			}
 		}
 	}
 
-	l := ctxzap.Extract(ctx)
-	l.Info("Expanding grants", fields...)
+	// Re-acquire briefly to publish the new size for the next sample. Kept
+	// separate from the claim lock so we never hold during I/O.
+	if gotNewSize {
+		p.mu.Lock()
+		p.lastLoggedDBSize = newSize
+		p.hasLoggedDBSize = true
+		p.mu.Unlock()
+	}
+
+	ctxzap.Extract(ctx).Info("Expanding grants", fields...)
 }
 
 // Thread-safe methods for parallel syncer

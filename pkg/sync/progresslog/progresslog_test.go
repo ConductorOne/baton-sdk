@@ -83,46 +83,50 @@ type sizeProbe struct {
 func (s *sizeProbe) CurrentDBSizeBytes() (int64, error) { return s.size, s.err }
 
 // TestLogExpandProgress_SizeFieldsAcrossCalls mirrors the production call
-// shape for the Eli Lilly scenario: `LogExpandProgress` is invoked once per
-// sync step (expandGrantsForEntitlements), each step freshly recreating the
-// Expander. Only the ProgressLog persists across steps. This test pins the
-// contract that:
+// shape: LogExpandProgress is invoked once per sync step, each step freshly
+// recreating the Expander. Only the ProgressLog persists across steps. Pins
+// three contracts:
 //
-//  1. The first eligible call emits a log with decompressed_bytes + delta_bytes.
+//  1. First eligible emission includes decompressed_bytes but OMITS
+//     decompressed_bytes_delta — a delta on sample 1 would equal full size
+//     and spuriously spike any Datadog graph.
 //  2. Calls within the rate-limit window are suppressed.
-//  3. After the window elapses, the next call reports delta relative to the
-//     prior sample, not the full size (catches the regression where per-step
-//     state reset would make delta == full size every time).
+//  3. A call after the window reports decompressed_bytes_delta relative to
+//     the prior sample (regression guard: per-step state reset would make
+//     delta == full size every time).
 func TestLogExpandProgress_SizeFieldsAcrossCalls(t *testing.T) {
 	ctx, logs := observedLogger(t)
 
 	probe := &sizeProbe{size: 100_000_000}
 	p := NewProgressCounts(ctx,
-		WithLogFrequency(25*time.Millisecond),
+		WithLogFrequency(10*time.Millisecond),
 		WithDBSizeProvider(probe),
 	)
 
-	// First call: must emit; delta == full size (baseline was 0).
+	// First call: emits, size present, delta field omitted.
 	p.LogExpandProgress(ctx, nil)
 	entries := logs.filterMessage("Expanding grants")
 	require.Len(t, entries, 1, "first call should emit")
 	require.EqualValues(t, int64(100_000_000), entries[0].Fields["decompressed_bytes"])
-	require.EqualValues(t, int64(100_000_000), entries[0].Fields["delta_bytes"])
+	require.NotContains(t, entries[0].Fields, "decompressed_bytes_delta",
+		"delta field must be omitted on first sample to avoid a spurious baseline-vs-zero spike")
 
-	// Immediate second call: suppressed by rate-limit.
+	// Immediate second call: suppressed by rate-limit window.
 	probe.size = 130_000_000
 	p.LogExpandProgress(ctx, nil)
 	require.Len(t, logs.filterMessage("Expanding grants"), 1,
 		"second call within rate-limit window must be suppressed")
 
-	// Wait past the window, call again: must emit; delta == growth since last log.
-	time.Sleep(40 * time.Millisecond)
+	// Wait well past the window (100ms vs 10ms rate — 10x margin keeps this
+	// stable even on coarse-clock Windows runners). Next call emits with
+	// delta relative to the prior sample, not full size.
+	time.Sleep(100 * time.Millisecond)
 	p.LogExpandProgress(ctx, nil)
 	entries = logs.filterMessage("Expanding grants")
 	require.Len(t, entries, 2, "third call after rate-limit window must emit")
 	require.EqualValues(t, int64(130_000_000), entries[1].Fields["decompressed_bytes"])
-	require.EqualValues(t, int64(30_000_000), entries[1].Fields["delta_bytes"],
-		"delta must be relative to previous log, not to zero — catches the per-step reset bug")
+	require.EqualValues(t, int64(30_000_000), entries[1].Fields["decompressed_bytes_delta"],
+		"delta must be relative to previous log, not zero — catches the per-step reset bug")
 }
 
 // TestLogExpandProgress_NoSizeProviderOmitsFields verifies the pre-existing
@@ -137,7 +141,25 @@ func TestLogExpandProgress_NoSizeProviderOmitsFields(t *testing.T) {
 	require.Len(t, entries, 1)
 	require.EqualValues(t, int64(3), entries[0].Fields["actions_remaining"])
 	require.NotContains(t, entries[0].Fields, "decompressed_bytes")
-	require.NotContains(t, entries[0].Fields, "delta_bytes")
+	require.NotContains(t, entries[0].Fields, "decompressed_bytes_delta")
+}
+
+// TestLogExpandProgress_NilProviderDoesNotPanic verifies that explicitly
+// passing nil to WithDBSizeProvider (equivalent to a failed typed-nil type
+// assertion on the syncer side) is safe and produces a log without size
+// fields. Guards the edge case called out on the PR review.
+func TestLogExpandProgress_NilProviderDoesNotPanic(t *testing.T) {
+	ctx, logs := observedLogger(t)
+	p := NewProgressCounts(ctx,
+		WithLogFrequency(1*time.Millisecond),
+		WithDBSizeProvider(nil),
+	)
+
+	require.NotPanics(t, func() { p.LogExpandProgress(ctx, nil) })
+	entries := logs.filterMessage("Expanding grants")
+	require.Len(t, entries, 1)
+	require.NotContains(t, entries[0].Fields, "decompressed_bytes")
+	require.NotContains(t, entries[0].Fields, "decompressed_bytes_delta")
 }
 
 // TestLogExpandProgress_SizeErrorSkipsSizeFields verifies that a stat error
@@ -158,7 +180,7 @@ func TestLogExpandProgress_SizeErrorSkipsSizeFields(t *testing.T) {
 	entries := logs.filterMessage("Expanding grants")
 	require.Len(t, entries, 1)
 	require.NotContains(t, entries[0].Fields, "decompressed_bytes")
-	require.NotContains(t, entries[0].Fields, "delta_bytes")
+	require.NotContains(t, entries[0].Fields, "decompressed_bytes_delta")
 	require.Contains(t, entries[0].Fields, "actions_remaining")
 }
 
@@ -177,26 +199,30 @@ func TestLogExpandProgress_PerStepExpanderShape(t *testing.T) {
 		WithDBSizeProvider(probe),
 	)
 
-	// Simulate ~50 steps in a ~60 ms window. Each step creates a new Expander
-	// (we don't need to actually use it — the point is that the ProgressLog
-	// survives all of them).
+	// Simulate ~50 steps across a ~100ms window. 2ms inter-step sleep keeps
+	// the loop well outside sub-ms clock noise on Windows while still
+	// producing enough samples to exercise rate-limiting.
 	totalSteps := 50
 	for i := 0; i < totalSteps; i++ {
 		_ = expand.NewExpander(nil, nil) // throwaway, matches per-step construction
 		probe.size += 500_000            // simulate growth between steps
 		p.LogExpandProgress(ctx, nil)
-		time.Sleep(1500 * time.Microsecond)
+		time.Sleep(2 * time.Millisecond)
 	}
 
 	entries := logs.filterMessage("Expanding grants")
 	require.GreaterOrEqual(t, len(entries), 2,
-		"at least two logs must emit across 50 steps in a ~75ms window with 15ms rate-limit")
+		"at least two logs must emit across 50 steps in a ~100ms window with 15ms rate-limit")
 	require.Less(t, len(entries), totalSteps,
 		"logs must be rate-limited, not one-per-step")
 
-	// The second log's delta must be growth since the first, not full size —
+	// Second log's delta must be growth since the first, not full size —
 	// proves state persisted across the simulated per-step calls.
-	require.Greater(t, entries[1].Fields["delta_bytes"], int64(0))
-	require.Less(t, entries[1].Fields["delta_bytes"], entries[1].Fields["decompressed_bytes"],
+	delta, ok := entries[1].Fields["decompressed_bytes_delta"].(int64)
+	require.True(t, ok, "delta field must be present on the second sample")
+	size, ok := entries[1].Fields["decompressed_bytes"].(int64)
+	require.True(t, ok)
+	require.Greater(t, delta, int64(0))
+	require.Less(t, delta, size,
 		"delta must be < full size, proving the ProgressLog kept its prior sample")
 }
