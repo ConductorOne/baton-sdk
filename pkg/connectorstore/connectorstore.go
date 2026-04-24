@@ -77,6 +77,17 @@ type LatestFinishedSyncIDFetcher interface {
 	LatestFinishedSyncID(ctx context.Context, syncType SyncType) (string, error)
 }
 
+// DBSizeProvider is an optional capability for a store that can report its
+// current uncompressed working-set size (e.g. dotc1z.C1File stat'ing its
+// sqlite file). Consumed by the syncer's ProgressLog to include
+// decompressed_bytes and growth delta in the periodic "Expanding grants"
+// log during long-running grant expansions — the Expander itself is
+// recreated each RunSingleStep by the syncer, so this state cannot live
+// there.
+type DBSizeProvider interface {
+	CurrentDBSizeBytes() (int64, error)
+}
+
 // GrantUpsertMode controls how grant conflicts are resolved during upsert.
 type GrantUpsertMode int
 

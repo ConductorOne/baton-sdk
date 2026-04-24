@@ -2599,7 +2599,25 @@ func (s *syncer) loadStore(ctx context.Context) error {
 	}
 	s.store = store
 
+	// Now that s.store is populated, wire the expand progress log's size
+	// provider. NewSyncer could not do this when the caller used
+	// WithC1ZPath because s.store was still nil at that point.
+	s.wireCountsDBSizeProvider()
+
 	return nil
+}
+
+// wireCountsDBSizeProvider attaches the store's DBSizeProvider capability
+// (if implemented) to s.counts so LogExpandProgress emits decompressed_bytes
+// and growth delta during long expansions. Idempotent: may be called from
+// both NewSyncer (WithConnectorStore case) and loadStore (WithC1ZPath case).
+func (s *syncer) wireCountsDBSizeProvider() {
+	if s.counts == nil || s.store == nil {
+		return
+	}
+	if sp, ok := s.store.(connectorstore.DBSizeProvider); ok {
+		s.counts.SetDBSizeProvider(sp)
+	}
 }
 
 // Close closes the datastorage to ensure it is updated on disk.
@@ -2823,6 +2841,11 @@ func NewSyncer(ctx context.Context, c types.ConnectorClient, opts ...SyncOpt) (S
 		progressLogOpts = append(progressLogOpts, progresslog.WithSequentialMode(false))
 	}
 	s.counts = progresslog.NewProgressCounts(ctx, progressLogOpts...)
+	// Wire the DBSizeProvider now if the store is already set (WithConnectorStore
+	// case). For WithC1ZPath, the store is populated later inside loadStore,
+	// which calls wireCountsDBSizeProvider again. Without this split the feature
+	// would ship dead for every c1z-path caller — see syncer.loadStore.
+	s.wireCountsDBSizeProvider()
 
 	if s.externalResourceC1ZPath != "" {
 		externalC1ZReader, err := dotc1z.NewExternalC1FileReader(ctx, s.tmpDir, s.externalResourceC1ZPath)

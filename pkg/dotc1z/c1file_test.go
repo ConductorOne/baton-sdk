@@ -3,6 +3,7 @@ package dotc1z
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -258,6 +259,86 @@ func TestC1ZDecoder(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	err = d.Close()
 	require.NoError(t, err)
+}
+
+// TestCurrentDBSizeBytes verifies the uncompressed db-size accessor used by
+// the expander progress logger. It must report the live sqlite file size,
+// grow as data is written, and error cleanly when the C1File has no db path.
+func TestCurrentDBSizeBytes(t *testing.T) {
+	ctx := t.Context()
+	testFilePath := filepath.Join(c1zTests.workingDir, "test-currentdbsize.c1z")
+
+	f, err := NewC1ZFile(ctx, testFilePath, WithPragma("journal_mode", "WAL"))
+	require.NoError(t, err)
+	defer func() { _ = f.Close(ctx) }()
+
+	initial, err := f.CurrentDBSizeBytes()
+	require.NoError(t, err)
+	require.Greater(t, initial, int64(0), "freshly-initialised sqlite db should be non-empty")
+
+	// Write enough data that the sqlite file visibly grows.
+	_, err = f.StartNewSync(ctx, connectorstore.SyncTypeFull, "")
+	require.NoError(t, err)
+	rt := v2.ResourceType_builder{Id: testResourceType}.Build()
+	require.NoError(t, f.PutResourceTypes(ctx, rt))
+	resources := make([]*v2.Resource, 500)
+	for i := range resources {
+		resources[i] = v2.Resource_builder{
+			Id:          v2.ResourceId_builder{ResourceType: testResourceType, Resource: fmt.Sprintf("r%d", i)}.Build(),
+			DisplayName: fmt.Sprintf("Resource %d", i),
+		}.Build()
+	}
+	require.NoError(t, f.PutResources(ctx, resources...))
+
+	after, err := f.CurrentDBSizeBytes()
+	require.NoError(t, err)
+	require.Greater(t, after, initial, "db size must increase after PutResources")
+
+	// WAL-sum contract: the reported size must equal stat(main) + stat(-wal)
+	// when a WAL is present. The whole reason this method stats both is that
+	// journal_mode=WAL can hold hundreds of MB of unchecked pages in the
+	// sidecar — a regression that silently dropped the WAL would still pass
+	// the "grows over time" check above.
+	mainStat, err := os.Stat(f.dbFilePath)
+	require.NoError(t, err)
+	if walStat, walErr := os.Stat(f.dbFilePath + "-wal"); walErr == nil {
+		require.Equal(t, mainStat.Size()+walStat.Size(), after,
+			"CurrentDBSizeBytes must equal main + WAL when WAL is present")
+	}
+
+	// Guard the empty-path error — defensive, since internal callers should never hit this.
+	empty := &C1File{}
+	_, err = empty.CurrentDBSizeBytes()
+	require.Error(t, err)
+}
+
+// TestCurrentDBSizeBytes_WALStatErrorPropagates verifies the PR-review
+// contract that a non-ENOENT stat error on the -wal sidecar surfaces to
+// the caller rather than being silently swallowed (which would under-report
+// live db size by up to hundreds of MB). Induces the error via a
+// self-referential symlink at the -wal path — os.Stat follows symlinks and
+// returns "too many links", not a not-exist error.
+func TestCurrentDBSizeBytes_WALStatErrorPropagates(t *testing.T) {
+	ctx := t.Context()
+	tmp := t.TempDir()
+	dbPath := filepath.Join(tmp, "size-walerr.db")
+
+	f, err := NewC1File(ctx, dbPath)
+	require.NoError(t, err)
+	defer func() { _ = f.Close(ctx) }()
+
+	// Main db has already been stat-able via sql.Open. Plant a symlink loop
+	// where the WAL sidecar would live. os.Stat on it returns ELOOP, which
+	// is distinct from ErrNotExist.
+	walPath := dbPath + "-wal"
+	require.NoError(t, os.Symlink(walPath, walPath))
+
+	_, err = f.CurrentDBSizeBytes()
+	require.Error(t, err, "non-ENOENT WAL stat error must propagate")
+	require.False(t, errors.Is(err, os.ErrNotExist),
+		"error must not be ErrNotExist; that path is specifically tolerated")
+	require.Contains(t, err.Error(), "wal",
+		"error message should identify the WAL sidecar as the source")
 }
 
 func TestC1ZInvalidFile(t *testing.T) {

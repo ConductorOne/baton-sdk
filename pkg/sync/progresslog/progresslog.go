@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/sync/expand"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -34,10 +35,25 @@ type ProgressLog struct {
 	lastEntitlementLog   map[string]time.Time
 	grantsProgress       map[string]int
 	lastGrantLog         map[string]time.Time
-	lastActionLog        time.Time
 	mu                   rwMutex // If noOpMutex, sequential mode is enabled. If sync.RWMutex, parallel mode is enabled.
 	l                    *zap.Logger
 	maxLogFrequency      time.Duration
+
+	// Optional cross-step db-size tracking for LogExpandProgress. Populated
+	// via WithDBSizeProvider at construction time or SetDBSizeProvider after
+	// loadStore; nil means "size-free" expand logs. Held here (not on
+	// Expander) because the syncer recreates the Expander per RunSingleStep,
+	// so any state on it resets every step and the periodic size log would
+	// never fire in production.
+	//
+	// Guarded by expandMu — a dedicated mutex separate from p.mu so the
+	// provider's stat I/O doesn't run under the shared hot-path mutex that
+	// AddResources / AddGrantsProgress contend on.
+	expandMu         sync.Mutex
+	lastActionLog    time.Time // rate-limit timestamp for LogExpandProgress
+	dbSize           connectorstore.DBSizeProvider
+	lastLoggedDBSize int64
+	hasLoggedDBSize  bool // false until the first successful size read; gates the delta field
 }
 
 type Option func(*ProgressLog)
@@ -68,6 +84,43 @@ func WithLogFrequency(logFrequency time.Duration) Option {
 	}
 }
 
+// WithDBSizeProvider attaches an optional connectorstore.DBSizeProvider to
+// this ProgressLog. When set, LogExpandProgress will include
+// decompressed_bytes and decompressed_bytes_delta (growth since the previous
+// log) in its output.
+//
+// This is one of two attachment points — the syncer also calls
+// SetDBSizeProvider after loadStore resolves the store, because many callers
+// construct NewSyncer via WithC1ZPath (store is nil at NewProgressCounts
+// time) and can only be wired once loadStore has run.
+//
+// nil is a valid value (equivalent to not setting it) and the log falls
+// back to the pre-existing action-count-only output.
+//
+// The log is primarily useful during long grant expansions for catching
+// pathological growth before the decoder cap trips on a subsequent read.
+// Compare the emitted bytes against BATON_DECODER_MAX_DECODED_SIZE_MB
+// (default 3 GiB; see pkg/dotc1z/decoder.go). If a tenant's db size is
+// approaching that cap, the per-tenant WithDecoderMaxDecodedSize override
+// is the operator's next step.
+func WithDBSizeProvider(p connectorstore.DBSizeProvider) Option {
+	return func(o *ProgressLog) {
+		o.dbSize = p
+	}
+}
+
+// SetDBSizeProvider updates the DBSizeProvider attached to this ProgressLog.
+// Intended for callers (notably the syncer) that construct the ProgressLog
+// before the store is known (e.g. WithC1ZPath path, where the store is
+// loaded from disk later by loadStore). Idempotent; safe to call multiple
+// times — the last non-nil value wins if called from multiple sites.
+// Passing nil clears the provider.
+func (p *ProgressLog) SetDBSizeProvider(provider connectorstore.DBSizeProvider) {
+	p.expandMu.Lock()
+	defer p.expandMu.Unlock()
+	p.dbSize = provider
+}
+
 func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 	p := &ProgressLog{
 		resources:            make(map[string]int),
@@ -75,7 +128,6 @@ func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 		lastEntitlementLog:   make(map[string]time.Time),
 		grantsProgress:       make(map[string]int),
 		lastGrantLog:         make(map[string]time.Time),
-		lastActionLog:        time.Time{},
 		l:                    ctxzap.Extract(ctx),
 		maxLogFrequency:      defaultMaxLogFrequency,
 		mu:                   &noOpMutex{}, // Default to sequential mode for backward compatibility
@@ -215,18 +267,45 @@ func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string
 	}
 }
 
+// LogExpandProgress emits an Info-level "Expanding grants" log at most once
+// per maxLogFrequency window. When a DBSizeProvider is attached (production:
+// *dotc1z.C1File), includes the live uncompressed db size and the growth
+// since the previous emitted log (`decompressed_bytes_delta`) — the signal
+// that surfaces non-linear expansion growth before the next saveC1z.
+//
+// All expand-log state (lastActionLog, dbSize, lastLoggedDBSize,
+// hasLoggedDBSize) is guarded by p.expandMu, a mutex dedicated to this
+// function. It is deliberately separate from p.mu so the provider's stat
+// calls can run under the lock (simple defer pattern) without serialising
+// against the sync-hot-path counters (AddResources / AddGrantsProgress),
+// which contend on p.mu.
 func (p *ProgressLog) LogExpandProgress(ctx context.Context, actions []*expand.EntitlementGraphAction) {
-	actionsLen := len(actions)
+	p.expandMu.Lock()
+	defer p.expandMu.Unlock()
 
-	p.mu.Lock()
-	defer p.mu.Unlock()
 	if time.Since(p.lastActionLog) < p.maxLogFrequency {
 		return
 	}
 	p.lastActionLog = time.Now()
 
-	l := ctxzap.Extract(ctx)
-	l.Info("Expanding grants", zap.Int("actions_remaining", actionsLen))
+	fields := []zap.Field{zap.Int("actions_remaining", len(actions))}
+
+	if p.dbSize != nil {
+		if sz, err := p.dbSize.CurrentDBSizeBytes(); err == nil {
+			fields = append(fields, zap.Int64("decompressed_bytes", sz))
+			// Omit the delta on the very first sample — it would equal the
+			// full size and create a spurious spike in any Datadog graph of
+			// growth rate. Subsequent samples compute delta relative to the
+			// previous emitted size, which is the real signal operators want.
+			if p.hasLoggedDBSize {
+				fields = append(fields, zap.Int64("decompressed_bytes_delta", sz-p.lastLoggedDBSize))
+			}
+			p.lastLoggedDBSize = sz
+			p.hasLoggedDBSize = true
+		}
+	}
+
+	ctxzap.Extract(ctx).Info("Expanding grants", fields...)
 }
 
 // Thread-safe methods for parallel syncer
