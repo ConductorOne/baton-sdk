@@ -35,7 +35,6 @@ type ProgressLog struct {
 	lastEntitlementLog   map[string]time.Time
 	grantsProgress       map[string]int
 	lastGrantLog         map[string]time.Time
-	lastActionLog        time.Time
 	mu                   rwMutex // If noOpMutex, sequential mode is enabled. If sync.RWMutex, parallel mode is enabled.
 	l                    *zap.Logger
 	maxLogFrequency      time.Duration
@@ -46,6 +45,12 @@ type ProgressLog struct {
 	// Expander) because the syncer recreates the Expander per RunSingleStep,
 	// so any state on it resets every step and the periodic size log would
 	// never fire in production.
+	//
+	// Guarded by expandMu — a dedicated mutex separate from p.mu so the
+	// provider's stat I/O doesn't run under the shared hot-path mutex that
+	// AddResources / AddGrantsProgress contend on.
+	expandMu         sync.Mutex
+	lastActionLog    time.Time // rate-limit timestamp for LogExpandProgress
 	dbSize           connectorstore.DBSizeProvider
 	lastLoggedDBSize int64
 	hasLoggedDBSize  bool // false until the first successful size read; gates the delta field
@@ -111,8 +116,8 @@ func WithDBSizeProvider(p connectorstore.DBSizeProvider) Option {
 // times — the last non-nil value wins if called from multiple sites.
 // Passing nil clears the provider.
 func (p *ProgressLog) SetDBSizeProvider(provider connectorstore.DBSizeProvider) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+	p.expandMu.Lock()
+	defer p.expandMu.Unlock()
 	p.dbSize = provider
 }
 
@@ -123,7 +128,6 @@ func NewProgressCounts(ctx context.Context, opts ...Option) *ProgressLog {
 		lastEntitlementLog:   make(map[string]time.Time),
 		grantsProgress:       make(map[string]int),
 		lastGrantLog:         make(map[string]time.Time),
-		lastActionLog:        time.Time{},
 		l:                    ctxzap.Extract(ctx),
 		maxLogFrequency:      defaultMaxLogFrequency,
 		mu:                   &noOpMutex{}, // Default to sequential mode for backward compatibility
@@ -269,68 +273,36 @@ func (p *ProgressLog) LogGrantsProgress(ctx context.Context, resourceType string
 // since the previous emitted log (`decompressed_bytes_delta`) — the signal
 // that surfaces non-linear expansion growth before the next saveC1z.
 //
-// Locking strategy: rate-limit check under RLock (fast-path for suppressed
-// calls, which is the vast majority); write lock only to claim the log slot;
-// I/O (the provider's stat calls) runs OUTSIDE any lock so a slow fs can't
-// block concurrent progress counters on the sync hot path.
+// All expand-log state (lastActionLog, dbSize, lastLoggedDBSize,
+// hasLoggedDBSize) is guarded by p.expandMu, a mutex dedicated to this
+// function. It is deliberately separate from p.mu so the provider's stat
+// calls can run under the lock (simple defer pattern) without serialising
+// against the sync-hot-path counters (AddResources / AddGrantsProgress),
+// which contend on p.mu.
 func (p *ProgressLog) LogExpandProgress(ctx context.Context, actions []*expand.EntitlementGraphAction) {
-	actionsLen := len(actions)
+	p.expandMu.Lock()
+	defer p.expandMu.Unlock()
 
-	// Fast-path: rate-limit check under RLock. Under contention this lets
-	// parallel counters proceed instead of serialising on the write mutex.
-	p.mu.RLock()
 	if time.Since(p.lastActionLog) < p.maxLogFrequency {
-		p.mu.RUnlock()
-		return
-	}
-	p.mu.RUnlock()
-
-	// Claim the log slot under Lock with a double-check against the
-	// rate-limit window, snapshot the provider + prior size, then release
-	// the lock before calling into the provider.
-	p.mu.Lock()
-	if time.Since(p.lastActionLog) < p.maxLogFrequency {
-		// Another goroutine raced ahead and claimed this window.
-		p.mu.Unlock()
 		return
 	}
 	p.lastActionLog = time.Now()
-	provider := p.dbSize
-	priorSize := p.lastLoggedDBSize
-	hadPrior := p.hasLoggedDBSize
-	p.mu.Unlock()
 
-	fields := []zap.Field{zap.Int("actions_remaining", actionsLen)}
+	fields := []zap.Field{zap.Int("actions_remaining", len(actions))}
 
-	// Provider I/O happens outside the lock so a slow stat (the *very*
-	// scenario this log is meant to surface) doesn't stall concurrent
-	// AddResources / AddGrantsProgress calls through p.mu.
-	var (
-		newSize    int64
-		gotNewSize bool
-	)
-	if provider != nil {
-		if sz, err := provider.CurrentDBSizeBytes(); err == nil {
-			newSize = sz
-			gotNewSize = true
+	if p.dbSize != nil {
+		if sz, err := p.dbSize.CurrentDBSizeBytes(); err == nil {
 			fields = append(fields, zap.Int64("decompressed_bytes", sz))
 			// Omit the delta on the very first sample — it would equal the
 			// full size and create a spurious spike in any Datadog graph of
 			// growth rate. Subsequent samples compute delta relative to the
 			// previous emitted size, which is the real signal operators want.
-			if hadPrior {
-				fields = append(fields, zap.Int64("decompressed_bytes_delta", sz-priorSize))
+			if p.hasLoggedDBSize {
+				fields = append(fields, zap.Int64("decompressed_bytes_delta", sz-p.lastLoggedDBSize))
 			}
+			p.lastLoggedDBSize = sz
+			p.hasLoggedDBSize = true
 		}
-	}
-
-	// Re-acquire briefly to publish the new size for the next sample. Kept
-	// separate from the claim lock so we never hold during I/O.
-	if gotNewSize {
-		p.mu.Lock()
-		p.lastLoggedDBSize = newSize
-		p.hasLoggedDBSize = true
-		p.mu.Unlock()
 	}
 
 	ctxzap.Extract(ctx).Info("Expanding grants", fields...)
