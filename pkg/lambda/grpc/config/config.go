@@ -78,7 +78,7 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (g
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create token source: %w", err)
 	}
 
-	reuseTokenSource := oauth2.ReuseTokenSource(nil, tokenSource)
+	reuseTokenSource := oauth2.ReuseTokenSource(&oauth2.Token{AccessToken: "test", TokenType: "Bearer", Expiry: time.Now().Add(1 * time.Second)}, tokenSource)
 
 	creds, err := dpop_grpc.NewDPoPCredentials(proofer, reuseTokenSource, tokenHost, []dpop.ProofOption{
 		dpop.WithValidityDuration(time.Minute * 5),
