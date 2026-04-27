@@ -810,6 +810,8 @@ func (m *GetConnectorRuntimeBundleResponse) validate(all bool) error {
 
 	// no validation rules for Bundle
 
+	// no validation rules for RuntimeSchema
+
 	if len(errors) > 0 {
 		return GetConnectorRuntimeBundleResponseMultiError(errors)
 	}

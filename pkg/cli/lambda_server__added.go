@@ -45,7 +45,7 @@ func fetchConnectorConfigSnapshot(
 		return nil, fmt.Errorf("lambda-run: failed to get connector config: %w", err)
 	}
 
-	runtimeBundle, err := fetchConnectorRuntimeBundle(ctx, configClient, config.GetRuntimeState())
+	runtimeAssets, err := fetchConnectorRuntimeAssets(ctx, configClient, config.GetRuntimeState())
 	if err != nil {
 		return nil, err
 	}
@@ -58,26 +58,37 @@ func fetchConnectorConfigSnapshot(
 	return &ConnectorConfigSnapshot{
 		Config:        configStruct,
 		RuntimeState:  config.GetRuntimeState(),
-		RuntimeSchema: nil,
-		RuntimeBundle: runtimeBundle,
+		RuntimeSchema: runtimeAssets.RuntimeSchema,
+		RuntimeBundle: runtimeAssets.RuntimeBundle,
 		RuntimePolicy: nil,
 	}, nil
 }
 
-func fetchConnectorRuntimeBundle(
+type connectorRuntimeAssets struct {
+	RuntimeSchema []byte
+	RuntimeBundle []byte
+}
+
+func fetchConnectorRuntimeAssets(
 	ctx context.Context,
 	configClient v1.ConnectorConfigServiceClient,
 	runtimeState *v1.RuntimeState,
-) ([]byte, error) {
-	if runtimeState == nil || runtimeState.GetEffectiveBundleDigest() == "" {
-		return nil, nil
+) (*connectorRuntimeAssets, error) {
+	if runtimeState == nil {
+		return &connectorRuntimeAssets{}, nil
+	}
+	if runtimeState.GetEffectiveBundleDigest() == "" && runtimeState.GetRuntimeConfigContractDigest() == "" {
+		return &connectorRuntimeAssets{}, nil
 	}
 
 	resp, err := configClient.GetConnectorRuntimeBundle(ctx, &v1.GetConnectorRuntimeBundleRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("lambda-run: failed to get connector runtime bundle: %w", err)
+		return nil, fmt.Errorf("lambda-run: failed to get connector runtime assets: %w", err)
 	}
-	return resp.GetBundle(), nil
+	return &connectorRuntimeAssets{
+		RuntimeSchema: resp.GetRuntimeSchema(),
+		RuntimeBundle: resp.GetBundle(),
+	}, nil
 }
 
 func decryptConnectorConfig(privateKey ed25519.PrivateKey, encrypted []byte) (*structpb.Struct, error) {

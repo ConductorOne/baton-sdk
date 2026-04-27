@@ -511,10 +511,11 @@ func (b0 GetConnectorRuntimeBundleRequest_builder) Build() *GetConnectorRuntimeB
 }
 
 type GetConnectorRuntimeBundleResponse struct {
-	state             protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_Bundle []byte                 `protobuf:"bytes,1,opt,name=bundle,proto3"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state                    protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Bundle        []byte                 `protobuf:"bytes,1,opt,name=bundle,proto3"`
+	xxx_hidden_RuntimeSchema []byte                 `protobuf:"bytes,2,opt,name=runtime_schema,json=runtimeSchema,proto3"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
 }
 
 func (x *GetConnectorRuntimeBundleResponse) Reset() {
@@ -549,6 +550,13 @@ func (x *GetConnectorRuntimeBundleResponse) GetBundle() []byte {
 	return nil
 }
 
+func (x *GetConnectorRuntimeBundleResponse) GetRuntimeSchema() []byte {
+	if x != nil {
+		return x.xxx_hidden_RuntimeSchema
+	}
+	return nil
+}
+
 func (x *GetConnectorRuntimeBundleResponse) SetBundle(v []byte) {
 	if v == nil {
 		v = []byte{}
@@ -556,10 +564,18 @@ func (x *GetConnectorRuntimeBundleResponse) SetBundle(v []byte) {
 	x.xxx_hidden_Bundle = v
 }
 
+func (x *GetConnectorRuntimeBundleResponse) SetRuntimeSchema(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_RuntimeSchema = v
+}
+
 type GetConnectorRuntimeBundleResponse_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
-	Bundle []byte
+	Bundle        []byte
+	RuntimeSchema []byte
 }
 
 func (b0 GetConnectorRuntimeBundleResponse_builder) Build() *GetConnectorRuntimeBundleResponse {
@@ -567,6 +583,7 @@ func (b0 GetConnectorRuntimeBundleResponse_builder) Build() *GetConnectorRuntime
 	b, x := &b0, m0
 	_, _ = b, x
 	x.xxx_hidden_Bundle = b.Bundle
+	x.xxx_hidden_RuntimeSchema = b.RuntimeSchema
 	return m0
 }
 
@@ -871,9 +888,10 @@ const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
 	" GetConnectorRuntimeStateResponse\x12=\n" +
 	"\flast_updated\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\x12K\n" +
 	"\rruntime_state\x18\x02 \x01(\v2&.c1.connectorapi.baton.v1.RuntimeStateR\fruntimeState\"\"\n" +
-	" GetConnectorRuntimeBundleRequest\";\n" +
+	" GetConnectorRuntimeBundleRequest\"b\n" +
 	"!GetConnectorRuntimeBundleResponse\x12\x16\n" +
-	"\x06bundle\x18\x01 \x01(\fR\x06bundle\"6\n" +
+	"\x06bundle\x18\x01 \x01(\fR\x06bundle\x12%\n" +
+	"\x0eruntime_schema\x18\x02 \x01(\fR\rruntimeSchema\"6\n" +
 	"\fSignedHeader\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x03(\tR\x05value\"\xb2\x01\n" +

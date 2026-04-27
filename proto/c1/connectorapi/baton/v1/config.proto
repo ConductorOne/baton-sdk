@@ -43,6 +43,7 @@ message GetConnectorRuntimeBundleRequest {}
 
 message GetConnectorRuntimeBundleResponse {
   bytes bundle = 1;
+  bytes runtime_schema = 2;
 }
 
 message SignedHeader {
