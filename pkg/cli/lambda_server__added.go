@@ -18,7 +18,6 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/maypok86/otter/v2"
-	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -35,6 +34,75 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/types/sessions"
 	"google.golang.org/grpc"
 )
+
+func fetchConnectorConfigSnapshot(
+	ctx context.Context,
+	configClient v1.ConnectorConfigServiceClient,
+	privateKey ed25519.PrivateKey,
+) (*ConnectorConfigSnapshot, error) {
+	config, err := configClient.GetConnectorConfig(ctx, &v1.GetConnectorConfigRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("lambda-run: failed to get connector config: %w", err)
+	}
+
+	runtimeAssets, err := fetchConnectorRuntimeAssets(ctx, configClient, config.GetRuntimeState())
+	if err != nil {
+		return nil, err
+	}
+
+	configStruct, err := decryptConnectorConfig(privateKey, config.GetConfig())
+	if err != nil {
+		return nil, err
+	}
+
+	return &ConnectorConfigSnapshot{
+		Config:        configStruct,
+		RuntimeState:  config.GetRuntimeState(),
+		RuntimeSchema: runtimeAssets.RuntimeSchema,
+		RuntimeBundle: runtimeAssets.RuntimeBundle,
+		RuntimePolicy: nil,
+	}, nil
+}
+
+type connectorRuntimeAssets struct {
+	RuntimeSchema []byte
+	RuntimeBundle []byte
+}
+
+func fetchConnectorRuntimeAssets(
+	ctx context.Context,
+	configClient v1.ConnectorConfigServiceClient,
+	runtimeState *v1.RuntimeState,
+) (*connectorRuntimeAssets, error) {
+	if runtimeState == nil {
+		return &connectorRuntimeAssets{}, nil
+	}
+	if runtimeState.GetEffectiveBundleDigest() == "" && runtimeState.GetRuntimeConfigContractDigest() == "" {
+		return &connectorRuntimeAssets{}, nil
+	}
+
+	resp, err := configClient.GetConnectorRuntimeBundle(ctx, &v1.GetConnectorRuntimeBundleRequest{})
+	if err != nil {
+		return nil, fmt.Errorf("lambda-run: failed to get connector runtime assets: %w", err)
+	}
+	return &connectorRuntimeAssets{
+		RuntimeSchema: resp.GetRuntimeSchema(),
+		RuntimeBundle: resp.GetBundle(),
+	}, nil
+}
+
+func decryptConnectorConfig(privateKey ed25519.PrivateKey, encrypted []byte) (*structpb.Struct, error) {
+	decrypted, err := jwk.DecryptED25519(privateKey, encrypted)
+	if err != nil {
+		return nil, fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
+	}
+
+	configStruct := &structpb.Struct{}
+	if err := json.Unmarshal(decrypted, configStruct); err != nil {
+		return nil, fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
+	}
+	return configStruct, nil
+}
 
 func OptionallyAddLambdaCommand[T field.Configurable](
 	ctx context.Context,
@@ -109,12 +177,10 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				zap.L().Error("error shutting down otel", zap.Error(err))
 			}
 		}()
-
 		if err := field.Validate(lambdaSchema, v); err != nil {
 			return err
 		}
 
-		// Create DPoP client with authentication
 		grpcClient, webKey, _, err := c1_lambda_config.NewDPoPClient(
 			runCtx,
 			v.GetString(field.LambdaServerClientIDField.GetName()),
@@ -124,59 +190,29 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return fmt.Errorf("lambda-run: failed to create DPoP client: %w", err)
 		}
 
-		// Create connector config service client using the DPoP client
 		configClient := v1.NewConnectorConfigServiceClient(grpcClient)
-
-		// Get configuration, convert it to viper flag values, then proceed.
-		config, err := configClient.GetConnectorConfig(runCtx, &v1.GetConnectorConfigRequest{})
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to get connector config: %w", err)
-		}
 
 		ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
 		if !ok {
 			return fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
 		}
 
-		decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, config.Config)
+		configSnapshot, err := fetchConnectorConfigSnapshot(runCtx, configClient, ed25519PrivateKey)
 		if err != nil {
-			return fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
+			return err
 		}
-
-		configStruct := structpb.Struct{}
-		err = json.Unmarshal(decrypted, &configStruct)
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
-		}
+		bootstrapConfig := CloneConfigSettings(v)
+		effectiveConnectorConfig := HydrateConnectorConfig(bootstrapConfig, configSnapshot)
 
 		// parse content directly for lambdas, don't read from file
 		readFromPath := false
 		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
-		t, err := MakeGenericConfiguration[T](v, decodeOpts)
+		t, err := MakeGenericConfiguration[T](effectiveConnectorConfig, decodeOpts)
 		if err != nil {
 			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
 		}
-		switch cfg := any(t).(type) {
-		case *viper.Viper:
-			for k, v := range configStruct.AsMap() {
-				cfg.Set(k, v)
-			}
-		default:
-			// Use mapstructure with decode hook for file upload fields
-			decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-				DecodeHook: field.ComposeDecodeHookFunc(decodeOpts),
-				Result:     cfg,
-			})
-			if err != nil {
-				return fmt.Errorf("lambda-run: failed to create decoder: %w", err)
-			}
-			err = decoder.Decode(configStruct.AsMap())
-			if err != nil {
-				return fmt.Errorf("lambda-run: failed to decode config: %w", err)
-			}
-		}
 
-		configStructMap := configStruct.AsMap()
+		configStructMap := effectiveConnectorConfig.AllSettings()
 
 		var (
 			fieldOptions  []field.Option
@@ -228,6 +264,14 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			}),
 			SelectedAuthMethod:  authMethodStr,
 			SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
+			ManagedRuntime: &ManagedRuntimeOpts{
+				Snapshot:              configSnapshot,
+				BootstrapConfig:       bootstrapConfig,
+				ConnectorConfigClient: configClient,
+				ReloadConnectorConfig: func(ctx context.Context) (*ConnectorConfigSnapshot, error) {
+					return fetchConnectorConfigSnapshot(ctx, configClient, ed25519PrivateKey)
+				},
+			},
 		}
 
 		if hasOauthField(schemaFields) {
