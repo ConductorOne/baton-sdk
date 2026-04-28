@@ -80,8 +80,14 @@ type C1File struct {
 	// DisplayName, Annotations, Purpose, Slug, traits, and other rich
 	// fields are zero-value. Readers handle full and slim blobs
 	// transparently per row, so mixed syncs in the same table are
-	// supported. Default false; enabled via WithC1FV2GrantsWriter /
-	// WithV2GrantsWriter.
+	// supported.
+	//
+	// Slim is gated per-grant: a grant carrying InsertResourceGrants or
+	// any ExternalResourceMatch* annotation stays full-blob even when
+	// this flag is on, because the syncer reads non-identity fields off
+	// its embedded Resource / Principal. See unsafeForSlim in grants.go.
+	//
+	// Default false; enabled via WithC1FV2GrantsWriter / WithV2GrantsWriter.
 	v2GrantsWriter bool
 }
 
@@ -144,6 +150,21 @@ func WithC1FSyncCountLimit(limit int) C1FOption {
 // those must fetch the Entitlement / Resource directly via
 // GetEntitlement / GetResource. Default false. Readers always accept
 // both shapes regardless of this flag.
+//
+// Slim is gated per-grant: a grant carrying any of these annotations
+// is left full-blob even when the option is on, because downstream
+// sync code reads non-identity fields off its embedded Resource /
+// Principal:
+//
+//   - v2.InsertResourceGrants  (response-level; the syncer copies it
+//     onto each grant in the batch before UpsertGrants)
+//   - v2.ExternalResourceMatchAll
+//   - v2.ExternalResourceMatch
+//   - v2.ExternalResourceMatchID
+//
+// All other grants are eligible for slim. Connectors emitting flat
+// (non-hierarchical) principals and no external-resource matching see
+// every grant slimmed.
 func WithC1FV2GrantsWriter(enabled bool) C1FOption {
 	return func(o *C1File) {
 		o.v2GrantsWriter = enabled

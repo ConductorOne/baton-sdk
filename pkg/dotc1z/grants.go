@@ -473,10 +473,42 @@ func baseGrantRecord(grant *v2.Grant) goqu.Record {
 	}
 }
 
+// unsafeForSlim returns true when a grant carries an annotation that
+// implies downstream code (in baton-sdk's syncer) reads non-identity
+// fields off the grant's embedded Entitlement.Resource or Principal.
+// Slimming such grants would silently corrupt those code paths:
+//
+//   - InsertResourceGrants: the syncer extracts grant.Entitlement.Resource
+//     and writes it to v1_resources via PutResources (syncer.go:1731-1737).
+//     Identity-only stubs from a slim re-read would overwrite the
+//     resources table with stripped data on etag-replay.
+//   - ExternalResourceMatch{All,Match,ID}: processGrantsWithExternalPrincipals
+//     uses bid.MakeBid(grant.GetPrincipal()) for a key lookup whose map
+//     keys encode ParentResourceId when set. A slim stub principal has
+//     no parent; its 2-part bid misses 4-part map keys, silently losing
+//     transitive expansion through the external-resource match.
+//
+// Note that InsertResourceGrants is canonically a response-level
+// annotation; the syncer copies it onto each grant's annotations
+// before UpsertGrants so the writer can see it per-row. The other
+// three are emitted by connectors directly on the grant.
+func unsafeForSlim(grant *v2.Grant) bool {
+	annos := annotations.Annotations(grant.GetAnnotations())
+	return annos.ContainsAny(
+		&v2.InsertResourceGrants{},
+		&v2.ExternalResourceMatchAll{},
+		&v2.ExternalResourceMatch{},
+		&v2.ExternalResourceMatchID{},
+	)
+}
+
 func grantExtractFields(c *C1File, mode connectorstore.GrantUpsertMode) func(grant *v2.Grant) (goqu.Record, error) {
 	return func(grant *v2.Grant) (goqu.Record, error) {
 		rec := baseGrantRecord(grant)
-		slim := c.v2GrantsWriter
+		// Gate slim per-grant: skip slim when the grant carries an
+		// annotation that implies the embedded Entitlement.Resource or
+		// Principal is read for non-identity fields downstream.
+		slim := c.v2GrantsWriter && !unsafeForSlim(grant)
 		preserveExpansion := mode == connectorstore.GrantUpsertModePreserveExpansion
 
 		// PreserveExpansion mode does not touch the expansion / needs_expansion

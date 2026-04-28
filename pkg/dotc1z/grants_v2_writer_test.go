@@ -617,3 +617,86 @@ func TestV2GrantsReader_EmptyTable_NoHydrationWork(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, exResp.Rows)
 }
+
+// TestV2GrantsWriter_GateSkipsSlimForUnsafeAnnotations verifies that
+// the per-grant gate keeps grants full-blob when they carry an
+// annotation that implies downstream code reads non-identity fields
+// off the embedded Resource / Principal. Each subtest writes one
+// grant with the named annotation under WithV2GrantsWriter(true)
+// and asserts the on-disk blob is full (Entitlement and Principal
+// present), not slim.
+func TestV2GrantsWriter_GateSkipsSlimForUnsafeAnnotations(t *testing.T) {
+	ctx := context.Background()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1, DisplayName: "Ent 1"}.Build()
+
+	cases := []struct {
+		name string
+		anno proto.Message
+	}{
+		{"InsertResourceGrants", &v2.InsertResourceGrants{}},
+		{"ExternalResourceMatchAll", &v2.ExternalResourceMatchAll{}},
+		{"ExternalResourceMatch", &v2.ExternalResourceMatch{}},
+		{"ExternalResourceMatchID", &v2.ExternalResourceMatchID{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c1f, _, cleanup := newTestC1z(ctx, t, WithV2GrantsWriter(true))
+			defer cleanup()
+
+			grant := v2.Grant_builder{
+				Id:          "grant-gated",
+				Entitlement: ent1,
+				Principal:   u1,
+				Annotations: annotations.New(tc.anno),
+			}.Build()
+			require.NoError(t, c1f.PutGrants(ctx, grant))
+
+			// Blob must be full despite slim writer being on.
+			raw := readRawGrantBlob(ctx, t, c1f, "grant-gated")
+			bare := &v2.Grant{}
+			require.NoError(t, proto.Unmarshal(raw, bare))
+			require.NotNil(t, bare.GetEntitlement(), "%s gate must keep Entitlement in the blob", tc.name)
+			require.NotNil(t, bare.GetPrincipal(), "%s gate must keep Principal in the blob", tc.name)
+			require.Equal(t, "ent1", bare.GetEntitlement().GetId())
+			require.Equal(t, "Ent 1", bare.GetEntitlement().GetDisplayName(),
+				"%s gate must preserve DisplayName (proves full blob, not stub)", tc.name)
+
+			// Reader returns the full Grant (no stub).
+			resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+			require.NoError(t, err)
+			require.Len(t, resp.GetList(), 1)
+			got := resp.GetList()[0]
+			require.Equal(t, "Ent 1", got.GetEntitlement().GetDisplayName(),
+				"%s gate-preserved blob must round-trip DisplayName", tc.name)
+		})
+	}
+}
+
+// TestV2GrantsWriter_GateAllowsSlimWhenAnnotationsAbsent guards
+// against a regression where the gate fires on grants that don't
+// actually carry any unsafe annotation. With slim on and no unsafe
+// annotation, the writer must still slim.
+func TestV2GrantsWriter_GateAllowsSlimWhenAnnotationsAbsent(t *testing.T) {
+	ctx := context.Background()
+	c1f, _, cleanup := newTestC1z(ctx, t, WithV2GrantsWriter(true))
+	defer cleanup()
+
+	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
+	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1, DisplayName: "Ent 1"}.Build()
+
+	require.NoError(t, c1f.PutGrants(ctx, v2.Grant_builder{
+		Id:          "grant-no-anno",
+		Entitlement: ent1,
+		Principal:   u1,
+	}.Build()))
+
+	raw := readRawGrantBlob(ctx, t, c1f, "grant-no-anno")
+	bare := &v2.Grant{}
+	require.NoError(t, proto.Unmarshal(raw, bare))
+	require.Nil(t, bare.GetEntitlement(), "no unsafe annotation: blob must be slim")
+	require.Nil(t, bare.GetPrincipal(), "no unsafe annotation: blob must be slim")
+}
