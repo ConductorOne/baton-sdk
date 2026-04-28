@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// TaskApprovalMetadata is an annotation that carries the originating
+// task/ticket reference and approval history for a grant or revoke request.
+// Connectors can use this to perform compliance verification by either:
+//  1. Using the task_id to call back to the ConductorOne API
+//  2. Evaluating the embedded approval step metadata directly
+message TaskApprovalMetadata {
+  string task_id = 1;
+  bool emergency_access = 2;
+  repeated ApprovalStepMetadata approval_steps = 3;
+}
+
+message ApprovalStepMetadata {
+  string step_id = 1;
+  string approval_type = 2;
+  ApprovalStepOutcome outcome = 3;
+  string approver_user_id = 4;
+  google.protobuf.Timestamp decided_at = 5;
+}
+
+enum ApprovalStepOutcome {
+  APPROVAL_STEP_OUTCOME_UNSPECIFIED = 0;
+  APPROVAL_STEP_OUTCOME_APPROVED = 1;
+  APPROVAL_STEP_OUTCOME_DENIED = 2;
+  APPROVAL_STEP_OUTCOME_ESCALATED_TO_EMERGENCY_ACCESS = 3;
+  APPROVAL_STEP_OUTCOME_SKIPPED = 4;
+  APPROVAL_STEP_OUTCOME_REASSIGNED = 5;
+}
