@@ -60,6 +60,16 @@ type ConnectorBuilderV2 interface {
 	ResourceSyncers(ctx context.Context) []ResourceSyncerV2
 }
 
+type closeHook func(context.Context) error
+
+type closeWithContext interface {
+	Close(context.Context) error
+}
+
+type closeWithoutContext interface {
+	Close() error
+}
+
 type builder struct {
 	ticketingEnabled        bool
 	m                       *metrics.M
@@ -78,6 +88,7 @@ type builder struct {
 	eventFeeds              map[string]EventFeed
 	accountManagers         map[string]AccountManagerLimited
 	actionManager           ActionManager // Unified action manager for all actions
+	closeHook               closeHook
 }
 
 // NewConnector creates a new ConnectorServer for a new resource.
@@ -116,6 +127,7 @@ func NewConnector(ctx context.Context, in interface{}, opts ...Opt) (types.Conne
 		eventFeeds:              make(map[string]EventFeed),
 		accountManagers:         make(map[string]AccountManagerLimited),
 		actionManager:           actionMgr,
+		closeHook:               closeHookFor(in),
 	}
 
 	// WithTicketingEnabled checks for the ticketManager
@@ -253,6 +265,29 @@ func (b *builder) addConnectorBuilderProviders(_ context.Context, in interface{}
 	}
 
 	return nil
+}
+
+func closeHookFor(in any) closeHook {
+	if in == nil {
+		return nil
+	}
+
+	if closer, ok := in.(closeWithContext); ok {
+		return closer.Close
+	}
+	if closer, ok := in.(closeWithoutContext); ok {
+		return func(context.Context) error {
+			return closer.Close()
+		}
+	}
+	return nil
+}
+
+func (b *builder) Close(ctx context.Context) error {
+	if b.closeHook == nil {
+		return nil
+	}
+	return b.closeHook(ctx)
 }
 
 // GetMetadata gets all metadata for a connector.

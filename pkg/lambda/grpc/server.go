@@ -140,23 +140,36 @@ func NewTransportStream(method *grpc.MethodDesc) *TransportStream {
 func NewServer(unaryInterceptor grpc.UnaryServerInterceptor,
 ) *Server {
 	return &Server{
-		unaryInterceptor: unaryInterceptor,
-		services:         make(map[string]*serviceInfo),
+		unaryInterceptor:       unaryInterceptor,
+		services:               make(map[string]*serviceInfo),
+		activeServiceInstances: make(map[serviceImplementationKey]*serviceImplementationState),
 	}
 }
 
 type serviceInfo struct {
 	serviceImpl any
+	handlerType reflect.Type
 	methods     map[string]*grpc.MethodDesc
 	streams     map[string]*grpc.StreamDesc
 	mdata       any
 }
 
 type Server struct {
-	mu               sync.Mutex
-	unaryInterceptor grpc.UnaryServerInterceptor
+	mu                     sync.Mutex
+	unaryInterceptor       grpc.UnaryServerInterceptor
+	activeServiceInstances map[serviceImplementationKey]*serviceImplementationState
 
 	services map[string]*serviceInfo
+}
+
+type serviceImplementationKey struct {
+	typ reflect.Type
+	ptr uintptr
+}
+
+type serviceImplementationState struct {
+	active  int
+	drained chan struct{}
 }
 
 func MetadataForRequest(req *Request) metadata.MD {
@@ -213,14 +226,22 @@ func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
 	if err != nil {
 		return ErrorResponse(err), nil
 	}
+
+	s.mu.Lock()
 	service, ok := s.services[serviceName]
 	if !ok {
+		s.mu.Unlock()
 		return ErrorResponse(status.Errorf(codes.Unimplemented, "unknown service %v", serviceName)), nil
 	}
 	method, ok := service.methods[methodName]
 	if !ok {
+		s.mu.Unlock()
 		return ErrorResponse(status.Errorf(codes.Unimplemented, "unknown method %v for service %v", method, service)), nil
 	}
+	serviceImpl := service.serviceImpl
+	releaseServiceImpl := s.acquireServiceImplementationLocked(serviceImpl)
+	s.mu.Unlock()
+	defer releaseServiceImpl()
 
 	md := MetadataForRequest(req)
 	p := PeerForRequest(req)
@@ -248,7 +269,7 @@ func (s *Server) Handler(ctx context.Context, req *Request) (*Response, error) {
 		return nil
 	}
 
-	resp, err := method.Handler(service.serviceImpl, ctx, df, s.unaryInterceptor)
+	resp, err := method.Handler(serviceImpl, ctx, df, s.unaryInterceptor)
 	if err != nil {
 		appStatus, ok := status.FromError(err)
 		if ok {
@@ -292,6 +313,7 @@ func (s *Server) register(sd *grpc.ServiceDesc, ss any) {
 	}
 	info := &serviceInfo{
 		serviceImpl: ss,
+		handlerType: reflect.TypeOf(sd.HandlerType).Elem(),
 		methods:     make(map[string]*grpc.MethodDesc),
 		streams:     make(map[string]*grpc.StreamDesc),
 		mdata:       sd.Metadata,
@@ -305,4 +327,109 @@ func (s *Server) register(sd *grpc.ServiceDesc, ss any) {
 		info.streams[d.StreamName] = d
 	}
 	s.services[sd.ServiceName] = info
+}
+
+// ReplaceServiceImplementation swaps all services currently registered with oldImpl to
+// newImpl and returns a channel that closes when requests using oldImpl have drained.
+// It is intended for lambda connector generation reloads where the service
+// descriptors stay fixed but connector-owned state must be discarded wholesale.
+func (s *Server) ReplaceServiceImplementation(oldImpl any, newImpl any) (int, <-chan struct{}, error) {
+	if newImpl == nil {
+		return 0, closedChannel(), fmt.Errorf("grpc: replacement service implementation is nil")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var replacements []*serviceInfo
+	for serviceName, service := range s.services {
+		if !sameServiceImplementation(service.serviceImpl, oldImpl) {
+			continue
+		}
+		if service.handlerType != nil && !reflect.TypeOf(newImpl).Implements(service.handlerType) {
+			return 0, closedChannel(), fmt.Errorf("grpc: replacement service implementation of type %v does not satisfy %v for service %q", reflect.TypeOf(newImpl), service.handlerType, serviceName)
+		}
+		replacements = append(replacements, service)
+	}
+
+	for _, service := range replacements {
+		service.serviceImpl = newImpl
+	}
+
+	drained := closedChannel()
+	if key, ok := serviceImplementationKeyFor(oldImpl); ok {
+		if state, ok := s.activeServiceInstances[key]; ok {
+			drained = state.drained
+		}
+	}
+
+	return len(replacements), drained, nil
+}
+
+func sameServiceImplementation(a any, b any) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	av := reflect.ValueOf(a)
+	bv := reflect.ValueOf(b)
+	if av.Kind() == reflect.Pointer && bv.Kind() == reflect.Pointer {
+		return av.Pointer() == bv.Pointer()
+	}
+	if !av.Type().Comparable() || !bv.Type().Comparable() {
+		return false
+	}
+
+	return a == b
+}
+
+func (s *Server) acquireServiceImplementationLocked(impl any) func() {
+	key, ok := serviceImplementationKeyFor(impl)
+	if !ok {
+		return func() {}
+	}
+
+	state, ok := s.activeServiceInstances[key]
+	if !ok {
+		state = &serviceImplementationState{drained: make(chan struct{})}
+		s.activeServiceInstances[key] = state
+	}
+	state.active++
+
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		state := s.activeServiceInstances[key]
+		if state == nil {
+			return
+		}
+		state.active--
+		if state.active == 0 {
+			close(state.drained)
+			delete(s.activeServiceInstances, key)
+		}
+	}
+}
+
+func serviceImplementationKeyFor(impl any) (serviceImplementationKey, bool) {
+	if impl == nil {
+		return serviceImplementationKey{}, false
+	}
+
+	v := reflect.ValueOf(impl)
+	if v.Kind() != reflect.Pointer {
+		return serviceImplementationKey{}, false
+	}
+
+	return serviceImplementationKey{
+		typ: v.Type(),
+		ptr: v.Pointer(),
+	}, true
+}
+
+func closedChannel() <-chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
 }
