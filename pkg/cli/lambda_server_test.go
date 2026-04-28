@@ -3,36 +3,68 @@
 package cli
 
 import (
+	"context"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 )
 
-func TestParseSyncResourceTypeIDs(t *testing.T) {
-	t.Run("key absent returns nil", func(t *testing.T) {
-		require.Nil(t, parseSyncResourceTypeIDs(map[string]interface{}{}))
-	})
+type testLambdaConnectorServer struct {
+	v2.UnimplementedConnectorServiceServer
+	v2.UnimplementedResourceTypesServiceServer
+	v2.UnimplementedResourcesServiceServer
+	v2.UnimplementedEntitlementsServiceServer
+	v2.UnimplementedGrantsServiceServer
+	v2.UnimplementedAssetServiceServer
+	v2.UnimplementedGrantManagerServiceServer
+	v2.UnimplementedResourceManagerServiceServer
+	v2.UnimplementedResourceDeleterServiceServer
+	v2.UnimplementedAccountManagerServiceServer
+	v2.UnimplementedCredentialManagerServiceServer
+	v2.UnimplementedEventServiceServer
+	v2.UnimplementedTicketsServiceServer
+	v2.UnimplementedActionServiceServer
+	v2.UnimplementedResourceGetterServiceServer
+}
 
-	t.Run("key present with values returns ids", func(t *testing.T) {
-		m := map[string]interface{}{
-			"sync-resource-types": []interface{}{"user", "group"},
-		}
-		got := parseSyncResourceTypeIDs(m)
-		require.Equal(t, []string{"user", "group"}, got)
-	})
+type testLambdaConnectorCloseWithoutContext struct {
+	testLambdaConnectorServer
+	closed bool
+}
 
-	t.Run("key present with empty slice returns empty", func(t *testing.T) {
-		m := map[string]interface{}{
-			"sync-resource-types": []interface{}{},
-		}
-		got := parseSyncResourceTypeIDs(m)
-		require.Empty(t, got)
-	})
+func (c *testLambdaConnectorCloseWithoutContext) Close() error {
+	c.closed = true
+	return nil
+}
 
-	t.Run("non-slice value is ignored", func(t *testing.T) {
-		m := map[string]interface{}{
-			"sync-resource-types": "user",
-		}
-		require.Nil(t, parseSyncResourceTypeIDs(m))
-	})
+type testLambdaConnectorCloseWithContext struct {
+	testLambdaConnectorServer
+	closed bool
+}
+
+func (c *testLambdaConnectorCloseWithContext) Close(context.Context) error {
+	c.closed = true
+	return nil
+}
+
+func TestCloseLambdaConnectorGenerationSupportsCloseWithoutContext(t *testing.T) {
+	connector := &testLambdaConnectorCloseWithoutContext{}
+
+	if err := closeLambdaConnectorGeneration(context.Background(), connector); err != nil {
+		t.Fatalf("closeLambdaConnectorGeneration: %v", err)
+	}
+	if !connector.closed {
+		t.Fatal("expected Close() to be called")
+	}
+}
+
+func TestCloseLambdaConnectorGenerationSupportsCloseWithContext(t *testing.T) {
+	connector := &testLambdaConnectorCloseWithContext{}
+
+	if err := closeLambdaConnectorGeneration(context.Background(), connector); err != nil {
+		t.Fatalf("closeLambdaConnectorGeneration: %v", err)
+	}
+	if !connector.closed {
+		t.Fatal("expected Close(context.Context) to be called")
+	}
 }

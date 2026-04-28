@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -29,15 +30,24 @@ var (
 	ErrInvalidClientID = errors.New("invalid client id")
 )
 
+const (
+	lambdaTokenHostEnv         = "BATON_LAMBDA_TOKEN_HOST" //nolint:gosec // Environment variable name, not a credential value.
+	lambdaConfigurationHostEnv = "BATON_LAMBDA_CONFIGURATION_HOST"
+	lambdaCACertPathEnv        = "BATON_LAMBDA_CA_CERT_PATH"
+)
+
 // NewDPoPClient creates a gRPC client with DPoP authentication.
 func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (grpc.ClientConnInterface, *jose.JSONWebKey, oauth2.TokenSource, error) {
 	_, tokenHost, err := parseClientID(clientID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-
-	if envHost, ok := os.LookupEnv("BATON_LAMBDA_TOKEN_HOST"); ok {
+	if envHost, ok := os.LookupEnv(lambdaTokenHostEnv); ok {
 		tokenHost = envHost
+	}
+	configurationHost := tokenHost
+	if envHost, ok := os.LookupEnv(lambdaConfigurationHostEnv); ok {
+		configurationHost = envHost
 	}
 
 	tokenURL := &url.URL{
@@ -68,17 +78,25 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (g
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create proofer: %w", err)
 	}
 
+	tlsConfig, err := lambdaTLSConfig()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	idAttMarshaller, err := NewIdAttMarshaller(ctx)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create claims adjuster: %w", err)
 	}
-	opts := dpop_oauth.WithRequestOption(dpop_oauth.WithCustomMarshaler(idAttMarshaller.Marshal))
-	tokenSource, err := dpop_oauth.NewTokenSource(proofer, tokenURL, clientID, clientSecretJWK, opts)
+	opts := []dpop_oauth.TokenSourceOption{
+		dpop_oauth.WithRequestOption(dpop_oauth.WithCustomMarshaler(idAttMarshaller.Marshal)),
+		dpop_oauth.WithHTTPClient(lambdaHTTPClient(tlsConfig)),
+	}
+	tokenSource, err := dpop_oauth.NewTokenSource(proofer, tokenURL, clientID, clientSecretJWK, opts...)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create token source: %w", err)
 	}
 
-	creds, err := dpop_grpc.NewDPoPCredentials(proofer, tokenSource, tokenHost, []dpop.ProofOption{
+	creds, err := dpop_grpc.NewDPoPCredentials(proofer, tokenSource, configurationHost, []dpop.ProofOption{
 		dpop.WithValidityDuration(time.Minute * 5),
 		dpop.WithProofNowFunc(time.Now),
 	})
@@ -86,14 +104,7 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (g
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create dpop credentials: %w", err)
 	}
 
-	systemCertPool, err := x509.SystemCertPool()
-	if err != nil || systemCertPool == nil {
-		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to load system cert pool: %w", err)
-	}
-	transportCreds := credentials.NewTLS(&tls.Config{
-		RootCAs:    systemCertPool,
-		MinVersion: tls.VersionTLS12,
-	})
+	transportCreds := credentials.NewTLS(tlsConfig)
 
 	dialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(transportCreds),
@@ -101,12 +112,38 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (g
 		grpc.WithPerRPCCredentials(creds),
 	}
 
-	client, err := grpc.NewClient(tokenHost, dialOpts...)
+	client, err := grpc.NewClient(configurationHost, dialOpts...)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create client: %w", err)
 	}
 
 	return client, jwk, tokenSource, nil
+}
+
+func lambdaTLSConfig() (*tls.Config, error) {
+	systemCertPool, err := x509.SystemCertPool()
+	if err != nil || systemCertPool == nil {
+		return nil, fmt.Errorf("new-dpop-client: failed to load system cert pool: %w", err)
+	}
+	if certPath := strings.TrimSpace(os.Getenv(lambdaCACertPathEnv)); certPath != "" {
+		pemBytes, err := os.ReadFile(certPath) //nolint:gosec // Operator-provided CA bundle path for lambda-hosted connector configuration.
+		if err != nil {
+			return nil, fmt.Errorf("new-dpop-client: failed to read %s: %w", lambdaCACertPathEnv, err)
+		}
+		if ok := systemCertPool.AppendCertsFromPEM(pemBytes); !ok {
+			return nil, fmt.Errorf("new-dpop-client: failed to append CA certificates from %s", lambdaCACertPathEnv)
+		}
+	}
+	return &tls.Config{
+		RootCAs:    systemCertPool,
+		MinVersion: tls.VersionTLS12,
+	}, nil
+}
+
+func lambdaHTTPClient(tlsConfig *tls.Config) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = tlsConfig.Clone()
+	return &http.Client{Transport: transport}
 }
 
 func parseClientID(input string) (string, string, error) {

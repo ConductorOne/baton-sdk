@@ -39,15 +39,23 @@ import (
 	"google.golang.org/grpc"
 )
 
-const lambdaConnectorConfigVersionHeader = "x-baton-connector-config-version"
+const (
+	lambdaConnectorConfigVersionHeader = "x-baton-connector-config-version"
+	lambdaConnectorDrainTimeout        = 30 * time.Second
+	lambdaConnectorCloseTimeout        = 10 * time.Second
+)
 
 type lambdaConnectorGeneration struct {
 	version   string
 	connector types.ConnectorServer
 }
 
-type lambdaConnectorCloser interface {
+type lambdaConnectorCloserWithContext interface {
 	Close(context.Context) error
+}
+
+type lambdaConnectorCloser interface {
+	Close() error
 }
 
 type lambdaConnectorReloader struct {
@@ -98,22 +106,51 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 
 	r.current = next
 	closeCtx := context.WithoutCancel(ctx)
-	go closeConnectorGenerationAfterDrain(closeCtx, previous, drained)
+	go closeConnectorGenerationAfterDrain(closeCtx, previous, drained, lambdaConnectorDrainTimeout, lambdaConnectorCloseTimeout)
 	return nil
 }
 
-func closeConnectorGenerationAfterDrain(ctx context.Context, generation *lambdaConnectorGeneration, drained <-chan struct{}) {
+func closeConnectorGenerationAfterDrain(ctx context.Context, generation *lambdaConnectorGeneration, drained <-chan struct{}, drainTimeout time.Duration, closeTimeout time.Duration) {
 	if generation == nil {
 		return
 	}
-	closer, ok := generation.connector.(lambdaConnectorCloser)
-	if !ok {
-		return
+
+	drainTimer := time.NewTimer(drainTimeout)
+	defer drainTimer.Stop()
+
+	select {
+	case <-drained:
+	case <-drainTimer.C:
+		zap.L().Warn("timed out waiting for stale lambda connector generation to drain", zap.String("config_version", generation.version), zap.Duration("timeout", drainTimeout))
 	}
 
-	<-drained
-	if err := closer.Close(ctx); err != nil {
+	closeCtx, cancel := context.WithTimeout(ctx, closeTimeout)
+	defer cancel()
+
+	if err := closeLambdaConnectorGeneration(closeCtx, generation.connector); err != nil {
 		zap.L().Warn("error closing stale lambda connector generation", zap.String("config_version", generation.version), zap.Error(err))
+	}
+}
+
+func closeLambdaConnectorGeneration(ctx context.Context, connector types.ConnectorServer) error {
+	errCh := make(chan error, 1)
+	if closer, ok := connector.(lambdaConnectorCloserWithContext); ok {
+		go func() {
+			errCh <- closer.Close(ctx)
+		}()
+	} else if closer, ok := connector.(lambdaConnectorCloser); ok {
+		go func() {
+			errCh <- closer.Close()
+		}()
+	} else {
+		return nil
+	}
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
