@@ -7,7 +7,6 @@ import (
 	"io"
 
 	"go.opentelemetry.io/otel"
-	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.uber.org/zap"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorstore"
@@ -15,21 +14,6 @@ import (
 )
 
 var tracer = otel.Tracer("baton-sdk/pkg.dotc1z")
-
-var meter = otel.Meter("baton-sdk/pkg.dotc1z")
-
-// grantHydrateMissCounter counts grant rows where the reader's hydration
-// path could not resolve the Entitlement or Principal fields stripped by
-// the slim-blob writer. Emitted with a "missing" attribute of
-// "entitlement" or "principal". A non-zero count is diagnostic (orphan
-// grant rows already exist in real c1zs today): the reader returns the
-// grant with the nil field intact rather than erroring, so downstream
-// code must tolerate empty Entitlement / Principal.
-var grantHydrateMissCounter, _ = meter.Int64Counter(
-	"baton_sdk.grant_hydrate_miss",
-	otelmetric.WithDescription("Slim-grant rows whose Entitlement or Principal could not be reconstituted from joins."),
-	otelmetric.WithUnit("1"),
-)
 
 // NewC1FileReader returns a connectorstore.Reader implementation for the given sqlite db file path.
 func NewC1FileReader(ctx context.Context, dbFilePath string, opts ...C1FOption) (connectorstore.Reader, error) {

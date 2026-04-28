@@ -2,6 +2,7 @@ package dotc1z
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
@@ -155,8 +156,9 @@ func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.G
 	q := c.db.From(tableName).Prepared(true).Select(
 		"id",
 		"data",
-		"sync_id",
 		"entitlement_id",
+		"resource_type_id",
+		"resource_id",
 		"principal_resource_type_id",
 		"principal_resource_id",
 	)
@@ -225,6 +227,7 @@ func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.G
 	if err != nil {
 		return nil, "", err
 	}
+	defer rows.Close()
 	if dur := time.Since(queryStart); dur > c.slowQueryThreshold {
 		c.throttledWarnSlowQuery(ctx, query, dur)
 	}
@@ -237,33 +240,35 @@ func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.G
 	// hydration pass is skipped.
 	var slimGrants []*v2.Grant
 	var slimKeys []grantJoinKeys
-	var slimSyncIDs []string
+	// Hoist scan destinations out of the loop. data and the five identity
+	// columns use sql.RawBytes so the SQLite driver writes back into the
+	// same buffer each iteration instead of allocating a fresh []byte /
+	// string per row. We materialize Go strings only when a slim row
+	// triggers hydration bookkeeping (string(b) copies into a Go-managed
+	// buffer before the next rows.Scan invalidates the source).
 	var (
-		count   uint32
-		lastRow int
+		rowID          int
+		data           sql.RawBytes
+		entIDRaw       sql.RawBytes
+		entRTRaw       sql.RawBytes
+		entRRaw        sql.RawBytes
+		principalRTRaw sql.RawBytes
+		principalRRaw  sql.RawBytes
+		count          uint32
+		lastRow        int
 	)
 	for rows.Next() {
 		count++
 		if count > pageSize {
 			break
 		}
-		var (
-			rowID         int
-			data          []byte
-			rowSyncID     string
-			entID         string
-			principalRTID string
-			principalRID  string
-		)
-		if err := rows.Scan(&rowID, &data, &rowSyncID, &entID, &principalRTID, &principalRID); err != nil {
-			rows.Close()
+		if err := rows.Scan(&rowID, &data, &entIDRaw, &entRTRaw, &entRRaw, &principalRTRaw, &principalRRaw); err != nil {
 			return nil, "", err
 		}
 		lastRow = rowID
 
 		g := &v2.Grant{}
 		if err := unmarshal.Unmarshal(data, g); err != nil {
-			rows.Close()
 			return nil, "", err
 		}
 		out = append(out, g)
@@ -271,32 +276,23 @@ func listGrantsGeneric(ctx context.Context, c *C1File, req listRequest) ([]*v2.G
 			if slimGrants == nil {
 				slimGrants = make([]*v2.Grant, 0, pageSize)
 				slimKeys = make([]grantJoinKeys, 0, pageSize)
-				slimSyncIDs = make([]string, 0, pageSize)
 			}
 			slimGrants = append(slimGrants, g)
 			slimKeys = append(slimKeys, grantJoinKeys{
-				EntitlementID:           entID,
-				PrincipalResourceTypeID: principalRTID,
-				PrincipalResourceID:     principalRID,
+				EntitlementID:             string(entIDRaw),
+				EntitlementResourceTypeID: string(entRTRaw),
+				EntitlementResourceID:     string(entRRaw),
+				PrincipalResourceTypeID:   string(principalRTRaw),
+				PrincipalResourceID:       string(principalRRaw),
 			})
-			slimSyncIDs = append(slimSyncIDs, rowSyncID)
 		}
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, "", err
-	}
-	// Close rows before hydration: the DB is capped at SetMaxOpenConns(1),
-	// so any follow-up query (batchFetchEntitlements etc.) would deadlock
-	// waiting for the connection this cursor holds.
-	if err := rows.Close(); err != nil {
 		return nil, "", err
 	}
 
 	if len(slimGrants) > 0 {
-		if err := hydrateGrantsGroupedBySync(ctx, c, slimGrants, slimKeys, slimSyncIDs); err != nil {
-			return nil, "", err
-		}
+		hydrateGrants(slimGrants, slimKeys)
 	}
 
 	nextPageToken := ""

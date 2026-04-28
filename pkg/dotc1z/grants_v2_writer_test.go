@@ -89,17 +89,22 @@ func TestV2GrantsWriter_RoundTrip(t *testing.T) {
 	require.Nil(t, bare.GetPrincipal(), "slim blob should have nil Principal on disk")
 	require.Equal(t, "grant-1", bare.GetId(), "Grant.Id is preserved in the blob")
 
-	// The reader must reconstitute both fields via hydration.
+	// The reader must reconstitute identity via stub-from-columns. Stubs
+	// carry only Id + nested Resource.Id — DisplayName and other rich
+	// fields are zero-value (documented contract; callers needing rich
+	// data fetch via GetEntitlement / GetResource).
 	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 1)
 	got := resp.GetList()[0]
 	require.Equal(t, "grant-1", got.GetId())
 	require.Equal(t, "ent1", got.GetEntitlement().GetId())
-	require.Equal(t, "Ent 1", got.GetEntitlement().GetDisplayName())
+	require.Equal(t, "group", got.GetEntitlement().GetResource().GetId().GetResourceType())
+	require.Equal(t, "g1", got.GetEntitlement().GetResource().GetId().GetResource())
 	require.Equal(t, "user", got.GetPrincipal().GetId().GetResourceType())
 	require.Equal(t, "u1", got.GetPrincipal().GetId().GetResource())
-	require.Equal(t, "User 1", got.GetPrincipal().GetDisplayName())
+	require.Empty(t, got.GetEntitlement().GetDisplayName(), "stub Entitlement carries no DisplayName")
+	require.Empty(t, got.GetPrincipal().GetDisplayName(), "stub Principal carries no DisplayName")
 }
 
 func TestV2GrantsWriter_DefaultWritesFullBlob(t *testing.T) {
@@ -213,68 +218,52 @@ func TestV2GrantsReader_MixedBlobs(t *testing.T) {
 	require.Equal(t, "u1", byID["grant-slim"].GetPrincipal().GetId().GetResource())
 }
 
-// TestV2GrantsReader_MissingEntitlement covers the orphan-grant contract:
-// a slim grant whose entitlement_id has no matching v1_entitlements row.
-// The reader must return the grant with Entitlement nil (not error).
-func TestV2GrantsReader_MissingEntitlement(t *testing.T) {
+// TestV2GrantsReader_StubsIgnoreEntitlementTable proves that slim-row
+// hydration does not depend on v1_entitlements or v1_resources existing.
+// We write slim grants, manually wipe both tables, then read the grants
+// back and verify identity is intact on the hydrated stubs. If the
+// reader were still joining (the pre-stub design), this test would fail
+// with empty IDs.
+func TestV2GrantsReader_StubsIgnoreEntitlementTable(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := newTestC1z(ctx, t, WithV2GrantsWriter(true))
 	defer cleanup()
 
 	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
 	u1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "u1"}.Build()}.Build()
-	// Reference an entitlement id that does not exist in v1_entitlements.
-	orphanEnt := v2.Entitlement_builder{Id: "ent-does-not-exist", Resource: g1}.Build()
+	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
 
 	require.NoError(t, c1f.PutGrants(ctx, v2.Grant_builder{
-		Id:          "grant-orphan-ent",
-		Entitlement: orphanEnt,
+		Id:          "grant-stub",
+		Entitlement: ent1,
 		Principal:   u1,
 	}.Build()))
 
+	// Wipe both join targets — stubs should be unaffected.
+	_, err := c1f.db.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s", entitlements.Name()))
+	require.NoError(t, err)
+	_, err = c1f.db.ExecContext(ctx, fmt.Sprintf("DELETE FROM %s", resources.Name()))
+	require.NoError(t, err)
+
 	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	require.NoError(t, err, "orphan grant must not cause reader to error")
+	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 1)
 	got := resp.GetList()[0]
-	require.Equal(t, "grant-orphan-ent", got.GetId())
-	require.Nil(t, got.GetEntitlement(), "unresolved entitlement should remain nil, not fabricated")
-	require.NotNil(t, got.GetPrincipal(), "principal should still be hydrated")
+	require.Equal(t, "grant-stub", got.GetId())
+	// Identity must round-trip from the grants row's columns.
+	require.Equal(t, "ent1", got.GetEntitlement().GetId())
+	require.Equal(t, "group", got.GetEntitlement().GetResource().GetId().GetResourceType())
+	require.Equal(t, "g1", got.GetEntitlement().GetResource().GetId().GetResource())
+	require.Equal(t, "user", got.GetPrincipal().GetId().GetResourceType())
 	require.Equal(t, "u1", got.GetPrincipal().GetId().GetResource())
 }
 
-// TestV2GrantsReader_MissingPrincipal is the mirror of MissingEntitlement
-// for the principal side.
-func TestV2GrantsReader_MissingPrincipal(t *testing.T) {
-	ctx := context.Background()
-	c1f, _, cleanup := newTestC1z(ctx, t, WithV2GrantsWriter(true))
-	defer cleanup()
-
-	g1 := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "group", Resource: "g1"}.Build()}.Build()
-	ent1 := v2.Entitlement_builder{Id: "ent1", Resource: g1}.Build()
-	// Reference a principal that does not exist in v1_resources.
-	orphanPrincipal := v2.Resource_builder{Id: v2.ResourceId_builder{ResourceType: "user", Resource: "nope"}.Build()}.Build()
-
-	require.NoError(t, c1f.PutGrants(ctx, v2.Grant_builder{
-		Id:          "grant-orphan-principal",
-		Entitlement: ent1,
-		Principal:   orphanPrincipal,
-	}.Build()))
-
-	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
-	require.NoError(t, err, "orphan grant must not cause reader to error")
-	require.Len(t, resp.GetList(), 1)
-	got := resp.GetList()[0]
-	require.Equal(t, "grant-orphan-principal", got.GetId())
-	require.NotNil(t, got.GetEntitlement())
-	require.Equal(t, "ent1", got.GetEntitlement().GetId())
-	require.Nil(t, got.GetPrincipal(), "unresolved principal should remain nil, not fabricated")
-}
-
-// TestV2GrantsReader_BatchFetch confirms hydration uses batched joins,
-// not a per-row fetch. We measure by inserting many grants that share a
-// handful of (entitlement, principal) targets and then verifying a
-// single ListGrants call returns all of them with correct hydration.
-func TestV2GrantsReader_BatchFetch(t *testing.T) {
+// TestV2GrantsReader_PaginatedSlim verifies that paged reads of slim
+// rows reconstitute identity correctly across page boundaries. With
+// stub-from-columns hydration there's no batched join; this test
+// catches regressions in the per-row stub construction or the
+// pageToken handoff between pages.
+func TestV2GrantsReader_PaginatedSlim(t *testing.T) {
 	ctx := context.Background()
 	c1f, _, cleanup := newTestC1z(ctx, t, WithV2GrantsWriter(true))
 	defer cleanup()
@@ -366,8 +355,8 @@ func TestV2GetGrant_Hydrates(t *testing.T) {
 	got := resp.GetGrant()
 	require.Equal(t, "grant-get", got.GetId())
 	require.Equal(t, "ent1", got.GetEntitlement().GetId())
-	require.Equal(t, "Ent 1", got.GetEntitlement().GetDisplayName())
 	require.Equal(t, "u1", got.GetPrincipal().GetId().GetResource())
+	require.Empty(t, got.GetEntitlement().GetDisplayName(), "stub carries identity only")
 }
 
 // TestExpandableGrants_Unchanged confirms that the expansion reader path
@@ -458,9 +447,8 @@ func TestV2GrantsReader_ListGrantsForEntitlement_Slim(t *testing.T) {
 	require.Len(t, resp.GetList(), 1)
 	got := resp.GetList()[0]
 	require.Equal(t, "g-on-ent1", got.GetId())
-	require.Equal(t, "ent1", got.GetEntitlement().GetId(), "hydration must fire on the filter path")
-	require.Equal(t, "Ent 1", got.GetEntitlement().GetDisplayName())
-	require.Equal(t, "User 1", got.GetPrincipal().GetDisplayName())
+	require.Equal(t, "ent1", got.GetEntitlement().GetId(), "stub hydration must fire on the filter path")
+	require.Equal(t, "u1", got.GetPrincipal().GetId().GetResource())
 }
 
 // TestV2GrantsReader_ListGrantsForPrincipal_Slim covers the
@@ -488,7 +476,8 @@ func TestV2GrantsReader_ListGrantsForPrincipal_Slim(t *testing.T) {
 	require.Len(t, resp.GetList(), 1)
 	got := resp.GetList()[0]
 	require.Equal(t, "g-u2", got.GetId())
-	require.Equal(t, "User 2", got.GetPrincipal().GetDisplayName(), "hydration must resolve the filtered principal")
+	require.Equal(t, "u2", got.GetPrincipal().GetId().GetResource(), "stub hydration must resolve the filtered principal")
+	require.Equal(t, "user", got.GetPrincipal().GetId().GetResourceType())
 	require.Equal(t, "ent1", got.GetEntitlement().GetId())
 }
 
@@ -555,8 +544,9 @@ func TestV2GrantsReader_ListGrantsInternalPayload_Slim(t *testing.T) {
 	require.Len(t, resp.Rows, 1)
 	got := resp.Rows[0].Grant
 	require.Equal(t, "g-payload", got.GetId())
-	require.Equal(t, "ent1", got.GetEntitlement().GetId(), "payload-mode internal reader must hydrate slim rows")
-	require.Equal(t, "User 1", got.GetPrincipal().GetDisplayName())
+	require.Equal(t, "ent1", got.GetEntitlement().GetId(), "payload-mode internal reader must stub-hydrate slim rows")
+	require.Equal(t, "u1", got.GetPrincipal().GetId().GetResource())
+	require.Equal(t, "user", got.GetPrincipal().GetId().GetResourceType())
 }
 
 // TestV2GrantsWriter_PreserveExpansionMode_Slim guards against
@@ -591,13 +581,12 @@ func TestV2GrantsWriter_PreserveExpansionMode_Slim(t *testing.T) {
 	require.Nil(t, bare.GetEntitlement(), "PreserveExpansion + slim must strip Entitlement from the blob")
 	require.Nil(t, bare.GetPrincipal(), "PreserveExpansion + slim must strip Principal from the blob")
 
-	// Reader round-trips correctly.
+	// Reader round-trips correctly via stub-from-columns.
 	resp, err := c1f.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
 	require.NoError(t, err)
 	require.Len(t, resp.GetList(), 1)
 	got := resp.GetList()[0]
 	require.Equal(t, "ent1", got.GetEntitlement().GetId())
-	require.Equal(t, "Ent 1", got.GetEntitlement().GetDisplayName())
 	require.Equal(t, "u1", got.GetPrincipal().GetId().GetResource())
 }
 

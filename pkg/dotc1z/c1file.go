@@ -72,9 +72,14 @@ type C1File struct {
 
 	// v2GrantsWriter, when true, causes PutGrants/UpsertGrants to strip
 	// Grant.Entitlement and Grant.Principal from the serialized data blob.
-	// Those fields are reconstituted at read time via joins against
-	// v1_entitlements and v1_resources. Readers handle full and slim
-	// blobs transparently per row, so mixed syncs in the same table are
+	// Those fields are reconstituted at read time as minimal stubs built
+	// from the grants row's identity columns (entitlement_id,
+	// resource_type_id, resource_id, principal_resource_type_id,
+	// principal_resource_id) — no joins against v1_entitlements or
+	// v1_resources. Stubs carry identity only (Id + nested Resource.Id);
+	// DisplayName, Annotations, Purpose, Slug, traits, and other rich
+	// fields are zero-value. Readers handle full and slim blobs
+	// transparently per row, so mixed syncs in the same table are
 	// supported. Default false; enabled via WithC1FV2GrantsWriter /
 	// WithV2GrantsWriter.
 	v2GrantsWriter bool
@@ -130,9 +135,14 @@ func WithC1FSyncCountLimit(limit int) C1FOption {
 }
 
 // WithC1FV2GrantsWriter toggles the slim-blob writer path for grants.
-// When true, Grant.Entitlement and Grant.Principal are stripped from the
-// serialized data blob at write time; readers reconstitute them from
-// v1_entitlements / v1_resources. Default false. Readers always accept
+// When true, Grant.Entitlement and Grant.Principal are stripped from
+// the serialized data blob at write time; readers reconstitute them
+// as minimal identity-only stubs (Id + nested Resource.Id) using the
+// grants row's existing columns — no joins against v1_entitlements or
+// v1_resources. Stubs do NOT carry DisplayName, Annotations, Purpose,
+// Slug, traits, or any other non-identity field; callers that need
+// those must fetch the Entitlement / Resource directly via
+// GetEntitlement / GetResource. Default false. Readers always accept
 // both shapes regardless of this flag.
 func WithC1FV2GrantsWriter(enabled bool) C1FOption {
 	return func(o *C1File) {
