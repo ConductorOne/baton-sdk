@@ -69,6 +69,26 @@ type C1File struct {
 	// Sync cleanup settings
 	syncLimit   int
 	skipCleanup bool
+
+	// v2GrantsWriter, when true, causes PutGrants/UpsertGrants to strip
+	// Grant.Entitlement and Grant.Principal from the serialized data blob.
+	// Those fields are reconstituted at read time as minimal stubs built
+	// from the grants row's identity columns (entitlement_id,
+	// resource_type_id, resource_id, principal_resource_type_id,
+	// principal_resource_id) — no joins against v1_entitlements or
+	// v1_resources. Stubs carry identity only (Id + nested Resource.Id);
+	// DisplayName, Annotations, Purpose, Slug, traits, and other rich
+	// fields are zero-value. Readers handle full and slim blobs
+	// transparently per row, so mixed syncs in the same table are
+	// supported.
+	//
+	// Slim is gated per-grant: a grant carrying InsertResourceGrants or
+	// any ExternalResourceMatch* annotation stays full-blob even when
+	// this flag is on, because the syncer reads non-identity fields off
+	// its embedded Resource / Principal. See unsafeForSlim in grants.go.
+	//
+	// Default false; enabled via WithC1FV2GrantsWriter / WithV2GrantsWriter.
+	v2GrantsWriter bool
 }
 
 var (
@@ -117,6 +137,37 @@ func WithC1FSkipCleanup(skip bool) C1FOption {
 func WithC1FSyncCountLimit(limit int) C1FOption {
 	return func(o *C1File) {
 		o.syncLimit = limit
+	}
+}
+
+// WithC1FV2GrantsWriter toggles the slim-blob writer path for grants.
+// When true, Grant.Entitlement and Grant.Principal are stripped from
+// the serialized data blob at write time; readers reconstitute them
+// as minimal identity-only stubs (Id + nested Resource.Id) using the
+// grants row's existing columns — no joins against v1_entitlements or
+// v1_resources. Stubs do NOT carry DisplayName, Annotations, Purpose,
+// Slug, traits, or any other non-identity field; callers that need
+// those must fetch the Entitlement / Resource directly via
+// GetEntitlement / GetResource. Default false. Readers always accept
+// both shapes regardless of this flag.
+//
+// Slim is gated per-grant: a grant carrying any of these annotations
+// is left full-blob even when the option is on, because downstream
+// sync code reads non-identity fields off its embedded Resource /
+// Principal:
+//
+//   - v2.InsertResourceGrants  (response-level; the syncer copies it
+//     onto each grant in the batch before UpsertGrants)
+//   - v2.ExternalResourceMatchAll
+//   - v2.ExternalResourceMatch
+//   - v2.ExternalResourceMatchID
+//
+// All other grants are eligible for slim. Connectors emitting flat
+// (non-hierarchical) principals and no external-resource matching see
+// every grant slimmed.
+func WithC1FV2GrantsWriter(enabled bool) C1FOption {
+	return func(o *C1File) {
+		o.v2GrantsWriter = enabled
 	}
 }
 
@@ -179,6 +230,7 @@ type c1zOptions struct {
 	encoderConcurrency int
 	syncLimit          int
 	skipCleanup        bool
+	v2GrantsWriter     bool
 }
 
 type C1ZOption func(*c1zOptions)
@@ -235,6 +287,14 @@ func WithSyncLimit(limit int) C1ZOption {
 	}
 }
 
+// WithV2GrantsWriter toggles the slim-blob writer path for grants.
+// See WithC1FV2GrantsWriter for details.
+func WithV2GrantsWriter(enabled bool) C1ZOption {
+	return func(o *c1zOptions) {
+		o.v2GrantsWriter = enabled
+	}
+}
+
 // Returns a new C1File instance with its state stored at the provided filename.
 func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (*C1File, error) {
 	ctx, span := tracer.Start(ctx, "NewC1ZFile")
@@ -277,6 +337,9 @@ func NewC1ZFile(ctx context.Context, outputFilePath string, opts ...C1ZOption) (
 	}
 	if options.skipCleanup {
 		c1fopts = append(c1fopts, WithC1FSkipCleanup(true))
+	}
+	if options.v2GrantsWriter {
+		c1fopts = append(c1fopts, WithC1FV2GrantsWriter(true))
 	}
 
 	c1File, err := NewC1File(ctx, dbFilePath, c1fopts...)

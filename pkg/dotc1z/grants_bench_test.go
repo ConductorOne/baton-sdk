@@ -14,8 +14,11 @@ import (
 
 var grantCounts = []int{100, 1000, 10000, 100000}
 
-// setupBenchmarkDB creates a test database with the specified number of grants.
-func setupBenchmarkDB(b *testing.B, numGrants int) (*C1File, string, func()) {
+// setupBenchmarkDB creates a test database with the specified number of
+// grants. When slim=true, the slim-blob writer is enabled; reads must
+// then go through the hydration path to reconstitute Entitlement /
+// Principal.
+func setupBenchmarkDB(b *testing.B, numGrants int, slim bool) (*C1File, string, func()) {
 	b.Helper()
 
 	ctx := b.Context()
@@ -28,6 +31,9 @@ func setupBenchmarkDB(b *testing.B, numGrants int) (*C1File, string, func()) {
 		WithTmpDir(tempDir),
 		WithEncoderConcurrency(0),
 		WithDecoderOptions(WithDecoderConcurrency(0)),
+	}
+	if slim {
+		opts = append(opts, WithV2GrantsWriter(true))
 	}
 
 	f, err := NewC1ZFile(ctx, testFilePath, opts...)
@@ -98,44 +104,99 @@ func setupBenchmarkDB(b *testing.B, numGrants int) (*C1File, string, func()) {
 
 // BenchmarkListGrantsForEntitlement benchmarks ListGrantsForEntitlement filtered by an entitlement.
 func BenchmarkListGrantsForEntitlement(b *testing.B) {
-	for _, numGrants := range grantCounts {
-		b.Run(fmt.Sprintf("grants=%d", numGrants), func(b *testing.B) {
-			f, entitlementID, cleanup := setupBenchmarkDB(b, numGrants)
-			defer cleanup()
+	for _, slim := range []bool{false, true} {
+		writer := "full"
+		if slim {
+			writer = "slim"
+		}
+		for _, numGrants := range grantCounts {
+			b.Run(fmt.Sprintf("writer=%s/grants=%d", writer, numGrants), func(b *testing.B) {
+				f, entitlementID, cleanup := setupBenchmarkDB(b, numGrants, slim)
+				defer cleanup()
 
-			ctx := b.Context()
+				ctx := b.Context()
 
-			// Get the entitlement for the request
-			entResp, err := f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-				EntitlementId: entitlementID,
-			}.Build())
-			require.NoError(b, err)
+				entResp, err := f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+					EntitlementId: entitlementID,
+				}.Build())
+				require.NoError(b, err)
 
-			req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
-				Entitlement: entResp.GetEntitlement(),
-			}.Build()
+				req := reader_v2.GrantsReaderServiceListGrantsForEntitlementRequest_builder{
+					Entitlement: entResp.GetEntitlement(),
+				}.Build()
 
-			b.ReportAllocs()
+				b.ReportAllocs()
 
-			for b.Loop() {
-				pageToken := ""
-				totalGrants := 0
-				for {
-					req.SetPageToken(pageToken)
-					resp, err := f.ListGrantsForEntitlement(ctx, req)
-					if err != nil {
-						b.Fatal(err)
+				for b.Loop() {
+					pageToken := ""
+					totalGrants := 0
+					for {
+						req.SetPageToken(pageToken)
+						resp, err := f.ListGrantsForEntitlement(ctx, req)
+						if err != nil {
+							b.Fatal(err)
+						}
+						totalGrants += len(resp.GetList())
+						pageToken = resp.GetNextPageToken()
+						if pageToken == "" {
+							break
+						}
 					}
-					totalGrants += len(resp.GetList())
-					pageToken = resp.GetNextPageToken()
-					if pageToken == "" {
-						break
+					if totalGrants != numGrants {
+						b.Fatalf("expected %d grants, got %d", numGrants, totalGrants)
 					}
 				}
-				if totalGrants != numGrants {
-					b.Fatalf("expected %d grants, got %d", numGrants, totalGrants)
+			})
+		}
+	}
+}
+
+// BenchmarkListGrantsInternal_PayloadWithExpansion mirrors the c1 uplift read
+// path: c1 wraps the SDK in fileClientWrapper.ListGrants, which routes to
+// ListGrantsInternal(GrantListModePayloadWithExpansion) so expansion
+// annotations are preserved on the returned grants. This is the hottest
+// read path on the c1 side at scale (uplift reads every grant in a c1z),
+// and the one most affected by the slim-blob hydration changes.
+//
+// Run with both writer modes so we can measure the hydration cost vs. the
+// pre-slim full-blob baseline.
+func BenchmarkListGrantsInternal_PayloadWithExpansion(b *testing.B) {
+	for _, slim := range []bool{false, true} {
+		writer := "full"
+		if slim {
+			writer = "slim"
+		}
+		for _, numGrants := range grantCounts {
+			b.Run(fmt.Sprintf("writer=%s/grants=%d", writer, numGrants), func(b *testing.B) {
+				f, _, cleanup := setupBenchmarkDB(b, numGrants, slim)
+				defer cleanup()
+
+				ctx := b.Context()
+
+				b.ReportAllocs()
+
+				for b.Loop() {
+					pageToken := ""
+					totalGrants := 0
+					for {
+						resp, err := f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
+							Mode:      connectorstore.GrantListModePayloadWithExpansion,
+							PageToken: pageToken,
+						})
+						if err != nil {
+							b.Fatal(err)
+						}
+						totalGrants += len(resp.Rows)
+						pageToken = resp.NextPageToken
+						if pageToken == "" {
+							break
+						}
+					}
+					if totalGrants != numGrants {
+						b.Fatalf("expected %d grants, got %d", numGrants, totalGrants)
+					}
 				}
-			}
-		})
+			})
+		}
 	}
 }

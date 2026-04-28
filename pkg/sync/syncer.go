@@ -1719,6 +1719,21 @@ func (s *syncer) syncGrantsForResource(ctx context.Context, action *Action) erro
 	respAnnos := annotations.Annotations(resp.GetAnnotations())
 	insertResourceGrants := respAnnos.Contains(&v2.InsertResourceGrants{})
 
+	// InsertResourceGrants is canonically a response-level annotation but
+	// the slim-blob writer's per-grant safety gate (grantExtractFields →
+	// unsafeForSlim) needs to see it per-row to avoid stripping the
+	// embedded Resource that this code path will subsequently extract via
+	// grant.GetEntitlement().GetResource() and write to v1_resources.
+	// Stamp the marker onto each grant so the writer treats them as
+	// full-blob.
+	if insertResourceGrants {
+		for _, g := range grants {
+			gAnnos := annotations.Annotations(g.GetAnnotations())
+			gAnnos.Update(&v2.InsertResourceGrants{})
+			g.SetAnnotations(gAnnos)
+		}
+	}
+
 	for _, grant := range grants {
 		grantAnnos := annotations.Annotations(grant.GetAnnotations())
 		if !s.dontExpandGrants && grantAnnos.Contains(&v2.GrantExpandable{}) {

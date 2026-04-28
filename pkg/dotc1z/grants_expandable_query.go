@@ -189,6 +189,8 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 			"data",
 			"external_id",
 			"entitlement_id",
+			"resource_type_id",
+			"resource_id",
 			"principal_resource_type_id",
 			"principal_resource_id",
 			"expansion",
@@ -237,11 +239,32 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		DiscardUnknown: true,
 	}
 
+	// Hoist scan destinations and reuse RawBytes buffers across rows so the
+	// SQLite driver doesn't allocate fresh slices/strings every iteration.
+	// Strings are only materialized when we need them downstream (expansion
+	// def populated, or slim row triggers hydration bookkeeping); RawBytes
+	// contents are invalidated on the next rows.Scan.
 	var (
-		count   uint32
-		lastRow int64
+		rowID          int64
+		grantData      sql.RawBytes
+		externalIDRaw  sql.RawBytes
+		entIDRaw       sql.RawBytes
+		entRTRaw       sql.RawBytes
+		entRRaw        sql.RawBytes
+		principalRTRaw sql.RawBytes
+		principalRRaw  sql.RawBytes
+		expansionBlob  sql.RawBytes
+		needsExp       int
+		count          uint32
+		lastRow        int64
 	)
 	result := make([]*connectorstore.InternalGrantRow, 0, pageSize)
+	// Only populated when a slim row is observed — on pre-slim c1zs
+	// (every existing tenant today) these slices stay nil and the
+	// hydration pass is skipped entirely.
+	var pageGrants []*v2.Grant
+	var pageKeys []grantJoinKeys
+	var sawSlim bool
 
 	for rows.Next() {
 		count++
@@ -249,23 +272,15 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 			break
 		}
 
-		var (
-			rowID         int64
-			grantData     []byte
-			externalID    string
-			entID         string
-			principalRTID string
-			principalRID  string
-			expansionBlob []byte
-			needsExp      int
-		)
 		if err := rows.Scan(
 			&rowID,
 			&grantData,
-			&externalID,
-			&entID,
-			&principalRTID,
-			&principalRID,
+			&externalIDRaw,
+			&entIDRaw,
+			&entRTRaw,
+			&entRRaw,
+			&principalRTRaw,
+			&principalRRaw,
 			&expansionBlob,
 			&needsExp,
 		); err != nil {
@@ -282,13 +297,13 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 		if len(expansionBlob) > 0 {
 			ge := &v2.GrantExpandable{}
 			if err := proto.Unmarshal(expansionBlob, ge); err != nil {
-				return nil, fmt.Errorf("failed to unmarshal grant expansion for %s: %w", externalID, err)
+				return nil, fmt.Errorf("failed to unmarshal grant expansion for %s: %w", string(externalIDRaw), err)
 			}
 			expansion = &connectorstore.ExpandableGrantDef{
-				GrantExternalID:         externalID,
-				TargetEntitlementID:     entID,
-				PrincipalResourceTypeID: principalRTID,
-				PrincipalResourceID:     principalRID,
+				GrantExternalID:         string(externalIDRaw),
+				TargetEntitlementID:     string(entIDRaw),
+				PrincipalResourceTypeID: string(principalRTRaw),
+				PrincipalResourceID:     string(principalRRaw),
 				SourceEntitlementIDs:    ge.GetEntitlementIds(),
 				Shallow:                 ge.GetShallow(),
 				ResourceTypeIDs:         ge.GetResourceTypeIds(),
@@ -300,9 +315,28 @@ func (c *C1File) listGrantsWithExpansionInternal(ctx context.Context, opts conne
 			Grant:     grant,
 			Expansion: expansion,
 		})
+		if grant.GetEntitlement() == nil || grant.GetPrincipal() == nil {
+			if !sawSlim {
+				pageGrants = make([]*v2.Grant, 0, pageSize)
+				pageKeys = make([]grantJoinKeys, 0, pageSize)
+				sawSlim = true
+			}
+			pageGrants = append(pageGrants, grant)
+			pageKeys = append(pageKeys, grantJoinKeys{
+				EntitlementID:             string(entIDRaw),
+				EntitlementResourceTypeID: string(entRTRaw),
+				EntitlementResourceID:     string(entRRaw),
+				PrincipalResourceTypeID:   string(principalRTRaw),
+				PrincipalResourceID:       string(principalRRaw),
+			})
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+
+	if sawSlim {
+		hydrateGrants(pageGrants, pageKeys)
 	}
 
 	nextPageToken := ""
@@ -326,7 +360,15 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		return nil, err
 	}
 
-	q := c.db.From(grants.Name()).Prepared(true).Select("id", "data")
+	q := c.db.From(grants.Name()).Prepared(true).Select(
+		"id",
+		"data",
+		"entitlement_id",
+		"resource_type_id",
+		"resource_id",
+		"principal_resource_type_id",
+		"principal_resource_id",
+	)
 	if opts.Resource != nil {
 		q = q.Where(goqu.C("resource_id").Eq(opts.Resource.GetId().GetResource()))
 		q = q.Where(goqu.C("resource_type_id").Eq(opts.Resource.GetId().GetResourceType()))
@@ -363,9 +405,23 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 		DiscardUnknown: true,
 	}
 	result := make([]*connectorstore.InternalGrantRow, 0, pageSize)
+	var pageGrants []*v2.Grant
+	var pageKeys []grantJoinKeys
+	// Hoist scan destinations out of the loop and use sql.RawBytes for the
+	// per-row data + the five identity columns. The driver reuses the
+	// same buffer each iteration; we only allocate Go strings when a slim
+	// row triggers hydration bookkeeping.
 	var (
-		count   uint32
-		lastRow int64
+		rowID          int64
+		grantData      sql.RawBytes
+		entIDRaw       sql.RawBytes
+		entRTRaw       sql.RawBytes
+		entRRaw        sql.RawBytes
+		principalRTRaw sql.RawBytes
+		principalRRaw  sql.RawBytes
+		count          uint32
+		lastRow        int64
+		sawSlim        bool
 	)
 	for rows.Next() {
 		count++
@@ -373,11 +429,7 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 			break
 		}
 
-		var (
-			rowID     int64
-			grantData []byte
-		)
-		if err := rows.Scan(&rowID, &grantData); err != nil {
+		if err := rows.Scan(&rowID, &grantData, &entIDRaw, &entRTRaw, &entRRaw, &principalRTRaw, &principalRRaw); err != nil {
 			return nil, err
 		}
 		lastRow = rowID
@@ -387,9 +439,28 @@ func (c *C1File) listGrantsPayloadInternal(ctx context.Context, opts connectorst
 			return nil, err
 		}
 		result = append(result, &connectorstore.InternalGrantRow{Grant: grant})
+		if grant.GetEntitlement() == nil || grant.GetPrincipal() == nil {
+			if !sawSlim {
+				pageGrants = make([]*v2.Grant, 0, pageSize)
+				pageKeys = make([]grantJoinKeys, 0, pageSize)
+				sawSlim = true
+			}
+			pageGrants = append(pageGrants, grant)
+			pageKeys = append(pageKeys, grantJoinKeys{
+				EntitlementID:             string(entIDRaw),
+				EntitlementResourceTypeID: string(entRTRaw),
+				EntitlementResourceID:     string(entRRaw),
+				PrincipalResourceTypeID:   string(principalRTRaw),
+				PrincipalResourceID:       string(principalRRaw),
+			})
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+
+	if sawSlim {
+		hydrateGrants(pageGrants, pageKeys)
 	}
 
 	nextPageToken := ""
