@@ -19,8 +19,9 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ConnectorConfigService_GetConnectorConfig_FullMethodName     = "/c1.connectorapi.baton.v1.ConnectorConfigService/GetConnectorConfig"
-	ConnectorConfigService_GetConnectorOauthToken_FullMethodName = "/c1.connectorapi.baton.v1.ConnectorConfigService/GetConnectorOauthToken"
+	ConnectorConfigService_GetConnectorConfig_FullMethodName        = "/c1.connectorapi.baton.v1.ConnectorConfigService/GetConnectorConfig"
+	ConnectorConfigService_GetManagedRuntimeSnapshot_FullMethodName = "/c1.connectorapi.baton.v1.ConnectorConfigService/GetManagedRuntimeSnapshot"
+	ConnectorConfigService_GetConnectorOauthToken_FullMethodName    = "/c1.connectorapi.baton.v1.ConnectorConfigService/GetConnectorOauthToken"
 )
 
 // ConnectorConfigServiceClient is the client API for ConnectorConfigService service.
@@ -28,6 +29,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ConnectorConfigServiceClient interface {
 	GetConnectorConfig(ctx context.Context, in *GetConnectorConfigRequest, opts ...grpc.CallOption) (*GetConnectorConfigResponse, error)
+	GetManagedRuntimeSnapshot(ctx context.Context, in *GetManagedRuntimeSnapshotRequest, opts ...grpc.CallOption) (*GetManagedRuntimeSnapshotResponse, error)
 	GetConnectorOauthToken(ctx context.Context, in *GetConnectorOauthTokenRequest, opts ...grpc.CallOption) (*GetConnectorOauthTokenResponse, error)
 }
 
@@ -49,6 +51,16 @@ func (c *connectorConfigServiceClient) GetConnectorConfig(ctx context.Context, i
 	return out, nil
 }
 
+func (c *connectorConfigServiceClient) GetManagedRuntimeSnapshot(ctx context.Context, in *GetManagedRuntimeSnapshotRequest, opts ...grpc.CallOption) (*GetManagedRuntimeSnapshotResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetManagedRuntimeSnapshotResponse)
+	err := c.cc.Invoke(ctx, ConnectorConfigService_GetManagedRuntimeSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *connectorConfigServiceClient) GetConnectorOauthToken(ctx context.Context, in *GetConnectorOauthTokenRequest, opts ...grpc.CallOption) (*GetConnectorOauthTokenResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetConnectorOauthTokenResponse)
@@ -64,6 +76,7 @@ func (c *connectorConfigServiceClient) GetConnectorOauthToken(ctx context.Contex
 // for forward compatibility.
 type ConnectorConfigServiceServer interface {
 	GetConnectorConfig(context.Context, *GetConnectorConfigRequest) (*GetConnectorConfigResponse, error)
+	GetManagedRuntimeSnapshot(context.Context, *GetManagedRuntimeSnapshotRequest) (*GetManagedRuntimeSnapshotResponse, error)
 	GetConnectorOauthToken(context.Context, *GetConnectorOauthTokenRequest) (*GetConnectorOauthTokenResponse, error)
 }
 
@@ -76,6 +89,9 @@ type UnimplementedConnectorConfigServiceServer struct{}
 
 func (UnimplementedConnectorConfigServiceServer) GetConnectorConfig(context.Context, *GetConnectorConfigRequest) (*GetConnectorConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConnectorConfig not implemented")
+}
+func (UnimplementedConnectorConfigServiceServer) GetManagedRuntimeSnapshot(context.Context, *GetManagedRuntimeSnapshotRequest) (*GetManagedRuntimeSnapshotResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetManagedRuntimeSnapshot not implemented")
 }
 func (UnimplementedConnectorConfigServiceServer) GetConnectorOauthToken(context.Context, *GetConnectorOauthTokenRequest) (*GetConnectorOauthTokenResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetConnectorOauthToken not implemented")
@@ -118,6 +134,24 @@ func _ConnectorConfigService_GetConnectorConfig_Handler(srv interface{}, ctx con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ConnectorConfigService_GetManagedRuntimeSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetManagedRuntimeSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ConnectorConfigServiceServer).GetManagedRuntimeSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ConnectorConfigService_GetManagedRuntimeSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ConnectorConfigServiceServer).GetManagedRuntimeSnapshot(ctx, req.(*GetManagedRuntimeSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ConnectorConfigService_GetConnectorOauthToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetConnectorOauthTokenRequest)
 	if err := dec(in); err != nil {
@@ -146,6 +180,10 @@ var ConnectorConfigService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetConnectorConfig",
 			Handler:    _ConnectorConfigService_GetConnectorConfig_Handler,
+		},
+		{
+			MethodName: "GetManagedRuntimeSnapshot",
+			Handler:    _ConnectorConfigService_GetManagedRuntimeSnapshot_Handler,
 		},
 		{
 			MethodName: "GetConnectorOauthToken",

@@ -16,13 +16,39 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"golang.org/x/oauth2"
+	"google.golang.org/protobuf/types/known/structpb"
 )
+
+const (
+	ManagedRuntimeRevisionHeader = "x-baton-runtime-revision"
+
+	ManagedRuntimeAssetRoleRuntimeSchema = "runtime-schema"
+	ManagedRuntimeAssetRoleRuntimeBundle = "runtime-bundle"
+	ManagedRuntimeAssetRoleRuntimePolicy = "runtime-policy"
+)
+
+type ManagedRuntimeAsset struct {
+	Role      string
+	MediaType string
+	Bytes     []byte
+}
+
+type ManagedRuntimeSnapshot struct {
+	Revision string
+	Config   *structpb.Struct
+	Assets   []ManagedRuntimeAsset
+}
+
+type ManagedRuntimeOpts struct {
+	Snapshot *ManagedRuntimeSnapshot
+}
 
 type RunTimeOpts struct {
 	SessionStore        sessions.SessionStore
 	TokenSource         oauth2.TokenSource
 	SelectedAuthMethod  string
 	SyncResourceTypeIDs []string
+	ManagedRuntime      *ManagedRuntimeOpts
 }
 
 // GetConnectorFunc is a function type that creates a connector instance.

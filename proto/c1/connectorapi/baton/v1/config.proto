@@ -8,6 +8,7 @@ option go_package = "gitlab.com/ductone/c1/pkg/pb/c1/connectorapi/baton/v1";
 
 service ConnectorConfigService {
   rpc GetConnectorConfig(GetConnectorConfigRequest) returns (GetConnectorConfigResponse);
+  rpc GetManagedRuntimeSnapshot(GetManagedRuntimeSnapshotRequest) returns (GetManagedRuntimeSnapshotResponse);
   rpc GetConnectorOauthToken(GetConnectorOauthTokenRequest) returns (GetConnectorOauthTokenResponse);
 }
 
@@ -16,6 +17,24 @@ message GetConnectorConfigRequest {}
 message GetConnectorConfigResponse {
   bytes config = 1;
   google.protobuf.Timestamp last_updated = 2;
+}
+
+message GetManagedRuntimeSnapshotRequest {}
+
+message ManagedRuntimeAsset {
+  string role = 1;
+  string media_type = 2;
+  bytes body = 3;
+}
+
+message ManagedRuntimeSnapshot {
+  string revision = 1;
+  bytes encrypted_config = 2;
+  repeated ManagedRuntimeAsset assets = 3;
+}
+
+message GetManagedRuntimeSnapshotResponse {
+  ManagedRuntimeSnapshot snapshot = 1;
 }
 
 message SignedHeader {

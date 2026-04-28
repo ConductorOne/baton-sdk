@@ -18,14 +18,13 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/ugrpc"
 	"github.com/go-jose/go-jose/v4"
 	"github.com/maypok86/otter/v2"
-	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 	"golang.org/x/oauth2"
-	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
+	connectorV2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	v1 "github.com/conductorone/baton-sdk/pb/c1/connectorapi/baton/v1"
 	"github.com/conductorone/baton-sdk/pkg/auth"
 	"github.com/conductorone/baton-sdk/pkg/field"
@@ -127,78 +126,14 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		// Create connector config service client using the DPoP client
 		configClient := v1.NewConnectorConfigServiceClient(grpcClient)
 
-		// Get configuration, convert it to viper flag values, then proceed.
-		config, err := configClient.GetConnectorConfig(runCtx, &v1.GetConnectorConfigRequest{})
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to get connector config: %w", err)
-		}
-
 		ed25519PrivateKey, ok := webKey.Key.(ed25519.PrivateKey)
 		if !ok {
 			return fmt.Errorf("lambda-run: failed to cast webkey to ed25519.PrivateKey")
 		}
-
-		decrypted, err := jwk.DecryptED25519(ed25519PrivateKey, config.Config)
+		snapshotFetcher := newManagedRuntimeFetcher(configClient, ed25519PrivateKey)
+		initialSnapshot, err := snapshotFetcher.Fetch(runCtx)
 		if err != nil {
-			return fmt.Errorf("lambda-run: failed to decrypt config: %w", err)
-		}
-
-		configStruct := structpb.Struct{}
-		err = json.Unmarshal(decrypted, &configStruct)
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
-		}
-
-		// parse content directly for lambdas, don't read from file
-		readFromPath := false
-		decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(readFromPath))
-		t, err := MakeGenericConfiguration[T](v, decodeOpts)
-		if err != nil {
-			return fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
-		}
-		switch cfg := any(t).(type) {
-		case *viper.Viper:
-			for k, v := range configStruct.AsMap() {
-				cfg.Set(k, v)
-			}
-		default:
-			// Use mapstructure with decode hook for file upload fields
-			decoder, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-				DecodeHook: field.ComposeDecodeHookFunc(decodeOpts),
-				Result:     cfg,
-			})
-			if err != nil {
-				return fmt.Errorf("lambda-run: failed to create decoder: %w", err)
-			}
-			err = decoder.Decode(configStruct.AsMap())
-			if err != nil {
-				return fmt.Errorf("lambda-run: failed to decode config: %w", err)
-			}
-		}
-
-		configStructMap := configStruct.AsMap()
-
-		var (
-			fieldOptions  []field.Option
-			schemaFields  []field.SchemaField
-			authMethodStr string
-		)
-		if authMethod, ok := configStructMap["auth-method"]; ok {
-			if authMethodStr, ok = authMethod.(string); ok {
-				fieldOptions = append(fieldOptions, field.WithAuthMethod(authMethodStr))
-			}
-		}
-		schemaFieldsMap := connectorSchema.FieldGroupFields(authMethodStr)
-		for _, field := range schemaFieldsMap {
-			schemaFields = append(schemaFields, field)
-		}
-
-		if len(schemaFields) == 0 {
-			schemaFields = connectorSchema.Fields
-		}
-
-		if err := field.Validate(connectorSchema, t, fieldOptions...); err != nil {
-			return fmt.Errorf("failed to validate config: %w", err)
+			return fmt.Errorf("lambda-run: failed to get managed runtime snapshot: %w", err)
 		}
 
 		clientSecret := v.GetString("lambda-client-secret")
@@ -218,29 +153,13 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				return &session.NoOpSessionStore{}, nil
 			}
 		}
-		ops := RunTimeOpts{
-			SessionStore: NewLazyCachingSessionStore(sessionStoreConstructor, func(otterOptions *otter.Options[string, []byte]) {
-				if sessionStoreMaximumSize <= 0 {
-					otterOptions.MaximumWeight = 0
-				} else {
-					otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
-				}
-			}),
-			SelectedAuthMethod:  authMethodStr,
-			SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
-		}
-
-		if hasOauthField(schemaFields) {
-			ops.TokenSource = &lambdaTokenSource{
-				ctx:    runCtx,
-				webKey: webKey,
-				client: configClient,
+		sessionStore := NewLazyCachingSessionStore(sessionStoreConstructor, func(otterOptions *otter.Options[string, []byte]) {
+			if sessionStoreMaximumSize <= 0 {
+				otterOptions.MaximumWeight = 0
+			} else {
+				otterOptions.MaximumWeight = uint64(sessionStoreMaximumSize)
 			}
-		}
-		c, err := getconnector(runCtx, t, ops)
-		if err != nil {
-			return fmt.Errorf("failed to get connector: %w", err)
-		}
+		})
 
 		// Ensure only one auth method is provided
 		jwk := v.GetString(field.LambdaServerAuthJWTSigner.GetName())
@@ -271,10 +190,58 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 
 		chain := ugrpc.ChainUnaryInterceptors(authOpt)
 
-		s := c1_lambda_grpc.NewServer(chain)
-		connector.Register(runCtx, s, c, opts)
+		buildGeneration := func(ctx context.Context, snapshot *ManagedRuntimeSnapshot) (*lambdaConnectorGeneration, error) {
+			t, cfgViper, authMethodStr, schemaFields, err := makeLambdaManagedRuntimeConfiguration[T](v, connectorSchema, snapshot)
+			if err != nil {
+				return nil, err
+			}
 
-		aws_lambda.StartWithOptions(s.Handler, aws_lambda.WithContext(runCtx))
+			ops := RunTimeOpts{
+				SessionStore:        sessionStore,
+				SelectedAuthMethod:  authMethodStr,
+				SyncResourceTypeIDs: cfgViper.GetStringSlice("sync-resource-types"),
+				ManagedRuntime: &ManagedRuntimeOpts{
+					Snapshot: snapshot,
+				},
+			}
+
+			if hasOauthField(schemaFields) {
+				ops.TokenSource = &lambdaTokenSource{
+					ctx:    runCtx,
+					webKey: webKey,
+					client: configClient,
+				}
+			}
+
+			c, err := getconnector(ctx, t, ops)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get connector: %w", err)
+			}
+
+			if _, err := c.GetMetadata(ctx, &connectorV2.ConnectorServiceGetMetadataRequest{}); err != nil {
+				closeCtx, cancel := context.WithTimeout(ctx, lambdaConnectorDrainTimeout)
+				defer cancel()
+				_ = closeManagedConnector(closeCtx, c)
+				return nil, fmt.Errorf("failed managed runtime readiness check: %w", err)
+			}
+
+			s := c1_lambda_grpc.NewServer(chain)
+			connector.Register(ctx, s, c, opts)
+
+			return &lambdaConnectorGeneration{
+				server:    s,
+				connector: c,
+				revision:  snapshot.GetRevision(),
+			}, nil
+		}
+
+		initialGeneration, err := buildGeneration(runCtx, initialSnapshot)
+		if err != nil {
+			return err
+		}
+
+		reloader := newLambdaConnectorReloader(initialGeneration, snapshotFetcher.Fetch, buildGeneration)
+		aws_lambda.StartWithOptions(reloader.Handler, aws_lambda.WithContext(runCtx))
 		return nil
 	}
 
@@ -299,7 +266,7 @@ type lambdaTokenSource struct {
 }
 
 func (s *lambdaTokenSource) Token() (*oauth2.Token, error) {
-	if s.token.Valid() {
+	if s.token != nil && s.token.Valid() {
 		return s.token, nil
 	}
 
@@ -335,4 +302,51 @@ func hasOauthField(fields []field.SchemaField) bool {
 		}
 	}
 	return false
+}
+
+func makeLambdaManagedRuntimeConfiguration[T field.Configurable](
+	base *viper.Viper,
+	connectorSchema field.Configuration,
+	snapshot *ManagedRuntimeSnapshot,
+) (T, *viper.Viper, string, []field.SchemaField, error) {
+	var zero T
+	if snapshot == nil || snapshot.Config == nil {
+		return zero, nil, "", nil, fmt.Errorf("managed runtime snapshot is missing config")
+	}
+
+	cfgViper := CloneViperSettings(base)
+	configMap := snapshot.Config.AsMap()
+	for key, value := range configMap {
+		cfgViper.Set(key, value)
+	}
+
+	decodeOpts := field.WithAdditionalDecodeHooks(field.FileUploadDecodeHook(false))
+	t, err := MakeGenericConfiguration[T](cfgViper, decodeOpts)
+	if err != nil {
+		return zero, nil, "", nil, fmt.Errorf("lambda-run: failed to make generic configuration: %w", err)
+	}
+
+	var (
+		fieldOptions  []field.Option
+		schemaFields  []field.SchemaField
+		authMethodStr string
+	)
+	if authMethod, ok := configMap["auth-method"]; ok {
+		if authMethodStr, ok = authMethod.(string); ok {
+			fieldOptions = append(fieldOptions, field.WithAuthMethod(authMethodStr))
+		}
+	}
+
+	for _, schemaField := range connectorSchema.FieldGroupFields(authMethodStr) {
+		schemaFields = append(schemaFields, schemaField)
+	}
+	if len(schemaFields) == 0 {
+		schemaFields = connectorSchema.Fields
+	}
+
+	if err := field.Validate(connectorSchema, t, fieldOptions...); err != nil {
+		return zero, nil, "", nil, fmt.Errorf("failed to validate config: %w", err)
+	}
+
+	return t, cfgViper, authMethodStr, schemaFields, nil
 }

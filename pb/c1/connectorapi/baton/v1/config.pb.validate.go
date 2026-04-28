@@ -270,6 +270,493 @@ var _ interface {
 	ErrorName() string
 } = GetConnectorConfigResponseValidationError{}
 
+// Validate checks the field values on GetManagedRuntimeSnapshotRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *GetManagedRuntimeSnapshotRequest) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetManagedRuntimeSnapshotRequest with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the result is a list of violation errors wrapped in
+// GetManagedRuntimeSnapshotRequestMultiError, or nil if none found.
+func (m *GetManagedRuntimeSnapshotRequest) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetManagedRuntimeSnapshotRequest) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if len(errors) > 0 {
+		return GetManagedRuntimeSnapshotRequestMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetManagedRuntimeSnapshotRequestMultiError is an error wrapping multiple
+// validation errors returned by
+// GetManagedRuntimeSnapshotRequest.ValidateAll() if the designated
+// constraints aren't met.
+type GetManagedRuntimeSnapshotRequestMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetManagedRuntimeSnapshotRequestMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetManagedRuntimeSnapshotRequestMultiError) AllErrors() []error { return m }
+
+// GetManagedRuntimeSnapshotRequestValidationError is the validation error
+// returned by GetManagedRuntimeSnapshotRequest.Validate if the designated
+// constraints aren't met.
+type GetManagedRuntimeSnapshotRequestValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetManagedRuntimeSnapshotRequestValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetManagedRuntimeSnapshotRequestValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetManagedRuntimeSnapshotRequestValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetManagedRuntimeSnapshotRequestValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetManagedRuntimeSnapshotRequestValidationError) ErrorName() string {
+	return "GetManagedRuntimeSnapshotRequestValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetManagedRuntimeSnapshotRequestValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetManagedRuntimeSnapshotRequest.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetManagedRuntimeSnapshotRequestValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetManagedRuntimeSnapshotRequestValidationError{}
+
+// Validate checks the field values on ManagedRuntimeAsset with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ManagedRuntimeAsset) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ManagedRuntimeAsset with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ManagedRuntimeAssetMultiError, or nil if none found.
+func (m *ManagedRuntimeAsset) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ManagedRuntimeAsset) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Role
+
+	// no validation rules for MediaType
+
+	// no validation rules for Body
+
+	if len(errors) > 0 {
+		return ManagedRuntimeAssetMultiError(errors)
+	}
+
+	return nil
+}
+
+// ManagedRuntimeAssetMultiError is an error wrapping multiple validation
+// errors returned by ManagedRuntimeAsset.ValidateAll() if the designated
+// constraints aren't met.
+type ManagedRuntimeAssetMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ManagedRuntimeAssetMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ManagedRuntimeAssetMultiError) AllErrors() []error { return m }
+
+// ManagedRuntimeAssetValidationError is the validation error returned by
+// ManagedRuntimeAsset.Validate if the designated constraints aren't met.
+type ManagedRuntimeAssetValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ManagedRuntimeAssetValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ManagedRuntimeAssetValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ManagedRuntimeAssetValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ManagedRuntimeAssetValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ManagedRuntimeAssetValidationError) ErrorName() string {
+	return "ManagedRuntimeAssetValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ManagedRuntimeAssetValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sManagedRuntimeAsset.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ManagedRuntimeAssetValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ManagedRuntimeAssetValidationError{}
+
+// Validate checks the field values on ManagedRuntimeSnapshot with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the first error encountered is returned, or nil if there are no violations.
+func (m *ManagedRuntimeSnapshot) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on ManagedRuntimeSnapshot with the rules
+// defined in the proto definition for this message. If any rules are
+// violated, the result is a list of violation errors wrapped in
+// ManagedRuntimeSnapshotMultiError, or nil if none found.
+func (m *ManagedRuntimeSnapshot) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *ManagedRuntimeSnapshot) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	// no validation rules for Revision
+
+	// no validation rules for EncryptedConfig
+
+	for idx, item := range m.GetAssets() {
+		_, _ = idx, item
+
+		if all {
+			switch v := interface{}(item).(type) {
+			case interface{ ValidateAll() error }:
+				if err := v.ValidateAll(); err != nil {
+					errors = append(errors, ManagedRuntimeSnapshotValidationError{
+						field:  fmt.Sprintf("Assets[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			case interface{ Validate() error }:
+				if err := v.Validate(); err != nil {
+					errors = append(errors, ManagedRuntimeSnapshotValidationError{
+						field:  fmt.Sprintf("Assets[%v]", idx),
+						reason: "embedded message failed validation",
+						cause:  err,
+					})
+				}
+			}
+		} else if v, ok := interface{}(item).(interface{ Validate() error }); ok {
+			if err := v.Validate(); err != nil {
+				return ManagedRuntimeSnapshotValidationError{
+					field:  fmt.Sprintf("Assets[%v]", idx),
+					reason: "embedded message failed validation",
+					cause:  err,
+				}
+			}
+		}
+
+	}
+
+	if len(errors) > 0 {
+		return ManagedRuntimeSnapshotMultiError(errors)
+	}
+
+	return nil
+}
+
+// ManagedRuntimeSnapshotMultiError is an error wrapping multiple validation
+// errors returned by ManagedRuntimeSnapshot.ValidateAll() if the designated
+// constraints aren't met.
+type ManagedRuntimeSnapshotMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m ManagedRuntimeSnapshotMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m ManagedRuntimeSnapshotMultiError) AllErrors() []error { return m }
+
+// ManagedRuntimeSnapshotValidationError is the validation error returned by
+// ManagedRuntimeSnapshot.Validate if the designated constraints aren't met.
+type ManagedRuntimeSnapshotValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e ManagedRuntimeSnapshotValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e ManagedRuntimeSnapshotValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e ManagedRuntimeSnapshotValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e ManagedRuntimeSnapshotValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e ManagedRuntimeSnapshotValidationError) ErrorName() string {
+	return "ManagedRuntimeSnapshotValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e ManagedRuntimeSnapshotValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sManagedRuntimeSnapshot.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = ManagedRuntimeSnapshotValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = ManagedRuntimeSnapshotValidationError{}
+
+// Validate checks the field values on GetManagedRuntimeSnapshotResponse with
+// the rules defined in the proto definition for this message. If any rules
+// are violated, the first error encountered is returned, or nil if there are
+// no violations.
+func (m *GetManagedRuntimeSnapshotResponse) Validate() error {
+	return m.validate(false)
+}
+
+// ValidateAll checks the field values on GetManagedRuntimeSnapshotResponse
+// with the rules defined in the proto definition for this message. If any
+// rules are violated, the result is a list of violation errors wrapped in
+// GetManagedRuntimeSnapshotResponseMultiError, or nil if none found.
+func (m *GetManagedRuntimeSnapshotResponse) ValidateAll() error {
+	return m.validate(true)
+}
+
+func (m *GetManagedRuntimeSnapshotResponse) validate(all bool) error {
+	if m == nil {
+		return nil
+	}
+
+	var errors []error
+
+	if all {
+		switch v := interface{}(m.GetSnapshot()).(type) {
+		case interface{ ValidateAll() error }:
+			if err := v.ValidateAll(); err != nil {
+				errors = append(errors, GetManagedRuntimeSnapshotResponseValidationError{
+					field:  "Snapshot",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		case interface{ Validate() error }:
+			if err := v.Validate(); err != nil {
+				errors = append(errors, GetManagedRuntimeSnapshotResponseValidationError{
+					field:  "Snapshot",
+					reason: "embedded message failed validation",
+					cause:  err,
+				})
+			}
+		}
+	} else if v, ok := interface{}(m.GetSnapshot()).(interface{ Validate() error }); ok {
+		if err := v.Validate(); err != nil {
+			return GetManagedRuntimeSnapshotResponseValidationError{
+				field:  "Snapshot",
+				reason: "embedded message failed validation",
+				cause:  err,
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return GetManagedRuntimeSnapshotResponseMultiError(errors)
+	}
+
+	return nil
+}
+
+// GetManagedRuntimeSnapshotResponseMultiError is an error wrapping multiple
+// validation errors returned by
+// GetManagedRuntimeSnapshotResponse.ValidateAll() if the designated
+// constraints aren't met.
+type GetManagedRuntimeSnapshotResponseMultiError []error
+
+// Error returns a concatenation of all the error messages it wraps.
+func (m GetManagedRuntimeSnapshotResponseMultiError) Error() string {
+	msgs := make([]string, 0, len(m))
+	for _, err := range m {
+		msgs = append(msgs, err.Error())
+	}
+	return strings.Join(msgs, "; ")
+}
+
+// AllErrors returns a list of validation violation errors.
+func (m GetManagedRuntimeSnapshotResponseMultiError) AllErrors() []error { return m }
+
+// GetManagedRuntimeSnapshotResponseValidationError is the validation error
+// returned by GetManagedRuntimeSnapshotResponse.Validate if the designated
+// constraints aren't met.
+type GetManagedRuntimeSnapshotResponseValidationError struct {
+	field  string
+	reason string
+	cause  error
+	key    bool
+}
+
+// Field function returns field value.
+func (e GetManagedRuntimeSnapshotResponseValidationError) Field() string { return e.field }
+
+// Reason function returns reason value.
+func (e GetManagedRuntimeSnapshotResponseValidationError) Reason() string { return e.reason }
+
+// Cause function returns cause value.
+func (e GetManagedRuntimeSnapshotResponseValidationError) Cause() error { return e.cause }
+
+// Key function returns key value.
+func (e GetManagedRuntimeSnapshotResponseValidationError) Key() bool { return e.key }
+
+// ErrorName returns error name.
+func (e GetManagedRuntimeSnapshotResponseValidationError) ErrorName() string {
+	return "GetManagedRuntimeSnapshotResponseValidationError"
+}
+
+// Error satisfies the builtin error interface
+func (e GetManagedRuntimeSnapshotResponseValidationError) Error() string {
+	cause := ""
+	if e.cause != nil {
+		cause = fmt.Sprintf(" | caused by: %v", e.cause)
+	}
+
+	key := ""
+	if e.key {
+		key = "key for "
+	}
+
+	return fmt.Sprintf(
+		"invalid %sGetManagedRuntimeSnapshotResponse.%s: %s%s",
+		key,
+		e.field,
+		e.reason,
+		cause)
+}
+
+var _ error = GetManagedRuntimeSnapshotResponseValidationError{}
+
+var _ interface {
+	Field() string
+	Reason() string
+	Key() bool
+	Cause() error
+	ErrorName() string
+} = GetManagedRuntimeSnapshotResponseValidationError{}
+
 // Validate checks the field values on SignedHeader with the rules defined in
 // the proto definition for this message. If any rules are violated, the first
 // error encountered is returned, or nil if there are no violations.
