@@ -179,13 +179,23 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 		configStructMap := configStruct.AsMap()
 
 		var (
-			fieldOptions  []field.Option
-			schemaFields  []field.SchemaField
-			authMethodStr string
+			fieldOptions        []field.Option
+			schemaFields        []field.SchemaField
+			authMethodStr       string
+			syncResourceTypeIDs []string
 		)
 		if authMethod, ok := configStructMap["auth-method"]; ok {
 			if authMethodStr, ok = authMethod.(string); ok {
 				fieldOptions = append(fieldOptions, field.WithAuthMethod(authMethodStr))
+			}
+		}
+		if syncResourceTypes, ok := configStructMap["sync-resource-types"]; ok {
+			if syncResourceTypeSlice, ok := syncResourceTypes.([]interface{}); ok {
+				for _, id := range syncResourceTypeSlice {
+					if s, ok := id.(string); ok {
+						syncResourceTypeIDs = append(syncResourceTypeIDs, s)
+					}
+				}
 			}
 		}
 		schemaFieldsMap := connectorSchema.FieldGroupFields(authMethodStr)
@@ -227,7 +237,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				}
 			}),
 			SelectedAuthMethod:  authMethodStr,
-			SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
+			SyncResourceTypeIDs: syncResourceTypeIDs,
 		}
 
 		if hasOauthField(schemaFields) {
