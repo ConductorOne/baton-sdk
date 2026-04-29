@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	reader_v2 "github.com/conductorone/baton-sdk/pb/c1/reader/v2"
-	"github.com/conductorone/baton-sdk/pkg/connectorstore"
 	"github.com/conductorone/baton-sdk/pkg/dotc1z"
 	"github.com/stretchr/testify/require"
 )
@@ -87,53 +86,38 @@ func copyGraph(g *EntitlementGraph) *EntitlementGraph {
 	return newGraph
 }
 
-// loadEntitlementGraphFromC1Z builds the entitlement graph by reading expansion
-// metadata directly from ListGrantsInternal rows.
+// loadEntitlementGraphFromC1Z builds the entitlement graph by reading
+// expansion metadata via the GrantStore iterator. Callers must have
+// scoped the c1z to the desired sync (via SetSyncID) before calling —
+// this is the case for both the correctness test and the benchmark.
 func loadEntitlementGraphFromC1Z(ctx context.Context, c1f *dotc1z.C1File, syncID string) (*EntitlementGraph, error) {
+	_ = syncID // caller sets scope via SetSyncID before calling.
 	graph := NewEntitlementGraph(ctx)
 
-	pageToken := ""
-	for {
-		resp, err := c1f.ListGrantsInternal(ctx, connectorstore.GrantListOptions{
-			Mode:      connectorstore.GrantListModeExpansion,
-			SyncID:    syncID,
-			PageToken: pageToken,
-		})
+	for def, err := range c1f.Grants().PendingExpansion(ctx) {
 		if errors.Is(err, sql.ErrNoRows) {
+			graph.Loaded = true
 			return graph, nil
 		}
-
 		if err != nil {
 			return nil, err
 		}
-
-		for _, row := range resp.Rows {
-			def := row.Expansion
-			if def == nil {
-				continue
+		for _, srcEntitlementID := range def.Annotation.GetEntitlementIds() {
+			srcEntitlement, err := c1f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
+				EntitlementId: srcEntitlementID,
+			}.Build())
+			if err != nil {
+				continue // Skip if source entitlement not found
 			}
-			for _, srcEntitlementID := range def.SourceEntitlementIDs {
-				srcEntitlement, err := c1f.GetEntitlement(ctx, reader_v2.EntitlementsReaderServiceGetEntitlementRequest_builder{
-					EntitlementId: srcEntitlementID,
-				}.Build())
-				if err != nil {
-					continue // Skip if source entitlement not found
-				}
 
-				graph.AddEntitlementID(def.TargetEntitlementID)
-				graph.AddEntitlementID(srcEntitlement.GetEntitlement().GetId())
-				_ = graph.AddEdge(ctx,
-					srcEntitlement.GetEntitlement().GetId(),
-					def.TargetEntitlementID,
-					def.Shallow,
-					def.ResourceTypeIDs,
-				)
-			}
-		}
-
-		pageToken = resp.NextPageToken
-		if pageToken == "" {
-			break
+			graph.AddEntitlementID(def.TargetEntitlementID)
+			graph.AddEntitlementID(srcEntitlement.GetEntitlement().GetId())
+			_ = graph.AddEdge(ctx,
+				srcEntitlement.GetEntitlement().GetId(),
+				def.TargetEntitlementID,
+				def.Annotation.GetShallow(),
+				def.Annotation.GetResourceTypeIds(),
+			)
 		}
 	}
 
@@ -153,6 +137,10 @@ func benchmarkExpand(b *testing.B, syncID string) {
 	c1f, err := dotc1z.NewC1ZFile(ctx, c1zPath)
 	require.NoError(b, err)
 	defer c1f.Close(ctx)
+
+	// Scope reads to the requested sync.
+	err = c1f.SetSyncID(ctx, syncID)
+	require.NoError(b, err)
 
 	// Load the graph
 	graph, err := loadEntitlementGraphFromC1Z(ctx, c1f, syncID)
