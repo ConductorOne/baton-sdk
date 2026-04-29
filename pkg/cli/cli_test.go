@@ -413,3 +413,37 @@ func TestVisitFlags_EmptyStringMap_NotSet(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, got)
 }
+
+func TestConnectorOpts_WillSyncResourceType(t *testing.T) {
+	t.Run("empty filter syncs all types", func(t *testing.T) {
+		opts := &ConnectorOpts{}
+		require.True(t, opts.WillSyncResourceType("user"))
+		require.True(t, opts.WillSyncResourceType("group"))
+		require.False(t, opts.SyncFilterIsExplicit())
+		require.Nil(t, opts.SyncResourceTypeSet())
+	})
+
+	t.Run("explicit filter includes matching type", func(t *testing.T) {
+		opts := &ConnectorOpts{SyncResourceTypeIDs: []string{"user", "group"}}
+		require.True(t, opts.WillSyncResourceType("user"))
+		require.True(t, opts.WillSyncResourceType("group"))
+		require.True(t, opts.SyncFilterIsExplicit())
+	})
+
+	t.Run("explicit filter excludes non-matching type", func(t *testing.T) {
+		opts := &ConnectorOpts{SyncResourceTypeIDs: []string{"user"}}
+		require.False(t, opts.WillSyncResourceType("group"))
+		require.True(t, opts.SyncFilterIsExplicit())
+	})
+
+	t.Run("SyncResourceTypeSet returns correct set", func(t *testing.T) {
+		opts := &ConnectorOpts{SyncResourceTypeIDs: []string{"user", "group"}}
+		s := opts.SyncResourceTypeSet()
+		require.NotNil(t, s)
+		require.Contains(t, s, "user")
+		require.Contains(t, s, "group")
+		require.NotContains(t, s, "role")
+		// second call returns the same cached map
+		require.Equal(t, s, opts.SyncResourceTypeSet())
+	})
+}
