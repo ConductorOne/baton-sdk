@@ -188,6 +188,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				fieldOptions = append(fieldOptions, field.WithAuthMethod(authMethodStr))
 			}
 		}
+		syncResourceTypeIDs := parseSyncResourceTypeIDs(configStructMap)
 		schemaFieldsMap := connectorSchema.FieldGroupFields(authMethodStr)
 		for _, field := range schemaFieldsMap {
 			schemaFields = append(schemaFields, field)
@@ -227,7 +228,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				}
 			}),
 			SelectedAuthMethod:  authMethodStr,
-			SyncResourceTypeIDs: v.GetStringSlice("sync-resource-types"),
+			SyncResourceTypeIDs: syncResourceTypeIDs,
 		}
 
 		if hasOauthField(schemaFields) {
@@ -335,4 +336,24 @@ func hasOauthField(fields []field.SchemaField) bool {
 		}
 	}
 	return false
+}
+
+// parseSyncResourceTypeIDs extracts the "sync-resource-types" string slice from
+// a structpb-decoded config map. Returns nil when the key is absent.
+func parseSyncResourceTypeIDs(configMap map[string]interface{}) []string {
+	v, ok := configMap["sync-resource-types"]
+	if !ok {
+		return nil
+	}
+	raw, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	ids := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if s, ok := item.(string); ok {
+			ids = append(ids, s)
+		}
+	}
+	return ids
 }
