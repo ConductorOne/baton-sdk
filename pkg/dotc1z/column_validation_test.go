@@ -53,7 +53,7 @@ func openTestDB(t *testing.T, extraColumnName string) *sql.DB {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
 	db, err := sql.Open("sqlite", dbPath)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	// Create a table with normal columns plus one attacker-controlled column.
 	// The malicious name must be double-quoted in the DDL so SQLite accepts it

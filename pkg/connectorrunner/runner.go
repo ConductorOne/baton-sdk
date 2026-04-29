@@ -30,6 +30,7 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/tasks/c1api"
 	"github.com/conductorone/baton-sdk/pkg/tasks/local"
 	"github.com/conductorone/baton-sdk/pkg/types"
+	taskTypes "github.com/conductorone/baton-sdk/pkg/types/tasks"
 
 	"github.com/conductorone/baton-sdk/internal/connector"
 )
@@ -46,6 +47,11 @@ type connectorRunner struct {
 	debugFile      *os.File
 	debugFileMutex sync.Mutex
 	healthServer   *healthcheck.Server
+}
+
+type taskManagerTeardowner interface {
+	// Teardown releases manager-owned resources. It must not wait for task completion.
+	Teardown(context.Context) error
 }
 
 var ErrSigTerm = errors.New("context cancelled by process shutdown")
@@ -254,9 +260,10 @@ func (c *connectorRunner) run(ctx context.Context) error {
 
 			l.Debug("runner: got task", zap.String("task_id", nextTask.GetId()), zap.String("task_type", tasks.GetType(nextTask).String()))
 
-			// If we're in one-shot mode, process the task synchronously.
-			if c.oneShot {
-				l.Debug("runner: one-shot mode enabled. Performing action synchronously.")
+			// If we're in one-shot mode, process the task synchronously. Service mode also processes the startup
+			// hello synchronously so it registers before the first GetTask poll.
+			if c.oneShot || tasks.Is(nextTask, taskTypes.HelloType) {
+				l.Debug("runner: performing action synchronously.")
 				err := c.processTask(ctx, nextTask)
 				sem.Release(1)
 				if err != nil {
@@ -306,6 +313,12 @@ func (c *connectorRunner) Close(ctx context.Context) error {
 			retErr = errors.Join(retErr, err)
 		}
 		c.healthServer = nil
+	}
+
+	if teardowner, ok := c.tasks.(taskManagerTeardowner); ok {
+		if err := teardowner.Teardown(ctx); err != nil {
+			retErr = errors.Join(retErr, err)
+		}
 	}
 
 	if err := c.cw.Close(); err != nil {
