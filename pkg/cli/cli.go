@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/field"
@@ -39,11 +40,60 @@ func WithSessionCache(ctx context.Context, constructor sessions.SessionStoreCons
 	return context.WithValue(ctx, sessions.SessionStoreKey{}, sessionCache), nil
 }
 
+// ConnectorOpts holds runtime options passed to a connector at initialization time.
 type ConnectorOpts struct {
-	TokenSource         oauth2.TokenSource
-	SelectedAuthMethod  string
+	TokenSource        oauth2.TokenSource
+	SelectedAuthMethod string
+
+	// SyncResourceTypeIDs is the set of resource type IDs the user has requested
+	// to sync. An empty slice means "sync everything the connector advertises"
+	// (subject to OptInRequired{} annotations on resource types). A non-empty
+	// slice means "sync only these types; skip everything else." Connectors
+	// should prefer the helper methods (WillSyncResourceType,
+	// SyncFilterIsExplicit, SyncResourceTypeSet) over reading this slice
+	// directly.
 	SyncResourceTypeIDs []string
+
+	syncResourceTypeSetOnce sync.Once
+	syncResourceTypeSetVal  map[string]struct{}
 }
+
+// SyncFilterIsExplicit reports whether the user has explicitly narrowed the set
+// of resource types to sync. Returns false when SyncResourceTypeIDs is empty,
+// meaning "sync all types the connector advertises".
+func (o *ConnectorOpts) SyncFilterIsExplicit() bool {
+	return len(o.SyncResourceTypeIDs) > 0
+}
+
+// SyncResourceTypeSet returns the user's selection as a set for O(1) lookup,
+// or nil if no filter was specified (meaning all resource types should be
+// synced). The set is computed lazily on first call and cached for subsequent
+// calls.
+func (o *ConnectorOpts) SyncResourceTypeSet() map[string]struct{} {
+	if !o.SyncFilterIsExplicit() {
+		return nil
+	}
+	o.syncResourceTypeSetOnce.Do(func() {
+		s := make(map[string]struct{}, len(o.SyncResourceTypeIDs))
+		for _, id := range o.SyncResourceTypeIDs {
+			s[id] = struct{}{}
+		}
+		o.syncResourceTypeSetVal = s
+	})
+	return o.syncResourceTypeSetVal
+}
+
+// WillSyncResourceType reports whether the given resource type ID will be
+// synced under the current configuration. Returns true when the user has not
+// specified any filter (the "default to all" case).
+func (o *ConnectorOpts) WillSyncResourceType(resourceTypeID string) bool {
+	if !o.SyncFilterIsExplicit() {
+		return true
+	}
+	_, ok := o.SyncResourceTypeSet()[resourceTypeID]
+	return ok
+}
+
 type NewConnector[T field.Configurable] func(ctx context.Context, cfg T, opts *ConnectorOpts) (connectorbuilder.ConnectorBuilderV2, []connectorbuilder.Opt, error)
 
 func MakeGenericConfiguration[T field.Configurable](v *viper.Viper, opts ...field.DecodeHookOption) (T, error) {

@@ -116,6 +116,37 @@ func TestC1ServiceClientKnownIdleWaitsForInFlightRPC(t *testing.T) {
 	}
 }
 
+func TestC1ServiceClientUploadUsesDedicatedConnection(t *testing.T) {
+	bc := newBenchmarkServiceClient(t, 0, &benchmarkBatonService{})
+	bc.client.idleCloseThreshold = time.Hour
+
+	ctx := context.Background()
+	_, err := bc.client.GetTask(ctx, &v1.BatonServiceGetTaskRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cachedConn := requireActiveConn(t, bc.client)
+
+	err = bc.client.Upload(ctx, v1.Task_builder{Id: "task-id"}.Build(), strings.NewReader("payload"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bc.dialCount.Load(); got != 2 {
+		t.Fatalf("expected upload to use its own connection, got %d dials", got)
+	}
+	if gotConn := requireActiveConn(t, bc.client); gotConn != cachedConn {
+		t.Fatal("upload replaced the cached unary connection")
+	}
+
+	_, err = bc.client.GetTask(ctx, &v1.BatonServiceGetTaskRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bc.dialCount.Load(); got != 2 {
+		t.Fatalf("expected cached unary connection to be reused after upload, got %d dials", got)
+	}
+}
+
 func TestC1ServiceClientFailedDialDoesNotPoisonClient(t *testing.T) {
 	lis, err := new(net.ListenConfig).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {

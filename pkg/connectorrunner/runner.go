@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/bid"
@@ -217,9 +218,9 @@ func (c *connectorRunner) run(ctx context.Context) error {
 
 	waitDuration := time.Second * 0
 	errCount := 0
-	stopForLoop := false
+	var stopForLoop atomic.Bool
 	var err error
-	for !stopForLoop {
+	for !stopForLoop.Load() {
 		select {
 		case <-ctx.Done():
 			return c.handleContextCancel(ctx)
@@ -260,10 +261,9 @@ func (c *connectorRunner) run(ctx context.Context) error {
 
 			l.Debug("runner: got task", zap.String("task_id", nextTask.GetId()), zap.String("task_type", tasks.GetType(nextTask).String()))
 
-			// If we're in one-shot mode, process the task synchronously. Service mode also processes the startup
-			// hello synchronously so it registers before the first GetTask poll.
-			if c.oneShot || tasks.Is(nextTask, taskTypes.HelloType) {
-				l.Debug("runner: performing action synchronously.")
+			// One-shot mode runs every task synchronously and exits on error.
+			if c.oneShot {
+				l.Debug("runner: one-shot mode enabled. Performing action synchronously.")
 				err := c.processTask(ctx, nextTask)
 				sem.Release(1)
 				if err != nil {
@@ -278,6 +278,23 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				continue
 			}
 
+			// Service mode processes the startup hello synchronously once so it gets a chance
+			// to register before the first GetTask poll. Preserve the old failure behavior:
+			// log the error and continue polling.
+			if tasks.Is(nextTask, taskTypes.HelloType) {
+				l.Debug("runner: performing hello synchronously")
+				err := c.processTask(ctx, nextTask)
+				sem.Release(1)
+				if err != nil {
+					l.Error(
+						"runner: error processing hello task",
+						zap.Error(err),
+						zap.String("task_id", nextTask.GetId()),
+					)
+				}
+				continue
+			}
+
 			// We got a task, so process it concurrently.
 			go func(t *v1.Task) {
 				l.Debug("runner: starting processing task", zap.String("task_id", t.GetId()), zap.String("task_type", tasks.GetType(t).String()))
@@ -285,7 +302,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 				err := c.processTask(ctx, t)
 				if err != nil {
 					if strings.Contains(err.Error(), "grpc: the client connection is closing") {
-						stopForLoop = true
+						stopForLoop.Store(true)
 					}
 					l.Error("runner: error processing task", zap.Error(err), zap.String("task_id", t.GetId()), zap.String("task_type", tasks.GetType(t).String()))
 					return
@@ -297,7 +314,7 @@ func (c *connectorRunner) run(ctx context.Context) error {
 		}
 	}
 
-	if stopForLoop {
+	if stopForLoop.Load() {
 		return fmt.Errorf("unable to communicate with gRPC server")
 	}
 

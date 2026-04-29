@@ -69,10 +69,6 @@ type c1ServiceClient struct {
 
 func (c *c1ServiceClient) getHostID() string {
 	c.hostIDOnce.Do(func() {
-		if c.hostID != "" {
-			return
-		}
-
 		hostID, _ := os.Hostname()
 		if envHost, ok := os.LookupEnv("BATON_HOST_ID"); ok {
 			hostID = envHost
@@ -306,9 +302,6 @@ func (c *c1ServiceClient) CloseIfIdleFor(nextUse time.Duration) error {
 		}
 	}
 	closeConns = append(closeConns, c.collectDrainedLocked()...)
-	if len(closeConns) == 0 {
-		c.closeWhenIdle = true
-	}
 	c.mtx.Unlock()
 
 	c.closeHandles(closeConns)
@@ -445,12 +438,17 @@ func (c *c1ServiceClient) upload(ctx context.Context, task *v1.Task, r io.ReadSe
 		return err
 	}
 
-	client, conn, err := c.beginRPC(ctx)
+	conn, err := c.dial(ctx)
 	if err != nil {
 		l.Error("failed to get client connection", zap.Error(err))
 		return err
 	}
-	defer func() { c.endRPC(conn, err) }()
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			l.Error("failed to close upload client connection", zap.Error(closeErr))
+		}
+	}()
+	client := v1.NewBatonServiceClient(conn)
 
 	uc, err := client.UploadAsset(ctx)
 	if err != nil {
