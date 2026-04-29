@@ -48,6 +48,19 @@ const (
 type lambdaConnectorGeneration struct {
 	version   string
 	connector types.ConnectorServer
+	logging   lambdaLogLevelConfig
+}
+
+type lambdaLogLevelConfig struct {
+	level              string
+	debugModeExpiresAt time.Time
+}
+
+func (c lambdaLogLevelConfig) effective(now time.Time) string {
+	if c.level == "debug" && !c.debugModeExpiresAt.IsZero() && now.After(c.debugModeExpiresAt) {
+		return "info"
+	}
+	return c.level
 }
 
 type lambdaConnectorCloserWithContext interface {
@@ -77,7 +90,21 @@ func (r *lambdaConnectorReloader) Handler(ctx context.Context, req *c1_lambda_gr
 		}
 	}
 
+	if err := r.applyCurrentLogLevel(time.Now()); err != nil {
+		return c1_lambda_grpc.ErrorResponse(status.Errorf(codes.Unavailable, "lambda-run: failed to apply log level: %v", err)), nil
+	}
+
 	return r.server.Handler(ctx, req)
+}
+
+func (r *lambdaConnectorReloader) applyCurrentLogLevel(now time.Time) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.current == nil {
+		return nil
+	}
+	return applyLambdaLogLevel(r.current.logging, now)
 }
 
 func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedVersion string) error {
@@ -105,6 +132,9 @@ func (r *lambdaConnectorReloader) reloadIfNeeded(ctx context.Context, requestedV
 	}
 
 	r.current = next
+	if err := applyLambdaLogLevel(next.logging, time.Now()); err != nil {
+		return err
+	}
 	closeCtx := context.WithoutCancel(ctx)
 	go closeConnectorGenerationAfterDrain(closeCtx, previous, drained, lambdaConnectorDrainTimeout, lambdaConnectorCloseTimeout)
 	return nil
@@ -182,11 +212,9 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return err
 		}
 
-		logLevel := v.GetString("log-level")
-		// Downgrade log level to "info" if debug mode has expired
-		debugModeExpiresAt := v.GetTime("log-level-debug-expires-at")
-		if logLevel == "debug" && !debugModeExpiresAt.IsZero() && time.Now().After(debugModeExpiresAt) {
-			logLevel = "info"
+		startupLogLevel, err := lambdaLogLevelConfigFromViper(v)
+		if err != nil {
+			return err
 		}
 
 		initialLogFields := map[string]interface{}{
@@ -205,7 +233,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			ctx,
 			name,
 			logging.WithLogFormat(v.GetString("log-format")),
-			logging.WithLogLevel(logLevel),
+			logging.WithLogLevel(startupLogLevel.effective(time.Now())),
 			logging.WithInitialFields(initialLogFields),
 		)
 		if err != nil {
@@ -295,6 +323,10 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			for key, value := range configStruct.AsMap() {
 				effectiveConfig.Set(key, value)
 			}
+			logLevelConfig, err := lambdaLogLevelConfigFromViper(effectiveConfig)
+			if err != nil {
+				return nil, err
+			}
 
 			t, err := MakeGenericConfiguration[T](effectiveConfig, decodeOpts)
 			if err != nil {
@@ -354,11 +386,15 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 			return &lambdaConnectorGeneration{
 				version:   version,
 				connector: c,
+				logging:   logLevelConfig,
 			}, nil
 		}
 
 		initialGeneration, err := buildConnectorGeneration(runCtx, "")
 		if err != nil {
+			return err
+		}
+		if err := applyLambdaLogLevel(initialGeneration.logging, time.Now()); err != nil {
 			return err
 		}
 
@@ -412,6 +448,21 @@ func lambdaConnectorConfigVersion(config *v1.GetConnectorConfigResponse) string 
 		return ""
 	}
 	return config.GetLastUpdated().AsTime().UTC().Format(time.RFC3339Nano)
+}
+
+func lambdaLogLevelConfigFromViper(v *viper.Viper) (lambdaLogLevelConfig, error) {
+	level, err := logging.NormalizeLogLevel(v.GetString("log-level"))
+	if err != nil {
+		return lambdaLogLevelConfig{}, fmt.Errorf("lambda-run: invalid log level: %w", err)
+	}
+	return lambdaLogLevelConfig{
+		level:              level,
+		debugModeExpiresAt: v.GetTime("log-level-debug-expires-at"),
+	}, nil
+}
+
+func applyLambdaLogLevel(config lambdaLogLevelConfig, now time.Time) error {
+	return logging.SetLogLevel(config.effective(now))
 }
 
 func cloneViperSettings(v *viper.Viper) *viper.Viper {
