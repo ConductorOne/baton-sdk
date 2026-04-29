@@ -60,7 +60,7 @@ type ConnectorOpts struct {
 
 // SyncFilterIsExplicit reports whether the user has explicitly narrowed the set
 // of resource types to sync. Returns false when SyncResourceTypeIDs is empty,
-// meaning "sync all types the connector advertises."
+// meaning "sync all types the connector advertises".
 func (o *ConnectorOpts) SyncFilterIsExplicit() bool {
 	return len(o.SyncResourceTypeIDs) > 0
 }
