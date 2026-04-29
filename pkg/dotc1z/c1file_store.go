@@ -163,12 +163,14 @@ func (g c1FileGrantStore) PendingExpansion(ctx context.Context) iter.Seq2[Pendin
 func (g c1FileGrantStore) ListWithAnnotationsForResourcePage(
 	ctx context.Context,
 	resource *v2.Resource,
+	syncID string,
 	pageToken string,
 	pageSize uint32,
 ) ([]GrantAnnotation, string, error) {
 	resp, err := g.c.listGrantsWithExpansionInternal(ctx, grantListOptions{
 		Mode:      grantListModePayloadWithExpansion,
 		Resource:  resource,
+		SyncID:    syncID,
 		PageToken: pageToken,
 		PageSize:  pageSize,
 	})

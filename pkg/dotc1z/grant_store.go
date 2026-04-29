@@ -77,6 +77,7 @@ type GrantStore interface {
 	ListWithAnnotationsForResourcePage(
 		ctx context.Context,
 		resource *v2.Resource,
+		syncID string,
 		pageToken string,
 		pageSize uint32,
 	) (rows []GrantAnnotation, nextPageToken string, err error)
