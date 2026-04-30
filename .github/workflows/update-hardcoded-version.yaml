@@ -8,10 +8,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Mint baton-ci app token
+        id: ci-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.BATON_CI_CLIENT_ID }}
+          private-key: ${{ secrets.BATON_CI_SECRET_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
       - name: Checkout code
         uses: actions/checkout@v5
         with:
-          token: ${{ secrets.RELENG_GITHUB_TOKEN }}
+          token: ${{ steps.ci-token.outputs.token }}
           fetch-depth: 0
           fetch-tags: true
 
