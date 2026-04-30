@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+// VendorTrait is the trait annotation for resources with TRAIT_VENDOR.
+// It carries the cross-system identity and reference data for a vendor
+// as it appears in a single source system: who the vendor is, where to
+// view it in the source, and the IDs by which it can be cross-referenced
+// against other sources.
+//
+// VendorTrait is intentionally narrow. It does NOT carry agreement,
+// spend, risk, or owner data — those concerns belong on adjacent traits
+// (e.g. VendorAgreementTrait) or in the resource graph (entitlements +
+// grants for owners). Resources representing a vendor in a source that
+// also has agreements typically carry both VendorTrait and
+// VendorAgreementTrait.
+message VendorTrait {
+  // Source-system vendor ID. The upsert key for storage; the join key
+  // when a single connector emits multiple resources for the same vendor.
+  string vendor_id = 1 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 256
+  }];
+  // Legal vendor name.
+  string vendor_name = 2 [(validate.rules).string = {
+    min_bytes: 1
+    max_bytes: 1024
+  }];
+  // Trade name when distinct from the legal name (e.g. "Acme" vs
+  // "Acme Software, Inc."). Often a better string for similarity matching.
+  string vendor_dba_name = 3 [(validate.rules).string = {
+    max_bytes: 1024
+    ignore_empty: true
+  }];
+
+  // Inferred website (e.g. "example.com") where known. A primary join
+  // key for cross-source vendor identity.
+  string website_domain = 4 [(validate.rules).string = {
+    max_bytes: 256
+    ignore_empty: true
+  }];
+  // Customer-defined external ID for the vendor in the source system,
+  // stable across renames. Where set, the strongest cross-source join
+  // key.
+  string external_vendor_id = 5 [(validate.rules).string = {
+    max_bytes: 256
+    ignore_empty: true
+  }];
+
+  // URL to the vendor in the source system. https only. Consumers
+  // typically validate against a per-source-provider host allowlist.
+  string deep_link_url = 6 [(validate.rules).string = {
+    max_bytes: 4096
+    uri: true
+    prefix: "https://"
+    ignore_empty: true
+  }];
+
+  // Disambiguates which business an agreement belongs to when one
+  // customer manages multiple businesses in the source system.
+  string source_business_id = 7 [(validate.rules).string = {
+    max_bytes: 256
+    ignore_empty: true
+  }];
+  // Entity scoping within a single business, when the source supports
+  // it.
+  string source_entity_id = 8 [(validate.rules).string = {
+    max_bytes: 256
+    ignore_empty: true
+  }];
+}

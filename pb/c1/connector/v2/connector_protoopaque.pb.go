@@ -1424,7 +1424,7 @@ type ConnectorAccountCreationSchema_Field struct {
 
 func (x *ConnectorAccountCreationSchema_Field) Reset() {
 	*x = ConnectorAccountCreationSchema_Field{}
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[16]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1436,7 +1436,7 @@ func (x *ConnectorAccountCreationSchema_Field) String() string {
 func (*ConnectorAccountCreationSchema_Field) ProtoMessage() {}
 
 func (x *ConnectorAccountCreationSchema_Field) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[16]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1755,7 +1755,7 @@ func (b0 ConnectorAccountCreationSchema_Field_builder) Build() *ConnectorAccount
 type case_ConnectorAccountCreationSchema_Field_Field protoreflect.FieldNumber
 
 func (x case_ConnectorAccountCreationSchema_Field_Field) String() string {
-	md := file_c1_connector_v2_connector_proto_msgTypes[16].Descriptor()
+	md := file_c1_connector_v2_connector_proto_msgTypes[17].Descriptor()
 	if x == 0 {
 		return "not set"
 	}
@@ -1812,7 +1812,7 @@ type ConnectorAccountCreationSchema_StringField struct {
 
 func (x *ConnectorAccountCreationSchema_StringField) Reset() {
 	*x = ConnectorAccountCreationSchema_StringField{}
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[17]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1824,7 +1824,7 @@ func (x *ConnectorAccountCreationSchema_StringField) String() string {
 func (*ConnectorAccountCreationSchema_StringField) ProtoMessage() {}
 
 func (x *ConnectorAccountCreationSchema_StringField) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[17]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1890,7 +1890,7 @@ type ConnectorAccountCreationSchema_BoolField struct {
 
 func (x *ConnectorAccountCreationSchema_BoolField) Reset() {
 	*x = ConnectorAccountCreationSchema_BoolField{}
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[18]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1902,7 +1902,7 @@ func (x *ConnectorAccountCreationSchema_BoolField) String() string {
 func (*ConnectorAccountCreationSchema_BoolField) ProtoMessage() {}
 
 func (x *ConnectorAccountCreationSchema_BoolField) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[18]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1963,7 +1963,7 @@ type ConnectorAccountCreationSchema_StringListField struct {
 
 func (x *ConnectorAccountCreationSchema_StringListField) Reset() {
 	*x = ConnectorAccountCreationSchema_StringListField{}
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[19]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1975,7 +1975,7 @@ func (x *ConnectorAccountCreationSchema_StringListField) String() string {
 func (*ConnectorAccountCreationSchema_StringListField) ProtoMessage() {}
 
 func (x *ConnectorAccountCreationSchema_StringListField) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[19]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2022,7 +2022,7 @@ type ConnectorAccountCreationSchema_IntField struct {
 
 func (x *ConnectorAccountCreationSchema_IntField) Reset() {
 	*x = ConnectorAccountCreationSchema_IntField{}
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[20]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2034,7 +2034,7 @@ func (x *ConnectorAccountCreationSchema_IntField) String() string {
 func (*ConnectorAccountCreationSchema_IntField) ProtoMessage() {}
 
 func (x *ConnectorAccountCreationSchema_IntField) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[20]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2095,7 +2095,7 @@ type ConnectorAccountCreationSchema_MapField struct {
 
 func (x *ConnectorAccountCreationSchema_MapField) Reset() {
 	*x = ConnectorAccountCreationSchema_MapField{}
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[21]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2107,7 +2107,7 @@ func (x *ConnectorAccountCreationSchema_MapField) String() string {
 func (*ConnectorAccountCreationSchema_MapField) ProtoMessage() {}
 
 func (x *ConnectorAccountCreationSchema_MapField) ProtoReflect() protoreflect.Message {
-	mi := &file_c1_connector_v2_connector_proto_msgTypes[21]
+	mi := &file_c1_connector_v2_connector_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2200,7 +2200,10 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\vsdk_version\x18\x02 \x01(\tR\n" +
 	"sdkVersion\"\xa5\v\n" +
 	"\x1eConnectorAccountCreationSchema\x12Z\n" +
-	"\tfield_map\x18\x01 \x03(\v2=.c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntryR\bfieldMap\x1a\xa8\x05\n" +
+	"\tfield_map\x18\x01 \x03(\v2=.c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntryR\bfieldMap\x1ar\n" +
+	"\rFieldMapEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12K\n" +
+	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01\x1a\xa8\x05\n" +
 	"\x05Field\x12!\n" +
 	"\fdisplay_name\x18\x01 \x01(\tR\vdisplayName\x12\x1a\n" +
 	"\brequired\x18\x02 \x01(\bR\brequired\x12 \n" +
@@ -2231,9 +2234,6 @@ const file_c1_connector_v2_connector_proto_rawDesc = "" +
 	"\bMapField\x12o\n" +
 	"\rdefault_value\x18\x01 \x03(\v2J.c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntryR\fdefaultValue\x1av\n" +
 	"\x11DefaultValueEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12K\n" +
-	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01\x1ar\n" +
-	"\rFieldMapEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12K\n" +
 	"\x05value\x18\x02 \x01(\v25.c1.connector.v2.ConnectorAccountCreationSchema.FieldR\x05value:\x028\x01*\xb1\x03\n" +
 	"\n" +
@@ -2285,13 +2285,13 @@ var file_c1_connector_v2_connector_proto_goTypes = []any{
 	(*ConnectorServiceValidateRequest)(nil),                // 15: c1.connector.v2.ConnectorServiceValidateRequest
 	(*ConnectorServiceValidateResponse)(nil),               // 16: c1.connector.v2.ConnectorServiceValidateResponse
 	(*ConnectorAccountCreationSchema)(nil),                 // 17: c1.connector.v2.ConnectorAccountCreationSchema
-	(*ConnectorAccountCreationSchema_Field)(nil),           // 18: c1.connector.v2.ConnectorAccountCreationSchema.Field
-	(*ConnectorAccountCreationSchema_StringField)(nil),     // 19: c1.connector.v2.ConnectorAccountCreationSchema.StringField
-	(*ConnectorAccountCreationSchema_BoolField)(nil),       // 20: c1.connector.v2.ConnectorAccountCreationSchema.BoolField
-	(*ConnectorAccountCreationSchema_StringListField)(nil), // 21: c1.connector.v2.ConnectorAccountCreationSchema.StringListField
-	(*ConnectorAccountCreationSchema_IntField)(nil),        // 22: c1.connector.v2.ConnectorAccountCreationSchema.IntField
-	(*ConnectorAccountCreationSchema_MapField)(nil),        // 23: c1.connector.v2.ConnectorAccountCreationSchema.MapField
-	nil,                     // 24: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
+	nil,                                                    // 18: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
+	(*ConnectorAccountCreationSchema_Field)(nil),           // 19: c1.connector.v2.ConnectorAccountCreationSchema.Field
+	(*ConnectorAccountCreationSchema_StringField)(nil),     // 20: c1.connector.v2.ConnectorAccountCreationSchema.StringField
+	(*ConnectorAccountCreationSchema_BoolField)(nil),       // 21: c1.connector.v2.ConnectorAccountCreationSchema.BoolField
+	(*ConnectorAccountCreationSchema_StringListField)(nil), // 22: c1.connector.v2.ConnectorAccountCreationSchema.StringListField
+	(*ConnectorAccountCreationSchema_IntField)(nil),        // 23: c1.connector.v2.ConnectorAccountCreationSchema.IntField
+	(*ConnectorAccountCreationSchema_MapField)(nil),        // 24: c1.connector.v2.ConnectorAccountCreationSchema.MapField
 	nil,                     // 25: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
 	(*anypb.Any)(nil),       // 26: google.protobuf.Any
 	(*AssetRef)(nil),        // 27: c1.connector.v2.AssetRef
@@ -2322,15 +2322,15 @@ var file_c1_connector_v2_connector_proto_depIdxs = []int32{
 	10, // 20: c1.connector.v2.ResourceTypeCapability.permissions:type_name -> c1.connector.v2.CapabilityPermissions
 	4,  // 21: c1.connector.v2.ConnectorServiceGetMetadataResponse.metadata:type_name -> c1.connector.v2.ConnectorMetadata
 	26, // 22: c1.connector.v2.ConnectorServiceValidateResponse.annotations:type_name -> google.protobuf.Any
-	24, // 23: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
-	19, // 24: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
-	20, // 25: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
-	21, // 26: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
-	22, // 27: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
-	23, // 28: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
-	25, // 29: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
-	18, // 30: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
-	18, // 31: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	18, // 23: c1.connector.v2.ConnectorAccountCreationSchema.field_map:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry
+	19, // 24: c1.connector.v2.ConnectorAccountCreationSchema.FieldMapEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
+	20, // 25: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringField
+	21, // 26: c1.connector.v2.ConnectorAccountCreationSchema.Field.bool_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.BoolField
+	22, // 27: c1.connector.v2.ConnectorAccountCreationSchema.Field.string_list_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.StringListField
+	23, // 28: c1.connector.v2.ConnectorAccountCreationSchema.Field.int_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.IntField
+	24, // 29: c1.connector.v2.ConnectorAccountCreationSchema.Field.map_field:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField
+	25, // 30: c1.connector.v2.ConnectorAccountCreationSchema.MapField.default_value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry
+	19, // 31: c1.connector.v2.ConnectorAccountCreationSchema.MapField.DefaultValueEntry.value:type_name -> c1.connector.v2.ConnectorAccountCreationSchema.Field
 	13, // 32: c1.connector.v2.ConnectorService.GetMetadata:input_type -> c1.connector.v2.ConnectorServiceGetMetadataRequest
 	15, // 33: c1.connector.v2.ConnectorService.Validate:input_type -> c1.connector.v2.ConnectorServiceValidateRequest
 	2,  // 34: c1.connector.v2.ConnectorService.Cleanup:input_type -> c1.connector.v2.ConnectorServiceCleanupRequest
@@ -2351,16 +2351,16 @@ func file_c1_connector_v2_connector_proto_init() {
 	}
 	file_c1_connector_v2_asset_proto_init()
 	file_c1_connector_v2_resource_proto_init()
-	file_c1_connector_v2_connector_proto_msgTypes[16].OneofWrappers = []any{
+	file_c1_connector_v2_connector_proto_msgTypes[17].OneofWrappers = []any{
 		(*connectorAccountCreationSchema_Field_StringField)(nil),
 		(*connectorAccountCreationSchema_Field_BoolField)(nil),
 		(*connectorAccountCreationSchema_Field_StringListField)(nil),
 		(*connectorAccountCreationSchema_Field_IntField)(nil),
 		(*connectorAccountCreationSchema_Field_MapField)(nil),
 	}
-	file_c1_connector_v2_connector_proto_msgTypes[17].OneofWrappers = []any{}
 	file_c1_connector_v2_connector_proto_msgTypes[18].OneofWrappers = []any{}
-	file_c1_connector_v2_connector_proto_msgTypes[20].OneofWrappers = []any{}
+	file_c1_connector_v2_connector_proto_msgTypes[19].OneofWrappers = []any{}
+	file_c1_connector_v2_connector_proto_msgTypes[21].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

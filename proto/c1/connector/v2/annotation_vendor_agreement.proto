@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package c1.connector.v2;
+
+import "google/protobuf/timestamp.proto";
+import "validate/validate.proto";
+
+option go_package = "github.com/conductorone/baton-sdk/pb/c1/connector/v2";
+
+message Money {
+  // Signed amount in the currency's minor unit.
+  // USD: 12345 means $123.45.
+  // JPY: 12345 means ¥12,345.
+  int64 amount_minor = 1;
+
+  // ISO 4217 when possible. Allow wider codes only if you truly need them.
+  string currency_code = 2 [(validate.rules).string = {
+    min_bytes: 3
+    max_bytes: 8
+    pattern: "^[A-Za-z0-9]{3,8}$"
+  }];
+}
+
+// LineItem is per-line-item billing detail from a vendor agreement.
+message LineItem {
+  string product_or_service_name = 1 [(validate.rules).string = {max_bytes: 1024}];
+  // Number of units. Fractional values are valid (e.g. 1.5 TB, 0.5 FTE).
+  // Float precision is acceptable here because quantity is a count, not
+  // money; for monetary precision use Money.
+  double quantity = 2;
+  // Free-form (e.g. "seat", "license", "GB").
+  string unit = 3 [(validate.rules).string = {max_bytes: 64}];
+  Money price_per_unit = 4;
+  Money total_price = 5;
+}
+
+// VendorAgreementTrait is the trait annotation for resources with
+// TRAIT_VENDOR_AGREEMENT. It carries agreement-specific data: term,
+// renewal status, total value, line items, pricing model, pre-aggregated
+// trailing-window spend, and the vendor-side account manager contact.
+//
+// Vendor identity (id, name, website, external IDs, deep link, scoping)
+// lives on VendorTrait — a separate trait designed to be attached to any
+// vendor-shaped resource regardless of whether it has an agreement. A
+// resource representing an agreement typically carries both VendorTrait
+// and VendorAgreementTrait.
+//
+// Money values are in source currency; cross-currency normalization is
+// the consumer's concern. Internal owners (security owner, business
+// owner, etc.) are modeled as Baton entitlements + grants on the
+// resource, not as fields on this trait. Write-back of computed metadata
+// is exposed via the SDK action framework (ResourceActionProvider), not
+// through trait fields.
+message VendorAgreementTrait {
+  // Human-readable agreement label.
+  string agreement_name = 1 [(validate.rules).string = {
+    max_bytes: 1024
+    ignore_empty: true
+  }];
+  // Date-only; time-of-day is not semantically meaningful.
+  google.protobuf.Timestamp start_date = 2;
+  google.protobuf.Timestamp end_date = 3;
+  // Last date the customer can terminate without auto-renewing. Should be
+  // on or before end_date; the SDK helper enforces this when both are set.
+  google.protobuf.Timestamp last_date_to_terminate = 4;
+  // True when the agreement renews at end_date if the customer takes no
+  // action.
+  bool auto_renewal = 5;
+
+  // Six-state model used by typical vendor-management systems. When a
+  // source uses different terminology, set the closest match and preserve
+  // the literal in renewal_status_raw.
+  enum RenewalStatus {
+    RENEWAL_STATUS_UNSPECIFIED = 0;
+    // Outside the renewal window.
+    RENEWAL_STATUS_NOT_STARTED = 1;
+    // Renewal flow in progress on the customer side.
+    RENEWAL_STATUS_INITIATED = 2;
+    // Renewal completed; a successor agreement exists.
+    RENEWAL_STATUS_RENEWED = 3;
+    // Customer terminated the renewal before completion.
+    RENEWAL_STATUS_CANCELLED = 4;
+    // Customer declined to renew at term end.
+    RENEWAL_STATUS_REJECTED = 5;
+    // Passed end_date without renewal.
+    RENEWAL_STATUS_EXPIRED = 6;
+  }
+  RenewalStatus renewal_status = 6;
+  // Original status string. Forward-compat hatch for source values not yet
+  // mapped to the normalized enum.
+  string renewal_status_raw = 7 [(validate.rules).string = {
+    max_bytes: 256
+    ignore_empty: true
+  }];
+
+  Money total_value = 8;
+  repeated LineItem line_items = 9;
+
+  // Gates whether per-license cost math is meaningful downstream.
+  enum PricingModel {
+    PRICING_MODEL_UNSPECIFIED = 0;
+    // Connector tried but couldn't determine. Distinct from UNSPECIFIED:
+    // signals "looked, gave up" rather than "didn't look".
+    PRICING_MODEL_UNKNOWN = 1;
+    // Priced per active user.
+    PRICING_MODEL_PER_SEAT = 2;
+    // Priced per provisioned license; distinct from PER_SEAT when not
+    // every license is in use.
+    PRICING_MODEL_PER_LICENSE = 3;
+    // Flat fee regardless of usage; per-seat cost is meaningless.
+    PRICING_MODEL_FLAT = 4;
+    // Tiered (e.g. first 100 seats one rate, next 100 another).
+    PRICING_MODEL_TIERED = 5;
+    // Metered / consumption-based; per-seat cost is undefined.
+    PRICING_MODEL_USAGE = 6;
+  }
+  PricingModel pricing_model = 10;
+
+  // Trailing-window spend pre-aggregated by the source. Pass through
+  // verbatim; populate only what the source returns.
+  Money trailing_30d_spend = 11;
+  Money trailing_365d_spend = 12;
+  Money ytd_spend = 13;
+
+  // The vendor-side point of contact (i.e. someone at the vendor, not the
+  // customer). Carried as strings because this person is not a principal
+  // in the customer's user namespace and so cannot be modeled as a Baton
+  // user resource. For internal (customer-side) owners, use entitlements
+  // + grants on the resource.
+  string external_account_manager_email = 14 [(validate.rules).string = {
+    max_bytes: 1024
+    email: true
+    ignore_empty: true
+  }];
+  string external_account_manager_name = 15 [(validate.rules).string = {
+    max_bytes: 1024
+    ignore_empty: true
+  }];
+}
