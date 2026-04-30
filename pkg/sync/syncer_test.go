@@ -2144,3 +2144,128 @@ func TestSyncGrants_NoMatchPaginates(t *testing.T) {
 
 	require.Equal(t, []string{"", "next"}, mc.callTokens)
 }
+
+// insertResourceGrantsMockConnector returns InsertResourceGrants on its
+// ListGrants response when emitInsertResourceGrants is set. Used to
+// exercise the syncer's per-grant annotation propagation in
+// syncGrantsForResource (the writer's slim-blob safety gate depends on
+// the per-row annotation being present).
+type insertResourceGrantsMockConnector struct {
+	*mockConnector
+	emitInsertResourceGrants bool
+}
+
+func newInsertResourceGrantsMockConnector(emit bool) *insertResourceGrantsMockConnector {
+	mc := &insertResourceGrantsMockConnector{
+		mockConnector:            newMockConnector(),
+		emitInsertResourceGrants: emit,
+	}
+	mc.rtDB = append(mc.rtDB, groupResourceType, userResourceType)
+	return mc
+}
+
+func (mc *insertResourceGrantsMockConnector) ListGrants(
+	ctx context.Context,
+	in *v2.GrantsServiceListGrantsRequest,
+	opts ...grpc.CallOption,
+) (*v2.GrantsServiceListGrantsResponse, error) {
+	var key string
+	if r := in.GetResource(); r != nil {
+		key = r.GetId().GetResource()
+	}
+	resp := v2.GrantsServiceListGrantsResponse_builder{List: mc.grantDB[key]}
+	if mc.emitInsertResourceGrants {
+		resp.Annotations = annotations.New(&v2.InsertResourceGrants{})
+	}
+	return resp.Build(), nil
+}
+
+// TestSyncGrants_PropagatesInsertResourceGrantsAnnotation verifies that
+// when the connector returns InsertResourceGrants on the ListGrants
+// response, syncGrantsForResource stamps the annotation onto each
+// grant in the batch. This is load-bearing: the slim-blob writer's
+// per-grant gate (unsafeForSlim) reads the annotation off each Grant,
+// not off the response — without this propagation, slim writes would
+// strip Entitlement.Resource from grants that the syncer subsequently
+// extracts and writes to v1_resources via PutResources, corrupting
+// the resources table on etag-replay.
+func TestSyncGrants_PropagatesInsertResourceGrantsAnnotation(t *testing.T) {
+	ctx := t.Context()
+	tempDir := t.TempDir()
+	c1zPath := filepath.Join(tempDir, "insert-resource-grants.c1z")
+
+	group, err := rs.NewGroupResource("g1", groupResourceType, "g1", nil)
+	require.NoError(t, err)
+	ent := et.NewAssignmentEntitlement(group, "member", et.WithGrantableTo(groupResourceType, userResourceType))
+	ent.SetSlug("member")
+	user, err := rs.NewUserResource("u1", userResourceType, "u1", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
+	require.NoError(t, err)
+	grant := gt.NewGrant(group, "member", user)
+
+	mc := newInsertResourceGrantsMockConnector(true)
+	mc.entDB[group.GetId().GetResource()] = []*v2.Entitlement{ent}
+	mc.grantDB[group.GetId().GetResource()] = []*v2.Grant{grant}
+	mc.AddResource(ctx, group)
+
+	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.NoError(t, syncer.Sync(ctx))
+	require.NoError(t, syncer.Close(ctx))
+
+	c1zManager, err := manager.New(ctx, c1zPath)
+	require.NoError(t, err)
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.GetList(), "expected at least one stored grant")
+	for _, g := range resp.GetList() {
+		annos := annotations.Annotations(g.GetAnnotations())
+		require.True(t, annos.Contains(&v2.InsertResourceGrants{}),
+			"grant %s missing InsertResourceGrants annotation after sync", g.GetId())
+	}
+}
+
+// TestSyncGrants_DoesNotPropagateAnnotationWhenAbsent is the negative
+// case for the propagation: when the response does not carry
+// InsertResourceGrants, syncGrantsForResource must not stamp it onto
+// grants. Otherwise the slim-blob writer's gate would always treat
+// every grant as full-blob, defeating the storage savings.
+func TestSyncGrants_DoesNotPropagateAnnotationWhenAbsent(t *testing.T) {
+	ctx := t.Context()
+	tempDir := t.TempDir()
+	c1zPath := filepath.Join(tempDir, "no-insert-resource-grants.c1z")
+
+	group, err := rs.NewGroupResource("g1", groupResourceType, "g1", nil)
+	require.NoError(t, err)
+	ent := et.NewAssignmentEntitlement(group, "member", et.WithGrantableTo(groupResourceType, userResourceType))
+	ent.SetSlug("member")
+	user, err := rs.NewUserResource("u1", userResourceType, "u1", nil, rs.WithAnnotation(&v2.SkipEntitlementsAndGrants{}))
+	require.NoError(t, err)
+	grant := gt.NewGrant(group, "member", user)
+
+	mc := newInsertResourceGrantsMockConnector(false)
+	mc.entDB[group.GetId().GetResource()] = []*v2.Entitlement{ent}
+	mc.grantDB[group.GetId().GetResource()] = []*v2.Grant{grant}
+	mc.AddResource(ctx, group)
+
+	syncer, err := NewSyncer(ctx, mc, WithC1ZPath(c1zPath), WithTmpDir(tempDir))
+	require.NoError(t, err)
+	require.NoError(t, syncer.Sync(ctx))
+	require.NoError(t, syncer.Close(ctx))
+
+	c1zManager, err := manager.New(ctx, c1zPath)
+	require.NoError(t, err)
+	store, err := c1zManager.LoadC1Z(ctx)
+	require.NoError(t, err)
+
+	resp, err := store.ListGrants(ctx, v2.GrantsServiceListGrantsRequest_builder{}.Build())
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.GetList(), "expected at least one stored grant")
+	for _, g := range resp.GetList() {
+		annos := annotations.Annotations(g.GetAnnotations())
+		require.False(t, annos.Contains(&v2.InsertResourceGrants{}),
+			"grant %s carries InsertResourceGrants annotation but response did not", g.GetId())
+	}
+}
