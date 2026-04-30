@@ -59,6 +59,14 @@ type c1ApiTaskManager struct {
 	workerCount                         int
 }
 
+type idleServiceClient interface {
+	CloseIfIdleFor(time.Duration) error
+}
+
+type closeableServiceClient interface {
+	TeardownServiceClient() error
+}
+
 // getHeartbeatInterval returns an appropriate heartbeat interval. If the interval is 0, it will return the default heartbeat interval.
 // Otherwise, it will be clamped between minHeartbeatInterval and maxHeartbeatInterval.
 func getHeartbeatInterval(d time.Duration) time.Duration {
@@ -126,6 +134,11 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 
 	if resp.GetTask() == nil || tasks.Is(resp.GetTask(), taskTypes.NoneType) {
 		l.Debug("c1_api_task_manager.Next(): no tasks available")
+		if closer, ok := c.serviceClient.(idleServiceClient); ok {
+			if err := closer.CloseIfIdleFor(nextPoll); err != nil {
+				l.Warn("c1_api_task_manager.Next(): failed to close idle service client", zap.Error(err))
+			}
+		}
 		return nil, nextPoll, nil
 	}
 
@@ -140,7 +153,7 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 
 func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, inErr error) error {
 	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.finishTask")
-	var err error
+	err := inErr
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
 	l = l.With(
@@ -219,6 +232,15 @@ func (c *c1ApiTaskManager) GetTempDir() string {
 
 func (c *c1ApiTaskManager) ShouldDebug() bool {
 	return c.runnerShouldDebug
+}
+
+// Teardown releases task-manager resources during runner shutdown. It does not
+// wait for connector tasks to complete.
+func (c *c1ApiTaskManager) Teardown(context.Context) error {
+	if closer, ok := c.serviceClient.(closeableServiceClient); ok {
+		return closer.TeardownServiceClient()
+	}
+	return nil
 }
 
 func (c *c1ApiTaskManager) Process(ctx context.Context, task *v1.Task, cc types.ConnectorClient) error {

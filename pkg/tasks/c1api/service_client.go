@@ -4,11 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"net"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -23,7 +26,8 @@ import (
 )
 
 const (
-	fileChunkSize = 1 * 1024 * 512 // 512KB
+	fileChunkSize                            = 1 * 1024 * 512 // 512KB
+	defaultC1ServiceClientIdleCloseThreshold = time.Minute
 )
 
 type BatonServiceClient interface {
@@ -39,63 +43,316 @@ type batonHelloClient interface {
 	Hello(ctx context.Context, req *v1.BatonServiceHelloRequest) (*v1.BatonServiceHelloResponse, error)
 }
 
+type c1ServiceConn struct {
+	cc       *grpc.ClientConn
+	client   v1.BatonServiceClient
+	inFlight int
+	retired  bool
+}
+
 type c1ServiceClient struct {
 	addr     string
 	dialOpts []grpc.DialOption
 	hostID   string
+
+	mtx                  sync.Mutex
+	hostIDOnce           sync.Once
+	active               *c1ServiceConn
+	draining             []*c1ServiceConn
+	dialDone             chan struct{}
+	dialCancel           context.CancelFunc
+	closeWhenIdle        bool
+	closed               bool
+	idleCloseThreshold   time.Duration
+	suppressCloseLogging bool
 }
 
 func (c *c1ServiceClient) getHostID() string {
-	if c.hostID != "" {
-		return c.hostID
-	}
+	c.hostIDOnce.Do(func() {
+		hostID, _ := os.Hostname()
+		if envHost, ok := os.LookupEnv("BATON_HOST_ID"); ok {
+			hostID = envHost
+		}
 
-	hostID, _ := os.Hostname()
-	if envHost, ok := os.LookupEnv("BATON_HOST_ID"); ok {
-		hostID = envHost
-	}
+		if hostID == "" {
+			hostID = "baton-sdk"
+		}
 
-	if hostID == "" {
-		hostID = "baton-sdk"
-	}
-
-	c.hostID = hostID
+		c.hostID = hostID
+	})
 	return c.hostID
 }
 
-func (c *c1ServiceClient) getClientConn(ctx context.Context) (v1.BatonServiceClient, func(), error) {
+func (c *c1ServiceClient) closeIdleThreshold() time.Duration {
+	if c.idleCloseThreshold > 0 {
+		return c.idleCloseThreshold
+	}
+	return defaultC1ServiceClientIdleCloseThreshold
+}
+
+func (c *c1ServiceClient) dial(ctx context.Context) (*grpc.ClientConn, error) {
 	dialCtx, cancel := context.WithTimeout(ctx, time.Second*30)
 	defer cancel()
-	cc, err := grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
-		dialCtx,
+	return c.dialWithContext(dialCtx)
+}
+
+func (c *c1ServiceClient) dialWithContext(ctx context.Context) (*grpc.ClientConn, error) {
+	return grpc.DialContext( //nolint:staticcheck // grpc.DialContext is deprecated but we are using it still.
+		ctx,
 		c.addr,
 		c.dialOpts...,
 	)
-	if err != nil {
-		return nil, nil, err
+}
+
+func (c *c1ServiceClient) beginRPC(ctx context.Context) (v1.BatonServiceClient, *grpc.ClientConn, error) {
+	for {
+		c.mtx.Lock()
+		if c.closed {
+			c.mtx.Unlock()
+			return nil, nil, errors.New("c1 service client is closed")
+		}
+		c.closeWhenIdle = false
+
+		if c.active != nil {
+			c.active.inFlight++
+			client := c.active.client
+			conn := c.active.cc
+			c.mtx.Unlock()
+			return client, conn, nil
+		}
+
+		if c.dialDone != nil {
+			dialDone := c.dialDone
+			c.mtx.Unlock()
+
+			select {
+			case <-ctx.Done():
+				return nil, nil, ctx.Err()
+			case <-dialDone:
+				continue
+			}
+		}
+
+		dialDone := make(chan struct{})
+		dialCtx, dialCancel := context.WithTimeout(ctx, time.Second*30)
+		c.dialDone = dialDone
+		c.dialCancel = dialCancel
+		c.mtx.Unlock()
+
+		cc, err := c.dialWithContext(dialCtx)
+		dialCancel()
+
+		c.mtx.Lock()
+		if c.dialDone == dialDone {
+			c.dialDone = nil
+			c.dialCancel = nil
+			close(dialDone)
+		}
+		if err != nil {
+			c.mtx.Unlock()
+			return nil, nil, err
+		}
+		if c.closed {
+			c.mtx.Unlock()
+			_ = cc.Close()
+			return nil, nil, errors.New("c1 service client is closed")
+		}
+
+		c.active = &c1ServiceConn{
+			cc:       cc,
+			client:   v1.NewBatonServiceClient(cc),
+			inFlight: 1,
+		}
+		client := c.active.client
+		conn := c.active.cc
+		c.mtx.Unlock()
+		return client, conn, nil
+	}
+}
+
+func (c *c1ServiceClient) endRPC(conn *grpc.ClientConn, rpcErr error) {
+	var closeConns []*c1ServiceConn
+
+	c.mtx.Lock()
+	handle := c.findConnLocked(conn)
+	if handle != nil && handle.inFlight > 0 {
+		handle.inFlight--
 	}
 
-	return v1.NewBatonServiceClient(cc), func() {
-		err = cc.Close()
-		if err != nil {
-			ctxzap.Extract(ctx).Error("failed to close client connection", zap.Error(err))
+	if shouldResetConnection(rpcErr) && handle != nil && !handle.retired {
+		if c.active == handle {
+			c.active = nil
 		}
-	}, nil
+		handle.retired = true
+		if handle.inFlight > 0 {
+			c.draining = append(c.draining, handle)
+		} else {
+			closeConns = append(closeConns, handle)
+		}
+	}
+
+	if c.active != nil && c.active.inFlight == 0 {
+		if c.closeWhenIdle {
+			c.active.retired = true
+			closeConns = append(closeConns, c.active)
+			c.active = nil
+		}
+	}
+	closeConns = append(closeConns, c.collectDrainedLocked()...)
+	c.mtx.Unlock()
+
+	c.closeHandles(closeConns)
+}
+
+func (c *c1ServiceClient) doRPC(ctx context.Context, retryOnReset bool, call func(v1.BatonServiceClient) error) error {
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		var client v1.BatonServiceClient
+		var conn *grpc.ClientConn
+		client, conn, err = c.beginRPC(ctx)
+		if err != nil {
+			return err
+		}
+
+		err = call(client)
+		shouldRetry := retryOnReset && shouldResetConnection(err) && attempt == 0
+		c.endRPC(conn, err)
+		if shouldRetry {
+			continue
+		}
+		return err
+	}
+	return err
+}
+
+func shouldResetConnection(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "client connection is closing") ||
+		strings.Contains(msg, "connection error") ||
+		strings.Contains(msg, "error reading from server") ||
+		strings.Contains(msg, "transport is closing") ||
+		strings.Contains(msg, "connection reset by peer")
+}
+
+func (c *c1ServiceClient) findConnLocked(conn *grpc.ClientConn) *c1ServiceConn {
+	if conn == nil {
+		return nil
+	}
+	if c.active != nil && c.active.cc == conn {
+		return c.active
+	}
+	for _, handle := range c.draining {
+		if handle.cc == conn {
+			return handle
+		}
+	}
+	return nil
+}
+
+func (c *c1ServiceClient) collectDrainedLocked() []*c1ServiceConn {
+	var closeConns []*c1ServiceConn
+	remaining := c.draining[:0]
+	for _, handle := range c.draining {
+		if handle.inFlight == 0 {
+			closeConns = append(closeConns, handle)
+			continue
+		}
+		remaining = append(remaining, handle)
+	}
+	c.draining = remaining
+	return closeConns
+}
+
+func (c *c1ServiceClient) closeHandles(handles []*c1ServiceConn) {
+	for _, handle := range handles {
+		if handle == nil || handle.cc == nil {
+			continue
+		}
+		if err := handle.cc.Close(); err != nil && !c.suppressCloseLogging {
+			zap.L().Error("failed to close client connection", zap.Error(err))
+		}
+	}
+}
+
+// CloseIfIdleFor closes an idle connection only when the caller knows the next
+// expected C1 API use is far enough away. It is not a background idle timer.
+func (c *c1ServiceClient) CloseIfIdleFor(nextUse time.Duration) error {
+	if nextUse <= c.closeIdleThreshold() {
+		return nil
+	}
+
+	var closeConns []*c1ServiceConn
+	c.mtx.Lock()
+	if c.closed {
+		c.mtx.Unlock()
+		return nil
+	}
+	if c.active != nil {
+		if c.active.inFlight == 0 {
+			closeConns = append(closeConns, c.active)
+			c.active = nil
+		} else {
+			c.closeWhenIdle = true
+		}
+	}
+	closeConns = append(closeConns, c.collectDrainedLocked()...)
+	c.mtx.Unlock()
+
+	c.closeHandles(closeConns)
+	return nil
+}
+
+// TeardownServiceClient tears down the client immediately. It is used by runner
+// shutdown and intentionally does not wait for long-running connector tasks to complete.
+func (c *c1ServiceClient) TeardownServiceClient() error {
+	var closeConns []*c1ServiceConn
+	c.mtx.Lock()
+	c.closed = true
+	if c.dialDone != nil {
+		if c.dialCancel != nil {
+			c.dialCancel()
+			c.dialCancel = nil
+		}
+		close(c.dialDone)
+		c.dialDone = nil
+	}
+	if c.active != nil {
+		closeConns = append(closeConns, c.active)
+		c.active = nil
+	}
+	closeConns = append(closeConns, c.draining...)
+	c.draining = nil
+	c.closeWhenIdle = false
+	c.mtx.Unlock()
+
+	var retErr error
+	for _, handle := range closeConns {
+		if handle == nil || handle.cc == nil {
+			continue
+		}
+		retErr = errors.Join(retErr, handle.cc.Close())
+	}
+	return retErr
 }
 
 func (c *c1ServiceClient) Hello(ctx context.Context, in *v1.BatonServiceHelloRequest) (*v1.BatonServiceHelloResponse, error) {
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Hello")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-	client, done, err := c.getClientConn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer done()
 
 	in.SetHostId(c.getHostID())
 
-	resp, err := client.Hello(ctx, in)
+	var resp *v1.BatonServiceHelloResponse
+	err = c.doRPC(ctx, true, func(client v1.BatonServiceClient) error {
+		resp, err = client.Hello(ctx, in)
+		return err
+	})
 	return resp, err
 }
 
@@ -103,15 +360,14 @@ func (c *c1ServiceClient) GetTask(ctx context.Context, in *v1.BatonServiceGetTas
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.GetTask")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-	client, done, err := c.getClientConn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer done()
 
 	in.SetHostId(c.getHostID())
 
-	resp, err := client.GetTask(ctx, in)
+	var resp *v1.BatonServiceGetTaskResponse
+	err = c.doRPC(ctx, false, func(client v1.BatonServiceClient) error {
+		resp, err = client.GetTask(ctx, in)
+		return err
+	})
 	return resp, err
 }
 
@@ -119,15 +375,14 @@ func (c *c1ServiceClient) Heartbeat(ctx context.Context, in *v1.BatonServiceHear
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.Heartbeat")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-	client, done, err := c.getClientConn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer done()
 
 	in.SetHostId(c.getHostID())
 
-	resp, err := client.Heartbeat(ctx, in)
+	var resp *v1.BatonServiceHeartbeatResponse
+	err = c.doRPC(ctx, true, func(client v1.BatonServiceClient) error {
+		resp, err = client.Heartbeat(ctx, in)
+		return err
+	})
 	return resp, err
 }
 
@@ -135,15 +390,14 @@ func (c *c1ServiceClient) FinishTask(ctx context.Context, in *v1.BatonServiceFin
 	ctx, span := tracer.Start(ctx, "c1ServiceClient.FinishTask")
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
-	client, done, err := c.getClientConn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer done()
 
 	in.SetHostId(c.getHostID())
 
-	resp, err := client.FinishTask(ctx, in)
+	var resp *v1.BatonServiceFinishTaskResponse
+	err = c.doRPC(ctx, false, func(client v1.BatonServiceClient) error {
+		resp, err = client.FinishTask(ctx, in)
+		return err
+	})
 	return resp, err
 }
 
@@ -184,12 +438,17 @@ func (c *c1ServiceClient) upload(ctx context.Context, task *v1.Task, r io.ReadSe
 		return err
 	}
 
-	client, done, err := c.getClientConn(ctx)
+	conn, err := c.dial(ctx)
 	if err != nil {
 		l.Error("failed to get client connection", zap.Error(err))
 		return err
 	}
-	defer done()
+	defer func() {
+		if closeErr := conn.Close(); closeErr != nil {
+			l.Error("failed to close upload client connection", zap.Error(closeErr))
+		}
+	}()
+	client := v1.NewBatonServiceClient(conn)
 
 	uc, err := client.UploadAsset(ctx)
 	if err != nil {
