@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/conductorone/baton-sdk/pkg/logging"
+	batonsync "github.com/conductorone/baton-sdk/pkg/sync"
 	"golang.org/x/term"
 )
 
@@ -15,6 +16,9 @@ const (
 	OtelCollectorEndpointTLSInsecureFieldName = "otel-collector-endpoint-tls-insecure"
 	OtelTracingDisabledFieldName              = "otel-tracing-disabled"
 	OtelLoggingDisabledFieldName              = "otel-logging-disabled"
+
+	// TaskConcurrencySchemaDefault is the configured default for [TaskConcurrencyField].
+	TaskConcurrencySchemaDefault = 3
 )
 
 func defaultLogFormat() any {
@@ -325,7 +329,27 @@ var (
 		WithInt(func(r *IntRuler) {
 			r.Gte(1).Lte(1800)
 		}))
+
+	// TaskConcurrencyField limits concurrent Baton task execution in the runner
+	// (service mode). Semantics match [WorkerCountField] / sync worker parallelism.
+	TaskConcurrencyField = IntField("task-concurrency",
+		WithDescription("The number of Baton tasks to run concurrently in service mode. "+
+			"-1 for auto-detect, 0 for sequential, >0 for parallel. Tasks may include sync, grant, revoke, and more."),
+		WithDefaultValue(TaskConcurrencySchemaDefault),
+		WithPersistent(true),
+		WithExportTarget(ExportTargetNone))
 )
+
+// EffectiveTaskConcurrency maps a raw configured value to a concurrent task slot limit (>= 1).
+// Sentinel normalization matches [batonsync.NormalizeWorkerCount]; the runner uses a semaphore, so
+// a normalized count of 0 (sequential sync) becomes 1 concurrent task slot.
+func EffectiveTaskConcurrency(n int) int {
+	w := batonsync.NormalizeWorkerCount(n)
+	if w == 0 {
+		return 1
+	}
+	return w
+}
 
 func LambdaServerFields() []SchemaField {
 	return []SchemaField{
@@ -416,6 +440,7 @@ var DefaultFields = []SchemaField{
 	healthCheckBindAddressField,
 
 	HttpTimeoutField,
+	TaskConcurrencyField,
 }
 
 func IsFieldAmongDefaultList(f SchemaField) bool {

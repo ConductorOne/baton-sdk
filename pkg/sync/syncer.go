@@ -2779,6 +2779,15 @@ func WithSkipGrants(skip bool) SyncOpt {
 	}
 }
 
+// NormalizeWorkerCount maps raw worker-count inputs (CLI / config sentinels) to the syncer's
+// internal worker count: -1 selects min(max(GOMAXPROCS, 1), 4); any other value uses max(count, 0).
+func NormalizeWorkerCount(count int) int {
+	if count == -1 {
+		return min(max(runtime.GOMAXPROCS(0), 1), 4)
+	}
+	return max(count, 0)
+}
+
 // WithWorkerCount sets the number of workers to use.
 // If 0, sequential sync is used. If > 0, parallel sync is used.
 // If -1, the number of workers is set to the number of CPU cores or 4, whichever is lower.
@@ -2786,11 +2795,7 @@ func WithSkipGrants(skip bool) SyncOpt {
 // Yes, this allows for a "parallel" sync with one worker, effectively making it sequential.
 func WithWorkerCount(count int) SyncOpt {
 	return func(s *syncer) {
-		if count == -1 {
-			s.workerCount = min(max(runtime.GOMAXPROCS(0), 1), 4)
-		} else {
-			s.workerCount = max(count, 0)
-		}
+		s.workerCount = NormalizeWorkerCount(count)
 	}
 }
 
