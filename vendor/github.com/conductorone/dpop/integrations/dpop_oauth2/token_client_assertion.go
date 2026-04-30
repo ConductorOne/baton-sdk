@@ -322,6 +322,13 @@ func (c *tokenSource) tryToken(ctx context.Context, firstAttempt bool) (*oauth2.
 		return nil, fmt.Errorf("%w: empty access token", ErrInvalidToken)
 	}
 
+	if token.Expiry.IsZero() {
+		token.Expiry = time.Now()
+		if token.ExpiresIn > 0 {
+			token.Expiry = time.Now().Add(time.Duration(token.ExpiresIn-10) * time.Second) // 10 seconds before the token expires
+		}
+	}
+
 	// Accept both DPoP and Bearer tokens
 	// If we sent a DPoP proof but got a Bearer token, that means the AS doesn't support DPoP
 	if !strings.EqualFold(token.TokenType, "DPoP") && !strings.EqualFold(token.TokenType, "Bearer") {

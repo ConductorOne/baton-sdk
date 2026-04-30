@@ -16,7 +16,7 @@ require (
 	github.com/aws/smithy-go v1.24.0
 	github.com/conductorone/dpop v0.2.3
 	github.com/conductorone/dpop/integrations/dpop_grpc v0.2.3
-	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.3
+	github.com/conductorone/dpop/integrations/dpop_oauth2 v0.2.5
 	github.com/deckarep/golang-set/v2 v2.7.0
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/envoyproxy/protoc-gen-validate v1.2.1
@@ -60,6 +60,7 @@ require (
 	google.golang.org/grpc v1.78.0
 	google.golang.org/protobuf v1.36.10
 	gopkg.in/yaml.v2 v2.4.0
+	modernc.org/sqlite v1.34.5
 )
 
 require (
@@ -123,7 +124,6 @@ require (
 	modernc.org/libc v1.61.10 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.8.2 // indirect
-	modernc.org/sqlite v1.34.5 // indirect
 )
 
 // Remove once https://github.com/doug-martin/goqu/pull/440 merges
