@@ -11,7 +11,9 @@ service ConnectorConfigService {
   rpc GetConnectorOauthToken(GetConnectorOauthTokenRequest) returns (GetConnectorOauthTokenResponse);
 }
 
-message GetConnectorConfigRequest {}
+message GetConnectorConfigRequest {
+  string requested_version = 1;
+}
 
 message GetConnectorConfigResponse {
   bytes config = 1;

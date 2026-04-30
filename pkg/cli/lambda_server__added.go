@@ -303,7 +303,9 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 
 		buildConnectorGeneration := func(ctx context.Context, requestedVersion string) (*lambdaConnectorGeneration, error) {
 			// Get configuration, convert it to viper flag values, then proceed.
-			config, err := configClient.GetConnectorConfig(ctx, &v1.GetConnectorConfigRequest{})
+			config, err := configClient.GetConnectorConfig(ctx, &v1.GetConnectorConfigRequest{
+				RequestedVersion: requestedVersion,
+			})
 			if err != nil {
 				return nil, fmt.Errorf("lambda-run: failed to get connector config: %w", err)
 			}

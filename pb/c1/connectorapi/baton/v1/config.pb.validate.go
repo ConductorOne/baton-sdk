@@ -57,6 +57,8 @@ func (m *GetConnectorConfigRequest) validate(all bool) error {
 
 	var errors []error
 
+	// no validation rules for RequestedVersion
+
 	if len(errors) > 0 {
 		return GetConnectorConfigRequestMultiError(errors)
 	}
