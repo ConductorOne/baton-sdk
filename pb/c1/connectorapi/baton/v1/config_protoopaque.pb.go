@@ -24,9 +24,10 @@ const (
 )
 
 type GetConnectorConfigRequest struct {
-	state         protoimpl.MessageState `protogen:"opaque.v1"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                       protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_RequestedVersion string                 `protobuf:"bytes,1,opt,name=requested_version,json=requestedVersion,proto3"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *GetConnectorConfigRequest) Reset() {
@@ -54,15 +55,28 @@ func (x *GetConnectorConfigRequest) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
+func (x *GetConnectorConfigRequest) GetRequestedVersion() string {
+	if x != nil {
+		return x.xxx_hidden_RequestedVersion
+	}
+	return ""
+}
+
+func (x *GetConnectorConfigRequest) SetRequestedVersion(v string) {
+	x.xxx_hidden_RequestedVersion = v
+}
+
 type GetConnectorConfigRequest_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
+	RequestedVersion string
 }
 
 func (b0 GetConnectorConfigRequest_builder) Build() *GetConnectorConfigRequest {
 	m0 := &GetConnectorConfigRequest{}
 	b, x := &b0, m0
 	_, _ = b, x
+	x.xxx_hidden_RequestedVersion = b.RequestedVersion
 	return m0
 }
 
@@ -433,8 +447,9 @@ var File_c1_connectorapi_baton_v1_config_proto protoreflect.FileDescriptor
 
 const file_c1_connectorapi_baton_v1_config_proto_rawDesc = "" +
 	"\n" +
-	"%c1/connectorapi/baton/v1/config.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x1b\n" +
-	"\x19GetConnectorConfigRequest\"s\n" +
+	"%c1/connectorapi/baton/v1/config.proto\x12\x18c1.connectorapi.baton.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"H\n" +
+	"\x19GetConnectorConfigRequest\x12+\n" +
+	"\x11requested_version\x18\x01 \x01(\tR\x10requestedVersion\"s\n" +
 	"\x1aGetConnectorConfigResponse\x12\x16\n" +
 	"\x06config\x18\x01 \x01(\fR\x06config\x12=\n" +
 	"\flast_updated\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\vlastUpdated\"6\n" +
