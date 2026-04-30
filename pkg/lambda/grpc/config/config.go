@@ -96,7 +96,9 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (g
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create token source: %w", err)
 	}
 
-	creds, err := dpop_grpc.NewDPoPCredentials(proofer, tokenSource, configurationHost, []dpop.ProofOption{
+	reuseTokenSource := oauth2.ReuseTokenSource(nil, tokenSource)
+
+	creds, err := dpop_grpc.NewDPoPCredentials(proofer, reuseTokenSource, configurationHost, []dpop.ProofOption{
 		dpop.WithValidityDuration(time.Minute * 5),
 		dpop.WithProofNowFunc(time.Now),
 	})
@@ -117,7 +119,7 @@ func NewDPoPClient(ctx context.Context, clientID string, clientSecret string) (g
 		return nil, nil, nil, fmt.Errorf("new-dpop-client: failed to create client: %w", err)
 	}
 
-	return client, jwk, tokenSource, nil
+	return client, jwk, reuseTokenSource, nil
 }
 
 func lambdaTLSConfig() (*tls.Config, error) {
