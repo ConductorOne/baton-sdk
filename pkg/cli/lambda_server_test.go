@@ -4,9 +4,11 @@ package cli
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/spf13/viper"
 )
 
 type testLambdaConnectorServer struct {
@@ -66,5 +68,23 @@ func TestCloseLambdaConnectorGenerationSupportsCloseWithContext(t *testing.T) {
 	}
 	if !connector.closed {
 		t.Fatal("expected Close(context.Context) to be called")
+	}
+}
+
+func TestEffectiveLambdaConfigSyncResourceTypeIDs(t *testing.T) {
+	t.Parallel()
+
+	base := viper.New()
+	base.Set("sync-resource-types", []string{"fallback"})
+	connectorConfig := map[string]any{
+		"sync-resource-types": []any{"user", "group"},
+	}
+
+	effectiveConfig := effectiveLambdaConfig(base, connectorConfig)
+
+	got := effectiveConfig.GetStringSlice("sync-resource-types")
+	want := []string{"user", "group"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sync-resource-types = %#v, want %#v", got, want)
 	}
 }

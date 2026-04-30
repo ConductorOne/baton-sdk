@@ -321,10 +321,7 @@ func OptionallyAddLambdaCommand[T field.Configurable](
 				return nil, fmt.Errorf("lambda-run: failed to unmarshal decrypted config: %w", err)
 			}
 
-			effectiveConfig := cloneViperSettings(v)
-			for key, value := range configStruct.AsMap() {
-				effectiveConfig.Set(key, value)
-			}
+			effectiveConfig := effectiveLambdaConfig(v, configStruct.AsMap())
 			logLevelConfig, err := lambdaLogLevelConfigFromViper(effectiveConfig)
 			if err != nil {
 				return nil, err
@@ -476,6 +473,14 @@ func cloneViperSettings(v *viper.Viper) *viper.Viper {
 		cloned.Set(key, value)
 	}
 	return cloned
+}
+
+func effectiveLambdaConfig(v *viper.Viper, connectorConfig map[string]any) *viper.Viper {
+	effectiveConfig := cloneViperSettings(v)
+	for key, value := range connectorConfig {
+		effectiveConfig.Set(key, value)
+	}
+	return effectiveConfig
 }
 
 // createSessionCacheConstructor creates a session cache constructor function that uses the provided gRPC client.
