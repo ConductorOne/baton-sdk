@@ -138,8 +138,9 @@ func (c *c1ApiTaskManager) Next(ctx context.Context) (*v1.Task, time.Duration, e
 	return resp.GetTask(), nextPoll, nil
 }
 
-func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, inErr error) error {
+func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp proto.Message, annos annotations.Annotations, taskError error) error {
 	ctx, span := tracer.Start(ctx, "c1ApiTaskManager.finishTask")
+	// NOTE: this error is for internal finish Task errors, not the task error itself!
 	var err error
 	defer func() { uotel.EndSpanWithError(span, err) }()
 	l := ctxzap.Extract(ctx)
@@ -151,17 +152,16 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 	finishCtx, finishCanc := context.WithTimeout(context.Background(), time.Second*30)
 	defer finishCanc()
 
-	var err2 error
 	var marshalledResp *anypb.Any
 	if resp != nil {
-		marshalledResp, err2 = anypb.New(resp)
-		if err2 != nil {
-			l.Error("c1_api_task_manager.finishTask(): error while attempting to marshal response", zap.Error(err2))
-			return err2
+		marshalledResp, err = anypb.New(resp)
+		if err != nil {
+			l.Error("c1_api_task_manager.finishTask(): error while attempting to marshal response", zap.Error(err))
+			return err
 		}
 	}
 
-	if err == nil {
+	if taskError == nil {
 		l.Info("c1_api_task_manager.finishTask(): finishing task successfully")
 		_, err = c.serviceClient.FinishTask(finishCtx, v1.BatonServiceFinishTaskRequest_builder{
 			TaskId: task.GetId(),
@@ -179,21 +179,21 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 		return nil
 	}
 
-	l.Error("c1_api_task_manager.finishTask(): finishing task with error", zap.Error(err))
+	l.Error("c1_api_task_manager.finishTask(): finishing task with error", zap.Error(taskError))
 
-	statusErr, ok := status.FromError(err)
+	statusErr, ok := status.FromError(taskError)
 	if !ok {
 		switch {
-		case errors.Is(err, context.Canceled):
-			statusErr = status.New(codes.Canceled, err.Error())
-		case errors.Is(err, context.DeadlineExceeded):
-			statusErr = status.New(codes.DeadlineExceeded, err.Error())
+		case errors.Is(taskError, context.Canceled):
+			statusErr = status.New(codes.Canceled, taskError.Error())
+		case errors.Is(taskError, context.DeadlineExceeded):
+			statusErr = status.New(codes.DeadlineExceeded, taskError.Error())
 		default:
-			statusErr = status.New(codes.Unknown, err.Error())
+			statusErr = status.New(codes.Unknown, taskError.Error())
 		}
 	}
 
-	_, rpcErr := c.serviceClient.FinishTask(finishCtx, v1.BatonServiceFinishTaskRequest_builder{
+	_, err = c.serviceClient.FinishTask(finishCtx, v1.BatonServiceFinishTaskRequest_builder{
 		TaskId: task.GetId(),
 		Status: &pbstatus.Status{
 			//nolint:gosec // No risk of overflow because `Code` is a small enum.
@@ -201,16 +201,16 @@ func (c *c1ApiTaskManager) finishTask(ctx context.Context, task *v1.Task, resp p
 			Message: statusErr.Message(),
 		},
 		Error: v1.BatonServiceFinishTaskRequest_Error_builder{
-			NonRetryable: errors.Is(err, ErrTaskNonRetryable),
+			NonRetryable: errors.Is(taskError, ErrTaskNonRetryable),
 			Annotations:  annos,
 		}.Build(),
 	}.Build())
-	if rpcErr != nil {
-		l.Error("c1_api_task_manager.finishTask(): error finishing task", zap.Error(rpcErr))
-		return errors.Join(err, rpcErr)
+	if err != nil {
+		l.Error("c1_api_task_manager.finishTask(): error finishing task", zap.Error(err))
+		return errors.Join(taskError, err)
 	}
 
-	return err
+	return nil
 }
 
 func (c *c1ApiTaskManager) GetTempDir() string {
